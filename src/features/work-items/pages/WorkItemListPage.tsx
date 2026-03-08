@@ -132,50 +132,84 @@ const statusColors: Record<string, string> = {
   cancelled: "#666",
 };
 
-type WorkflowDagNode = { id: string; label: string; x: number; y: number };
+type WorkflowDagNode = {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  kind?: "stage" | "split" | "merge";
+  actualStageIds: string[];
+};
+
+type WorkflowDagLane = {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
 
 const WORKFLOW_DAG_NODES: WorkflowDagNode[] = [
-  { id: "draft", label: "Draft", x: 60, y: 70 },
-  { id: "requirement_analysis", label: "Requirement Analysis", x: 220, y: 70 },
-  { id: "planning", label: "Planning", x: 420, y: 70 },
-  { id: "pending_plan_approval", label: "Plan Approval", x: 600, y: 70 },
-  { id: "coding", label: "Coding", x: 780, y: 70 },
-  { id: "unit_test_generation", label: "Unit Tests", x: 960, y: 70 },
-  { id: "integration_test_generation", label: "Integration Tests", x: 1160, y: 70 },
-  { id: "ui_test_planning", label: "UI Test Plan", x: 1360, y: 70 },
-  { id: "docker_test_execution", label: "Docker Tests", x: 1560, y: 70 },
-  { id: "qa_validation", label: "QA Validation", x: 1760, y: 70 },
-  { id: "security_review", label: "Security Review", x: 1960, y: 70 },
-  { id: "performance_review", label: "Performance Review", x: 2160, y: 70 },
-  { id: "pending_test_review", label: "Test Review", x: 2360, y: 70 },
-  { id: "push_preparation", label: "Push Prep", x: 2540, y: 70 },
-  { id: "git_push", label: "Git Push", x: 2720, y: 70 },
-  { id: "done", label: "Done", x: 2880, y: 70 },
+  { id: "draft", label: "Draft", x: 90, y: 120, actualStageIds: ["draft"] },
+  { id: "requirement_analysis", label: "Requirement Analysis", x: 280, y: 120, actualStageIds: ["requirement_analysis"] },
+  { id: "planning_split", label: "Plan Split", x: 470, y: 120, kind: "split", actualStageIds: [] },
+  { id: "architecture_plan", label: "Architecture Plan", x: 660, y: 40, actualStageIds: ["planning"] },
+  { id: "unit_test_plan", label: "Unit Test Plan", x: 660, y: 100, actualStageIds: ["planning"] },
+  { id: "integration_test_plan", label: "Integration Plan", x: 660, y: 160, actualStageIds: ["planning"] },
+  { id: "ui_test_plan", label: "UI Test Plan", x: 660, y: 220, actualStageIds: ["planning"] },
+  { id: "planning_merge", label: "Lead Merge", x: 860, y: 120, kind: "merge", actualStageIds: ["pending_plan_approval"] },
+  { id: "coding", label: "Coding", x: 1060, y: 120, actualStageIds: ["coding"] },
+  { id: "verification_split", label: "Verify Split", x: 1260, y: 120, kind: "split", actualStageIds: [] },
+  { id: "unit_test_generation", label: "Unit Tests", x: 1460, y: 40, actualStageIds: ["unit_test_generation"] },
+  { id: "integration_test_generation", label: "Integration Tests", x: 1460, y: 100, actualStageIds: ["integration_test_generation"] },
+  { id: "ui_test_planning", label: "UI Verification", x: 1460, y: 160, actualStageIds: ["ui_test_planning"] },
+  { id: "qa_validation", label: "QA Validation", x: 1660, y: 40, actualStageIds: ["qa_validation"] },
+  { id: "security_review", label: "Security Review", x: 1660, y: 100, actualStageIds: ["security_review"] },
+  { id: "performance_review", label: "Performance Review", x: 1660, y: 160, actualStageIds: ["performance_review"] },
+  { id: "verification_merge", label: "Test Review", x: 1860, y: 120, kind: "merge", actualStageIds: ["pending_test_review"] },
+  { id: "push_preparation", label: "Push Prep", x: 2060, y: 120, actualStageIds: ["push_preparation"] },
+  { id: "git_push", label: "Git Push", x: 2240, y: 120, actualStageIds: ["git_push"] },
+  { id: "done", label: "Done", x: 2420, y: 120, actualStageIds: ["done"] },
 ];
 
 const WORKFLOW_DAG_LINKS: Array<[string, string]> = [
   ["draft", "requirement_analysis"],
-  ["requirement_analysis", "planning"],
-  ["planning", "pending_plan_approval"],
-  ["pending_plan_approval", "coding"],
-  ["coding", "unit_test_generation"],
-  ["unit_test_generation", "integration_test_generation"],
-  ["integration_test_generation", "ui_test_planning"],
-  ["ui_test_planning", "docker_test_execution"],
-  ["docker_test_execution", "qa_validation"],
-  ["qa_validation", "security_review"],
-  ["security_review", "performance_review"],
-  ["performance_review", "pending_test_review"],
-  ["pending_test_review", "push_preparation"],
+  ["requirement_analysis", "planning_split"],
+  ["planning_split", "architecture_plan"],
+  ["planning_split", "unit_test_plan"],
+  ["planning_split", "integration_test_plan"],
+  ["planning_split", "ui_test_plan"],
+  ["architecture_plan", "planning_merge"],
+  ["unit_test_plan", "planning_merge"],
+  ["integration_test_plan", "planning_merge"],
+  ["ui_test_plan", "planning_merge"],
+  ["planning_merge", "coding"],
+  ["coding", "verification_split"],
+  ["verification_split", "unit_test_generation"],
+  ["verification_split", "integration_test_generation"],
+  ["verification_split", "ui_test_planning"],
+  ["verification_split", "qa_validation"],
+  ["verification_split", "security_review"],
+  ["verification_split", "performance_review"],
+  ["unit_test_generation", "verification_merge"],
+  ["integration_test_generation", "verification_merge"],
+  ["ui_test_planning", "verification_merge"],
+  ["qa_validation", "verification_merge"],
+  ["security_review", "verification_merge"],
+  ["performance_review", "verification_merge"],
+  ["verification_merge", "push_preparation"],
   ["push_preparation", "git_push"],
   ["git_push", "done"],
 ];
 
-function getArtifactStageForNode(stage: string): string {
-  if (stage === "pending_plan_approval") return "planning";
-  if (stage === "pending_test_review") return "performance_review";
-  return stage;
-}
+const WORKFLOW_DAG_LANES: WorkflowDagLane[] = [
+  { id: "intake", label: "Intake", x: 20, y: 12, width: 360, height: 236 },
+  { id: "planning_swarm", label: "Planning Swarm", x: 400, y: 12, width: 540, height: 236 },
+  { id: "execution", label: "Execution", x: 960, y: 12, width: 260, height: 236 },
+  { id: "verification_swarm", label: "Verification Swarm", x: 1240, y: 12, width: 660, height: 236 },
+  { id: "delivery", label: "Delivery", x: 1920, y: 12, width: 560, height: 236 },
+];
 
 function parseSqliteUtcTimestamp(value?: string | null): number | null {
   if (!value) return null;
@@ -277,7 +311,7 @@ export function WorkItemListPage() {
     refetchInterval: 4000,
   });
   const activeWorkflowStage = latestWorkflowRun?.current_stage ?? null;
-  const selectedDagStage = selectedArtifactStage ?? activeWorkflowStage ?? "draft";
+  const selectedDagNodeId = selectedArtifactStage ?? WORKFLOW_DAG_NODES.find((node) => node.actualStageIds.includes(activeWorkflowStage ?? ""))?.id ?? "draft";
   const { data: agentRuns } = useQuery({
     queryKey: ["agentRunsForWorkflow", workflowRunId],
     queryFn: () => listAgentRunsForWorkflow(workflowRunId!),
@@ -356,13 +390,17 @@ export function WorkItemListPage() {
     return Date.now() - runningSinceMs > 7 * 60 * 1000;
   }, [runningSinceMs, latestWorkflowRun?.status]);
 
-  const focusedStageName = useMemo(
-    () => getArtifactStageForNode(selectedDagStage),
-    [selectedDagStage],
+  const selectedDagNode = useMemo(
+    () => WORKFLOW_DAG_NODES.find((node) => node.id === selectedDagNodeId) ?? WORKFLOW_DAG_NODES[0],
+    [selectedDagNodeId],
+  );
+  const focusedStageNames = useMemo(
+    () => selectedDagNode.actualStageIds,
+    [selectedDagNode],
   );
   const stageRuns = useMemo(
-    () => (agentRuns ?? []).filter((run) => run.stage === focusedStageName),
-    [agentRuns, focusedStageName],
+    () => (agentRuns ?? []).filter((run) => focusedStageNames.includes(run.stage)),
+    [agentRuns, focusedStageNames],
   );
   const stageArtifactsForFocusedStage = useMemo(
     () =>
@@ -370,21 +408,21 @@ export function WorkItemListPage() {
         if (workflowRunId && artifact.workflow_run_id !== workflowRunId) {
           return false;
         }
-        if (artifact.artifact_type.startsWith(`${focusedStageName}_`)) return true;
-        if (focusedStageName === "coding") {
+        if (focusedStageNames.some((stageName) => artifact.artifact_type.startsWith(`${stageName}_`))) return true;
+        if (focusedStageNames.includes("coding")) {
           return artifact.artifact_type === "coding_tool_trace" || artifact.artifact_type === "coding_applied_files";
         }
         return false;
       }),
-    [artifacts, workflowRunId, focusedStageName],
+    [artifacts, workflowRunId, focusedStageNames],
   );
   const stageHistoryForFocusedStage = useMemo(
     () =>
       (workflowHistory ?? []).filter(
         (entry) =>
-          entry.from_stage === focusedStageName || entry.to_stage === focusedStageName,
+          focusedStageNames.includes(entry.from_stage) || focusedStageNames.includes(entry.to_stage),
       ),
-    [workflowHistory, focusedStageName],
+    [workflowHistory, focusedStageNames],
   );
   const artifactsByAgentRunId = useMemo(() => {
     const map = new Map<string, Artifact[]>();
@@ -1056,7 +1094,31 @@ export function WorkItemListPage() {
                         <span style={styles.dagLegendItem}><span style={{ width: 8, height: 8, borderRadius: 99, backgroundColor: "#3f4a59", display: "inline-block" }} /> pending</span>
                       </div>
                       <div style={styles.dagWrap}>
-                        <svg width={3000} height={140} viewBox="0 0 3000 140" role="img" aria-label="Workflow DAG">
+                        <svg width={2520} height={260} viewBox="0 0 2520 260" role="img" aria-label="Workflow DAG">
+                          {WORKFLOW_DAG_LANES.map((lane) => (
+                            <g key={lane.id}>
+                              <rect
+                                x={lane.x}
+                                y={lane.y}
+                                width={lane.width}
+                                height={lane.height}
+                                rx={12}
+                                fill="#131821"
+                                stroke="#273140"
+                                strokeWidth={1}
+                              />
+                              <text
+                                x={lane.x + 14}
+                                y={lane.y + 22}
+                                fill="#8f96a3"
+                                fontSize={11}
+                                fontWeight={700}
+                                letterSpacing={0.8}
+                              >
+                                {lane.label}
+                              </text>
+                            </g>
+                          ))}
                           {WORKFLOW_DAG_LINKS.map(([from, to]) => {
                             const fromNode = dagNodeById.get(from);
                             const toNode = dagNodeById.get(to);
@@ -1064,9 +1126,9 @@ export function WorkItemListPage() {
                             return (
                               <line
                                 key={`${from}-${to}`}
-                                x1={fromNode.x + 44}
+                                x1={fromNode.x + (fromNode.kind ? 20 : 52)}
                                 y1={fromNode.y}
-                                x2={toNode.x - 44}
+                                x2={toNode.x - (toNode.kind ? 20 : 52)}
                                 y2={toNode.y}
                                 stroke="#3c4048"
                                 strokeWidth={2}
@@ -1074,35 +1136,60 @@ export function WorkItemListPage() {
                             );
                           })}
                           {WORKFLOW_DAG_NODES.map((node) => {
-                            const isDone = completedStages.has(node.id);
-                            const isActive = activeWorkflowStage === node.id;
-                            const isSelected = selectedDagStage === node.id;
-                            const fill = isDone ? "#2d6a3f" : isActive ? "#0e639c" : "#2c3139";
+                            const hasActualStages = node.actualStageIds.length > 0;
+                            const isDone = hasActualStages && node.actualStageIds.every((stageId) => completedStages.has(stageId));
+                            const isActive = hasActualStages && node.actualStageIds.includes(activeWorkflowStage ?? "");
+                            const isSelected = selectedDagNodeId === node.id;
+                            const fill = isDone ? "#2d6a3f" : isActive ? "#0e639c" : node.kind ? "#232833" : "#2c3139";
                             const stroke = isSelected ? "#8ecbff" : isDone ? "#4ec9b0" : isActive ? "#57b0e5" : "#3c4048";
                             return (
                               <g key={node.id} onClick={() => setSelectedArtifactStage(node.id)} style={{ cursor: "pointer" }}>
-                                <rect x={node.x - 44} y={node.y - 20} width={88} height={40} rx={8} fill={fill} stroke={stroke} strokeWidth={2} />
-                                <text x={node.x} y={node.y + 4} textAnchor="middle" fill="#e8edf7" fontSize={10} fontWeight={700}>
-                                  {node.label}
-                                </text>
+                                {node.kind ? (
+                                  <>
+                                    <polygon
+                                      points={`${node.x},${node.y - 22} ${node.x + 22},${node.y} ${node.x},${node.y + 22} ${node.x - 22},${node.y}`}
+                                      fill={fill}
+                                      stroke={stroke}
+                                      strokeWidth={2}
+                                    />
+                                    <text x={node.x} y={node.y + 38} textAnchor="middle" fill="#e8edf7" fontSize={10} fontWeight={700}>
+                                      {node.label}
+                                    </text>
+                                  </>
+                                ) : (
+                                  <>
+                                    <rect x={node.x - 52} y={node.y - 20} width={104} height={40} rx={8} fill={fill} stroke={stroke} strokeWidth={2} />
+                                    <text x={node.x} y={node.y + 4} textAnchor="middle" fill="#e8edf7" fontSize={10} fontWeight={700}>
+                                      {node.label}
+                                    </text>
+                                  </>
+                                )}
                               </g>
                             );
                           })}
                         </svg>
                       </div>
                       <div style={styles.smallText}>
-                        Selected stage: <strong>{selectedDagStage.replace(/_/g, " ")}</strong>
+                        Selected node: <strong>{selectedDagNode.label}</strong>
+                        {selectedDagNode.actualStageIds.length > 0 ? ` · Runtime stages: ${selectedDagNode.actualStageIds.join(", ")}` : " · Structural split/merge node"}
                       </div>
                     </div>
 
                     <div style={{ marginTop: 12 }}>
                       <div style={styles.detailLabel}>Selected Stage Details</div>
                       <div style={styles.detailCard}>
-                        <div style={styles.detailLabel}>Stage</div>
-                        <div style={styles.detailValue}>{focusedStageName.replace(/_/g, " ")}</div>
+                        <div style={styles.detailLabel}>Node</div>
+                        <div style={styles.detailValue}>{selectedDagNode.label}</div>
+                        <div style={styles.smallText}>
+                          {selectedDagNode.actualStageIds.length > 0
+                            ? `Backed by runtime stage${selectedDagNode.actualStageIds.length > 1 ? "s" : ""}: ${selectedDagNode.actualStageIds.join(", ")}`
+                            : "This is a structural split/merge node used to explain the orchestrated flow."}
+                        </div>
 
                         <div style={{ ...styles.detailLabel, marginTop: 12 }}>Stage Agent Runs</div>
-                        {stageRuns.length > 0 ? (
+                        {selectedDagNode.actualStageIds.length === 0 ? (
+                          <div style={styles.smallText}>No direct agent run is attached to this structural node.</div>
+                        ) : stageRuns.length > 0 ? (
                           <div style={styles.list}>
                             {stageRuns.map((run: AgentRun) => {
                               const runArtifacts = (artifactsByAgentRunId.get(run.id) ?? []).sort((a, b) =>
@@ -1114,6 +1201,7 @@ export function WorkItemListPage() {
                                   <div style={styles.smallText}>
                                     Run: {run.id}
                                   </div>
+                                  <div style={styles.smallText}>Stage: {run.stage}</div>
                                   <div style={styles.smallText}>
                                     Started: {run.started_at}{run.ended_at ? ` · Ended: ${run.ended_at}` : ""}
                                   </div>
@@ -1143,7 +1231,9 @@ export function WorkItemListPage() {
                         )}
 
                         <div style={{ ...styles.detailLabel, marginTop: 12 }}>Stage Transition History</div>
-                        {stageHistoryForFocusedStage.length > 0 ? (
+                        {selectedDagNode.actualStageIds.length === 0 ? (
+                          <div style={styles.smallText}>No direct transition history is attached to this structural node.</div>
+                        ) : stageHistoryForFocusedStage.length > 0 ? (
                           <div style={styles.list}>
                             {stageHistoryForFocusedStage.slice(-8).map((entry: WorkflowStageHistory) => (
                               <div key={entry.id} style={styles.listItem}>

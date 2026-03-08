@@ -128,13 +128,13 @@ impl AgentService {
         }
         let ratio = boundaries
             .context_window_ratio
-            .unwrap_or(0.55)
+            .unwrap_or(0.25)
             .clamp(0.1, 0.9) as f64;
         if let Some(context_window) = model_def.context_window {
             let estimated_chars = ((context_window as f64) * ratio * 4.0) as usize;
             return estimated_chars.clamp(4_000, 120_000);
         }
-        24_000
+        12_000
     }
 
     fn resolve_response_token_budget(
@@ -150,13 +150,13 @@ impl AgentService {
     }
 
     fn max_files_per_run(boundaries: &AgentExecutionBoundaries) -> usize {
-        boundaries.max_files_per_run.unwrap_or(16).clamp(1, 200)
+        boundaries.max_files_per_run.unwrap_or(3).clamp(1, 200)
     }
 
     fn max_file_chars(boundaries: &AgentExecutionBoundaries) -> usize {
         boundaries
             .max_file_chars
-            .unwrap_or(12_000)
+            .unwrap_or(4_000)
             .clamp(200, 200_000)
     }
 
@@ -669,7 +669,7 @@ impl AgentService {
 
         let mut output = String::new();
         output.push_str("Repository file manifest:\n");
-        for file in files.iter().take(200) {
+        for file in files.iter().take(80) {
             output.push_str("- ");
             output.push_str(file);
             output.push('\n');
@@ -681,9 +681,11 @@ impl AgentService {
         let mut snippets_added = 0usize;
         let snippet_budget = context_budget_chars
             .saturating_sub(used_chars)
-            .min(context_budget_chars / 2);
+            .min((context_budget_chars / 4).max(2_500))
+            .min(6_000);
 
-        for rel in &files {
+        let prioritized_files = Self::prioritize_repository_files(&files);
+        for rel in &prioritized_files {
             if snippets_added >= max_files || used_chars >= snippet_budget {
                 break;
             }
@@ -722,6 +724,46 @@ impl AgentService {
         }
 
         Ok(output)
+    }
+
+    fn prioritize_repository_files(files: &[String]) -> Vec<String> {
+        let mut scored = files
+            .iter()
+            .cloned()
+            .map(|path| {
+                let lower = path.to_ascii_lowercase();
+                let score = if lower == "package.json" {
+                    0
+                } else if lower == "readme.md" {
+                    1
+                } else if lower == "src/app.tsx"
+                    || lower == "src/app.jsx"
+                    || lower == "src/app.ts"
+                    || lower == "src/app.js"
+                {
+                    2
+                } else if lower == "src/main.tsx"
+                    || lower == "src/main.jsx"
+                    || lower == "src/main.ts"
+                    || lower == "src/main.js"
+                    || lower == "src/index.tsx"
+                    || lower == "src/index.jsx"
+                    || lower == "src/index.ts"
+                    || lower == "src/index.js"
+                {
+                    3
+                } else if lower.starts_with("src/") {
+                    4
+                } else if lower.ends_with(".json") || lower.ends_with(".toml") {
+                    5
+                } else {
+                    6
+                };
+                (score, path)
+            })
+            .collect::<Vec<_>>();
+        scored.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        scored.into_iter().map(|(_, path)| path).collect()
     }
 
     fn is_text_source_file(path: &str) -> bool {
@@ -776,7 +818,8 @@ impl AgentService {
             "coding" => {
                 prompt.push_str("Implement the code changes according to the approved plan. ");
                 prompt.push_str("Use tool-calling JSON to inspect files, search code, and apply precise edits. ");
-                prompt.push_str("Prefer repo.apply_patch over full-file rewrite when modifying existing files.\n\n");
+                prompt.push_str("Start with minimal context, then fetch additional files on demand through tools. ");
+                prompt.push_str("Prefer repo.write_file after reading the current file. Use repo.apply_patch only when context lines are known to match exactly.\n\n");
                 prompt.push_str("Response contract for each turn (required):\n");
                 prompt.push_str("Tool call:\n");
                 prompt.push_str("{\"type\":\"tool_call\",\"tool\":\"repo.read_file|repo.search|repo.list_tree|repo.write_file|repo.apply_patch\",\"arguments\":{...},\"reason\":\"...\"}\n");
@@ -826,9 +869,43 @@ impl AgentService {
         }
 
         // Add context information
-        prompt.push_str("Context:\n");
-        for (key, value) in context {
-            prompt.push_str(&format!("{}: {}\n", key, value));
+        if stage_name == "coding" {
+            prompt.push_str("Context:\n");
+            for key in [
+                "work_item_title",
+                "work_item_type",
+                "work_item_description",
+                "problem_statement",
+                "acceptance_criteria",
+                "constraints",
+                "requirement_analysis",
+                "implementation_plan",
+            ] {
+                if let Some(value) = context.get(key) {
+                    let limit = match key {
+                        "implementation_plan" => 2_500,
+                        "requirement_analysis" => 1_500,
+                        "acceptance_criteria" => 1_000,
+                        "constraints" => 800,
+                        _ => 600,
+                    };
+                    prompt.push_str(&format!(
+                        "{}: {}\n",
+                        key,
+                        value.chars().take(limit).collect::<String>()
+                    ));
+                }
+            }
+            if let Some(repo_context) = context.get("repository_context") {
+                prompt.push_str("repository_context: ");
+                prompt.push_str(&repo_context.chars().take(5_000).collect::<String>());
+                prompt.push('\n');
+            }
+        } else {
+            prompt.push_str("Context:\n");
+            for (key, value) in context {
+                prompt.push_str(&format!("{}: {}\n", key, value));
+            }
         }
 
         if let Some(bounds) = &boundaries.instructions {
@@ -1372,7 +1449,12 @@ impl AgentService {
         max_steps: usize,
     ) -> String {
         let mut prompt = String::new();
-        prompt.push_str(base_prompt);
+        if step == 1 {
+            prompt.push_str(base_prompt);
+        } else {
+            prompt.push_str("Coding task recap:\n");
+            prompt.push_str(&Self::condense_tool_loop_base_prompt(base_prompt));
+        }
         prompt.push_str("\n\nYou are in a tool execution loop for coding.");
         prompt.push_str("\nReturn exactly one JSON object.");
         prompt.push_str("\nAllowed tools: ");
@@ -1409,6 +1491,23 @@ impl AgentService {
             }
         }
         prompt
+    }
+
+    fn condense_tool_loop_base_prompt(base_prompt: &str) -> String {
+        let mut condensed = String::new();
+        for line in base_prompt.lines() {
+            if line.starts_with("repository_context:") {
+                condensed.push_str("repository_context: [initial repository summary omitted on follow-up turns; use tools for current file state]\n");
+                continue;
+            }
+            condensed.push_str(line);
+            condensed.push('\n');
+            if condensed.len() >= 3_500 {
+                condensed.push_str("...[truncated task recap]...\n");
+                break;
+            }
+        }
+        condensed
     }
 
     fn parse_tool_loop_response(output: &str) -> Option<ToolLoopResponse> {
