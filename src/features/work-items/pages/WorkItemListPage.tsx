@@ -148,6 +148,7 @@ type WorkflowDagLane = {
   y: number;
   width: number;
   height: number;
+  nodeIds: string[];
 };
 
 const WORKFLOW_DAG_NODES: WorkflowDagNode[] = [
@@ -204,11 +205,11 @@ const WORKFLOW_DAG_LINKS: Array<[string, string]> = [
 ];
 
 const WORKFLOW_DAG_LANES: WorkflowDagLane[] = [
-  { id: "intake", label: "Intake", x: 20, y: 12, width: 360, height: 236 },
-  { id: "planning_swarm", label: "Planning Swarm", x: 400, y: 12, width: 540, height: 236 },
-  { id: "execution", label: "Execution", x: 960, y: 12, width: 260, height: 236 },
-  { id: "verification_swarm", label: "Verification Swarm", x: 1240, y: 12, width: 660, height: 236 },
-  { id: "delivery", label: "Delivery", x: 1920, y: 12, width: 560, height: 236 },
+  { id: "intake", label: "Intake", x: 20, y: 12, width: 360, height: 236, nodeIds: ["draft", "requirement_analysis"] },
+  { id: "planning_swarm", label: "Planning Swarm", x: 400, y: 12, width: 540, height: 236, nodeIds: ["planning_split", "architecture_plan", "unit_test_plan", "integration_test_plan", "ui_test_plan", "planning_merge"] },
+  { id: "execution", label: "Execution", x: 960, y: 12, width: 260, height: 236, nodeIds: ["coding"] },
+  { id: "verification_swarm", label: "Verification Swarm", x: 1240, y: 12, width: 660, height: 236, nodeIds: ["verification_split", "unit_test_generation", "integration_test_generation", "ui_test_planning", "qa_validation", "security_review", "performance_review", "verification_merge"] },
+  { id: "delivery", label: "Delivery", x: 1920, y: 12, width: 560, height: 236, nodeIds: ["push_preparation", "git_push", "done"] },
 ];
 
 function parseSqliteUtcTimestamp(value?: string | null): number | null {
@@ -688,6 +689,37 @@ export function WorkItemListPage() {
     () => new Map(WORKFLOW_DAG_NODES.map((node) => [node.id, node])),
     [],
   );
+  const laneStatusById = useMemo(() => {
+    const map = new Map<string, { done: number; active: number; pending: number; failed: number }>();
+    for (const lane of WORKFLOW_DAG_LANES) {
+      let done = 0;
+      let active = 0;
+      let pending = 0;
+      let failed = 0;
+      for (const nodeId of lane.nodeIds) {
+        const node = dagNodeById.get(nodeId);
+        if (!node) continue;
+        if (node.actualStageIds.length === 0) {
+          pending += 1;
+          continue;
+        }
+        const hasFailed = node.actualStageIds.some((stageId) => stageId === "failed" || (latestWorkflowRun?.status === "failed" && activeWorkflowStage === stageId));
+        const isActive = node.actualStageIds.includes(activeWorkflowStage ?? "");
+        const isDone = node.actualStageIds.every((stageId) => completedStages.has(stageId) || stageId === "done");
+        if (hasFailed) {
+          failed += 1;
+        } else if (isActive) {
+          active += 1;
+        } else if (isDone) {
+          done += 1;
+        } else {
+          pending += 1;
+        }
+      }
+      map.set(lane.id, { done, active, pending, failed });
+    }
+    return map;
+  }, [activeWorkflowStage, completedStages, dagNodeById, latestWorkflowRun?.status]);
   const latestApproval = useMemo(
     () => (approvals ?? []).slice().sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null,
     [approvals],
@@ -1117,6 +1149,30 @@ export function WorkItemListPage() {
                               >
                                 {lane.label}
                               </text>
+                              {(() => {
+                                const summary = laneStatusById.get(lane.id);
+                                if (!summary) return null;
+                                const parts = [
+                                  `done ${summary.done}`,
+                                  `active ${summary.active}`,
+                                  `pending ${summary.pending}`,
+                                ];
+                                if (summary.failed > 0) {
+                                  parts.push(`failed ${summary.failed}`);
+                                }
+                                return (
+                                  <text
+                                    x={lane.x + lane.width - 14}
+                                    y={lane.y + 22}
+                                    fill={summary.failed > 0 ? "#ff9b9b" : "#6f7b8e"}
+                                    fontSize={10}
+                                    fontWeight={600}
+                                    textAnchor="end"
+                                  >
+                                    {parts.join(" · ")}
+                                  </text>
+                                );
+                              })()}
                             </g>
                           ))}
                           {WORKFLOW_DAG_LINKS.map(([from, to]) => {
