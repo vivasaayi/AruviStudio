@@ -1334,20 +1334,12 @@ mod tests {
         let workflow_service =
             WorkflowService::new(Arc::clone(&db_arc), Arc::new(Mutex::new(agent_service)));
 
-        settings_repo::set_setting(
-            &pool,
-            super::AUTO_APPROVE_PLAN_KEY,
-            "false",
-        )
-        .await
-        .expect("failed to disable auto plan approval for manual-gate test");
-        settings_repo::set_setting(
-            &pool,
-            super::AUTO_APPROVE_TEST_REVIEW_KEY,
-            "false",
-        )
-        .await
-        .expect("failed to disable auto test review for manual-gate test");
+        settings_repo::set_setting(&pool, super::AUTO_APPROVE_PLAN_KEY, "false")
+            .await
+            .expect("failed to disable auto plan approval for manual-gate test");
+        settings_repo::set_setting(&pool, super::AUTO_APPROVE_TEST_REVIEW_KEY, "false")
+            .await
+            .expect("failed to disable auto test review for manual-gate test");
 
         AgentService::set_test_model_outputs_for_any_workflow(vec![
             "requirement analysis complete".to_string(),
@@ -1554,13 +1546,9 @@ mod tests {
         let workflow_service =
             WorkflowService::new(Arc::clone(&db_arc), Arc::new(Mutex::new(agent_service)));
 
-        settings_repo::set_setting(
-            &pool,
-            super::AUTO_APPROVE_TEST_REVIEW_KEY,
-            "false",
-        )
-        .await
-        .expect("failed to disable auto test review for auto-plan test");
+        settings_repo::set_setting(&pool, super::AUTO_APPROVE_TEST_REVIEW_KEY, "false")
+            .await
+            .expect("failed to disable auto test review for auto-plan test");
 
         AgentService::set_test_model_outputs_for_any_workflow(vec![
             "requirement analysis complete".to_string(),
@@ -1960,20 +1948,12 @@ mod tests {
         let workflow_service =
             WorkflowService::new(Arc::clone(&db_arc), Arc::new(Mutex::new(agent_service)));
 
-        settings_repo::set_setting(
-            &pool,
-            super::AUTO_APPROVE_PLAN_KEY,
-            "false",
-        )
-        .await
-        .expect("failed to disable auto plan approval for live smoke test");
-        settings_repo::set_setting(
-            &pool,
-            super::AUTO_APPROVE_TEST_REVIEW_KEY,
-            "false",
-        )
-        .await
-        .expect("failed to disable auto test review for live smoke test");
+        settings_repo::set_setting(&pool, super::AUTO_APPROVE_PLAN_KEY, "false")
+            .await
+            .expect("failed to disable auto plan approval for live smoke test");
+        settings_repo::set_setting(&pool, super::AUTO_APPROVE_TEST_REVIEW_KEY, "false")
+            .await
+            .expect("failed to disable auto test review for live smoke test");
 
         let max_iterations = std::env::var("ARUVI_LIVE_ITERATIONS")
             .ok()

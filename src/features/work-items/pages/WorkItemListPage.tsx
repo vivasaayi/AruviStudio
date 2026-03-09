@@ -116,6 +116,15 @@ const styles: Record<string, React.CSSProperties> = {
   modalBody: { padding: 16, maxHeight: "calc(80vh - 61px)", overflow: "auto" },
   errorText: { fontSize: 12, color: "#ff7b72", marginBottom: 10 },
   infoCard: { backgroundColor: "#1b2330", border: "1px solid #32445e", borderRadius: 10, padding: 10, marginTop: 10 },
+  traceStepCard: { backgroundColor: "#1b1f27", border: "1px solid #303742", borderRadius: 12, padding: 12, marginBottom: 10 },
+  traceStepHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  traceStepTitle: { fontSize: 13, fontWeight: 800, color: "#eef3fb" },
+  traceStepMeta: { fontSize: 11, color: "#8f96a3" },
+  traceEventList: { display: "flex", flexDirection: "column", gap: 8 },
+  traceEventCard: { borderRadius: 10, padding: 10, border: "1px solid #384456", backgroundColor: "#1a2230" },
+  traceEventCardError: { borderRadius: 10, padding: 10, border: "1px solid #5a2f35", backgroundColor: "#2b1d22" },
+  traceEventKind: { fontSize: 11, fontWeight: 700, color: "#d0d7e4", textTransform: "uppercase" as const, letterSpacing: 0.6, marginBottom: 4 },
+  traceEventPayload: { whiteSpace: "pre-wrap" as const, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, lineHeight: 1.45, color: "#d7deea", margin: 0 },
 };
 
 const statusColors: Record<string, string> = {
@@ -295,6 +304,32 @@ export function WorkItemListPage() {
     queryFn: () => readArtifactContent(artifactModalArtifact!.id),
     enabled: !!artifactModalArtifact?.id,
   });
+  const artifactModalTraceSteps = useMemo(() => {
+    if (!artifactModalArtifact || !artifactModalContent) return null;
+    const fileName = getArtifactFileName(artifactModalArtifact).toLowerCase();
+    const isTraceArtifact =
+      artifactModalArtifact.artifact_type === "coding_tool_trace" || fileName === "tool_trace.json";
+    if (!isTraceArtifact) return null;
+    try {
+      const parsed = JSON.parse(artifactModalContent) as Array<{ step?: number; kind?: string; payload?: string }>;
+      if (!Array.isArray(parsed)) return null;
+      const grouped = new Map<number, Array<{ kind: string; payload: string }>>();
+      parsed.forEach((entry) => {
+        if (!entry || typeof entry !== "object") return;
+        const step = typeof entry.step === "number" ? entry.step : 0;
+        const kind = typeof entry.kind === "string" ? entry.kind : "unknown";
+        const payload = typeof entry.payload === "string" ? entry.payload : JSON.stringify(entry.payload ?? "");
+        const current = grouped.get(step) ?? [];
+        current.push({ kind, payload });
+        grouped.set(step, current);
+      });
+      return Array.from(grouped.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map(([step, events]) => ({ step, events }));
+    } catch {
+      return null;
+    }
+  }, [artifactModalArtifact, artifactModalContent]);
   const { data: findings } = useQuery({ queryKey: ["findings", selectedWorkItemId], queryFn: () => listWorkItemFindings(selectedWorkItemId!), enabled: !!selectedWorkItemId });
   const { data: teamAssignments } = useQuery({ queryKey: ["teamAssignments"], queryFn: () => listTeamAssignments() });
   const { data: agentTeams } = useQuery({ queryKey: ["agentTeams"], queryFn: () => listAgentTeams() });
@@ -1395,9 +1430,38 @@ export function WorkItemListPage() {
             <div style={{ ...styles.detailLabel, marginTop: 10 }}>Summary</div>
             <div style={styles.smallText}>{artifactModalArtifact.summary}</div>
           </div>
-          <div style={styles.previewBox}>
-            {(artifactModalContent ?? "").trim() || "Artifact content is empty."}
-          </div>
+          {artifactModalTraceSteps ? (
+            <div>
+              <div style={{ ...styles.detailLabel, marginBottom: 8 }}>
+                Tool Trace Timeline ({artifactModalTraceSteps.length} steps)
+              </div>
+              {artifactModalTraceSteps.map((stepGroup) => (
+                <div key={stepGroup.step} style={styles.traceStepCard}>
+                  <div style={styles.traceStepHeader}>
+                    <div style={styles.traceStepTitle}>Step {stepGroup.step}</div>
+                    <div style={styles.traceStepMeta}>{stepGroup.events.length} events</div>
+                  </div>
+                  <div style={styles.traceEventList}>
+                    {stepGroup.events.map((event, index) => {
+                      const eventStyle = event.kind.includes("error")
+                        ? styles.traceEventCardError
+                        : styles.traceEventCard;
+                      return (
+                        <div key={`${stepGroup.step}-${event.kind}-${index}`} style={eventStyle}>
+                          <div style={styles.traceEventKind}>{event.kind.replace(/_/g, " ")}</div>
+                          <pre style={styles.traceEventPayload}>{event.payload}</pre>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={styles.previewBox}>
+              {(artifactModalContent ?? "").trim() || "Artifact content is empty."}
+            </div>
+          )}
         </ModalShell>
       )}
 
