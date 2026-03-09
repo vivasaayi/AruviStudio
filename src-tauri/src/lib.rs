@@ -42,6 +42,11 @@ pub fn run() {
                             .map(std::path::PathBuf::from)
                     })
                     .unwrap_or_else(|| data_dir.join("aruvi_studio.db"));
+
+                if let Some(parent) = db_path.parent() {
+                    std::fs::create_dir_all(parent)
+                        .expect("Failed to create parent directory for database path");
+                }
                 let db_url = format!("sqlite:{}", db_path.display());
 
                 let pool = persistence::db::create_pool(&db_url)
