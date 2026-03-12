@@ -1053,6 +1053,15 @@ export function WorkItemListPage() {
                   </button>
                   <button style={{ ...styles.btn, backgroundColor: "#2d6a3f" }} onClick={() => approveMutation.mutate()}>Approve</button>
                   <button style={styles.btnDanger} onClick={() => rejectMutation.mutate()}>Reject</button>
+                  {workflowRunId && (
+                    <button
+                      style={styles.btn}
+                      onClick={() => restartWorkflowMutation.mutate()}
+                      disabled={restartWorkflowMutation.isPending}
+                    >
+                      {restartWorkflowMutation.isPending ? "Restarting..." : "Restart Workflow"}
+                    </button>
+                  )}
                   <button style={styles.ghostBtn} onClick={() => setIsEditingWorkItem(true)}>
                     Edit Work Item
                   </button>
