@@ -446,6 +446,8 @@ impl AgentService {
     /// Find the best model for an agent
     async fn find_model_for_agent(&self, agent_id: &str) -> Result<ModelDefinition, AppError> {
         debug!(agent_id = %agent_id, "Finding model for agent");
+        let agent_definition = agent_repo::get_agent_definition(&self.db, agent_id).await?;
+
         // Get agent-model bindings
         let bindings = agent_repo::get_agent_model_bindings(&self.db, agent_id).await?;
         if let Some(binding) = bindings.first() {
@@ -462,15 +464,25 @@ impl AgentService {
             .filter(|model| model.enabled)
             .collect::<Vec<_>>();
 
+        let preferred_tags = preferred_model_tags_for_role(&agent_definition.role);
         shared_models.sort_by_key(|model| {
+            let tag_score = preferred_tags
+                .iter()
+                .filter(|tag| {
+                    model.capability_tags.iter().any(|model_tag| {
+                        model_tag.trim().eq_ignore_ascii_case(tag)
+                    })
+                })
+                .count();
             let lowered = model.name.to_ascii_lowercase();
-            if lowered.contains("deepseek-coder") {
+            let name_bias = if lowered.contains("deepseek-coder") {
                 0
             } else if lowered.contains("deepseek") {
                 1
             } else {
                 2
-            }
+            };
+            (usize::MAX - tag_score, name_bias)
         });
 
         for model in shared_models {
@@ -482,6 +494,8 @@ impl AgentService {
                     model_name = %model.name,
                     provider_id = %provider.id,
                     provider_name = %provider.name,
+                    preferred_tags = ?preferred_tags,
+                    matched_tags = ?matched_model_tags(&model, &preferred_tags),
                     "Using shared fallback model for agent"
                 );
                 return Ok(model);
@@ -2386,6 +2400,34 @@ impl AgentService {
     }
 }
 
+fn preferred_model_tags_for_role(role: &str) -> Vec<&'static str> {
+    match role {
+        "coding" => vec!["coding", "implementation", "repo_write", "testing"],
+        "planning" => vec!["planning", "analysis", "review"],
+        "requirement_analysis" => vec!["analysis", "planning", "review"],
+        "unit_test_generation" => vec!["unit_test", "testing", "coding"],
+        "integration_test_generation" => vec!["integration_test", "testing", "coding"],
+        "ui_test_planning" => vec!["ui_test", "testing", "planning"],
+        "qa_validation" => vec!["qa", "validation", "testing"],
+        "security_review" => vec!["security", "review", "analysis"],
+        "performance_review" => vec!["performance", "review", "analysis"],
+        "coordinator_review" | "manager" => vec!["coordination", "planning", "review"],
+        _ => vec!["general"],
+    }
+}
+
+fn matched_model_tags(model: &ModelDefinition, preferred_tags: &[&str]) -> Vec<String> {
+    preferred_tags
+        .iter()
+        .filter(|tag| {
+            model.capability_tags.iter().any(|model_tag| {
+                model_tag.trim().eq_ignore_ascii_case(tag)
+            })
+        })
+        .map(|tag| (*tag).to_string())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::AgentExecutionBoundaries;
@@ -2448,9 +2490,17 @@ mod tests {
         .expect("failed to create model provider");
 
         let model_id = "test-model";
-        model_repo::create_model_definition(&pool, model_id, provider_id, "test-model", Some(8192))
-            .await
-            .expect("failed to create model definition");
+        model_repo::create_model_definition(
+            &pool,
+            model_id,
+            provider_id,
+            "test-model",
+            Some(8192),
+            None,
+            None,
+        )
+        .await
+        .expect("failed to create model definition");
 
         agent_repo::delete_agent_model_bindings_for_agent(&pool, "coding-agent")
             .await

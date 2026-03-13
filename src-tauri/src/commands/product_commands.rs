@@ -1,6 +1,7 @@
 use crate::domain::product::{Capability, Module, Product, ProductTree};
 use crate::error::AppError;
-use crate::persistence::product_repo;
+use crate::persistence::{product_repo, settings_repo};
+use crate::services::product_service::{self, HIDE_EXAMPLE_PRODUCTS_KEY};
 use crate::state::AppState;
 use tauri::State;
 use tracing::{debug, error, info};
@@ -33,7 +34,23 @@ pub async fn get_product(state: State<'_, AppState>, id: String) -> Result<Produ
 
 #[tauri::command]
 pub async fn list_products(state: State<'_, AppState>) -> Result<Vec<Product>, AppError> {
-    product_repo::list_products(&state.db).await
+    let hide_examples = settings_repo::get_bool_setting(&state.db, HIDE_EXAMPLE_PRODUCTS_KEY, true)
+        .await?;
+    let products = product_repo::list_products(&state.db).await?;
+    if hide_examples {
+        Ok(products
+            .into_iter()
+            .filter(|product| !product.is_example_product())
+            .collect())
+    } else {
+        Ok(products)
+    }
+}
+
+#[tauri::command]
+pub async fn seed_example_products(state: State<'_, AppState>) -> Result<(), AppError> {
+    info!("seed_example_products requested");
+    product_service::initialize_example_catalog(&state.db).await
 }
 
 #[tauri::command]

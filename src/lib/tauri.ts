@@ -4,6 +4,7 @@ import type {
   Module,
   Capability,
   WorkItem,
+  ProductWorkItemSummary,
   Repository,
   RepositoryTreeNode,
   Approval,
@@ -27,6 +28,7 @@ import type {
   DatabaseHealth,
   ChatMessagePayload,
   ChatCompletionResponse,
+  WorkspaceProvisionResult,
 } from "./types";
 
 // Product commands
@@ -40,6 +42,13 @@ function toJsonArrayString(value: string | undefined): string | undefined {
       .map((item) => item.trim())
       .filter(Boolean),
   );
+}
+
+function toJsonStringArray(value: string[] | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  return JSON.stringify(value.map((item) => item.trim()).filter(Boolean));
 }
 
 function toJsonObjectString(value: string | undefined): string | undefined {
@@ -66,6 +75,7 @@ export const createProduct = (data: { name: string; description: string; vision:
 
 export const getProduct = (id: string) => invoke<Product>("get_product", { id });
 export const listProducts = () => invoke<Product[]>("list_products");
+export const seedExampleProducts = () => invoke<void>("seed_example_products");
 export const updateProduct = (data: { id: string; name?: string; description?: string; vision?: string; goals?: string; tags?: string }) =>
   invoke<Product>("update_product", {
     ...data,
@@ -178,6 +188,8 @@ export const listWorkItems = (filters?: { productId?: string; moduleId?: string;
     product_id: filters?.productId, module_id: filters?.moduleId,
     capability_id: filters?.capabilityId, status: filters?.status,
   });
+export const summarizeWorkItemsByProduct = () =>
+  invoke<ProductWorkItemSummary[]>("summarize_work_items_by_product");
 export const updateWorkItem = (data: {
   id: string;
   title?: string;
@@ -222,6 +234,27 @@ export const attachRepository = (data: { scopeType: "product" | "module"; scopeI
     is_default: data.isDefault,
   });
 export const resolveRepositoryForWorkItem = (workItemId: string) => invoke<Repository | null>("resolve_repository_for_work_item", { work_item_id: workItemId });
+export const resolveRepositoryForScope = (data: { productId?: string | null; moduleId?: string | null }) =>
+  invoke<Repository | null>("resolve_repository_for_scope", {
+    product_id: data.productId ?? null,
+    module_id: data.moduleId ?? null,
+  });
+export const createLocalWorkspace = (data: {
+  productId?: string | null;
+  moduleId?: string | null;
+  workItemId?: string | null;
+  preferredPath?: string | null;
+}) =>
+  invoke<WorkspaceProvisionResult>("create_local_workspace", {
+    productId: data.productId ?? null,
+    product_id: data.productId ?? null,
+    moduleId: data.moduleId ?? null,
+    module_id: data.moduleId ?? null,
+    workItemId: data.workItemId ?? null,
+    work_item_id: data.workItemId ?? null,
+    preferredPath: data.preferredPath ?? null,
+    preferred_path: data.preferredPath ?? null,
+  });
 export const listRepositoryTree = (data: { repositoryId: string; includeHidden?: boolean; maxDepth?: number }) =>
   invoke<RepositoryTreeNode[]>("list_repository_tree", {
     repositoryId: data.repositoryId,
@@ -316,13 +349,16 @@ export const updateProvider = (data: {
     enabled: data.enabled,
   });
 export const deleteProvider = (id: string) => invoke("delete_provider", { id });
-export const createModelDefinition = (data: { providerId: string; name: string; contextWindow?: number }) =>
+export const createModelDefinition = (data: { providerId: string; name: string; contextWindow?: number; capabilityTags?: string[]; notes?: string }) =>
   invoke<ModelDefinition>("create_model_definition", {
     providerId: data.providerId,
     provider_id: data.providerId,
     name: data.name,
     contextWindow: data.contextWindow ?? null,
     context_window: data.contextWindow ?? null,
+    capabilityTags: toJsonStringArray(data.capabilityTags) ?? "[]",
+    capability_tags: toJsonStringArray(data.capabilityTags) ?? "[]",
+    notes: data.notes ?? "",
   });
 export const listModelDefinitions = () => invoke<ModelDefinition[]>("list_model_definitions");
 export const updateModelDefinition = (data: {
@@ -330,6 +366,8 @@ export const updateModelDefinition = (data: {
   providerId?: string;
   name?: string;
   contextWindow?: number;
+  capabilityTags?: string[];
+  notes?: string;
   enabled?: boolean;
 }) =>
   invoke<ModelDefinition>("update_model_definition", {
@@ -339,6 +377,9 @@ export const updateModelDefinition = (data: {
     name: data.name,
     contextWindow: data.contextWindow ?? null,
     context_window: data.contextWindow ?? null,
+    capabilityTags: data.capabilityTags ? toJsonStringArray(data.capabilityTags) : null,
+    capability_tags: data.capabilityTags ? toJsonStringArray(data.capabilityTags) : null,
+    notes: data.notes ?? null,
     enabled: data.enabled,
   });
 export const deleteModelDefinition = (id: string) => invoke("delete_model_definition", { id });

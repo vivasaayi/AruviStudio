@@ -85,6 +85,15 @@ impl ModelService {
         context_window: Option<i64>,
     ) -> Result<ModelDefinition, AppError> {
         let id = uuid::Uuid::new_v4().to_string();
-        model_repo::create_model_definition(&self.db, &id, provider_id, name, context_window).await
+        model_repo::create_model_definition(
+            &self.db,
+            &id,
+            provider_id,
+            name,
+            context_window,
+            None,
+            None,
+        )
+        .await
     }
 }

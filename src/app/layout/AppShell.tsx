@@ -21,7 +21,7 @@ const navItems = [
   { key: "work-items", label: "Work Items" },
   { key: "chat", label: "Chat" },
   { key: "ide", label: "IDE" },
-  { key: "repositories", label: "Repos" },
+  { key: "repositories", label: "Workspaces" },
   { key: "agents", label: "Agents" },
   { key: "models", label: "Models" },
   { key: "settings", label: "Settings" },

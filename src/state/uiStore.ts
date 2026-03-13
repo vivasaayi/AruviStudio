@@ -15,6 +15,7 @@ interface UIState {
   expandedModules: Record<string, boolean>;
   expandedCapabilities: Record<string, boolean>;
   showHierarchyWorkItems: boolean;
+  productPickerCollapsed: boolean;
   activeView: "products" | "work-items" | "chat" | "ide" | "repositories" | "agents" | "models" | "settings";
   toggleLeftSidebar: () => void;
   toggleRightSidebar: () => void;
@@ -35,6 +36,7 @@ interface UIState {
   setModuleExpanded: (id: string, expanded: boolean) => void;
   setCapabilityExpanded: (id: string, expanded: boolean) => void;
   toggleHierarchyWorkItems: () => void;
+  toggleProductPickerCollapsed: () => void;
   setActiveView: (view: UIState["activeView"]) => void;
 }
 
@@ -54,6 +56,7 @@ export const useUIStore = create<UIState>()(
       expandedModules: {},
       expandedCapabilities: {},
       showHierarchyWorkItems: false,
+      productPickerCollapsed: false,
       activeView: "products",
       toggleLeftSidebar: () => set((s) => ({ leftSidebarVisible: !s.leftSidebarVisible })),
       toggleRightSidebar: () => set((s) => ({ rightSidebarVisible: !s.rightSidebarVisible })),
@@ -74,6 +77,7 @@ export const useUIStore = create<UIState>()(
       setModuleExpanded: (id, expanded) => set((s) => ({ expandedModules: { ...s.expandedModules, [id]: expanded } })),
       setCapabilityExpanded: (id, expanded) => set((s) => ({ expandedCapabilities: { ...s.expandedCapabilities, [id]: expanded } })),
       toggleHierarchyWorkItems: () => set((s) => ({ showHierarchyWorkItems: !s.showHierarchyWorkItems })),
+      toggleProductPickerCollapsed: () => set((s) => ({ productPickerCollapsed: !s.productPickerCollapsed })),
       setActiveView: (view) => set({ activeView: view }),
     }),
     {
@@ -89,6 +93,7 @@ export const useUIStore = create<UIState>()(
         expandedModules: state.expandedModules,
         expandedCapabilities: state.expandedCapabilities,
         showHierarchyWorkItems: state.showHierarchyWorkItems,
+        productPickerCollapsed: state.productPickerCollapsed,
         activeView: state.activeView,
       }),
     },

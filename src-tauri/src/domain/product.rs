@@ -13,6 +13,12 @@ pub struct Product {
     pub updated_at: String,
 }
 
+impl Product {
+    pub fn is_example_product(&self) -> bool {
+        self.tags.iter().any(|tag| tag == "example_product")
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, sqlx::Type)]
 #[serde(rename_all = "snake_case")]
 #[sqlx(rename_all = "snake_case")]

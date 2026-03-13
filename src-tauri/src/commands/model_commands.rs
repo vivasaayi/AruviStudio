@@ -101,9 +101,20 @@ pub async fn create_model_definition(
     provider_id: String,
     name: String,
     context_window: Option<i64>,
+    capability_tags: Option<String>,
+    notes: Option<String>,
 ) -> Result<ModelDefinition, AppError> {
     let id = uuid::Uuid::new_v4().to_string();
-    model_repo::create_model_definition(&state.db, &id, &provider_id, &name, context_window).await
+    model_repo::create_model_definition(
+        &state.db,
+        &id,
+        &provider_id,
+        &name,
+        context_window,
+        capability_tags.as_deref(),
+        notes.as_deref(),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -120,6 +131,8 @@ pub async fn update_model_definition(
     provider_id: Option<String>,
     name: Option<String>,
     context_window: Option<i64>,
+    capability_tags: Option<String>,
+    notes: Option<String>,
     enabled: Option<bool>,
 ) -> Result<ModelDefinition, AppError> {
     model_repo::update_model_definition(
@@ -128,6 +141,8 @@ pub async fn update_model_definition(
         provider_id.as_deref(),
         name.as_deref(),
         context_window,
+        capability_tags.as_deref(),
+        notes.as_deref(),
         enabled,
     )
     .await

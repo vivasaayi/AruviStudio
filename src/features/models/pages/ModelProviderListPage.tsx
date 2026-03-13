@@ -51,7 +51,7 @@ export function ModelProviderListPage() {
   const [showForm, setShowForm] = useState(false);
   const [showModelForm, setShowModelForm] = useState(false);
   const [form, setForm] = useState({ name: "", providerType: "openai_compatible", baseUrl: "http://localhost:1234/v1", authSecretRef: "" });
-  const [modelForm, setModelForm] = useState({ providerId: "", name: "", contextWindow: "" });
+  const [modelForm, setModelForm] = useState({ providerId: "", name: "", contextWindow: "", capabilityTags: "", notes: "" });
   const [testResults, setTestResults] = useState<Record<string, { status: string; message: string }>>({});
   const [providerError, setProviderError] = useState<string | null>(null);
   const [providerSuccess, setProviderSuccess] = useState<string | null>(null);
@@ -60,7 +60,7 @@ export function ModelProviderListPage() {
   const [editingProvider, setEditingProvider] = useState<ModelProvider | null>(null);
   const [providerEditForm, setProviderEditForm] = useState({ name: "", providerType: "openai_compatible", baseUrl: "", authSecretRef: "", enabled: true });
   const [editingModel, setEditingModel] = useState<ModelDefinition | null>(null);
-  const [modelEditForm, setModelEditForm] = useState({ providerId: "", name: "", contextWindow: "", enabled: true });
+  const [modelEditForm, setModelEditForm] = useState({ providerId: "", name: "", contextWindow: "", capabilityTags: "", notes: "", enabled: true });
 
   const { data: providers, isLoading } = useQuery({ queryKey: ["providers"], queryFn: listProviders });
   const { data: modelDefinitions } = useQuery({ queryKey: ["model-definitions"], queryFn: listModelDefinitions });
@@ -86,12 +86,14 @@ export function ModelProviderListPage() {
         providerId: modelForm.providerId,
         name: modelForm.name,
         contextWindow: modelForm.contextWindow ? Number(modelForm.contextWindow) : undefined,
+        capabilityTags: splitCommaSeparated(modelForm.capabilityTags),
+        notes: modelForm.notes.trim() || undefined,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["model-definitions"] });
       setModelSuccess(`Model "${modelForm.name}" added.`);
       setModelError(null);
-      setModelForm({ providerId: "", name: "", contextWindow: "" });
+      setModelForm({ providerId: "", name: "", contextWindow: "", capabilityTags: "", notes: "" });
       setShowModelForm(false);
     },
     onError: (error) => {
@@ -145,6 +147,8 @@ export function ModelProviderListPage() {
         providerId: modelEditForm.providerId,
         name: modelEditForm.name,
         contextWindow: modelEditForm.contextWindow ? Number(modelEditForm.contextWindow) : undefined,
+        capabilityTags: splitCommaSeparated(modelEditForm.capabilityTags),
+        notes: modelEditForm.notes.trim() || undefined,
         enabled: modelEditForm.enabled,
       }),
     onSuccess: async (model) => {
@@ -297,6 +301,10 @@ export function ModelProviderListPage() {
           <input style={styles.input} value={modelForm.name} onChange={(e) => setModelForm({ ...modelForm, name: e.target.value })} placeholder="e.g. deepseek-chat or deepseek-coder" />
           <label style={styles.label}>Context Window (optional)</label>
           <input style={styles.input} value={modelForm.contextWindow} onChange={(e) => setModelForm({ ...modelForm, contextWindow: e.target.value })} placeholder="e.g. 64000" />
+          <label style={styles.label}>Capability Tags (comma-separated)</label>
+          <input style={styles.input} value={modelForm.capabilityTags} onChange={(e) => setModelForm({ ...modelForm, capabilityTags: e.target.value })} placeholder="coding, testing, planning, analysis" />
+          <label style={styles.label}>Notes</label>
+          <textarea style={{ ...styles.input, minHeight: 88, resize: "vertical" }} value={modelForm.notes} onChange={(e) => setModelForm({ ...modelForm, notes: e.target.value })} placeholder="Describe where this model should be preferred." />
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
             <button
               style={{ ...styles.btn, backgroundColor: "#2c3139" }}
@@ -306,6 +314,8 @@ export function ModelProviderListPage() {
                   providerId: deepSeekProvider?.id ?? modelForm.providerId,
                   name: "deepseek-chat",
                   contextWindow: "64000",
+                  capabilityTags: "planning,analysis,review",
+                  notes: "Preferred for planning, analysis, and review-oriented stages.",
                 });
               }}
             >
@@ -319,6 +329,8 @@ export function ModelProviderListPage() {
                   providerId: deepSeekProvider?.id ?? modelForm.providerId,
                   name: "deepseek-coder",
                   contextWindow: "64000",
+                  capabilityTags: "coding,implementation,testing",
+                  notes: "Preferred for implementation and test-generation stages.",
                 });
               }}
             >
@@ -371,6 +383,8 @@ export function ModelProviderListPage() {
                       <div style={styles.modelName}>{model.name}</div>
                       <div style={styles.modelMeta}>{provider?.name ?? "Unknown provider"}</div>
                       <div style={styles.modelMeta}>Context: {model.context_window ?? "not set"}</div>
+                      <div style={styles.modelMeta}>Tags: {model.capability_tags.length > 0 ? model.capability_tags.join(", ") : "none"}</div>
+                      {model.notes ? <div style={styles.modelMeta}>{model.notes}</div> : null}
                       <span style={{ ...styles.badge, backgroundColor: model.enabled ? "#1b3a2d" : "#3a1b1b", color: model.enabled ? "#4ec9b0" : "#f44747" }}>
                         {model.enabled ? "Enabled" : "Disabled"}
                       </span>
@@ -383,6 +397,8 @@ export function ModelProviderListPage() {
                               providerId: model.provider_id,
                               name: model.name,
                               contextWindow: model.context_window ? String(model.context_window) : "",
+                              capabilityTags: model.capability_tags.join(", "),
+                              notes: model.notes,
                               enabled: model.enabled,
                             });
                           }}
@@ -458,6 +474,10 @@ export function ModelProviderListPage() {
                 <input style={styles.input} value={modelEditForm.name} onChange={(e) => setModelEditForm({ ...modelEditForm, name: e.target.value })} />
                 <label style={styles.label}>Context Window</label>
                 <input style={styles.input} value={modelEditForm.contextWindow} onChange={(e) => setModelEditForm({ ...modelEditForm, contextWindow: e.target.value })} />
+                <label style={styles.label}>Capability Tags</label>
+                <input style={styles.input} value={modelEditForm.capabilityTags} onChange={(e) => setModelEditForm({ ...modelEditForm, capabilityTags: e.target.value })} placeholder="coding, testing, planning, analysis" />
+                <label style={styles.label}>Notes</label>
+                <textarea style={{ ...styles.input, minHeight: 88, resize: "vertical" }} value={modelEditForm.notes} onChange={(e) => setModelEditForm({ ...modelEditForm, notes: e.target.value })} />
                 <label style={{ ...styles.label, display: "flex", gap: 8, alignItems: "center" }}>
                   <input type="checkbox" checked={modelEditForm.enabled} onChange={(e) => setModelEditForm({ ...modelEditForm, enabled: e.target.checked })} />
                   Enabled
@@ -477,4 +497,11 @@ export function ModelProviderListPage() {
       )}
     </div>
   );
+}
+
+function splitCommaSeparated(value: string): string[] {
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 }

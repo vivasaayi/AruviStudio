@@ -1,6 +1,8 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { browseForRepositoryPath, listRepositories, registerRepository, deleteRepository } from "../../../lib/tauri";
+import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
+import { useWorkspaceStore } from "../../../state/workspaceStore";
+import { browseForRepositoryPath, deleteRepository, getProductTree, listProducts, listRepositories, registerRepository } from "../../../lib/tauri";
 import type { Repository } from "../../../lib/types";
 
 const styles: Record<string, React.CSSProperties> = {
@@ -27,11 +29,36 @@ const styles: Record<string, React.CSSProperties> = {
 
 export function RepositoryListPage() {
   const queryClient = useQueryClient();
+  const { activeProductId, activeModuleId, activeCapabilityId } = useWorkspaceStore();
   const [showForm, setShowForm] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [form, setForm] = useState({ name: "", localPath: "", remoteUrl: "", defaultBranch: "main" });
   const [formError, setFormError] = useState<string | null>(null);
 
   const { data: repos, isLoading } = useQuery({ queryKey: ["repositories"], queryFn: listRepositories });
+  const { data: products = [] } = useQuery({ queryKey: ["products"], queryFn: listProducts });
+  const { data: activeProductTree } = useQuery({
+    queryKey: ["repositoryProductTree", activeProductId],
+    queryFn: () => getProductTree(activeProductId!),
+    enabled: !!activeProductId,
+  });
+  const activeProduct = products.find((product) => product.id === activeProductId) ?? null;
+  const activeModule = activeProductTree?.modules.find((moduleTree) => moduleTree.module.id === activeModuleId)?.module ?? null;
+  const activeCapability = useMemo(() => {
+    if (!activeCapabilityId || !activeProductTree) {
+      return null;
+    }
+    const stack = [...activeProductTree.modules.flatMap((moduleTree) => moduleTree.features)];
+    while (stack.length > 0) {
+      const current = stack.pop();
+      if (!current) continue;
+      if (current.capability.id === activeCapabilityId) {
+        return current.capability;
+      }
+      stack.push(...current.children);
+    }
+    return null;
+  }, [activeCapabilityId, activeProductTree]);
 
   const createMutation = useMutation({
     mutationFn: () => registerRepository(form),
@@ -52,18 +79,26 @@ export function RepositoryListPage() {
   return (
     <div style={styles.page}>
       <div style={styles.header}>
-        <h1 style={styles.title}>Repositories</h1>
-        <button style={styles.btn} onClick={() => setShowForm(!showForm)}>{showForm ? "Cancel" : "+ Register Repo"}</button>
+        <div>
+          <h1 style={styles.title}>Workspaces</h1>
+          <ScopeBreadcrumb
+            label="Current Scope"
+            productName={activeProduct?.name}
+            moduleName={activeModule?.name}
+            capabilityName={activeCapability?.name}
+          />
+        </div>
+        <button style={styles.btn} onClick={() => setShowForm(!showForm)}>{showForm ? "Cancel" : "+ Add Workspace"}</button>
       </div>
       {showForm && (
         <div style={styles.form}>
           {formError && <div style={styles.errorText}>{formError}</div>}
-          <label style={styles.label}>Name</label><input style={styles.input} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Repository name" />
+          <label style={styles.label}>Workspace Name</label><input style={styles.input} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Workspace name" />
           <label style={styles.label}>Local Path</label>
           <div style={styles.inputRow}>
             <div>
-              <input style={styles.inputNoMargin} value={form.localPath} onChange={(e) => setForm({ ...form, localPath: e.target.value })} placeholder="/path/to/repo" />
-              <div style={styles.helperText}>Browse for a local repository folder or paste the path manually.</div>
+              <input style={styles.inputNoMargin} value={form.localPath} onChange={(e) => setForm({ ...form, localPath: e.target.value })} placeholder="/path/to/workspace" />
+              <div style={styles.helperText}>Browse for a local workspace folder or paste the path manually.</div>
             </div>
             <button
               style={styles.btn}
@@ -82,22 +117,38 @@ export function RepositoryListPage() {
               Browse…
             </button>
           </div>
-          <label style={styles.label}>Remote URL</label><input style={styles.input} value={form.remoteUrl} onChange={(e) => setForm({ ...form, remoteUrl: e.target.value })} placeholder="https://github.com/..." />
-          <label style={styles.label}>Default Branch</label><input style={styles.input} value={form.defaultBranch} onChange={(e) => setForm({ ...form, defaultBranch: e.target.value })} />
-          <button style={styles.btn} onClick={() => createMutation.mutate()} disabled={!form.name || !form.localPath}>{createMutation.isPending ? "Registering..." : "Register Repository"}</button>
+          <button
+            style={{ ...styles.btn, backgroundColor: "#2c3139", marginBottom: 12 }}
+            onClick={() => setShowAdvanced((current) => !current)}
+          >
+            {showAdvanced ? "Hide Advanced" : "Show Advanced"}
+          </button>
+          {showAdvanced && (
+            <>
+              <label style={styles.label}>Remote URL</label><input style={styles.input} value={form.remoteUrl} onChange={(e) => setForm({ ...form, remoteUrl: e.target.value })} placeholder="https://github.com/..." />
+              <label style={styles.label}>Default Branch</label><input style={styles.input} value={form.defaultBranch} onChange={(e) => setForm({ ...form, defaultBranch: e.target.value })} />
+            </>
+          )}
+          <button style={styles.btn} onClick={() => createMutation.mutate()} disabled={!form.name || !form.localPath}>{createMutation.isPending ? "Adding..." : "Add Workspace"}</button>
         </div>
       )}
-      {isLoading ? (<div style={styles.empty}>Loading repositories...</div>) : repos && repos.length > 0 ? (
+      {isLoading ? (<div style={styles.empty}>Loading workspaces...</div>) : repos && repos.length > 0 ? (
         <div style={styles.grid}>
           {repos.map((r: Repository) => (
             <div key={r.id} style={styles.card}>
               <div style={styles.cardName}>{r.name}</div><div style={styles.cardPath}>{r.local_path}</div>
-              <div style={styles.cardRemote}>{r.remote_url || "No remote"}</div><div style={styles.cardBranch}>Branch: {r.default_branch}</div>
+              <div style={styles.cardBranch}>Version history enabled</div>
+              {showAdvanced && (
+                <>
+                  <div style={styles.cardRemote}>{r.remote_url || "No remote configured"}</div>
+                  <div style={styles.cardBranch}>Branch: {r.default_branch}</div>
+                </>
+              )}
               <button style={styles.btnDanger} onClick={() => deleteMutation.mutate(r.id)}>Remove</button>
             </div>
           ))}
         </div>
-      ) : (<div style={styles.empty}>No repositories registered. Add a repository to get started.</div>)}
+      ) : (<div style={styles.empty}>No workspaces added yet. Add a workspace to get started.</div>)}
     </div>
   );
 }

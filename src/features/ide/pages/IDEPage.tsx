@@ -3,17 +3,23 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import Editor from "@monaco-editor/react";
 import { TabBar } from "../../../app/layout/TabBar";
+import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
 import { useEditorStore } from "../../../state/editorStore";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import {
   applyRepositoryPatch,
   browseForRepositoryPath,
+  createLocalWorkspace,
+  getProductTree,
   listModelDefinitions,
+  listProducts,
   listProviders,
   listRepositories,
   listRepositoryTree,
   readRepositoryFile,
   registerRepository,
+  resolveRepositoryForScope,
+  resolveRepositoryForWorkItem,
   startModelChatStream,
   writeRepositoryFile,
 } from "../../../lib/tauri";
@@ -90,7 +96,7 @@ export function IDEPage() {
     replaceFileContent,
     markFileSaved,
   } = useEditorStore();
-  const { activeRepoId, setActiveRepo } = useWorkspaceStore();
+  const { activeProductId, activeModuleId, activeCapabilityId, activeWorkItemId, activeRepoId, setActiveRepo } = useWorkspaceStore();
   const activeFile = openFiles.find((entry) => entry.id === activeFileId) ?? null;
 
   const [selectedRepoId, setSelectedRepoId] = useState<string>(activeRepoId ?? "");
@@ -120,8 +126,26 @@ export function IDEPage() {
     queryKey: ["repositories"],
     queryFn: listRepositories,
   });
+  const { data: products = [] } = useQuery({ queryKey: ["products"], queryFn: listProducts });
+  const { data: activeProductTree } = useQuery({
+    queryKey: ["ideProductTree", activeProductId],
+    queryFn: () => getProductTree(activeProductId!),
+    enabled: !!activeProductId,
+  });
   const { data: providers = [] } = useQuery({ queryKey: ["providers"], queryFn: listProviders });
   const { data: models = [] } = useQuery({ queryKey: ["model-definitions"], queryFn: listModelDefinitions });
+  const { data: scopeResolvedRepo } = useQuery({
+    queryKey: ["ideScopeRepo", activeProductId, activeModuleId],
+    queryFn: () => resolveRepositoryForScope({ productId: activeProductId, moduleId: activeModuleId }),
+    enabled: !!activeProductId || !!activeModuleId,
+    staleTime: 30000,
+  });
+  const { data: workItemResolvedRepo } = useQuery({
+    queryKey: ["ideWorkItemRepo", activeWorkItemId],
+    queryFn: () => resolveRepositoryForWorkItem(activeWorkItemId!),
+    enabled: !!activeWorkItemId,
+    staleTime: 30000,
+  });
 
   const { data: repositoryTree = [], isFetching: isTreeRefreshing, refetch: refetchTree } = useQuery({
     queryKey: ["ideRepositoryTree", selectedRepoId],
@@ -150,6 +174,30 @@ export function IDEPage() {
   }, [activeRepoId, repositories, selectedRepoId, setActiveRepo]);
 
   useEffect(() => {
+    const preferredRepoId =
+      workItemResolvedRepo?.id ??
+      scopeResolvedRepo?.id ??
+      activeRepoId ??
+      null;
+
+    if (!preferredRepoId) {
+      return;
+    }
+
+    const preferredExists = repositories.some((repo) => repo.id === preferredRepoId);
+    if (!preferredExists || selectedRepoId === preferredRepoId) {
+      return;
+    }
+
+    React.startTransition(() => {
+      setSelectedRepoId(preferredRepoId);
+      setActiveRepo(preferredRepoId);
+      setExpandedDirs({});
+      setFileError(null);
+    });
+  }, [activeRepoId, repositories, scopeResolvedRepo?.id, selectedRepoId, setActiveRepo, workItemResolvedRepo?.id]);
+
+  useEffect(() => {
     if (!copilotProviderId && providers.length > 0) {
       setCopilotProviderId(providers[0].id);
     }
@@ -169,6 +217,23 @@ export function IDEPage() {
   const filteredTree = filterTreeNodes(repositoryTree, deferredTreeFilter);
   const selectedRepository = repositories.find((repo) => repo.id === selectedRepoId) ?? null;
   const activeFileRepositoryId = activeFile?.id.split(":")[0] ?? null;
+  const activeProduct = products.find((product) => product.id === activeProductId) ?? null;
+  const activeModule = activeProductTree?.modules.find((moduleTree) => moduleTree.module.id === activeModuleId)?.module ?? null;
+  const activeCapability = React.useMemo(() => {
+    if (!activeCapabilityId || !activeProductTree) {
+      return null;
+    }
+    const stack = [...activeProductTree.modules.flatMap((moduleTree) => moduleTree.features)];
+    while (stack.length > 0) {
+      const current = stack.pop();
+      if (!current) continue;
+      if (current.capability.id === activeCapabilityId) {
+        return current.capability;
+      }
+      stack.push(...current.children);
+    }
+    return null;
+  }, [activeCapabilityId, activeProductTree]);
 
   const handleSelectRepository = (repositoryId: string) => {
     setSelectedRepoId(repositoryId);
@@ -183,7 +248,7 @@ export function IDEPage() {
 
   const openRepositoryFile = async (relativePath: string) => {
     if (!selectedRepoId) {
-      setFileError("Select a repository first.");
+      setFileError("Select a workspace first.");
       return;
     }
     const fileId = `${selectedRepoId}:${relativePath}`;
@@ -243,13 +308,30 @@ export function IDEPage() {
         return;
       }
       const created = await registerRepository({
-        name: selectedPath.split("/").filter(Boolean).pop() ?? "repository",
+        name: selectedPath.split("/").filter(Boolean).pop() ?? "workspace",
         localPath: selectedPath,
         remoteUrl: "",
         defaultBranch: "main",
       });
       await queryClient.invalidateQueries({ queryKey: ["repositories"] });
       handleSelectRepository(created.id);
+    } catch (error) {
+      setFileError(String(error));
+    }
+  };
+
+  const createWorkspace = async () => {
+    setFileError(null);
+    try {
+      const provisioned = await createLocalWorkspace({
+        productId: activeProductId,
+        moduleId: activeModuleId,
+        workItemId: activeWorkItemId,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["repositories"] });
+      await queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] });
+      await queryClient.invalidateQueries({ queryKey: ["ideWorkItemRepo"] });
+      handleSelectRepository(provisioned.repository.id);
     } catch (error) {
       setFileError(String(error));
     }
@@ -406,7 +488,7 @@ Rules:
 
   const applyPatchProposal = async (proposal: CopilotPatchProposal) => {
     if (!selectedRepoId) {
-      setCopilotError("Select a repository before applying a patch proposal.");
+      setCopilotError("Select a workspace before applying a patch proposal.");
       return;
     }
     setCopilotError(null);
@@ -457,14 +539,20 @@ Rules:
       <div style={styles.header}>
         <h1 style={styles.title}>IDE Workspace</h1>
         <div style={styles.subtitle}>
-          Lightweight repo browser + code editor + Aruvi Copilot, backed by the same model stack used in automation.
+          Lightweight workspace browser + code editor + Aruvi Copilot, backed by the same model stack used in automation.
         </div>
+        <ScopeBreadcrumb
+          label="Current Scope"
+          productName={activeProduct?.name}
+          moduleName={activeModule?.name}
+          capabilityName={activeCapability?.name}
+        />
       </div>
 
       <div style={styles.workspace}>
         <div style={styles.panel}>
           <div style={styles.panelHeader}>
-            <div style={styles.panelTitle}>Repository</div>
+            <div style={styles.panelTitle}>Workspace</div>
             <div style={styles.controlRow}>
               <button style={styles.buttonGhost} onClick={() => void refetchTree()} disabled={!selectedRepoId}>
                 Refresh
@@ -476,7 +564,7 @@ Rules:
           </div>
           <div style={styles.leftBody}>
             <select style={styles.select} value={selectedRepoId} onChange={(event) => handleSelectRepository(event.target.value)}>
-              <option value="">Select repository</option>
+              <option value="">Select workspace</option>
               {repositories.map((repository) => (
                 <option key={repository.id} value={repository.id}>
                   {repository.name}
@@ -490,7 +578,18 @@ Rules:
               placeholder="Filter files..."
             />
             {!selectedRepository ? (
-              <div style={styles.status}>Select or open a repository to browse files.</div>
+              <>
+                <div style={styles.status}>
+                  {workItemResolvedRepo || scopeResolvedRepo
+                    ? "Resolving workspace for the current scope..."
+                    : "No workspace is attached to the current scope yet. Create one here, or open an existing folder."}
+                </div>
+                {!workItemResolvedRepo && !scopeResolvedRepo ? (
+                  <button style={{ ...styles.button, alignSelf: "flex-start" }} onClick={() => void createWorkspace()}>
+                    Create Workspace
+                  </button>
+                ) : null}
+              </>
             ) : (
               <div style={styles.status}>{selectedRepository.local_path}</div>
             )}
@@ -552,7 +651,7 @@ Rules:
               />
             ) : (
               <div style={styles.placeholder}>
-                <div>Open a file from the repository tree.</div>
+                <div>Open a file from the workspace tree.</div>
                 <div>Use Aruvi Copilot on the right to validate prompts and responses while editing.</div>
               </div>
             )}

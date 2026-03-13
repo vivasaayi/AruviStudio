@@ -91,9 +91,11 @@ pub async fn create_model_definition(
     provider_id: &str,
     name: &str,
     context_window: Option<i64>,
+    capability_tags: Option<&str>,
+    notes: Option<&str>,
 ) -> Result<ModelDefinition, AppError> {
-    sqlx::query("INSERT INTO model_definitions (id,provider_id,name,context_window,enabled,created_at,updated_at) VALUES (?,?,?,?,1,datetime('now'),datetime('now')) RETURNING id,provider_id,name,context_window,capability_tags,notes,enabled,created_at,updated_at")
-        .bind(id).bind(provider_id).bind(name).bind(context_window)
+    sqlx::query("INSERT INTO model_definitions (id,provider_id,name,context_window,capability_tags,notes,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,1,datetime('now'),datetime('now')) RETURNING id,provider_id,name,context_window,capability_tags,notes,enabled,created_at,updated_at")
+        .bind(id).bind(provider_id).bind(name).bind(context_window).bind(capability_tags.unwrap_or("[]")).bind(notes.unwrap_or(""))
         .map(row_to_model_definition)
         .fetch_one(pool).await.map_err(|e| e.into())
 }
@@ -120,23 +122,31 @@ pub async fn update_model_definition(
     provider_id: Option<&str>,
     name: Option<&str>,
     context_window: Option<i64>,
+    capability_tags: Option<&str>,
+    notes: Option<&str>,
     enabled: Option<bool>,
 ) -> Result<ModelDefinition, AppError> {
     let existing = get_model_definition(pool, id).await?;
     let next_provider_id = provider_id.unwrap_or(&existing.provider_id);
     let next_name = name.unwrap_or(&existing.name);
     let next_context_window = context_window.or(existing.context_window);
+    let existing_capability_tags =
+        serde_json::to_string(&existing.capability_tags).unwrap_or_else(|_| "[]".to_string());
+    let next_capability_tags = capability_tags.unwrap_or(&existing_capability_tags);
+    let next_notes = notes.unwrap_or(&existing.notes);
     let next_enabled = enabled.unwrap_or(existing.enabled);
 
     sqlx::query(
         "UPDATE model_definitions
-         SET provider_id=?, name=?, context_window=?, enabled=?, updated_at=datetime('now')
+         SET provider_id=?, name=?, context_window=?, capability_tags=?, notes=?, enabled=?, updated_at=datetime('now')
          WHERE id=?
          RETURNING id,provider_id,name,context_window,capability_tags,notes,enabled,created_at,updated_at",
     )
     .bind(next_provider_id)
     .bind(next_name)
     .bind(next_context_window)
+    .bind(next_capability_tags)
+    .bind(next_notes)
     .bind(next_enabled)
     .bind(id)
     .map(row_to_model_definition)
