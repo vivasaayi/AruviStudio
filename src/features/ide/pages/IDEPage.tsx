@@ -18,6 +18,7 @@ import {
   listRepositoryTree,
   readRepositoryFile,
   registerRepository,
+  revealInFinder,
   resolveRepositoryForScope,
   resolveRepositoryForWorkItem,
   startModelChatStream,
@@ -557,6 +558,14 @@ Rules:
               <button style={styles.buttonGhost} onClick={() => void refetchTree()} disabled={!selectedRepoId}>
                 Refresh
               </button>
+              {selectedRepository && (
+                <button
+                  style={styles.buttonGhost}
+                  onClick={() => void revealInFinder(selectedRepository.local_path).catch((error) => setFileError(String(error)))}
+                >
+                  Reveal in Finder
+                </button>
+              )}
               <button style={styles.button} onClick={() => void openFolder()}>
                 Open Folder
               </button>

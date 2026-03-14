@@ -226,6 +226,7 @@ export const registerRepository = (data: { name: string; localPath: string; remo
 export const listRepositories = () => invoke<Repository[]>("list_repositories");
 export const deleteRepository = (id: string) => invoke("delete_repository", { id });
 export const browseForRepositoryPath = () => invoke<string | null>("browse_for_repository_path");
+export const revealInFinder = (path: string) => invoke<void>("reveal_in_finder", { path });
 export const attachRepository = (data: { scopeType: "product" | "module"; scopeId: string; repositoryId: string; isDefault: boolean }) =>
   invoke("attach_repository", {
     scope_type: data.scopeType,

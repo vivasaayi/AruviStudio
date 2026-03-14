@@ -12,6 +12,7 @@ import {
   listWorkItems,
   reorderCapabilities,
   reorderModules,
+  revealInFinder,
   resolveRepositoryForScope,
   updateCapability,
   updateModule,
@@ -92,6 +93,7 @@ export function ProductListPage() {
     activeProductId,
     activeModuleId,
     activeCapabilityId,
+    activeWorkspacePath,
     setActiveProduct,
     setActiveModule,
     setActiveCapability,
@@ -120,6 +122,8 @@ export function ProductListPage() {
   const [workItemForm, setWorkItemForm] = useState({ title: "", description: "", problemStatement: "", acceptanceCriteria: "", constraints: "" });
   const [structureViewMode, setStructureViewMode] = useState<"children" | "work_items">("children");
   const [formError, setFormError] = useState<string | null>(null);
+  const [workspaceActionMsg, setWorkspaceActionMsg] = useState<string | null>(null);
+  const [workspaceActionError, setWorkspaceActionError] = useState<string | null>(null);
   const [draggedModuleId, setDraggedModuleId] = useState<string | null>(null);
   const [draggedFeature, setDraggedFeature] = useState<null | { id: string; moduleId: string; parentCapabilityId?: string | null; siblingIds: string[] }>(null);
   const [moduleOrderIds, setModuleOrderIds] = useState<string[]>([]);
@@ -154,6 +158,7 @@ export function ProductListPage() {
     queryFn: () => resolveRepositoryForScope({ productId: selectedProductId, moduleId: activeModuleId }),
     enabled: !!selectedProductId,
   });
+  const effectiveWorkspacePath = resolvedWorkspace?.local_path ?? activeWorkspacePath ?? null;
 
   const filteredScopedTasks = useMemo(() => {
     if (!selectedProductId) {
@@ -198,6 +203,8 @@ export function ProductListPage() {
   useEffect(() => {
     setActiveWorkItem(null);
     setFormError(null);
+    setWorkspaceActionMsg(null);
+    setWorkspaceActionError(null);
   }, [selectedProductId, activeModuleId, activeCapabilityId, setActiveWorkItem]);
 
   useEffect(() => {
@@ -457,10 +464,16 @@ export function ProductListPage() {
         queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] }),
         queryClient.invalidateQueries({ queryKey: ["sidebarProductTree", selectedProductId] }),
       ]);
+      setWorkspaceActionError(null);
+      setWorkspaceActionMsg(`Workspace ready at ${provisioned.created_path}. Opening IDE.`);
       setActiveView("ide");
+      useWorkspaceStore.getState().setActiveWorkspace(provisioned.created_path);
       useWorkspaceStore.getState().setActiveRepo(provisioned.repository.id);
     },
-    onError: (error) => setFormError(String(error)),
+    onError: (error) => {
+      setWorkspaceActionMsg(null);
+      setWorkspaceActionError(String(error));
+    },
   });
 
   const capabilityCount = tree ? countCapabilities(tree.modules) : 0;
@@ -592,8 +605,11 @@ export function ProductListPage() {
                     </div>
                     <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
                       <button style={styles.ghostBtn} onClick={() => openProductDialog("edit")}>Edit Product</button>
-                      {resolvedWorkspace ? (
-                        <button style={styles.ghostBtn} onClick={() => setActiveView("ide")}>Open Workspace</button>
+                      {effectiveWorkspacePath ? (
+                        <>
+                          <button style={styles.ghostBtn} onClick={() => setActiveView("ide")}>Open Workspace</button>
+                          <button style={styles.ghostBtn} onClick={() => revealInFinder(effectiveWorkspacePath).catch((error) => setWorkspaceActionError(String(error)))}>Reveal in Finder</button>
+                        </>
                       ) : (
                         <button
                           style={styles.btn}
@@ -605,6 +621,8 @@ export function ProductListPage() {
                       )}
                       <button style={styles.btnDanger} onClick={() => archiveMutation.mutate(selectedProduct.id)}>Archive</button>
                     </div>
+                    {workspaceActionMsg && <div style={{ ...styles.contextText, color: "#4ec9b0", marginTop: 10 }}>{workspaceActionMsg}</div>}
+                    {workspaceActionError && <div style={{ ...styles.errorText, marginTop: 10, marginBottom: 0 }}>{workspaceActionError}</div>}
                   </div>
                   <div style={styles.metricGrid}>
                     <div style={styles.metricCard}><div style={styles.metricLabel}>Modules</div><div style={styles.metricValue}>{tree?.modules.length ?? 0}</div></div>
@@ -627,8 +645,11 @@ export function ProductListPage() {
                             : "Create a workspace here to let agents and the IDE work against real files for this product or module."}
                         </div>
                         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                          {resolvedWorkspace ? (
-                            <button style={styles.ghostBtn} onClick={() => setActiveView("ide")}>Open in IDE</button>
+                          {effectiveWorkspacePath ? (
+                            <>
+                              <button style={styles.ghostBtn} onClick={() => setActiveView("ide")}>Open in IDE</button>
+                              <button style={styles.ghostBtn} onClick={() => revealInFinder(effectiveWorkspacePath).catch((error) => setWorkspaceActionError(String(error)))}>Reveal in Finder</button>
+                            </>
                           ) : (
                             <button
                               style={styles.btn}

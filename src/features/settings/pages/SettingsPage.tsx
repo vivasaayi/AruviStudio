@@ -160,8 +160,8 @@ export function SettingsPage() {
         </div>
         <div style={styles.settingRow}>
           <div>
-            <div style={styles.label}>Seed Example Products</div>
-            <div style={styles.desc}>Create or repair the built-in example catalog in the currently active database.</div>
+            <div style={styles.label}>Seed / Repair Example Products</div>
+            <div style={styles.desc}>Safe to run multiple times. Creates missing examples and repairs the built-in catalog in the currently active database.</div>
           </div>
           <div style={{ display: "flex", alignItems: "center" }}>
             <button
@@ -177,14 +177,14 @@ export function SettingsPage() {
                     queryClient.invalidateQueries({ queryKey: ["inspectorProductTree"] }),
                     queryClient.invalidateQueries({ queryKey: ["workItems"] }),
                   ]);
-                  setCatalogActionMsg("Example catalog seeded.");
+                  setCatalogActionMsg("Example catalog is present and up to date.");
                   setTimeout(() => setCatalogActionMsg(null), 2500);
                 } catch (error) {
                   setCatalogActionError(String(error));
                 }
               }}
             >
-              Seed Now
+              Seed / Repair
             </button>
           </div>
         </div>

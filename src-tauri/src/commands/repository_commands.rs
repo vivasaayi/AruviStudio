@@ -110,6 +110,21 @@ pub async fn browse_for_repository_path() -> Result<Option<String>, AppError> {
 }
 
 #[tauri::command]
+pub async fn reveal_in_finder(path: String) -> Result<(), AppError> {
+    let status = Command::new("open")
+        .arg("-R")
+        .arg(&path)
+        .status()
+        .map_err(|error| AppError::Validation(format!("Failed to reveal path in Finder: {error}")))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(AppError::Validation("Finder could not reveal the requested path".to_string()))
+    }
+}
+
+#[tauri::command]
 pub async fn list_repository_tree(
     state: State<'_, AppState>,
     repository_id: String,
