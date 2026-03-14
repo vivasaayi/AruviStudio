@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import {
   archiveProduct,
   createCapability,
@@ -89,6 +90,7 @@ const styles: Record<string, React.CSSProperties> = {
 
 export function ProductListPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const {
     activeProductId,
     activeModuleId,
@@ -193,6 +195,18 @@ export function ProductListPage() {
       return true;
     });
   }, [activeCapabilityId, activeModuleId, scopedTasks, selectedProductId, tree]);
+
+  const openWorkspaceInIde = () => {
+    if (resolvedWorkspace) {
+      useWorkspaceStore.getState().setActiveRepo(resolvedWorkspace.id);
+      useWorkspaceStore.getState().setActiveWorkspace(resolvedWorkspace.local_path);
+    } else if (effectiveWorkspacePath) {
+      useWorkspaceStore.getState().setActiveWorkspace(effectiveWorkspacePath);
+    }
+    setWorkspaceActionError(null);
+    setActiveView("ide");
+    navigate("/ide");
+  };
 
   useEffect(() => {
     if (!activeProductId && products?.[0]?.id) {
@@ -467,6 +481,7 @@ export function ProductListPage() {
       setWorkspaceActionError(null);
       setWorkspaceActionMsg(`Workspace ready at ${provisioned.created_path}. Opening IDE.`);
       setActiveView("ide");
+      navigate("/ide");
       useWorkspaceStore.getState().setActiveWorkspace(provisioned.created_path);
       useWorkspaceStore.getState().setActiveRepo(provisioned.repository.id);
     },
@@ -607,7 +622,7 @@ export function ProductListPage() {
                       <button style={styles.ghostBtn} onClick={() => openProductDialog("edit")}>Edit Product</button>
                       {effectiveWorkspacePath ? (
                         <>
-                          <button style={styles.ghostBtn} onClick={() => setActiveView("ide")}>Open Workspace</button>
+                          <button style={styles.ghostBtn} onClick={openWorkspaceInIde}>Open Workspace</button>
                           <button style={styles.ghostBtn} onClick={() => revealInFinder(effectiveWorkspacePath).catch((error) => setWorkspaceActionError(String(error)))}>Reveal in Finder</button>
                         </>
                       ) : (
@@ -647,7 +662,7 @@ export function ProductListPage() {
                         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
                           {effectiveWorkspacePath ? (
                             <>
-                              <button style={styles.ghostBtn} onClick={() => setActiveView("ide")}>Open in IDE</button>
+                              <button style={styles.ghostBtn} onClick={openWorkspaceInIde}>Open in IDE</button>
                               <button style={styles.ghostBtn} onClick={() => revealInFinder(effectiveWorkspacePath).catch((error) => setWorkspaceActionError(String(error)))}>Reveal in Finder</button>
                             </>
                           ) : (
