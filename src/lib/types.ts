@@ -51,7 +51,7 @@ export interface WorkItem {
   description: string;
   acceptance_criteria: string;
   constraints: string;
-  work_item_type: "feature" | "bug" | "refactor" | "test" | "review" | "security_fix" | "performance_improvement";
+  work_item_type: "feature" | "setup" | "bug" | "refactor" | "test" | "review" | "security_fix" | "performance_improvement";
   priority: "critical" | "high" | "medium" | "low";
   complexity: "trivial" | "low" | "medium" | "high" | "very_high";
   status: "draft" | "ready_for_review" | "approved" | "in_planning" | "in_progress" | "in_validation" | "waiting_human_review" | "done" | "blocked" | "failed" | "cancelled";
@@ -61,6 +61,12 @@ export interface WorkItem {
   sort_order: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProductWorkItemSummary {
+  product_id: string;
+  total_count: number;
+  active_count: number;
 }
 
 export interface Repository {
@@ -89,6 +95,13 @@ export interface RepositoryAttachment {
   repository_id: string;
   is_default: boolean;
   created_at: string;
+}
+
+export interface WorkspaceProvisionResult {
+  repository: Repository;
+  created_path: string;
+  attached_scope_type: "product" | "module";
+  attached_scope_id: string;
 }
 
 export interface Approval {

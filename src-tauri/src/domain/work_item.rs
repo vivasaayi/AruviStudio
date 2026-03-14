@@ -24,6 +24,13 @@ pub struct WorkItem {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ProductWorkItemSummary {
+    pub product_id: String,
+    pub total_count: i64,
+    pub active_count: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "snake_case")]
 #[sqlx(rename_all = "snake_case")]
@@ -31,6 +38,7 @@ pub enum WorkItemType {
     #[serde(rename = "feature")]
     #[sqlx(rename = "feature")]
     CapabilityDelivery,
+    Setup,
     Bug,
     Refactor,
     Test,
@@ -43,6 +51,7 @@ impl std::fmt::Display for WorkItemType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             WorkItemType::CapabilityDelivery => write!(f, "capability_delivery"),
+            WorkItemType::Setup => write!(f, "setup"),
             WorkItemType::Bug => write!(f, "bug"),
             WorkItemType::Refactor => write!(f, "refactor"),
             WorkItemType::Test => write!(f, "test"),

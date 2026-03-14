@@ -53,12 +53,9 @@ pub async fn approve_work_item(
         error!(work_item_id = %work_item_id, error = %error, "approve_work_item failed to set work item status");
         return Err(error);
     }
-    let auto_start = settings_repo::get_bool_setting(
-        &state.db,
-        AUTO_START_AFTER_WORK_ITEM_APPROVAL_KEY,
-        true,
-    )
-    .await?;
+    let auto_start =
+        settings_repo::get_bool_setting(&state.db, AUTO_START_AFTER_WORK_ITEM_APPROVAL_KEY, true)
+            .await?;
     if auto_start {
         let workflow_service = state.workflow_service.clone();
         let work_item_id_for_spawn = work_item_id.clone();

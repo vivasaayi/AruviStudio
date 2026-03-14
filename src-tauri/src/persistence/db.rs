@@ -30,7 +30,9 @@ async fn repair_legacy_workflow_stage_history_fk(pool: &SqlitePool) -> Result<()
         return Ok(());
     };
 
-    if !schema_sql.contains("workflow_runs_legacy") {
+    if !schema_sql.contains("workflow_runs_legacy")
+        && !schema_sql.contains("workflow_runs_fix_legacy")
+    {
         return Ok(());
     }
 

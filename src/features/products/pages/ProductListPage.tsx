@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import {
   archiveProduct,
   createCapability,
+  createLocalWorkspace,
   createModule,
   createProduct,
   createWorkItem,
@@ -11,13 +13,16 @@ import {
   listWorkItems,
   reorderCapabilities,
   reorderModules,
+  revealInFinder,
+  resolveRepositoryForScope,
   updateCapability,
   updateModule,
   updateProduct,
 } from "../../../lib/tauri";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
-import type { CapabilityNode, CapabilityTree, ModuleTree, ProductTree, WorkItem } from "../../../lib/types";
+import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
+import type { CapabilityNode, CapabilityTree, ModuleTree, ProductTree, Repository, WorkItem } from "../../../lib/types";
 
 const styles: Record<string, React.CSSProperties> = {
   page: { display: "flex", flexDirection: "column", height: "100%", gap: 12 },
@@ -85,10 +90,12 @@ const styles: Record<string, React.CSSProperties> = {
 
 export function ProductListPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const {
     activeProductId,
     activeModuleId,
     activeCapabilityId,
+    activeWorkspacePath,
     setActiveProduct,
     setActiveModule,
     setActiveCapability,
@@ -104,6 +111,7 @@ export function ProductListPage() {
     closeModuleDialog,
     closeCapabilityDialog,
     setProductWorkspaceTab,
+    setActiveView,
   } = useUIStore();
 
   const [showWorkItemForm, setShowWorkItemForm] = useState(false);
@@ -116,6 +124,8 @@ export function ProductListPage() {
   const [workItemForm, setWorkItemForm] = useState({ title: "", description: "", problemStatement: "", acceptanceCriteria: "", constraints: "" });
   const [structureViewMode, setStructureViewMode] = useState<"children" | "work_items">("children");
   const [formError, setFormError] = useState<string | null>(null);
+  const [workspaceActionMsg, setWorkspaceActionMsg] = useState<string | null>(null);
+  const [workspaceActionError, setWorkspaceActionError] = useState<string | null>(null);
   const [draggedModuleId, setDraggedModuleId] = useState<string | null>(null);
   const [draggedFeature, setDraggedFeature] = useState<null | { id: string; moduleId: string; parentCapabilityId?: string | null; siblingIds: string[] }>(null);
   const [moduleOrderIds, setModuleOrderIds] = useState<string[]>([]);
@@ -145,11 +155,71 @@ export function ProductListPage() {
     enabled: !!selectedProductId,
   });
 
+  const { data: resolvedWorkspace } = useQuery<Repository | null>({
+    queryKey: ["productScopeRepo", selectedProductId, activeModuleId],
+    queryFn: () => resolveRepositoryForScope({ productId: selectedProductId, moduleId: activeModuleId }),
+    enabled: !!selectedProductId,
+  });
+  const effectiveWorkspacePath = resolvedWorkspace?.local_path ?? activeWorkspacePath ?? null;
+
+  const filteredScopedTasks = useMemo(() => {
+    if (!selectedProductId) {
+      return [];
+    }
+    const moduleIds = new Set((tree?.modules ?? []).map((moduleTree) => moduleTree.module.id));
+    const capabilityIds = new Set<string>();
+    const collectCapabilityIds = (capabilities: CapabilityTree[]) => {
+      capabilities.forEach((capabilityTree) => {
+        capabilityIds.add(capabilityTree.capability.id);
+        collectCapabilityIds(capabilityTree.children);
+      });
+    };
+    (tree?.modules ?? []).forEach((moduleTree) => collectCapabilityIds(moduleTree.features));
+
+    return (scopedTasks ?? []).filter((workItem) => {
+      if (workItem.product_id !== selectedProductId) {
+        return false;
+      }
+      if (activeCapabilityId) {
+        return workItem.capability_id === activeCapabilityId;
+      }
+      if (activeModuleId) {
+        return workItem.module_id === activeModuleId;
+      }
+      if (workItem.capability_id) {
+        return capabilityIds.has(workItem.capability_id);
+      }
+      if (workItem.module_id) {
+        return moduleIds.has(workItem.module_id);
+      }
+      return true;
+    });
+  }, [activeCapabilityId, activeModuleId, scopedTasks, selectedProductId, tree]);
+
+  const openWorkspaceInIde = () => {
+    if (resolvedWorkspace) {
+      useWorkspaceStore.getState().setActiveRepo(resolvedWorkspace.id);
+      useWorkspaceStore.getState().setActiveWorkspace(resolvedWorkspace.local_path);
+    } else if (effectiveWorkspacePath) {
+      useWorkspaceStore.getState().setActiveWorkspace(effectiveWorkspacePath);
+    }
+    setWorkspaceActionError(null);
+    setActiveView("ide");
+    navigate("/ide");
+  };
+
   useEffect(() => {
     if (!activeProductId && products?.[0]?.id) {
       setActiveProduct(products[0].id);
     }
   }, [activeProductId, products, setActiveProduct]);
+
+  useEffect(() => {
+    setActiveWorkItem(null);
+    setFormError(null);
+    setWorkspaceActionMsg(null);
+    setWorkspaceActionError(null);
+  }, [selectedProductId, activeModuleId, activeCapabilityId, setActiveWorkItem]);
 
   useEffect(() => {
     if (selectedProduct) {
@@ -395,9 +465,35 @@ export function ProductListPage() {
     onSuccess: async () => invalidateHierarchy(),
   });
 
+  const createWorkspaceMutation = useMutation({
+    mutationFn: () =>
+      createLocalWorkspace({
+        productId: selectedProductId,
+        moduleId: activeModuleId,
+      }),
+    onSuccess: async (provisioned) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["repositories"] }),
+        queryClient.invalidateQueries({ queryKey: ["productScopeRepo", selectedProductId, activeModuleId] }),
+        queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] }),
+        queryClient.invalidateQueries({ queryKey: ["sidebarProductTree", selectedProductId] }),
+      ]);
+      setWorkspaceActionError(null);
+      setWorkspaceActionMsg(`Workspace ready at ${provisioned.created_path}. Opening IDE.`);
+      setActiveView("ide");
+      navigate("/ide");
+      useWorkspaceStore.getState().setActiveWorkspace(provisioned.created_path);
+      useWorkspaceStore.getState().setActiveRepo(provisioned.repository.id);
+    },
+    onError: (error) => {
+      setWorkspaceActionMsg(null);
+      setWorkspaceActionError(String(error));
+    },
+  });
+
   const capabilityCount = tree ? countCapabilities(tree.modules) : 0;
-  const activeWorkItemCount = (scopedTasks ?? []).filter((workItem) => workItem.status !== "done" && workItem.status !== "cancelled").length;
-  const completedWorkItemCount = (scopedTasks ?? []).filter((workItem) => workItem.status === "done").length;
+  const activeWorkItemCount = filteredScopedTasks.filter((workItem) => workItem.status !== "done" && workItem.status !== "cancelled").length;
+  const completedWorkItemCount = filteredScopedTasks.filter((workItem) => workItem.status === "done").length;
   const orderedModules = useMemo(() => {
     if (!tree) {
       return [];
@@ -508,6 +604,12 @@ export function ProductListPage() {
 
                 <div style={styles.hero}>
                   <div style={styles.heroCard}>
+                    <ScopeBreadcrumb
+                      label="Current Scope"
+                      productName={selectedProduct.name}
+                      moduleName={selectedModule?.name}
+                      capabilityName={selectedCapability?.name}
+                    />
                     <div style={styles.heroName}>{selectedProduct.name}</div>
                     <div style={styles.heroDesc}>{selectedProduct.description || "Shape the product here, then keep work items attached to the right module or capability."}</div>
                     <div style={styles.inlineMeta}>
@@ -518,8 +620,24 @@ export function ProductListPage() {
                     </div>
                     <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
                       <button style={styles.ghostBtn} onClick={() => openProductDialog("edit")}>Edit Product</button>
+                      {effectiveWorkspacePath ? (
+                        <>
+                          <button style={styles.ghostBtn} onClick={openWorkspaceInIde}>Open Workspace</button>
+                          <button style={styles.ghostBtn} onClick={() => revealInFinder(effectiveWorkspacePath).catch((error) => setWorkspaceActionError(String(error)))}>Reveal in Finder</button>
+                        </>
+                      ) : (
+                        <button
+                          style={styles.btn}
+                          onClick={() => createWorkspaceMutation.mutate()}
+                          disabled={createWorkspaceMutation.isPending}
+                        >
+                          {createWorkspaceMutation.isPending ? "Creating Workspace..." : "Create Workspace"}
+                        </button>
+                      )}
                       <button style={styles.btnDanger} onClick={() => archiveMutation.mutate(selectedProduct.id)}>Archive</button>
                     </div>
+                    {workspaceActionMsg && <div style={{ ...styles.contextText, color: "#4ec9b0", marginTop: 10 }}>{workspaceActionMsg}</div>}
+                    {workspaceActionError && <div style={{ ...styles.errorText, marginTop: 10, marginBottom: 0 }}>{workspaceActionError}</div>}
                   </div>
                   <div style={styles.metricGrid}>
                     <div style={styles.metricCard}><div style={styles.metricLabel}>Modules</div><div style={styles.metricValue}>{tree?.modules.length ?? 0}</div></div>
@@ -532,7 +650,32 @@ export function ProductListPage() {
                 {productWorkspaceTab === "dashboard" && (
                   <>
                     <div style={styles.section}>
-                      <div style={styles.sectionTitle}>Selected Scope</div>
+                    <div style={styles.sectionTitle}>Selected Scope</div>
+                      <div style={styles.contextCard}>
+                        <div style={styles.contextLabel}>Workspace</div>
+                        <div style={styles.contextTitle}>{resolvedWorkspace ? "Workspace ready" : "Workspace not set up yet"}</div>
+                        <div style={styles.contextText}>
+                          {resolvedWorkspace
+                            ? `Attached workspace: ${resolvedWorkspace.name}. Version history is enabled and the IDE can load files for this scope.`
+                            : "Create a workspace here to let agents and the IDE work against real files for this product or module."}
+                        </div>
+                        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                          {effectiveWorkspacePath ? (
+                            <>
+                              <button style={styles.ghostBtn} onClick={openWorkspaceInIde}>Open in IDE</button>
+                              <button style={styles.ghostBtn} onClick={() => revealInFinder(effectiveWorkspacePath).catch((error) => setWorkspaceActionError(String(error)))}>Reveal in Finder</button>
+                            </>
+                          ) : (
+                            <button
+                              style={styles.btn}
+                              onClick={() => createWorkspaceMutation.mutate()}
+                              disabled={createWorkspaceMutation.isPending}
+                            >
+                              {createWorkspaceMutation.isPending ? "Creating Workspace..." : "Create Workspace"}
+                            </button>
+                          )}
+                        </div>
+                      </div>
                       <div style={styles.contextCard}>
                         <div style={styles.contextLabel}>Working In</div>
                         <div style={styles.contextTitle}>{selectedCapability?.name ?? selectedModule?.name ?? selectedProduct.name}</div>
@@ -553,8 +696,8 @@ export function ProductListPage() {
                     </div>
                     <div style={styles.section}>
                       <div style={styles.sectionTitle}>Scoped Work Items</div>
-                      {scopedTasks && scopedTasks.length > 0 ? (
-                        scopedTasks.slice(0, 8).map((workItem: WorkItem) => (
+                      {filteredScopedTasks.length > 0 ? (
+                        filteredScopedTasks.slice(0, 8).map((workItem: WorkItem) => (
                           <div key={workItem.id} style={styles.taskRow} onClick={() => setActiveWorkItem(workItem.id)}>
                             <div style={styles.taskTitle}>{workItem.title}</div>
                             <div style={styles.taskMeta}>{workItem.status.replace(/_/g, " ")} · {workItem.priority}</div>
@@ -647,7 +790,7 @@ export function ProductListPage() {
                         {selectedCapability ? "No child outcomes yet." : selectedModule ? "No capabilities yet in this module." : "No modules yet. Start with the first module and build from there."}
                       </div>
                       )
-                    ) : scopedTasks && scopedTasks.length > 0 ? (
+                    ) : filteredScopedTasks.length > 0 ? (
                       <div style={styles.table}>
                         <div style={styles.tableHeader}>
                           <div>Name</div>
@@ -655,7 +798,7 @@ export function ProductListPage() {
                           <div>Status</div>
                           <div>Priority</div>
                         </div>
-                        {scopedTasks.map((item: WorkItem) => (
+                        {filteredScopedTasks.map((item: WorkItem) => (
                           <div key={item.id} style={styles.tableRow} onClick={() => setActiveWorkItem(item.id)}>
                             <div>
                               <div style={styles.rowPrimary}>{item.title}</div>
@@ -684,8 +827,8 @@ export function ProductListPage() {
                       <div style={styles.contextTitle}>{selectedCapability?.name ?? selectedModule?.name ?? selectedProduct.name}</div>
                       <div style={styles.contextText}>New work items will be created directly in this scope so delivery stays attached to the right part of the hierarchy.</div>
                     </div>
-                    {scopedTasks && scopedTasks.length > 0 ? (
-                      scopedTasks.map((workItem: WorkItem) => (
+                    {filteredScopedTasks.length > 0 ? (
+                      filteredScopedTasks.map((workItem: WorkItem) => (
                         <div key={workItem.id} style={styles.taskRow} onClick={() => setActiveWorkItem(workItem.id)}>
                           <div style={styles.taskTitle}>{workItem.title}</div>
                           <div style={styles.taskMeta}>{workItem.status.replace(/_/g, " ")} · {workItem.priority}</div>
@@ -703,7 +846,7 @@ export function ProductListPage() {
                   ? "Loading products..."
                   : products && products.length > 0
                     ? "Select a product from the left sidebar to start refining the hierarchy."
-                    : "No products yet. Use + New in the left product rail to create the first product."}
+                    : "No visible products yet. Use + New in the left product rail or disable Hide Example Products in Settings."}
               </div>
             )}
           </div>

@@ -78,3 +78,43 @@ pub async fn resolve_repository_for_work_item(
         .fetch_optional(pool).await?;
     Ok(repo)
 }
+
+pub async fn resolve_repository_for_scope(
+    pool: &SqlitePool,
+    product_id: Option<&str>,
+    module_id: Option<&str>,
+) -> Result<Option<Repository>, AppError> {
+    if let Some(module_id) = module_id {
+        let repo = sqlx::query_as::<_, Repository>(
+            "SELECT r.id,r.name,r.local_path,r.remote_url,r.default_branch,r.auth_profile,r.created_at,r.updated_at
+             FROM repositories r
+             JOIN repository_attachments ra ON r.id=ra.repository_id
+             WHERE ra.scope_type='module' AND ra.scope_id=? AND ra.is_default=1
+             LIMIT 1",
+        )
+        .bind(module_id)
+        .fetch_optional(pool)
+        .await?;
+        if repo.is_some() {
+            return Ok(repo);
+        }
+    }
+
+    if let Some(product_id) = product_id {
+        let repo = sqlx::query_as::<_, Repository>(
+            "SELECT r.id,r.name,r.local_path,r.remote_url,r.default_branch,r.auth_profile,r.created_at,r.updated_at
+             FROM repositories r
+             JOIN repository_attachments ra ON r.id=ra.repository_id
+             WHERE ra.scope_type='product' AND ra.scope_id=? AND ra.is_default=1
+             LIMIT 1",
+        )
+        .bind(product_id)
+        .fetch_optional(pool)
+        .await?;
+        if repo.is_some() {
+            return Ok(repo);
+        }
+    }
+
+    Ok(None)
+}

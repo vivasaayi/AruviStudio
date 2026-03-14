@@ -42,6 +42,11 @@ pub fn run() {
                             .map(std::path::PathBuf::from)
                     })
                     .unwrap_or_else(|| data_dir.join("aruvi_studio.db"));
+
+                if let Some(parent) = db_path.parent() {
+                    std::fs::create_dir_all(parent)
+                        .expect("Failed to create parent directory for database path");
+                }
                 let db_url = format!("sqlite:{}", db_path.display());
 
                 let pool = persistence::db::create_pool(&db_url)
@@ -64,6 +69,7 @@ pub fn run() {
             commands::product_commands::list_products,
             commands::product_commands::update_product,
             commands::product_commands::archive_product,
+            commands::product_commands::seed_example_products,
             commands::product_commands::create_module,
             commands::product_commands::list_modules,
             commands::product_commands::update_module,
@@ -79,6 +85,7 @@ pub fn run() {
             commands::work_item_commands::create_work_item,
             commands::work_item_commands::get_work_item,
             commands::work_item_commands::list_work_items,
+            commands::work_item_commands::summarize_work_items_by_product,
             commands::work_item_commands::update_work_item,
             commands::work_item_commands::delete_work_item,
             commands::work_item_commands::get_sub_work_items,
@@ -89,7 +96,10 @@ pub fn run() {
             commands::repository_commands::delete_repository,
             commands::repository_commands::attach_repository,
             commands::repository_commands::resolve_repository_for_work_item,
+            commands::repository_commands::resolve_repository_for_scope,
+            commands::repository_commands::create_local_workspace,
             commands::repository_commands::browse_for_repository_path,
+            commands::repository_commands::reveal_in_finder,
             commands::repository_commands::list_repository_tree,
             commands::repository_commands::read_repository_file,
             commands::repository_commands::write_repository_file,

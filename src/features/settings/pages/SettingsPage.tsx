@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   clearDatabasePathOverride,
   getActiveDatabasePath,
   getDatabaseHealth,
   getDatabasePathOverride,
   getSetting,
+  seedExampleProducts,
   setDatabasePathOverride,
   setSetting,
 } from "../../../lib/tauri";
@@ -14,6 +16,7 @@ import { useUIStore } from "../../../state/uiStore";
 const AUTO_START_AFTER_APPROVAL_KEY = "workflow.auto_start_after_work_item_approval";
 const AUTO_APPROVE_PLAN_KEY = "workflow.auto_approve_plan";
 const AUTO_APPROVE_TEST_REVIEW_KEY = "workflow.auto_approve_test_review";
+const HIDE_EXAMPLE_PRODUCTS_KEY = "catalog.hide_example_products";
 
 function parseBooleanSetting(value: string | null | undefined, fallback: boolean) {
   if (value == null) return fallback;
@@ -56,12 +59,14 @@ const styles: Record<string, React.CSSProperties> = {
 };
 
 export function SettingsPage() {
+  const queryClient = useQueryClient();
   const { leftSidebarVisible, rightSidebarVisible, bottomPanelVisible, toggleLeftSidebar, toggleRightSidebar, toggleBottomPanel } = useUIStore();
   const [dockerHost, setDockerHost] = useState("");
   const [maxRetries, setMaxRetries] = useState("3");
   const [autoStartAfterApproval, setAutoStartAfterApproval] = useState(true);
   const [autoApprovePlan, setAutoApprovePlan] = useState(true);
   const [autoApproveTestReview, setAutoApproveTestReview] = useState(true);
+  const [hideExampleProducts, setHideExampleProducts] = useState(true);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [dbHealth, setDbHealth] = useState<DatabaseHealth | null>(null);
   const [dbHealthError, setDbHealthError] = useState<string | null>(null);
@@ -69,6 +74,8 @@ export function SettingsPage() {
   const [dbPathOverrideInput, setDbPathOverrideInput] = useState("");
   const [dbPathOverrideSaved, setDbPathOverrideSaved] = useState<string | null>(null);
   const [dbPathOverrideError, setDbPathOverrideError] = useState<string | null>(null);
+  const [catalogActionMsg, setCatalogActionMsg] = useState<string | null>(null);
+  const [catalogActionError, setCatalogActionError] = useState<string | null>(null);
 
   useEffect(() => {
     getSetting("docker_host").then((v) => { if (v) setDockerHost(v); });
@@ -76,6 +83,7 @@ export function SettingsPage() {
     getSetting(AUTO_START_AFTER_APPROVAL_KEY).then((v) => setAutoStartAfterApproval(parseBooleanSetting(v, true)));
     getSetting(AUTO_APPROVE_PLAN_KEY).then((v) => setAutoApprovePlan(parseBooleanSetting(v, true)));
     getSetting(AUTO_APPROVE_TEST_REVIEW_KEY).then((v) => setAutoApproveTestReview(parseBooleanSetting(v, true)));
+    getSetting(HIDE_EXAMPLE_PRODUCTS_KEY).then((v) => setHideExampleProducts(parseBooleanSetting(v, true)));
     getActiveDatabasePath().then(setActiveDbPath).catch((error) => setDbPathOverrideError(String(error)));
     getDatabasePathOverride().then((v) => { if (v) setDbPathOverrideInput(v); });
     getDatabaseHealth()
@@ -90,6 +98,14 @@ export function SettingsPage() {
 
   const saveSetting = async (key: string, value: string) => {
     await setSetting(key, value);
+    if (key === HIDE_EXAMPLE_PRODUCTS_KEY) {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["products"] }),
+        queryClient.invalidateQueries({ queryKey: ["productTree"] }),
+        queryClient.invalidateQueries({ queryKey: ["sidebarProductTree"] }),
+        queryClient.invalidateQueries({ queryKey: ["inspectorProductTree"] }),
+      ]);
+    }
     setSavedMsg(key);
     setTimeout(() => setSavedMsg(null), 2000);
   };
@@ -125,6 +141,55 @@ export function SettingsPage() {
         <div style={styles.row}><div><div style={styles.label}>Left Sidebar</div><div style={styles.desc}>Product tree and navigation</div></div><button style={{ ...styles.toggle, backgroundColor: leftSidebarVisible ? "#0e639c" : "#444" }} onClick={toggleLeftSidebar} /></div>
         <div style={styles.row}><div><div style={styles.label}>Right Sidebar</div><div style={styles.desc}>Context panel for work item details</div></div><button style={{ ...styles.toggle, backgroundColor: rightSidebarVisible ? "#0e639c" : "#444" }} onClick={toggleRightSidebar} /></div>
         <div style={styles.row}><div><div style={styles.label}>Bottom Panel</div><div style={styles.desc}>Terminal, logs, and test results</div></div><button style={{ ...styles.toggle, backgroundColor: bottomPanelVisible ? "#0e639c" : "#444" }} onClick={toggleBottomPanel} /></div>
+      </div>
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>Catalog</div>
+        <div style={styles.row}>
+          <div>
+            <div style={styles.label}>Hide Example Products</div>
+            <div style={styles.desc}>Seeded example products stay in the database but remain hidden from the workspace by default.</div>
+          </div>
+          <button
+            style={{ ...styles.toggle, backgroundColor: hideExampleProducts ? "#0e639c" : "#444" }}
+            onClick={async () => {
+              const next = !hideExampleProducts;
+              setHideExampleProducts(next);
+              await saveSetting(HIDE_EXAMPLE_PRODUCTS_KEY, String(next));
+            }}
+          />
+        </div>
+        <div style={styles.settingRow}>
+          <div>
+            <div style={styles.label}>Seed / Repair Example Products</div>
+            <div style={styles.desc}>Safe to run multiple times. Creates missing examples and repairs the built-in catalog in the currently active database.</div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <button
+              style={styles.btn}
+              onClick={async () => {
+                try {
+                  setCatalogActionError(null);
+                  await seedExampleProducts();
+                  await Promise.all([
+                    queryClient.invalidateQueries({ queryKey: ["products"] }),
+                    queryClient.invalidateQueries({ queryKey: ["productTree"] }),
+                    queryClient.invalidateQueries({ queryKey: ["sidebarProductTree"] }),
+                    queryClient.invalidateQueries({ queryKey: ["inspectorProductTree"] }),
+                    queryClient.invalidateQueries({ queryKey: ["workItems"] }),
+                  ]);
+                  setCatalogActionMsg("Example catalog is present and up to date.");
+                  setTimeout(() => setCatalogActionMsg(null), 2500);
+                } catch (error) {
+                  setCatalogActionError(String(error));
+                }
+              }}
+            >
+              Seed / Repair
+            </button>
+          </div>
+        </div>
+        {catalogActionMsg && <div style={styles.saved}>{catalogActionMsg}</div>}
+        {catalogActionError && <div style={{ ...styles.desc, color: "#f48771", marginTop: 8 }}>{catalogActionError}</div>}
       </div>
       <div style={styles.section}>
         <div style={styles.sectionTitle}>Execution</div>

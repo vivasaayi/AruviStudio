@@ -4,7 +4,9 @@ use crate::domain::workflow::{
     TransitionTrigger, UserAction, WorkflowRun, WorkflowStage, WorkflowStageHistory,
 };
 use crate::error::AppError;
-use crate::persistence::{agent_repo, approval_repo, settings_repo, work_item_repo, workflow_repo};
+use crate::persistence::{
+    agent_repo, approval_repo, repository_repo, settings_repo, work_item_repo, workflow_repo,
+};
 use crate::services::agent_service;
 use crate::workflows::engine::WorkflowEngine;
 use crate::workflows::transitions;
@@ -92,6 +94,77 @@ impl WorkflowService {
             notes,
         )
         .await?;
+        Ok(())
+    }
+
+    fn stage_requires_repository(stage: &WorkflowStage) -> bool {
+        matches!(
+            stage,
+            WorkflowStage::Coding
+                | WorkflowStage::UnitTestGeneration
+                | WorkflowStage::IntegrationTestGeneration
+                | WorkflowStage::UiTestPlanning
+                | WorkflowStage::QaValidation
+                | WorkflowStage::SecurityReview
+                | WorkflowStage::PerformanceReview
+                | WorkflowStage::PushPreparation
+                | WorkflowStage::GitPush
+        )
+    }
+
+    fn stage_requires_git_repository(stage: &WorkflowStage) -> bool {
+        matches!(stage, WorkflowStage::PushPreparation | WorkflowStage::GitPush)
+    }
+
+    async fn ensure_repository_ready_for_stage(
+        &self,
+        workflow_run_id: &str,
+        stage: &WorkflowStage,
+    ) -> Result<(), AppError> {
+        if !Self::stage_requires_repository(stage) {
+            return Ok(());
+        }
+
+        let workflow_run = workflow_repo::get_workflow_run(&self.db, workflow_run_id).await?;
+        let work_item = work_item_repo::get_work_item(&self.db, &workflow_run.work_item_id).await?;
+        let resolved_repo = if let Some(repo_id) = work_item.active_repo_id.as_deref() {
+            Some(repository_repo::get_repository(&self.db, repo_id).await?)
+        } else {
+            repository_repo::resolve_repository_for_work_item(&self.db, &work_item.id).await?
+        };
+
+        let Some(repo) = resolved_repo else {
+            return Err(AppError::Validation(format!(
+                "Repository readiness failed for stage {}. No repository is attached to work item, module, or product scope. Complete a bootstrap setup work item or attach a repository before starting delivery.",
+                stage.as_str()
+            )));
+        };
+
+        if work_item.active_repo_id.as_deref() != Some(repo.id.as_str()) {
+            sqlx::query("UPDATE work_items SET active_repo_id=? WHERE id=?")
+                .bind(&repo.id)
+                .bind(&work_item.id)
+                .execute(&*self.db)
+                .await?;
+        }
+
+        let repo_path = std::path::Path::new(&repo.local_path);
+        if !repo_path.exists() {
+            return Err(AppError::Validation(format!(
+                "Repository readiness failed for stage {}. Attached repository path does not exist: {}",
+                stage.as_str(),
+                repo.local_path
+            )));
+        }
+
+        if Self::stage_requires_git_repository(stage) && !repo_path.join(".git").exists() {
+            return Err(AppError::Validation(format!(
+                "Repository readiness failed for stage {}. Attached repository is not git initialized: {}",
+                stage.as_str(),
+                repo.local_path
+            )));
+        }
+
         Ok(())
     }
 
@@ -378,6 +451,9 @@ impl WorkflowService {
                 stage.as_str(),
                 workflow_run_id
             );
+
+            self.ensure_repository_ready_for_stage(workflow_run_id, &stage)
+                .await?;
 
             if !bypass_coordinator_review && self.requires_coordinator_review(&stage).await? {
                 if self
@@ -1334,20 +1410,12 @@ mod tests {
         let workflow_service =
             WorkflowService::new(Arc::clone(&db_arc), Arc::new(Mutex::new(agent_service)));
 
-        settings_repo::set_setting(
-            &pool,
-            super::AUTO_APPROVE_PLAN_KEY,
-            "false",
-        )
-        .await
-        .expect("failed to disable auto plan approval for manual-gate test");
-        settings_repo::set_setting(
-            &pool,
-            super::AUTO_APPROVE_TEST_REVIEW_KEY,
-            "false",
-        )
-        .await
-        .expect("failed to disable auto test review for manual-gate test");
+        settings_repo::set_setting(&pool, super::AUTO_APPROVE_PLAN_KEY, "false")
+            .await
+            .expect("failed to disable auto plan approval for manual-gate test");
+        settings_repo::set_setting(&pool, super::AUTO_APPROVE_TEST_REVIEW_KEY, "false")
+            .await
+            .expect("failed to disable auto test review for manual-gate test");
 
         AgentService::set_test_model_outputs_for_any_workflow(vec![
             "requirement analysis complete".to_string(),
@@ -1554,13 +1622,9 @@ mod tests {
         let workflow_service =
             WorkflowService::new(Arc::clone(&db_arc), Arc::new(Mutex::new(agent_service)));
 
-        settings_repo::set_setting(
-            &pool,
-            super::AUTO_APPROVE_TEST_REVIEW_KEY,
-            "false",
-        )
-        .await
-        .expect("failed to disable auto test review for auto-plan test");
+        settings_repo::set_setting(&pool, super::AUTO_APPROVE_TEST_REVIEW_KEY, "false")
+            .await
+            .expect("failed to disable auto test review for auto-plan test");
 
         AgentService::set_test_model_outputs_for_any_workflow(vec![
             "requirement analysis complete".to_string(),
@@ -1960,20 +2024,12 @@ mod tests {
         let workflow_service =
             WorkflowService::new(Arc::clone(&db_arc), Arc::new(Mutex::new(agent_service)));
 
-        settings_repo::set_setting(
-            &pool,
-            super::AUTO_APPROVE_PLAN_KEY,
-            "false",
-        )
-        .await
-        .expect("failed to disable auto plan approval for live smoke test");
-        settings_repo::set_setting(
-            &pool,
-            super::AUTO_APPROVE_TEST_REVIEW_KEY,
-            "false",
-        )
-        .await
-        .expect("failed to disable auto test review for live smoke test");
+        settings_repo::set_setting(&pool, super::AUTO_APPROVE_PLAN_KEY, "false")
+            .await
+            .expect("failed to disable auto plan approval for live smoke test");
+        settings_repo::set_setting(&pool, super::AUTO_APPROVE_TEST_REVIEW_KEY, "false")
+            .await
+            .expect("failed to disable auto test review for live smoke test");
 
         let max_iterations = std::env::var("ARUVI_LIVE_ITERATIONS")
             .ok()
@@ -2196,6 +2252,8 @@ mod tests {
             provider_id,
             &live_model_name,
             Some(128000),
+            None,
+            None,
         )
         .await
         .map_err(|error| format!("create_model_definition failed: {error}"))?;

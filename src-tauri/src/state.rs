@@ -1,5 +1,5 @@
 use crate::domain::events::DomainEvent;
-use crate::services::{agent_service, model_service, workflow_service};
+use crate::services::{agent_service, model_service, product_service, workflow_service};
 use sqlx::SqlitePool;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -43,6 +43,8 @@ impl AppState {
             db_arc.clone(),
             agent_service.clone(),
         )));
+
+        product_service::initialize_example_catalog(db_arc.as_ref()).await?;
 
         Ok(Self {
             db: (*db_arc).clone(),

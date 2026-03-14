@@ -1,4 +1,4 @@
-use crate::domain::work_item::WorkItem;
+use crate::domain::work_item::{ProductWorkItemSummary, WorkItem};
 use crate::error::AppError;
 use sqlx::SqlitePool;
 use tracing::{debug, error, trace};
@@ -94,6 +94,21 @@ pub async fn list_work_items(
         q = q.bind(v);
     }
     q.fetch_all(pool).await.map_err(|e| e.into())
+}
+
+pub async fn summarize_work_items_by_product(
+    pool: &SqlitePool,
+) -> Result<Vec<ProductWorkItemSummary>, AppError> {
+    sqlx::query_as::<_, ProductWorkItemSummary>(
+        "SELECT product_id, COUNT(*) as total_count,
+         SUM(CASE WHEN status NOT IN ('done', 'cancelled') THEN 1 ELSE 0 END) as active_count
+         FROM work_items
+         WHERE product_id IS NOT NULL
+         GROUP BY product_id",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.into())
 }
 
 pub async fn update_work_item(

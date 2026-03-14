@@ -43,6 +43,8 @@ struct AgentExecutionBoundaries {
     max_context_chars: Option<usize>,
     context_window_ratio: Option<f32>,
     max_files_per_run: Option<usize>,
+    max_read_file_chars: Option<usize>,
+    max_write_file_chars: Option<usize>,
     max_file_chars: Option<usize>,
     max_repo_files_scanned: Option<usize>,
     allowed_paths: Option<Vec<String>>,
@@ -153,19 +155,72 @@ impl AgentService {
         boundaries.max_files_per_run.unwrap_or(3).clamp(1, 200)
     }
 
-    fn max_file_chars(boundaries: &AgentExecutionBoundaries) -> usize {
+    fn max_read_file_chars(boundaries: &AgentExecutionBoundaries) -> usize {
+        boundaries
+            .max_read_file_chars
+            .unwrap_or(16_000)
+            .clamp(400, 500_000)
+    }
+
+    fn max_write_file_chars(boundaries: &AgentExecutionBoundaries) -> usize {
+        boundaries
+            .max_write_file_chars
+            .unwrap_or(200_000)
+            .clamp(400, 2_000_000)
+    }
+
+    fn max_repo_snippet_chars(boundaries: &AgentExecutionBoundaries) -> usize {
         boundaries
             .max_file_chars
-            .unwrap_or(4_000)
-            .clamp(200, 200_000)
+            .unwrap_or(6_000)
+            .clamp(200, 80_000)
     }
 
     fn max_tool_steps(boundaries: &AgentExecutionBoundaries) -> usize {
-        boundaries.max_tool_steps.unwrap_or(18).clamp(2, 64)
+        boundaries.max_tool_steps.unwrap_or(24).clamp(2, 64)
     }
 
     fn should_keep_workspace(boundaries: &AgentExecutionBoundaries) -> bool {
         boundaries.keep_workspace.unwrap_or(true)
+    }
+
+    fn char_count(content: &str) -> usize {
+        content.chars().count()
+    }
+
+    fn substring_by_char_range(content: &str, offset_chars: usize, length_chars: usize) -> String {
+        content
+            .chars()
+            .skip(offset_chars)
+            .take(length_chars)
+            .collect::<String>()
+    }
+
+    fn split_lines_preserve_trailing(content: &str) -> (Vec<String>, bool) {
+        let has_trailing_newline = content.ends_with('\n');
+        let mut lines = content
+            .split('\n')
+            .map(std::string::ToString::to_string)
+            .collect::<Vec<_>>();
+        if has_trailing_newline && lines.last().is_some_and(|value| value.is_empty()) {
+            lines.pop();
+        }
+        (lines, has_trailing_newline)
+    }
+
+    fn ensure_write_limit(
+        content: &str,
+        boundaries: &AgentExecutionBoundaries,
+    ) -> Result<(), AppError> {
+        let chars = Self::char_count(content);
+        let limit = Self::max_write_file_chars(boundaries);
+        if chars > limit {
+            return Err(AppError::Validation(format!(
+                "File content exceeds max_write_file_chars ({} > {})",
+                chars, limit
+            )));
+        }
+        Ok(())
     }
 
     fn normalize_relative_path(path: &str) -> Option<String> {
@@ -391,6 +446,8 @@ impl AgentService {
     /// Find the best model for an agent
     async fn find_model_for_agent(&self, agent_id: &str) -> Result<ModelDefinition, AppError> {
         debug!(agent_id = %agent_id, "Finding model for agent");
+        let agent_definition = agent_repo::get_agent_definition(&self.db, agent_id).await?;
+
         // Get agent-model bindings
         let bindings = agent_repo::get_agent_model_bindings(&self.db, agent_id).await?;
         if let Some(binding) = bindings.first() {
@@ -407,15 +464,25 @@ impl AgentService {
             .filter(|model| model.enabled)
             .collect::<Vec<_>>();
 
+        let preferred_tags = preferred_model_tags_for_role(&agent_definition.role);
         shared_models.sort_by_key(|model| {
+            let tag_score = preferred_tags
+                .iter()
+                .filter(|tag| {
+                    model.capability_tags.iter().any(|model_tag| {
+                        model_tag.trim().eq_ignore_ascii_case(tag)
+                    })
+                })
+                .count();
             let lowered = model.name.to_ascii_lowercase();
-            if lowered.contains("deepseek-coder") {
+            let name_bias = if lowered.contains("deepseek-coder") {
                 0
             } else if lowered.contains("deepseek") {
                 1
             } else {
                 2
-            }
+            };
+            (usize::MAX - tag_score, name_bias)
         });
 
         for model in shared_models {
@@ -427,6 +494,8 @@ impl AgentService {
                     model_name = %model.name,
                     provider_id = %provider.id,
                     provider_name = %provider.name,
+                    preferred_tags = ?preferred_tags,
+                    matched_tags = ?matched_model_tags(&model, &preferred_tags),
                     "Using shared fallback model for agent"
                 );
                 return Ok(model);
@@ -676,7 +745,7 @@ impl AgentService {
         }
 
         let max_files = Self::max_files_per_run(boundaries);
-        let max_file_chars = Self::max_file_chars(boundaries);
+        let max_file_chars = Self::max_repo_snippet_chars(boundaries);
         let mut used_chars = output.len();
         let mut snippets_added = 0usize;
         let snippet_budget = context_budget_chars
@@ -819,10 +888,14 @@ impl AgentService {
                 prompt.push_str("Implement the code changes according to the approved plan. ");
                 prompt.push_str("Use tool-calling JSON to inspect files, search code, and apply precise edits. ");
                 prompt.push_str("Start with minimal context, then fetch additional files on demand through tools. ");
-                prompt.push_str("Prefer repo.write_file after reading the current file. Use repo.apply_patch only when context lines are known to match exactly.\n\n");
+                prompt.push_str("Prefer targeted edits with repo.replace_range for function/class-level changes. ");
+                prompt.push_str("Use repo.write_file for full-file rewrites only after reading current content. ");
+                prompt.push_str(
+                    "Use repo.apply_patch only when context lines are known to match exactly.\n\n",
+                );
                 prompt.push_str("Response contract for each turn (required):\n");
                 prompt.push_str("Tool call:\n");
-                prompt.push_str("{\"type\":\"tool_call\",\"tool\":\"repo.read_file|repo.search|repo.list_tree|repo.write_file|repo.apply_patch\",\"arguments\":{...},\"reason\":\"...\"}\n");
+                prompt.push_str("{\"type\":\"tool_call\",\"tool\":\"repo.read_file|repo.search|repo.list_tree|repo.write_file|repo.replace_range|repo.apply_patch\",\"arguments\":{...},\"reason\":\"...\"}\n");
                 prompt.push_str("Final answer:\n");
                 prompt.push_str("{\"type\":\"final\",\"summary\":\"...\",\"result\":\"...\"}\n\n");
                 prompt.push_str("If you cannot use tools, fallback to legacy file blocks:\n");
@@ -1342,6 +1415,26 @@ impl AgentService {
             }
         }
 
+        if final_summary.is_none() {
+            if let Some(summary) = self
+                .try_force_tool_loop_finalization(
+                    agent_run,
+                    model_def,
+                    &tool_observations,
+                    response_token_budget,
+                )
+                .await?
+            {
+                trace.push(ToolLoopTraceEntry {
+                    step: max_steps + 1,
+                    kind: "forced_final".to_string(),
+                    payload: summary.clone(),
+                });
+                Self::write_tool_trace_snapshot(&trace_path, &trace).await?;
+                final_summary = Some(summary);
+            }
+        }
+
         let changed_files_list = changed_files.into_iter().collect::<Vec<_>>();
         Self::write_tool_trace_snapshot(&trace_path, &trace).await?;
 
@@ -1412,6 +1505,7 @@ impl AgentService {
             allowed.insert("repo.read_file".to_string());
             allowed.insert("repo.search".to_string());
             allowed.insert("repo.write_file".to_string());
+            allowed.insert("repo.replace_range".to_string());
             allowed.insert("repo.apply_patch".to_string());
             return allowed;
         }
@@ -1424,9 +1518,11 @@ impl AgentService {
             }
             if lowered.contains("write") || lowered.contains("create") {
                 allowed.insert("repo.write_file".to_string());
+                allowed.insert("repo.replace_range".to_string());
             }
             if lowered.contains("modify") || lowered.contains("patch") {
                 allowed.insert("repo.apply_patch".to_string());
+                allowed.insert("repo.replace_range".to_string());
             }
             if lowered.starts_with("repo.") {
                 allowed.insert(lowered);
@@ -1436,6 +1532,7 @@ impl AgentService {
             allowed.insert("repo.read_file".to_string());
             allowed.insert("repo.search".to_string());
             allowed.insert("repo.write_file".to_string());
+            allowed.insert("repo.replace_range".to_string());
         }
         allowed
     }
@@ -1460,9 +1557,14 @@ impl AgentService {
         prompt.push_str("\nAllowed tools: ");
         prompt.push_str(&allowed_tools.iter().cloned().collect::<Vec<_>>().join(", "));
         prompt.push_str("\nTool argument contract:");
-        prompt.push_str("\n- repo.read_file -> {\"path\":\"relative/path.ext\"}");
+        prompt.push_str(
+            "\n- repo.read_file -> {\"path\":\"relative/path.ext\",\"offset_chars\":0,\"length_chars\":12000,\"start_line\":1,\"end_line\":200}",
+        );
         prompt.push_str(
             "\n- repo.write_file -> {\"path\":\"relative/path.ext\",\"content\":\"full file content\"}",
+        );
+        prompt.push_str(
+            "\n- repo.replace_range -> {\"path\":\"relative/path.ext\",\"start_line\":10,\"end_line\":22,\"content\":\"replacement text\"}",
         );
         prompt.push_str(
             "\n- repo.apply_patch -> {\"path\":\"relative/path.ext\",\"patch\":\"unified diff hunk text\"}",
@@ -1470,7 +1572,10 @@ impl AgentService {
         prompt.push_str("\n- repo.search -> {\"query\":\"text\",\"max_results\":20}");
         prompt.push_str("\n- repo.list_tree -> {\"path\":\"optional/subdir\",\"max_depth\":3}");
         prompt.push_str(
-            "\nIMPORTANT: prefer repo.write_file with complete file content after reading existing files.",
+            "\nIMPORTANT: prefer repo.read_file with line/chunk arguments for large files.",
+        );
+        prompt.push_str(
+            "\nPrefer repo.replace_range for surgical edits and repo.write_file only for intentional full-file rewrites.",
         );
         prompt.push_str(
             "\nUse repo.apply_patch only when you are certain context lines exactly match current file content.",
@@ -1482,6 +1587,11 @@ impl AgentService {
         prompt.push_str("\nWhen implementation is complete, return:");
         prompt.push_str("\n{\"type\":\"final\",\"summary\":\"...\",\"result\":\"...\"}");
         prompt.push_str(&format!("\nCurrent step: {}/{}", step, max_steps));
+        if max_steps.saturating_sub(step) <= 2 {
+            prompt.push_str(
+                "\nYou are close to the tool-step limit. Prefer finishing and returning type=final now unless a single essential tool call is still required.",
+            );
+        }
         if !observations.is_empty() {
             prompt.push_str("\n\nTool observations so far:\n");
             for item in observations.iter().rev().take(12).rev() {
@@ -1491,6 +1601,44 @@ impl AgentService {
             }
         }
         prompt
+    }
+
+    async fn try_force_tool_loop_finalization(
+        &self,
+        agent_run: &AgentRun,
+        model_def: &ModelDefinition,
+        observations: &[String],
+        response_token_budget: i64,
+    ) -> Result<Option<String>, AppError> {
+        if observations.is_empty() {
+            return Ok(None);
+        }
+        let mut prompt =
+            String::from("Return exactly one JSON object with type=final. Do not call tools.\n");
+        prompt.push_str("Output format:\n");
+        prompt.push_str("{\"type\":\"final\",\"summary\":\"...\",\"result\":\"...\"}\n");
+        prompt.push_str("Recent tool observations:\n");
+        for item in observations.iter().rev().take(16).rev() {
+            prompt.push_str("- ");
+            prompt.push_str(item);
+            prompt.push('\n');
+        }
+        let model_output = self
+            .execute_agent_run(
+                agent_run,
+                model_def,
+                &prompt,
+                response_token_budget.min(1024),
+            )
+            .await?;
+        match Self::parse_tool_loop_response(&model_output) {
+            Some(ToolLoopResponse::Final { summary, result }) => {
+                Ok(Some(summary.or(result).unwrap_or_else(|| {
+                    "Coding stage finalized after tool-loop completion.".to_string()
+                })))
+            }
+            _ => Ok(None),
+        }
     }
 
     fn condense_tool_loop_base_prompt(base_prompt: &str) -> String {
@@ -1520,12 +1668,14 @@ impl AgentService {
         trace: &[ToolLoopTraceEntry],
     ) -> Result<(), AppError> {
         let payload = serde_json::to_string_pretty(trace)?;
-        tokio::fs::write(trace_path, payload).await.map_err(|error| {
-            AppError::Io(std::io::Error::other(format!(
-                "Failed to write tool trace snapshot: {}",
-                error
-            )))
-        })?;
+        tokio::fs::write(trace_path, payload)
+            .await
+            .map_err(|error| {
+                AppError::Io(std::io::Error::other(format!(
+                    "Failed to write tool trace snapshot: {}",
+                    error
+                )))
+            })?;
         Ok(())
     }
 
@@ -1583,14 +1733,93 @@ impl AgentService {
                     )));
                 }
                 let content = workspace.read_file(&normalized).await?;
-                let clipped = content
-                    .chars()
-                    .take(Self::max_file_chars(boundaries))
-                    .collect::<String>();
+                let total_chars = Self::char_count(&content);
+                let max_chars_per_read = Self::max_read_file_chars(boundaries);
+                let requested_offset = arguments
+                    .get("offset_chars")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0) as usize;
+                let requested_length = arguments
+                    .get("length_chars")
+                    .and_then(Value::as_u64)
+                    .map(|value| value as usize)
+                    .unwrap_or(max_chars_per_read);
+                let start_line = arguments.get("start_line").and_then(Value::as_u64);
+                let end_line = arguments.get("end_line").and_then(Value::as_u64);
+
+                if (start_line.is_some() || end_line.is_some())
+                    && (arguments.get("offset_chars").is_some()
+                        || arguments.get("length_chars").is_some())
+                {
+                    return Err(AppError::Validation(
+                        "repo.read_file cannot mix line-range arguments with offset/length"
+                            .to_string(),
+                    ));
+                }
+
+                let (selected_content, selected_start_line, selected_end_line, total_lines) =
+                    if start_line.is_some() || end_line.is_some() {
+                        let lines = content.lines().collect::<Vec<_>>();
+                        let total_lines = lines.len();
+                        if total_lines == 0 {
+                            (String::new(), Some(1usize), Some(0usize), 0usize)
+                        } else {
+                            let start = start_line.unwrap_or(1) as usize;
+                            let mut end = end_line.unwrap_or((start + 199) as u64) as usize;
+                            if start == 0 {
+                                return Err(AppError::Validation(
+                                    "repo.read_file start_line must be >= 1".to_string(),
+                                ));
+                            }
+                            if end < start {
+                                return Err(AppError::Validation(
+                                    "repo.read_file end_line must be >= start_line".to_string(),
+                                ));
+                            }
+                            if start > total_lines {
+                                return Err(AppError::Validation(format!(
+                                    "repo.read_file start_line {} is beyond total lines {}",
+                                    start, total_lines
+                                )));
+                            }
+                            end = end.min(total_lines);
+                            let range_content = lines[start - 1..end].join("\n");
+                            (range_content, Some(start), Some(end), total_lines)
+                        }
+                    } else {
+                        (content.clone(), None, None, content.lines().count())
+                    };
+
+                let selected_total_chars = Self::char_count(&selected_content);
+                if requested_offset > selected_total_chars {
+                    return Err(AppError::Validation(format!(
+                        "repo.read_file offset_chars {} is beyond content length {}",
+                        requested_offset, selected_total_chars
+                    )));
+                }
+                let effective_length = requested_length.clamp(1, max_chars_per_read);
+                let clipped = Self::substring_by_char_range(
+                    &selected_content,
+                    requested_offset,
+                    effective_length,
+                );
+                let returned_chars = Self::char_count(&clipped);
+                let next_offset = requested_offset + returned_chars;
+                let truncated = next_offset < selected_total_chars;
                 Ok(serde_json::json!({
                     "path": normalized,
                     "content": clipped,
-                    "truncated": clipped.len() < content.len(),
+                    "truncated": truncated,
+                    "total_chars": selected_total_chars,
+                    "returned_chars": returned_chars,
+                    "offset_chars": requested_offset,
+                    "next_offset_chars": if truncated { Some(next_offset) } else { None::<usize> },
+                    "max_chars_per_read": max_chars_per_read,
+                    "selection_total_chars": selected_total_chars,
+                    "file_total_chars": total_chars,
+                    "selection_start_line": selected_start_line,
+                    "selection_end_line": selected_end_line,
+                    "file_total_lines": total_lines,
                 }))
             }
             "repo.list_tree" => {
@@ -1642,15 +1871,96 @@ impl AgentService {
                         normalized
                     )));
                 }
-                let clipped = content
-                    .chars()
-                    .take(Self::max_file_chars(boundaries))
-                    .collect::<String>();
-                workspace.write_file(&normalized, &clipped).await?;
+                Self::ensure_write_limit(content, boundaries)?;
+                workspace.write_file(&normalized, content).await?;
                 changed_files.insert(normalized.clone());
                 Ok(serde_json::json!({
                     "path": normalized,
-                    "bytes_written": clipped.len(),
+                    "bytes_written": content.len(),
+                    "chars_written": Self::char_count(content),
+                }))
+            }
+            "repo.replace_range" => {
+                let path = arguments
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| {
+                        AppError::Validation("repo.replace_range requires 'path'".to_string())
+                    })?;
+                let start_line = arguments
+                    .get("start_line")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| {
+                        AppError::Validation("repo.replace_range requires 'start_line'".to_string())
+                    })? as usize;
+                let end_line = arguments
+                    .get("end_line")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| {
+                        AppError::Validation("repo.replace_range requires 'end_line'".to_string())
+                    })? as usize;
+                let replacement = arguments
+                    .get("content")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| {
+                        AppError::Validation("repo.replace_range requires 'content'".to_string())
+                    })?;
+                if start_line == 0 {
+                    return Err(AppError::Validation(
+                        "repo.replace_range start_line must be >= 1".to_string(),
+                    ));
+                }
+                if end_line < start_line {
+                    return Err(AppError::Validation(
+                        "repo.replace_range end_line must be >= start_line".to_string(),
+                    ));
+                }
+                let normalized = Self::normalize_relative_path(path).ok_or_else(|| {
+                    AppError::Validation("Invalid path for repo.replace_range".to_string())
+                })?;
+                if !Self::is_repo_relative_path_allowed(&normalized, boundaries) {
+                    return Err(AppError::Validation(format!(
+                        "Path is outside boundaries: {}",
+                        normalized
+                    )));
+                }
+                let existing = workspace.read_file(&normalized).await?;
+                let (lines, had_trailing_newline) = Self::split_lines_preserve_trailing(&existing);
+                if lines.is_empty() {
+                    return Err(AppError::Validation(format!(
+                        "repo.replace_range requires a non-empty file; use repo.write_file for {}",
+                        normalized
+                    )));
+                }
+                if end_line > lines.len() {
+                    return Err(AppError::Validation(format!(
+                        "repo.replace_range end_line {} is beyond total lines {}",
+                        end_line,
+                        lines.len()
+                    )));
+                }
+                let replacement_lines = replacement
+                    .split('\n')
+                    .map(std::string::ToString::to_string)
+                    .collect::<Vec<_>>();
+                let mut merged = Vec::with_capacity(
+                    lines.len() - (end_line - start_line + 1) + replacement_lines.len(),
+                );
+                merged.extend_from_slice(&lines[..start_line - 1]);
+                merged.extend(replacement_lines);
+                merged.extend_from_slice(&lines[end_line..]);
+                let mut updated = merged.join("\n");
+                if had_trailing_newline {
+                    updated.push('\n');
+                }
+                Self::ensure_write_limit(&updated, boundaries)?;
+                workspace.write_file(&normalized, &updated).await?;
+                changed_files.insert(normalized.clone());
+                Ok(serde_json::json!({
+                    "path": normalized,
+                    "start_line": start_line,
+                    "end_line": end_line,
+                    "replaced_lines": end_line.saturating_sub(start_line) + 1,
                 }))
             }
             "repo.apply_patch" => {
@@ -2035,14 +2345,13 @@ impl AgentService {
                             file_content.clear();
                             continue;
                         }
-                        let clipped = file_content
-                            .chars()
-                            .take(Self::max_file_chars(boundaries))
-                            .collect::<String>();
-                        workspace.write_file(&normalized_path, &clipped).await?;
+                        Self::ensure_write_limit(&file_content, boundaries)?;
+                        workspace
+                            .write_file(&normalized_path, &file_content)
+                            .await?;
                         files_processed += 1;
                         changed_files.push(normalized_path.clone());
-                        debug!(workspace_path = %workspace.base_path.display(), file_path = %normalized_path, content_length = clipped.len(), "Wrote file content");
+                        debug!(workspace_path = %workspace.base_path.display(), file_path = %normalized_path, content_length = file_content.len(), "Wrote file content");
                     }
                 }
 
@@ -2069,14 +2378,13 @@ impl AgentService {
                 if files_processed < max_files {
                     if let Some(normalized_path) = Self::normalize_relative_path(&file_path) {
                         if Self::is_repo_relative_path_allowed(&normalized_path, boundaries) {
-                            let clipped = file_content
-                                .chars()
-                                .take(Self::max_file_chars(boundaries))
-                                .collect::<String>();
-                            workspace.write_file(&normalized_path, &clipped).await?;
+                            Self::ensure_write_limit(&file_content, boundaries)?;
+                            workspace
+                                .write_file(&normalized_path, &file_content)
+                                .await?;
                             files_processed += 1;
                             changed_files.push(normalized_path.clone());
-                            debug!(workspace_path = %workspace.base_path.display(), file_path = %normalized_path, content_length = clipped.len(), "Wrote final file content");
+                            debug!(workspace_path = %workspace.base_path.display(), file_path = %normalized_path, content_length = file_content.len(), "Wrote final file content");
                         } else {
                             warn!(workspace_path = %workspace.base_path.display(), file_path = %normalized_path, "Skipping final file outside boundaries");
                         }
@@ -2092,8 +2400,37 @@ impl AgentService {
     }
 }
 
+fn preferred_model_tags_for_role(role: &str) -> Vec<&'static str> {
+    match role {
+        "coding" => vec!["coding", "implementation", "repo_write", "testing"],
+        "planning" => vec!["planning", "analysis", "review"],
+        "requirement_analysis" => vec!["analysis", "planning", "review"],
+        "unit_test_generation" => vec!["unit_test", "testing", "coding"],
+        "integration_test_generation" => vec!["integration_test", "testing", "coding"],
+        "ui_test_planning" => vec!["ui_test", "testing", "planning"],
+        "qa_validation" => vec!["qa", "validation", "testing"],
+        "security_review" => vec!["security", "review", "analysis"],
+        "performance_review" => vec!["performance", "review", "analysis"],
+        "coordinator_review" | "manager" => vec!["coordination", "planning", "review"],
+        _ => vec!["general"],
+    }
+}
+
+fn matched_model_tags(model: &ModelDefinition, preferred_tags: &[&str]) -> Vec<String> {
+    preferred_tags
+        .iter()
+        .filter(|tag| {
+            model.capability_tags.iter().any(|model_tag| {
+                model_tag.trim().eq_ignore_ascii_case(tag)
+            })
+        })
+        .map(|tag| (*tag).to_string())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
+    use super::AgentExecutionBoundaries;
     use super::AgentService;
     use crate::persistence::{
         agent_repo, artifact_repo, db as db_service, model_repo, product_repo, repository_repo,
@@ -2103,6 +2440,24 @@ mod tests {
     use serde_json::json;
     use std::path::PathBuf;
     use std::sync::Arc;
+
+    #[test]
+    fn substring_by_char_range_respects_offset_and_length() {
+        let value = "alpha-beta-gamma";
+        let sliced = AgentService::substring_by_char_range(value, 6, 4);
+        assert_eq!(sliced, "beta");
+    }
+
+    #[test]
+    fn ensure_write_limit_rejects_content_above_boundary() {
+        let boundaries = AgentExecutionBoundaries {
+            max_write_file_chars: Some(400),
+            ..Default::default()
+        };
+        let oversized = "x".repeat(401);
+        let result = AgentService::ensure_write_limit(&oversized, &boundaries);
+        assert!(result.is_err(), "expected write limit validation to fail");
+    }
 
     fn make_temp_dir(name: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!(
@@ -2135,9 +2490,17 @@ mod tests {
         .expect("failed to create model provider");
 
         let model_id = "test-model";
-        model_repo::create_model_definition(&pool, model_id, provider_id, "test-model", Some(8192))
-            .await
-            .expect("failed to create model definition");
+        model_repo::create_model_definition(
+            &pool,
+            model_id,
+            provider_id,
+            "test-model",
+            Some(8192),
+            None,
+            None,
+        )
+        .await
+        .expect("failed to create model definition");
 
         agent_repo::delete_agent_model_bindings_for_agent(&pool, "coding-agent")
             .await

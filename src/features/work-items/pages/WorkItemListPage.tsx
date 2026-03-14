@@ -5,8 +5,10 @@ import {
   approveWorkItemPlan,
   approveWorkItemTestReview,
   createWorkItem,
+  createLocalWorkspace,
   deleteWorkItem,
   getLatestWorkflowRunForWorkItem,
+  getProductTree,
   getWorkflowHistory,
   handleWorkflowUserAction,
   getSubWorkItems,
@@ -20,12 +22,14 @@ import {
   listAgentModelBindings,
   listAgentTeams,
   listModelDefinitions,
+  listProducts,
   listProviders,
   listTeamAssignments,
   listTeamMemberships,
   listWorkflowStagePolicies,
   rejectWorkItemPlan,
   readArtifactContent,
+  resolveRepositoryForWorkItem,
   reorderWorkItems,
   markWorkflowRunFailed,
   rejectWorkItem,
@@ -35,6 +39,7 @@ import {
 } from "../../../lib/tauri";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
+import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
 import type {
   AgentDefinition,
   AgentModelBinding,
@@ -51,6 +56,7 @@ import type {
   WorkflowRun,
   WorkflowStageHistory,
   WorkflowStagePolicy,
+  Product,
 } from "../../../lib/types";
 
 const styles: Record<string, React.CSSProperties> = {
@@ -116,6 +122,15 @@ const styles: Record<string, React.CSSProperties> = {
   modalBody: { padding: 16, maxHeight: "calc(80vh - 61px)", overflow: "auto" },
   errorText: { fontSize: 12, color: "#ff7b72", marginBottom: 10 },
   infoCard: { backgroundColor: "#1b2330", border: "1px solid #32445e", borderRadius: 10, padding: 10, marginTop: 10 },
+  traceStepCard: { backgroundColor: "#1b1f27", border: "1px solid #303742", borderRadius: 12, padding: 12, marginBottom: 10 },
+  traceStepHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  traceStepTitle: { fontSize: 13, fontWeight: 800, color: "#eef3fb" },
+  traceStepMeta: { fontSize: 11, color: "#8f96a3" },
+  traceEventList: { display: "flex", flexDirection: "column", gap: 8 },
+  traceEventCard: { borderRadius: 10, padding: 10, border: "1px solid #384456", backgroundColor: "#1a2230" },
+  traceEventCardError: { borderRadius: 10, padding: 10, border: "1px solid #5a2f35", backgroundColor: "#2b1d22" },
+  traceEventKind: { fontSize: 11, fontWeight: 700, color: "#d0d7e4", textTransform: "uppercase" as const, letterSpacing: 0.6, marginBottom: 4 },
+  traceEventPayload: { whiteSpace: "pre-wrap" as const, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, lineHeight: 1.45, color: "#d7deea", margin: 0 },
 };
 
 const statusColors: Record<string, string> = {
@@ -223,10 +238,50 @@ function getArtifactFileName(artifact: Artifact): string {
   return segments[segments.length - 1] ?? artifact.artifact_type;
 }
 
+function formatWorkItemTypeLabel(workItemType: WorkItem["work_item_type"]): string {
+  const canonicalLabels: Record<WorkItem["work_item_type"], string> = {
+    feature: "delivery",
+    setup: "setup",
+    bug: "bug fix",
+    refactor: "refactor",
+    test: "test",
+    review: "review",
+    security_fix: "security fix",
+    performance_improvement: "performance",
+  };
+  return canonicalLabels[workItemType] ?? workItemType.replace(/_/g, " ");
+}
+
+function getWorkItemExecutionSteps(workItem: WorkItem, workspaceName?: string | null): string[] {
+  if (workItem.work_item_type === "setup") {
+    return [
+      "Create the local workspace folder for this product.",
+      "Register the workspace inside AruviStudio.",
+      "Enable version history and create the default branch.",
+      "Create baseline files such as README, .gitignore, and tests/ scaffold.",
+      `Attach the workspace to the current product or module scope${workspaceName ? ` (${workspaceName})` : ""}.`,
+      "Verify downstream work items can inherit the workspace automatically.",
+    ];
+  }
+
+  const steps = [
+    "Confirm requirements, constraints, and acceptance criteria are complete.",
+    "Resolve the workspace and working branch for this delivery work.",
+    "Implement the scoped change in code.",
+    "Produce verification artifacts for review.",
+  ];
+
+  if (workItem.work_item_type === "feature") {
+    steps.push("Run or generate unit, integration, and UI validation coverage as required.");
+  }
+
+  return steps;
+}
+
 export function WorkItemListPage() {
   const queryClient = useQueryClient();
   const { activeProductId, activeModuleId, activeCapabilityId, activeWorkItemId, setActiveWorkItem } = useWorkspaceStore();
-  const { workItemWorkspaceTab, setWorkItemWorkspaceTab, workItemCreateDialogOpen, openWorkItemCreateDialog, closeWorkItemCreateDialog } = useUIStore();
+  const { workItemWorkspaceTab, setWorkItemWorkspaceTab, workItemCreateDialogOpen, openWorkItemCreateDialog, closeWorkItemCreateDialog, setActiveView } = useUIStore();
 
   const [statusFilter, setStatusFilter] = useState("");
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -235,10 +290,14 @@ export function WorkItemListPage() {
   const [workItemOrderIds, setWorkItemOrderIds] = useState<string[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionInfo, setActionInfo] = useState<string | null>(null);
   const [activeWorkflowRunId, setActiveWorkflowRunId] = useState<string | null>(null);
   const [selectedArtifactStage, setSelectedArtifactStage] = useState<string | null>(null);
   const [artifactModalArtifact, setArtifactModalArtifact] = useState<Artifact | null>(null);
   const [openOverflowWorkItemId, setOpenOverflowWorkItemId] = useState<string | null>(null);
+  const [selectedBacklogItemIds, setSelectedBacklogItemIds] = useState<string[]>([]);
+  const [pendingRowActionIds, setPendingRowActionIds] = useState<string[]>([]);
+  const [bulkActionInFlight, setBulkActionInFlight] = useState<"approve" | "reject" | null>(null);
   const [createForm, setCreateForm] = useState({
     title: "",
     problemStatement: "",
@@ -268,8 +327,56 @@ export function WorkItemListPage() {
         status: statusFilter || undefined,
       }),
   });
+  const { data: products } = useQuery({
+    queryKey: ["products"],
+    queryFn: () => listProducts(),
+  });
+  const { data: activeProductTree } = useQuery({
+    queryKey: ["workItemProductTree", activeProductId],
+    queryFn: () => getProductTree(activeProductId!),
+    enabled: !!activeProductId,
+  });
+  const filteredWorkItems = useMemo(() => {
+    if (!activeProductId) {
+      return [];
+    }
+    const modules = activeProductTree?.modules ?? [];
+    const moduleIds = new Set(modules.map((moduleTree) => moduleTree.module.id));
+    const capabilityIds = new Set<string>();
+    const collectCapabilityIds = (capabilityTrees: typeof modules[number]["features"]) => {
+      capabilityTrees.forEach((capabilityTree) => {
+        capabilityIds.add(capabilityTree.capability.id);
+        collectCapabilityIds(capabilityTree.children);
+      });
+    };
+    modules.forEach((moduleTree) => collectCapabilityIds(moduleTree.features));
 
-  const selectedWorkItemId = activeWorkItemId ?? workItems?.[0]?.id ?? null;
+    return (workItems ?? []).filter((workItem) => {
+      if (workItem.product_id !== activeProductId) {
+        return false;
+      }
+      if (activeCapabilityId) {
+        return workItem.capability_id === activeCapabilityId;
+      }
+      if (activeModuleId) {
+        return workItem.module_id === activeModuleId;
+      }
+      if (workItem.capability_id) {
+        return capabilityIds.has(workItem.capability_id);
+      }
+      if (workItem.module_id) {
+        return moduleIds.has(workItem.module_id);
+      }
+      return true;
+    });
+  }, [activeCapabilityId, activeModuleId, activeProductId, activeProductTree, workItems]);
+
+  const selectedWorkItemId = useMemo(() => {
+    const activeIdInScope = activeWorkItemId && filteredWorkItems.some((workItem) => workItem.id === activeWorkItemId)
+      ? activeWorkItemId
+      : null;
+    return activeIdInScope ?? filteredWorkItems[0]?.id ?? null;
+  }, [activeWorkItemId, filteredWorkItems]);
   const { data: selectedWorkItem } = useQuery({
     queryKey: ["workItem", selectedWorkItemId],
     queryFn: () => getWorkItem(selectedWorkItemId!),
@@ -290,11 +397,43 @@ export function WorkItemListPage() {
     enabled: !!selectedWorkItemId,
     refetchInterval: 4000,
   });
+  const { data: resolvedRepository } = useQuery({
+    queryKey: ["resolvedRepositoryForWorkItem", selectedWorkItemId],
+    queryFn: () => resolveRepositoryForWorkItem(selectedWorkItemId!),
+    enabled: !!selectedWorkItemId,
+    refetchInterval: 4000,
+  });
   const { data: artifactModalContent } = useQuery({
     queryKey: ["artifactContent", artifactModalArtifact?.id],
     queryFn: () => readArtifactContent(artifactModalArtifact!.id),
     enabled: !!artifactModalArtifact?.id,
   });
+  const artifactModalTraceSteps = useMemo(() => {
+    if (!artifactModalArtifact || !artifactModalContent) return null;
+    const fileName = getArtifactFileName(artifactModalArtifact).toLowerCase();
+    const isTraceArtifact =
+      artifactModalArtifact.artifact_type === "coding_tool_trace" || fileName === "tool_trace.json";
+    if (!isTraceArtifact) return null;
+    try {
+      const parsed = JSON.parse(artifactModalContent) as Array<{ step?: number; kind?: string; payload?: string }>;
+      if (!Array.isArray(parsed)) return null;
+      const grouped = new Map<number, Array<{ kind: string; payload: string }>>();
+      parsed.forEach((entry) => {
+        if (!entry || typeof entry !== "object") return;
+        const step = typeof entry.step === "number" ? entry.step : 0;
+        const kind = typeof entry.kind === "string" ? entry.kind : "unknown";
+        const payload = typeof entry.payload === "string" ? entry.payload : JSON.stringify(entry.payload ?? "");
+        const current = grouped.get(step) ?? [];
+        current.push({ kind, payload });
+        grouped.set(step, current);
+      });
+      return Array.from(grouped.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map(([step, events]) => ({ step, events }));
+    } catch {
+      return null;
+    }
+  }, [artifactModalArtifact, artifactModalContent]);
   const { data: findings } = useQuery({ queryKey: ["findings", selectedWorkItemId], queryFn: () => listWorkItemFindings(selectedWorkItemId!), enabled: !!selectedWorkItemId });
   const { data: teamAssignments } = useQuery({ queryKey: ["teamAssignments"], queryFn: () => listTeamAssignments() });
   const { data: agentTeams } = useQuery({ queryKey: ["agentTeams"], queryFn: () => listAgentTeams() });
@@ -321,10 +460,18 @@ export function WorkItemListPage() {
   });
 
   useEffect(() => {
-    if (!activeWorkItemId && workItems?.[0]?.id) {
-      setActiveWorkItem(workItems[0].id);
+    if (selectedWorkItemId !== activeWorkItemId) {
+      setActiveWorkItem(selectedWorkItemId);
     }
-  }, [activeWorkItemId, setActiveWorkItem, workItems]);
+  }, [activeWorkItemId, selectedWorkItemId, setActiveWorkItem]);
+
+  useEffect(() => {
+    setActionError(null);
+    setActionInfo(null);
+    setActiveWorkflowRunId(null);
+    setSelectedArtifactStage(null);
+    setOpenOverflowWorkItemId(null);
+  }, [activeProductId, activeModuleId, activeCapabilityId]);
 
   useEffect(() => {
     if (selectedWorkItem) {
@@ -340,8 +487,8 @@ export function WorkItemListPage() {
   }, [selectedWorkItem]);
 
   useEffect(() => {
-    setWorkItemOrderIds((workItems ?? []).map((workItem) => workItem.id));
-  }, [workItems]);
+    setWorkItemOrderIds(filteredWorkItems.map((workItem) => workItem.id));
+  }, [filteredWorkItems]);
 
   useEffect(() => {
     if (showCreateForm || workItemCreateDialogOpen) {
@@ -351,6 +498,7 @@ export function WorkItemListPage() {
 
   useEffect(() => {
     setActionError(null);
+    setActionInfo(null);
   }, [selectedWorkItemId]);
 
   useEffect(() => {
@@ -440,6 +588,7 @@ export function WorkItemListPage() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["workItems", activeProductId, activeModuleId, activeCapabilityId, statusFilter] }),
       queryClient.invalidateQueries({ queryKey: ["sidebarWorkItems", activeProductId] }),
+      queryClient.invalidateQueries({ queryKey: ["productWorkItemSummaries"] }),
       queryClient.invalidateQueries({ queryKey: ["workItem", selectedWorkItemId] }),
       queryClient.invalidateQueries({ queryKey: ["latestWorkflowRun", selectedWorkItemId] }),
       queryClient.invalidateQueries({ queryKey: ["workflowHistory", workflowRunId] }),
@@ -658,12 +807,120 @@ export function WorkItemListPage() {
     mutationFn: (orderedIds: string[]) => reorderWorkItems(orderedIds),
     onSuccess: async () => invalidateTasks(),
   });
+  const createWorkspaceMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedWorkItemSummary) {
+        throw new Error("No work item selected.");
+      }
+      return createLocalWorkspace({
+        productId: selectedWorkItemSummary.product_id ?? activeProductId,
+        moduleId: selectedWorkItemSummary.module_id ?? activeModuleId,
+        workItemId: selectedWorkItemSummary.id,
+      });
+    },
+    onSuccess: async () => {
+      setActionError(null);
+      setActionInfo("Workspace created and attached. Opening IDE.");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["repositories"] }),
+        queryClient.invalidateQueries({ queryKey: ["resolvedRepositoryForWorkItem", selectedWorkItemId] }),
+        queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] }),
+        invalidateTasks(),
+      ]);
+      setActiveView("ide");
+    },
+    onError: (error) => setActionError(String(error)),
+  });
 
   const selectedWorkItemSummary = useMemo(
-    () => selectedWorkItem ?? workItems?.find((workItem) => workItem.id === selectedWorkItemId) ?? null,
-    [selectedWorkItem, workItems, selectedWorkItemId],
+    () => selectedWorkItem ?? filteredWorkItems.find((workItem) => workItem.id === selectedWorkItemId) ?? null,
+    [filteredWorkItems, selectedWorkItem, selectedWorkItemId],
   );
-  const orderedWorkItems = useMemo(() => orderWorkItemsByIds(workItems ?? [], workItemOrderIds), [workItems, workItemOrderIds]);
+  const activeProduct = useMemo(
+    () => (products ?? []).find((product: Product) => product.id === activeProductId) ?? null,
+    [activeProductId, products],
+  );
+  const activeModule = useMemo(
+    () => activeProductTree?.modules.find((moduleTree) => moduleTree.module.id === activeModuleId)?.module ?? null,
+    [activeModuleId, activeProductTree],
+  );
+  const activeCapability = useMemo(() => {
+    if (!activeCapabilityId || !activeProductTree) {
+      return null;
+    }
+    const stack = [...activeProductTree.modules.flatMap((moduleTree) => moduleTree.features)];
+    while (stack.length > 0) {
+      const current = stack.pop();
+      if (!current) {
+        continue;
+      }
+      if (current.capability.id === activeCapabilityId) {
+        return current.capability;
+      }
+      stack.push(...current.children);
+    }
+    return null;
+  }, [activeCapabilityId, activeProductTree]);
+  const scopeDescriptor = useMemo(() => {
+    const parts: string[] = [];
+    if (activeProduct?.name) {
+      parts.push(activeProduct.name);
+    }
+    if (activeModule?.name) {
+      parts.push(activeModule.name);
+    }
+    if (activeCapability?.name) {
+      parts.push(activeCapability.name);
+    }
+    return parts.length > 0 ? parts.join(" / ") : "None selected";
+  }, [activeCapability?.name, activeModule?.name, activeProduct?.name]);
+  const orderedWorkItems = useMemo(() => orderWorkItemsByIds(filteredWorkItems, workItemOrderIds), [filteredWorkItems, workItemOrderIds]);
+  const selectedBacklogItems = useMemo(
+    () => orderedWorkItems.filter((workItem) => selectedBacklogItemIds.includes(workItem.id)),
+    [orderedWorkItems, selectedBacklogItemIds],
+  );
+  const isRowActionPending = (workItemId: string) => pendingRowActionIds.includes(workItemId);
+  const runRowApprovalAction = async (workItemId: string, action: "approve" | "reject") => {
+    if (isRowActionPending(workItemId)) {
+      return;
+    }
+    setPendingRowActionIds((current) => [...current, workItemId]);
+    setActionError(null);
+    try {
+      if (action === "approve") {
+        await approveWorkItem(workItemId, "Approved from backlog row");
+      } else {
+        await rejectWorkItem(workItemId, "Rejected from backlog row");
+      }
+      await invalidateTasks();
+    } catch (error) {
+      setActionError(String(error));
+    } finally {
+      setPendingRowActionIds((current) => current.filter((id) => id !== workItemId));
+    }
+  };
+  const runBulkApprovalAction = async (action: "approve" | "reject") => {
+    if (selectedBacklogItemIds.length === 0 || bulkActionInFlight) {
+      return;
+    }
+    setBulkActionInFlight(action);
+    setActionError(null);
+    try {
+      for (const workItemId of selectedBacklogItemIds) {
+        if (action === "approve") {
+          await approveWorkItem(workItemId, "Approved from backlog");
+        } else {
+          await rejectWorkItem(workItemId, "Rejected from backlog");
+        }
+      }
+      setSelectedBacklogItemIds([]);
+      await invalidateTasks();
+    } catch (error) {
+      setActionError(String(error));
+    } finally {
+      setBulkActionInFlight(null);
+    }
+  };
   const backlogWorkflowRunQueries = useQueries({
     queries: orderedWorkItems.map((workItem) => ({
       queryKey: ["latestWorkflowRun", workItem.id],
@@ -757,6 +1014,15 @@ export function WorkItemListPage() {
       blockers.push("Work item status must be Approved before starting workflow.");
     } else {
       checks.push("Work item is approved.");
+    }
+
+    if (!resolvedRepository) {
+      blockers.push("No workspace is attached to this work item scope. Create a local workspace before starting delivery stages.");
+    } else {
+      checks.push(`Workspace resolved: ${resolvedRepository.name}.`);
+      if (!resolvedRepository.remote_url) {
+        warnings.push("Workspace has no remote configured. Local-only delivery is fine, but push stages will remain local until a remote is added.");
+      }
     }
 
     const assignmentMatch = (teamAssignments ?? []).find((assignment: TeamAssignment) => {
@@ -865,6 +1131,7 @@ export function WorkItemListPage() {
     modelBindings,
     modelDefinitions,
     providers,
+    resolvedRepository,
   ]);
 
   return (
@@ -886,11 +1153,38 @@ export function WorkItemListPage() {
 
           {workItemWorkspaceTab === "backlog" && (
             <>
+              <ScopeBreadcrumb
+                label="Current Scope"
+                productName={activeProduct?.name}
+                moduleName={activeModule?.name}
+                capabilityName={activeCapability?.name}
+              />
               <div style={styles.sectionTitle}>
                 <span>Backlog</span>
-                <button style={styles.ghostBtn} onClick={openWorkItemCreateDialog}>+ New Work Item</button>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  {selectedBacklogItems.length > 0 ? (
+                    <>
+                      <button
+                        style={{ ...styles.btn, backgroundColor: "#2d6a3f" }}
+                        onClick={() => void runBulkApprovalAction("approve")}
+                        disabled={bulkActionInFlight !== null}
+                      >
+                        {bulkActionInFlight === "approve" ? "Approving..." : `Approve Selected (${selectedBacklogItems.length})`}
+                      </button>
+                      <button
+                        style={styles.btnDanger}
+                        onClick={() => void runBulkApprovalAction("reject")}
+                        disabled={bulkActionInFlight !== null}
+                      >
+                        {bulkActionInFlight === "reject" ? "Rejecting..." : `Reject Selected (${selectedBacklogItems.length})`}
+                      </button>
+                    </>
+                  ) : null}
+                  <button style={styles.ghostBtn} onClick={openWorkItemCreateDialog}>+ New Work Item</button>
+                </div>
               </div>
               {!activeProductId && <div style={styles.warning}>Select a product to load the backlog.</div>}
+              {actionError && <div style={styles.errorText}>{actionError}</div>}
               <select style={styles.filterSelect} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
                 <option value="">All Statuses</option>
                 {Object.keys(statusColors).map((status) => (
@@ -898,7 +1192,7 @@ export function WorkItemListPage() {
                 ))}
               </select>
               <div style={styles.smallText}>
-                Scope: {activeCapabilityId ? "Outcome" : activeModuleId ? "Module" : activeProductId ? "Product" : "None selected"}
+                Showing work items for: {scopeDescriptor}
               </div>
               {isLoading ? (
                 <div style={styles.empty}>Loading work items...</div>
@@ -936,25 +1230,62 @@ export function WorkItemListPage() {
                         >
                           <div style={styles.taskRowCard}>
                             <div style={styles.taskMain}>
-                              <div style={styles.taskTitle}>{workItem.title}</div>
+                              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedBacklogItemIds.includes(workItem.id)}
+                                  onChange={(event) => {
+                                    event.stopPropagation();
+                                    setSelectedBacklogItemIds((current) =>
+                                      event.target.checked
+                                        ? [...current, workItem.id]
+                                        : current.filter((id) => id !== workItem.id),
+                                    );
+                                  }}
+                                  onClick={(event) => event.stopPropagation()}
+                                />
+                                <div style={styles.taskTitle}>{workItem.title}</div>
+                              </div>
                               <div style={styles.taskMeta}>
-                                <span>{workItem.work_item_type}</span>
+                                <span>{formatWorkItemTypeLabel(workItem.work_item_type)}</span>
                                 <span>{workItem.priority}</span>
                                 {runtimeStatus.stageLabel ? <span>stage: {runtimeStatus.stageLabel}</span> : null}
                               </div>
                             </div>
                             <div style={styles.taskStatusLine}>
                               <div style={styles.badgeRow}>
-                                <span style={{ ...styles.badge, ...getToneBadgeStyle(runtimeStatus.tone) }}>
-                                  {runtimeStatus.label}
-                                </span>
                                 <span style={{ ...styles.badge, backgroundColor: statusColors[workItem.status] || "#444", color: "#fff" }}>
                                   {workItem.status.replace(/_/g, " ")}
                                 </span>
+                                {runtimeStatus.label !== workItem.status.replace(/_/g, " ") ? (
+                                  <span style={{ ...styles.badge, ...getToneBadgeStyle(runtimeStatus.tone) }}>
+                                    {runtimeStatus.label}
+                                  </span>
+                                ) : null}
                               </div>
                               <div style={styles.taskStatusSummary}>{runtimeStatus.detail}</div>
                             </div>
                             <div style={styles.taskActions}>
+                              <button
+                                style={workItem.status === "approved" ? styles.ghostBtn : { ...styles.btn, backgroundColor: "#2d6a3f" }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void runRowApprovalAction(workItem.id, "approve");
+                                }}
+                                disabled={isRowActionPending(workItem.id)}
+                              >
+                                {isRowActionPending(workItem.id) ? "Working..." : workItem.status === "approved" ? "Approved" : "Approve"}
+                              </button>
+                              <button
+                                style={styles.btnDanger}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void runRowApprovalAction(workItem.id, "reject");
+                                }}
+                                disabled={isRowActionPending(workItem.id)}
+                              >
+                                {isRowActionPending(workItem.id) ? "Working..." : "Reject"}
+                              </button>
                               <span style={styles.dragHandle} title="Drag to reorder">::</span>
                               <div style={styles.overflowWrap}>
                                 <button
@@ -1018,11 +1349,21 @@ export function WorkItemListPage() {
                   </button>
                   <button style={{ ...styles.btn, backgroundColor: "#2d6a3f" }} onClick={() => approveMutation.mutate()}>Approve</button>
                   <button style={styles.btnDanger} onClick={() => rejectMutation.mutate()}>Reject</button>
+                  {workflowRunId && (
+                    <button
+                      style={styles.btn}
+                      onClick={() => restartWorkflowMutation.mutate()}
+                      disabled={restartWorkflowMutation.isPending}
+                    >
+                      {restartWorkflowMutation.isPending ? "Restarting..." : "Restart Workflow"}
+                    </button>
+                  )}
                   <button style={styles.ghostBtn} onClick={() => setIsEditingWorkItem(true)}>
                     Edit Work Item
                   </button>
                 </div>
                 {actionError && <div style={styles.errorText}>{actionError}</div>}
+                {actionInfo && <div style={{ ...styles.smallText, color: "#4ec9b0", marginBottom: 10 }}>{actionInfo}</div>}
                 <div style={styles.readinessCard}>
                   <div style={styles.readinessHeading}>Workflow Readiness Check</div>
                   {workflowReadiness.blockers.length === 0 && workflowReadiness.warnings.length === 0 ? (
@@ -1044,11 +1385,54 @@ export function WorkItemListPage() {
                     </div>
                   ))}
                 </div>
+                <div style={styles.detailCard}>
+                  <div style={styles.detailLabel}>Workspace Readiness</div>
+                  {resolvedRepository ? (
+                    <>
+                      <div style={styles.detailValue}>{resolvedRepository.name}</div>
+                      <div style={styles.smallText}>{resolvedRepository.local_path}</div>
+                      <div style={styles.smallText}>
+                        {resolvedRepository.remote_url
+                          ? `Remote configured: ${resolvedRepository.remote_url}`
+                          : "Remote: not configured"}
+                      </div>
+                      <div style={styles.smallText}>Version history: enabled</div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={styles.warning}>
+                        No workspace is attached to the current work item scope.
+                      </div>
+                      <div style={styles.smallText}>
+                        Create the workspace here and AruviStudio will enable version history and attach it automatically.
+                      </div>
+                      <div style={{ marginTop: 10 }}>
+                        <button
+                          style={styles.btn}
+                          onClick={() => createWorkspaceMutation.mutate()}
+                          disabled={createWorkspaceMutation.isPending}
+                        >
+                          {createWorkspaceMutation.isPending ? "Creating Workspace..." : "Create Workspace"}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
 
                 <>
                   <div style={styles.detailCard}>
                     <div style={styles.detailLabel}>Description</div>
                     <div style={styles.detailValue}>{selectedWorkItemSummary.description || "No description yet."}</div>
+                  </div>
+                  <div style={styles.detailCard}>
+                    <div style={styles.detailLabel}>Execution Steps</div>
+                    <div style={styles.list}>
+                      {getWorkItemExecutionSteps(selectedWorkItemSummary, resolvedRepository?.name ?? null).map((step, index) => (
+                        <div key={`${selectedWorkItemSummary.id}-step-${index}`} style={styles.listItem}>
+                          <div style={styles.detailValue}>{index + 1}. {step}</div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   <div style={styles.row}>
                     <div style={styles.detailCard}><div style={styles.detailLabel}>Work Item Status</div><div style={styles.detailValue}>{selectedWorkItemSummary.status.replace(/_/g, " ")}</div></div>
@@ -1071,6 +1455,39 @@ export function WorkItemListPage() {
 
           {workItemWorkspaceTab === "review" && (
             <>
+              <div style={styles.detailCard}>
+                <div style={styles.detailLabel}>Workspace Readiness</div>
+                {resolvedRepository ? (
+                  <>
+                    <div style={styles.detailValue}>{resolvedRepository.name}</div>
+                    <div style={styles.smallText}>{resolvedRepository.local_path}</div>
+                      <div style={styles.smallText}>
+                        {resolvedRepository.remote_url
+                          ? `Remote configured: ${resolvedRepository.remote_url}`
+                          : "Remote: not configured"}
+                    </div>
+                    <div style={styles.smallText}>Version history: enabled</div>
+                  </>
+                ) : (
+                  <>
+                    <div style={styles.warning}>
+                      No workspace is attached to the current work item scope.
+                    </div>
+                    <div style={styles.smallText}>
+                      Delivery stages will be blocked until a workspace exists for this scope.
+                    </div>
+                    <div style={{ marginTop: 10 }}>
+                      <button
+                        style={styles.btn}
+                        onClick={() => createWorkspaceMutation.mutate()}
+                        disabled={createWorkspaceMutation.isPending}
+                      >
+                        {createWorkspaceMutation.isPending ? "Creating Workspace..." : "Create Workspace"}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
               <div style={styles.sectionTitle}>Review Signals</div>
               <div style={styles.detailCard}>
                 <div style={styles.detailLabel}>Workflow</div>
@@ -1395,9 +1812,38 @@ export function WorkItemListPage() {
             <div style={{ ...styles.detailLabel, marginTop: 10 }}>Summary</div>
             <div style={styles.smallText}>{artifactModalArtifact.summary}</div>
           </div>
-          <div style={styles.previewBox}>
-            {(artifactModalContent ?? "").trim() || "Artifact content is empty."}
-          </div>
+          {artifactModalTraceSteps ? (
+            <div>
+              <div style={{ ...styles.detailLabel, marginBottom: 8 }}>
+                Tool Trace Timeline ({artifactModalTraceSteps.length} steps)
+              </div>
+              {artifactModalTraceSteps.map((stepGroup) => (
+                <div key={stepGroup.step} style={styles.traceStepCard}>
+                  <div style={styles.traceStepHeader}>
+                    <div style={styles.traceStepTitle}>Step {stepGroup.step}</div>
+                    <div style={styles.traceStepMeta}>{stepGroup.events.length} events</div>
+                  </div>
+                  <div style={styles.traceEventList}>
+                    {stepGroup.events.map((event, index) => {
+                      const eventStyle = event.kind.includes("error")
+                        ? styles.traceEventCardError
+                        : styles.traceEventCard;
+                      return (
+                        <div key={`${stepGroup.step}-${event.kind}-${index}`} style={eventStyle}>
+                          <div style={styles.traceEventKind}>{event.kind.replace(/_/g, " ")}</div>
+                          <pre style={styles.traceEventPayload}>{event.payload}</pre>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={styles.previewBox}>
+              {(artifactModalContent ?? "").trim() || "Artifact content is empty."}
+            </div>
+          )}
         </ModalShell>
       )}
 

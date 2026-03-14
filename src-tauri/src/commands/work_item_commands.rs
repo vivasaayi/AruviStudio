@@ -1,4 +1,4 @@
-use crate::domain::work_item::WorkItem;
+use crate::domain::work_item::{ProductWorkItemSummary, WorkItem};
 use crate::error::AppError;
 use crate::persistence::work_item_repo;
 use crate::state::AppState;
@@ -112,6 +112,18 @@ pub async fn list_work_items(
     .await;
     if let Err(err) = &result {
         error!(product_id = ?product_id, module_id = ?module_id, capability_id = ?capability_id, status = ?status, error = %err, "list_work_items failed");
+    }
+    result
+}
+
+#[tauri::command]
+pub async fn summarize_work_items_by_product(
+    state: State<'_, AppState>,
+) -> Result<Vec<ProductWorkItemSummary>, AppError> {
+    debug!("summarize_work_items_by_product requested");
+    let result = work_item_repo::summarize_work_items_by_product(&state.db).await;
+    if let Err(err) = &result {
+        error!(error = %err, "summarize_work_items_by_product failed");
     }
     result
 }
