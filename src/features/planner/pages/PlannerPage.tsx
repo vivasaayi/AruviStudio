@@ -207,9 +207,9 @@ declare global {
 }
 
 const DEFAULT_ASSISTANT_OPENING =
-  "Tell me what to do in plain English. Example: create a product called Studio Ops, add a module named Voice Planner, create a work item to wire approvals into speech, and start the workflow.";
+  "Talk to me like a planning lead. Describe the product or outcome you want, and I’ll check what already exists, suggest any missing products, capabilities, or work items, and wait for your confirmation before adding them.";
 
-const PLANNER_SYSTEM_PROMPT = `You are an operations planner for a product-management desktop app.
+const PLANNER_SYSTEM_PROMPT = `You are an AI planning lead for a product-management desktop app.
 Convert the user's request into a JSON object only, with this exact shape:
 {
   "assistant_response": "brief natural-language reply",
@@ -220,8 +220,11 @@ Convert the user's request into a JSON object only, with this exact shape:
 
 Rules:
 - Output valid JSON only. No markdown.
-- Prefer actions over prose when the user's intent is actionable.
-- If the request is destructive (delete, archive, reject, cancel), set needs_confirmation=true.
+- Behave conversationally. First reason about what already exists in the supplied context, then suggest what should be added, changed, approved, or tracked.
+- If the user is exploring or describing a need, prefer proposing actions rather than assuming immediate execution.
+- If an entity already seems to exist, do not suggest creating a duplicate unless the user explicitly asks for a separate one.
+- For any mutating action, assume confirmation is required before execution. Set needs_confirmation=true.
+- Only set needs_confirmation=false for purely informational replies such as status reporting with no mutations.
 - If the request is ambiguous, set actions=[] and put the missing detail in clarification_question.
 - Use these action types only:
 create_product, update_product, archive_product,
@@ -234,7 +237,8 @@ start_workflow, workflow_action, report_status.
 - For create_work_item defaults when omitted: workItemType=feature, priority=medium, complexity=medium.
 - For create_capability defaults when omitted: priority=medium, risk=medium.
 - For workflow_action action must be one of approve,reject,pause,resume,cancel.
-- assistant_response should be concise and operational.`;
+- assistant_response should sound like a planning lead: mention what already exists, what is missing, and what you recommend doing next.
+- When you propose actions, phrase assistant_response as a suggestion awaiting confirmation.`;
 
 function normalize(value?: string | null) {
   return (value ?? "").trim().toLowerCase();
@@ -245,10 +249,15 @@ function makeId() {
 }
 
 function summarizeContext(context: ResolverContext) {
+  const productNameById = new Map(context.products.map((product) => [product.id, product.name]));
+  const moduleNameById = new Map<string, string>();
+  const capabilityNameById = new Map<string, string>();
   const productLines = context.productTrees.map((tree) => {
     const modules = tree.modules.map((moduleTree) => {
+      moduleNameById.set(moduleTree.module.id, moduleTree.module.name);
       const capabilities: string[] = [];
       const visit = (node: CapabilityTree) => {
+        capabilityNameById.set(node.capability.id, node.capability.name);
         capabilities.push(node.capability.name);
         node.children.forEach(visit);
       };
@@ -257,7 +266,15 @@ function summarizeContext(context: ResolverContext) {
     });
     return `${tree.product.name}: ${modules.join(" | ") || "no modules"}`;
   });
-  const workItemLines = context.workItems.slice(0, 120).map((item) => `${item.title} [${item.status}]${item.product_id ? ` product=${item.product_id}` : ""}`);
+  const workItemLines = context.workItems.slice(0, 120).map((item) => {
+    const parts = [
+      `${item.title} [${item.status}]`,
+      productNameById.get(item.product_id) ? `product=${productNameById.get(item.product_id)}` : null,
+      item.module_id ? `module=${moduleNameById.get(item.module_id) ?? item.module_id}` : null,
+      item.capability_id ? `capability=${capabilityNameById.get(item.capability_id) ?? item.capability_id}` : null,
+    ].filter(Boolean);
+    return parts.join(" | ");
+  });
   return [
     "Products and structure:",
     ...productLines,
@@ -289,6 +306,21 @@ function parsePlannerResponse(raw: string): PlannerPlan {
   };
 }
 
+function isInformationalOnly(plan: PlannerPlan) {
+  return plan.actions.length > 0 && plan.actions.every((action) => action.type === "report_status");
+}
+
+function requiresConfirmation(plan: PlannerPlan) {
+  if (plan.actions.length === 0) {
+    return false;
+  }
+  return plan.needs_confirmation || !isInformationalOnly(plan);
+}
+
+function buildConversationHistory(messages: PlannerMessage[]) {
+  return messages.slice(-8).map((message) => `${message.role.toUpperCase()}: ${message.content}`).join("\n");
+}
+
 function heuristicPlan(input: string): PlannerPlan {
   const lower = normalize(input);
   if (!lower) {
@@ -317,16 +349,16 @@ function heuristicPlan(input: string): PlannerPlan {
   }
   if (lower.includes("approve")) {
     return {
-      assistant_response: "I’ll approve the referenced work item if I can resolve it.",
-      needs_confirmation: false,
+      assistant_response: "I found an approval intent. I’ll hold it as a proposed action until you confirm.",
+      needs_confirmation: true,
       clarification_question: null,
       actions: [{ type: "approve_work_item" }],
     };
   }
   return {
-    assistant_response: "I could not safely infer a structured action from that without a model.",
+    assistant_response: "I need a model to turn open-ended planning conversation into structured suggestions.",
     needs_confirmation: false,
-    clarification_question: "Configure a model, or be more explicit about the exact product, module, capability, or work item.",
+    clarification_question: "Configure a model, or tell me explicitly what product, capability, or work item you want me to assess.",
     actions: [],
   };
 }
@@ -828,6 +860,7 @@ export function PlannerPage() {
       let plan: PlannerPlan;
       if (providerId && modelName) {
         const contextSummary = summarizeContext(context);
+        const conversationHistory = buildConversationHistory(messages);
         const completion = await runModelChatCompletion({
           providerId,
           model: modelName,
@@ -835,7 +868,7 @@ export function PlannerPage() {
           maxTokens: 1800,
           messages: [
             { role: "system", content: PLANNER_SYSTEM_PROMPT },
-            { role: "user", content: `Current context:\n${contextSummary}\n\nUser request:\n${userInput}` },
+            { role: "user", content: `Current context:\n${contextSummary}\n\nRecent conversation:\n${conversationHistory || "No prior conversation."}\n\nLatest user request:\n${userInput}` },
           ],
         });
         plan = parsePlannerResponse(completion.content);
@@ -843,7 +876,7 @@ export function PlannerPage() {
         plan = heuristicPlan(userInput);
       }
 
-      if (plan.needs_confirmation && plan.actions.length > 0) {
+      if (requiresConfirmation(plan)) {
         return {
           mode: "confirmation_required" as const,
           userInput,
@@ -877,8 +910,8 @@ export function PlannerPage() {
           next.push({
             id: makeId(),
             role: "assistant",
-            content: `${result.plan.assistant_response}\n\nPending confirmation for: ${actionSummary}. Say "confirm" to execute or give a correction.`,
-            meta: "Awaiting confirmation",
+            content: `${result.plan.assistant_response}\n\nSuggested actions: ${actionSummary}. Say "confirm" to apply them, or keep talking and I’ll refine the plan.`,
+            meta: "Suggestion awaiting confirmation",
           });
           return next;
         }
@@ -905,7 +938,7 @@ export function PlannerPage() {
           ...(result.execution?.lines ?? []),
           ...(result.execution?.errors.length ? [`Errors: ${result.execution.errors.join(" | ")}`] : []),
         ].join("\n");
-        next.push({ id: makeId(), role: "assistant", content: output, meta: "Planner execution" });
+        next.push({ id: makeId(), role: "assistant", content: output, meta: isInformationalOnly(result.plan) ? "Status report" : "Planner execution" });
         return next;
       });
 
@@ -924,7 +957,7 @@ export function PlannerPage() {
         const lastAssistant = result.mode === "clarification"
           ? result.plan.clarification_question ?? result.plan.assistant_response
           : result.mode === "confirmation_required"
-            ? `${result.plan.assistant_response}. Say confirm to execute.`
+            ? `${result.plan.assistant_response}. Say confirm to apply the proposal.`
             : result.mode === "confirmed"
               ? "Executed the pending planner actions."
               : result.plan.assistant_response;
@@ -967,7 +1000,7 @@ export function PlannerPage() {
         <div style={styles.titleWrap}>
           <h1 style={styles.title}>Interactive Planner</h1>
           <div style={styles.subtitle}>
-            This replaces button-by-button planning with a conversational command layer. You can tell it to create, update, remove, approve, reject, start workflows, and report status. Voice input and spoken responses are supported when the runtime exposes browser speech APIs.
+            This is now suggestion-first. Describe what you want in natural language, the planner checks existing products, capabilities, and work items, then proposes additions or changes and waits for confirmation before applying them. Voice input and spoken responses are supported when the runtime exposes browser speech APIs.
           </div>
         </div>
       </div>
@@ -999,13 +1032,13 @@ export function PlannerPage() {
                   {isListening ? "Stop Listening" : "Start Listening"}
                 </button>
                 <button style={styles.btnGhost} onClick={() => setDraft("confirm")} disabled={!pendingPlan}>
-                  Confirm Pending
+                  Confirm Proposal
                 </button>
                 <button style={styles.btnDanger} onClick={() => setPendingPlan(null)} disabled={!pendingPlan}>
                   Clear Pending
                 </button>
                 <span style={styles.status}>
-                  {pendingPlan ? "A destructive or ambiguous action is waiting for confirmation." : "No pending confirmation."}
+                  {pendingPlan ? "A proposed plan is waiting for confirmation." : "No pending proposal."}
                 </span>
               </div>
             </div>
@@ -1037,7 +1070,7 @@ export function PlannerPage() {
                 ))}
               </select>
               <div style={{ ...styles.helper, marginTop: 10 }}>
-                With a configured model, the planner translates free-form requests into executable actions. Without one, it falls back to simple heuristics.
+                With a configured model, the planner can have a more natural conversation, inspect current structure, and suggest additions instead of acting immediately. Without one, it falls back to simple heuristics.
               </div>
             </div>
 
@@ -1066,7 +1099,7 @@ export function PlannerPage() {
                 {activeWorkItemId ? <div style={styles.chip}>work item selected</div> : null}
               </div>
               <div style={{ ...styles.helper, marginTop: 10 }}>
-                If you omit names, the planner tries to use the currently selected scope before asking for clarification.
+                If you omit names, the planner first tries the currently selected scope, then asks follow-up questions if it still cannot resolve the target cleanly.
               </div>
             </div>
 
@@ -1074,16 +1107,16 @@ export function PlannerPage() {
               <div style={styles.label}>Examples</div>
               <div style={styles.list}>
                 <div style={styles.listItem}>
-                  <div style={styles.listItemTitle}>Create structure</div>
-                  <div style={styles.listItemMeta}>Create a product called Growth OS, add a module called Outreach, and add a capability called Voice Campaigns.</div>
+                  <div style={styles.listItemTitle}>Explore before creating</div>
+                  <div style={styles.listItemMeta}>I want a voice-driven planning experience for my studio. Check what already exists and suggest what product structure I should add.</div>
                 </div>
                 <div style={styles.listItem}>
-                  <div style={styles.listItemTitle}>Drive execution</div>
-                  <div style={styles.listItemMeta}>Create a work item called Add WhatsApp follow-up flow under Voice Campaigns, approve it, and start the workflow.</div>
+                  <div style={styles.listItemTitle}>Turn needs into backlog</div>
+                  <div style={styles.listItemMeta}>I want agents to call me on WhatsApp and also let me assign work by voice. What capabilities and work items are missing?</div>
                 </div>
                 <div style={styles.listItem}>
-                  <div style={styles.listItemTitle}>Check status</div>
-                  <div style={styles.listItemMeta}>What is the status of Add WhatsApp follow-up flow?</div>
+                  <div style={styles.listItemTitle}>Confirm after review</div>
+                  <div style={styles.listItemMeta}>That proposal looks right. Confirm it and add the suggested work items.</div>
                 </div>
               </div>
             </div>
@@ -1092,7 +1125,7 @@ export function PlannerPage() {
               <div style={styles.sideCard}>
                 <div style={styles.label}>Pending Confirmation</div>
                 <div style={styles.warning}>
-                  The last request produced actions that require confirmation before execution.
+                  The last request produced a proposed plan. Review it, then confirm when you want it applied.
                 </div>
                 <div style={styles.list}>
                   {pendingPlan.plan.actions.map((action, index) => (
