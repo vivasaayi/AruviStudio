@@ -19,6 +19,7 @@ const styles: Record<string, any> = {
 const navItems = [
   { key: "products", label: "Products" },
   { key: "work-items", label: "Work Items" },
+  { key: "planner", label: "Planner" },
   { key: "chat", label: "Chat" },
   { key: "ide", label: "IDE" },
   { key: "repositories", label: "Workspaces" },

@@ -12,6 +12,7 @@ const ModelProviderListPage = lazy(() => import("./features/models/pages/ModelPr
 const SettingsPage = lazy(() => import("./features/settings/pages/SettingsPage").then((module) => ({ default: module.SettingsPage })));
 const IDEPage = lazy(() => import("./features/ide/pages/IDEPage").then((module) => ({ default: module.IDEPage })));
 const ChatPage = lazy(() => import("./features/chat/pages/ChatPage").then((module) => ({ default: module.ChatPage })));
+const PlannerPage = lazy(() => import("./features/planner/pages/PlannerPage").then((module) => ({ default: module.PlannerPage })));
 
 const fallback = <div style={{ padding: 16, color: "#8f96a3" }}>Loading workspace…</div>;
 
@@ -26,6 +27,7 @@ function App() {
             <Route path="/products/:productId" element={<ProductDetailPage />} />
             <Route path="/work-items" element={<WorkItemListPage />} />
             <Route path="/work-items/:workItemId" element={<WorkItemDetailPage />} />
+            <Route path="/planner" element={<PlannerPage />} />
             <Route path="/repositories" element={<RepositoryListPage />} />
             <Route path="/agents" element={<AgentRegistryPage />} />
             <Route path="/models" element={<ModelProviderListPage />} />
