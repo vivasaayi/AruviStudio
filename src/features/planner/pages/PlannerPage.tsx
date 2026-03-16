@@ -66,6 +66,31 @@ const styles: Record<string, React.CSSProperties> = {
   listItem: { borderRadius: 10, border: "1px solid #303742", backgroundColor: "#151922", padding: 10 },
   listItemTitle: { fontSize: 12, fontWeight: 700, color: "#edf1f8", marginBottom: 4 },
   listItemMeta: { fontSize: 12, color: "#9da7b5", whiteSpace: "pre-wrap" as const },
+  card: { border: "1px solid #3a4250", backgroundColor: "#1b2029", borderRadius: 12, padding: 12, marginTop: 10 },
+  cardTitle: { fontSize: 13, fontWeight: 800, color: "#eef3fb", marginBottom: 8 },
+  cardSection: { marginTop: 10 },
+  diffRow: { display: "grid", gridTemplateColumns: "24px minmax(0, 1fr)", gap: 8, alignItems: "start", padding: "8px 0", borderTop: "1px solid #2c3440" },
+  diffSymbolAdd: { color: "#59d6b2", fontWeight: 800, fontSize: 16, lineHeight: 1.2 },
+  diffSymbolUpdate: { color: "#7db7ff", fontWeight: 800, fontSize: 16, lineHeight: 1.2 },
+  diffSymbolWarn: { color: "#ffb86c", fontWeight: 800, fontSize: 16, lineHeight: 1.2 },
+  diffPrimary: { fontSize: 13, color: "#edf1f8", fontWeight: 700 },
+  diffSecondary: { fontSize: 12, color: "#9da7b5", marginTop: 4, whiteSpace: "pre-wrap" as const },
+  treePanel: { border: "1px solid #3a4250", backgroundColor: "#161b22", borderRadius: 12, padding: 12, marginTop: 10 },
+  treeNode: { marginLeft: 0 },
+  treeSummary: { cursor: "pointer", listStyle: "none", fontSize: 13, color: "#edf1f8", fontWeight: 700, padding: "4px 0" },
+  treeChildren: { marginLeft: 18, borderLeft: "1px solid #2e3744", paddingLeft: 10 },
+  treeLeaf: { fontSize: 13, color: "#d6dce7", padding: "4px 0" },
+  treeMeta: { fontSize: 11, color: "#8f96a3", marginLeft: 6 },
+  inlineButtonRow: { display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" as const },
+};
+
+type PlannerMessageKind = "text" | "proposal" | "tree" | "report" | "execution" | "error";
+
+type PlannerTreeNode = {
+  id: string;
+  label: string;
+  meta?: string;
+  children: PlannerTreeNode[];
 };
 
 type PlannerMessage = {
@@ -73,6 +98,9 @@ type PlannerMessage = {
   role: "user" | "assistant";
   content: string;
   meta?: string;
+  kind?: PlannerMessageKind;
+  plan?: PlannerPlan;
+  treeNodes?: PlannerTreeNode[];
 };
 
 type PlannerAction =
@@ -144,7 +172,8 @@ type PlannerAction =
   | { type: "approve_work_item_test_review"; target?: { productName?: string; workItemTitle?: string }; notes?: string }
   | { type: "start_workflow"; target?: { productName?: string; workItemTitle?: string } }
   | { type: "workflow_action"; target?: { productName?: string; workItemTitle?: string }; action: "approve" | "reject" | "pause" | "resume" | "cancel"; notes?: string }
-  | { type: "report_status"; target?: { productName?: string; workItemTitle?: string } };
+  | { type: "report_status"; target?: { productName?: string; workItemTitle?: string } }
+  | { type: "report_tree"; target?: { productName?: string } };
 
 type PlannerPlan = {
   assistant_response: string;
@@ -172,6 +201,51 @@ type ExecutionResult = {
   lines: string[];
   errors: string[];
 };
+
+type PlannerToolCall = {
+  type: "tool_call";
+  tool: "list_products" | "get_product_tree" | "list_work_items";
+  arguments?: Record<string, unknown>;
+  reason?: string;
+};
+
+type PlannerFinalResponse = {
+  type: "final";
+  assistant_response: string;
+  needs_confirmation: boolean;
+  clarification_question: string | null;
+  actions: PlannerAction[];
+};
+
+type PlannerMutationResult =
+  | {
+      mode: "confirmed";
+      userInput: string;
+      plan: PlannerPlan;
+      execution: ExecutionResult;
+      treeNodes?: PlannerTreeNode[];
+    }
+  | {
+      mode: "confirmation_required";
+      userInput: string;
+      plan: PlannerPlan;
+      execution: null;
+      treeNodes?: PlannerTreeNode[];
+    }
+  | {
+      mode: "clarification";
+      userInput: string;
+      plan: PlannerPlan;
+      execution: null;
+      treeNodes?: PlannerTreeNode[];
+    }
+  | {
+      mode: "executed";
+      userInput: string;
+      plan: PlannerPlan;
+      execution: ExecutionResult;
+      treeNodes?: PlannerTreeNode[];
+    };
 
 type SpeechRecognitionLike = {
   continuous: boolean;
@@ -210,8 +284,20 @@ const DEFAULT_ASSISTANT_OPENING =
   "Talk to me like a planning lead. Describe the product or outcome you want, and I’ll check what already exists, suggest any missing products, capabilities, or work items, and wait for your confirmation before adding them.";
 
 const PLANNER_SYSTEM_PROMPT = `You are an AI planning lead for a product-management desktop app.
-Convert the user's request into a JSON object only, with this exact shape:
+You can inspect the workspace with tools before proposing changes.
+Return exactly one JSON object each turn.
+
+If you need more context, return:
 {
+  "type": "tool_call",
+  "tool": "list_products|get_product_tree|list_work_items",
+  "arguments": {},
+  "reason": "brief reason"
+}
+
+When you are done, return:
+{
+  "type": "final",
   "assistant_response": "brief natural-language reply",
   "needs_confirmation": true,
   "clarification_question": null,
@@ -226,13 +312,16 @@ Rules:
 - For any mutating action, assume confirmation is required before execution. Set needs_confirmation=true.
 - Only set needs_confirmation=false for purely informational replies such as status reporting with no mutations.
 - If the request is ambiguous, set actions=[] and put the missing detail in clarification_question.
+- Use tools when the request depends on current repo state or structure instead of guessing from the prompt alone.
+- Do not call mutation tools. You are only planning. Proposed mutations go in final.actions.
+- After receiving tool results, continue reasoning and either call another tool or return type=final.
 - Use these action types only:
 create_product, update_product, archive_product,
 create_module, update_module, delete_module,
 create_capability, update_capability, delete_capability,
 create_work_item, update_work_item, delete_work_item,
 approve_work_item, reject_work_item, approve_work_item_plan, reject_work_item_plan, approve_work_item_test_review,
-start_workflow, workflow_action, report_status.
+start_workflow, workflow_action, report_status, report_tree.
 - Use product/module/capability/work item names in target fields, never IDs.
 - For create_work_item defaults when omitted: workItemType=feature, priority=medium, complexity=medium.
 - For create_capability defaults when omitted: priority=medium, risk=medium.
@@ -284,30 +373,133 @@ function summarizeContext(context: ResolverContext) {
 }
 
 function extractJsonObject(raw: string) {
-  const trimmed = raw.trim();
-  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
-    return trimmed;
+  const withoutFences = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "");
+  const withoutComments = withoutFences
+    .replace(/^\s*\/\/.*$/gm, "")
+    .replace(/^\s*#.*$/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .trim();
+
+  if (withoutComments.startsWith("{") && withoutComments.endsWith("}")) {
+    return withoutComments;
   }
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start >= 0 && end > start) {
-    return trimmed.slice(start, end + 1);
+
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < withoutComments.length; index += 1) {
+    const char = withoutComments[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      if (depth === 0) {
+        start = index;
+      }
+      depth += 1;
+      continue;
+    }
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        return withoutComments.slice(start, index + 1);
+      }
+    }
+  }
+
+  const looseStart = withoutComments.indexOf("{");
+  const looseEnd = withoutComments.lastIndexOf("}");
+  if (looseStart >= 0 && looseEnd > looseStart) {
+    return withoutComments.slice(looseStart, looseEnd + 1);
   }
   throw new Error("Planner model did not return JSON.");
 }
 
 function parsePlannerResponse(raw: string): PlannerPlan {
-  const parsed = JSON.parse(extractJsonObject(raw)) as Partial<PlannerPlan>;
+  let parsed: Partial<PlannerPlan>;
+  try {
+    parsed = JSON.parse(extractJsonObject(raw)) as Partial<PlannerPlan>;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Planner response was not usable JSON. ${message}`);
+  }
   return {
     assistant_response: typeof parsed.assistant_response === "string" ? parsed.assistant_response : "I translated that into planner actions.",
     needs_confirmation: Boolean(parsed.needs_confirmation),
     clarification_question: typeof parsed.clarification_question === "string" ? parsed.clarification_question : null,
-    actions: Array.isArray(parsed.actions) ? (parsed.actions as PlannerAction[]) : [],
+    actions: Array.isArray(parsed.actions)
+      ? (parsed.actions.filter(isPlannerAction) as PlannerAction[])
+      : [],
+  };
+}
+
+function parsePlannerAgentTurn(raw: string): PlannerToolCall | PlannerFinalResponse {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(extractJsonObject(raw));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Planner response was not usable JSON. ${message}`);
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("Planner response was not an object.");
+  }
+
+  const candidate = parsed as Record<string, unknown>;
+  if (candidate.type === "tool_call") {
+    const tool = candidate.tool;
+    if (tool !== "list_products" && tool !== "get_product_tree" && tool !== "list_work_items") {
+      throw new Error("Planner requested an unsupported tool.");
+    }
+    return {
+      type: "tool_call",
+      tool,
+      arguments: candidate.arguments && typeof candidate.arguments === "object"
+        ? (candidate.arguments as Record<string, unknown>)
+        : {},
+      reason: typeof candidate.reason === "string" ? candidate.reason : undefined,
+    };
+  }
+
+  if (candidate.type === "final") {
+    const plan = parsePlannerResponse(JSON.stringify(candidate));
+    return {
+      type: "final",
+      assistant_response: plan.assistant_response,
+      needs_confirmation: plan.needs_confirmation,
+      clarification_question: plan.clarification_question,
+      actions: plan.actions,
+    };
+  }
+
+  const plan = parsePlannerResponse(JSON.stringify(candidate));
+  return {
+    type: "final",
+    assistant_response: plan.assistant_response,
+    needs_confirmation: plan.needs_confirmation,
+    clarification_question: plan.clarification_question,
+    actions: plan.actions,
   };
 }
 
 function isInformationalOnly(plan: PlannerPlan) {
-  return plan.actions.length > 0 && plan.actions.every((action) => action.type === "report_status");
+  return plan.actions.length > 0 && plan.actions.every((action) => action.type === "report_status" || action.type === "report_tree");
 }
 
 function requiresConfirmation(plan: PlannerPlan) {
@@ -339,6 +531,14 @@ function heuristicPlan(input: string): PlannerPlan {
       actions: [],
     };
   }
+  if ((lower.includes("tree") || lower.includes("hierarch")) && (lower.includes("work item") || lower.includes("workitem") || lower.includes("tasks"))) {
+    return {
+      assistant_response: "I’ll show the current work items in a hierarchical tree.",
+      needs_confirmation: false,
+      clarification_question: null,
+      actions: [{ type: "report_tree" }],
+    };
+  }
   if (lower.includes("status")) {
     return {
       assistant_response: "I’ll report the status for the requested item if I can resolve it.",
@@ -361,6 +561,132 @@ function heuristicPlan(input: string): PlannerPlan {
     clarification_question: "Configure a model, or tell me explicitly what product, capability, or work item you want me to assess.",
     actions: [],
   };
+}
+
+function detectLocalInformationalPlan(input: string): PlannerPlan | null {
+  const lower = normalize(input);
+  if ((lower.includes("tree") || lower.includes("hierarch")) && (lower.includes("work item") || lower.includes("workitem") || lower.includes("tasks"))) {
+    return {
+      assistant_response: "I’ll show the current work items in a hierarchical tree.",
+      needs_confirmation: false,
+      clarification_question: null,
+      actions: [{ type: "report_tree" }],
+    };
+  }
+  if (lower.includes("status")) {
+    return {
+      assistant_response: "I’ll report the current status from the local workspace data.",
+      needs_confirmation: false,
+      clarification_question: null,
+      actions: [{ type: "report_status" }],
+    };
+  }
+  return null;
+}
+
+function stringifyToolResult(value: unknown) {
+  return JSON.stringify(value, null, 2);
+}
+
+function getStringArg(args: Record<string, unknown> | undefined, key: string) {
+  const value = args?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+async function executePlannerReadTool(toolCall: PlannerToolCall, context: ResolverContext) {
+  switch (toolCall.tool) {
+    case "list_products":
+      return context.products.map((product) => ({
+        name: product.name,
+        description: product.description,
+        vision: product.vision,
+        status: product.status,
+        tags: product.tags,
+      }));
+    case "get_product_tree": {
+      const product = findProduct(context, getStringArg(toolCall.arguments, "productName"));
+      const tree = findTree(context, product);
+      return {
+        product: tree.product.name,
+        modules: tree.modules.map((moduleTree) => ({
+          name: moduleTree.module.name,
+          description: moduleTree.module.description,
+          capabilities: flattenCapabilities(moduleTree.features).map((capabilityTree) => ({
+            name: capabilityTree.capability.name,
+            description: capabilityTree.capability.description,
+          })),
+        })),
+      };
+    }
+    case "list_work_items": {
+      const productName = getStringArg(toolCall.arguments, "productName");
+      const status = getStringArg(toolCall.arguments, "status");
+      const scopedProduct = productName ? findProduct(context, productName) : null;
+      return context.workItems
+        .filter((item) => (scopedProduct ? item.product_id === scopedProduct.id : true))
+        .filter((item) => (status ? item.status === status : true))
+        .map((item) => ({
+          title: item.title,
+          status: item.status,
+          product: context.products.find((product) => product.id === item.product_id)?.name ?? item.product_id,
+          moduleId: item.module_id,
+          capabilityId: item.capability_id,
+          parentWorkItemId: item.parent_work_item_id,
+        }));
+    }
+  }
+}
+
+async function runPlannerToolLoop(params: {
+  providerId: string;
+  modelName: string;
+  context: ResolverContext;
+  messages: PlannerMessage[];
+  userInput: string;
+}): Promise<PlannerPlan> {
+  const contextSummary = summarizeContext(params.context);
+  const conversationHistory = buildConversationHistory(params.messages);
+  const toolMessages: Array<{ role: "user" | "assistant"; content: string }> = [
+    {
+      role: "user",
+      content: `Current context snapshot:\n${contextSummary}\n\nRecent conversation:\n${conversationHistory || "No prior conversation."}\n\nLatest user request:\n${params.userInput}`,
+    },
+  ];
+
+  for (let step = 0; step < 6; step += 1) {
+    const completion = await runModelChatCompletion({
+      providerId: params.providerId,
+      model: params.modelName,
+      temperature: 0.1,
+      maxTokens: 1800,
+      messages: [
+        { role: "system", content: PLANNER_SYSTEM_PROMPT },
+        ...toolMessages,
+      ],
+    });
+
+    const turn = parsePlannerAgentTurn(completion.content);
+    if (turn.type === "final") {
+      return {
+        assistant_response: turn.assistant_response,
+        needs_confirmation: turn.needs_confirmation,
+        clarification_question: turn.clarification_question,
+        actions: turn.actions,
+      };
+    }
+
+    const toolResult = await executePlannerReadTool(turn, params.context);
+    toolMessages.push({
+      role: "assistant",
+      content: JSON.stringify(turn),
+    });
+    toolMessages.push({
+      role: "user",
+      content: `Tool result for ${turn.tool}:\n${stringifyToolResult(toolResult)}`,
+    });
+  }
+
+  throw new Error("Planner exceeded tool-step limit before returning a final plan.");
 }
 
 function speak(text: string) {
@@ -512,6 +838,262 @@ function findWorkItem(context: ResolverContext, workItemTitle?: string, productN
 
 function formatArrayField(values?: string[]) {
   return values?.join(", ") ?? "";
+}
+
+function isPlannerAction(value: unknown): value is PlannerAction {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as { type?: unknown };
+  if (typeof candidate.type !== "string") {
+    return false;
+  }
+  return new Set([
+    "create_product",
+    "update_product",
+    "archive_product",
+    "create_module",
+    "update_module",
+    "delete_module",
+    "create_capability",
+    "update_capability",
+    "delete_capability",
+    "create_work_item",
+    "update_work_item",
+    "delete_work_item",
+    "approve_work_item",
+    "reject_work_item",
+    "approve_work_item_plan",
+    "reject_work_item_plan",
+    "approve_work_item_test_review",
+    "start_workflow",
+    "workflow_action",
+    "report_status",
+    "report_tree",
+  ]).has(candidate.type);
+}
+
+function formatWorkItemLine(workItem: WorkItem, indent: string) {
+  return `${indent}- ${workItem.title} [${workItem.status}]`;
+}
+
+function appendWorkItemHierarchy(lines: string[], items: WorkItem[], parentId: string | null, indent: string) {
+  const children = items
+    .filter((item) => (item.parent_work_item_id ?? null) === parentId)
+    .sort((left, right) => left.sort_order - right.sort_order || left.title.localeCompare(right.title));
+  children.forEach((child) => {
+    lines.push(formatWorkItemLine(child, indent));
+    appendWorkItemHierarchy(lines, items, child.id, `${indent}  `);
+  });
+}
+
+function buildWorkItemTreeReport(context: ResolverContext, productName?: string) {
+  const lines: string[] = [];
+  const products = productName ? [findProduct(context, productName)] : context.products;
+
+  products.forEach((product) => {
+    lines.push(product.name);
+    const tree = context.productTrees.find((entry) => entry.product.id === product.id);
+    const productItems = context.workItems.filter((item) => item.product_id === product.id);
+
+    if (!tree) {
+      appendWorkItemHierarchy(lines, productItems, null, "  ");
+      lines.push("");
+      return;
+    }
+
+    const includedWorkItemIds = new Set<string>();
+
+    tree.modules.forEach((moduleTree) => {
+      lines.push(`  ${moduleTree.module.name}`);
+
+      const moduleDirectItems = productItems.filter(
+        (item) => item.module_id === moduleTree.module.id && !item.capability_id,
+      );
+      if (moduleDirectItems.length > 0) {
+        lines.push("    direct work items");
+        appendWorkItemHierarchy(lines, moduleDirectItems, null, "      ");
+        moduleDirectItems.forEach((item) => includedWorkItemIds.add(item.id));
+      }
+
+      const flattenedCapabilities = flattenCapabilities(moduleTree.features);
+      flattenedCapabilities.forEach((capabilityTree) => {
+        const capabilityItems = productItems.filter((item) => item.capability_id === capabilityTree.capability.id);
+        if (capabilityItems.length === 0) {
+          return;
+        }
+        lines.push(`    ${capabilityTree.capability.name}`);
+        appendWorkItemHierarchy(lines, capabilityItems, null, "      ");
+        capabilityItems.forEach((item) => includedWorkItemIds.add(item.id));
+      });
+    });
+
+    const unscopedItems = productItems.filter(
+      (item) => !includedWorkItemIds.has(item.id) && !item.parent_work_item_id,
+    );
+    if (unscopedItems.length > 0) {
+      lines.push("  unscoped");
+      appendWorkItemHierarchy(lines, unscopedItems, null, "    ");
+      unscopedItems.forEach((item) => includedWorkItemIds.add(item.id));
+    }
+
+    if (productItems.length === 0) {
+      lines.push("  no work items");
+    }
+    lines.push("");
+  });
+
+  return lines.join("\n").trim();
+}
+
+function buildWorkItemTreeNodes(context: ResolverContext, productName?: string): PlannerTreeNode[] {
+  const products = productName ? [findProduct(context, productName)] : context.products;
+
+  const buildWorkItemNodes = (items: WorkItem[], parentId: string | null): PlannerTreeNode[] =>
+    items
+      .filter((item) => (item.parent_work_item_id ?? null) === parentId)
+      .sort((left, right) => left.sort_order - right.sort_order || left.title.localeCompare(right.title))
+      .map((item) => ({
+        id: item.id,
+        label: item.title,
+        meta: item.status,
+        children: buildWorkItemNodes(items, item.id),
+      }));
+
+  return products.map((product) => {
+    const tree = context.productTrees.find((entry) => entry.product.id === product.id);
+    const productItems = context.workItems.filter((item) => item.product_id === product.id);
+    const includedWorkItemIds = new Set<string>();
+    const moduleNodes: PlannerTreeNode[] = [];
+
+    if (tree) {
+      tree.modules.forEach((moduleTree) => {
+        const moduleChildren: PlannerTreeNode[] = [];
+        const moduleDirectItems = productItems.filter(
+          (item) => item.module_id === moduleTree.module.id && !item.capability_id,
+        );
+        if (moduleDirectItems.length > 0) {
+          moduleChildren.push({
+            id: `${moduleTree.module.id}-direct`,
+            label: "Direct Work Items",
+            children: buildWorkItemNodes(moduleDirectItems, null),
+          });
+          moduleDirectItems.forEach((item) => includedWorkItemIds.add(item.id));
+        }
+
+        flattenCapabilities(moduleTree.features).forEach((capabilityTree) => {
+          const capabilityItems = productItems.filter((item) => item.capability_id === capabilityTree.capability.id);
+          if (capabilityItems.length === 0) {
+            return;
+          }
+          moduleChildren.push({
+            id: capabilityTree.capability.id,
+            label: capabilityTree.capability.name,
+            children: buildWorkItemNodes(capabilityItems, null),
+          });
+          capabilityItems.forEach((item) => includedWorkItemIds.add(item.id));
+        });
+
+        moduleNodes.push({
+          id: moduleTree.module.id,
+          label: moduleTree.module.name,
+          children: moduleChildren,
+        });
+      });
+    }
+
+    const unscopedItems = productItems.filter(
+      (item) => !includedWorkItemIds.has(item.id) && !item.parent_work_item_id,
+    );
+    if (unscopedItems.length > 0) {
+      moduleNodes.push({
+        id: `${product.id}-unscoped`,
+        label: "Unscoped",
+        children: buildWorkItemNodes(unscopedItems, null),
+      });
+    }
+
+    if (moduleNodes.length === 0) {
+      moduleNodes.push({
+        id: `${product.id}-empty`,
+        label: "No work items",
+        meta: "empty",
+        children: [],
+      });
+    }
+
+    return {
+      id: product.id,
+      label: product.name,
+      children: moduleNodes,
+    };
+  });
+}
+
+function summarizeAction(action: PlannerAction) {
+  switch (action.type) {
+    case "create_product":
+      return { symbol: "+", tone: "add", title: `Create product ${action.name}`, detail: action.description || action.vision || "New product proposal." };
+    case "create_module":
+      return { symbol: "+", tone: "add", title: `Create module ${action.name}`, detail: action.target?.productName ? `Product: ${action.target.productName}` : "Attach to selected product." };
+    case "create_capability":
+      return { symbol: "+", tone: "add", title: `Create capability ${action.name}`, detail: [action.target?.productName, action.target?.moduleName].filter(Boolean).join(" / ") || "Attach to selected scope." };
+    case "create_work_item":
+      return { symbol: "+", tone: "add", title: `Create work item ${action.title}`, detail: [action.target?.productName, action.target?.moduleName, action.target?.capabilityName].filter(Boolean).join(" / ") || action.description || "New work item proposal." };
+    case "update_product":
+      return { symbol: "~", tone: "update", title: `Update product ${action.target?.productName ?? ""}`.trim(), detail: JSON.stringify(action.fields, null, 2) };
+    case "update_module":
+      return { symbol: "~", tone: "update", title: `Update module ${action.target?.moduleName ?? ""}`.trim(), detail: JSON.stringify(action.fields, null, 2) };
+    case "update_capability":
+      return { symbol: "~", tone: "update", title: `Update capability ${action.target?.capabilityName ?? ""}`.trim(), detail: JSON.stringify(action.fields, null, 2) };
+    case "update_work_item":
+      return { symbol: "~", tone: "update", title: `Update work item ${action.target?.workItemTitle ?? ""}`.trim(), detail: JSON.stringify(action.fields, null, 2) };
+    case "approve_work_item":
+    case "approve_work_item_plan":
+    case "approve_work_item_test_review":
+    case "start_workflow":
+    case "workflow_action":
+    case "reject_work_item":
+    case "reject_work_item_plan":
+    case "archive_product":
+    case "delete_module":
+    case "delete_capability":
+    case "delete_work_item":
+      return { symbol: "!", tone: "warn", title: action.type.replace(/_/g, " "), detail: JSON.stringify(action, null, 2) };
+    case "report_status":
+      return { symbol: "i", tone: "update", title: "Status report", detail: action.target?.productName || action.target?.workItemTitle || "Current scope" };
+    case "report_tree":
+      return { symbol: "i", tone: "update", title: "Tree report", detail: action.target?.productName || "All products" };
+  }
+}
+
+function getReportTreeProductName(plan: PlannerPlan) {
+  const treeAction = plan.actions.find((action): action is Extract<PlannerAction, { type: "report_tree" }> => action.type === "report_tree");
+  return treeAction?.target?.productName;
+}
+
+function TreeNodeView({ node }: { node: PlannerTreeNode }) {
+  if (node.children.length === 0) {
+    return (
+      <div style={styles.treeLeaf}>
+        {node.label}
+        {node.meta ? <span style={styles.treeMeta}>{node.meta}</span> : null}
+      </div>
+    );
+  }
+  return (
+    <details open style={styles.treeNode}>
+      <summary style={styles.treeSummary}>
+        {node.label}
+        {node.meta ? <span style={styles.treeMeta}>{node.meta}</span> : null}
+      </summary>
+      <div style={styles.treeChildren}>
+        {node.children.map((child) => (
+          <TreeNodeView key={child.id} node={child} />
+        ))}
+      </div>
+    </details>
+  );
 }
 
 async function executePlannerAction(action: PlannerAction, context: ResolverContext): Promise<string[]> {
@@ -712,6 +1294,9 @@ async function executePlannerAction(action: PlannerAction, context: ResolverCont
         ...Object.entries(statusCounts).map(([status, count]) => `${status}: ${count}`),
       ];
     }
+    case "report_tree": {
+      return [buildWorkItemTreeReport(context, action.target?.productName)];
+    }
     default:
       return ["No executable action."];
   }
@@ -765,6 +1350,7 @@ export function PlannerPage() {
     () => treeQueries.map((query) => query.data).filter((value): value is ProductTree => Boolean(value)),
     [treeQueries],
   );
+  const hasTreeData = productTrees.length > 0;
 
   const modelOptions = useMemo(
     () => models.filter((model) => model.provider_id === providerId && model.enabled),
@@ -843,35 +1429,36 @@ export function PlannerPage() {
     };
   }, [voiceEnabled]);
 
-  const processMutation = useMutation({
+  const processMutation = useMutation<PlannerMutationResult, Error, string>({
     mutationFn: async (input: string) => {
       const userInput = input.trim();
       const normalized = normalize(userInput);
       if ((normalized === "yes" || normalized === "confirm" || normalized === "go ahead") && pendingPlan) {
         const execution = await executePlannerPlan(pendingPlan.plan, context);
+        const treeNodes = pendingPlan.plan.actions.some((action) => action.type === "report_tree")
+          ? buildWorkItemTreeNodes(context, getReportTreeProductName(pendingPlan.plan))
+          : undefined;
         return {
           mode: "confirmed" as const,
           userInput,
           plan: pendingPlan.plan,
           execution,
+          treeNodes,
         };
       }
 
       let plan: PlannerPlan;
-      if (providerId && modelName) {
-        const contextSummary = summarizeContext(context);
-        const conversationHistory = buildConversationHistory(messages);
-        const completion = await runModelChatCompletion({
+      const localInformationalPlan = detectLocalInformationalPlan(userInput);
+      if (localInformationalPlan) {
+        plan = localInformationalPlan;
+      } else if (providerId && modelName) {
+        plan = await runPlannerToolLoop({
           providerId,
-          model: modelName,
-          temperature: 0.1,
-          maxTokens: 1800,
-          messages: [
-            { role: "system", content: PLANNER_SYSTEM_PROMPT },
-            { role: "user", content: `Current context:\n${contextSummary}\n\nRecent conversation:\n${conversationHistory || "No prior conversation."}\n\nLatest user request:\n${userInput}` },
-          ],
+          modelName,
+          context,
+          messages,
+          userInput,
         });
-        plan = parsePlannerResponse(completion.content);
       } else {
         plan = heuristicPlan(userInput);
       }
@@ -882,6 +1469,9 @@ export function PlannerPage() {
           userInput,
           plan,
           execution: null,
+          treeNodes: plan.actions.some((action) => action.type === "report_tree")
+            ? buildWorkItemTreeNodes(context, getReportTreeProductName(plan))
+            : undefined,
         };
       }
 
@@ -895,23 +1485,29 @@ export function PlannerPage() {
       }
 
       const execution = await executePlannerPlan(plan, context);
+      const treeNodes = plan.actions.some((action) => action.type === "report_tree")
+        ? buildWorkItemTreeNodes(context, getReportTreeProductName(plan))
+        : undefined;
       return {
         mode: "executed" as const,
         userInput,
         plan,
         execution,
+        treeNodes,
       };
     },
     onSuccess: (result) => {
       setMessages((current) => {
-        const next: PlannerMessage[] = [...current, { id: makeId(), role: "user", content: result.userInput }];
+        const next: PlannerMessage[] = [...current, { id: makeId(), role: "user", content: result.userInput, kind: "text" }];
         if (result.mode === "confirmation_required") {
-          const actionSummary = result.plan.actions.map((action) => action.type).join(", ");
           next.push({
             id: makeId(),
             role: "assistant",
-            content: `${result.plan.assistant_response}\n\nSuggested actions: ${actionSummary}. Say "confirm" to apply them, or keep talking and I’ll refine the plan.`,
+            content: result.plan.assistant_response,
             meta: "Suggestion awaiting confirmation",
+            kind: "proposal",
+            plan: result.plan,
+            treeNodes: result.treeNodes,
           });
           return next;
         }
@@ -921,7 +1517,15 @@ export function PlannerPage() {
             ...(result.execution?.lines ?? []),
             ...(result.execution?.errors.length ? [`Errors: ${result.execution.errors.join(" | ")}`] : []),
           ].join("\n");
-          next.push({ id: makeId(), role: "assistant", content: output, meta: "Planner execution" });
+          next.push({
+            id: makeId(),
+            role: "assistant",
+            content: output,
+            meta: "Planner execution",
+            kind: result.treeNodes ? "tree" : "execution",
+            treeNodes: result.treeNodes,
+            plan: result.plan,
+          });
           return next;
         }
         if (result.mode === "clarification") {
@@ -930,6 +1534,7 @@ export function PlannerPage() {
             role: "assistant",
             content: result.plan.clarification_question ?? result.plan.assistant_response,
             meta: "Need more detail",
+            kind: "text",
           });
           return next;
         }
@@ -938,7 +1543,15 @@ export function PlannerPage() {
           ...(result.execution?.lines ?? []),
           ...(result.execution?.errors.length ? [`Errors: ${result.execution.errors.join(" | ")}`] : []),
         ].join("\n");
-        next.push({ id: makeId(), role: "assistant", content: output, meta: isInformationalOnly(result.plan) ? "Status report" : "Planner execution" });
+        next.push({
+          id: makeId(),
+          role: "assistant",
+          content: output,
+          meta: isInformationalOnly(result.plan) ? "Status report" : "Planner execution",
+          kind: result.treeNodes ? "tree" : isInformationalOnly(result.plan) ? "report" : "execution",
+          treeNodes: result.treeNodes,
+          plan: result.plan,
+        });
         return next;
       });
 
@@ -967,8 +1580,8 @@ export function PlannerPage() {
     onError: (error, userInput) => {
       setMessages((current) => [
         ...current,
-        { id: makeId(), role: "user", content: userInput },
-        { id: makeId(), role: "assistant", content: error instanceof Error ? error.message : String(error), meta: "Planner error" },
+        { id: makeId(), role: "user", content: userInput, kind: "text" },
+        { id: makeId(), role: "assistant", content: error instanceof Error ? error.message : String(error), meta: "Planner error", kind: "error" },
       ]);
     },
   });
@@ -994,6 +1607,76 @@ export function PlannerPage() {
     recognitionRef.current.start();
   };
 
+  const confirmPendingPlan = () => {
+    if (!pendingPlan || processMutation.isPending) {
+      return;
+    }
+    void processMutation.mutateAsync("confirm");
+  };
+
+  const renderAssistantMessage = (message: PlannerMessage) => {
+    if (message.kind === "proposal" && message.plan) {
+      return (
+        <>
+          <div>{message.content}</div>
+          <div style={styles.card}>
+            <div style={styles.cardTitle}>Proposed Changes</div>
+            {message.plan.actions.map((action, index) => {
+              const summary = summarizeAction(action);
+              const symbolStyle = summary.tone === "add"
+                ? styles.diffSymbolAdd
+                : summary.tone === "update"
+                  ? styles.diffSymbolUpdate
+                  : styles.diffSymbolWarn;
+              return (
+                <div key={`${action.type}-${index}`} style={styles.diffRow}>
+                  <div style={symbolStyle}>{summary.symbol}</div>
+                  <div>
+                    <div style={styles.diffPrimary}>{summary.title}</div>
+                    {summary.detail ? <div style={styles.diffSecondary}>{summary.detail}</div> : null}
+                  </div>
+                </div>
+              );
+            })}
+            {message.treeNodes && message.treeNodes.length > 0 ? (
+              <div style={styles.cardSection}>
+                <div style={styles.cardTitle}>Current Structure</div>
+                <div style={styles.treePanel}>
+                  {message.treeNodes.map((node) => (
+                    <TreeNodeView key={node.id} node={node} />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <div style={styles.inlineButtonRow}>
+              <button style={styles.btn} onClick={confirmPendingPlan} disabled={!pendingPlan || processMutation.isPending}>
+                Confirm Proposal
+              </button>
+              <button style={styles.btnGhost} onClick={() => setPendingPlan(null)} disabled={!pendingPlan}>
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    if (message.kind === "tree" && message.treeNodes) {
+      return (
+        <>
+          <div>{message.content}</div>
+          <div style={styles.treePanel}>
+            {message.treeNodes.map((node) => (
+              <TreeNodeView key={node.id} node={node} />
+            ))}
+          </div>
+        </>
+      );
+    }
+
+    return <div>{message.content}</div>;
+  };
+
   return (
     <div style={styles.page}>
       <div style={styles.header}>
@@ -1012,7 +1695,7 @@ export function PlannerPage() {
             <div ref={transcriptRef} style={{ ...styles.transcript, flex: 1, minHeight: 0, overflow: "auto" }}>
               {messages.map((message) => (
                 <div key={message.id} style={message.role === "user" ? styles.bubbleUser : styles.bubbleAssistant}>
-                  {message.content}
+                  {message.role === "assistant" ? renderAssistantMessage(message) : message.content}
                   {message.meta ? <span style={styles.bubbleMeta}>{message.meta}</span> : null}
                 </div>
               ))}
@@ -1071,6 +1754,9 @@ export function PlannerPage() {
               </select>
               <div style={{ ...styles.helper, marginTop: 10 }}>
                 With a configured model, the planner can have a more natural conversation, inspect current structure, and suggest additions instead of acting immediately. Without one, it falls back to simple heuristics.
+              </div>
+              <div style={{ ...styles.helper, marginTop: 8 }}>
+                {hasTreeData ? "Tree rendering is active for work-item structure questions." : "Tree rendering will activate once product structure finishes loading."}
               </div>
             </div>
 

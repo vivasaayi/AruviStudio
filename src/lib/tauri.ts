@@ -393,10 +393,12 @@ export const runModelChatCompletion = (data: {
   maxTokens?: number;
 }) =>
   invoke<ChatCompletionResponse>("run_model_chat_completion", {
+    providerId: data.providerId,
     provider_id: data.providerId,
     model: data.model,
     messages: data.messages,
     temperature: data.temperature ?? null,
+    maxTokens: data.maxTokens ?? null,
     max_tokens: data.maxTokens ?? null,
   });
 export const startModelChatStream = (data: {
