@@ -29,6 +29,9 @@ import type {
   ChatMessagePayload,
   ChatCompletionResponse,
   WorkspaceProvisionResult,
+  PlannerContactResult,
+  PlannerSessionInfo,
+  PlannerTurnResponse,
 } from "./types";
 
 // Product commands
@@ -623,3 +626,67 @@ export const readArtifactContent = (artifactId: string) =>
 
 // Finding commands
 export const listWorkItemFindings = (workItemId: string) => invoke<Finding[]>("list_work_item_findings", { work_item_id: workItemId });
+
+// Planner commands
+export const createPlannerSession = (data?: { providerId?: string; modelName?: string }) =>
+  invoke<PlannerSessionInfo>("create_planner_session_command", {
+    providerId: data?.providerId ?? null,
+    provider_id: data?.providerId ?? null,
+    modelName: data?.modelName ?? null,
+    model_name: data?.modelName ?? null,
+  });
+
+export const updatePlannerSession = (data: { sessionId: string; providerId?: string; modelName?: string }) =>
+  invoke<PlannerSessionInfo>("update_planner_session_command", {
+    sessionId: data.sessionId,
+    session_id: data.sessionId,
+    providerId: data.providerId ?? null,
+    provider_id: data.providerId ?? null,
+    modelName: data.modelName ?? null,
+    model_name: data.modelName ?? null,
+  });
+
+export const clearPlannerPending = (sessionId: string) =>
+  invoke<PlannerSessionInfo>("clear_planner_pending_command", {
+    sessionId,
+    session_id: sessionId,
+  });
+
+export const submitPlannerTurn = (data: { sessionId: string; userInput: string }) =>
+  invoke<PlannerTurnResponse>("submit_planner_turn_command", {
+    sessionId: data.sessionId,
+    session_id: data.sessionId,
+    userInput: data.userInput,
+    user_input: data.userInput,
+  });
+
+export const confirmPlannerPlan = (sessionId: string) =>
+  invoke<PlannerTurnResponse>("confirm_planner_plan_command", {
+    sessionId,
+    session_id: sessionId,
+  });
+
+export const sendTwilioWhatsappMessage = (data: { to: string; content: string }) =>
+  invoke<void>("send_twilio_whatsapp_message", {
+    to: data.to,
+    content: data.content,
+  });
+
+export const startTwilioVoiceCall = (data: { to: string; initialPrompt?: string }) =>
+  invoke<void>("start_twilio_voice_call", {
+    to: data.to,
+    initial_prompt: data.initialPrompt ?? null,
+  });
+
+export const routePlannerContact = (data: {
+  to: string;
+  content: string;
+  preferredChannel?: "whatsapp" | "voice";
+  allowAfterHours?: boolean;
+}) =>
+  invoke<PlannerContactResult>("route_planner_contact_command", {
+    to: data.to,
+    content: data.content,
+    preferred_channel: data.preferredChannel ?? null,
+    allow_after_hours: data.allowAfterHours ?? null,
+  });

@@ -22,9 +22,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
-            let app_handle = app.handle().clone();
-
-            rt.block_on(async {
+            let state = rt.block_on(async {
                 let proj_dirs = directories::ProjectDirs::from("com", "aruvi", "studio")
                     .expect("Failed to get project directories");
                 let data_dir = proj_dirs.data_dir();
@@ -53,11 +51,14 @@ pub fn run() {
                     .await
                     .expect("Failed to create database pool");
 
-                let state = AppState::new(pool, data_dir.to_path_buf())
+                AppState::new(pool, data_dir.to_path_buf())
                     .await
-                    .expect("Failed to create app state");
-
-                app_handle.manage(state);
+                    .expect("Failed to create app state")
+            });
+            let webhook_state = state.clone();
+            app.manage(state);
+            tauri::async_runtime::spawn(async move {
+                services::webhook_service::start_webhook_server(webhook_state).await;
             });
 
             Ok(())
@@ -164,6 +165,16 @@ pub fn run() {
             commands::model_commands::test_provider_connectivity,
             commands::model_commands::run_model_chat_completion,
             commands::model_commands::start_model_chat_stream,
+            // Planner commands
+            commands::planner_commands::create_planner_session_command,
+            commands::planner_commands::update_planner_session_command,
+            commands::planner_commands::clear_planner_pending_command,
+            commands::planner_commands::submit_planner_turn_command,
+            commands::planner_commands::confirm_planner_plan_command,
+            // Channel commands
+            commands::channel_commands::send_twilio_whatsapp_message,
+            commands::channel_commands::start_twilio_voice_call,
+            commands::channel_commands::route_planner_contact_command,
             // Artifact commands
             commands::artifact_commands::list_work_item_artifacts,
             commands::artifact_commands::read_artifact_content,

@@ -5,8 +5,11 @@ import {
   approveWorkItemPlan,
   approveWorkItemTestReview,
   archiveProduct,
+  clearPlannerPending,
+  confirmPlannerPlan,
   createCapability,
   createModule,
+  createPlannerSession,
   createProduct,
   createWorkItem,
   deleteCapability,
@@ -21,8 +24,13 @@ import {
   listWorkItems,
   rejectWorkItem,
   rejectWorkItemPlan,
+  routePlannerContact,
   runModelChatCompletion,
+  sendTwilioWhatsappMessage,
   startWorkItemWorkflow,
+  startTwilioVoiceCall,
+  submitPlannerTurn,
+  updatePlannerSession,
   updateCapability,
   updateModule,
   updateProduct,
@@ -89,7 +97,7 @@ type PlannerMessageKind = "text" | "proposal" | "tree" | "report" | "execution" 
 type PlannerTreeNode = {
   id: string;
   label: string;
-  meta?: string;
+  meta?: string | null;
   children: PlannerTreeNode[];
 };
 
@@ -1321,6 +1329,7 @@ export function PlannerPage() {
   const { activeProductId, activeModuleId, activeCapabilityId, activeWorkItemId } = useWorkspaceStore();
   const [providerId, setProviderId] = useState("");
   const [modelName, setModelName] = useState("");
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<PlannerMessage[]>([
     { id: makeId(), role: "assistant", content: DEFAULT_ASSISTANT_OPENING },
@@ -1330,6 +1339,10 @@ export function PlannerPage() {
   const [autoSpeak, setAutoSpeak] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
+  const [contactTarget, setContactTarget] = useState("");
+  const [contactDraft, setContactDraft] = useState("Call me and ask what work should be prioritized next.");
+  const [contactMsg, setContactMsg] = useState<string | null>(null);
+  const [contactError, setContactError] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
 
@@ -1374,6 +1387,35 @@ export function PlannerPage() {
   }, [providerId, providers]);
 
   useEffect(() => {
+    let cancelled = false;
+    const ensureSession = async () => {
+      if (sessionId) {
+        return;
+      }
+      try {
+        const session = await createPlannerSession({
+          providerId: providerId || undefined,
+          modelName: modelName || undefined,
+        });
+        if (!cancelled) {
+          setSessionId(session.session_id);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setMessages((current) => [
+            ...current,
+            { id: makeId(), role: "assistant", content: String(error), meta: "Planner error", kind: "error" },
+          ]);
+        }
+      }
+    };
+    void ensureSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [modelName, providerId, sessionId]);
+
+  useEffect(() => {
     if (!providerId) {
       return;
     }
@@ -1381,6 +1423,17 @@ export function PlannerPage() {
       setModelName(modelOptions[0]?.name ?? "");
     }
   }, [modelName, modelOptions, providerId]);
+
+  useEffect(() => {
+    if (!sessionId) {
+      return;
+    }
+    void updatePlannerSession({
+      sessionId,
+      providerId: providerId || undefined,
+      modelName: modelName || undefined,
+    });
+  }, [modelName, providerId, sessionId]);
 
   useEffect(() => {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight });
@@ -1432,66 +1485,57 @@ export function PlannerPage() {
   const processMutation = useMutation<PlannerMutationResult, Error, string>({
     mutationFn: async (input: string) => {
       const userInput = input.trim();
-      const normalized = normalize(userInput);
-      if ((normalized === "yes" || normalized === "confirm" || normalized === "go ahead") && pendingPlan) {
-        const execution = await executePlannerPlan(pendingPlan.plan, context);
-        const treeNodes = pendingPlan.plan.actions.some((action) => action.type === "report_tree")
-          ? buildWorkItemTreeNodes(context, getReportTreeProductName(pendingPlan.plan))
-          : undefined;
+      let activeSessionId = sessionId;
+      if (!activeSessionId) {
+        const session = await createPlannerSession({
+          providerId: providerId || undefined,
+          modelName: modelName || undefined,
+        });
+        activeSessionId = session.session_id;
+        setSessionId(session.session_id);
+      }
+
+      const response = await submitPlannerTurn({
+        sessionId: activeSessionId,
+        userInput,
+      });
+
+      const backendPlan = (response.pending_plan as unknown as PlannerPlan) ?? {
+        assistant_response: response.assistant_message,
+        needs_confirmation: false,
+        clarification_question: response.status === "clarification" ? response.assistant_message : null,
+        actions: [],
+      };
+      const execution: ExecutionResult = {
+        lines: response.execution_lines,
+        errors: response.execution_errors,
+      };
+      const treeNodes = (response.tree_nodes as unknown as PlannerTreeNode[] | undefined) ?? undefined;
+
+      if (response.status === "proposal") {
         return {
-          mode: "confirmed" as const,
+          mode: "confirmation_required" as const,
           userInput,
-          plan: pendingPlan.plan,
-          execution,
+          plan: backendPlan,
+          execution: null,
           treeNodes,
         };
       }
 
-      let plan: PlannerPlan;
-      const localInformationalPlan = detectLocalInformationalPlan(userInput);
-      if (localInformationalPlan) {
-        plan = localInformationalPlan;
-      } else if (providerId && modelName) {
-        plan = await runPlannerToolLoop({
-          providerId,
-          modelName,
-          context,
-          messages,
-          userInput,
-        });
-      } else {
-        plan = heuristicPlan(userInput);
-      }
-
-      if (requiresConfirmation(plan)) {
-        return {
-          mode: "confirmation_required" as const,
-          userInput,
-          plan,
-          execution: null,
-          treeNodes: plan.actions.some((action) => action.type === "report_tree")
-            ? buildWorkItemTreeNodes(context, getReportTreeProductName(plan))
-            : undefined,
-        };
-      }
-
-      if (plan.actions.length === 0) {
+      if (response.status === "clarification") {
         return {
           mode: "clarification" as const,
           userInput,
-          plan,
+          plan: backendPlan,
           execution: null,
+          treeNodes,
         };
       }
 
-      const execution = await executePlannerPlan(plan, context);
-      const treeNodes = plan.actions.some((action) => action.type === "report_tree")
-        ? buildWorkItemTreeNodes(context, getReportTreeProductName(plan))
-        : undefined;
       return {
         mode: "executed" as const,
         userInput,
-        plan,
+        plan: backendPlan,
         execution,
         treeNodes,
       };
@@ -1608,10 +1652,93 @@ export function PlannerPage() {
   };
 
   const confirmPendingPlan = () => {
-    if (!pendingPlan || processMutation.isPending) {
+    if (!pendingPlan || processMutation.isPending || !sessionId) {
       return;
     }
-    void processMutation.mutateAsync("confirm");
+    void (async () => {
+      const response = await confirmPlannerPlan(sessionId);
+      const execution: ExecutionResult = {
+        lines: response.execution_lines,
+        errors: response.execution_errors,
+      };
+      const plan = pendingPlan.plan;
+      const treeNodes = (response.tree_nodes as unknown as PlannerTreeNode[] | undefined) ?? undefined;
+      setMessages((current) => [
+        ...current,
+        { id: makeId(), role: "user", content: "confirm", kind: "text" },
+        {
+          id: makeId(),
+          role: "assistant",
+          content: ["Executed pending plan.", ...execution.lines, ...(execution.errors.length ? [`Errors: ${execution.errors.join(" | ")}`] : [])].join("\n"),
+          meta: "Planner execution",
+          kind: treeNodes ? "tree" : "execution",
+          treeNodes,
+          plan,
+        },
+      ]);
+      setPendingPlan(null);
+      void queryClient.invalidateQueries({ queryKey: ["products"] });
+      void queryClient.invalidateQueries({ queryKey: ["plannerWorkItems"] });
+      void queryClient.invalidateQueries({ queryKey: ["sidebarWorkItems"] });
+      void queryClient.invalidateQueries({ queryKey: ["productTree"] });
+      void queryClient.invalidateQueries({ queryKey: ["plannerProductTree"] });
+    })().catch((error) => {
+      setMessages((current) => [
+        ...current,
+        { id: makeId(), role: "assistant", content: String(error), meta: "Planner error", kind: "error" },
+      ]);
+    });
+  };
+
+  const dismissPendingPlan = () => {
+    if (!pendingPlan) {
+      return;
+    }
+    if (sessionId) {
+      void clearPlannerPending(sessionId).catch(() => {});
+    }
+    setPendingPlan(null);
+  };
+
+  const sendWhatsapp = async () => {
+    try {
+      setContactError(null);
+      setContactMsg(null);
+      await sendTwilioWhatsappMessage({ to: contactTarget.trim(), content: contactDraft.trim() });
+      setContactMsg("WhatsApp message queued through Twilio.");
+    } catch (error) {
+      setContactError(String(error));
+    }
+  };
+
+  const autoRouteContact = async () => {
+    try {
+      setContactError(null);
+      setContactMsg(null);
+      const result = await routePlannerContact({
+        to: contactTarget.trim(),
+        content: contactDraft.trim(),
+      });
+      const channelLabel = result.channel === "voice" ? "voice call" : "WhatsApp";
+      if (result.status === "blocked") {
+        setContactError(`Auto-routing blocked: ${result.reason}`);
+        return;
+      }
+      setContactMsg(`Auto-routed to ${channelLabel}. ${result.reason}`);
+    } catch (error) {
+      setContactError(String(error));
+    }
+  };
+
+  const startVoiceCall = async () => {
+    try {
+      setContactError(null);
+      setContactMsg(null);
+      await startTwilioVoiceCall({ to: contactTarget.trim(), initialPrompt: contactDraft.trim() || undefined });
+      setContactMsg("Voice call requested through Twilio.");
+    } catch (error) {
+      setContactError(String(error));
+    }
   };
 
   const renderAssistantMessage = (message: PlannerMessage) => {
@@ -1652,7 +1779,7 @@ export function PlannerPage() {
               <button style={styles.btn} onClick={confirmPendingPlan} disabled={!pendingPlan || processMutation.isPending}>
                 Confirm Proposal
               </button>
-              <button style={styles.btnGhost} onClick={() => setPendingPlan(null)} disabled={!pendingPlan}>
+              <button style={styles.btnGhost} onClick={dismissPendingPlan} disabled={!pendingPlan}>
                 Dismiss
               </button>
             </div>
@@ -1717,7 +1844,7 @@ export function PlannerPage() {
                 <button style={styles.btnGhost} onClick={() => setDraft("confirm")} disabled={!pendingPlan}>
                   Confirm Proposal
                 </button>
-                <button style={styles.btnDanger} onClick={() => setPendingPlan(null)} disabled={!pendingPlan}>
+                <button style={styles.btnDanger} onClick={dismissPendingPlan} disabled={!pendingPlan}>
                   Clear Pending
                 </button>
                 <span style={styles.status}>
@@ -1774,6 +1901,40 @@ export function PlannerPage() {
               <div style={{ ...styles.helper, marginTop: 10 }}>
                 For phone or WhatsApp calls, you still need an external telephony layer such as Twilio. This page gives you the in-app conversational planner first.
               </div>
+            </div>
+
+            <div style={styles.sideCard}>
+              <div style={styles.label}>Contact Me</div>
+              <div style={styles.helper}>Use Auto Route to follow the planner channel policy: routine updates stay on WhatsApp, while ambiguous planning can escalate to a call. Manual buttons still override the policy.</div>
+              <div style={{ height: 10 }} />
+              <label style={styles.label}>Destination</label>
+              <input
+                style={styles.input}
+                value={contactTarget}
+                onChange={(event) => setContactTarget(event.target.value)}
+                placeholder="whatsapp:+15551234567 or +15551234567"
+              />
+              <div style={{ height: 10 }} />
+              <label style={styles.label}>Opening Message</label>
+              <textarea
+                style={{ ...styles.textarea, minHeight: 84 }}
+                value={contactDraft}
+                onChange={(event) => setContactDraft(event.target.value)}
+                placeholder="Tell the planner what the outbound contact should say first."
+              />
+              <div style={styles.actionRow}>
+                <button style={styles.btn} onClick={() => void autoRouteContact()} disabled={!contactTarget.trim() || !contactDraft.trim()}>
+                  Auto Route
+                </button>
+                <button style={styles.btnGhost} onClick={() => void sendWhatsapp()} disabled={!contactTarget.trim()}>
+                  Send WhatsApp
+                </button>
+                <button style={styles.btnGhost} onClick={() => void startVoiceCall()} disabled={!contactTarget.trim()}>
+                  Start Voice Call
+                </button>
+              </div>
+              {contactMsg ? <div style={{ ...styles.success, marginTop: 10 }}>{contactMsg}</div> : null}
+              {contactError ? <div style={{ ...styles.error, marginTop: 10 }}>{contactError}</div> : null}
             </div>
 
             <div style={styles.sideCard}>

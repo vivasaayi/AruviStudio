@@ -1,9 +1,11 @@
 pub mod agent_commands;
 pub mod approval_commands;
 pub mod artifact_commands;
+pub mod channel_commands;
 pub mod finding_commands;
 pub mod model_commands;
 pub mod observability_commands;
+pub mod planner_commands;
 pub mod product_commands;
 pub mod repository_commands;
 pub mod settings_commands;

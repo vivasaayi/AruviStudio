@@ -34,8 +34,8 @@ pub async fn get_product(state: State<'_, AppState>, id: String) -> Result<Produ
 
 #[tauri::command]
 pub async fn list_products(state: State<'_, AppState>) -> Result<Vec<Product>, AppError> {
-    let hide_examples = settings_repo::get_bool_setting(&state.db, HIDE_EXAMPLE_PRODUCTS_KEY, true)
-        .await?;
+    let hide_examples =
+        settings_repo::get_bool_setting(&state.db, HIDE_EXAMPLE_PRODUCTS_KEY, true).await?;
     let products = product_repo::list_products(&state.db).await?;
     if hide_examples {
         Ok(products

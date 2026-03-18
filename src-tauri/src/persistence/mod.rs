@@ -5,6 +5,7 @@ pub mod db;
 pub mod finding_repo;
 pub mod model_repo;
 pub mod observability_repo;
+pub mod planner_repo;
 pub mod product_repo;
 pub mod repository_repo;
 pub mod settings_repo;
