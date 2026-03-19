@@ -69,6 +69,8 @@ pub async fn submit_planner_turn_command(
     sessionId: Option<String>,
     user_input: Option<String>,
     userInput: Option<String>,
+    selected_draft_node_id: Option<String>,
+    selectedDraftNodeId: Option<String>,
 ) -> Result<PlannerTurnResponse, AppError> {
     let session_id = session_id
         .or(sessionId)
@@ -81,6 +83,7 @@ pub async fn submit_planner_turn_command(
         &state,
         session_id,
         user_input,
+        selected_draft_node_id.or(selectedDraftNodeId),
     )
     .await
 }

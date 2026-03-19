@@ -652,12 +652,14 @@ export const clearPlannerPending = (sessionId: string) =>
     session_id: sessionId,
   });
 
-export const submitPlannerTurn = (data: { sessionId: string; userInput: string }) =>
+export const submitPlannerTurn = (data: { sessionId: string; userInput: string; selectedDraftNodeId?: string | null }) =>
   invoke<PlannerTurnResponse>("submit_planner_turn_command", {
     sessionId: data.sessionId,
     session_id: data.sessionId,
     userInput: data.userInput,
     user_input: data.userInput,
+    selectedDraftNodeId: data.selectedDraftNodeId ?? null,
+    selected_draft_node_id: data.selectedDraftNodeId ?? null,
   });
 
 export const confirmPlannerPlan = (sessionId: string) =>

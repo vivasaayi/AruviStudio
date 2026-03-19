@@ -260,6 +260,7 @@ pub async fn handle_inbound_message(
         state,
         session_id,
         message.content,
+        None,
     )
     .await
 }

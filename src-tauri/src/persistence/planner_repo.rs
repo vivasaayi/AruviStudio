@@ -8,6 +8,8 @@ pub struct PlannerSessionRecord {
     pub provider_id: Option<String>,
     pub model_name: Option<String>,
     pub pending_plan_json: Option<String>,
+    pub draft_plan_json: Option<String>,
+    pub selected_draft_node_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -41,7 +43,7 @@ pub async fn create_session(
     sqlx::query_as::<_, PlannerSessionRecord>(
         "INSERT INTO planner_sessions (id, provider_id, model_name)
          VALUES (?, ?, ?)
-         RETURNING id, provider_id, model_name, pending_plan_json, created_at, updated_at",
+         RETURNING id, provider_id, model_name, pending_plan_json, draft_plan_json, selected_draft_node_id, created_at, updated_at",
     )
     .bind(id)
     .bind(provider_id)
@@ -53,7 +55,7 @@ pub async fn create_session(
 
 pub async fn get_session(pool: &SqlitePool, id: &str) -> Result<PlannerSessionRecord, AppError> {
     sqlx::query_as::<_, PlannerSessionRecord>(
-        "SELECT id, provider_id, model_name, pending_plan_json, created_at, updated_at
+        "SELECT id, provider_id, model_name, pending_plan_json, draft_plan_json, selected_draft_node_id, created_at, updated_at
          FROM planner_sessions
          WHERE id = ?",
     )
@@ -73,7 +75,7 @@ pub async fn update_session(
         "UPDATE planner_sessions
          SET provider_id = ?, model_name = ?, updated_at = datetime('now')
          WHERE id = ?
-         RETURNING id, provider_id, model_name, pending_plan_json, created_at, updated_at",
+         RETURNING id, provider_id, model_name, pending_plan_json, draft_plan_json, selected_draft_node_id, created_at, updated_at",
     )
     .bind(provider_id)
     .bind(model_name)
@@ -92,9 +94,29 @@ pub async fn update_pending_plan(
         "UPDATE planner_sessions
          SET pending_plan_json = ?, updated_at = datetime('now')
          WHERE id = ?
-         RETURNING id, provider_id, model_name, pending_plan_json, created_at, updated_at",
+         RETURNING id, provider_id, model_name, pending_plan_json, draft_plan_json, selected_draft_node_id, created_at, updated_at",
     )
     .bind(pending_plan_json)
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .map_err(|error| error.into())
+}
+
+pub async fn update_draft_state(
+    pool: &SqlitePool,
+    id: &str,
+    draft_plan_json: Option<&str>,
+    selected_draft_node_id: Option<&str>,
+) -> Result<PlannerSessionRecord, AppError> {
+    sqlx::query_as::<_, PlannerSessionRecord>(
+        "UPDATE planner_sessions
+         SET draft_plan_json = ?, selected_draft_node_id = ?, updated_at = datetime('now')
+         WHERE id = ?
+         RETURNING id, provider_id, model_name, pending_plan_json, draft_plan_json, selected_draft_node_id, created_at, updated_at",
+    )
+    .bind(draft_plan_json)
+    .bind(selected_draft_node_id)
     .bind(id)
     .fetch_one(pool)
     .await

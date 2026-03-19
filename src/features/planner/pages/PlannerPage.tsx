@@ -89,6 +89,8 @@ const styles: Record<string, React.CSSProperties> = {
   treeChildren: { marginLeft: 18, borderLeft: "1px solid #2e3744", paddingLeft: 10 },
   treeLeaf: { fontSize: 13, color: "#d6dce7", padding: "4px 0" },
   treeMeta: { fontSize: 11, color: "#8f96a3", marginLeft: 6 },
+  treeButton: { width: "100%", textAlign: "left" as const, background: "transparent", border: "1px solid transparent", borderRadius: 8, color: "#edf1f8", padding: "6px 8px", cursor: "pointer", fontSize: 13, fontWeight: 700 },
+  treeButtonSelected: { border: "1px solid #0e639c", backgroundColor: "#14314a" },
   inlineButtonRow: { display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" as const },
 };
 
@@ -232,6 +234,8 @@ type PlannerMutationResult =
       plan: PlannerPlan;
       execution: ExecutionResult;
       treeNodes?: PlannerTreeNode[];
+      draftTreeNodes?: PlannerTreeNode[];
+      selectedDraftNodeId?: string | null;
     }
   | {
       mode: "confirmation_required";
@@ -239,6 +243,17 @@ type PlannerMutationResult =
       plan: PlannerPlan;
       execution: null;
       treeNodes?: PlannerTreeNode[];
+      draftTreeNodes?: PlannerTreeNode[];
+      selectedDraftNodeId?: string | null;
+    }
+  | {
+      mode: "draft_updated";
+      userInput: string;
+      plan: PlannerPlan;
+      execution: ExecutionResult;
+      treeNodes?: PlannerTreeNode[];
+      draftTreeNodes?: PlannerTreeNode[];
+      selectedDraftNodeId?: string | null;
     }
   | {
       mode: "clarification";
@@ -246,6 +261,8 @@ type PlannerMutationResult =
       plan: PlannerPlan;
       execution: null;
       treeNodes?: PlannerTreeNode[];
+      draftTreeNodes?: PlannerTreeNode[];
+      selectedDraftNodeId?: string | null;
     }
   | {
       mode: "executed";
@@ -253,6 +270,8 @@ type PlannerMutationResult =
       plan: PlannerPlan;
       execution: ExecutionResult;
       treeNodes?: PlannerTreeNode[];
+      draftTreeNodes?: PlannerTreeNode[];
+      selectedDraftNodeId?: string | null;
     };
 
 type SpeechRecognitionLike = {
@@ -1039,15 +1058,16 @@ function buildWorkItemTreeNodes(context: ResolverContext, productName?: string):
 }
 
 function summarizeAction(action: PlannerAction) {
+  const target = (action as { target?: { productName?: string; moduleName?: string; capabilityName?: string; workItemTitle?: string } }).target;
   switch (action.type) {
     case "create_product":
-      return { symbol: "+", tone: "add", title: `Create product ${action.name}`, detail: action.description || action.vision || "New product proposal." };
+      return { symbol: "+", tone: "add", title: `Create product ${action.name ?? target?.productName ?? "unnamed product"}`, detail: action.description || action.vision || "New product proposal." };
     case "create_module":
-      return { symbol: "+", tone: "add", title: `Create module ${action.name}`, detail: action.target?.productName ? `Product: ${action.target.productName}` : "Attach to selected product." };
+      return { symbol: "+", tone: "add", title: `Create module ${action.name ?? target?.moduleName ?? "unnamed module"}`, detail: target?.productName ? `Product: ${target.productName}` : "Attach to selected product." };
     case "create_capability":
-      return { symbol: "+", tone: "add", title: `Create capability ${action.name}`, detail: [action.target?.productName, action.target?.moduleName].filter(Boolean).join(" / ") || "Attach to selected scope." };
+      return { symbol: "+", tone: "add", title: `Create capability ${action.name ?? target?.capabilityName ?? "unnamed capability"}`, detail: [target?.productName, target?.moduleName].filter(Boolean).join(" / ") || "Attach to selected scope." };
     case "create_work_item":
-      return { symbol: "+", tone: "add", title: `Create work item ${action.title}`, detail: [action.target?.productName, action.target?.moduleName, action.target?.capabilityName].filter(Boolean).join(" / ") || action.description || "New work item proposal." };
+      return { symbol: "+", tone: "add", title: `Create work item ${action.title ?? target?.workItemTitle ?? "untitled work item"}`, detail: [target?.productName, target?.moduleName, target?.capabilityName].filter(Boolean).join(" / ") || action.description || "New work item proposal." };
     case "update_product":
       return { symbol: "~", tone: "update", title: `Update product ${action.target?.productName ?? ""}`.trim(), detail: JSON.stringify(action.fields, null, 2) };
     case "update_module":
@@ -1102,6 +1122,116 @@ function TreeNodeView({ node }: { node: PlannerTreeNode }) {
       </div>
     </details>
   );
+}
+
+function SelectableTreeNodeView({
+  node,
+  selectedNodeId,
+  onSelect,
+}: {
+  node: PlannerTreeNode;
+  selectedNodeId: string | null;
+  onSelect: (nodeId: string) => void;
+}) {
+  const buttonStyle = node.id === selectedNodeId
+    ? { ...styles.treeButton, ...styles.treeButtonSelected }
+    : styles.treeButton;
+  if (node.children.length === 0) {
+    return (
+      <div style={styles.treeLeaf}>
+        <button type="button" style={buttonStyle} onClick={() => onSelect(node.id)}>
+          {node.label}
+          {node.meta ? <span style={styles.treeMeta}>{node.meta}</span> : null}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <details open style={styles.treeNode}>
+      <summary style={styles.treeSummary}>
+        <button type="button" style={buttonStyle} onClick={(event) => { event.preventDefault(); onSelect(node.id); }}>
+          {node.label}
+          {node.meta ? <span style={styles.treeMeta}>{node.meta}</span> : null}
+        </button>
+      </summary>
+      <div style={styles.treeChildren}>
+        {node.children.map((child) => (
+          <SelectableTreeNodeView key={child.id} node={child} selectedNodeId={selectedNodeId} onSelect={onSelect} />
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function buildProposalTreeNodes(plan: PlannerPlan): PlannerTreeNode[] {
+  const productNodes = new Map<string, PlannerTreeNode>();
+  const moduleNodes = new Map<string, PlannerTreeNode>();
+  const capabilityNodes = new Map<string, PlannerTreeNode>();
+
+  const ensureProduct = (name?: string | null) => {
+    const label = name?.trim() || "Proposed product";
+    let node = productNodes.get(label);
+    if (!node) {
+      node = { id: `proposal-product-${label}`, label, meta: "proposed product", children: [] };
+      productNodes.set(label, node);
+    }
+    return node;
+  };
+
+  const ensureModule = (productName?: string | null, moduleName?: string | null) => {
+    const product = ensureProduct(productName);
+    const label = moduleName?.trim() || "Proposed module";
+    const key = `${product.label}::${label}`;
+    let node = moduleNodes.get(key);
+    if (!node) {
+      node = { id: `proposal-module-${key}`, label, meta: "proposed module", children: [] };
+      moduleNodes.set(key, node);
+      product.children.push(node);
+    }
+    return node;
+  };
+
+  const ensureCapability = (productName?: string | null, moduleName?: string | null, capabilityName?: string | null) => {
+    const module = ensureModule(productName, moduleName);
+    const label = capabilityName?.trim() || "Proposed capability";
+    const key = `${module.id}::${label}`;
+    let node = capabilityNodes.get(key);
+    if (!node) {
+      node = { id: `proposal-capability-${key}`, label, meta: "proposed capability", children: [] };
+      capabilityNodes.set(key, node);
+      module.children.push(node);
+    }
+    return node;
+  };
+
+  for (const action of plan.actions) {
+    const target = (action as { target?: { productName?: string; moduleName?: string; capabilityName?: string; workItemTitle?: string } }).target;
+    switch (action.type) {
+      case "create_product":
+        ensureProduct(action.name ?? target?.productName ?? null);
+        break;
+      case "create_module":
+        ensureModule(target?.productName, action.name ?? target?.moduleName ?? null);
+        break;
+      case "create_capability":
+        ensureCapability(target?.productName, target?.moduleName, action.name ?? target?.capabilityName ?? null);
+        break;
+      case "create_work_item": {
+        const capability = ensureCapability(target?.productName, target?.moduleName, target?.capabilityName ?? null);
+        capability.children.push({
+          id: `proposal-work-item-${capability.id}-${action.title ?? target?.workItemTitle ?? capability.children.length}`,
+          label: action.title ?? target?.workItemTitle ?? "Proposed work item",
+          meta: "proposed work item",
+          children: [],
+        });
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  return Array.from(productNodes.values());
 }
 
 async function executePlannerAction(action: PlannerAction, context: ResolverContext): Promise<string[]> {
@@ -1335,6 +1465,8 @@ export function PlannerPage() {
     { id: makeId(), role: "assistant", content: DEFAULT_ASSISTANT_OPENING },
   ]);
   const [pendingPlan, setPendingPlan] = useState<PendingPlan | null>(null);
+  const [draftTreeNodes, setDraftTreeNodes] = useState<PlannerTreeNode[]>([]);
+  const [selectedDraftNodeId, setSelectedDraftNodeId] = useState<string | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [autoSpeak, setAutoSpeak] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -1498,6 +1630,7 @@ export function PlannerPage() {
       const response = await submitPlannerTurn({
         sessionId: activeSessionId,
         userInput,
+        selectedDraftNodeId,
       });
 
       const backendPlan = (response.pending_plan as unknown as PlannerPlan) ?? {
@@ -1511,6 +1644,20 @@ export function PlannerPage() {
         errors: response.execution_errors,
       };
       const treeNodes = (response.tree_nodes as unknown as PlannerTreeNode[] | undefined) ?? undefined;
+      const responseDraftTreeNodes = (response.draft_tree_nodes as unknown as PlannerTreeNode[] | undefined) ?? undefined;
+      const responseSelectedDraftNodeId = response.selected_draft_node_id ?? null;
+
+      if (response.status === "proposal" && responseDraftTreeNodes) {
+        return {
+          mode: "draft_updated" as const,
+          userInput,
+          plan: backendPlan,
+          execution,
+          treeNodes,
+          draftTreeNodes: responseDraftTreeNodes,
+          selectedDraftNodeId: responseSelectedDraftNodeId,
+        };
+      }
 
       if (response.status === "proposal") {
         return {
@@ -1519,6 +1666,8 @@ export function PlannerPage() {
           plan: backendPlan,
           execution: null,
           treeNodes,
+          draftTreeNodes: responseDraftTreeNodes,
+          selectedDraftNodeId: responseSelectedDraftNodeId,
         };
       }
 
@@ -1529,6 +1678,8 @@ export function PlannerPage() {
           plan: backendPlan,
           execution: null,
           treeNodes,
+          draftTreeNodes: responseDraftTreeNodes,
+          selectedDraftNodeId: responseSelectedDraftNodeId,
         };
       }
 
@@ -1538,6 +1689,8 @@ export function PlannerPage() {
         plan: backendPlan,
         execution,
         treeNodes,
+        draftTreeNodes: responseDraftTreeNodes,
+        selectedDraftNodeId: responseSelectedDraftNodeId,
       };
     },
     onSuccess: (result) => {
@@ -1549,6 +1702,22 @@ export function PlannerPage() {
             role: "assistant",
             content: result.plan.assistant_response,
             meta: "Suggestion awaiting confirmation",
+            kind: "proposal",
+            plan: result.plan,
+            treeNodes: result.treeNodes,
+          });
+          return next;
+        }
+        if (result.mode === "draft_updated") {
+          const output = [
+            result.plan.assistant_response,
+            ...(result.execution?.lines ?? []),
+          ].join("\n");
+          next.push({
+            id: makeId(),
+            role: "assistant",
+            content: output,
+            meta: "Draft updated",
             kind: "proposal",
             plan: result.plan,
             treeNodes: result.treeNodes,
@@ -1599,10 +1768,23 @@ export function PlannerPage() {
         return next;
       });
 
+      if (result.draftTreeNodes) {
+        setDraftTreeNodes(result.draftTreeNodes);
+      }
+      if (result.selectedDraftNodeId !== undefined) {
+        setSelectedDraftNodeId(result.selectedDraftNodeId ?? null);
+      }
+
       if (result.mode === "confirmation_required") {
         setPendingPlan({ sourceText: result.userInput, plan: result.plan });
+      } else if (result.mode === "draft_updated") {
+        setPendingPlan(null);
       } else {
         setPendingPlan(null);
+        if (result.mode === "executed" && !result.draftTreeNodes?.length) {
+          setDraftTreeNodes([]);
+          setSelectedDraftNodeId(null);
+        }
         void queryClient.invalidateQueries({ queryKey: ["products"] });
         void queryClient.invalidateQueries({ queryKey: ["plannerWorkItems"] });
         void queryClient.invalidateQueries({ queryKey: ["sidebarWorkItems"] });
@@ -1615,6 +1797,8 @@ export function PlannerPage() {
           ? result.plan.clarification_question ?? result.plan.assistant_response
           : result.mode === "confirmation_required"
             ? `${result.plan.assistant_response}. Say confirm to apply the proposal.`
+            : result.mode === "draft_updated"
+              ? `${result.plan.assistant_response}. The draft tree has been updated.`
             : result.mode === "confirmed"
               ? "Executed the pending planner actions."
               : result.plan.assistant_response;
@@ -1652,7 +1836,7 @@ export function PlannerPage() {
   };
 
   const confirmPendingPlan = () => {
-    if (!pendingPlan || processMutation.isPending || !sessionId) {
+    if ((!pendingPlan && draftTreeNodes.length === 0) || processMutation.isPending || !sessionId) {
       return;
     }
     void (async () => {
@@ -1661,7 +1845,12 @@ export function PlannerPage() {
         lines: response.execution_lines,
         errors: response.execution_errors,
       };
-      const plan = pendingPlan.plan;
+      const plan = pendingPlan?.plan ?? {
+        assistant_response: "Committed draft plan.",
+        needs_confirmation: false,
+        clarification_question: null,
+        actions: [],
+      };
       const treeNodes = (response.tree_nodes as unknown as PlannerTreeNode[] | undefined) ?? undefined;
       setMessages((current) => [
         ...current,
@@ -1669,7 +1858,7 @@ export function PlannerPage() {
         {
           id: makeId(),
           role: "assistant",
-          content: ["Executed pending plan.", ...execution.lines, ...(execution.errors.length ? [`Errors: ${execution.errors.join(" | ")}`] : [])].join("\n"),
+          content: ["Committed draft plan.", ...execution.lines, ...(execution.errors.length ? [`Errors: ${execution.errors.join(" | ")}`] : [])].join("\n"),
           meta: "Planner execution",
           kind: treeNodes ? "tree" : "execution",
           treeNodes,
@@ -1677,6 +1866,8 @@ export function PlannerPage() {
         },
       ]);
       setPendingPlan(null);
+      setDraftTreeNodes([]);
+      setSelectedDraftNodeId(null);
       void queryClient.invalidateQueries({ queryKey: ["products"] });
       void queryClient.invalidateQueries({ queryKey: ["plannerWorkItems"] });
       void queryClient.invalidateQueries({ queryKey: ["sidebarWorkItems"] });
@@ -1691,13 +1882,15 @@ export function PlannerPage() {
   };
 
   const dismissPendingPlan = () => {
-    if (!pendingPlan) {
+    if (!pendingPlan && draftTreeNodes.length === 0) {
       return;
     }
     if (sessionId) {
       void clearPlannerPending(sessionId).catch(() => {});
     }
     setPendingPlan(null);
+    setDraftTreeNodes([]);
+    setSelectedDraftNodeId(null);
   };
 
   const sendWhatsapp = async () => {
@@ -1743,6 +1936,7 @@ export function PlannerPage() {
 
   const renderAssistantMessage = (message: PlannerMessage) => {
     if (message.kind === "proposal" && message.plan) {
+      const proposalTreeNodes = buildProposalTreeNodes(message.plan);
       return (
         <>
           <div>{message.content}</div>
@@ -1765,6 +1959,16 @@ export function PlannerPage() {
                 </div>
               );
             })}
+            {proposalTreeNodes.length > 0 ? (
+              <div style={styles.cardSection}>
+                <div style={styles.cardTitle}>Proposed Structure</div>
+                <div style={styles.treePanel}>
+                  {proposalTreeNodes.map((node) => (
+                    <TreeNodeView key={node.id} node={node} />
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {message.treeNodes && message.treeNodes.length > 0 ? (
               <div style={styles.cardSection}>
                 <div style={styles.cardTitle}>Current Structure</div>
@@ -1776,11 +1980,11 @@ export function PlannerPage() {
               </div>
             ) : null}
             <div style={styles.inlineButtonRow}>
-              <button style={styles.btn} onClick={confirmPendingPlan} disabled={!pendingPlan || processMutation.isPending}>
-                Confirm Proposal
+              <button style={styles.btn} onClick={confirmPendingPlan} disabled={processMutation.isPending || (!pendingPlan && draftTreeNodes.length === 0)}>
+                {draftTreeNodes.length > 0 ? "Commit Draft" : "Confirm Proposal"}
               </button>
-              <button style={styles.btnGhost} onClick={dismissPendingPlan} disabled={!pendingPlan}>
-                Dismiss
+              <button style={styles.btnGhost} onClick={dismissPendingPlan} disabled={!pendingPlan && draftTreeNodes.length === 0}>
+                {draftTreeNodes.length > 0 ? "Clear Draft" : "Dismiss"}
               </button>
             </div>
           </div>
@@ -1841,14 +2045,18 @@ export function PlannerPage() {
                 <button style={styles.btnGhost} onClick={toggleListening} disabled={!voiceEnabled}>
                   {isListening ? "Stop Listening" : "Start Listening"}
                 </button>
-                <button style={styles.btnGhost} onClick={() => setDraft("confirm")} disabled={!pendingPlan}>
-                  Confirm Proposal
+                <button style={styles.btnGhost} onClick={() => setDraft("confirm")} disabled={!pendingPlan && draftTreeNodes.length === 0}>
+                  {draftTreeNodes.length > 0 ? "Commit Draft" : "Confirm Proposal"}
                 </button>
-                <button style={styles.btnDanger} onClick={dismissPendingPlan} disabled={!pendingPlan}>
-                  Clear Pending
+                <button style={styles.btnDanger} onClick={dismissPendingPlan} disabled={!pendingPlan && draftTreeNodes.length === 0}>
+                  {draftTreeNodes.length > 0 ? "Clear Draft" : "Clear Pending"}
                 </button>
                 <span style={styles.status}>
-                  {pendingPlan ? "A proposed plan is waiting for confirmation." : "No pending proposal."}
+                  {draftTreeNodes.length > 0
+                    ? "A staged draft is active. Keep refining it, then commit when ready."
+                    : pendingPlan
+                      ? "A proposed plan is waiting for confirmation."
+                      : "No pending proposal."}
                 </span>
               </div>
             </div>
@@ -1938,15 +2146,46 @@ export function PlannerPage() {
             </div>
 
             <div style={styles.sideCard}>
+              <div style={styles.label}>Draft Tree</div>
+              <div style={styles.helper}>
+                Build the plan here first. Select a node, then ask follow-up questions like “expand this capability” or “add work items under this module.”
+              </div>
+              <div style={{ height: 10 }} />
+              {draftTreeNodes.length > 0 ? (
+                <div style={styles.treePanel}>
+                  {draftTreeNodes.map((node) => (
+                    <SelectableTreeNodeView
+                      key={node.id}
+                      node={node}
+                      selectedNodeId={selectedDraftNodeId}
+                      onSelect={setSelectedDraftNodeId}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div style={styles.helper}>No staged draft yet. Ask the planner to sketch a product tree and it will appear here.</div>
+              )}
+              <div style={styles.inlineButtonRow}>
+                <button style={styles.btn} onClick={confirmPendingPlan} disabled={draftTreeNodes.length === 0 || processMutation.isPending}>
+                  Commit Draft
+                </button>
+                <button style={styles.btnGhost} onClick={dismissPendingPlan} disabled={draftTreeNodes.length === 0}>
+                  Clear Draft
+                </button>
+              </div>
+            </div>
+
+            <div style={styles.sideCard}>
               <div style={styles.label}>Current Scope</div>
               <div style={styles.chipRow}>
+                {selectedDraftNodeId ? <div style={styles.chip}>draft node selected</div> : null}
                 {activeProductId ? <div style={styles.chip}>product selected</div> : null}
                 {activeModuleId ? <div style={styles.chip}>module selected</div> : null}
                 {activeCapabilityId ? <div style={styles.chip}>capability selected</div> : null}
                 {activeWorkItemId ? <div style={styles.chip}>work item selected</div> : null}
               </div>
               <div style={{ ...styles.helper, marginTop: 10 }}>
-                If you omit names, the planner first tries the currently selected scope, then asks follow-up questions if it still cannot resolve the target cleanly.
+                If you omit names, the planner first tries the selected draft node, then the selected workspace scope, then asks follow-up questions if it still cannot resolve the target cleanly.
               </div>
             </div>
 
@@ -1954,34 +2193,40 @@ export function PlannerPage() {
               <div style={styles.label}>Examples</div>
               <div style={styles.list}>
                 <div style={styles.listItem}>
-                  <div style={styles.listItemTitle}>Explore before creating</div>
-                  <div style={styles.listItemMeta}>I want a voice-driven planning experience for my studio. Check what already exists and suggest what product structure I should add.</div>
+                  <div style={styles.listItemTitle}>One-shot draft</div>
+                  <div style={styles.listItemMeta}>Design an agent management system. Draft the product, modules, capabilities, and initial work items in one staged tree.</div>
                 </div>
                 <div style={styles.listItem}>
-                  <div style={styles.listItemTitle}>Turn needs into backlog</div>
-                  <div style={styles.listItemMeta}>I want agents to call me on WhatsApp and also let me assign work by voice. What capabilities and work items are missing?</div>
+                  <div style={styles.listItemTitle}>Refine selected node</div>
+                  <div style={styles.listItemMeta}>After selecting a module in the draft tree: add three capabilities under this module focused on lifecycle, permissions, and monitoring.</div>
                 </div>
                 <div style={styles.listItem}>
-                  <div style={styles.listItemTitle}>Confirm after review</div>
-                  <div style={styles.listItemMeta}>That proposal looks right. Confirm it and add the suggested work items.</div>
+                  <div style={styles.listItemTitle}>Commit when ready</div>
+                  <div style={styles.listItemMeta}>The staged tree looks right. Commit the draft and create the real product structure.</div>
                 </div>
               </div>
             </div>
 
-            {pendingPlan ? (
+            {pendingPlan || draftTreeNodes.length > 0 ? (
               <div style={styles.sideCard}>
-                <div style={styles.label}>Pending Confirmation</div>
-                <div style={styles.warning}>
-                  The last request produced a proposed plan. Review it, then confirm when you want it applied.
+                <div style={styles.label}>Draft Snapshot</div>
+                <div style={styles.helper}>
+                  The planner stages structure here first. Keep refining the tree, then commit when the draft looks right.
                 </div>
-                <div style={styles.list}>
-                  {pendingPlan.plan.actions.map((action, index) => (
-                    <div key={`${action.type}-${index}`} style={styles.listItem}>
-                      <div style={styles.listItemTitle}>{action.type}</div>
-                      <div style={styles.listItemMeta}>{JSON.stringify(action, null, 2)}</div>
-                    </div>
-                  ))}
-                </div>
+                {pendingPlan ? (
+                  <div style={styles.list}>
+                    {pendingPlan.plan.actions.map((action, index) => (
+                      <div key={`${action.type}-${index}`} style={styles.listItem}>
+                        <div style={styles.listItemTitle}>{action.type}</div>
+                        <div style={styles.listItemMeta}>{JSON.stringify(action, null, 2)}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ ...styles.helper, marginTop: 10 }}>
+                    The current staged draft is active in the tree above. Select a node and keep iterating, or commit to persist it.
+                  </div>
+                )}
               </div>
             ) : null}
           </div>
