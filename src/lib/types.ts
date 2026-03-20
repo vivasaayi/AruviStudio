@@ -381,6 +381,13 @@ export interface PlannerTreeNode {
   children: PlannerTreeNode[];
 }
 
+export interface PlannerTraceEvent {
+  step: number;
+  stage: string;
+  title: string;
+  detail: string;
+}
+
 export interface PlannerSessionInfo {
   session_id: string;
   provider_id: string | null;
@@ -392,7 +399,7 @@ export interface PlannerSessionInfo {
 
 export interface PlannerTurnResponse {
   session_id: string;
-  status: "proposal" | "clarification" | "report" | "execution";
+  status: "proposal" | "clarification" | "report" | "execution" | "error";
   assistant_message: string;
   pending_plan: PlannerPlan | null;
   tree_nodes: PlannerTreeNode[] | null;
@@ -400,6 +407,7 @@ export interface PlannerTurnResponse {
   selected_draft_node_id: string | null;
   execution_lines: string[];
   execution_errors: string[];
+  trace_events: PlannerTraceEvent[];
 }
 
 export interface PlannerContactResult {

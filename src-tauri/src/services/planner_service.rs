@@ -45,6 +45,14 @@ pub struct PlannerTreeNode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlannerTraceEvent {
+    pub step: usize,
+    pub stage: String,
+    pub title: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlannerDraftNode {
     pub id: String,
     pub parent_id: Option<String>,
@@ -70,6 +78,7 @@ pub struct PlannerTurnResponse {
     pub selected_draft_node_id: Option<String>,
     pub execution_lines: Vec<String>,
     pub execution_errors: Vec<String>,
+    pub trace_events: Vec<PlannerTraceEvent>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -253,6 +262,21 @@ async fn persist_draft_state(
     Ok(())
 }
 
+fn push_trace(
+    trace: &mut Vec<PlannerTraceEvent>,
+    stage: impl Into<String>,
+    title: impl Into<String>,
+    detail: impl Into<String>,
+) {
+    let step = trace.len() + 1;
+    trace.push(PlannerTraceEvent {
+        step,
+        stage: stage.into(),
+        title: title.into(),
+        detail: detail.into(),
+    });
+}
+
 async fn append_conversation(
     db: &SqlitePool,
     session_id: &str,
@@ -403,43 +427,93 @@ fn parse_agent_turn(raw: &str) -> Result<Result<PlannerToolCall, PlannerPlan>, A
 fn normalized_target_string(action: &Value, key: &str) -> Option<String> {
     action
         .get("target")
-        .and_then(|target| target.get(key))
+        .and_then(|target| match target {
+            Value::Object(map) => map.get(key).and_then(Value::as_str).map(ToString::to_string),
+            _ => None,
+        })
+}
+
+fn target_as_string(action: &Value) -> Option<String> {
+    action
+        .get("target")
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
+fn alternate_string_field(action: &Value, key: &str) -> Option<String> {
+    action
+        .get(key)
         .and_then(Value::as_str)
         .map(ToString::to_string)
 }
 
 fn normalize_planner_action(action: Value) -> Option<Value> {
     let action_type = action.get("type").and_then(Value::as_str)?.to_string();
+    let raw_target_name = target_as_string(&action);
     let target_product_name = normalized_target_string(&action, "productName");
-    let target_module_name = normalized_target_string(&action, "moduleName");
-    let target_capability_name = normalized_target_string(&action, "capabilityName");
-    let target_work_item_title = normalized_target_string(&action, "workItemTitle");
+    let target_module_name = normalized_target_string(&action, "moduleName")
+        .or_else(|| alternate_string_field(&action, "module_name"));
+    let target_capability_name = normalized_target_string(&action, "capabilityName")
+        .or_else(|| alternate_string_field(&action, "capability_name"));
+    let target_work_item_title = normalized_target_string(&action, "workItemTitle")
+        .or_else(|| alternate_string_field(&action, "work_item_title"))
+        .or_else(|| alternate_string_field(&action, "work_item_name"));
     let mut action = action;
     let object = action.as_object_mut()?;
 
     match action_type.as_str() {
         "create_product" => {
+            if let Some(target_name) = raw_target_name.clone() {
+                if let Some(Value::String(_)) = object.get("target") {
+                    object.insert("target".to_string(), json!({ "productName": target_name.clone() }));
+                }
+            }
             if !object.contains_key("name") {
-                if let Some(name) = target_product_name {
+                if let Some(name) = target_product_name.or(raw_target_name) {
                     object.insert("name".to_string(), Value::String(name));
                 }
             }
         }
         "create_module" => {
+            if let Some(target_name) = raw_target_name.clone() {
+                if let Some(Value::String(_)) = object.get("target") {
+                    object.insert("target".to_string(), json!({ "productName": target_name }));
+                }
+            }
             if !object.contains_key("name") {
                 if let Some(name) = target_module_name {
                     object.insert("name".to_string(), Value::String(name));
                 }
             }
+            if !object.contains_key("moduleName") {
+                if let Some(name) = object.get("name").and_then(Value::as_str) {
+                    object.insert("moduleName".to_string(), Value::String(name.to_string()));
+                }
+            }
         }
         "create_capability" => {
+            if let Some(target_name) = raw_target_name.clone() {
+                if let Some(Value::String(_)) = object.get("target") {
+                    object.insert("target".to_string(), json!({ "moduleName": target_name }));
+                }
+            }
             if !object.contains_key("name") {
                 if let Some(name) = target_capability_name {
                     object.insert("name".to_string(), Value::String(name));
                 }
             }
+            if !object.contains_key("capabilityName") {
+                if let Some(name) = object.get("name").and_then(Value::as_str) {
+                    object.insert("capabilityName".to_string(), Value::String(name.to_string()));
+                }
+            }
         }
         "create_work_item" => {
+            if let Some(target_name) = raw_target_name {
+                if let Some(Value::String(_)) = object.get("target") {
+                    object.insert("target".to_string(), json!({ "capabilityName": target_name }));
+                }
+            }
             if !object.contains_key("title") {
                 if let Some(title) = target_work_item_title {
                     object.insert("title".to_string(), Value::String(title));
@@ -516,6 +590,7 @@ async fn run_tool_loop(
     draft_plan: Option<&PlannerDraftPlan>,
     selected_draft_node_id: Option<&str>,
     user_input: &str,
+    trace: &mut Vec<PlannerTraceEvent>,
 ) -> Result<PlannerPlan, AppError> {
     let mut messages = vec![ChatMessage {
         role: "system".to_string(),
@@ -533,36 +608,59 @@ async fn run_tool_loop(
         .collect::<Vec<_>>()
         .join("\n");
 
+    let user_context = format!(
+        "Recent conversation:\n{}\n\nCurrent pending proposal:\n{}\n\nCurrent draft tree:\n{}\n\nSelected draft node:\n{}\n\nLatest user request:\n{}",
+        if history.is_empty() {
+            "No prior conversation."
+        } else {
+            &history
+        },
+        pending_plan
+            .map(|plan| serde_json::to_string_pretty(plan))
+            .transpose()?
+            .unwrap_or_else(|| "No pending proposal.".to_string()),
+        draft_plan
+            .map(|plan| serde_json::to_string_pretty(plan))
+            .transpose()?
+            .unwrap_or_else(|| "No draft yet.".to_string()),
+        selected_draft_node_id
+            .and_then(|node_id| draft_plan.and_then(|draft| draft.nodes.iter().find(|node| node.id == node_id)))
+            .map(serde_json::to_string_pretty)
+            .transpose()?
+            .unwrap_or_else(|| "No draft node selected.".to_string()),
+        user_input
+    );
+    push_trace(
+        trace,
+        "input",
+        "Planner turn context",
+        format!(
+            "provider={provider_id}\nmodel={model_name}\n\n{}",
+            user_context
+        ),
+    );
+
     messages.push(ChatMessage {
         role: "user".to_string(),
-        content: format!(
-            "Recent conversation:\n{}\n\nCurrent pending proposal:\n{}\n\nCurrent draft tree:\n{}\n\nSelected draft node:\n{}\n\nLatest user request:\n{}",
-            if history.is_empty() {
-                "No prior conversation."
-            } else {
-                &history
-            },
-            pending_plan
-                .map(|plan| serde_json::to_string_pretty(plan))
-                .transpose()?
-                .unwrap_or_else(|| "No pending proposal.".to_string()),
-            draft_plan
-                .map(|plan| serde_json::to_string_pretty(plan))
-                .transpose()?
-                .unwrap_or_else(|| "No draft yet.".to_string()),
-            selected_draft_node_id
-                .and_then(|node_id| draft_plan.and_then(|draft| draft.nodes.iter().find(|node| node.id == node_id)))
-                .map(serde_json::to_string_pretty)
-                .transpose()?
-                .unwrap_or_else(|| "No draft node selected.".to_string()),
-            user_input
-        ),
+        content: user_context,
     });
 
-    for _ in 0..6 {
+    for step in 0..6 {
         let completion = run_completion(db, provider_id, model_name, messages.clone()).await?;
+        push_trace(
+            trace,
+            "model",
+            format!("Model completion {}", step + 1),
+            completion.clone(),
+        );
         match parse_agent_turn(&completion)? {
             Ok(tool_call) => {
+                push_trace(
+                    trace,
+                    "tool_call",
+                    format!("Requested tool {}", tool_call.tool),
+                    serde_json::to_string_pretty(&tool_call)?,
+                );
                 let args = tool_call.arguments.clone().unwrap_or_else(|| json!({}));
                 let tool_result = match tool_call.tool.as_str() {
                     "list_products" => list_products_tool(db).await,
@@ -591,6 +689,12 @@ async fn run_tool_loop(
                         "note": "Tool execution failed. If this refers to a proposed entity that is not created yet, continue planning using the pending proposal."
                     }),
                 };
+                push_trace(
+                    trace,
+                    "tool_result",
+                    format!("Tool result {}", tool_call.tool),
+                    serde_json::to_string_pretty(&tool_result)?,
+                );
                 messages.push(ChatMessage {
                     role: "assistant".to_string(),
                     content: serde_json::to_string(&tool_call)?,
@@ -604,7 +708,15 @@ async fn run_tool_loop(
                     ),
                 });
             }
-            Err(plan) => return Ok(plan),
+            Err(plan) => {
+                push_trace(
+                    trace,
+                    "plan",
+                    "Parsed planner plan",
+                    serde_json::to_string_pretty(&plan)?,
+                );
+                return Ok(plan);
+            }
         }
     }
 
@@ -861,7 +973,13 @@ fn string_array_field(action: &Value, key: &str) -> Option<Vec<String>> {
 }
 
 fn target_field<'a>(action: &'a Value, key: &str) -> Option<&'a str> {
-    action.get("target")?.get(key)?.as_str()
+    action
+        .get("target")
+        .and_then(|target| match target {
+            Value::Object(map) => map.get(key).and_then(Value::as_str),
+            _ => None,
+        })
+        .or_else(|| action.get(key).and_then(Value::as_str))
 }
 
 fn fields_field<'a>(action: &'a Value, key: &str) -> Option<&'a Value> {
@@ -972,6 +1090,47 @@ fn find_draft_node_by_id<'a>(
     draft_plan.nodes.iter().find(|node| node.id == node_id)
 }
 
+fn find_unique_draft_node_by_name<'a>(
+    draft_plan: &'a PlannerDraftPlan,
+    node_type: &str,
+    name: &str,
+) -> Result<Option<&'a PlannerDraftNode>, AppError> {
+    let normalized = normalize(Some(name));
+    let matches = draft_plan
+        .nodes
+        .iter()
+        .filter(|node| node.node_type == node_type && normalize(Some(&node.name)) == normalized)
+        .collect::<Vec<_>>();
+    if matches.len() > 1 {
+        return Err(AppError::Validation(format!(
+            "Multiple draft {} nodes match {}",
+            node_type, name
+        )));
+    }
+    Ok(matches.into_iter().next())
+}
+
+fn find_draft_ancestor_name(
+    draft_plan: &PlannerDraftPlan,
+    node: &PlannerDraftNode,
+    ancestor_type: &str,
+) -> Option<String> {
+    let mut current = node
+        .parent_id
+        .as_deref()
+        .and_then(|parent_id| find_draft_node_by_id(draft_plan, Some(parent_id)));
+    while let Some(parent) = current {
+        if parent.node_type == ancestor_type {
+            return Some(parent.name.clone());
+        }
+        current = parent
+            .parent_id
+            .as_deref()
+            .and_then(|parent_id| find_draft_node_by_id(draft_plan, Some(parent_id)));
+    }
+    None
+}
+
 fn infer_selected_draft_context(
     draft_plan: Option<&PlannerDraftPlan>,
     selected_node_id: Option<&str>,
@@ -1010,6 +1169,20 @@ fn resolve_draft_product_name(
     action: &Value,
 ) -> Result<Option<String>, AppError> {
     if let Some(name) = target_field(action, "productName") {
+        if let Some(draft_plan) = draft_plan {
+            if find_draft_node(draft_plan, "product", name, None).is_some() {
+                return Ok(Some(name.to_string()));
+            }
+            if let Some(node) = find_unique_draft_node_by_name(draft_plan, "module", name)? {
+                return Ok(find_draft_ancestor_name(draft_plan, node, "product"));
+            }
+            if let Some(node) = find_unique_draft_node_by_name(draft_plan, "capability", name)? {
+                return Ok(find_draft_ancestor_name(draft_plan, node, "product"));
+            }
+            if let Some(node) = find_unique_draft_node_by_name(draft_plan, "work_item", name)? {
+                return Ok(find_draft_ancestor_name(draft_plan, node, "product"));
+            }
+        }
         return Ok(Some(name.to_string()));
     }
     let (product_name, _, _, _) = infer_selected_draft_context(draft_plan, selected_node_id);
@@ -1037,6 +1210,15 @@ fn resolve_draft_module_name(
 ) -> Result<Option<String>, AppError> {
     if let Some(name) = target_field(action, "moduleName") {
         return Ok(Some(name.to_string()));
+    }
+    if let Some(capability_name) = target_field(action, "capabilityName") {
+        if let Some(draft_plan) = draft_plan {
+            if let Some(node) =
+                find_unique_draft_node_by_name(draft_plan, "capability", capability_name)?
+            {
+                return Ok(find_draft_ancestor_name(draft_plan, node, "module"));
+            }
+        }
     }
     let (_, module_name, _, _) = infer_selected_draft_context(draft_plan, selected_node_id);
     Ok(module_name)
@@ -2276,6 +2458,7 @@ pub async fn submit_planner_turn(
     user_input: String,
     selected_draft_node_id: Option<String>,
 ) -> Result<PlannerTurnResponse, AppError> {
+    let mut trace = vec![];
     let mut session = {
         let mut service = planner_service.lock().await;
         match service.get_session(&session_id) {
@@ -2287,8 +2470,31 @@ pub async fn submit_planner_turn(
             }
         }
     };
+    push_trace(
+        &mut trace,
+        "session",
+        "Loaded planner session",
+        format!(
+            "session_id={}\nprovider_id={:?}\nmodel_name={:?}\nhas_pending_plan={}\nhas_draft_plan={}\nselected_draft_node_id={:?}",
+            session_id,
+            session.provider_id,
+            session.model_name,
+            session.pending_plan.is_some(),
+            session.draft_plan.is_some(),
+            session.selected_draft_node_id
+        ),
+    );
 
     if selected_draft_node_id != session.selected_draft_node_id {
+        push_trace(
+            &mut trace,
+            "selection",
+            "Updated selected draft node",
+            format!(
+                "previous={:?}\nnext={:?}",
+                session.selected_draft_node_id, selected_draft_node_id
+            ),
+        );
         session.selected_draft_node_id = selected_draft_node_id.clone();
         persist_draft_state(
             &state.db,
@@ -2302,7 +2508,40 @@ pub async fn submit_planner_turn(
     let normalized = user_input.trim().to_lowercase();
     if matches!(normalized.as_str(), "yes" | "confirm" | "go ahead") {
         if let Some(draft_plan) = session.draft_plan.clone() {
-            let execution_lines = commit_draft_plan(state, &draft_plan).await?;
+            push_trace(
+                &mut trace,
+                "commit",
+                "Attempting draft commit",
+                serde_json::to_string_pretty(&draft_plan)?,
+            );
+            let execution_lines = match commit_draft_plan(state, &draft_plan).await {
+                Ok(lines) => lines,
+                Err(error) => {
+                    push_trace(
+                        &mut trace,
+                        "error",
+                        "Draft commit failed",
+                        error.to_string(),
+                    );
+                    return Ok(PlannerTurnResponse {
+                        session_id,
+                        status: "error".to_string(),
+                        assistant_message: error.to_string(),
+                        pending_plan: session.pending_plan.clone(),
+                        tree_nodes: None,
+                        draft_tree_nodes: session.draft_plan.as_ref().map(|draft| {
+                            build_draft_tree_nodes(
+                                draft,
+                                session.selected_draft_node_id.as_deref(),
+                            )
+                        }),
+                        selected_draft_node_id: session.selected_draft_node_id.clone(),
+                        execution_lines: vec![],
+                        execution_errors: vec![error.to_string()],
+                        trace_events: trace,
+                    });
+                }
+            };
             append_conversation(&state.db, &session_id, "user", &user_input).await?;
             session.conversation.push(PlannerConversationEntry {
                 role: "user".to_string(),
@@ -2331,6 +2570,7 @@ pub async fn submit_planner_turn(
                 selected_draft_node_id: None,
                 execution_lines,
                 execution_errors: vec![],
+                trace_events: trace,
             });
         }
     }
@@ -2338,7 +2578,7 @@ pub async fn submit_planner_turn(
     let plan = if let (Some(provider_id), Some(model_name)) =
         (session.provider_id.clone(), session.model_name.clone())
     {
-        run_tool_loop(
+        match run_tool_loop(
             &state.db,
             &provider_id,
             &model_name,
@@ -2347,11 +2587,49 @@ pub async fn submit_planner_turn(
             session.draft_plan.as_ref(),
             session.selected_draft_node_id.as_deref(),
             &user_input,
+            &mut trace,
         )
-        .await?
+        .await
+        {
+            Ok(plan) => plan,
+            Err(error) => {
+                push_trace(
+                    &mut trace,
+                    "error",
+                    "Planner tool loop failed",
+                    error.to_string(),
+                );
+                return Ok(PlannerTurnResponse {
+                    session_id,
+                    status: "error".to_string(),
+                    assistant_message: error.to_string(),
+                    pending_plan: session.pending_plan.clone(),
+                    tree_nodes: None,
+                    draft_tree_nodes: session.draft_plan.as_ref().map(|draft| {
+                        build_draft_tree_nodes(draft, session.selected_draft_node_id.as_deref())
+                    }),
+                    selected_draft_node_id: session.selected_draft_node_id.clone(),
+                    execution_lines: vec![],
+                    execution_errors: vec![error.to_string()],
+                    trace_events: trace,
+                });
+            }
+        }
     } else {
+        push_trace(
+            &mut trace,
+            "fallback",
+            "Using heuristic planner",
+            "No configured provider/model for planner session.",
+        );
         heuristic_plan(&user_input)
     };
+    push_trace(
+        &mut trace,
+        "plan",
+        "Planner plan ready",
+        serde_json::to_string_pretty(&plan)?,
+    );
 
     let tree_nodes = if plan
         .actions
@@ -2383,12 +2661,43 @@ pub async fn submit_planner_turn(
     });
 
     if has_draft_mutations(&plan) {
-        let updated_draft = apply_actions_to_draft(
+        push_trace(
+            &mut trace,
+            "draft",
+            "Applying actions to staged draft",
+            serde_json::to_string_pretty(&plan.actions)?,
+        );
+        let updated_draft = match apply_actions_to_draft(
             session.draft_plan.clone(),
             session.selected_draft_node_id.as_deref(),
             &plan.actions,
         )
-        .await?;
+        .await
+        {
+            Ok(draft) => draft,
+            Err(error) => {
+                push_trace(
+                    &mut trace,
+                    "error",
+                    "Draft mutation failed",
+                    error.to_string(),
+                );
+                return Ok(PlannerTurnResponse {
+                    session_id,
+                    status: "error".to_string(),
+                    assistant_message: error.to_string(),
+                    pending_plan: session.pending_plan.clone(),
+                    tree_nodes,
+                    draft_tree_nodes: session.draft_plan.as_ref().map(|draft| {
+                        build_draft_tree_nodes(draft, session.selected_draft_node_id.as_deref())
+                    }),
+                    selected_draft_node_id: session.selected_draft_node_id.clone(),
+                    execution_lines: vec![],
+                    execution_errors: vec![error.to_string()],
+                    trace_events: trace,
+                });
+            }
+        };
         let updated_draft_tree_nodes =
             Some(build_draft_tree_nodes(&updated_draft, session.selected_draft_node_id.as_deref()));
         session.draft_plan = Some(updated_draft.clone());
@@ -2418,6 +2727,7 @@ pub async fn submit_planner_turn(
             selected_draft_node_id: session.selected_draft_node_id.clone(),
             execution_lines: vec!["Updated the draft plan.".to_string()],
             execution_errors: vec![],
+            trace_events: trace,
         });
     }
 
@@ -2448,6 +2758,7 @@ pub async fn submit_planner_turn(
             selected_draft_node_id,
             execution_lines: vec![],
             execution_errors: vec![],
+            trace_events: trace,
         });
     }
 
@@ -2475,10 +2786,25 @@ pub async fn submit_planner_turn(
             selected_draft_node_id,
             execution_lines: vec![],
             execution_errors: vec![],
+            trace_events: trace,
         });
     }
 
+    push_trace(
+        &mut trace,
+        "execution",
+        "Executing planner actions immediately",
+        serde_json::to_string_pretty(&plan.actions)?,
+    );
     let (execution_lines, execution_errors) = execute_plan(state, &plan).await?;
+    if !execution_errors.is_empty() {
+        push_trace(
+            &mut trace,
+            "execution",
+            "Execution errors",
+            execution_errors.join("\n"),
+        );
+    }
     let assistant_message = plan.assistant_response.clone();
     session.pending_plan = None;
     persist_pending_plan(&state.db, &session_id, None).await?;
@@ -2504,6 +2830,7 @@ pub async fn submit_planner_turn(
         selected_draft_node_id,
         execution_lines,
         execution_errors,
+        trace_events: trace,
     })
 }
 

@@ -37,18 +37,20 @@ import {
   updateWorkItem,
 } from "../../../lib/tauri";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
-import type { CapabilityTree, ModelDefinition, Product, ProductTree, WorkItem } from "../../../lib/types";
+import type { CapabilityTree, ModelDefinition, PlannerTraceEvent, Product, ProductTree, WorkItem } from "../../../lib/types";
 
 const styles: Record<string, React.CSSProperties> = {
   page: { display: "flex", flexDirection: "column", gap: 12, height: "100%" },
   header: { display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" },
   titleWrap: { display: "flex", flexDirection: "column", gap: 4 },
+  headerActions: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" as const },
   title: { fontSize: 22, fontWeight: 800, color: "#f5f7fb", margin: 0 },
   subtitle: { fontSize: 13, color: "#9da7b5", maxWidth: 760, lineHeight: 1.45 },
   topGrid: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) 320px", gap: 12, minHeight: 0, flex: 1 },
   panel: { backgroundColor: "#212327", border: "1px solid #32353d", borderRadius: 14, minHeight: 0, overflow: "hidden" },
   panelBody: { padding: 16, height: "100%", overflow: "auto" },
   sectionTitle: { fontSize: 11, fontWeight: 800, letterSpacing: 0.8, textTransform: "uppercase" as const, color: "#8f96a3", marginBottom: 10 },
+  sectionHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10 },
   transcript: { display: "flex", flexDirection: "column", gap: 10 },
   bubbleUser: { alignSelf: "flex-end", maxWidth: "80%", backgroundColor: "#0e639c", color: "#fff", borderRadius: 14, padding: "12px 14px", whiteSpace: "pre-wrap" as const },
   bubbleAssistant: { alignSelf: "flex-start", maxWidth: "84%", backgroundColor: "#2c3139", color: "#edf1f8", borderRadius: 14, padding: "12px 14px", whiteSpace: "pre-wrap" as const },
@@ -92,6 +94,14 @@ const styles: Record<string, React.CSSProperties> = {
   treeButton: { width: "100%", textAlign: "left" as const, background: "transparent", border: "1px solid transparent", borderRadius: 8, color: "#edf1f8", padding: "6px 8px", cursor: "pointer", fontSize: 13, fontWeight: 700 },
   treeButtonSelected: { border: "1px solid #0e639c", backgroundColor: "#14314a" },
   inlineButtonRow: { display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" as const },
+  viewToggleRow: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" as const },
+  draftWorkspace: { display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) minmax(260px, 0.9fr)", gap: 12, flex: 1, minHeight: 0 },
+  draftWorkspaceMain: { display: "flex", flexDirection: "column", minHeight: 0 },
+  draftWorkspaceSide: { display: "flex", flexDirection: "column", gap: 12, minHeight: 0 },
+  draftCanvas: { border: "1px solid #3a4250", backgroundColor: "#161b22", borderRadius: 12, padding: 14, flex: 1, minHeight: 0, overflow: "auto" },
+  draftCanvasHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" as const },
+  draftCanvasTitle: { fontSize: 14, fontWeight: 800, color: "#eef3fb" },
+  emptyState: { border: "1px dashed #3a4250", borderRadius: 12, padding: 18, color: "#9da7b5", backgroundColor: "#171a20", lineHeight: 1.5 },
 };
 
 type PlannerMessageKind = "text" | "proposal" | "tree" | "report" | "execution" | "error";
@@ -111,6 +121,7 @@ type PlannerMessage = {
   kind?: PlannerMessageKind;
   plan?: PlannerPlan;
   treeNodes?: PlannerTreeNode[];
+  traceEvents?: PlannerTraceEvent[];
 };
 
 type PlannerAction =
@@ -236,6 +247,7 @@ type PlannerMutationResult =
       treeNodes?: PlannerTreeNode[];
       draftTreeNodes?: PlannerTreeNode[];
       selectedDraftNodeId?: string | null;
+      traceEvents?: PlannerTraceEvent[];
     }
   | {
       mode: "confirmation_required";
@@ -245,6 +257,7 @@ type PlannerMutationResult =
       treeNodes?: PlannerTreeNode[];
       draftTreeNodes?: PlannerTreeNode[];
       selectedDraftNodeId?: string | null;
+      traceEvents?: PlannerTraceEvent[];
     }
   | {
       mode: "draft_updated";
@@ -254,6 +267,7 @@ type PlannerMutationResult =
       treeNodes?: PlannerTreeNode[];
       draftTreeNodes?: PlannerTreeNode[];
       selectedDraftNodeId?: string | null;
+      traceEvents?: PlannerTraceEvent[];
     }
   | {
       mode: "clarification";
@@ -263,6 +277,7 @@ type PlannerMutationResult =
       treeNodes?: PlannerTreeNode[];
       draftTreeNodes?: PlannerTreeNode[];
       selectedDraftNodeId?: string | null;
+      traceEvents?: PlannerTraceEvent[];
     }
   | {
       mode: "executed";
@@ -272,6 +287,17 @@ type PlannerMutationResult =
       treeNodes?: PlannerTreeNode[];
       draftTreeNodes?: PlannerTreeNode[];
       selectedDraftNodeId?: string | null;
+      traceEvents?: PlannerTraceEvent[];
+    }
+  | {
+      mode: "failed";
+      userInput: string;
+      plan: PlannerPlan;
+      execution: ExecutionResult;
+      treeNodes?: PlannerTreeNode[];
+      draftTreeNodes?: PlannerTreeNode[];
+      selectedDraftNodeId?: string | null;
+      traceEvents?: PlannerTraceEvent[];
     };
 
 type SpeechRecognitionLike = {
@@ -1234,6 +1260,22 @@ function buildProposalTreeNodes(plan: PlannerPlan): PlannerTreeNode[] {
   return Array.from(productNodes.values());
 }
 
+function findTreeNodeById(nodes: PlannerTreeNode[], nodeId: string | null): PlannerTreeNode | null {
+  if (!nodeId) {
+    return null;
+  }
+  for (const node of nodes) {
+    if (node.id === nodeId) {
+      return node;
+    }
+    const child = findTreeNodeById(node.children, nodeId);
+    if (child) {
+      return child;
+    }
+  }
+  return null;
+}
+
 async function executePlannerAction(action: PlannerAction, context: ResolverContext): Promise<string[]> {
   switch (action.type) {
     case "create_product": {
@@ -1457,6 +1499,7 @@ async function executePlannerPlan(plan: PlannerPlan, context: ResolverContext): 
 export function PlannerPage() {
   const queryClient = useQueryClient();
   const { activeProductId, activeModuleId, activeCapabilityId, activeWorkItemId } = useWorkspaceStore();
+  const [plannerView, setPlannerView] = useState<"conversation" | "draft" | "trace">("conversation");
   const [providerId, setProviderId] = useState("");
   const [modelName, setModelName] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -1467,6 +1510,7 @@ export function PlannerPage() {
   const [pendingPlan, setPendingPlan] = useState<PendingPlan | null>(null);
   const [draftTreeNodes, setDraftTreeNodes] = useState<PlannerTreeNode[]>([]);
   const [selectedDraftNodeId, setSelectedDraftNodeId] = useState<string | null>(null);
+  const [latestTraceEvents, setLatestTraceEvents] = useState<PlannerTraceEvent[]>([]);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [autoSpeak, setAutoSpeak] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -1496,6 +1540,10 @@ export function PlannerPage() {
     [treeQueries],
   );
   const hasTreeData = productTrees.length > 0;
+  const selectedDraftNode = useMemo(
+    () => findTreeNodeById(draftTreeNodes, selectedDraftNodeId),
+    [draftTreeNodes, selectedDraftNodeId],
+  );
 
   const modelOptions = useMemo(
     () => models.filter((model) => model.provider_id === providerId && model.enabled),
@@ -1572,6 +1620,12 @@ export function PlannerPage() {
   }, [messages]);
 
   useEffect(() => {
+    if (draftTreeNodes.length === 0 && plannerView === "draft") {
+      setPlannerView("conversation");
+    }
+  }, [draftTreeNodes.length, plannerView]);
+
+  useEffect(() => {
     if (!voiceEnabled) {
       recognitionRef.current?.stop();
       recognitionRef.current = null;
@@ -1646,6 +1700,7 @@ export function PlannerPage() {
       const treeNodes = (response.tree_nodes as unknown as PlannerTreeNode[] | undefined) ?? undefined;
       const responseDraftTreeNodes = (response.draft_tree_nodes as unknown as PlannerTreeNode[] | undefined) ?? undefined;
       const responseSelectedDraftNodeId = response.selected_draft_node_id ?? null;
+      const traceEvents = response.trace_events ?? [];
 
       if (response.status === "proposal" && responseDraftTreeNodes) {
         return {
@@ -1656,6 +1711,7 @@ export function PlannerPage() {
           treeNodes,
           draftTreeNodes: responseDraftTreeNodes,
           selectedDraftNodeId: responseSelectedDraftNodeId,
+          traceEvents,
         };
       }
 
@@ -1668,6 +1724,7 @@ export function PlannerPage() {
           treeNodes,
           draftTreeNodes: responseDraftTreeNodes,
           selectedDraftNodeId: responseSelectedDraftNodeId,
+          traceEvents,
         };
       }
 
@@ -1680,6 +1737,20 @@ export function PlannerPage() {
           treeNodes,
           draftTreeNodes: responseDraftTreeNodes,
           selectedDraftNodeId: responseSelectedDraftNodeId,
+          traceEvents,
+        };
+      }
+
+      if (response.status === "error") {
+        return {
+          mode: "failed" as const,
+          userInput,
+          plan: backendPlan,
+          execution,
+          treeNodes,
+          draftTreeNodes: responseDraftTreeNodes,
+          selectedDraftNodeId: responseSelectedDraftNodeId,
+          traceEvents,
         };
       }
 
@@ -1691,9 +1762,11 @@ export function PlannerPage() {
         treeNodes,
         draftTreeNodes: responseDraftTreeNodes,
         selectedDraftNodeId: responseSelectedDraftNodeId,
+        traceEvents,
       };
     },
     onSuccess: (result) => {
+      setLatestTraceEvents(result.traceEvents ?? []);
       setMessages((current) => {
         const next: PlannerMessage[] = [...current, { id: makeId(), role: "user", content: result.userInput, kind: "text" }];
         if (result.mode === "confirmation_required") {
@@ -1705,6 +1778,7 @@ export function PlannerPage() {
             kind: "proposal",
             plan: result.plan,
             treeNodes: result.treeNodes,
+            traceEvents: result.traceEvents,
           });
           return next;
         }
@@ -1721,6 +1795,7 @@ export function PlannerPage() {
             kind: "proposal",
             plan: result.plan,
             treeNodes: result.treeNodes,
+            traceEvents: result.traceEvents,
           });
           return next;
         }
@@ -1738,6 +1813,7 @@ export function PlannerPage() {
             kind: result.treeNodes ? "tree" : "execution",
             treeNodes: result.treeNodes,
             plan: result.plan,
+            traceEvents: result.traceEvents,
           });
           return next;
         }
@@ -1748,6 +1824,18 @@ export function PlannerPage() {
             content: result.plan.clarification_question ?? result.plan.assistant_response,
             meta: "Need more detail",
             kind: "text",
+            traceEvents: result.traceEvents,
+          });
+          return next;
+        }
+        if (result.mode === "failed") {
+          next.push({
+            id: makeId(),
+            role: "assistant",
+            content: [result.plan.assistant_response, ...(result.execution.errors.length ? [`Errors: ${result.execution.errors.join(" | ")}`] : [])].join("\n"),
+            meta: "Planner error",
+            kind: "error",
+            traceEvents: result.traceEvents,
           });
           return next;
         }
@@ -1764,12 +1852,16 @@ export function PlannerPage() {
           kind: result.treeNodes ? "tree" : isInformationalOnly(result.plan) ? "report" : "execution",
           treeNodes: result.treeNodes,
           plan: result.plan,
+          traceEvents: result.traceEvents,
         });
         return next;
       });
 
       if (result.draftTreeNodes) {
         setDraftTreeNodes(result.draftTreeNodes);
+        if (result.draftTreeNodes.length > 0) {
+          setPlannerView("draft");
+        }
       }
       if (result.selectedDraftNodeId !== undefined) {
         setSelectedDraftNodeId(result.selectedDraftNodeId ?? null);
@@ -1779,6 +1871,9 @@ export function PlannerPage() {
         setPendingPlan({ sourceText: result.userInput, plan: result.plan });
       } else if (result.mode === "draft_updated") {
         setPendingPlan(null);
+      } else if (result.mode === "failed") {
+        setPendingPlan(null);
+        setPlannerView("trace");
       } else {
         setPendingPlan(null);
         if (result.mode === "executed" && !result.draftTreeNodes?.length) {
@@ -1806,6 +1901,7 @@ export function PlannerPage() {
       }
     },
     onError: (error, userInput) => {
+      setLatestTraceEvents([]);
       setMessages((current) => [
         ...current,
         { id: makeId(), role: "user", content: userInput, kind: "text" },
@@ -1852,6 +1948,7 @@ export function PlannerPage() {
         actions: [],
       };
       const treeNodes = (response.tree_nodes as unknown as PlannerTreeNode[] | undefined) ?? undefined;
+      setLatestTraceEvents(response.trace_events ?? []);
       setMessages((current) => [
         ...current,
         { id: makeId(), role: "user", content: "confirm", kind: "text" },
@@ -1863,11 +1960,13 @@ export function PlannerPage() {
           kind: treeNodes ? "tree" : "execution",
           treeNodes,
           plan,
+          traceEvents: response.trace_events ?? [],
         },
       ]);
       setPendingPlan(null);
       setDraftTreeNodes([]);
       setSelectedDraftNodeId(null);
+      setPlannerView("conversation");
       void queryClient.invalidateQueries({ queryKey: ["products"] });
       void queryClient.invalidateQueries({ queryKey: ["plannerWorkItems"] });
       void queryClient.invalidateQueries({ queryKey: ["sidebarWorkItems"] });
@@ -1891,6 +1990,7 @@ export function PlannerPage() {
     setPendingPlan(null);
     setDraftTreeNodes([]);
     setSelectedDraftNodeId(null);
+    setPlannerView("conversation");
   };
 
   const sendWhatsapp = async () => {
@@ -2022,15 +2122,165 @@ export function PlannerPage() {
       <div style={styles.topGrid}>
         <div style={styles.panel}>
           <div style={{ ...styles.panelBody, display: "flex", flexDirection: "column" }}>
-            <div style={styles.sectionTitle}>Conversation</div>
-            <div ref={transcriptRef} style={{ ...styles.transcript, flex: 1, minHeight: 0, overflow: "auto" }}>
-              {messages.map((message) => (
-                <div key={message.id} style={message.role === "user" ? styles.bubbleUser : styles.bubbleAssistant}>
-                  {message.role === "assistant" ? renderAssistantMessage(message) : message.content}
-                  {message.meta ? <span style={styles.bubbleMeta}>{message.meta}</span> : null}
-                </div>
-              ))}
+            <div style={styles.sectionHeader}>
+              <div style={styles.sectionTitle}>
+                {plannerView === "draft" ? "Draft Workspace" : plannerView === "trace" ? "Planner Trace" : "Conversation"}
+              </div>
+              <div style={styles.viewToggleRow}>
+                <button
+                  style={plannerView === "conversation" ? styles.btn : styles.btnGhost}
+                  onClick={() => setPlannerView("conversation")}
+                >
+                  Conversation
+                </button>
+                <button
+                  style={plannerView === "draft" ? styles.btn : styles.btnGhost}
+                  onClick={() => setPlannerView("draft")}
+                  disabled={draftTreeNodes.length === 0}
+                >
+                  View Draft Tree
+                </button>
+                <button
+                  style={plannerView === "trace" ? styles.btn : styles.btnGhost}
+                  onClick={() => setPlannerView("trace")}
+                  disabled={latestTraceEvents.length === 0}
+                >
+                  View Trace
+                </button>
+              </div>
             </div>
+
+            {plannerView === "draft" ? (
+              <div style={styles.draftWorkspace}>
+                <div style={styles.draftWorkspaceMain}>
+                  <div style={styles.draftCanvas}>
+                    <div style={styles.draftCanvasHeader}>
+                      <div>
+                        <div style={styles.draftCanvasTitle}>Staged Plan Tree</div>
+                        <div style={styles.helper}>
+                          Select a node, then refine it in natural language. The composer below will use the selected draft node as planning context.
+                        </div>
+                      </div>
+                      <div style={styles.chipRow}>
+                        {selectedDraftNode ? <div style={styles.chip}>selected: {selectedDraftNode.label}</div> : null}
+                        <div style={styles.chip}>{draftTreeNodes.length} root {draftTreeNodes.length === 1 ? "node" : "nodes"}</div>
+                      </div>
+                    </div>
+                    {draftTreeNodes.length > 0 ? (
+                      draftTreeNodes.map((node) => (
+                        <SelectableTreeNodeView
+                          key={node.id}
+                          node={node}
+                          selectedNodeId={selectedDraftNodeId}
+                          onSelect={setSelectedDraftNodeId}
+                        />
+                      ))
+                    ) : (
+                      <div style={styles.emptyState}>
+                        No staged draft yet. Ask the planner to design a product, module tree, capabilities, or work items, then switch back here to inspect and refine the draft.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div style={styles.draftWorkspaceSide}>
+                  <div style={styles.sideCard}>
+                    <div style={styles.label}>Selected Node</div>
+                    {selectedDraftNode ? (
+                      <>
+                        <div style={styles.cardTitle}>{selectedDraftNode.label}</div>
+                        {selectedDraftNode.meta ? <div style={styles.helper}>Type: {selectedDraftNode.meta}</div> : null}
+                        <div style={{ ...styles.helper, marginTop: 10 }}>
+                          Try prompts like “expand this node”, “add three child capabilities”, “rename this”, or “what is missing under this branch?”
+                        </div>
+                      </>
+                    ) : (
+                      <div style={styles.helper}>
+                        Select a node in the tree to anchor follow-up planning turns to that part of the draft.
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={styles.sideCard}>
+                    <div style={styles.label}>Draft Controls</div>
+                    <div style={styles.helper}>
+                      Keep the tree staged until the structure looks right. Commit only when you want to persist it to products, modules, capabilities, and work items.
+                    </div>
+                    <div style={styles.inlineButtonRow}>
+                      <button style={styles.btn} onClick={confirmPendingPlan} disabled={draftTreeNodes.length === 0 || processMutation.isPending}>
+                        Commit Draft
+                      </button>
+                      <button style={styles.btnGhost} onClick={() => setPlannerView("conversation")}>
+                        Back to Chat
+                      </button>
+                      <button style={styles.btnDanger} onClick={dismissPendingPlan} disabled={draftTreeNodes.length === 0}>
+                        Clear Draft
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={styles.sideCard}>
+                    <div style={styles.label}>Latest Draft Ops</div>
+                    {pendingPlan ? (
+                      <div style={styles.list}>
+                        {pendingPlan.plan.actions.map((action, index) => (
+                          <div key={`${action.type}-${index}`} style={styles.listItem}>
+                            <div style={styles.listItemTitle}>{action.type}</div>
+                            <div style={styles.listItemMeta}>{JSON.stringify(action, null, 2)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={styles.helper}>
+                        No pending proposal snapshot. Use the chat to add structure, then review and keep refining the staged tree here.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : plannerView === "trace" ? (
+              <div style={styles.draftWorkspaceMain}>
+                <div style={styles.draftCanvas}>
+                  <div style={styles.draftCanvasHeader}>
+                    <div>
+                      <div style={styles.draftCanvasTitle}>Latest Planner Turn Trace</div>
+                      <div style={styles.helper}>
+                        Inspect the raw planning flow: input context, model completions, tool calls, parsed plan, and any backend validation failure.
+                      </div>
+                    </div>
+                    <div style={styles.chipRow}>
+                      <div style={styles.chip}>{latestTraceEvents.length} events</div>
+                    </div>
+                  </div>
+                  {latestTraceEvents.length > 0 ? (
+                    <div style={styles.list}>
+                      {latestTraceEvents.map((event) => (
+                        <div key={`${event.step}-${event.title}`} style={styles.listItem}>
+                          <div style={styles.listItemTitle}>
+                            {event.step}. {event.title}
+                          </div>
+                          <div style={styles.helper}>{event.stage}</div>
+                          <div style={{ ...styles.listItemMeta, marginTop: 8 }}>{event.detail}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={styles.emptyState}>
+                      No trace captured yet. Send a planner turn, then open this view to inspect the latest model/tool trace.
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div ref={transcriptRef} style={{ ...styles.transcript, flex: 1, minHeight: 0, overflow: "auto" }}>
+                {messages.map((message) => (
+                  <div key={message.id} style={message.role === "user" ? styles.bubbleUser : styles.bubbleAssistant}>
+                    {message.role === "assistant" ? renderAssistantMessage(message) : message.content}
+                    {message.meta ? <span style={styles.bubbleMeta}>{message.meta}</span> : null}
+                  </div>
+                ))}
+              </div>
+            )}
             <div style={styles.composerWrap}>
               <textarea
                 style={styles.textarea}
@@ -2166,6 +2416,9 @@ export function PlannerPage() {
                 <div style={styles.helper}>No staged draft yet. Ask the planner to sketch a product tree and it will appear here.</div>
               )}
               <div style={styles.inlineButtonRow}>
+                <button style={styles.btnGhost} onClick={() => setPlannerView("draft")} disabled={draftTreeNodes.length === 0}>
+                  Open Workspace
+                </button>
                 <button style={styles.btn} onClick={confirmPendingPlan} disabled={draftTreeNodes.length === 0 || processMutation.isPending}>
                   Commit Draft
                 </button>
