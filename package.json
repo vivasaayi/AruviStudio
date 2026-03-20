@@ -9,6 +9,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "test:rust:unit": "cargo test --manifest-path src-tauri/Cargo.toml --lib",
+    "test:rust:integration": "node scripts/ci/run-rust-integration-tests.mjs",
+    "test:all": "npm run test:rust:unit && npm run test:rust:integration && npm run test:e2e",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui"
   },
