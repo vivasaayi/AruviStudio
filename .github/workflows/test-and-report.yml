@@ -58,9 +58,6 @@ jobs:
       - name: Install Chromium for Playwright
         run: npx playwright install --with-deps chromium
 
-      - name: Install cargo2junit
-        run: cargo install cargo2junit --locked
-
       - name: Prepare report directories
         run: mkdir -p reports/rust-unit reports/rust-integration reports/playwright
 
@@ -68,9 +65,8 @@ jobs:
         id: rust_unit
         run: |
           set +e
-          cargo test --manifest-path src-tauri/Cargo.toml --lib --message-format json > reports/rust-unit/cargo-test.json
+          npm run unit-test
           status=$?
-          cargo2junit < reports/rust-unit/cargo-test.json > reports/rust-unit/junit.xml || printf '<testsuites tests="0" failures="0" skipped="0"></testsuites>\n' > reports/rust-unit/junit.xml
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0
 
@@ -78,15 +74,8 @@ jobs:
         id: rust_integration
         run: |
           set +e
-          if find src-tauri/tests -maxdepth 1 -name '*.rs' -print -quit 2>/dev/null | grep -q .; then
-            cargo test --manifest-path src-tauri/Cargo.toml --tests --message-format json > reports/rust-integration/cargo-test.json
-            status=$?
-            cargo2junit < reports/rust-integration/cargo-test.json > reports/rust-integration/junit.xml || printf '<testsuites tests="0" failures="0" skipped="0"></testsuites>\n' > reports/rust-integration/junit.xml
-          else
-            status=0
-            printf '{"note":"No Rust integration tests found in src-tauri/tests."}\n' > reports/rust-integration/cargo-test.json
-            printf '<testsuites tests="0" failures="0" skipped="0"></testsuites>\n' > reports/rust-integration/junit.xml
-          fi
+          npm run integration-test
+          status=$?
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0
 
@@ -94,14 +83,10 @@ jobs:
         id: ui_tests
         run: |
           set +e
-          npm run test:e2e
+          npm run e2e-tests
           status=$?
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0
-
-      - name: Build HTML dashboard
-        if: always()
-        run: node scripts/ci/generate-test-dashboard.mjs
 
       - name: Publish Rust unit results
         if: always()
