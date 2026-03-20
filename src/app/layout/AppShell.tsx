@@ -17,14 +17,14 @@ const styles: Record<string, any> = {
 };
 
 const navItems = [
+  { key: "planner", label: "Planner" },
   { key: "products", label: "Products" },
   { key: "work-items", label: "Work Items" },
-  { key: "planner", label: "Planner" },
-  { key: "chat", label: "Chat" },
   { key: "ide", label: "IDE" },
   { key: "repositories", label: "Workspaces" },
   { key: "agents", label: "Agents" },
   { key: "models", label: "Models" },
+  { key: "chat", label: "Chat" },
   { key: "settings", label: "Settings" },
 ] as const;
 

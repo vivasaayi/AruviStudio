@@ -93,6 +93,21 @@ const styles: Record<string, React.CSSProperties> = {
   treeMeta: { fontSize: 11, color: "#8f96a3", marginLeft: 6 },
   treeButton: { width: "100%", textAlign: "left" as const, background: "transparent", border: "1px solid transparent", borderRadius: 8, color: "#edf1f8", padding: "6px 8px", cursor: "pointer", fontSize: 13, fontWeight: 700 },
   treeButtonSelected: { border: "1px solid #0e639c", backgroundColor: "#14314a" },
+  treeExplorer: { display: "flex", flexDirection: "column", gap: 4 },
+  treeToolbar: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" as const, marginBottom: 12 },
+  treeToolbarSpacer: { flex: 1 },
+  treeLevel: { display: "flex", flexDirection: "column", gap: 6 },
+  treeRow: { display: "grid", gridTemplateColumns: "26px minmax(0, 1fr)", gap: 8, alignItems: "start" },
+  treeToggle: { width: 26, height: 26, borderRadius: 8, border: "1px solid #344050", backgroundColor: "#1a2130", color: "#dfe8f6", cursor: "pointer", fontSize: 12, fontWeight: 800, padding: 0 },
+  treeToggleGhost: { width: 26, height: 26, borderRadius: 8, border: "1px solid transparent", backgroundColor: "transparent", color: "#5f6b7e", padding: 0 },
+  treeCard: { width: "100%", textAlign: "left" as const, border: "1px solid #324054", backgroundColor: "#111821", color: "#edf1f8", borderRadius: 12, padding: "10px 12px", cursor: "pointer" },
+  treeCardSelected: { border: "1px solid #0e639c", backgroundColor: "#173450", boxShadow: "inset 0 0 0 1px rgba(14,99,156,0.18)" },
+  treeCardHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" as const },
+  treeCardTitle: { fontSize: 14, fontWeight: 800, color: "#eef3fb" },
+  treeCardMetaRow: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" as const, marginTop: 6 },
+  treeTypeBadge: { fontSize: 11, fontWeight: 800, textTransform: "uppercase" as const, letterSpacing: 0.4, color: "#c6d8ee", backgroundColor: "#24364d", borderRadius: 999, padding: "3px 8px" },
+  treeCountBadge: { fontSize: 11, fontWeight: 700, color: "#91a0b5", backgroundColor: "#1e2632", borderRadius: 999, padding: "3px 8px" },
+  treeRowChildren: { marginLeft: 18, paddingLeft: 16, borderLeft: "1px solid #263243", display: "flex", flexDirection: "column", gap: 6 },
   inlineButtonRow: { display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" as const },
   viewToggleRow: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" as const },
   draftWorkspace: { display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) minmax(260px, 0.9fr)", gap: 12, flex: 1, minHeight: 0 },
@@ -1150,42 +1165,83 @@ function TreeNodeView({ node }: { node: PlannerTreeNode }) {
   );
 }
 
+function parseDraftNodeType(meta?: string | null) {
+  if (!meta) {
+    return "node";
+  }
+  if (meta.includes("product")) {
+    return "product";
+  }
+  if (meta.includes("module")) {
+    return "module";
+  }
+  if (meta.includes("capability")) {
+    return "capability";
+  }
+  if (meta.includes("work item")) {
+    return "work item";
+  }
+  return "node";
+}
+
+function collectTreeNodeIds(nodes: PlannerTreeNode[]): string[] {
+  return nodes.flatMap((node) => [node.id, ...collectTreeNodeIds(node.children)]);
+}
+
 function SelectableTreeNodeView({
   node,
   selectedNodeId,
   onSelect,
+  expandedNodeIds,
+  onToggle,
 }: {
   node: PlannerTreeNode;
   selectedNodeId: string | null;
   onSelect: (nodeId: string) => void;
+  expandedNodeIds: Set<string>;
+  onToggle: (nodeId: string) => void;
 }) {
-  const buttonStyle = node.id === selectedNodeId
-    ? { ...styles.treeButton, ...styles.treeButtonSelected }
-    : styles.treeButton;
-  if (node.children.length === 0) {
-    return (
-      <div style={styles.treeLeaf}>
-        <button type="button" style={buttonStyle} onClick={() => onSelect(node.id)}>
-          {node.label}
-          {node.meta ? <span style={styles.treeMeta}>{node.meta}</span> : null}
-        </button>
-      </div>
-    );
-  }
+  const isSelected = node.id === selectedNodeId;
+  const hasChildren = node.children.length > 0;
+  const isExpanded = expandedNodeIds.has(node.id);
+  const nodeType = parseDraftNodeType(node.meta);
+  const cardStyle = isSelected ? { ...styles.treeCard, ...styles.treeCardSelected } : styles.treeCard;
   return (
-    <details open style={styles.treeNode}>
-      <summary style={styles.treeSummary}>
-        <button type="button" style={buttonStyle} onClick={(event) => { event.preventDefault(); onSelect(node.id); }}>
-          {node.label}
-          {node.meta ? <span style={styles.treeMeta}>{node.meta}</span> : null}
+    <div style={styles.treeLevel}>
+      <div style={styles.treeRow}>
+        {hasChildren ? (
+          <button type="button" style={styles.treeToggle} onClick={() => onToggle(node.id)}>
+            {isExpanded ? "▾" : "▸"}
+          </button>
+        ) : (
+          <div style={styles.treeToggleGhost}>•</div>
+        )}
+        <button type="button" style={cardStyle} onClick={() => onSelect(node.id)}>
+          <div style={styles.treeCardHeader}>
+            <div style={styles.treeCardTitle}>{node.label}</div>
+            <div style={styles.treeCardMetaRow}>
+              <span style={styles.treeTypeBadge}>{nodeType}</span>
+              {hasChildren ? <span style={styles.treeCountBadge}>{node.children.length} children</span> : null}
+            </div>
+          </div>
+          {node.meta ? <div style={styles.diffSecondary}>{node.meta}</div> : null}
         </button>
-      </summary>
-      <div style={styles.treeChildren}>
-        {node.children.map((child) => (
-          <SelectableTreeNodeView key={child.id} node={child} selectedNodeId={selectedNodeId} onSelect={onSelect} />
-        ))}
       </div>
-    </details>
+      {hasChildren && isExpanded ? (
+        <div style={styles.treeRowChildren}>
+          {node.children.map((child) => (
+            <SelectableTreeNodeView
+              key={child.id}
+              node={child}
+              selectedNodeId={selectedNodeId}
+              onSelect={onSelect}
+              expandedNodeIds={expandedNodeIds}
+              onToggle={onToggle}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -1510,6 +1566,7 @@ export function PlannerPage() {
   const [pendingPlan, setPendingPlan] = useState<PendingPlan | null>(null);
   const [draftTreeNodes, setDraftTreeNodes] = useState<PlannerTreeNode[]>([]);
   const [selectedDraftNodeId, setSelectedDraftNodeId] = useState<string | null>(null);
+  const [expandedDraftNodeIds, setExpandedDraftNodeIds] = useState<string[]>([]);
   const [latestTraceEvents, setLatestTraceEvents] = useState<PlannerTraceEvent[]>([]);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [autoSpeak, setAutoSpeak] = useState(false);
@@ -1540,9 +1597,14 @@ export function PlannerPage() {
     [treeQueries],
   );
   const hasTreeData = productTrees.length > 0;
+  const isFocusedWorkspaceView = plannerView === "draft" || plannerView === "trace";
   const selectedDraftNode = useMemo(
     () => findTreeNodeById(draftTreeNodes, selectedDraftNodeId),
     [draftTreeNodes, selectedDraftNodeId],
+  );
+  const expandedDraftNodeIdSet = useMemo(
+    () => new Set(expandedDraftNodeIds),
+    [expandedDraftNodeIds],
   );
 
   const modelOptions = useMemo(
@@ -1624,6 +1686,24 @@ export function PlannerPage() {
       setPlannerView("conversation");
     }
   }, [draftTreeNodes.length, plannerView]);
+
+  useEffect(() => {
+    const allNodeIds = collectTreeNodeIds(draftTreeNodes);
+    if (allNodeIds.length === 0) {
+      setExpandedDraftNodeIds([]);
+      return;
+    }
+    setExpandedDraftNodeIds((current) => {
+      const currentSet = new Set(current.filter((nodeId) => allNodeIds.includes(nodeId)));
+      if (currentSet.size === 0) {
+        return allNodeIds;
+      }
+      if (selectedDraftNodeId && !currentSet.has(selectedDraftNodeId)) {
+        currentSet.add(selectedDraftNodeId);
+      }
+      return Array.from(currentSet);
+    });
+  }, [draftTreeNodes, selectedDraftNodeId]);
 
   useEffect(() => {
     if (!voiceEnabled) {
@@ -2034,6 +2114,20 @@ export function PlannerPage() {
     }
   };
 
+  const toggleDraftNodeExpanded = (nodeId: string) => {
+    setExpandedDraftNodeIds((current) =>
+      current.includes(nodeId) ? current.filter((value) => value !== nodeId) : [...current, nodeId],
+    );
+  };
+
+  const expandAllDraftNodes = () => {
+    setExpandedDraftNodeIds(collectTreeNodeIds(draftTreeNodes));
+  };
+
+  const collapseAllDraftNodes = () => {
+    setExpandedDraftNodeIds([]);
+  };
+
   const renderAssistantMessage = (message: PlannerMessage) => {
     if (message.kind === "proposal" && message.plan) {
       const proposalTreeNodes = buildProposalTreeNodes(message.plan);
@@ -2119,7 +2213,12 @@ export function PlannerPage() {
         </div>
       </div>
 
-      <div style={styles.topGrid}>
+      <div
+        style={{
+          ...styles.topGrid,
+          gridTemplateColumns: isFocusedWorkspaceView ? "minmax(0, 1fr)" : styles.topGrid.gridTemplateColumns,
+        }}
+      >
         <div style={styles.panel}>
           <div style={{ ...styles.panelBody, display: "flex", flexDirection: "column" }}>
             <div style={styles.sectionHeader}>
@@ -2166,15 +2265,31 @@ export function PlannerPage() {
                         <div style={styles.chip}>{draftTreeNodes.length} root {draftTreeNodes.length === 1 ? "node" : "nodes"}</div>
                       </div>
                     </div>
+                    <div style={styles.treeToolbar}>
+                      <button style={styles.btnGhost} onClick={expandAllDraftNodes} disabled={draftTreeNodes.length === 0}>
+                        Expand All
+                      </button>
+                      <button style={styles.btnGhost} onClick={collapseAllDraftNodes} disabled={draftTreeNodes.length === 0}>
+                        Collapse All
+                      </button>
+                      <div style={styles.treeToolbarSpacer} />
+                      <div style={styles.helper}>
+                        Select a node to scope prompts. Expand branches to inspect the staged structure.
+                      </div>
+                    </div>
                     {draftTreeNodes.length > 0 ? (
-                      draftTreeNodes.map((node) => (
-                        <SelectableTreeNodeView
-                          key={node.id}
-                          node={node}
-                          selectedNodeId={selectedDraftNodeId}
-                          onSelect={setSelectedDraftNodeId}
-                        />
-                      ))
+                      <div style={styles.treeExplorer}>
+                        {draftTreeNodes.map((node) => (
+                          <SelectableTreeNodeView
+                            key={node.id}
+                            node={node}
+                            selectedNodeId={selectedDraftNodeId}
+                            onSelect={setSelectedDraftNodeId}
+                            expandedNodeIds={expandedDraftNodeIdSet}
+                            onToggle={toggleDraftNodeExpanded}
+                          />
+                        ))}
+                      </div>
                     ) : (
                       <div style={styles.emptyState}>
                         No staged draft yet. Ask the planner to design a product, module tree, capabilities, or work items, then switch back here to inspect and refine the draft.
@@ -2313,177 +2428,183 @@ export function PlannerPage() {
           </div>
         </div>
 
-        <div style={styles.panel}>
-          <div style={styles.panelBody}>
-            <div style={styles.sectionTitle}>Planner Controls</div>
+        {!isFocusedWorkspaceView ? (
+          <div style={styles.panel}>
+            <div style={styles.panelBody}>
+              <div style={styles.sectionTitle}>Planner Controls</div>
 
-            <div style={styles.sideCard}>
-              <label style={styles.label}>Provider</label>
-              <select style={styles.select} value={providerId} onChange={(event) => setProviderId(event.target.value)}>
-                <option value="">No provider</option>
-                {providers.map((provider) => (
-                  <option key={provider.id} value={provider.id}>
-                    {provider.name}
-                  </option>
-                ))}
-              </select>
-              <div style={{ height: 10 }} />
-              <label style={styles.label}>Model</label>
-              <select style={styles.select} value={modelName} onChange={(event) => setModelName(event.target.value)}>
-                <option value="">No model</option>
-                {modelOptions.map((model: ModelDefinition) => (
-                  <option key={model.id} value={model.name}>
-                    {model.name}
-                  </option>
-                ))}
-              </select>
-              <div style={{ ...styles.helper, marginTop: 10 }}>
-                With a configured model, the planner can have a more natural conversation, inspect current structure, and suggest additions instead of acting immediately. Without one, it falls back to simple heuristics.
-              </div>
-              <div style={{ ...styles.helper, marginTop: 8 }}>
-                {hasTreeData ? "Tree rendering is active for work-item structure questions." : "Tree rendering will activate once product structure finishes loading."}
-              </div>
-            </div>
-
-            <div style={styles.sideCard}>
-              <div style={styles.label}>Voice</div>
-              <div style={styles.actionRow}>
-                <button style={voiceEnabled ? styles.btnGhost : styles.btn} onClick={() => setVoiceEnabled((value) => !value)}>
-                  {voiceEnabled ? "Disable Mic" : "Enable Mic"}
-                </button>
-                <button style={autoSpeak ? styles.btn : styles.btnGhost} onClick={() => setAutoSpeak((value) => !value)}>
-                  {autoSpeak ? "Voice Replies On" : "Voice Replies Off"}
-                </button>
-              </div>
-              {speechError ? <div style={{ ...styles.error, marginTop: 10 }}>{speechError}</div> : null}
-              <div style={{ ...styles.helper, marginTop: 10 }}>
-                For phone or WhatsApp calls, you still need an external telephony layer such as Twilio. This page gives you the in-app conversational planner first.
-              </div>
-            </div>
-
-            <div style={styles.sideCard}>
-              <div style={styles.label}>Contact Me</div>
-              <div style={styles.helper}>Use Auto Route to follow the planner channel policy: routine updates stay on WhatsApp, while ambiguous planning can escalate to a call. Manual buttons still override the policy.</div>
-              <div style={{ height: 10 }} />
-              <label style={styles.label}>Destination</label>
-              <input
-                style={styles.input}
-                value={contactTarget}
-                onChange={(event) => setContactTarget(event.target.value)}
-                placeholder="whatsapp:+15551234567 or +15551234567"
-              />
-              <div style={{ height: 10 }} />
-              <label style={styles.label}>Opening Message</label>
-              <textarea
-                style={{ ...styles.textarea, minHeight: 84 }}
-                value={contactDraft}
-                onChange={(event) => setContactDraft(event.target.value)}
-                placeholder="Tell the planner what the outbound contact should say first."
-              />
-              <div style={styles.actionRow}>
-                <button style={styles.btn} onClick={() => void autoRouteContact()} disabled={!contactTarget.trim() || !contactDraft.trim()}>
-                  Auto Route
-                </button>
-                <button style={styles.btnGhost} onClick={() => void sendWhatsapp()} disabled={!contactTarget.trim()}>
-                  Send WhatsApp
-                </button>
-                <button style={styles.btnGhost} onClick={() => void startVoiceCall()} disabled={!contactTarget.trim()}>
-                  Start Voice Call
-                </button>
-              </div>
-              {contactMsg ? <div style={{ ...styles.success, marginTop: 10 }}>{contactMsg}</div> : null}
-              {contactError ? <div style={{ ...styles.error, marginTop: 10 }}>{contactError}</div> : null}
-            </div>
-
-            <div style={styles.sideCard}>
-              <div style={styles.label}>Draft Tree</div>
-              <div style={styles.helper}>
-                Build the plan here first. Select a node, then ask follow-up questions like “expand this capability” or “add work items under this module.”
-              </div>
-              <div style={{ height: 10 }} />
-              {draftTreeNodes.length > 0 ? (
-                <div style={styles.treePanel}>
-                  {draftTreeNodes.map((node) => (
-                    <SelectableTreeNodeView
-                      key={node.id}
-                      node={node}
-                      selectedNodeId={selectedDraftNodeId}
-                      onSelect={setSelectedDraftNodeId}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div style={styles.helper}>No staged draft yet. Ask the planner to sketch a product tree and it will appear here.</div>
-              )}
-              <div style={styles.inlineButtonRow}>
-                <button style={styles.btnGhost} onClick={() => setPlannerView("draft")} disabled={draftTreeNodes.length === 0}>
-                  Open Workspace
-                </button>
-                <button style={styles.btn} onClick={confirmPendingPlan} disabled={draftTreeNodes.length === 0 || processMutation.isPending}>
-                  Commit Draft
-                </button>
-                <button style={styles.btnGhost} onClick={dismissPendingPlan} disabled={draftTreeNodes.length === 0}>
-                  Clear Draft
-                </button>
-              </div>
-            </div>
-
-            <div style={styles.sideCard}>
-              <div style={styles.label}>Current Scope</div>
-              <div style={styles.chipRow}>
-                {selectedDraftNodeId ? <div style={styles.chip}>draft node selected</div> : null}
-                {activeProductId ? <div style={styles.chip}>product selected</div> : null}
-                {activeModuleId ? <div style={styles.chip}>module selected</div> : null}
-                {activeCapabilityId ? <div style={styles.chip}>capability selected</div> : null}
-                {activeWorkItemId ? <div style={styles.chip}>work item selected</div> : null}
-              </div>
-              <div style={{ ...styles.helper, marginTop: 10 }}>
-                If you omit names, the planner first tries the selected draft node, then the selected workspace scope, then asks follow-up questions if it still cannot resolve the target cleanly.
-              </div>
-            </div>
-
-            <div style={styles.sideCard}>
-              <div style={styles.label}>Examples</div>
-              <div style={styles.list}>
-                <div style={styles.listItem}>
-                  <div style={styles.listItemTitle}>One-shot draft</div>
-                  <div style={styles.listItemMeta}>Design an agent management system. Draft the product, modules, capabilities, and initial work items in one staged tree.</div>
-                </div>
-                <div style={styles.listItem}>
-                  <div style={styles.listItemTitle}>Refine selected node</div>
-                  <div style={styles.listItemMeta}>After selecting a module in the draft tree: add three capabilities under this module focused on lifecycle, permissions, and monitoring.</div>
-                </div>
-                <div style={styles.listItem}>
-                  <div style={styles.listItemTitle}>Commit when ready</div>
-                  <div style={styles.listItemMeta}>The staged tree looks right. Commit the draft and create the real product structure.</div>
-                </div>
-              </div>
-            </div>
-
-            {pendingPlan || draftTreeNodes.length > 0 ? (
               <div style={styles.sideCard}>
-                <div style={styles.label}>Draft Snapshot</div>
-                <div style={styles.helper}>
-                  The planner stages structure here first. Keep refining the tree, then commit when the draft looks right.
+                <label style={styles.label}>Provider</label>
+                <select style={styles.select} value={providerId} onChange={(event) => setProviderId(event.target.value)}>
+                  <option value="">No provider</option>
+                  {providers.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.name}
+                    </option>
+                  ))}
+                </select>
+                <div style={{ height: 10 }} />
+                <label style={styles.label}>Model</label>
+                <select style={styles.select} value={modelName} onChange={(event) => setModelName(event.target.value)}>
+                  <option value="">No model</option>
+                  {modelOptions.map((model: ModelDefinition) => (
+                    <option key={model.id} value={model.name}>
+                      {model.name}
+                    </option>
+                  ))}
+                </select>
+                <div style={{ ...styles.helper, marginTop: 10 }}>
+                  With a configured model, the planner can have a more natural conversation, inspect current structure, and suggest additions instead of acting immediately. Without one, it falls back to simple heuristics.
                 </div>
-                {pendingPlan ? (
-                  <div style={styles.list}>
-                    {pendingPlan.plan.actions.map((action, index) => (
-                      <div key={`${action.type}-${index}`} style={styles.listItem}>
-                        <div style={styles.listItemTitle}>{action.type}</div>
-                        <div style={styles.listItemMeta}>{JSON.stringify(action, null, 2)}</div>
-                      </div>
-                    ))}
+                <div style={{ ...styles.helper, marginTop: 8 }}>
+                  {hasTreeData ? "Tree rendering is active for work-item structure questions." : "Tree rendering will activate once product structure finishes loading."}
+                </div>
+              </div>
+
+              <div style={styles.sideCard}>
+                <div style={styles.label}>Voice</div>
+                <div style={styles.actionRow}>
+                  <button style={voiceEnabled ? styles.btnGhost : styles.btn} onClick={() => setVoiceEnabled((value) => !value)}>
+                    {voiceEnabled ? "Disable Mic" : "Enable Mic"}
+                  </button>
+                  <button style={autoSpeak ? styles.btn : styles.btnGhost} onClick={() => setAutoSpeak((value) => !value)}>
+                    {autoSpeak ? "Voice Replies On" : "Voice Replies Off"}
+                  </button>
+                </div>
+                {speechError ? <div style={{ ...styles.error, marginTop: 10 }}>{speechError}</div> : null}
+                <div style={{ ...styles.helper, marginTop: 10 }}>
+                  For phone or WhatsApp calls, you still need an external telephony layer such as Twilio. This page gives you the in-app conversational planner first.
+                </div>
+              </div>
+
+              <div style={styles.sideCard}>
+                <div style={styles.label}>Contact Me</div>
+                <div style={styles.helper}>Use Auto Route to follow the planner channel policy: routine updates stay on WhatsApp, while ambiguous planning can escalate to a call. Manual buttons still override the policy.</div>
+                <div style={{ height: 10 }} />
+                <label style={styles.label}>Destination</label>
+                <input
+                  style={styles.input}
+                  value={contactTarget}
+                  onChange={(event) => setContactTarget(event.target.value)}
+                  placeholder="whatsapp:+15551234567 or +15551234567"
+                />
+                <div style={{ height: 10 }} />
+                <label style={styles.label}>Opening Message</label>
+                <textarea
+                  style={{ ...styles.textarea, minHeight: 84 }}
+                  value={contactDraft}
+                  onChange={(event) => setContactDraft(event.target.value)}
+                  placeholder="Tell the planner what the outbound contact should say first."
+                />
+                <div style={styles.actionRow}>
+                  <button style={styles.btn} onClick={() => void autoRouteContact()} disabled={!contactTarget.trim() || !contactDraft.trim()}>
+                    Auto Route
+                  </button>
+                  <button style={styles.btnGhost} onClick={() => void sendWhatsapp()} disabled={!contactTarget.trim()}>
+                    Send WhatsApp
+                  </button>
+                  <button style={styles.btnGhost} onClick={() => void startVoiceCall()} disabled={!contactTarget.trim()}>
+                    Start Voice Call
+                  </button>
+                </div>
+                {contactMsg ? <div style={{ ...styles.success, marginTop: 10 }}>{contactMsg}</div> : null}
+                {contactError ? <div style={{ ...styles.error, marginTop: 10 }}>{contactError}</div> : null}
+              </div>
+
+              <div style={styles.sideCard}>
+                <div style={styles.label}>Draft Tree</div>
+                <div style={styles.helper}>
+                  Build the plan here first. Select a node, then ask follow-up questions like “expand this capability” or “add work items under this module.”
+                </div>
+                <div style={{ height: 10 }} />
+                {draftTreeNodes.length > 0 ? (
+                  <div style={styles.treePanel}>
+                    <div style={styles.treeExplorer}>
+                      {draftTreeNodes.map((node) => (
+                        <SelectableTreeNodeView
+                          key={node.id}
+                          node={node}
+                          selectedNodeId={selectedDraftNodeId}
+                          onSelect={setSelectedDraftNodeId}
+                          expandedNodeIds={expandedDraftNodeIdSet}
+                          onToggle={toggleDraftNodeExpanded}
+                        />
+                      ))}
+                    </div>
                   </div>
                 ) : (
-                  <div style={{ ...styles.helper, marginTop: 10 }}>
-                    The current staged draft is active in the tree above. Select a node and keep iterating, or commit to persist it.
-                  </div>
+                  <div style={styles.helper}>No staged draft yet. Ask the planner to sketch a product tree and it will appear here.</div>
                 )}
+                <div style={styles.inlineButtonRow}>
+                  <button style={styles.btnGhost} onClick={() => setPlannerView("draft")} disabled={draftTreeNodes.length === 0}>
+                    Open Workspace
+                  </button>
+                  <button style={styles.btn} onClick={confirmPendingPlan} disabled={draftTreeNodes.length === 0 || processMutation.isPending}>
+                    Commit Draft
+                  </button>
+                  <button style={styles.btnGhost} onClick={dismissPendingPlan} disabled={draftTreeNodes.length === 0}>
+                    Clear Draft
+                  </button>
+                </div>
               </div>
-            ) : null}
+
+              <div style={styles.sideCard}>
+                <div style={styles.label}>Current Scope</div>
+                <div style={styles.chipRow}>
+                  {selectedDraftNodeId ? <div style={styles.chip}>draft node selected</div> : null}
+                  {activeProductId ? <div style={styles.chip}>product selected</div> : null}
+                  {activeModuleId ? <div style={styles.chip}>module selected</div> : null}
+                  {activeCapabilityId ? <div style={styles.chip}>capability selected</div> : null}
+                  {activeWorkItemId ? <div style={styles.chip}>work item selected</div> : null}
+                </div>
+                <div style={{ ...styles.helper, marginTop: 10 }}>
+                  If you omit names, the planner first tries the selected draft node, then the selected workspace scope, then asks follow-up questions if it still cannot resolve the target cleanly.
+                </div>
+              </div>
+
+              <div style={styles.sideCard}>
+                <div style={styles.label}>Examples</div>
+                <div style={styles.list}>
+                  <div style={styles.listItem}>
+                    <div style={styles.listItemTitle}>One-shot draft</div>
+                    <div style={styles.listItemMeta}>Design an agent management system. Draft the product, modules, capabilities, and initial work items in one staged tree.</div>
+                  </div>
+                  <div style={styles.listItem}>
+                    <div style={styles.listItemTitle}>Refine selected node</div>
+                    <div style={styles.listItemMeta}>After selecting a module in the draft tree: add three capabilities under this module focused on lifecycle, permissions, and monitoring.</div>
+                  </div>
+                  <div style={styles.listItem}>
+                    <div style={styles.listItemTitle}>Commit when ready</div>
+                    <div style={styles.listItemMeta}>The staged tree looks right. Commit the draft and create the real product structure.</div>
+                  </div>
+                </div>
+              </div>
+
+              {pendingPlan || draftTreeNodes.length > 0 ? (
+                <div style={styles.sideCard}>
+                  <div style={styles.label}>Draft Snapshot</div>
+                  <div style={styles.helper}>
+                    The planner stages structure here first. Keep refining the tree, then commit when the draft looks right.
+                  </div>
+                  {pendingPlan ? (
+                    <div style={styles.list}>
+                      {pendingPlan.plan.actions.map((action, index) => (
+                        <div key={`${action.type}-${index}`} style={styles.listItem}>
+                          <div style={styles.listItemTitle}>{action.type}</div>
+                          <div style={styles.listItemMeta}>{JSON.stringify(action, null, 2)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ ...styles.helper, marginTop: 10 }}>
+                      The current staged draft is active in the tree above. Select a node and keep iterating, or commit to persist it.
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
           </div>
-        </div>
+        ) : null}
       </div>
     </div>
   );

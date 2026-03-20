@@ -22,7 +22,7 @@ function App() {
       <AppShell>
         <Suspense fallback={fallback}>
           <Routes>
-            <Route path="/" element={<Navigate to="/products" replace />} />
+            <Route path="/" element={<Navigate to="/planner" replace />} />
             <Route path="/products" element={<ProductListPage />} />
             <Route path="/products/:productId" element={<ProductDetailPage />} />
             <Route path="/work-items" element={<WorkItemListPage />} />

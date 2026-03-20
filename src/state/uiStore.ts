@@ -57,7 +57,7 @@ export const useUIStore = create<UIState>()(
       expandedCapabilities: {},
       showHierarchyWorkItems: false,
       productPickerCollapsed: false,
-      activeView: "products",
+      activeView: "planner",
       toggleLeftSidebar: () => set((s) => ({ leftSidebarVisible: !s.leftSidebarVisible })),
       toggleRightSidebar: () => set((s) => ({ rightSidebarVisible: !s.rightSidebarVisible })),
       toggleBottomPanel: () => set((s) => ({ bottomPanelVisible: !s.bottomPanelVisible })),
