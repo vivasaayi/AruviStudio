@@ -54,6 +54,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {navItems.map((item) => (
             <button
               key={item.key}
+              data-testid={`nav-${item.key}`}
               style={currentView === item.key ? styles.navButtonActive : styles.navButton}
               onClick={() => {
                 setActiveView(item.key);

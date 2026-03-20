@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import type {
   Product,
   Module,
@@ -33,6 +33,24 @@ import type {
   PlannerSessionInfo,
   PlannerTurnResponse,
 } from "./types";
+
+declare global {
+  interface Window {
+    __ARUVI_E2E__?: {
+      invoke?: <T>(command: string, args?: Record<string, unknown>) => Promise<T> | T;
+    };
+  }
+}
+
+const invoke = async <T>(command: string, args?: Record<string, unknown>): Promise<T> => {
+  if (typeof window !== "undefined") {
+    const mockInvoke = window.__ARUVI_E2E__?.invoke;
+    if (mockInvoke) {
+      return await mockInvoke<T>(command, args);
+    }
+  }
+  return tauriInvoke<T>(command, args);
+};
 
 // Product commands
 function toJsonArrayString(value: string | undefined): string | undefined {

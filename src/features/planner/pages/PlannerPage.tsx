@@ -1210,13 +1210,13 @@ function SelectableTreeNodeView({
     <div style={styles.treeLevel}>
       <div style={styles.treeRow}>
         {hasChildren ? (
-          <button type="button" style={styles.treeToggle} onClick={() => onToggle(node.id)}>
+          <button type="button" style={styles.treeToggle} onClick={() => onToggle(node.id)} data-testid={`draft-node-toggle-${node.id}`}>
             {isExpanded ? "▾" : "▸"}
           </button>
         ) : (
           <div style={styles.treeToggleGhost}>•</div>
         )}
-        <button type="button" style={cardStyle} onClick={() => onSelect(node.id)}>
+        <button type="button" style={cardStyle} onClick={() => onSelect(node.id)} data-testid={`draft-node-${node.id}`}>
           <div style={styles.treeCardHeader}>
             <div style={styles.treeCardTitle}>{node.label}</div>
             <div style={styles.treeCardMetaRow}>
@@ -1572,6 +1572,7 @@ export function PlannerPage() {
   const [autoSpeak, setAutoSpeak] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
+  const [showAdvancedPlannerControls, setShowAdvancedPlannerControls] = useState(false);
   const [contactTarget, setContactTarget] = useState("");
   const [contactDraft, setContactDraft] = useState("Call me and ask what work should be prioritized next.");
   const [contactMsg, setContactMsg] = useState<string | null>(null);
@@ -2227,12 +2228,14 @@ export function PlannerPage() {
               </div>
               <div style={styles.viewToggleRow}>
                 <button
+                  data-testid="planner-view-conversation"
                   style={plannerView === "conversation" ? styles.btn : styles.btnGhost}
                   onClick={() => setPlannerView("conversation")}
                 >
                   Conversation
                 </button>
                 <button
+                  data-testid="planner-view-draft"
                   style={plannerView === "draft" ? styles.btn : styles.btnGhost}
                   onClick={() => setPlannerView("draft")}
                   disabled={draftTreeNodes.length === 0}
@@ -2240,6 +2243,7 @@ export function PlannerPage() {
                   View Draft Tree
                 </button>
                 <button
+                  data-testid="planner-view-trace"
                   style={plannerView === "trace" ? styles.btn : styles.btnGhost}
                   onClick={() => setPlannerView("trace")}
                   disabled={latestTraceEvents.length === 0}
@@ -2266,10 +2270,10 @@ export function PlannerPage() {
                       </div>
                     </div>
                     <div style={styles.treeToolbar}>
-                      <button style={styles.btnGhost} onClick={expandAllDraftNodes} disabled={draftTreeNodes.length === 0}>
+                      <button data-testid="draft-expand-all" style={styles.btnGhost} onClick={expandAllDraftNodes} disabled={draftTreeNodes.length === 0}>
                         Expand All
                       </button>
-                      <button style={styles.btnGhost} onClick={collapseAllDraftNodes} disabled={draftTreeNodes.length === 0}>
+                      <button data-testid="draft-collapse-all" style={styles.btnGhost} onClick={collapseAllDraftNodes} disabled={draftTreeNodes.length === 0}>
                         Collapse All
                       </button>
                       <div style={styles.treeToolbarSpacer} />
@@ -2322,7 +2326,7 @@ export function PlannerPage() {
                       Keep the tree staged until the structure looks right. Commit only when you want to persist it to products, modules, capabilities, and work items.
                     </div>
                     <div style={styles.inlineButtonRow}>
-                      <button style={styles.btn} onClick={confirmPendingPlan} disabled={draftTreeNodes.length === 0 || processMutation.isPending}>
+                      <button data-testid="draft-commit" style={styles.btn} onClick={confirmPendingPlan} disabled={draftTreeNodes.length === 0 || processMutation.isPending}>
                         Commit Draft
                       </button>
                       <button style={styles.btnGhost} onClick={() => setPlannerView("conversation")}>
@@ -2398,13 +2402,14 @@ export function PlannerPage() {
             )}
             <div style={styles.composerWrap}>
               <textarea
+                data-testid="planner-input"
                 style={styles.textarea}
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
                 placeholder="Say or type what you need. Example: Add a work item called Build voice planner under AruviStudio, then approve it and start the workflow."
               />
               <div style={styles.actionRow}>
-                <button style={styles.btn} onClick={() => void send()} disabled={processMutation.isPending}>
+                <button data-testid="planner-send" style={styles.btn} onClick={() => void send()} disabled={processMutation.isPending}>
                   {processMutation.isPending ? "Working..." : "Send"}
                 </button>
                 <button style={styles.btnGhost} onClick={toggleListening} disabled={!voiceEnabled}>
@@ -2459,57 +2464,66 @@ export function PlannerPage() {
                 <div style={{ ...styles.helper, marginTop: 8 }}>
                   {hasTreeData ? "Tree rendering is active for work-item structure questions." : "Tree rendering will activate once product structure finishes loading."}
                 </div>
-              </div>
-
-              <div style={styles.sideCard}>
-                <div style={styles.label}>Voice</div>
-                <div style={styles.actionRow}>
-                  <button style={voiceEnabled ? styles.btnGhost : styles.btn} onClick={() => setVoiceEnabled((value) => !value)}>
-                    {voiceEnabled ? "Disable Mic" : "Enable Mic"}
+                <div style={styles.inlineButtonRow}>
+                  <button style={styles.btnGhost} onClick={() => setShowAdvancedPlannerControls((value) => !value)}>
+                    {showAdvancedPlannerControls ? "Hide Advanced Tools" : "Show Advanced Tools"}
                   </button>
-                  <button style={autoSpeak ? styles.btn : styles.btnGhost} onClick={() => setAutoSpeak((value) => !value)}>
-                    {autoSpeak ? "Voice Replies On" : "Voice Replies Off"}
-                  </button>
-                </div>
-                {speechError ? <div style={{ ...styles.error, marginTop: 10 }}>{speechError}</div> : null}
-                <div style={{ ...styles.helper, marginTop: 10 }}>
-                  For phone or WhatsApp calls, you still need an external telephony layer such as Twilio. This page gives you the in-app conversational planner first.
                 </div>
               </div>
 
-              <div style={styles.sideCard}>
-                <div style={styles.label}>Contact Me</div>
-                <div style={styles.helper}>Use Auto Route to follow the planner channel policy: routine updates stay on WhatsApp, while ambiguous planning can escalate to a call. Manual buttons still override the policy.</div>
-                <div style={{ height: 10 }} />
-                <label style={styles.label}>Destination</label>
-                <input
-                  style={styles.input}
-                  value={contactTarget}
-                  onChange={(event) => setContactTarget(event.target.value)}
-                  placeholder="whatsapp:+15551234567 or +15551234567"
-                />
-                <div style={{ height: 10 }} />
-                <label style={styles.label}>Opening Message</label>
-                <textarea
-                  style={{ ...styles.textarea, minHeight: 84 }}
-                  value={contactDraft}
-                  onChange={(event) => setContactDraft(event.target.value)}
-                  placeholder="Tell the planner what the outbound contact should say first."
-                />
-                <div style={styles.actionRow}>
-                  <button style={styles.btn} onClick={() => void autoRouteContact()} disabled={!contactTarget.trim() || !contactDraft.trim()}>
-                    Auto Route
-                  </button>
-                  <button style={styles.btnGhost} onClick={() => void sendWhatsapp()} disabled={!contactTarget.trim()}>
-                    Send WhatsApp
-                  </button>
-                  <button style={styles.btnGhost} onClick={() => void startVoiceCall()} disabled={!contactTarget.trim()}>
-                    Start Voice Call
-                  </button>
-                </div>
-                {contactMsg ? <div style={{ ...styles.success, marginTop: 10 }}>{contactMsg}</div> : null}
-                {contactError ? <div style={{ ...styles.error, marginTop: 10 }}>{contactError}</div> : null}
-              </div>
+              {showAdvancedPlannerControls ? (
+                <>
+                  <div style={styles.sideCard}>
+                    <div style={styles.label}>Voice</div>
+                    <div style={styles.actionRow}>
+                      <button style={voiceEnabled ? styles.btnGhost : styles.btn} onClick={() => setVoiceEnabled((value) => !value)}>
+                        {voiceEnabled ? "Disable Mic" : "Enable Mic"}
+                      </button>
+                      <button style={autoSpeak ? styles.btn : styles.btnGhost} onClick={() => setAutoSpeak((value) => !value)}>
+                        {autoSpeak ? "Voice Replies On" : "Voice Replies Off"}
+                      </button>
+                    </div>
+                    {speechError ? <div style={{ ...styles.error, marginTop: 10 }}>{speechError}</div> : null}
+                    <div style={{ ...styles.helper, marginTop: 10 }}>
+                      For phone or WhatsApp calls, you still need an external telephony layer such as Twilio. This page gives you the in-app conversational planner first.
+                    </div>
+                  </div>
+
+                  <div style={styles.sideCard}>
+                    <div style={styles.label}>Contact Me</div>
+                    <div style={styles.helper}>Use Auto Route to follow the planner channel policy: routine updates stay on WhatsApp, while ambiguous planning can escalate to a call. Manual buttons still override the policy.</div>
+                    <div style={{ height: 10 }} />
+                    <label style={styles.label}>Destination</label>
+                    <input
+                      style={styles.input}
+                      value={contactTarget}
+                      onChange={(event) => setContactTarget(event.target.value)}
+                      placeholder="whatsapp:+15551234567 or +15551234567"
+                    />
+                    <div style={{ height: 10 }} />
+                    <label style={styles.label}>Opening Message</label>
+                    <textarea
+                      style={{ ...styles.textarea, minHeight: 84 }}
+                      value={contactDraft}
+                      onChange={(event) => setContactDraft(event.target.value)}
+                      placeholder="Tell the planner what the outbound contact should say first."
+                    />
+                    <div style={styles.actionRow}>
+                      <button style={styles.btn} onClick={() => void autoRouteContact()} disabled={!contactTarget.trim() || !contactDraft.trim()}>
+                        Auto Route
+                      </button>
+                      <button style={styles.btnGhost} onClick={() => void sendWhatsapp()} disabled={!contactTarget.trim()}>
+                        Send WhatsApp
+                      </button>
+                      <button style={styles.btnGhost} onClick={() => void startVoiceCall()} disabled={!contactTarget.trim()}>
+                        Start Voice Call
+                      </button>
+                    </div>
+                    {contactMsg ? <div style={{ ...styles.success, marginTop: 10 }}>{contactMsg}</div> : null}
+                    {contactError ? <div style={{ ...styles.error, marginTop: 10 }}>{contactError}</div> : null}
+                  </div>
+                </>
+              ) : null}
 
               <div style={styles.sideCard}>
                 <div style={styles.label}>Draft Tree</div>

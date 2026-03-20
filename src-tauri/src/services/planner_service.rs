@@ -2848,3 +2848,282 @@ pub async fn confirm_planner_plan(
     )
     .await
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        apply_actions_to_draft, commit_draft_plan, normalize_planner_action, PlannerDraftPlan,
+    };
+    use crate::persistence::{db as db_service, product_repo, work_item_repo};
+    use crate::state::AppState;
+    use serde_json::json;
+    use std::path::PathBuf;
+    use std::sync::{Arc, OnceLock};
+    use tokio::sync::{Mutex, OwnedMutexGuard};
+
+    fn planner_test_lock() -> Arc<Mutex<()>> {
+        static LOCK: OnceLock<Arc<Mutex<()>>> = OnceLock::new();
+        LOCK.get_or_init(|| Arc::new(Mutex::new(()))).clone()
+    }
+
+    async fn acquire_planner_test_lock() -> OwnedMutexGuard<()> {
+        planner_test_lock().lock_owned().await
+    }
+
+    fn make_temp_dir(name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "aruvi_planner_service_{}_{}",
+            name,
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&path).expect("failed to create temp directory");
+        path
+    }
+
+    async fn make_test_state(name: &str) -> AppState {
+        let temp_root = make_temp_dir(name);
+        let db_path = temp_root.join("aruvi-test.db");
+        let db_url = format!("sqlite:{}", db_path.display());
+        let pool = db_service::create_pool(&db_url)
+            .await
+            .expect("failed to create database pool");
+        AppState::new(pool, temp_root)
+            .await
+            .expect("failed to create app state")
+    }
+
+    fn normalize_actions(values: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
+        values
+            .into_iter()
+            .filter_map(normalize_planner_action)
+            .collect::<Vec<_>>()
+    }
+
+    #[test]
+    fn normalize_planner_action_repairs_relaxed_model_shapes() {
+        let normalized = normalize_planner_action(json!({
+            "type": "create_work_item",
+            "target": "Guest Profile Management",
+            "work_item_name": "Implement Guest Profile CRUD",
+            "description": "Build CRUD flows."
+        }))
+        .expect("action should normalize");
+
+        assert_eq!(
+            normalized.get("title").and_then(serde_json::Value::as_str),
+            Some("Implement Guest Profile CRUD")
+        );
+        assert_eq!(
+            normalized
+                .get("target")
+                .and_then(|value| value.get("capabilityName"))
+                .and_then(serde_json::Value::as_str),
+            Some("Guest Profile Management")
+        );
+    }
+
+    #[tokio::test]
+    async fn apply_actions_to_draft_supports_selected_node_refinement_flow() {
+        let _guard = acquire_planner_test_lock().await;
+
+        let create_root = normalize_actions(vec![json!({
+            "type": "create_product",
+            "target": "Hotel Management System",
+            "name": "Hotel Management System",
+            "description": "Hotel operations root."
+        })]);
+        let draft = apply_actions_to_draft(None, None, &create_root)
+            .await
+            .expect("failed to create root draft");
+        let product_id = draft
+            .nodes
+            .iter()
+            .find(|node| node.node_type == "product")
+            .expect("missing product node")
+            .id
+            .clone();
+
+        let add_module = normalize_actions(vec![json!({
+            "type": "create_module",
+            "name": "Guest Management",
+            "description": "Guest workflows."
+        })]);
+        let draft = apply_actions_to_draft(Some(draft), Some(&product_id), &add_module)
+            .await
+            .expect("failed to add module");
+        let module = draft
+            .nodes
+            .iter()
+            .find(|node| node.node_type == "module" && node.name == "Guest Management")
+            .expect("missing module node");
+        let module_id = module.id.clone();
+        assert_eq!(module.parent_id.as_deref(), Some(product_id.as_str()));
+
+        let add_capability = normalize_actions(vec![json!({
+            "type": "create_capability",
+            "name": "Guest Profile Management",
+            "description": "Profiles and preferences."
+        })]);
+        let draft = apply_actions_to_draft(Some(draft), Some(&module_id), &add_capability)
+            .await
+            .expect("failed to add capability");
+        let capability = draft
+            .nodes
+            .iter()
+            .find(|node| node.node_type == "capability" && node.name == "Guest Profile Management")
+            .expect("missing capability node");
+        let capability_id = capability.id.clone();
+        assert_eq!(capability.parent_id.as_deref(), Some(module_id.as_str()));
+
+        let add_work_item = normalize_actions(vec![json!({
+            "type": "create_work_item",
+            "work_item_name": "Implement Guest Profile CRUD",
+            "description": "Backend and frontend CRUD."
+        })]);
+        let draft = apply_actions_to_draft(Some(draft), Some(&capability_id), &add_work_item)
+            .await
+            .expect("failed to add work item");
+        let work_item = draft
+            .nodes
+            .iter()
+            .find(|node| node.node_type == "work_item" && node.name == "Implement Guest Profile CRUD")
+            .expect("missing work item node");
+        assert_eq!(work_item.parent_id.as_deref(), Some(capability_id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn apply_actions_to_draft_handles_relaxed_nested_targets_from_trace() {
+        let _guard = acquire_planner_test_lock().await;
+
+        let actions = normalize_actions(vec![
+            json!({
+                "type": "create_product",
+                "target": "Hotel Management System",
+                "name": "Hotel Management System",
+                "description": "Hotel root."
+            }),
+            json!({
+                "type": "create_module",
+                "target": "Hotel Management System",
+                "module_name": "Guest Management",
+                "description": "Guest workflows."
+            }),
+            json!({
+                "type": "create_capability",
+                "target": "Guest Management",
+                "capability_name": "Guest Profile Management",
+                "description": "Profiles."
+            }),
+            json!({
+                "type": "create_work_item",
+                "target": "Guest Profile Management",
+                "work_item_name": "Implement Guest Profile CRUD",
+                "description": "Build CRUD."
+            }),
+        ]);
+
+        let draft = apply_actions_to_draft(None, None, &actions)
+            .await
+            .expect("failed to apply relaxed nested actions");
+
+        let product = draft
+            .nodes
+            .iter()
+            .find(|node| node.node_type == "product" && node.name == "Hotel Management System")
+            .expect("missing product");
+        let module = draft
+            .nodes
+            .iter()
+            .find(|node| node.node_type == "module" && node.name == "Guest Management")
+            .expect("missing module");
+        let capability = draft
+            .nodes
+            .iter()
+            .find(|node| node.node_type == "capability" && node.name == "Guest Profile Management")
+            .expect("missing capability");
+        let work_item = draft
+            .nodes
+            .iter()
+            .find(|node| node.node_type == "work_item" && node.name == "Implement Guest Profile CRUD")
+            .expect("missing work item");
+
+        assert_eq!(module.parent_id.as_deref(), Some(product.id.as_str()));
+        assert_eq!(capability.parent_id.as_deref(), Some(module.id.as_str()));
+        assert_eq!(work_item.parent_id.as_deref(), Some(capability.id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn commit_draft_plan_persists_tree_structure() {
+        let _guard = acquire_planner_test_lock().await;
+        let state = make_test_state("commit_draft").await;
+
+        let actions = normalize_actions(vec![
+            json!({
+                "type": "create_product",
+                "target": "Hotel Management System",
+                "name": "Hotel Management System",
+                "description": "Hotel root."
+            }),
+            json!({
+                "type": "create_module",
+                "target": "Hotel Management System",
+                "module_name": "Guest Management",
+                "description": "Guest workflows."
+            }),
+            json!({
+                "type": "create_capability",
+                "target": "Guest Management",
+                "capability_name": "Guest Profile Management",
+                "description": "Profiles."
+            }),
+            json!({
+                "type": "create_work_item",
+                "target": "Guest Profile Management",
+                "work_item_name": "Implement Guest Profile CRUD",
+                "description": "Build CRUD."
+            }),
+        ]);
+        let draft: PlannerDraftPlan = apply_actions_to_draft(None, None, &actions)
+            .await
+            .expect("failed to build draft");
+
+        let execution = commit_draft_plan(&state, &draft)
+            .await
+            .expect("failed to commit draft");
+        assert!(!execution.is_empty());
+
+        let products = product_repo::list_products(&state.db)
+            .await
+            .expect("failed to list products");
+        let product = products
+            .iter()
+            .find(|product| product.name == "Hotel Management System")
+            .expect("committed product not found");
+
+        let modules = product_repo::list_modules(&state.db, &product.id)
+            .await
+            .expect("failed to list modules");
+        let module = modules
+            .iter()
+            .find(|module| module.name == "Guest Management")
+            .expect("committed module not found");
+
+        let tree = product_repo::get_product_tree(&state.db, &product.id)
+            .await
+            .expect("failed to load product tree");
+        let capability = tree
+            .modules
+            .iter()
+            .find(|module_tree| module_tree.module.id == module.id)
+            .and_then(|module_tree| module_tree.features.first())
+            .map(|feature| feature.capability.name.clone());
+        assert_eq!(capability.as_deref(), Some("Guest Profile Management"));
+
+        let work_items = work_item_repo::list_work_items(&state.db, Some(&product.id), None, None, None)
+            .await
+            .expect("failed to list work items");
+        assert!(work_items
+            .iter()
+            .any(|item| item.title == "Implement Guest Profile CRUD"));
+    }
+}
