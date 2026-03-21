@@ -174,6 +174,7 @@ pub fn run() {
             commands::planner_commands::rename_planner_draft_node_command,
             commands::planner_commands::add_planner_draft_child_command,
             commands::planner_commands::delete_planner_draft_node_command,
+            commands::planner_commands::analyze_repository_for_planner_command,
             // Channel commands
             commands::channel_commands::send_twilio_whatsapp_message,
             commands::channel_commands::start_twilio_voice_call,

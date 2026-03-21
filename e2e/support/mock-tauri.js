@@ -741,6 +741,93 @@
     };
   }
 
+  function registerRepository(args) {
+    const state = getState();
+    const repository = {
+      id: nextId("repository"),
+      name: String(getArg(args, "name") ?? "repository"),
+      local_path: String(getArg(args, "localPath", "local_path") ?? ""),
+      remote_url: String(getArg(args, "remoteUrl", "remote_url") ?? ""),
+      default_branch: String(getArg(args, "defaultBranch", "default_branch") ?? "main"),
+      auth_profile: null,
+      created_at: FIXED_TIMESTAMP,
+      updated_at: FIXED_TIMESTAMP,
+    };
+    state.repositories.push(repository);
+    return repository;
+  }
+
+  function analyzeRepositoryForPlanner(args) {
+    const sessionId = getArg(args, "sessionId", "session_id");
+    const repositoryId = getArg(args, "repositoryId", "repository_id");
+    const session = getPlannerSession(sessionId);
+    const repository = getState().repositories.find((entry) => entry.id === repositoryId);
+    if (!session) {
+      throw new Error(`Unknown planner session: ${sessionId}`);
+    }
+    if (!repository) {
+      throw new Error(`Unknown repository: ${repositoryId}`);
+    }
+
+    const productName = repository.name === "aruvi-studio"
+      ? "AruviStudio"
+      : repository.name.replace(/[-_]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+    const product = createDraftNode(session, "product", productName, null, {
+      description: `Reverse engineered planning structure for the ${repository.name} repository.`,
+      vision: "Translate the existing repository into a staged product map that can be refined before commitment.",
+      goals: [
+        "Map the current application surface area into product modules",
+        "Identify major capabilities already present in the codebase",
+        "Seed starter work items for the most visible delivery areas",
+      ],
+      tags: ["reverse_engineered", "repository_analysis"],
+    });
+    const plannerModule = createDraftNode(session, "module", "Interactive Planner", product.id, {
+      description: "Conversational planning, draft staging, commit flow, and trace inspection.",
+    });
+    const repoModule = createDraftNode(session, "module", "Repository Intelligence", product.id, {
+      description: "Repository registration, reverse engineering, and code-aware planning expansion.",
+    });
+    const plannerCapability = createDraftNode(session, "capability", "Draft Tree Editing", plannerModule.id, {
+      description: "Select, rename, expand, and refine staged draft nodes before commit.",
+    });
+    createDraftNode(session, "work_item", "Add repo analysis entrypoint", repoModule.id, {
+      description: "Let users register a repository and stage a reverse-engineered planning tree.",
+    });
+    createDraftNode(session, "work_item", "Improve draft tree ergonomics", plannerCapability.id, {
+      description: "Tighten the planner workspace so draft editing feels like a real planning surface.",
+    });
+    session.selected_draft_node_id = product.id;
+    return createPlannerResponse(
+      session,
+      `I analyzed the ${repository.name} repository and staged a product tree with planner and repository-intelligence modules so you can refine it before commit.`,
+      [
+        {
+          type: "create_product",
+          name: product.label,
+          description: product.data.description,
+          vision: product.data.vision,
+          goals: product.data.goals,
+          tags: product.data.tags,
+        },
+        {
+          type: "create_module",
+          target: { productName: product.label },
+          name: plannerModule.label,
+          description: plannerModule.data.description,
+        },
+        {
+          type: "create_module",
+          target: { productName: product.label },
+          name: repoModule.label,
+          description: repoModule.data.description,
+        },
+      ],
+      ["Updated the draft plan from repository analysis."],
+      product.id,
+    );
+  }
+
   function renamePlannerDraftNode(args) {
     const sessionId = getArg(args, "sessionId", "session_id");
     const nodeId = getArg(args, "nodeId", "node_id");
@@ -972,10 +1059,14 @@
         case "start_model_chat_stream":
           return ok("mock-chat-stream");
         case "register_repository":
+          return ok(registerRepository(args || {}));
+        case "analyze_repository_for_planner_command":
+          return ok(analyzeRepositoryForPlanner(args || {}));
+        case "browse_for_repository_path":
+          return ok("/tmp/mock-repository");
         case "delete_repository":
         case "attach_repository":
         case "create_local_workspace":
-        case "browse_for_repository_path":
         case "read_repository_file":
         case "write_repository_file":
         case "apply_repository_patch":

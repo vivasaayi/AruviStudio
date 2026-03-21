@@ -54,3 +54,21 @@ test("planner supports deterministic create, refine, and commit flow", async ({ 
   await expect(page.getByRole("heading", { name: "Product Workspace" })).toBeVisible();
   await expect(page.getByText("Boutique Hotel Management System").first()).toBeVisible();
 });
+
+test("planner can reverse engineer a registered repository into a draft tree", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.getByRole("heading", { name: "Interactive Planner" })).toBeVisible();
+  await page.getByRole("button", { name: "Show Advanced Tools" }).click();
+
+  await page.getByPlaceholder("/absolute/path/to/repository").fill("/tmp/aruvi-studio");
+  await page.getByRole("button", { name: "Register Repo" }).click();
+  await expect(page.getByText('Registered repository "aruvi-studio".')).toBeVisible();
+
+  await page.getByRole("button", { name: "Analyze Repo Into Draft" }).click();
+  await expect(page.getByText("Staged Plan Tree")).toBeVisible();
+
+  await expect(page.getByText("AruviStudio").first()).toBeVisible();
+  await expect(page.getByText("Interactive Planner").first()).toBeVisible();
+  await expect(page.getByText("Repository Intelligence").first()).toBeVisible();
+});

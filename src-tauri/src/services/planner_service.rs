@@ -1,13 +1,15 @@
 use crate::error::AppError;
 use crate::persistence::{
-    approval_repo, model_repo, planner_repo, product_repo, settings_repo, work_item_repo,
-    workflow_repo,
+    approval_repo, model_repo, planner_repo, product_repo, repository_repo, settings_repo,
+    work_item_repo, workflow_repo,
 };
+use crate::services::repo_service;
 use crate::providers::gateway::ModelGateway;
 use crate::providers::openai_compatible::OpenAiCompatibleProvider;
 use crate::providers::types::{ChatMessage, CompletionRequest};
 use crate::secrets;
 use crate::state::AppState;
+use crate::domain::repository::{Repository, RepositoryTreeNode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
@@ -356,6 +358,145 @@ start_workflow, workflow_action, report_status, report_tree.
 - Use product/module/capability/work item names in target fields, never IDs.
 - assistant_response should sound like a planning lead: mention what already exists, what changed in the draft, and what should be refined next.
 - Use selected node context if supplied."#
+}
+
+fn repository_analysis_prompt() -> &'static str {
+    r#"You are an AI planning lead reverse-engineering a software repository into a staged product plan.
+Return exactly one JSON object of type "final". No markdown.
+
+Your task is to inspect the provided repository evidence and convert it into a draft planning tree using these action types only:
+create_product, update_product,
+create_module, update_module,
+create_capability, update_capability,
+create_work_item, update_work_item,
+report_tree.
+
+Rules:
+- Base the structure on repository evidence, not wishful features.
+- If there is no current draft root, create one product.
+- If a selected draft node is provided, merge into that context instead of creating a duplicate root.
+- Prefer a practical structure:
+  - 1 product root
+  - 3-8 modules when the evidence supports it
+  - 2-5 capabilities per module when the evidence supports it
+  - 1-3 starter work items per concrete capability where implementation work is visible or obviously missing
+- Use create_* when adding inferred structure to the draft.
+- Use update_* when refining an already selected/root draft node from repository evidence.
+- Keep names concise and product-manager friendly.
+- Mention assumptions briefly in assistant_response.
+- If the repository evidence is too weak, return actions=[] with a clarification_question asking what to focus on.
+
+Return this shape:
+{
+  "type": "final",
+  "assistant_response": "brief natural-language summary",
+  "needs_confirmation": false,
+  "clarification_question": null,
+  "actions": []
+}"#
+}
+
+fn flatten_repository_tree_lines(
+    nodes: &[RepositoryTreeNode],
+    depth: usize,
+    remaining: &mut usize,
+    output: &mut Vec<String>,
+) {
+    if *remaining == 0 {
+        return;
+    }
+    let indent = "  ".repeat(depth);
+    for node in nodes {
+        if *remaining == 0 {
+            break;
+        }
+        let marker = match node.node_type.as_str() {
+            "directory" => "dir",
+            _ => "file",
+        };
+        output.push(format!("{indent}- [{}] {}", marker, node.relative_path));
+        *remaining -= 1;
+        if !node.children.is_empty() {
+            flatten_repository_tree_lines(&node.children, depth + 1, remaining, output);
+        }
+    }
+}
+
+fn truncate_text(value: &str, max_chars: usize) -> String {
+    let trimmed = value.trim();
+    if trimmed.chars().count() <= max_chars {
+        return trimmed.to_string();
+    }
+    let truncated = trimmed.chars().take(max_chars).collect::<String>();
+    format!("{truncated}\n...[truncated]")
+}
+
+fn collect_repository_candidate_files(repo: &Repository) -> Vec<String> {
+    let preferred = [
+        "README.md",
+        "README",
+        "package.json",
+        "Cargo.toml",
+        "pyproject.toml",
+        "requirements.txt",
+        "go.mod",
+        "pom.xml",
+        "build.gradle",
+        "src/App.tsx",
+        "src/main.tsx",
+        "src-tauri/Cargo.toml",
+        "src-tauri/src/lib.rs",
+    ];
+    preferred
+        .iter()
+        .filter_map(|relative_path| {
+            let candidate = std::path::Path::new(&repo.local_path).join(relative_path);
+            if candidate.exists() && candidate.is_file() {
+                Some((*relative_path).to_string())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
+}
+
+fn build_repository_snapshot(
+    repo: &Repository,
+) -> Result<String, AppError> {
+    let tree = repo_service::list_repository_tree(&repo.local_path, false, Some(4))?;
+    let mut remaining = 220usize;
+    let mut tree_lines = vec![];
+    flatten_repository_tree_lines(&tree, 0, &mut remaining, &mut tree_lines);
+
+    let candidate_files = collect_repository_candidate_files(repo);
+    let mut file_sections = vec![];
+    for relative_path in candidate_files.into_iter().take(8) {
+        if let Ok(content) = repo_service::read_repository_file(&repo.local_path, &relative_path) {
+            file_sections.push(format!(
+                "File: {}\n{}",
+                relative_path,
+                truncate_text(&content, 5000)
+            ));
+        }
+    }
+
+    Ok(format!(
+        "Repository:\n- name: {}\n- local_path: {}\n- default_branch: {}\n- remote_url: {}\n\nRepository tree:\n{}\n\nKey files:\n{}",
+        repo.name,
+        repo.local_path,
+        repo.default_branch,
+        if repo.remote_url.is_empty() { "(none)" } else { &repo.remote_url },
+        if tree_lines.is_empty() {
+            "(empty repository)".to_string()
+        } else {
+            tree_lines.join("\n")
+        },
+        if file_sections.is_empty() {
+            "(no key files captured)".to_string()
+        } else {
+            file_sections.join("\n\n---\n\n")
+        }
+    ))
 }
 
 fn normalize(value: Option<&str>) -> String {
@@ -3488,6 +3629,188 @@ pub async fn delete_planner_draft_node(
             removed.node_type.replace('_', " "),
             removed.name
         )],
+        execution_errors: vec![],
+        trace_events: trace,
+    })
+}
+
+pub async fn analyze_repository_for_planner(
+    planner_service: Arc<Mutex<PlannerService>>,
+    db: &SqlitePool,
+    session_id: String,
+    repository_id: String,
+    selected_draft_node_id: Option<String>,
+) -> Result<PlannerTurnResponse, AppError> {
+    let mut trace = vec![];
+    let mut session = get_or_load_session(&planner_service, db, &session_id).await?;
+    push_trace(
+        &mut trace,
+        "session",
+        "Loaded planner session",
+        format!(
+            "session_id={}\nprovider_id={:?}\nmodel_name={:?}\nhas_pending_plan={}\nhas_draft_plan={}\nselected_draft_node_id={:?}",
+            session_id,
+            session.provider_id,
+            session.model_name,
+            session.pending_plan.is_some(),
+            session.draft_plan.is_some(),
+            session.selected_draft_node_id
+        ),
+    );
+
+    if selected_draft_node_id != session.selected_draft_node_id {
+        session.selected_draft_node_id = selected_draft_node_id.clone();
+        persist_draft_state(
+            db,
+            &session_id,
+            session.draft_plan.as_ref(),
+            session.selected_draft_node_id.as_deref(),
+        )
+        .await?;
+    }
+
+    let provider_id = session
+        .provider_id
+        .clone()
+        .ok_or_else(|| AppError::Validation("Configure a planner model before analyzing a repository.".to_string()))?;
+    let model_name = session
+        .model_name
+        .clone()
+        .ok_or_else(|| AppError::Validation("Configure a planner model before analyzing a repository.".to_string()))?;
+    let repository = repository_repo::get_repository(db, &repository_id).await?;
+    let repo_snapshot = build_repository_snapshot(&repository)?;
+    push_trace(
+        &mut trace,
+        "repository",
+        "Captured repository snapshot",
+        truncate_text(&repo_snapshot, 12_000),
+    );
+
+    let draft_context = session
+        .draft_plan
+        .as_ref()
+        .map(serde_json::to_string_pretty)
+        .transpose()?
+        .unwrap_or_else(|| "No draft yet.".to_string());
+    let selected_context = session
+        .selected_draft_node_id
+        .as_deref()
+        .and_then(|node_id| session.draft_plan.as_ref().and_then(|draft| draft.nodes.iter().find(|node| node.id == node_id)))
+        .map(serde_json::to_string_pretty)
+        .transpose()?
+        .unwrap_or_else(|| "No draft node selected.".to_string());
+    let analysis_request = format!(
+        "Current draft tree:\n{}\n\nSelected draft node:\n{}\n\nRepository evidence:\n{}\n\nTask:\nReverse engineer this repository into a staged planning tree. Infer the product, modules, capabilities, and starter work items from the codebase. Merge into the selected draft node if it exists; otherwise create a product root.",
+        draft_context, selected_context, repo_snapshot
+    );
+    push_trace(
+        &mut trace,
+        "input",
+        "Repository analysis request",
+        truncate_text(&analysis_request, 12_000),
+    );
+
+    let completion = run_completion(
+        db,
+        &provider_id,
+        &model_name,
+        vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: repository_analysis_prompt().to_string(),
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: analysis_request,
+            },
+        ],
+    )
+    .await?;
+    push_trace(
+        &mut trace,
+        "model",
+        "Repository analysis completion",
+        completion.clone(),
+    );
+
+    let plan = parse_final_response(&completion)?;
+    push_trace(
+        &mut trace,
+        "plan",
+        "Parsed repository analysis plan",
+        serde_json::to_string_pretty(&plan)?,
+    );
+
+    if plan.actions.is_empty() {
+        return Ok(PlannerTurnResponse {
+            session_id,
+            status: "clarification".to_string(),
+            assistant_message: plan
+                .clarification_question
+                .clone()
+                .unwrap_or_else(|| plan.assistant_response.clone()),
+            pending_plan: Some(plan),
+            tree_nodes: None,
+            draft_tree_nodes: session
+                .draft_plan
+                .as_ref()
+                .map(|draft| build_draft_tree_nodes(draft, session.selected_draft_node_id.as_deref())),
+            selected_draft_node_id: session.selected_draft_node_id.clone(),
+            execution_lines: vec![],
+            execution_errors: vec![],
+            trace_events: trace,
+        });
+    }
+
+    let updated_draft = apply_actions_to_draft(
+        session.draft_plan.clone(),
+        session.selected_draft_node_id.as_deref(),
+        &plan.actions,
+    )
+    .await?;
+    session.draft_plan = Some(updated_draft.clone());
+    session.pending_plan = Some(plan.clone());
+    persist_pending_plan(db, &session_id, Some(&plan)).await?;
+    persist_draft_state(
+        db,
+        &session_id,
+        Some(&updated_draft),
+        session.selected_draft_node_id.as_deref(),
+    )
+    .await?;
+    append_conversation(
+        db,
+        &session_id,
+        "user",
+        &format!("Analyze repository {} into a draft plan.", repository.name),
+    )
+    .await?;
+    append_conversation(db, &session_id, "assistant", &plan.assistant_response).await?;
+    session.conversation.push(PlannerConversationEntry {
+        role: "user".to_string(),
+        content: format!("Analyze repository {} into a draft plan.", repository.name),
+    });
+    session.conversation.push(PlannerConversationEntry {
+        role: "assistant".to_string(),
+        content: plan.assistant_response.clone(),
+    });
+    {
+        let mut service = planner_service.lock().await;
+        service.save_session(&session_id, session.clone());
+    }
+
+    Ok(PlannerTurnResponse {
+        session_id,
+        status: "proposal".to_string(),
+        assistant_message: plan.assistant_response.clone(),
+        pending_plan: Some(plan),
+        tree_nodes: None,
+        draft_tree_nodes: Some(build_draft_tree_nodes(
+            &updated_draft,
+            session.selected_draft_node_id.as_deref(),
+        )),
+        selected_draft_node_id: session.selected_draft_node_id,
+        execution_lines: vec!["Updated the draft plan from repository analysis.".to_string()],
         execution_errors: vec![],
         trace_events: trace,
     })

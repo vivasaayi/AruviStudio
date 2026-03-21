@@ -1,8 +1,9 @@
 use crate::error::AppError;
 use crate::services::planner_service::{
-    add_planner_draft_child, clear_planner_pending, confirm_planner_plan,
-    create_planner_session, delete_planner_draft_node, rename_planner_draft_node,
-    submit_planner_turn, update_planner_session, PlannerSessionInfo, PlannerTurnResponse,
+    add_planner_draft_child, analyze_repository_for_planner, clear_planner_pending,
+    confirm_planner_plan, create_planner_session, delete_planner_draft_node,
+    rename_planner_draft_node, submit_planner_turn, update_planner_session, PlannerSessionInfo,
+    PlannerTurnResponse,
 };
 use crate::state::AppState;
 use tauri::State;
@@ -182,6 +183,33 @@ pub async fn delete_planner_draft_node_command(
         &state.db,
         session_id,
         node_id,
+    )
+    .await
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn analyze_repository_for_planner_command(
+    state: State<'_, AppState>,
+    session_id: Option<String>,
+    sessionId: Option<String>,
+    repository_id: Option<String>,
+    repositoryId: Option<String>,
+    selected_draft_node_id: Option<String>,
+    selectedDraftNodeId: Option<String>,
+) -> Result<PlannerTurnResponse, AppError> {
+    let session_id = session_id
+        .or(sessionId)
+        .ok_or_else(|| AppError::Validation("missing planner session id".to_string()))?;
+    let repository_id = repository_id
+        .or(repositoryId)
+        .ok_or_else(|| AppError::Validation("missing repository id".to_string()))?;
+    analyze_repository_for_planner(
+        state.planner_service.clone(),
+        &state.db,
+        session_id,
+        repository_id,
+        selected_draft_node_id.or(selectedDraftNodeId),
     )
     .await
 }

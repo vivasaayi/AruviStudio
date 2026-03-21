@@ -729,6 +729,20 @@ export const deletePlannerDraftNode = (data: {
     node_id: data.nodeId,
   });
 
+export const analyzeRepositoryForPlanner = (data: {
+  sessionId: string;
+  repositoryId: string;
+  selectedDraftNodeId?: string | null;
+}) =>
+  invoke<PlannerTurnResponse>("analyze_repository_for_planner_command", {
+    sessionId: data.sessionId,
+    session_id: data.sessionId,
+    repositoryId: data.repositoryId,
+    repository_id: data.repositoryId,
+    selectedDraftNodeId: data.selectedDraftNodeId ?? null,
+    selected_draft_node_id: data.selectedDraftNodeId ?? null,
+  });
+
 export const sendTwilioWhatsappMessage = (data: { to: string; content: string }) =>
   invoke<void>("send_twilio_whatsapp_message", {
     to: data.to,

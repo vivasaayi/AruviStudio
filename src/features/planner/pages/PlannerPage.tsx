@@ -20,13 +20,17 @@ import {
   getLatestWorkflowRunForWorkItem,
   getProductTree,
   handleWorkflowUserAction,
+  listRepositories,
   listModelDefinitions,
   listProducts,
   listProviders,
   listWorkItems,
+  browseForRepositoryPath,
   rejectWorkItem,
   rejectWorkItemPlan,
+  registerRepository,
   routePlannerContact,
+  analyzeRepositoryForPlanner,
   renamePlannerDraftNode,
   runModelChatCompletion,
   sendTwilioWhatsappMessage,
@@ -1813,6 +1817,10 @@ export function PlannerPage() {
   const [draftChildSummary, setDraftChildSummary] = useState("");
   const [draftEditError, setDraftEditError] = useState<string | null>(null);
   const [draftEditMessage, setDraftEditMessage] = useState<string | null>(null);
+  const [selectedRepositoryId, setSelectedRepositoryId] = useState("");
+  const [repositoryPathDraft, setRepositoryPathDraft] = useState("");
+  const [repoAnalysisMessage, setRepoAnalysisMessage] = useState<string | null>(null);
+  const [repoAnalysisError, setRepoAnalysisError] = useState<string | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [autoSpeak, setAutoSpeak] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -1830,6 +1838,7 @@ export function PlannerPage() {
   const { data: providers = [] } = useQuery({ queryKey: ["plannerProviders"], queryFn: listProviders });
   const { data: models = [] } = useQuery({ queryKey: ["plannerModels"], queryFn: listModelDefinitions });
   const { data: workItems = [] } = useQuery({ queryKey: ["plannerWorkItems"], queryFn: () => listWorkItems() });
+  const { data: repositories = [] } = useQuery({ queryKey: ["plannerRepositories"], queryFn: listRepositories });
 
   const treeQueries = useQueries({
     queries: products.map((product) => ({
@@ -1906,6 +1915,12 @@ export function PlannerPage() {
       setProviderId(providers[0].id);
     }
   }, [providerId, providers]);
+
+  useEffect(() => {
+    if (!selectedRepositoryId && repositories.length > 0) {
+      setSelectedRepositoryId(repositories[0].id);
+    }
+  }, [repositories, selectedRepositoryId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2342,7 +2357,32 @@ export function PlannerPage() {
     },
   });
 
-  const isPlannerBusy = processMutation.isPending || draftEditMutation.isPending;
+  const repositoryAnalysisMutation = useMutation<PlannerMutationResult, Error, string>({
+    mutationFn: async (repositoryId: string) => {
+      if (!sessionId) {
+        throw new Error("Planner session is not ready.");
+      }
+      const response = await analyzeRepositoryForPlanner({
+        sessionId,
+        repositoryId,
+        selectedDraftNodeId,
+      });
+      return mapPlannerResponseToMutationResult(
+        response,
+        `Analyze repository ${repositoryId} into a draft plan.`,
+      );
+    },
+    onSuccess: handlePlannerMutationSuccess,
+    onError: (error) => {
+      setRepoAnalysisError(error instanceof Error ? error.message : String(error));
+      setRepoAnalysisMessage(null);
+    },
+  });
+
+  const isPlannerBusy =
+    processMutation.isPending ||
+    draftEditMutation.isPending ||
+    repositoryAnalysisMutation.isPending;
 
   const send = async () => {
     const content = draft.trim();
@@ -2465,6 +2505,57 @@ export function PlannerPage() {
       setContactMsg("Voice call requested through Twilio.");
     } catch (error) {
       setContactError(String(error));
+    }
+  };
+
+  const browseRepositoryPathForPlanner = async () => {
+    try {
+      setRepoAnalysisError(null);
+      const selectedPath = await browseForRepositoryPath();
+      if (selectedPath) {
+        setRepositoryPathDraft(selectedPath);
+      }
+    } catch (error) {
+      setRepoAnalysisError(String(error));
+    }
+  };
+
+  const registerRepositoryForPlanner = async () => {
+    const localPath = repositoryPathDraft.trim();
+    if (!localPath) {
+      return;
+    }
+    try {
+      setRepoAnalysisError(null);
+      setRepoAnalysisMessage(null);
+      const segments = localPath.split(/[\\/]/).filter(Boolean);
+      const inferredName = segments[segments.length - 1] ?? "repository";
+      const repository = await registerRepository({
+        name: inferredName,
+        localPath,
+        remoteUrl: "",
+        defaultBranch: "main",
+      });
+      setSelectedRepositoryId(repository.id);
+      setRepositoryPathDraft("");
+      setRepoAnalysisMessage(`Registered repository "${repository.name}".`);
+      void queryClient.invalidateQueries({ queryKey: ["plannerRepositories"] });
+    } catch (error) {
+      setRepoAnalysisError(String(error));
+    }
+  };
+
+  const analyzeSelectedRepository = async () => {
+    if (!selectedRepositoryId || isPlannerBusy) {
+      return;
+    }
+    try {
+      setRepoAnalysisError(null);
+      setRepoAnalysisMessage(null);
+      await repositoryAnalysisMutation.mutateAsync(selectedRepositoryId);
+      setRepoAnalysisMessage("Repository analysis staged a draft update.");
+    } catch {
+      // Error state is handled by the mutation.
     }
   };
 
@@ -3086,6 +3177,63 @@ export function PlannerPage() {
                     <div style={{ ...styles.helper, marginTop: 10 }}>
                       For phone or WhatsApp calls, you still need an external telephony layer such as Twilio. This page gives you the in-app conversational planner first.
                     </div>
+                  </div>
+
+                  <div style={styles.sideCard}>
+                    <div style={styles.label}>Reverse Engineer Repo</div>
+                    <div style={styles.helper}>
+                      Point the planner at an existing repository and let the model infer a staged product, module, capability, and work-item tree from the codebase.
+                    </div>
+                    <div style={{ height: 10 }} />
+                    <label style={styles.label}>Registered Repository</label>
+                    <select
+                      style={styles.select}
+                      value={selectedRepositoryId}
+                      onChange={(event) => setSelectedRepositoryId(event.target.value)}
+                    >
+                      <option value="">Select a repository</option>
+                      {repositories.map((repository) => (
+                        <option key={repository.id} value={repository.id}>
+                          {repository.name}
+                        </option>
+                      ))}
+                    </select>
+                    <div style={{ height: 10 }} />
+                    <label style={styles.label}>Add Existing Repo Path</label>
+                    <input
+                      style={styles.input}
+                      value={repositoryPathDraft}
+                      onChange={(event) => setRepositoryPathDraft(event.target.value)}
+                      placeholder="/absolute/path/to/repository"
+                    />
+                    <div style={styles.inlineButtonRow}>
+                      <button style={styles.btnGhost} onClick={() => void browseRepositoryPathForPlanner()}>
+                        Browse Path
+                      </button>
+                      <button
+                        style={styles.btnGhost}
+                        onClick={() => void registerRepositoryForPlanner()}
+                        disabled={!repositoryPathDraft.trim()}
+                      >
+                        Register Repo
+                      </button>
+                    </div>
+                    <div style={styles.inlineButtonRow}>
+                      <button
+                        style={styles.btn}
+                        onClick={() => void analyzeSelectedRepository()}
+                        disabled={!selectedRepositoryId || isPlannerBusy || !providerId || !modelName}
+                      >
+                        Analyze Repo Into Draft
+                      </button>
+                    </div>
+                    {!providerId || !modelName ? (
+                      <div style={{ ...styles.helper, marginTop: 10 }}>
+                        Configure a planner model first. Repository reverse engineering depends on the selected LLM.
+                      </div>
+                    ) : null}
+                    {repoAnalysisMessage ? <div style={{ ...styles.success, marginTop: 10 }}>{repoAnalysisMessage}</div> : null}
+                    {repoAnalysisError ? <div style={{ ...styles.error, marginTop: 10 }}>{repoAnalysisError}</div> : null}
                   </div>
 
                   <div style={styles.sideCard}>
