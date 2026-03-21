@@ -1,7 +1,8 @@
 use crate::error::AppError;
 use crate::services::planner_service::{
-    clear_planner_pending, confirm_planner_plan, create_planner_session, submit_planner_turn,
-    update_planner_session, PlannerSessionInfo, PlannerTurnResponse,
+    add_planner_draft_child, clear_planner_pending, confirm_planner_plan,
+    create_planner_session, delete_planner_draft_node, rename_planner_draft_node,
+    submit_planner_turn, update_planner_session, PlannerSessionInfo, PlannerTurnResponse,
 };
 use crate::state::AppState;
 use tauri::State;
@@ -99,4 +100,88 @@ pub async fn confirm_planner_plan_command(
         .or(sessionId)
         .ok_or_else(|| AppError::Validation("missing planner session id".to_string()))?;
     confirm_planner_plan(state.planner_service.clone(), &state, session_id).await
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn rename_planner_draft_node_command(
+    state: State<'_, AppState>,
+    session_id: Option<String>,
+    sessionId: Option<String>,
+    node_id: Option<String>,
+    nodeId: Option<String>,
+    name: String,
+) -> Result<PlannerTurnResponse, AppError> {
+    let session_id = session_id
+        .or(sessionId)
+        .ok_or_else(|| AppError::Validation("missing planner session id".to_string()))?;
+    let node_id = node_id
+        .or(nodeId)
+        .ok_or_else(|| AppError::Validation("missing draft node id".to_string()))?;
+    rename_planner_draft_node(
+        state.planner_service.clone(),
+        &state.db,
+        session_id,
+        node_id,
+        name,
+    )
+    .await
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn add_planner_draft_child_command(
+    state: State<'_, AppState>,
+    session_id: Option<String>,
+    sessionId: Option<String>,
+    parent_node_id: Option<String>,
+    parentNodeId: Option<String>,
+    child_type: Option<String>,
+    childType: Option<String>,
+    name: String,
+    summary: Option<String>,
+) -> Result<PlannerTurnResponse, AppError> {
+    let session_id = session_id
+        .or(sessionId)
+        .ok_or_else(|| AppError::Validation("missing planner session id".to_string()))?;
+    let parent_node_id = parent_node_id
+        .or(parentNodeId)
+        .ok_or_else(|| AppError::Validation("missing parent draft node id".to_string()))?;
+    let child_type = child_type
+        .or(childType)
+        .ok_or_else(|| AppError::Validation("missing draft child type".to_string()))?;
+    add_planner_draft_child(
+        state.planner_service.clone(),
+        &state.db,
+        session_id,
+        parent_node_id,
+        child_type,
+        name,
+        summary,
+    )
+    .await
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn delete_planner_draft_node_command(
+    state: State<'_, AppState>,
+    session_id: Option<String>,
+    sessionId: Option<String>,
+    node_id: Option<String>,
+    nodeId: Option<String>,
+) -> Result<PlannerTurnResponse, AppError> {
+    let session_id = session_id
+        .or(sessionId)
+        .ok_or_else(|| AppError::Validation("missing planner session id".to_string()))?;
+    let node_id = node_id
+        .or(nodeId)
+        .ok_or_else(|| AppError::Validation("missing draft node id".to_string()))?;
+    delete_planner_draft_node(
+        state.planner_service.clone(),
+        &state.db,
+        session_id,
+        node_id,
+    )
+    .await
 }

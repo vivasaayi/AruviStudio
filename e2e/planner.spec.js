@@ -14,6 +14,20 @@ test("planner supports deterministic create, refine, and commit flow", async ({ 
   await expect(page.getByTestId("draft-node-draft-module-guest-management")).toBeVisible();
 
   await page.getByTestId("draft-node-draft-product-hotel-management-system").click();
+  await page.getByTestId("draft-node-rename-input").fill("Boutique Hotel Management System");
+  await page.getByTestId("draft-node-rename-save").click();
+  await expect(page.getByText("Boutique Hotel Management System").first()).toBeVisible();
+
+  await page.getByTestId("draft-node-add-child-type").selectOption("module");
+  await page.getByTestId("draft-node-add-child-name").fill("Concierge Experience");
+  await page.getByTestId("draft-node-add-child-summary").fill("Handle concierge requests and premium guest experiences.");
+  await page.getByTestId("draft-node-add-child-save").click();
+  await expect(page.getByText("Concierge Experience").first()).toBeVisible();
+
+  await page.getByTestId("draft-node-delete").click();
+  await expect(page.getByTestId("draft-node-draft-module-concierge-experience")).toHaveCount(0);
+
+  await page.getByText("Boutique Hotel Management System").first().click();
   await page.getByTestId("planner-input").fill("Add email and WhatsApp notifications to this product");
   await page.getByTestId("planner-send").click();
   await expect(page.getByTestId("draft-node-draft-module-notifications-messaging")).toBeVisible();
@@ -38,5 +52,5 @@ test("planner supports deterministic create, refine, and commit flow", async ({ 
 
   await page.getByTestId("nav-products").click();
   await expect(page.getByRole("heading", { name: "Product Workspace" })).toBeVisible();
-  await expect(page.getByText("Hotel Management System").first()).toBeVisible();
+  await expect(page.getByText("Boutique Hotel Management System").first()).toBeVisible();
 });

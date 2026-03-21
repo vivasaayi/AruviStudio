@@ -410,6 +410,8 @@ export interface PlannerTurnResponse {
   trace_events: PlannerTraceEvent[];
 }
 
+export type PlannerDraftChildType = "module" | "capability" | "work_item";
+
 export interface PlannerContactResult {
   channel: "whatsapp" | "voice";
   status: "sent" | "blocked";

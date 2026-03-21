@@ -741,6 +741,111 @@
     };
   }
 
+  function renamePlannerDraftNode(args) {
+    const sessionId = getArg(args, "sessionId", "session_id");
+    const nodeId = getArg(args, "nodeId", "node_id");
+    const name = String(getArg(args, "name") ?? "").trim();
+    const session = getPlannerSession(sessionId);
+    if (!session) {
+      throw new Error(`Unknown planner session: ${sessionId}`);
+    }
+    const node = findDraftNodeById(session, nodeId);
+    if (!node) {
+      throw new Error("Draft node not found");
+    }
+    if (!name) {
+      throw new Error("Draft node name cannot be empty");
+    }
+    node.label = name;
+    session.selected_draft_node_id = node.id;
+    const action = node.type === "work_item"
+      ? { type: "update_work_item", target: { workItemTitle: node.label }, fields: { title: name } }
+      : { type: `update_${node.type}`, fields: { name } };
+    return createPlannerResponse(
+      session,
+      `Renamed draft ${node.type.replace("_", " ")} to "${name}".`,
+      [action],
+      [`Renamed "${name}".`],
+      node.id,
+    );
+  }
+
+  function addPlannerDraftChild(args) {
+    const sessionId = getArg(args, "sessionId", "session_id");
+    const parentNodeId = getArg(args, "parentNodeId", "parent_node_id");
+    const childType = String(getArg(args, "childType", "child_type") ?? "");
+    const name = String(getArg(args, "name") ?? "").trim();
+    const summary = String(getArg(args, "summary") ?? "").trim();
+    const session = getPlannerSession(sessionId);
+    if (!session) {
+      throw new Error(`Unknown planner session: ${sessionId}`);
+    }
+    const parent = findDraftNodeById(session, parentNodeId);
+    if (!parent) {
+      throw new Error("Parent draft node not found");
+    }
+    if (!name) {
+      throw new Error("Draft child name cannot be empty");
+    }
+    const created = createDraftNode(session, childType, name, parent.id, {
+      description: summary,
+    });
+    session.selected_draft_node_id = created.id;
+    const action = childType === "work_item"
+      ? { type: "create_work_item", title: name, description: summary || undefined }
+      : { type: `create_${childType}`, name, description: summary || undefined };
+    return createPlannerResponse(
+      session,
+      `Added draft ${childType.replace("_", " ")} "${name}" under "${parent.label}".`,
+      [action],
+      [`Added ${childType.replace("_", " ")} "${name}".`],
+      created.id,
+    );
+  }
+
+  function deletePlannerDraftNode(args) {
+    const sessionId = getArg(args, "sessionId", "session_id");
+    const nodeId = getArg(args, "nodeId", "node_id");
+    const session = getPlannerSession(sessionId);
+    if (!session) {
+      throw new Error(`Unknown planner session: ${sessionId}`);
+    }
+    const node = findDraftNodeById(session, nodeId);
+    if (!node) {
+      throw new Error("Draft node not found");
+    }
+
+    const idsToDelete = [node.id];
+    for (let index = 0; index < idsToDelete.length; index += 1) {
+      const currentId = idsToDelete[index];
+      Object.values(session.draftNodes).forEach((candidate) => {
+        if (candidate.parentId === currentId) {
+          idsToDelete.push(candidate.id);
+        }
+      });
+    }
+    if (node.parentId) {
+      const parent = findDraftNodeById(session, node.parentId);
+      if (parent) {
+        parent.children = parent.children.filter((childId) => childId !== node.id);
+      }
+    } else {
+      session.draftRootIds = session.draftRootIds.filter((rootId) => rootId !== node.id);
+    }
+    idsToDelete.forEach((id) => {
+      delete session.draftNodes[id];
+    });
+    session.selected_draft_node_id = node.parentId ?? null;
+    session.has_draft_plan = session.draftRootIds.length > 0;
+    return createPlannerResponse(
+      session,
+      `Removed draft ${node.type.replace("_", " ")} "${node.label}".`,
+      [{ type: node.type === "product" ? "archive_product" : `delete_${node.type}` }],
+      [`Removed ${node.type.replace("_", " ")} "${node.label}".`],
+      session.selected_draft_node_id,
+    );
+  }
+
   function getArg(args, ...keys) {
     for (const key of keys) {
       if (args && Object.prototype.hasOwnProperty.call(args, key)) {
@@ -803,6 +908,12 @@
           return ok(submitPlannerTurn(args || {}));
         case "confirm_planner_plan_command":
           return ok(confirmPlannerPlan(args || {}));
+        case "rename_planner_draft_node_command":
+          return ok(renamePlannerDraftNode(args || {}));
+        case "add_planner_draft_child_command":
+          return ok(addPlannerDraftChild(args || {}));
+        case "delete_planner_draft_node_command":
+          return ok(deletePlannerDraftNode(args || {}));
         case "get_setting":
           return ok(state.settings[getArg(args, "key")] ?? null);
         case "set_setting":

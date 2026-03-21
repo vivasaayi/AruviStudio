@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  addPlannerDraftChild,
   approveWorkItem,
   approveWorkItemPlan,
   approveWorkItemTestReview,
@@ -12,6 +13,7 @@ import {
   createPlannerSession,
   createProduct,
   createWorkItem,
+  deletePlannerDraftNode,
   deleteCapability,
   deleteModule,
   deleteWorkItem,
@@ -25,6 +27,7 @@ import {
   rejectWorkItem,
   rejectWorkItemPlan,
   routePlannerContact,
+  renamePlannerDraftNode,
   runModelChatCompletion,
   sendTwilioWhatsappMessage,
   startWorkItemWorkflow,
@@ -37,7 +40,16 @@ import {
   updateWorkItem,
 } from "../../../lib/tauri";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
-import type { CapabilityTree, ModelDefinition, PlannerTraceEvent, Product, ProductTree, WorkItem } from "../../../lib/types";
+import type {
+  CapabilityTree,
+  ModelDefinition,
+  PlannerDraftChildType,
+  PlannerTraceEvent,
+  PlannerTurnResponse,
+  Product,
+  ProductTree,
+  WorkItem,
+} from "../../../lib/types";
 
 const styles: Record<string, React.CSSProperties> = {
   page: { display: "flex", flexDirection: "column", gap: 12, height: "100%" },
@@ -117,6 +129,26 @@ const styles: Record<string, React.CSSProperties> = {
   draftCanvasHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" as const },
   draftCanvasTitle: { fontSize: 14, fontWeight: 800, color: "#eef3fb" },
   emptyState: { border: "1px dashed #3a4250", borderRadius: 12, padding: 18, color: "#9da7b5", backgroundColor: "#171a20", lineHeight: 1.5 },
+  metricGrid: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, marginTop: 10 },
+  metricCard: { borderRadius: 12, border: "1px solid #324054", backgroundColor: "#141c27", padding: 10 },
+  metricLabel: { fontSize: 11, color: "#8f96a3", textTransform: "uppercase" as const, letterSpacing: 0.5 },
+  metricValue: { marginTop: 6, fontSize: 20, fontWeight: 800, color: "#eef3fb" },
+  readinessBanner: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderRadius: 12, border: "1px solid #324054", backgroundColor: "#151d28", marginBottom: 12, flexWrap: "wrap" as const },
+  readinessScore: { fontSize: 24, fontWeight: 800, color: "#eef3fb" },
+  readinessMeta: { fontSize: 12, color: "#9da7b5" },
+  issueList: { display: "flex", flexDirection: "column", gap: 8, marginTop: 10 },
+  issueCard: { borderRadius: 10, border: "1px solid #374252", backgroundColor: "#121923", padding: 10 },
+  issueCardWarn: { borderRadius: 10, border: "1px solid #6b5632", backgroundColor: "#221b12", padding: 10 },
+  issueCardOk: { borderRadius: 10, border: "1px solid #2f5a4e", backgroundColor: "#12201c", padding: 10 },
+  issueTitle: { fontSize: 12, fontWeight: 800, color: "#eef3fb", marginBottom: 4 },
+  issueDetail: { fontSize: 12, color: "#9da7b5", lineHeight: 1.45 },
+  promptList: { display: "flex", flexDirection: "column", gap: 8, marginTop: 10 },
+  promptButton: { width: "100%", textAlign: "left" as const, padding: "9px 10px", borderRadius: 10, border: "1px solid #344050", backgroundColor: "#151c26", color: "#e6edf8", cursor: "pointer", fontSize: 12, lineHeight: 1.45 },
+  pathText: { fontSize: 12, color: "#aeb8c6", lineHeight: 1.4, marginTop: 8 },
+  sectionDivider: { height: 1, backgroundColor: "#313844", margin: "12px 0" },
+  fieldGroup: { display: "flex", flexDirection: "column", gap: 8, marginTop: 10 },
+  compactTextarea: { width: "100%", minHeight: 70, resize: "vertical" as const, padding: "9px 10px", borderRadius: 10, backgroundColor: "#17191d", border: "1px solid #3c4048", color: "#edf1f8", fontSize: 13, boxSizing: "border-box" as const },
+  mutedButton: { padding: "9px 14px", fontSize: 13, backgroundColor: "#1f2530", color: "#dce6f4", border: "1px solid #344050", borderRadius: 10, cursor: "pointer", fontWeight: 700 },
 };
 
 type PlannerMessageKind = "text" | "proposal" | "tree" | "report" | "execution" | "error";
@@ -314,6 +346,11 @@ type PlannerMutationResult =
       selectedDraftNodeId?: string | null;
       traceEvents?: PlannerTraceEvent[];
     };
+
+type DraftEditOperation =
+  | { kind: "rename"; nodeId: string; name: string }
+  | { kind: "add_child"; parentNodeId: string; childType: PlannerDraftChildType; name: string; summary?: string }
+  | { kind: "delete"; nodeId: string };
 
 type SpeechRecognitionLike = {
   continuous: boolean;
@@ -1332,6 +1369,208 @@ function findTreeNodeById(nodes: PlannerTreeNode[], nodeId: string | null): Plan
   return null;
 }
 
+function findTreeNodePath(nodes: PlannerTreeNode[], nodeId: string | null, trail: PlannerTreeNode[] = []): PlannerTreeNode[] {
+  if (!nodeId) {
+    return [];
+  }
+  for (const node of nodes) {
+    const nextTrail = [...trail, node];
+    if (node.id === nodeId) {
+      return nextTrail;
+    }
+    const childPath = findTreeNodePath(node.children, nodeId, nextTrail);
+    if (childPath.length > 0) {
+      return childPath;
+    }
+  }
+  return [];
+}
+
+type DraftValidationIssue = {
+  tone: "ok" | "warn";
+  title: string;
+  detail: string;
+};
+
+type DraftValidationSummary = {
+  score: number;
+  counts: Record<"product" | "module" | "capability" | "work item", number>;
+  issues: DraftValidationIssue[];
+};
+
+function buildDraftValidation(nodes: PlannerTreeNode[]): DraftValidationSummary {
+  const counts: DraftValidationSummary["counts"] = {
+    product: 0,
+    module: 0,
+    capability: 0,
+    "work item": 0,
+  };
+  const issues: DraftValidationIssue[] = [];
+
+  function visit(node: PlannerTreeNode) {
+    const nodeType = parseDraftNodeType(node.meta);
+    if (nodeType in counts) {
+      counts[nodeType as keyof typeof counts] += 1;
+    }
+
+    const seenSiblingNames = new Set<string>();
+    for (const child of node.children) {
+      const normalizedLabel = child.label.trim().toLowerCase();
+      if (seenSiblingNames.has(normalizedLabel)) {
+        issues.push({
+          tone: "warn",
+          title: `Duplicate child under ${node.label}`,
+          detail: `Multiple children under this branch share the name "${child.label}".`,
+        });
+      } else {
+        seenSiblingNames.add(normalizedLabel);
+      }
+    }
+
+    if (nodeType === "product" && node.children.length === 0) {
+      issues.push({
+        tone: "warn",
+        title: `${node.label} needs modules`,
+        detail: "Products should usually have at least one module before commit.",
+      });
+    }
+    if (nodeType === "module" && node.children.length === 0) {
+      issues.push({
+        tone: "warn",
+        title: `${node.label} is empty`,
+        detail: "Modules should contain capabilities or direct work items so the plan is actionable.",
+      });
+    }
+    if (nodeType === "capability" && node.children.length === 0) {
+      issues.push({
+        tone: "warn",
+        title: `${node.label} has no work items`,
+        detail: "Capabilities are stronger when they break down into implementation work items.",
+      });
+    }
+
+    node.children.forEach(visit);
+  }
+
+  nodes.forEach(visit);
+
+  if (counts.product === 0) {
+    issues.push({
+      tone: "warn",
+      title: "No staged product root",
+      detail: "The draft needs a product root before it can be committed to the catalog.",
+    });
+  } else {
+    issues.unshift({
+      tone: "ok",
+      title: "Draft tree is structurally valid",
+      detail: "A product root exists and the planner can keep refining the staged hierarchy before commit.",
+    });
+  }
+
+  const warningCount = issues.filter((issue) => issue.tone === "warn").length;
+  const score = Math.max(35, 100 - warningCount * 12);
+  return { score, counts, issues };
+}
+
+function buildSuggestedPrompts(node: PlannerTreeNode | null): string[] {
+  if (!node) {
+    return [
+      "Design the full product, modules, capabilities, and starter work items in one draft.",
+      "Show me what is missing in this plan before I commit it.",
+    ];
+  }
+  const nodeType = parseDraftNodeType(node.meta);
+  switch (nodeType) {
+    case "product":
+      return [
+        `Expand ${node.label} with missing modules and operational areas.`,
+        `What is missing under ${node.label} before I commit it?`,
+        `Add notification, reporting, and integration modules under ${node.label}.`,
+      ];
+    case "module":
+      return [
+        `Enhance ${node.label} with 3 concrete capabilities.`,
+        `Break ${node.label} into implementation-ready capabilities and work items.`,
+        `What risks or missing outcomes exist under ${node.label}?`,
+      ];
+    case "capability":
+      return [
+        `Add implementation work items under ${node.label}.`,
+        `Revise ${node.label} to be more concrete and execution-ready.`,
+        `What acceptance criteria or technical notes are missing for ${node.label}?`,
+      ];
+    case "work item":
+      return [
+        `Revise ${node.label} to be more specific and testable.`,
+        `Split ${node.label} into smaller work items if needed.`,
+        `Add risks, constraints, and acceptance criteria to ${node.label}.`,
+      ];
+    default:
+      return [
+        `Expand ${node.label}.`,
+        `What is missing under ${node.label}?`,
+      ];
+  }
+}
+
+function getAllowedDraftChildTypes(node: PlannerTreeNode | null): PlannerDraftChildType[] {
+  const nodeType = parseDraftNodeType(node?.meta);
+  switch (nodeType) {
+    case "product":
+      return ["module", "work_item"];
+    case "module":
+      return ["capability", "work_item"];
+    case "capability":
+      return ["work_item"];
+    default:
+      return [];
+  }
+}
+
+function formatDraftChildTypeLabel(type: PlannerDraftChildType) {
+  switch (type) {
+    case "work_item":
+      return "Work Item";
+    case "module":
+      return "Module";
+    case "capability":
+      return "Capability";
+  }
+}
+
+function findRelevantPlanActions(plan: PlannerPlan | null, node: PlannerTreeNode | null) {
+  if (!plan || !node) {
+    return [];
+  }
+
+  const nodeType = parseDraftNodeType(node.meta);
+  return plan.actions.filter((action) => {
+    const target = (action as { target?: { productName?: string; moduleName?: string; capabilityName?: string; workItemTitle?: string } }).target;
+    if (nodeType === "product") {
+      return action.type === "create_product"
+        ? action.name === node.label
+        : target?.productName === node.label;
+    }
+    if (nodeType === "module") {
+      return action.type === "create_module"
+        ? action.name === node.label || target?.moduleName === node.label
+        : target?.moduleName === node.label;
+    }
+    if (nodeType === "capability") {
+      return action.type === "create_capability"
+        ? action.name === node.label || target?.capabilityName === node.label
+        : target?.capabilityName === node.label;
+    }
+    if (nodeType === "work item") {
+      return action.type === "create_work_item"
+        ? action.title === node.label || target?.workItemTitle === node.label
+        : target?.workItemTitle === node.label;
+    }
+    return false;
+  });
+}
+
 async function executePlannerAction(action: PlannerAction, context: ResolverContext): Promise<string[]> {
   switch (action.type) {
     case "create_product": {
@@ -1568,6 +1807,12 @@ export function PlannerPage() {
   const [selectedDraftNodeId, setSelectedDraftNodeId] = useState<string | null>(null);
   const [expandedDraftNodeIds, setExpandedDraftNodeIds] = useState<string[]>([]);
   const [latestTraceEvents, setLatestTraceEvents] = useState<PlannerTraceEvent[]>([]);
+  const [renameDraftName, setRenameDraftName] = useState("");
+  const [draftChildType, setDraftChildType] = useState<PlannerDraftChildType>("module");
+  const [draftChildName, setDraftChildName] = useState("");
+  const [draftChildSummary, setDraftChildSummary] = useState("");
+  const [draftEditError, setDraftEditError] = useState<string | null>(null);
+  const [draftEditMessage, setDraftEditMessage] = useState<string | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [autoSpeak, setAutoSpeak] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -1579,6 +1824,7 @@ export function PlannerPage() {
   const [contactError, setContactError] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   const { data: products = [] } = useQuery({ queryKey: ["products"], queryFn: listProducts });
   const { data: providers = [] } = useQuery({ queryKey: ["plannerProviders"], queryFn: listProviders });
@@ -1603,9 +1849,41 @@ export function PlannerPage() {
     () => findTreeNodeById(draftTreeNodes, selectedDraftNodeId),
     [draftTreeNodes, selectedDraftNodeId],
   );
+  const selectedDraftNodePath = useMemo(
+    () => findTreeNodePath(draftTreeNodes, selectedDraftNodeId),
+    [draftTreeNodes, selectedDraftNodeId],
+  );
   const expandedDraftNodeIdSet = useMemo(
     () => new Set(expandedDraftNodeIds),
     [expandedDraftNodeIds],
+  );
+  const latestDraftPlan = useMemo(() => {
+    if (pendingPlan?.plan) {
+      return pendingPlan.plan;
+    }
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const entry = messages[index];
+      if (entry.role === "assistant" && entry.plan && entry.plan.actions.length > 0) {
+        return entry.plan;
+      }
+    }
+    return null;
+  }, [messages, pendingPlan]);
+  const selectedDraftNodePrompts = useMemo(
+    () => buildSuggestedPrompts(selectedDraftNode),
+    [selectedDraftNode],
+  );
+  const allowedDraftChildTypes = useMemo(
+    () => getAllowedDraftChildTypes(selectedDraftNode),
+    [selectedDraftNode],
+  );
+  const draftValidation = useMemo(
+    () => buildDraftValidation(draftTreeNodes),
+    [draftTreeNodes],
+  );
+  const selectedNodeRecentActions = useMemo(
+    () => findRelevantPlanActions(latestDraftPlan, selectedDraftNode),
+    [latestDraftPlan, selectedDraftNode],
   );
 
   const modelOptions = useMemo(
@@ -1707,6 +1985,21 @@ export function PlannerPage() {
   }, [draftTreeNodes, selectedDraftNodeId]);
 
   useEffect(() => {
+    setRenameDraftName(selectedDraftNode?.label ?? "");
+    setDraftEditError(null);
+    setDraftEditMessage(null);
+  }, [selectedDraftNodeId, selectedDraftNode?.label]);
+
+  useEffect(() => {
+    if (allowedDraftChildTypes.length === 0) {
+      return;
+    }
+    if (!allowedDraftChildTypes.includes(draftChildType)) {
+      setDraftChildType(allowedDraftChildTypes[0]);
+    }
+  }, [allowedDraftChildTypes, draftChildType]);
+
+  useEffect(() => {
     if (!voiceEnabled) {
       recognitionRef.current?.stop();
       recognitionRef.current = null;
@@ -1749,6 +2042,225 @@ export function PlannerPage() {
     };
   }, [voiceEnabled]);
 
+  const mapPlannerResponseToMutationResult = (
+    response: PlannerTurnResponse,
+    userInput: string,
+  ): PlannerMutationResult => {
+    const backendPlan = (response.pending_plan as unknown as PlannerPlan) ?? {
+      assistant_response: response.assistant_message,
+      needs_confirmation: false,
+      clarification_question: response.status === "clarification" ? response.assistant_message : null,
+      actions: [],
+    };
+    const execution: ExecutionResult = {
+      lines: response.execution_lines,
+      errors: response.execution_errors,
+    };
+    const treeNodes = (response.tree_nodes as unknown as PlannerTreeNode[] | undefined) ?? undefined;
+    const responseDraftTreeNodes = (response.draft_tree_nodes as unknown as PlannerTreeNode[] | undefined) ?? undefined;
+    const responseSelectedDraftNodeId = response.selected_draft_node_id ?? null;
+    const traceEvents = response.trace_events ?? [];
+
+    if (response.status === "proposal" && responseDraftTreeNodes) {
+      return {
+        mode: "draft_updated",
+        userInput,
+        plan: backendPlan,
+        execution,
+        treeNodes,
+        draftTreeNodes: responseDraftTreeNodes,
+        selectedDraftNodeId: responseSelectedDraftNodeId,
+        traceEvents,
+      };
+    }
+
+    if (response.status === "proposal") {
+      return {
+        mode: "confirmation_required",
+        userInput,
+        plan: backendPlan,
+        execution: null,
+        treeNodes,
+        draftTreeNodes: responseDraftTreeNodes,
+        selectedDraftNodeId: responseSelectedDraftNodeId,
+        traceEvents,
+      };
+    }
+
+    if (response.status === "clarification") {
+      return {
+        mode: "clarification",
+        userInput,
+        plan: backendPlan,
+        execution: null,
+        treeNodes,
+        draftTreeNodes: responseDraftTreeNodes,
+        selectedDraftNodeId: responseSelectedDraftNodeId,
+        traceEvents,
+      };
+    }
+
+    if (response.status === "error") {
+      return {
+        mode: "failed",
+        userInput,
+        plan: backendPlan,
+        execution,
+        treeNodes,
+        draftTreeNodes: responseDraftTreeNodes,
+        selectedDraftNodeId: responseSelectedDraftNodeId,
+        traceEvents,
+      };
+    }
+
+    return {
+      mode: "executed",
+      userInput,
+      plan: backendPlan,
+      execution,
+      treeNodes,
+      draftTreeNodes: responseDraftTreeNodes,
+      selectedDraftNodeId: responseSelectedDraftNodeId,
+      traceEvents,
+    };
+  };
+
+  const handlePlannerMutationSuccess = (result: PlannerMutationResult) => {
+    setLatestTraceEvents(result.traceEvents ?? []);
+    setMessages((current) => {
+      const next: PlannerMessage[] = [...current, { id: makeId(), role: "user", content: result.userInput, kind: "text" }];
+      if (result.mode === "confirmation_required") {
+        next.push({
+          id: makeId(),
+          role: "assistant",
+          content: result.plan.assistant_response,
+          meta: "Suggestion awaiting confirmation",
+          kind: "proposal",
+          plan: result.plan,
+          treeNodes: result.treeNodes,
+          traceEvents: result.traceEvents,
+        });
+        return next;
+      }
+      if (result.mode === "draft_updated") {
+        const output = [
+          result.plan.assistant_response,
+          ...(result.execution?.lines ?? []),
+        ].join("\n");
+        next.push({
+          id: makeId(),
+          role: "assistant",
+          content: output,
+          meta: "Draft updated",
+          kind: "proposal",
+          plan: result.plan,
+          treeNodes: result.treeNodes,
+          traceEvents: result.traceEvents,
+        });
+        return next;
+      }
+      if (result.mode === "confirmed") {
+        const output = [
+          "Executed pending plan.",
+          ...(result.execution?.lines ?? []),
+          ...(result.execution?.errors.length ? [`Errors: ${result.execution.errors.join(" | ")}`] : []),
+        ].join("\n");
+        next.push({
+          id: makeId(),
+          role: "assistant",
+          content: output,
+          meta: "Planner execution",
+          kind: result.treeNodes ? "tree" : "execution",
+          treeNodes: result.treeNodes,
+          plan: result.plan,
+          traceEvents: result.traceEvents,
+        });
+        return next;
+      }
+      if (result.mode === "clarification") {
+        next.push({
+          id: makeId(),
+          role: "assistant",
+          content: result.plan.clarification_question ?? result.plan.assistant_response,
+          meta: "Need more detail",
+          kind: "text",
+          traceEvents: result.traceEvents,
+        });
+        return next;
+      }
+      if (result.mode === "failed") {
+        next.push({
+          id: makeId(),
+          role: "assistant",
+          content: [result.plan.assistant_response, ...(result.execution.errors.length ? [`Errors: ${result.execution.errors.join(" | ")}`] : [])].join("\n"),
+          meta: "Planner error",
+          kind: "error",
+          traceEvents: result.traceEvents,
+        });
+        return next;
+      }
+      const output = [
+        result.plan.assistant_response,
+        ...(result.execution?.lines ?? []),
+        ...(result.execution?.errors.length ? [`Errors: ${result.execution.errors.join(" | ")}`] : []),
+      ].join("\n");
+      next.push({
+        id: makeId(),
+        role: "assistant",
+        content: output,
+        meta: isInformationalOnly(result.plan) ? "Status report" : "Planner execution",
+        kind: result.treeNodes ? "tree" : isInformationalOnly(result.plan) ? "report" : "execution",
+        treeNodes: result.treeNodes,
+        plan: result.plan,
+        traceEvents: result.traceEvents,
+      });
+      return next;
+    });
+
+    if (result.draftTreeNodes) {
+      setDraftTreeNodes(result.draftTreeNodes);
+      if (result.draftTreeNodes.length > 0) {
+        setPlannerView("draft");
+      }
+    }
+    if (result.selectedDraftNodeId !== undefined) {
+      setSelectedDraftNodeId(result.selectedDraftNodeId ?? null);
+    }
+
+    if (result.mode === "confirmation_required") {
+      setPendingPlan({ sourceText: result.userInput, plan: result.plan });
+    } else if (result.mode === "draft_updated") {
+      setPendingPlan(null);
+    } else if (result.mode === "failed") {
+      setPendingPlan(null);
+      setPlannerView("trace");
+    } else {
+      setPendingPlan(null);
+      if (result.mode === "executed" && !result.draftTreeNodes?.length) {
+        setDraftTreeNodes([]);
+        setSelectedDraftNodeId(null);
+      }
+      void queryClient.invalidateQueries({ queryKey: ["products"] });
+      void queryClient.invalidateQueries({ queryKey: ["plannerWorkItems"] });
+      void queryClient.invalidateQueries({ queryKey: ["sidebarWorkItems"] });
+      void queryClient.invalidateQueries({ queryKey: ["productTree"] });
+      void queryClient.invalidateQueries({ queryKey: ["plannerProductTree"] });
+    }
+
+    if (autoSpeak) {
+      const lastAssistant = result.mode === "clarification"
+        ? result.plan.clarification_question ?? result.plan.assistant_response
+        : result.mode === "confirmation_required"
+          ? `${result.plan.assistant_response}. Say confirm to apply the proposal.`
+          : result.mode === "draft_updated"
+            ? `${result.plan.assistant_response}. The draft tree has been updated.`
+            : result.mode === "confirmed"
+              ? "Executed the pending planner actions."
+              : result.plan.assistant_response;
+      speak(lastAssistant);
+    }
+  };
+
   const processMutation = useMutation<PlannerMutationResult, Error, string>({
     mutationFn: async (input: string) => {
       const userInput = input.trim();
@@ -1768,219 +2280,9 @@ export function PlannerPage() {
         selectedDraftNodeId,
       });
 
-      const backendPlan = (response.pending_plan as unknown as PlannerPlan) ?? {
-        assistant_response: response.assistant_message,
-        needs_confirmation: false,
-        clarification_question: response.status === "clarification" ? response.assistant_message : null,
-        actions: [],
-      };
-      const execution: ExecutionResult = {
-        lines: response.execution_lines,
-        errors: response.execution_errors,
-      };
-      const treeNodes = (response.tree_nodes as unknown as PlannerTreeNode[] | undefined) ?? undefined;
-      const responseDraftTreeNodes = (response.draft_tree_nodes as unknown as PlannerTreeNode[] | undefined) ?? undefined;
-      const responseSelectedDraftNodeId = response.selected_draft_node_id ?? null;
-      const traceEvents = response.trace_events ?? [];
-
-      if (response.status === "proposal" && responseDraftTreeNodes) {
-        return {
-          mode: "draft_updated" as const,
-          userInput,
-          plan: backendPlan,
-          execution,
-          treeNodes,
-          draftTreeNodes: responseDraftTreeNodes,
-          selectedDraftNodeId: responseSelectedDraftNodeId,
-          traceEvents,
-        };
-      }
-
-      if (response.status === "proposal") {
-        return {
-          mode: "confirmation_required" as const,
-          userInput,
-          plan: backendPlan,
-          execution: null,
-          treeNodes,
-          draftTreeNodes: responseDraftTreeNodes,
-          selectedDraftNodeId: responseSelectedDraftNodeId,
-          traceEvents,
-        };
-      }
-
-      if (response.status === "clarification") {
-        return {
-          mode: "clarification" as const,
-          userInput,
-          plan: backendPlan,
-          execution: null,
-          treeNodes,
-          draftTreeNodes: responseDraftTreeNodes,
-          selectedDraftNodeId: responseSelectedDraftNodeId,
-          traceEvents,
-        };
-      }
-
-      if (response.status === "error") {
-        return {
-          mode: "failed" as const,
-          userInput,
-          plan: backendPlan,
-          execution,
-          treeNodes,
-          draftTreeNodes: responseDraftTreeNodes,
-          selectedDraftNodeId: responseSelectedDraftNodeId,
-          traceEvents,
-        };
-      }
-
-      return {
-        mode: "executed" as const,
-        userInput,
-        plan: backendPlan,
-        execution,
-        treeNodes,
-        draftTreeNodes: responseDraftTreeNodes,
-        selectedDraftNodeId: responseSelectedDraftNodeId,
-        traceEvents,
-      };
+      return mapPlannerResponseToMutationResult(response, userInput);
     },
-    onSuccess: (result) => {
-      setLatestTraceEvents(result.traceEvents ?? []);
-      setMessages((current) => {
-        const next: PlannerMessage[] = [...current, { id: makeId(), role: "user", content: result.userInput, kind: "text" }];
-        if (result.mode === "confirmation_required") {
-          next.push({
-            id: makeId(),
-            role: "assistant",
-            content: result.plan.assistant_response,
-            meta: "Suggestion awaiting confirmation",
-            kind: "proposal",
-            plan: result.plan,
-            treeNodes: result.treeNodes,
-            traceEvents: result.traceEvents,
-          });
-          return next;
-        }
-        if (result.mode === "draft_updated") {
-          const output = [
-            result.plan.assistant_response,
-            ...(result.execution?.lines ?? []),
-          ].join("\n");
-          next.push({
-            id: makeId(),
-            role: "assistant",
-            content: output,
-            meta: "Draft updated",
-            kind: "proposal",
-            plan: result.plan,
-            treeNodes: result.treeNodes,
-            traceEvents: result.traceEvents,
-          });
-          return next;
-        }
-        if (result.mode === "confirmed") {
-          const output = [
-            "Executed pending plan.",
-            ...(result.execution?.lines ?? []),
-            ...(result.execution?.errors.length ? [`Errors: ${result.execution.errors.join(" | ")}`] : []),
-          ].join("\n");
-          next.push({
-            id: makeId(),
-            role: "assistant",
-            content: output,
-            meta: "Planner execution",
-            kind: result.treeNodes ? "tree" : "execution",
-            treeNodes: result.treeNodes,
-            plan: result.plan,
-            traceEvents: result.traceEvents,
-          });
-          return next;
-        }
-        if (result.mode === "clarification") {
-          next.push({
-            id: makeId(),
-            role: "assistant",
-            content: result.plan.clarification_question ?? result.plan.assistant_response,
-            meta: "Need more detail",
-            kind: "text",
-            traceEvents: result.traceEvents,
-          });
-          return next;
-        }
-        if (result.mode === "failed") {
-          next.push({
-            id: makeId(),
-            role: "assistant",
-            content: [result.plan.assistant_response, ...(result.execution.errors.length ? [`Errors: ${result.execution.errors.join(" | ")}`] : [])].join("\n"),
-            meta: "Planner error",
-            kind: "error",
-            traceEvents: result.traceEvents,
-          });
-          return next;
-        }
-        const output = [
-          result.plan.assistant_response,
-          ...(result.execution?.lines ?? []),
-          ...(result.execution?.errors.length ? [`Errors: ${result.execution.errors.join(" | ")}`] : []),
-        ].join("\n");
-        next.push({
-          id: makeId(),
-          role: "assistant",
-          content: output,
-          meta: isInformationalOnly(result.plan) ? "Status report" : "Planner execution",
-          kind: result.treeNodes ? "tree" : isInformationalOnly(result.plan) ? "report" : "execution",
-          treeNodes: result.treeNodes,
-          plan: result.plan,
-          traceEvents: result.traceEvents,
-        });
-        return next;
-      });
-
-      if (result.draftTreeNodes) {
-        setDraftTreeNodes(result.draftTreeNodes);
-        if (result.draftTreeNodes.length > 0) {
-          setPlannerView("draft");
-        }
-      }
-      if (result.selectedDraftNodeId !== undefined) {
-        setSelectedDraftNodeId(result.selectedDraftNodeId ?? null);
-      }
-
-      if (result.mode === "confirmation_required") {
-        setPendingPlan({ sourceText: result.userInput, plan: result.plan });
-      } else if (result.mode === "draft_updated") {
-        setPendingPlan(null);
-      } else if (result.mode === "failed") {
-        setPendingPlan(null);
-        setPlannerView("trace");
-      } else {
-        setPendingPlan(null);
-        if (result.mode === "executed" && !result.draftTreeNodes?.length) {
-          setDraftTreeNodes([]);
-          setSelectedDraftNodeId(null);
-        }
-        void queryClient.invalidateQueries({ queryKey: ["products"] });
-        void queryClient.invalidateQueries({ queryKey: ["plannerWorkItems"] });
-        void queryClient.invalidateQueries({ queryKey: ["sidebarWorkItems"] });
-        void queryClient.invalidateQueries({ queryKey: ["productTree"] });
-        void queryClient.invalidateQueries({ queryKey: ["plannerProductTree"] });
-      }
-
-      if (autoSpeak) {
-        const lastAssistant = result.mode === "clarification"
-          ? result.plan.clarification_question ?? result.plan.assistant_response
-          : result.mode === "confirmation_required"
-            ? `${result.plan.assistant_response}. Say confirm to apply the proposal.`
-            : result.mode === "draft_updated"
-              ? `${result.plan.assistant_response}. The draft tree has been updated.`
-            : result.mode === "confirmed"
-              ? "Executed the pending planner actions."
-              : result.plan.assistant_response;
-        speak(lastAssistant);
-      }
-    },
+    onSuccess: handlePlannerMutationSuccess,
     onError: (error, userInput) => {
       setLatestTraceEvents([]);
       setMessages((current) => [
@@ -1991,9 +2293,60 @@ export function PlannerPage() {
     },
   });
 
+  const draftEditMutation = useMutation<PlannerMutationResult, Error, DraftEditOperation>({
+    mutationFn: async (operation) => {
+      if (!sessionId) {
+        throw new Error("Planner session is not ready.");
+      }
+      switch (operation.kind) {
+        case "rename": {
+          const response = await renamePlannerDraftNode({
+            sessionId,
+            nodeId: operation.nodeId,
+            name: operation.name,
+          });
+          return mapPlannerResponseToMutationResult(
+            response,
+            `Rename this node to "${operation.name}".`,
+          );
+        }
+        case "add_child": {
+          const response = await addPlannerDraftChild({
+            sessionId,
+            parentNodeId: operation.parentNodeId,
+            childType: operation.childType,
+            name: operation.name,
+            summary: operation.summary,
+          });
+          return mapPlannerResponseToMutationResult(
+            response,
+            `Add a ${formatDraftChildTypeLabel(operation.childType).toLowerCase()} called "${operation.name}".`,
+          );
+        }
+        case "delete": {
+          const response = await deletePlannerDraftNode({
+            sessionId,
+            nodeId: operation.nodeId,
+          });
+          return mapPlannerResponseToMutationResult(
+            response,
+            "Delete this node from the draft.",
+          );
+        }
+      }
+    },
+    onSuccess: handlePlannerMutationSuccess,
+    onError: (error) => {
+      setDraftEditError(error instanceof Error ? error.message : String(error));
+      setDraftEditMessage(null);
+    },
+  });
+
+  const isPlannerBusy = processMutation.isPending || draftEditMutation.isPending;
+
   const send = async () => {
     const content = draft.trim();
-    if (!content || processMutation.isPending) {
+    if (!content || isPlannerBusy) {
       return;
     }
     setDraft("");
@@ -2013,7 +2366,7 @@ export function PlannerPage() {
   };
 
   const confirmPendingPlan = () => {
-    if ((!pendingPlan && draftTreeNodes.length === 0) || processMutation.isPending || !sessionId) {
+    if ((!pendingPlan && draftTreeNodes.length === 0) || isPlannerBusy || !sessionId) {
       return;
     }
     void (async () => {
@@ -2129,6 +2482,69 @@ export function PlannerPage() {
     setExpandedDraftNodeIds([]);
   };
 
+  const applyPromptSuggestion = (prompt: string) => {
+    setDraft(prompt);
+    composerRef.current?.focus();
+  };
+
+  const renameSelectedDraftNode = async () => {
+    if (!selectedDraftNode || !renameDraftName.trim() || isPlannerBusy) {
+      return;
+    }
+    setDraftEditError(null);
+    setDraftEditMessage(null);
+    try {
+      await draftEditMutation.mutateAsync({
+        kind: "rename",
+        nodeId: selectedDraftNode.id,
+        name: renameDraftName.trim(),
+      });
+      setDraftEditMessage(`Renamed to "${renameDraftName.trim()}".`);
+    } catch {
+      // Error state is handled by the mutation.
+    }
+  };
+
+  const addChildToSelectedDraftNode = async () => {
+    if (!selectedDraftNode || !draftChildName.trim() || allowedDraftChildTypes.length === 0 || isPlannerBusy) {
+      return;
+    }
+    setDraftEditError(null);
+    setDraftEditMessage(null);
+    try {
+      await draftEditMutation.mutateAsync({
+        kind: "add_child",
+        parentNodeId: selectedDraftNode.id,
+        childType: draftChildType,
+        name: draftChildName.trim(),
+        summary: draftChildSummary.trim() || undefined,
+      });
+      setDraftChildName("");
+      setDraftChildSummary("");
+      setDraftEditMessage(`Added ${formatDraftChildTypeLabel(draftChildType).toLowerCase()} "${draftChildName.trim()}".`);
+    } catch {
+      // Error state is handled by the mutation.
+    }
+  };
+
+  const deleteSelectedDraftNode = async () => {
+    if (!selectedDraftNode || isPlannerBusy) {
+      return;
+    }
+    setDraftEditError(null);
+    setDraftEditMessage(null);
+    const deletedLabel = selectedDraftNode.label;
+    try {
+      await draftEditMutation.mutateAsync({
+        kind: "delete",
+        nodeId: selectedDraftNode.id,
+      });
+      setDraftEditMessage(`Removed "${deletedLabel}" from the draft.`);
+    } catch {
+      // Error state is handled by the mutation.
+    }
+  };
+
   const renderAssistantMessage = (message: PlannerMessage) => {
     if (message.kind === "proposal" && message.plan) {
       const proposalTreeNodes = buildProposalTreeNodes(message.plan);
@@ -2175,7 +2591,7 @@ export function PlannerPage() {
               </div>
             ) : null}
             <div style={styles.inlineButtonRow}>
-              <button style={styles.btn} onClick={confirmPendingPlan} disabled={processMutation.isPending || (!pendingPlan && draftTreeNodes.length === 0)}>
+              <button style={styles.btn} onClick={confirmPendingPlan} disabled={isPlannerBusy || (!pendingPlan && draftTreeNodes.length === 0)}>
                 {draftTreeNodes.length > 0 ? "Commit Draft" : "Confirm Proposal"}
               </button>
               <button style={styles.btnGhost} onClick={dismissPendingPlan} disabled={!pendingPlan && draftTreeNodes.length === 0}>
@@ -2269,6 +2685,35 @@ export function PlannerPage() {
                         <div style={styles.chip}>{draftTreeNodes.length} root {draftTreeNodes.length === 1 ? "node" : "nodes"}</div>
                       </div>
                     </div>
+                    <div style={styles.readinessBanner}>
+                      <div>
+                        <div style={styles.label}>Commit Readiness</div>
+                        <div style={styles.readinessMeta}>
+                          {draftValidation.issues.filter((issue) => issue.tone === "warn").length === 0
+                            ? "This draft is structurally solid enough to commit."
+                            : "There are still weak spots in the staged tree. Fix them before commit if you want a cleaner catalog."}
+                        </div>
+                      </div>
+                      <div style={styles.readinessScore}>{draftValidation.score}</div>
+                    </div>
+                    <div style={styles.metricGrid}>
+                      <div style={styles.metricCard}>
+                        <div style={styles.metricLabel}>Products</div>
+                        <div style={styles.metricValue}>{draftValidation.counts.product}</div>
+                      </div>
+                      <div style={styles.metricCard}>
+                        <div style={styles.metricLabel}>Modules</div>
+                        <div style={styles.metricValue}>{draftValidation.counts.module}</div>
+                      </div>
+                      <div style={styles.metricCard}>
+                        <div style={styles.metricLabel}>Capabilities</div>
+                        <div style={styles.metricValue}>{draftValidation.counts.capability}</div>
+                      </div>
+                      <div style={styles.metricCard}>
+                        <div style={styles.metricLabel}>Work Items</div>
+                        <div style={styles.metricValue}>{draftValidation.counts["work item"]}</div>
+                      </div>
+                    </div>
                     <div style={styles.treeToolbar}>
                       <button data-testid="draft-expand-all" style={styles.btnGhost} onClick={expandAllDraftNodes} disabled={draftTreeNodes.length === 0}>
                         Expand All
@@ -2309,9 +2754,128 @@ export function PlannerPage() {
                       <>
                         <div style={styles.cardTitle}>{selectedDraftNode.label}</div>
                         {selectedDraftNode.meta ? <div style={styles.helper}>Type: {selectedDraftNode.meta}</div> : null}
-                        <div style={{ ...styles.helper, marginTop: 10 }}>
-                          Try prompts like “expand this node”, “add three child capabilities”, “rename this”, or “what is missing under this branch?”
+                        {selectedDraftNodePath.length > 0 ? (
+                          <div style={styles.pathText}>
+                            Path: {selectedDraftNodePath.map((node) => node.label).join(" / ")}
+                          </div>
+                        ) : null}
+                        <div style={styles.sectionDivider} />
+                        <div style={styles.label}>Edit Node</div>
+                        <div style={styles.fieldGroup}>
+                          <input
+                            data-testid="draft-node-rename-input"
+                            style={styles.input}
+                            value={renameDraftName}
+                            onChange={(event) => setRenameDraftName(event.target.value)}
+                            placeholder="Rename this node"
+                          />
+                          <div style={styles.inlineButtonRow}>
+                            <button
+                              data-testid="draft-node-rename-save"
+                              style={styles.mutedButton}
+                              onClick={() => {
+                                void renameSelectedDraftNode();
+                              }}
+                              disabled={!renameDraftName.trim() || isPlannerBusy}
+                            >
+                              Save Name
+                            </button>
+                            <button
+                              data-testid="draft-node-delete"
+                              style={styles.btnDanger}
+                              onClick={() => {
+                                void deleteSelectedDraftNode();
+                              }}
+                              disabled={isPlannerBusy}
+                            >
+                              Delete Node
+                            </button>
+                          </div>
                         </div>
+                        <div style={styles.sectionDivider} />
+                        <div style={styles.label}>Add Child</div>
+                        {allowedDraftChildTypes.length > 0 ? (
+                          <div style={styles.fieldGroup}>
+                            <select
+                              data-testid="draft-node-add-child-type"
+                              style={styles.select}
+                              value={draftChildType}
+                              onChange={(event) => setDraftChildType(event.target.value as PlannerDraftChildType)}
+                            >
+                              {allowedDraftChildTypes.map((option: PlannerDraftChildType) => (
+                                <option key={option} value={option}>
+                                  {formatDraftChildTypeLabel(option)}
+                                </option>
+                              ))}
+                            </select>
+                            <input
+                              data-testid="draft-node-add-child-name"
+                              style={styles.input}
+                              value={draftChildName}
+                              onChange={(event) => setDraftChildName(event.target.value)}
+                              placeholder={`Name the new ${formatDraftChildTypeLabel(draftChildType).toLowerCase()}`}
+                            />
+                            <textarea
+                              data-testid="draft-node-add-child-summary"
+                              style={styles.compactTextarea}
+                              value={draftChildSummary}
+                              onChange={(event) => setDraftChildSummary(event.target.value)}
+                              placeholder="Optional summary or brief description"
+                            />
+                            <button
+                              data-testid="draft-node-add-child-save"
+                              style={styles.btnGhost}
+                              onClick={() => {
+                                void addChildToSelectedDraftNode();
+                              }}
+                              disabled={!draftChildName.trim() || isPlannerBusy}
+                            >
+                              Add {formatDraftChildTypeLabel(draftChildType)}
+                            </button>
+                          </div>
+                        ) : (
+                          <div style={styles.helper}>
+                            This node is a leaf in the staged hierarchy. Use rename or delete, or select a higher branch to add more structure.
+                          </div>
+                        )}
+                        {draftEditMessage ? <div style={styles.success}>{draftEditMessage}</div> : null}
+                        {draftEditError ? <div style={styles.error}>{draftEditError}</div> : null}
+                        <div style={styles.sectionDivider} />
+                        <div style={styles.label}>Suggested Next Prompts</div>
+                        <div style={styles.promptList}>
+                          {selectedDraftNodePrompts.map((prompt) => (
+                            <button key={prompt} style={styles.promptButton} onClick={() => applyPromptSuggestion(prompt)}>
+                              {prompt}
+                            </button>
+                          ))}
+                        </div>
+                        <div style={styles.sectionDivider} />
+                        <div style={styles.label}>Recent AI Changes For This Node</div>
+                        {selectedNodeRecentActions.length > 0 ? (
+                          <div style={styles.list}>
+                            {selectedNodeRecentActions.map((action, index) => {
+                              const summary = summarizeAction(action);
+                              const symbolStyle = summary.tone === "add"
+                                ? styles.diffSymbolAdd
+                                : summary.tone === "update"
+                                  ? styles.diffSymbolUpdate
+                                  : styles.diffSymbolWarn;
+                              return (
+                                <div key={`${action.type}-${index}`} style={styles.diffRow}>
+                                  <div style={symbolStyle}>{summary.symbol}</div>
+                                  <div>
+                                    <div style={styles.diffPrimary}>{summary.title}</div>
+                                    <div style={styles.diffSecondary}>{summary.detail}</div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div style={styles.helper}>
+                            No recent planner operations are directly tied to this node yet.
+                          </div>
+                        )}
                       </>
                     ) : (
                       <div style={styles.helper}>
@@ -2321,12 +2885,32 @@ export function PlannerPage() {
                   </div>
 
                   <div style={styles.sideCard}>
+                    <div style={styles.label}>Draft Validation</div>
+                    <div style={styles.helper}>
+                      Structural checks for the staged tree before you commit it into the real catalog.
+                    </div>
+                    <div style={styles.issueList}>
+                      {draftValidation.issues.slice(0, 6).map((issue, index) => {
+                        const issueStyle = issue.tone === "ok"
+                          ? styles.issueCardOk
+                          : styles.issueCardWarn;
+                        return (
+                          <div key={`${issue.title}-${index}`} style={issueStyle}>
+                            <div style={styles.issueTitle}>{issue.title}</div>
+                            <div style={styles.issueDetail}>{issue.detail}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div style={styles.sideCard}>
                     <div style={styles.label}>Draft Controls</div>
                     <div style={styles.helper}>
                       Keep the tree staged until the structure looks right. Commit only when you want to persist it to products, modules, capabilities, and work items.
                     </div>
                     <div style={styles.inlineButtonRow}>
-                      <button data-testid="draft-commit" style={styles.btn} onClick={confirmPendingPlan} disabled={draftTreeNodes.length === 0 || processMutation.isPending}>
+                      <button data-testid="draft-commit" style={styles.btn} onClick={confirmPendingPlan} disabled={draftTreeNodes.length === 0 || isPlannerBusy}>
                         Commit Draft
                       </button>
                       <button style={styles.btnGhost} onClick={() => setPlannerView("conversation")}>
@@ -2340,15 +2924,29 @@ export function PlannerPage() {
 
                   <div style={styles.sideCard}>
                     <div style={styles.label}>Latest Draft Ops</div>
-                    {pendingPlan ? (
-                      <div style={styles.list}>
-                        {pendingPlan.plan.actions.map((action, index) => (
-                          <div key={`${action.type}-${index}`} style={styles.listItem}>
-                            <div style={styles.listItemTitle}>{action.type}</div>
-                            <div style={styles.listItemMeta}>{JSON.stringify(action, null, 2)}</div>
-                          </div>
-                        ))}
-                      </div>
+                    {latestDraftPlan ? (
+                      <>
+                        <div style={styles.helper}>{latestDraftPlan.assistant_response}</div>
+                        <div style={styles.list}>
+                          {latestDraftPlan.actions.slice(0, 8).map((action, index) => {
+                            const summary = summarizeAction(action);
+                            const symbolStyle = summary.tone === "add"
+                              ? styles.diffSymbolAdd
+                              : summary.tone === "update"
+                                ? styles.diffSymbolUpdate
+                                : styles.diffSymbolWarn;
+                            return (
+                              <div key={`${action.type}-${index}`} style={styles.diffRow}>
+                                <div style={symbolStyle}>{summary.symbol}</div>
+                                <div>
+                                  <div style={styles.diffPrimary}>{summary.title}</div>
+                                  <div style={styles.diffSecondary}>{summary.detail}</div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
                     ) : (
                       <div style={styles.helper}>
                         No pending proposal snapshot. Use the chat to add structure, then review and keep refining the staged tree here.
@@ -2402,6 +3000,7 @@ export function PlannerPage() {
             )}
             <div style={styles.composerWrap}>
               <textarea
+                ref={composerRef}
                 data-testid="planner-input"
                 style={styles.textarea}
                 value={draft}
@@ -2409,8 +3008,8 @@ export function PlannerPage() {
                 placeholder="Say or type what you need. Example: Add a work item called Build voice planner under AruviStudio, then approve it and start the workflow."
               />
               <div style={styles.actionRow}>
-                <button data-testid="planner-send" style={styles.btn} onClick={() => void send()} disabled={processMutation.isPending}>
-                  {processMutation.isPending ? "Working..." : "Send"}
+                <button data-testid="planner-send" style={styles.btn} onClick={() => void send()} disabled={isPlannerBusy}>
+                  {isPlannerBusy ? "Working..." : "Send"}
                 </button>
                 <button style={styles.btnGhost} onClick={toggleListening} disabled={!voiceEnabled}>
                   {isListening ? "Stop Listening" : "Start Listening"}
@@ -2553,7 +3152,7 @@ export function PlannerPage() {
                   <button style={styles.btnGhost} onClick={() => setPlannerView("draft")} disabled={draftTreeNodes.length === 0}>
                     Open Workspace
                   </button>
-                  <button style={styles.btn} onClick={confirmPendingPlan} disabled={draftTreeNodes.length === 0 || processMutation.isPending}>
+                  <button style={styles.btn} onClick={confirmPendingPlan} disabled={draftTreeNodes.length === 0 || isPlannerBusy}>
                     Commit Draft
                   </button>
                   <button style={styles.btnGhost} onClick={dismissPendingPlan} disabled={draftTreeNodes.length === 0}>

@@ -30,6 +30,7 @@ import type {
   ChatCompletionResponse,
   WorkspaceProvisionResult,
   PlannerContactResult,
+  PlannerDraftChildType,
   PlannerSessionInfo,
   PlannerTurnResponse,
 } from "./types";
@@ -684,6 +685,48 @@ export const confirmPlannerPlan = (sessionId: string) =>
   invoke<PlannerTurnResponse>("confirm_planner_plan_command", {
     sessionId,
     session_id: sessionId,
+  });
+
+export const renamePlannerDraftNode = (data: {
+  sessionId: string;
+  nodeId: string;
+  name: string;
+}) =>
+  invoke<PlannerTurnResponse>("rename_planner_draft_node_command", {
+    sessionId: data.sessionId,
+    session_id: data.sessionId,
+    nodeId: data.nodeId,
+    node_id: data.nodeId,
+    name: data.name,
+  });
+
+export const addPlannerDraftChild = (data: {
+  sessionId: string;
+  parentNodeId: string;
+  childType: PlannerDraftChildType;
+  name: string;
+  summary?: string;
+}) =>
+  invoke<PlannerTurnResponse>("add_planner_draft_child_command", {
+    sessionId: data.sessionId,
+    session_id: data.sessionId,
+    parentNodeId: data.parentNodeId,
+    parent_node_id: data.parentNodeId,
+    childType: data.childType,
+    child_type: data.childType,
+    name: data.name,
+    summary: data.summary ?? null,
+  });
+
+export const deletePlannerDraftNode = (data: {
+  sessionId: string;
+  nodeId: string;
+}) =>
+  invoke<PlannerTurnResponse>("delete_planner_draft_node_command", {
+    sessionId: data.sessionId,
+    session_id: data.sessionId,
+    nodeId: data.nodeId,
+    node_id: data.nodeId,
   });
 
 export const sendTwilioWhatsappMessage = (data: { to: string; content: string }) =>

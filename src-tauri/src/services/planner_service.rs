@@ -204,6 +204,22 @@ impl PlannerService {
     }
 }
 
+async fn get_or_load_session(
+    planner_service: &Arc<Mutex<PlannerService>>,
+    db: &SqlitePool,
+    session_id: &str,
+) -> Result<PlannerSession, AppError> {
+    let mut service = planner_service.lock().await;
+    match service.get_session(session_id) {
+        Ok(session) => Ok(session),
+        Err(_) => {
+            let loaded = load_session_from_db(db, session_id).await?;
+            service.save_session(session_id, loaded.clone());
+            Ok(loaded)
+        }
+    }
+}
+
 async fn load_session_from_db(
     db: &SqlitePool,
     session_id: &str,
@@ -1251,6 +1267,322 @@ fn remove_draft_node_subtree(draft_plan: &mut PlannerDraftPlan, node_id: &str) {
         index += 1;
     }
     draft_plan.nodes.retain(|node| !to_remove.contains(&node.id));
+}
+
+fn set_string_value(target: &mut Value, key: &str, value: &str) {
+    if !target.is_object() {
+        *target = json!({});
+    }
+    if let Value::Object(map) = target {
+        map.insert(key.to_string(), Value::String(value.to_string()));
+    }
+}
+
+fn set_target_string_value(target: &mut Value, key: &str, value: &str) {
+    if !target.is_object() {
+        *target = json!({});
+    }
+    if let Value::Object(map) = target {
+        let target_entry = map.entry("target".to_string()).or_insert_with(|| json!({}));
+        if !target_entry.is_object() {
+            *target_entry = json!({});
+        }
+        if let Value::Object(target_map) = target_entry {
+            target_map.insert(key.to_string(), Value::String(value.to_string()));
+        }
+    }
+}
+
+fn draft_name_taken(
+    draft_plan: &PlannerDraftPlan,
+    node_type: &str,
+    parent_id: Option<&str>,
+    name: &str,
+    excluding_node_id: Option<&str>,
+) -> bool {
+    let normalized_name = normalize(Some(name));
+    draft_plan.nodes.iter().any(|node| {
+        node.node_type == node_type
+            && node.parent_id.as_deref() == parent_id
+            && excluding_node_id != Some(node.id.as_str())
+            && normalize(Some(&node.name)) == normalized_name
+    })
+}
+
+fn allowed_draft_child_types(parent_type: &str) -> &'static [&'static str] {
+    match parent_type {
+        "product" => &["module", "work_item"],
+        "module" => &["capability", "work_item"],
+        "capability" => &["work_item"],
+        _ => &[],
+    }
+}
+
+fn normalize_draft_child_type(value: &str) -> Option<&'static str> {
+    match normalize(Some(value)).as_str() {
+        "module" => Some("module"),
+        "capability" => Some("capability"),
+        "work item" | "work_item" | "workitem" => Some("work_item"),
+        _ => None,
+    }
+}
+
+fn update_descendant_targets_for_rename(
+    draft_plan: &mut PlannerDraftPlan,
+    renamed_node_id: &str,
+    renamed_node_type: &str,
+    previous_name: &str,
+    next_name: &str,
+) {
+    let mut descendant_ids = vec![];
+    let mut index = 0;
+    let mut queue = vec![renamed_node_id.to_string()];
+    while index < queue.len() {
+        let current = queue[index].clone();
+        for child in draft_plan
+            .nodes
+            .iter()
+            .filter(|node| node.parent_id.as_deref() == Some(current.as_str()))
+        {
+            descendant_ids.push(child.id.clone());
+            queue.push(child.id.clone());
+        }
+        index += 1;
+    }
+
+    let target_key = match renamed_node_type {
+        "product" => "productName",
+        "module" => "moduleName",
+        "capability" => "capabilityName",
+        "work_item" => "workItemTitle",
+        _ => return,
+    };
+    let previous_normalized = normalize(Some(previous_name));
+
+    for node in draft_plan
+        .nodes
+        .iter_mut()
+        .filter(|node| descendant_ids.contains(&node.id))
+    {
+        let existing_target = target_field(&node.details, target_key).map(ToString::to_string);
+        if existing_target
+            .as_deref()
+            .map(|value| normalize(Some(value)) == previous_normalized)
+            .unwrap_or(false)
+        {
+            set_target_string_value(&mut node.details, target_key, next_name);
+        }
+    }
+}
+
+fn rename_draft_node(
+    draft_plan: &mut PlannerDraftPlan,
+    node_id: &str,
+    next_name: &str,
+) -> Result<PlannerDraftNode, AppError> {
+    let next_name = next_name.trim();
+    if next_name.is_empty() {
+        return Err(AppError::Validation(
+            "Draft node name cannot be empty".to_string(),
+        ));
+    }
+    let node_index = draft_plan
+        .nodes
+        .iter()
+        .position(|node| node.id == node_id)
+        .ok_or_else(|| AppError::Validation("Draft node was not found".to_string()))?;
+    let current = draft_plan.nodes[node_index].clone();
+    if draft_name_taken(
+        draft_plan,
+        &current.node_type,
+        current.parent_id.as_deref(),
+        next_name,
+        Some(node_id),
+    ) {
+        return Err(AppError::Validation(format!(
+            "A sibling {} named \"{}\" already exists",
+            current.node_type.replace('_', " "),
+            next_name
+        )));
+    }
+    if normalize(Some(&current.name)) == normalize(Some(next_name)) {
+        return Ok(current);
+    }
+
+    {
+        let node = draft_plan
+            .nodes
+            .iter_mut()
+            .find(|node| node.id == node_id)
+            .ok_or_else(|| AppError::Validation("Draft node was not found".to_string()))?;
+        node.name = next_name.to_string();
+        match node.node_type.as_str() {
+            "work_item" => {
+                set_string_value(&mut node.details, "title", next_name);
+                set_string_value(&mut node.details, "work_item_name", next_name);
+                set_target_string_value(&mut node.details, "workItemTitle", next_name);
+            }
+            "product" => {
+                set_string_value(&mut node.details, "name", next_name);
+                set_target_string_value(&mut node.details, "productName", next_name);
+            }
+            "module" => {
+                set_string_value(&mut node.details, "name", next_name);
+                set_string_value(&mut node.details, "module_name", next_name);
+                set_target_string_value(&mut node.details, "moduleName", next_name);
+            }
+            "capability" => {
+                set_string_value(&mut node.details, "name", next_name);
+                set_string_value(&mut node.details, "capability_name", next_name);
+                set_target_string_value(&mut node.details, "capabilityName", next_name);
+            }
+            _ => {
+                set_string_value(&mut node.details, "name", next_name);
+            }
+        }
+    }
+
+    update_descendant_targets_for_rename(
+        draft_plan,
+        node_id,
+        &current.node_type,
+        &current.name,
+        next_name,
+    );
+
+    draft_plan
+        .nodes
+        .iter()
+        .find(|node| node.id == node_id)
+        .cloned()
+        .ok_or_else(|| AppError::Validation("Draft node was not found".to_string()))
+}
+
+fn add_draft_child_node(
+    draft_plan: &mut PlannerDraftPlan,
+    parent_node_id: &str,
+    child_type: &str,
+    name: &str,
+    summary: Option<&str>,
+) -> Result<PlannerDraftNode, AppError> {
+    let parent = draft_plan
+        .nodes
+        .iter()
+        .find(|node| node.id == parent_node_id)
+        .cloned()
+        .ok_or_else(|| AppError::Validation("Parent draft node was not found".to_string()))?;
+    let child_type = normalize_draft_child_type(child_type).ok_or_else(|| {
+        AppError::Validation(format!("Unsupported draft child type {}", child_type))
+    })?;
+    if !allowed_draft_child_types(&parent.node_type).contains(&child_type) {
+        return Err(AppError::Validation(format!(
+            "Cannot add a {} under a {}",
+            child_type.replace('_', " "),
+            parent.node_type.replace('_', " ")
+        )));
+    }
+    let trimmed_name = name.trim();
+    if trimmed_name.is_empty() {
+        return Err(AppError::Validation(
+            "Draft child name cannot be empty".to_string(),
+        ));
+    }
+    if draft_name_taken(
+        draft_plan,
+        child_type,
+        Some(parent.id.as_str()),
+        trimmed_name,
+        None,
+    ) {
+        return Err(AppError::Validation(format!(
+            "A sibling {} named \"{}\" already exists",
+            child_type.replace('_', " "),
+            trimmed_name
+        )));
+    }
+
+    let product_name = if parent.node_type == "product" {
+        Some(parent.name.clone())
+    } else {
+        find_draft_ancestor_name(draft_plan, &parent, "product")
+    };
+    let module_name = if parent.node_type == "module" {
+        Some(parent.name.clone())
+    } else {
+        find_draft_ancestor_name(draft_plan, &parent, "module")
+    };
+    let capability_name = if parent.node_type == "capability" {
+        Some(parent.name.clone())
+    } else {
+        find_draft_ancestor_name(draft_plan, &parent, "capability")
+    };
+    let trimmed_summary = summary.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    });
+    let details = match child_type {
+        "module" => json!({
+            "type": "create_module",
+            "name": trimmed_name,
+            "module_name": trimmed_name,
+            "description": trimmed_summary,
+            "target": {
+                "productName": product_name
+            }
+        }),
+        "capability" => json!({
+            "type": "create_capability",
+            "name": trimmed_name,
+            "capability_name": trimmed_name,
+            "description": trimmed_summary,
+            "target": {
+                "productName": product_name,
+                "moduleName": module_name
+            }
+        }),
+        "work_item" => json!({
+            "type": "create_work_item",
+            "title": trimmed_name,
+            "work_item_name": trimmed_name,
+            "description": trimmed_summary,
+            "target": {
+                "productName": product_name,
+                "moduleName": module_name,
+                "capabilityName": capability_name
+            }
+        }),
+        _ => unreachable!(),
+    };
+
+    let created = PlannerDraftNode {
+        id: uuid::Uuid::new_v4().to_string(),
+        parent_id: Some(parent.id.clone()),
+        node_type: child_type.to_string(),
+        name: trimmed_name.to_string(),
+        summary: trimmed_summary,
+        details,
+    };
+    draft_plan.nodes.push(created.clone());
+    Ok(created)
+}
+
+fn delete_draft_node(
+    draft_plan: &mut PlannerDraftPlan,
+    node_id: &str,
+) -> Result<(PlannerDraftNode, Option<String>), AppError> {
+    let removed = draft_plan
+        .nodes
+        .iter()
+        .find(|node| node.id == node_id)
+        .cloned()
+        .ok_or_else(|| AppError::Validation("Draft node was not found".to_string()))?;
+    let fallback_parent_id = removed.parent_id.clone();
+    remove_draft_node_subtree(draft_plan, node_id);
+    Ok((removed, fallback_parent_id))
 }
 
 fn build_tree_nodes_for_items(
@@ -2849,10 +3181,323 @@ pub async fn confirm_planner_plan(
     .await
 }
 
+pub async fn rename_planner_draft_node(
+    planner_service: Arc<Mutex<PlannerService>>,
+    db: &SqlitePool,
+    session_id: String,
+    node_id: String,
+    next_name: String,
+) -> Result<PlannerTurnResponse, AppError> {
+    let mut trace = vec![];
+    let mut session = get_or_load_session(&planner_service, db, &session_id).await?;
+    push_trace(
+        &mut trace,
+        "session",
+        "Loaded planner session",
+        format!(
+            "session_id={}\nhas_pending_plan={}\nhas_draft_plan={}\nselected_draft_node_id={:?}",
+            session_id,
+            session.pending_plan.is_some(),
+            session.draft_plan.is_some(),
+            session.selected_draft_node_id
+        ),
+    );
+    let mut draft_plan = session
+        .draft_plan
+        .clone()
+        .ok_or_else(|| AppError::Validation("No staged draft is available".to_string()))?;
+    let previous = find_draft_node_by_id(&draft_plan, Some(&node_id))
+        .cloned()
+        .ok_or_else(|| AppError::Validation("Draft node was not found".to_string()))?;
+    push_trace(
+        &mut trace,
+        "draft",
+        "Renaming draft node",
+        format!(
+            "node_id={}\ntype={}\nprevious_name={}\nnext_name={}",
+            node_id, previous.node_type, previous.name, next_name
+        ),
+    );
+    let renamed = rename_draft_node(&mut draft_plan, &node_id, &next_name)?;
+    session.draft_plan = Some(draft_plan.clone());
+    session.selected_draft_node_id = Some(renamed.id.clone());
+    session.pending_plan = None;
+    persist_pending_plan(db, &session_id, None).await?;
+    persist_draft_state(
+        db,
+        &session_id,
+        Some(&draft_plan),
+        session.selected_draft_node_id.as_deref(),
+    )
+    .await?;
+    {
+        let mut service = planner_service.lock().await;
+        service.save_session(&session_id, session.clone());
+    }
+    let action = match renamed.node_type.as_str() {
+        "product" => json!({
+            "type": "update_product",
+            "target": { "productName": previous.name },
+            "fields": { "name": renamed.name }
+        }),
+        "module" => json!({
+            "type": "update_module",
+            "target": {
+                "productName": find_draft_ancestor_name(&draft_plan, &renamed, "product"),
+                "moduleName": previous.name
+            },
+            "fields": { "name": renamed.name }
+        }),
+        "capability" => json!({
+            "type": "update_capability",
+            "target": {
+                "productName": find_draft_ancestor_name(&draft_plan, &renamed, "product"),
+                "moduleName": find_draft_ancestor_name(&draft_plan, &renamed, "module"),
+                "capabilityName": previous.name
+            },
+            "fields": { "name": renamed.name }
+        }),
+        "work_item" => json!({
+            "type": "update_work_item",
+            "target": { "workItemTitle": previous.name },
+            "fields": { "title": renamed.name }
+        }),
+        _ => json!({ "type": "update_node" }),
+    };
+    let plan = PlannerPlan {
+        assistant_response: format!("Renamed draft {} to \"{}\".", renamed.node_type.replace('_', " "), renamed.name),
+        needs_confirmation: false,
+        clarification_question: None,
+        actions: vec![action],
+    };
+    Ok(PlannerTurnResponse {
+        session_id,
+        status: "proposal".to_string(),
+        assistant_message: plan.assistant_response.clone(),
+        pending_plan: Some(plan),
+        tree_nodes: None,
+        draft_tree_nodes: Some(build_draft_tree_nodes(
+            &draft_plan,
+            session.selected_draft_node_id.as_deref(),
+        )),
+        selected_draft_node_id: session.selected_draft_node_id,
+        execution_lines: vec![format!("Renamed \"{}\".", renamed.name)],
+        execution_errors: vec![],
+        trace_events: trace,
+    })
+}
+
+pub async fn add_planner_draft_child(
+    planner_service: Arc<Mutex<PlannerService>>,
+    db: &SqlitePool,
+    session_id: String,
+    parent_node_id: String,
+    child_type: String,
+    name: String,
+    summary: Option<String>,
+) -> Result<PlannerTurnResponse, AppError> {
+    let mut trace = vec![];
+    let mut session = get_or_load_session(&planner_service, db, &session_id).await?;
+    push_trace(
+        &mut trace,
+        "session",
+        "Loaded planner session",
+        format!(
+            "session_id={}\nhas_pending_plan={}\nhas_draft_plan={}\nselected_draft_node_id={:?}",
+            session_id,
+            session.pending_plan.is_some(),
+            session.draft_plan.is_some(),
+            session.selected_draft_node_id
+        ),
+    );
+    let mut draft_plan = session
+        .draft_plan
+        .clone()
+        .ok_or_else(|| AppError::Validation("No staged draft is available".to_string()))?;
+    let parent = find_draft_node_by_id(&draft_plan, Some(&parent_node_id))
+        .cloned()
+        .ok_or_else(|| AppError::Validation("Parent draft node was not found".to_string()))?;
+    push_trace(
+        &mut trace,
+        "draft",
+        "Adding draft child node",
+        format!(
+            "parent_id={}\nparent_type={}\nparent_name={}\nchild_type={}\nchild_name={}",
+            parent_node_id, parent.node_type, parent.name, child_type, name
+        ),
+    );
+    let created = add_draft_child_node(
+        &mut draft_plan,
+        &parent_node_id,
+        &child_type,
+        &name,
+        summary.as_deref(),
+    )?;
+    session.draft_plan = Some(draft_plan.clone());
+    session.selected_draft_node_id = Some(created.id.clone());
+    session.pending_plan = None;
+    persist_pending_plan(db, &session_id, None).await?;
+    persist_draft_state(
+        db,
+        &session_id,
+        Some(&draft_plan),
+        session.selected_draft_node_id.as_deref(),
+    )
+    .await?;
+    {
+        let mut service = planner_service.lock().await;
+        service.save_session(&session_id, session.clone());
+    }
+    let plan = PlannerPlan {
+        assistant_response: format!(
+            "Added draft {} \"{}\" under \"{}\".",
+            created.node_type.replace('_', " "),
+            created.name,
+            parent.name
+        ),
+        needs_confirmation: false,
+        clarification_question: None,
+        actions: vec![created.details.clone()],
+    };
+    Ok(PlannerTurnResponse {
+        session_id,
+        status: "proposal".to_string(),
+        assistant_message: plan.assistant_response.clone(),
+        pending_plan: Some(plan),
+        tree_nodes: None,
+        draft_tree_nodes: Some(build_draft_tree_nodes(
+            &draft_plan,
+            session.selected_draft_node_id.as_deref(),
+        )),
+        selected_draft_node_id: session.selected_draft_node_id,
+        execution_lines: vec![format!(
+            "Added {} \"{}\".",
+            created.node_type.replace('_', " "),
+            created.name
+        )],
+        execution_errors: vec![],
+        trace_events: trace,
+    })
+}
+
+pub async fn delete_planner_draft_node(
+    planner_service: Arc<Mutex<PlannerService>>,
+    db: &SqlitePool,
+    session_id: String,
+    node_id: String,
+) -> Result<PlannerTurnResponse, AppError> {
+    let mut trace = vec![];
+    let mut session = get_or_load_session(&planner_service, db, &session_id).await?;
+    push_trace(
+        &mut trace,
+        "session",
+        "Loaded planner session",
+        format!(
+            "session_id={}\nhas_pending_plan={}\nhas_draft_plan={}\nselected_draft_node_id={:?}",
+            session_id,
+            session.pending_plan.is_some(),
+            session.draft_plan.is_some(),
+            session.selected_draft_node_id
+        ),
+    );
+    let mut draft_plan = session
+        .draft_plan
+        .clone()
+        .ok_or_else(|| AppError::Validation("No staged draft is available".to_string()))?;
+    let target = find_draft_node_by_id(&draft_plan, Some(&node_id))
+        .cloned()
+        .ok_or_else(|| AppError::Validation("Draft node was not found".to_string()))?;
+    push_trace(
+        &mut trace,
+        "draft",
+        "Deleting draft node",
+        format!(
+            "node_id={}\ntype={}\nname={}",
+            node_id, target.node_type, target.name
+        ),
+    );
+    let (removed, fallback_parent_id) = delete_draft_node(&mut draft_plan, &node_id)?;
+    session.draft_plan = if draft_plan.nodes.is_empty() {
+        None
+    } else {
+        Some(draft_plan.clone())
+    };
+    session.selected_draft_node_id = fallback_parent_id;
+    session.pending_plan = None;
+    persist_pending_plan(db, &session_id, None).await?;
+    persist_draft_state(
+        db,
+        &session_id,
+        session.draft_plan.as_ref(),
+        session.selected_draft_node_id.as_deref(),
+    )
+    .await?;
+    {
+        let mut service = planner_service.lock().await;
+        service.save_session(&session_id, session.clone());
+    }
+    let action = match removed.node_type.as_str() {
+        "product" => json!({
+            "type": "archive_product",
+            "target": { "productName": removed.name }
+        }),
+        "module" => json!({
+            "type": "delete_module",
+            "target": {
+                "productName": find_draft_ancestor_name(&draft_plan, &removed, "product"),
+                "moduleName": removed.name
+            }
+        }),
+        "capability" => json!({
+            "type": "delete_capability",
+            "target": {
+                "productName": find_draft_ancestor_name(&draft_plan, &removed, "product"),
+                "moduleName": find_draft_ancestor_name(&draft_plan, &removed, "module"),
+                "capabilityName": removed.name
+            }
+        }),
+        "work_item" => json!({
+            "type": "delete_work_item",
+            "target": { "workItemTitle": removed.name }
+        }),
+        _ => json!({ "type": "delete_node" }),
+    };
+    let plan = PlannerPlan {
+        assistant_response: format!(
+            "Removed draft {} \"{}\".",
+            removed.node_type.replace('_', " "),
+            removed.name
+        ),
+        needs_confirmation: false,
+        clarification_question: None,
+        actions: vec![action],
+    };
+    Ok(PlannerTurnResponse {
+        session_id,
+        status: "proposal".to_string(),
+        assistant_message: plan.assistant_response.clone(),
+        pending_plan: Some(plan),
+        tree_nodes: None,
+        draft_tree_nodes: session
+            .draft_plan
+            .as_ref()
+            .map(|draft| build_draft_tree_nodes(draft, session.selected_draft_node_id.as_deref())),
+        selected_draft_node_id: session.selected_draft_node_id,
+        execution_lines: vec![format!(
+            "Removed {} \"{}\".",
+            removed.node_type.replace('_', " "),
+            removed.name
+        )],
+        execution_errors: vec![],
+        trace_events: trace,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_actions_to_draft, commit_draft_plan, normalize_planner_action, PlannerDraftPlan,
+        add_draft_child_node, apply_actions_to_draft, commit_draft_plan,
+        delete_draft_node, normalize_planner_action, rename_draft_node, PlannerDraftPlan,
     };
     use crate::persistence::{db as db_service, product_repo, work_item_repo};
     use crate::state::AppState;
@@ -3125,5 +3770,139 @@ mod tests {
         assert!(work_items
             .iter()
             .any(|item| item.title == "Implement Guest Profile CRUD"));
+    }
+
+    #[tokio::test]
+    async fn rename_draft_node_updates_descendant_targets() {
+        let actions = normalize_actions(vec![
+            json!({
+                "type": "create_product",
+                "name": "Hotel Management System",
+                "description": "Hotel root."
+            }),
+            json!({
+                "type": "create_module",
+                "target": { "productName": "Hotel Management System" },
+                "name": "Guest Management",
+                "description": "Guest workflows."
+            }),
+            json!({
+                "type": "create_capability",
+                "target": {
+                    "productName": "Hotel Management System",
+                    "moduleName": "Guest Management"
+                },
+                "name": "Guest Profile Management",
+                "description": "Profiles."
+            }),
+            json!({
+                "type": "create_work_item",
+                "target": {
+                    "productName": "Hotel Management System",
+                    "moduleName": "Guest Management",
+                    "capabilityName": "Guest Profile Management"
+                },
+                "title": "Implement Guest Profile CRUD",
+                "description": "Build CRUD."
+            }),
+        ]);
+
+        let mut draft = apply_actions_to_draft(None, None, &actions)
+            .await
+            .expect("failed to create draft");
+        let module_id = draft
+            .nodes
+            .iter()
+            .find(|node| node.node_type == "module" && node.name == "Guest Management")
+            .map(|node| node.id.clone())
+            .expect("module should exist");
+
+        let renamed = rename_draft_node(&mut draft, &module_id, "Guest Operations")
+            .expect("rename should succeed");
+
+        assert_eq!(renamed.name, "Guest Operations");
+        let capability = draft
+            .nodes
+            .iter()
+            .find(|node| node.node_type == "capability")
+            .expect("capability should exist");
+        let work_item = draft
+            .nodes
+            .iter()
+            .find(|node| node.node_type == "work_item")
+            .expect("work item should exist");
+
+        assert_eq!(
+            capability
+                .details
+                .get("target")
+                .and_then(|value| value.get("moduleName"))
+                .and_then(serde_json::Value::as_str),
+            Some("Guest Operations")
+        );
+        assert_eq!(
+            work_item
+                .details
+                .get("target")
+                .and_then(|value| value.get("moduleName"))
+                .and_then(serde_json::Value::as_str),
+            Some("Guest Operations")
+        );
+    }
+
+    #[tokio::test]
+    async fn add_and_delete_draft_child_nodes_preserve_hierarchy() {
+        let actions = normalize_actions(vec![
+            json!({
+                "type": "create_product",
+                "name": "Hotel Management System",
+                "description": "Hotel root."
+            }),
+            json!({
+                "type": "create_module",
+                "target": { "productName": "Hotel Management System" },
+                "name": "Billing & Payments",
+                "description": "Billing workflows."
+            }),
+        ]);
+
+        let mut draft = apply_actions_to_draft(None, None, &actions)
+            .await
+            .expect("failed to create draft");
+        let module_id = draft
+            .nodes
+            .iter()
+            .find(|node| node.node_type == "module" && node.name == "Billing & Payments")
+            .map(|node| node.id.clone())
+            .expect("module should exist");
+
+        let capability = add_draft_child_node(
+            &mut draft,
+            &module_id,
+            "capability",
+            "Notification Preferences",
+            Some("Manage guest delivery preferences."),
+        )
+        .expect("capability should be created");
+        let work_item = add_draft_child_node(
+            &mut draft,
+            &capability.id,
+            "work_item",
+            "Build Preference Capture Form",
+            Some("Add guest preference controls."),
+        )
+        .expect("work item should be created");
+
+        assert_eq!(capability.parent_id.as_deref(), Some(module_id.as_str()));
+        assert_eq!(work_item.parent_id.as_deref(), Some(capability.id.as_str()));
+
+        let (_, fallback_parent_id) = delete_draft_node(&mut draft, &capability.id)
+            .expect("delete should succeed");
+
+        assert_eq!(fallback_parent_id.as_deref(), Some(module_id.as_str()));
+        assert!(draft
+            .nodes
+            .iter()
+            .all(|node| node.name != "Notification Preferences" && node.name != "Build Preference Capture Form"));
     }
 }
