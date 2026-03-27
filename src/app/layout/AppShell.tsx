@@ -17,13 +17,14 @@ const styles: Record<string, any> = {
 };
 
 const navItems = [
+  { key: "planner", label: "Planner" },
   { key: "products", label: "Products" },
   { key: "work-items", label: "Work Items" },
-  { key: "chat", label: "Chat" },
   { key: "ide", label: "IDE" },
   { key: "repositories", label: "Workspaces" },
   { key: "agents", label: "Agents" },
   { key: "models", label: "Models" },
+  { key: "chat", label: "Chat" },
   { key: "settings", label: "Settings" },
 ] as const;
 
@@ -53,6 +54,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {navItems.map((item) => (
             <button
               key={item.key}
+              data-testid={`nav-${item.key}`}
               style={currentView === item.key ? styles.navButtonActive : styles.navButton}
               onClick={() => {
                 setActiveView(item.key);

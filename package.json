@@ -8,7 +8,16 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "unit-test": "node scripts/ci/run-rust-test-suite.mjs unit",
+    "integration-test": "node scripts/ci/run-rust-test-suite.mjs integration",
+    "e2e-tests": "node scripts/ci/run-playwright-suite.mjs",
+    "test:rust:unit": "npm run unit-test",
+    "test:rust:integration": "npm run integration-test",
+    "test:e2e:raw": "playwright test",
+    "test:e2e": "npm run e2e-tests",
+    "test:all": "npm run unit-test && npm run integration-test && npm run e2e-tests",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "react": "^19.0.0",
@@ -23,6 +32,7 @@
     "allotment": "^1.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.52.0",
     "typescript": "^5.0.0",
     "vite": "^6.0.0",
     "@vitejs/plugin-react": "^4.0.0",

@@ -1,10 +1,13 @@
 use crate::domain::events::DomainEvent;
-use crate::services::{agent_service, model_service, product_service, workflow_service};
+use crate::services::{
+    agent_service, model_service, planner_service, product_service, workflow_service,
+};
 use sqlx::SqlitePool;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
 
+#[derive(Clone)]
 pub struct AppState {
     pub db: SqlitePool,
     pub app_data_dir: PathBuf,
@@ -14,6 +17,7 @@ pub struct AppState {
     pub workflow_service: Arc<Mutex<workflow_service::WorkflowService>>,
     pub agent_service: Arc<Mutex<agent_service::AgentService>>,
     pub model_service: Arc<model_service::ModelService>,
+    pub planner_service: Arc<Mutex<planner_service::PlannerService>>,
 }
 
 impl AppState {
@@ -43,6 +47,7 @@ impl AppState {
             db_arc.clone(),
             agent_service.clone(),
         )));
+        let planner_service = Arc::new(Mutex::new(planner_service::PlannerService::new()));
 
         product_service::initialize_example_catalog(db_arc.as_ref()).await?;
 
@@ -55,6 +60,7 @@ impl AppState {
             workflow_service,
             agent_service,
             model_service,
+            planner_service,
         })
     }
 }

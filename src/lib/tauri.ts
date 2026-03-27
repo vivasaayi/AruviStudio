@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import type {
   Product,
   Module,
@@ -29,7 +29,29 @@ import type {
   ChatMessagePayload,
   ChatCompletionResponse,
   WorkspaceProvisionResult,
+  PlannerContactResult,
+  PlannerDraftChildType,
+  PlannerSessionInfo,
+  PlannerTurnResponse,
 } from "./types";
+
+declare global {
+  interface Window {
+    __ARUVI_E2E__?: {
+      invoke?: <T>(command: string, args?: Record<string, unknown>) => Promise<T> | T;
+    };
+  }
+}
+
+const invoke = async <T>(command: string, args?: Record<string, unknown>): Promise<T> => {
+  if (typeof window !== "undefined") {
+    const mockInvoke = window.__ARUVI_E2E__?.invoke;
+    if (mockInvoke) {
+      return await mockInvoke<T>(command, args);
+    }
+  }
+  return tauriInvoke<T>(command, args);
+};
 
 // Product commands
 function toJsonArrayString(value: string | undefined): string | undefined {
@@ -393,10 +415,12 @@ export const runModelChatCompletion = (data: {
   maxTokens?: number;
 }) =>
   invoke<ChatCompletionResponse>("run_model_chat_completion", {
+    providerId: data.providerId,
     provider_id: data.providerId,
     model: data.model,
     messages: data.messages,
     temperature: data.temperature ?? null,
+    maxTokens: data.maxTokens ?? null,
     max_tokens: data.maxTokens ?? null,
   });
 export const startModelChatStream = (data: {
@@ -621,3 +645,125 @@ export const readArtifactContent = (artifactId: string) =>
 
 // Finding commands
 export const listWorkItemFindings = (workItemId: string) => invoke<Finding[]>("list_work_item_findings", { work_item_id: workItemId });
+
+// Planner commands
+export const createPlannerSession = (data?: { providerId?: string; modelName?: string }) =>
+  invoke<PlannerSessionInfo>("create_planner_session_command", {
+    providerId: data?.providerId ?? null,
+    provider_id: data?.providerId ?? null,
+    modelName: data?.modelName ?? null,
+    model_name: data?.modelName ?? null,
+  });
+
+export const updatePlannerSession = (data: { sessionId: string; providerId?: string; modelName?: string }) =>
+  invoke<PlannerSessionInfo>("update_planner_session_command", {
+    sessionId: data.sessionId,
+    session_id: data.sessionId,
+    providerId: data.providerId ?? null,
+    provider_id: data.providerId ?? null,
+    modelName: data.modelName ?? null,
+    model_name: data.modelName ?? null,
+  });
+
+export const clearPlannerPending = (sessionId: string) =>
+  invoke<PlannerSessionInfo>("clear_planner_pending_command", {
+    sessionId,
+    session_id: sessionId,
+  });
+
+export const submitPlannerTurn = (data: { sessionId: string; userInput: string; selectedDraftNodeId?: string | null }) =>
+  invoke<PlannerTurnResponse>("submit_planner_turn_command", {
+    sessionId: data.sessionId,
+    session_id: data.sessionId,
+    userInput: data.userInput,
+    user_input: data.userInput,
+    selectedDraftNodeId: data.selectedDraftNodeId ?? null,
+    selected_draft_node_id: data.selectedDraftNodeId ?? null,
+  });
+
+export const confirmPlannerPlan = (sessionId: string) =>
+  invoke<PlannerTurnResponse>("confirm_planner_plan_command", {
+    sessionId,
+    session_id: sessionId,
+  });
+
+export const renamePlannerDraftNode = (data: {
+  sessionId: string;
+  nodeId: string;
+  name: string;
+}) =>
+  invoke<PlannerTurnResponse>("rename_planner_draft_node_command", {
+    sessionId: data.sessionId,
+    session_id: data.sessionId,
+    nodeId: data.nodeId,
+    node_id: data.nodeId,
+    name: data.name,
+  });
+
+export const addPlannerDraftChild = (data: {
+  sessionId: string;
+  parentNodeId: string;
+  childType: PlannerDraftChildType;
+  name: string;
+  summary?: string;
+}) =>
+  invoke<PlannerTurnResponse>("add_planner_draft_child_command", {
+    sessionId: data.sessionId,
+    session_id: data.sessionId,
+    parentNodeId: data.parentNodeId,
+    parent_node_id: data.parentNodeId,
+    childType: data.childType,
+    child_type: data.childType,
+    name: data.name,
+    summary: data.summary ?? null,
+  });
+
+export const deletePlannerDraftNode = (data: {
+  sessionId: string;
+  nodeId: string;
+}) =>
+  invoke<PlannerTurnResponse>("delete_planner_draft_node_command", {
+    sessionId: data.sessionId,
+    session_id: data.sessionId,
+    nodeId: data.nodeId,
+    node_id: data.nodeId,
+  });
+
+export const analyzeRepositoryForPlanner = (data: {
+  sessionId: string;
+  repositoryId: string;
+  selectedDraftNodeId?: string | null;
+}) =>
+  invoke<PlannerTurnResponse>("analyze_repository_for_planner_command", {
+    sessionId: data.sessionId,
+    session_id: data.sessionId,
+    repositoryId: data.repositoryId,
+    repository_id: data.repositoryId,
+    selectedDraftNodeId: data.selectedDraftNodeId ?? null,
+    selected_draft_node_id: data.selectedDraftNodeId ?? null,
+  });
+
+export const sendTwilioWhatsappMessage = (data: { to: string; content: string }) =>
+  invoke<void>("send_twilio_whatsapp_message", {
+    to: data.to,
+    content: data.content,
+  });
+
+export const startTwilioVoiceCall = (data: { to: string; initialPrompt?: string }) =>
+  invoke<void>("start_twilio_voice_call", {
+    to: data.to,
+    initial_prompt: data.initialPrompt ?? null,
+  });
+
+export const routePlannerContact = (data: {
+  to: string;
+  content: string;
+  preferredChannel?: "whatsapp" | "voice";
+  allowAfterHours?: boolean;
+}) =>
+  invoke<PlannerContactResult>("route_planner_contact_command", {
+    to: data.to,
+    content: data.content,
+    preferred_channel: data.preferredChannel ?? null,
+    allow_after_hours: data.allowAfterHours ?? null,
+  });

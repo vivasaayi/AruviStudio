@@ -16,7 +16,7 @@ interface UIState {
   expandedCapabilities: Record<string, boolean>;
   showHierarchyWorkItems: boolean;
   productPickerCollapsed: boolean;
-  activeView: "products" | "work-items" | "chat" | "ide" | "repositories" | "agents" | "models" | "settings";
+  activeView: "products" | "work-items" | "planner" | "chat" | "ide" | "repositories" | "agents" | "models" | "settings";
   toggleLeftSidebar: () => void;
   toggleRightSidebar: () => void;
   toggleBottomPanel: () => void;
@@ -57,7 +57,7 @@ export const useUIStore = create<UIState>()(
       expandedCapabilities: {},
       showHierarchyWorkItems: false,
       productPickerCollapsed: false,
-      activeView: "products",
+      activeView: "planner",
       toggleLeftSidebar: () => set((s) => ({ leftSidebarVisible: !s.leftSidebarVisible })),
       toggleRightSidebar: () => set((s) => ({ rightSidebarVisible: !s.rightSidebarVisible })),
       toggleBottomPanel: () => set((s) => ({ bottomPanelVisible: !s.bottomPanelVisible })),

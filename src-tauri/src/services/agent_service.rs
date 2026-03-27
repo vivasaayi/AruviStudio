@@ -469,9 +469,10 @@ impl AgentService {
             let tag_score = preferred_tags
                 .iter()
                 .filter(|tag| {
-                    model.capability_tags.iter().any(|model_tag| {
-                        model_tag.trim().eq_ignore_ascii_case(tag)
-                    })
+                    model
+                        .capability_tags
+                        .iter()
+                        .any(|model_tag| model_tag.trim().eq_ignore_ascii_case(tag))
                 })
                 .count();
             let lowered = model.name.to_ascii_lowercase();
@@ -2420,9 +2421,10 @@ fn matched_model_tags(model: &ModelDefinition, preferred_tags: &[&str]) -> Vec<S
     preferred_tags
         .iter()
         .filter(|tag| {
-            model.capability_tags.iter().any(|model_tag| {
-                model_tag.trim().eq_ignore_ascii_case(tag)
-            })
+            model
+                .capability_tags
+                .iter()
+                .any(|model_tag| model_tag.trim().eq_ignore_ascii_case(tag))
         })
         .map(|tag| (*tag).to_string())
         .collect()

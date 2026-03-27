@@ -337,3 +337,83 @@ export interface ChatCompletionResponse {
   token_count_input: number | null;
   token_count_output: number | null;
 }
+
+export interface PlannerTarget {
+  productName?: string;
+  moduleName?: string;
+  capabilityName?: string;
+  workItemTitle?: string;
+}
+
+export interface PlannerAction {
+  type: string;
+  target?: PlannerTarget;
+  name?: string;
+  title?: string;
+  description?: string;
+  vision?: string;
+  goals?: string[];
+  tags?: string[];
+  acceptanceCriteria?: string;
+  technicalNotes?: string;
+  problemStatement?: string;
+  constraints?: string;
+  workItemType?: string;
+  priority?: string;
+  complexity?: string;
+  risk?: string;
+  notes?: string;
+  action?: string;
+  fields?: Record<string, unknown>;
+}
+
+export interface PlannerPlan {
+  assistant_response: string;
+  needs_confirmation: boolean;
+  clarification_question: string | null;
+  actions: PlannerAction[];
+}
+
+export interface PlannerTreeNode {
+  id: string;
+  label: string;
+  meta: string | null;
+  children: PlannerTreeNode[];
+}
+
+export interface PlannerTraceEvent {
+  step: number;
+  stage: string;
+  title: string;
+  detail: string;
+}
+
+export interface PlannerSessionInfo {
+  session_id: string;
+  provider_id: string | null;
+  model_name: string | null;
+  has_pending_plan: boolean;
+  has_draft_plan: boolean;
+  selected_draft_node_id: string | null;
+}
+
+export interface PlannerTurnResponse {
+  session_id: string;
+  status: "proposal" | "clarification" | "report" | "execution" | "error";
+  assistant_message: string;
+  pending_plan: PlannerPlan | null;
+  tree_nodes: PlannerTreeNode[] | null;
+  draft_tree_nodes: PlannerTreeNode[] | null;
+  selected_draft_node_id: string | null;
+  execution_lines: string[];
+  execution_errors: string[];
+  trace_events: PlannerTraceEvent[];
+}
+
+export type PlannerDraftChildType = "module" | "capability" | "work_item";
+
+export interface PlannerContactResult {
+  channel: "whatsapp" | "voice";
+  status: "sent" | "blocked";
+  reason: string;
+}

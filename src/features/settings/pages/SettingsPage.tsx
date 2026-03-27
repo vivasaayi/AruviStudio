@@ -17,6 +17,17 @@ const AUTO_START_AFTER_APPROVAL_KEY = "workflow.auto_start_after_work_item_appro
 const AUTO_APPROVE_PLAN_KEY = "workflow.auto_approve_plan";
 const AUTO_APPROVE_TEST_REVIEW_KEY = "workflow.auto_approve_test_review";
 const HIDE_EXAMPLE_PRODUCTS_KEY = "catalog.hide_example_products";
+const PLANNER_DEFAULT_PROVIDER_KEY = "planner.default_provider_id";
+const PLANNER_DEFAULT_MODEL_KEY = "planner.default_model_name";
+const PLANNER_CHANNEL_PREFERENCE_KEY = "planner.channel_preference";
+const PLANNER_ESCALATE_TO_CALL_KEY = "planner.escalate_to_call_on_ambiguity";
+const PLANNER_CALL_QUIET_HOURS_START_KEY = "planner.call_quiet_hours_start";
+const PLANNER_CALL_QUIET_HOURS_END_KEY = "planner.call_quiet_hours_end";
+const TWILIO_ACCOUNT_SID_KEY = "twilio.account_sid";
+const TWILIO_AUTH_TOKEN_KEY = "twilio.auth_token";
+const TWILIO_WHATSAPP_FROM_KEY = "twilio.whatsapp_from";
+const TWILIO_VOICE_FROM_KEY = "twilio.voice_from";
+const TWILIO_WEBHOOK_BASE_URL_KEY = "twilio.webhook_base_url";
 
 function parseBooleanSetting(value: string | null | undefined, fallback: boolean) {
   if (value == null) return fallback;
@@ -76,6 +87,17 @@ export function SettingsPage() {
   const [dbPathOverrideError, setDbPathOverrideError] = useState<string | null>(null);
   const [catalogActionMsg, setCatalogActionMsg] = useState<string | null>(null);
   const [catalogActionError, setCatalogActionError] = useState<string | null>(null);
+  const [plannerDefaultProviderId, setPlannerDefaultProviderId] = useState("");
+  const [plannerDefaultModelName, setPlannerDefaultModelName] = useState("");
+  const [plannerChannelPreference, setPlannerChannelPreference] = useState("hybrid");
+  const [plannerEscalateToCall, setPlannerEscalateToCall] = useState(true);
+  const [plannerCallQuietHoursStart, setPlannerCallQuietHoursStart] = useState("21:00");
+  const [plannerCallQuietHoursEnd, setPlannerCallQuietHoursEnd] = useState("08:00");
+  const [twilioAccountSid, setTwilioAccountSid] = useState("");
+  const [twilioAuthToken, setTwilioAuthToken] = useState("");
+  const [twilioWhatsappFrom, setTwilioWhatsappFrom] = useState("");
+  const [twilioVoiceFrom, setTwilioVoiceFrom] = useState("");
+  const [twilioWebhookBaseUrl, setTwilioWebhookBaseUrl] = useState("");
 
   useEffect(() => {
     getSetting("docker_host").then((v) => { if (v) setDockerHost(v); });
@@ -84,6 +106,17 @@ export function SettingsPage() {
     getSetting(AUTO_APPROVE_PLAN_KEY).then((v) => setAutoApprovePlan(parseBooleanSetting(v, true)));
     getSetting(AUTO_APPROVE_TEST_REVIEW_KEY).then((v) => setAutoApproveTestReview(parseBooleanSetting(v, true)));
     getSetting(HIDE_EXAMPLE_PRODUCTS_KEY).then((v) => setHideExampleProducts(parseBooleanSetting(v, true)));
+    getSetting(PLANNER_DEFAULT_PROVIDER_KEY).then((v) => { if (v) setPlannerDefaultProviderId(v); });
+    getSetting(PLANNER_DEFAULT_MODEL_KEY).then((v) => { if (v) setPlannerDefaultModelName(v); });
+    getSetting(PLANNER_CHANNEL_PREFERENCE_KEY).then((v) => { if (v) setPlannerChannelPreference(v); });
+    getSetting(PLANNER_ESCALATE_TO_CALL_KEY).then((v) => setPlannerEscalateToCall(parseBooleanSetting(v, true)));
+    getSetting(PLANNER_CALL_QUIET_HOURS_START_KEY).then((v) => { if (v) setPlannerCallQuietHoursStart(v); });
+    getSetting(PLANNER_CALL_QUIET_HOURS_END_KEY).then((v) => { if (v) setPlannerCallQuietHoursEnd(v); });
+    getSetting(TWILIO_ACCOUNT_SID_KEY).then((v) => { if (v) setTwilioAccountSid(v); });
+    getSetting(TWILIO_AUTH_TOKEN_KEY).then((v) => { if (v) setTwilioAuthToken(v); });
+    getSetting(TWILIO_WHATSAPP_FROM_KEY).then((v) => { if (v) setTwilioWhatsappFrom(v); });
+    getSetting(TWILIO_VOICE_FROM_KEY).then((v) => { if (v) setTwilioVoiceFrom(v); });
+    getSetting(TWILIO_WEBHOOK_BASE_URL_KEY).then((v) => { if (v) setTwilioWebhookBaseUrl(v); });
     getActiveDatabasePath().then(setActiveDbPath).catch((error) => setDbPathOverrideError(String(error)));
     getDatabasePathOverride().then((v) => { if (v) setDbPathOverrideInput(v); });
     getDatabaseHealth()
@@ -200,6 +233,74 @@ export function SettingsPage() {
         <div style={styles.settingRow}>
           <div><div style={styles.label}>Max Workflow Retries</div><div style={styles.desc}>Maximum retry attempts for failed workflow stages</div></div>
           <div style={{ display: "flex", alignItems: "center" }}><input style={{ ...styles.input, width: 80 }} type="number" value={maxRetries} onChange={(e) => setMaxRetries(e.target.value)} /><button style={styles.btn} onClick={() => saveSetting("max_workflow_retries", maxRetries)}>Save</button>{savedMsg === "max_workflow_retries" && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
+      </div>
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>Planner Defaults</div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>Default Provider Id</div><div style={styles.desc}>Used by WhatsApp/call planner sessions when no provider is specified in the UI.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}><input style={styles.input} value={plannerDefaultProviderId} onChange={(e) => setPlannerDefaultProviderId(e.target.value)} placeholder="provider uuid" /><button style={styles.btn} onClick={() => saveSetting(PLANNER_DEFAULT_PROVIDER_KEY, plannerDefaultProviderId)}>Save</button>{savedMsg === PLANNER_DEFAULT_PROVIDER_KEY && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>Default Model Name</div><div style={styles.desc}>Model name used by external planner channels when a new session is created.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}><input style={styles.input} value={plannerDefaultModelName} onChange={(e) => setPlannerDefaultModelName(e.target.value)} placeholder="gpt-4.1-mini or local model name" /><button style={styles.btn} onClick={() => saveSetting(PLANNER_DEFAULT_MODEL_KEY, plannerDefaultModelName)}>Save</button>{savedMsg === PLANNER_DEFAULT_MODEL_KEY && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>Outbound Channel Preference</div><div style={styles.desc}>Controls how planner outreach routes by default. Hybrid uses WhatsApp for routine updates and escalates ambiguous planning turns to calls.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <select style={styles.input} value={plannerChannelPreference} onChange={(e) => setPlannerChannelPreference(e.target.value)}>
+              <option value="hybrid">Hybrid</option>
+              <option value="whatsapp">Prefer WhatsApp</option>
+              <option value="voice">Prefer Voice Calls</option>
+            </select>
+            <button style={styles.btn} onClick={() => saveSetting(PLANNER_CHANNEL_PREFERENCE_KEY, plannerChannelPreference)}>Save</button>
+            {savedMsg === PLANNER_CHANNEL_PREFERENCE_KEY && <span style={styles.saved}>Saved!</span>}
+          </div>
+        </div>
+        <div style={styles.row}>
+          <div>
+            <div style={styles.label}>Escalate Ambiguous Planning To Call</div>
+            <div style={styles.desc}>When enabled, hybrid mode promotes exploratory or high-ambiguity outreach to a voice call instead of WhatsApp.</div>
+          </div>
+          <button
+            style={{ ...styles.toggle, backgroundColor: plannerEscalateToCall ? "#0e639c" : "#444" }}
+            onClick={async () => {
+              const next = !plannerEscalateToCall;
+              setPlannerEscalateToCall(next);
+              await saveSetting(PLANNER_ESCALATE_TO_CALL_KEY, String(next));
+            }}
+          />
+        </div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>Call Quiet Hours Start</div><div style={styles.desc}>Calls auto-fall back to WhatsApp during quiet hours. Uses this machine&apos;s local time.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}><input style={{ ...styles.input, width: 120 }} value={plannerCallQuietHoursStart} onChange={(e) => setPlannerCallQuietHoursStart(e.target.value)} placeholder="21:00" /><button style={styles.btn} onClick={() => saveSetting(PLANNER_CALL_QUIET_HOURS_START_KEY, plannerCallQuietHoursStart)}>Save</button>{savedMsg === PLANNER_CALL_QUIET_HOURS_START_KEY && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>Call Quiet Hours End</div><div style={styles.desc}>End of the quiet-hours window in `HH:MM` 24-hour format.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}><input style={{ ...styles.input, width: 120 }} value={plannerCallQuietHoursEnd} onChange={(e) => setPlannerCallQuietHoursEnd(e.target.value)} placeholder="08:00" /><button style={styles.btn} onClick={() => saveSetting(PLANNER_CALL_QUIET_HOURS_END_KEY, plannerCallQuietHoursEnd)}>Save</button>{savedMsg === PLANNER_CALL_QUIET_HOURS_END_KEY && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
+      </div>
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>Twilio</div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>Account SID</div><div style={styles.desc}>Twilio account sid used for webhook validation and outbound API calls.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}><input style={styles.input} value={twilioAccountSid} onChange={(e) => setTwilioAccountSid(e.target.value)} placeholder="AC..." /><button style={styles.btn} onClick={() => saveSetting(TWILIO_ACCOUNT_SID_KEY, twilioAccountSid)}>Save</button>{savedMsg === TWILIO_ACCOUNT_SID_KEY && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>Auth Token</div><div style={styles.desc}>Used to validate inbound webhook signatures and authenticate outbound requests.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}><input style={styles.input} type="password" value={twilioAuthToken} onChange={(e) => setTwilioAuthToken(e.target.value)} placeholder="Twilio auth token" /><button style={styles.btn} onClick={() => saveSetting(TWILIO_AUTH_TOKEN_KEY, twilioAuthToken)}>Save</button>{savedMsg === TWILIO_AUTH_TOKEN_KEY && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>WhatsApp From</div><div style={styles.desc}>Twilio WhatsApp sender, for example `whatsapp:+14155238886`.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}><input style={styles.input} value={twilioWhatsappFrom} onChange={(e) => setTwilioWhatsappFrom(e.target.value)} placeholder="whatsapp:+14155238886" /><button style={styles.btn} onClick={() => saveSetting(TWILIO_WHATSAPP_FROM_KEY, twilioWhatsappFrom)}>Save</button>{savedMsg === TWILIO_WHATSAPP_FROM_KEY && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>Voice From</div><div style={styles.desc}>Twilio voice-enabled caller id used when the planner starts a phone call.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}><input style={styles.input} value={twilioVoiceFrom} onChange={(e) => setTwilioVoiceFrom(e.target.value)} placeholder="+15551234567" /><button style={styles.btn} onClick={() => saveSetting(TWILIO_VOICE_FROM_KEY, twilioVoiceFrom)}>Save</button>{savedMsg === TWILIO_VOICE_FROM_KEY && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>Webhook Base URL</div><div style={styles.desc}>Public base URL Twilio will call, used for signature validation and outbound voice-call callback URLs.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}><input style={{ ...styles.input, width: 380 }} value={twilioWebhookBaseUrl} onChange={(e) => setTwilioWebhookBaseUrl(e.target.value)} placeholder="https://your-public-domain.example.com" /><button style={styles.btn} onClick={() => saveSetting(TWILIO_WEBHOOK_BASE_URL_KEY, twilioWebhookBaseUrl)}>Save</button>{savedMsg === TWILIO_WEBHOOK_BASE_URL_KEY && <span style={styles.saved}>Saved!</span>}</div>
         </div>
       </div>
       <div style={styles.section}>

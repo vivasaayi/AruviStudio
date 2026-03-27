@@ -115,12 +115,16 @@ pub async fn reveal_in_finder(path: String) -> Result<(), AppError> {
         .arg("-R")
         .arg(&path)
         .status()
-        .map_err(|error| AppError::Validation(format!("Failed to reveal path in Finder: {error}")))?;
+        .map_err(|error| {
+            AppError::Validation(format!("Failed to reveal path in Finder: {error}"))
+        })?;
 
     if status.success() {
         Ok(())
     } else {
-        Err(AppError::Validation("Finder could not reveal the requested path".to_string()))
+        Err(AppError::Validation(
+            "Finder could not reveal the requested path".to_string(),
+        ))
     }
 }
 
@@ -206,12 +210,18 @@ pub async fn create_local_workspace(
     let work_item_id = work_item_id.or(workItemId);
     let preferred_path = preferred_path.or(preferredPath);
 
-    let scope: (String, Option<String>, String, Option<String>, Option<String>) = if let Some(work_item_id) = work_item_id.as_deref() {
-        let work_item = crate::persistence::work_item_repo::get_work_item(&state.db, work_item_id).await?;
-        let product_id = work_item
-            .product_id
-            .clone()
-            .ok_or_else(|| AppError::Validation("Selected work item has no product scope".to_string()))?;
+    let scope: (
+        String,
+        Option<String>,
+        String,
+        Option<String>,
+        Option<String>,
+    ) = if let Some(work_item_id) = work_item_id.as_deref() {
+        let work_item =
+            crate::persistence::work_item_repo::get_work_item(&state.db, work_item_id).await?;
+        let product_id = work_item.product_id.clone().ok_or_else(|| {
+            AppError::Validation("Selected work item has no product scope".to_string())
+        })?;
         let product = crate::persistence::product_repo::get_product(&state.db, &product_id).await?;
         let module_name = if let Some(module_id) = work_item.module_id.as_deref() {
             Some(resolve_module_name(&state.db, module_id).await?)
@@ -226,7 +236,8 @@ pub async fn create_local_workspace(
             Some(work_item.id),
         )
     } else {
-        let product_id = product_id.ok_or_else(|| AppError::Validation("missing product id".to_string()))?;
+        let product_id =
+            product_id.ok_or_else(|| AppError::Validation("missing product id".to_string()))?;
         let product = crate::persistence::product_repo::get_product(&state.db, &product_id).await?;
         let module_name = if let Some(module_id) = module_id.as_deref() {
             Some(resolve_module_name(&state.db, module_id).await?)

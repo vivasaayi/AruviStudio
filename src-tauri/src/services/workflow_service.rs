@@ -113,7 +113,10 @@ impl WorkflowService {
     }
 
     fn stage_requires_git_repository(stage: &WorkflowStage) -> bool {
-        matches!(stage, WorkflowStage::PushPreparation | WorkflowStage::GitPush)
+        matches!(
+            stage,
+            WorkflowStage::PushPreparation | WorkflowStage::GitPush
+        )
     }
 
     async fn ensure_repository_ready_for_stage(
