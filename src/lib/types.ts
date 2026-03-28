@@ -378,6 +378,11 @@ export interface PlannerTreeNode {
   id: string;
   label: string;
   meta: string | null;
+  node_type?: string | null;
+  summary?: string | null;
+  source?: string | null;
+  confidence?: string | null;
+  evidence?: string[];
   children: PlannerTreeNode[];
 }
 

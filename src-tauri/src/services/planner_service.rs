@@ -13,7 +13,7 @@ use crate::domain::repository::{Repository, RepositoryTreeNode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -43,6 +43,11 @@ pub struct PlannerTreeNode {
     pub id: String,
     pub label: String,
     pub meta: Option<String>,
+    pub node_type: Option<String>,
+    pub summary: Option<String>,
+    pub source: Option<String>,
+    pub confidence: Option<String>,
+    pub evidence: Vec<String>,
     pub children: Vec<PlannerTreeNode>,
 }
 
@@ -116,6 +121,58 @@ struct PlannerFinalResponse {
     needs_confirmation: bool,
     clarification_question: Option<String>,
     actions: Vec<Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RepositoryManifestSummary {
+    path: String,
+    ecosystem: String,
+    package_name: Option<String>,
+    framework_hints: Vec<String>,
+    scripts: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RepositoryDocSummary {
+    path: String,
+    headings: Vec<String>,
+    excerpt: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RepositoryRouteSummary {
+    path: String,
+    route: String,
+    kind: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RepositoryTestSummary {
+    path: String,
+    framework_hint: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RepositoryAreaCandidate {
+    name: String,
+    kind: String,
+    confidence: String,
+    rationale: String,
+    evidence: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RepositoryAnalysisSnapshot {
+    repository_name: String,
+    local_path: String,
+    default_branch: String,
+    remote_url: Option<String>,
+    tree_overview: Vec<String>,
+    manifests: Vec<RepositoryManifestSummary>,
+    docs: Vec<RepositoryDocSummary>,
+    routes: Vec<RepositoryRouteSummary>,
+    tests: Vec<RepositoryTestSummary>,
+    candidate_areas: Vec<RepositoryAreaCandidate>,
 }
 
 pub struct PlannerService {
@@ -364,7 +421,7 @@ fn repository_analysis_prompt() -> &'static str {
     r#"You are an AI planning lead reverse-engineering a software repository into a staged product plan.
 Return exactly one JSON object of type "final". No markdown.
 
-Your task is to inspect the provided repository evidence and convert it into a draft planning tree using these action types only:
+Your task is to inspect the provided structured repository analysis snapshot and convert it into a draft planning tree using these action types only:
 create_product, update_product,
 create_module, update_module,
 create_capability, update_capability,
@@ -372,7 +429,7 @@ create_work_item, update_work_item,
 report_tree.
 
 Rules:
-- Base the structure on repository evidence, not wishful features.
+- Base the structure on the provided evidence, not wishful features.
 - If there is no current draft root, create one product.
 - If a selected draft node is provided, merge into that context instead of creating a duplicate root.
 - Prefer a practical structure:
@@ -384,6 +441,14 @@ Rules:
 - Use update_* when refining an already selected/root draft node from repository evidence.
 - Keep names concise and product-manager friendly.
 - Mention assumptions briefly in assistant_response.
+- Prioritize explicit signals from docs, manifests, routes, tests, and candidate areas.
+- Avoid generic modules that are not supported by the evidence.
+- Optional but preferred: include an analysis object on actions with:
+  {
+    "source": "repository_analysis",
+    "confidence": "high|medium|low",
+    "evidence": ["short evidence line", "..."]
+  }
 - If the repository evidence is too weak, return actions=[] with a clarification_question asking what to focus on.
 
 Return this shape:
@@ -431,7 +496,16 @@ fn truncate_text(value: &str, max_chars: usize) -> String {
     format!("{truncated}\n...[truncated]")
 }
 
-fn collect_repository_candidate_files(repo: &Repository) -> Vec<String> {
+fn flatten_repository_paths(nodes: &[RepositoryTreeNode], output: &mut Vec<String>) {
+    for node in nodes {
+        output.push(node.relative_path.clone());
+        if !node.children.is_empty() {
+            flatten_repository_paths(&node.children, output);
+        }
+    }
+}
+
+fn collect_repository_candidate_files(repo: &Repository, all_paths: &[String]) -> Vec<String> {
     let preferred = [
         "README.md",
         "README",
@@ -447,56 +521,371 @@ fn collect_repository_candidate_files(repo: &Repository) -> Vec<String> {
         "src-tauri/Cargo.toml",
         "src-tauri/src/lib.rs",
     ];
-    preferred
-        .iter()
-        .filter_map(|relative_path| {
-            let candidate = std::path::Path::new(&repo.local_path).join(relative_path);
-            if candidate.exists() && candidate.is_file() {
-                Some((*relative_path).to_string())
-            } else {
-                None
+    let mut seen = BTreeSet::new();
+    for relative_path in preferred {
+        let candidate = std::path::Path::new(&repo.local_path).join(relative_path);
+        if candidate.exists() && candidate.is_file() {
+            seen.insert(relative_path.to_string());
+        }
+    }
+    for path in all_paths {
+        let lower = path.to_lowercase();
+        if lower.ends_with("readme.md")
+            || lower.ends_with("package.json")
+            || lower.ends_with("cargo.toml")
+            || lower.ends_with("pyproject.toml")
+        {
+            seen.insert(path.clone());
+        }
+    }
+    seen.into_iter().collect::<Vec<_>>()
+}
+
+fn normalize_identifier_token(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches(|ch: char| !ch.is_alphanumeric())
+        .to_lowercase()
+}
+
+fn humanize_identifier(value: &str) -> String {
+    let mut spaced = String::new();
+    let mut prev_lower_or_digit = false;
+    for ch in value.chars() {
+        if ch == '-' || ch == '_' || ch == '/' {
+            if !spaced.ends_with(' ') {
+                spaced.push(' ');
+            }
+            prev_lower_or_digit = false;
+            continue;
+        }
+        if ch.is_uppercase() && prev_lower_or_digit && !spaced.ends_with(' ') {
+            spaced.push(' ');
+        }
+        spaced.push(ch);
+        prev_lower_or_digit = ch.is_lowercase() || ch.is_ascii_digit();
+    }
+    spaced
+        .split_whitespace()
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str()),
+                None => String::new(),
             }
         })
         .collect::<Vec<_>>()
+        .join(" ")
 }
 
-fn build_repository_snapshot(
-    repo: &Repository,
-) -> Result<String, AppError> {
-    let tree = repo_service::list_repository_tree(&repo.local_path, false, Some(4))?;
-    let mut remaining = 220usize;
-    let mut tree_lines = vec![];
-    flatten_repository_tree_lines(&tree, 0, &mut remaining, &mut tree_lines);
+fn parse_package_json_manifest(path: &str, content: &str) -> Option<RepositoryManifestSummary> {
+    let value: Value = serde_json::from_str(content).ok()?;
+    let package_name = value
+        .get("name")
+        .and_then(Value::as_str)
+        .map(ToString::to_string);
+    let scripts = value
+        .get("scripts")
+        .and_then(Value::as_object)
+        .map(|scripts| scripts.keys().take(8).cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    let dependency_names = ["dependencies", "devDependencies", "peerDependencies"]
+        .into_iter()
+        .filter_map(|section| value.get(section).and_then(Value::as_object))
+        .flat_map(|deps| deps.keys().cloned().collect::<Vec<_>>())
+        .collect::<BTreeSet<_>>();
+    let mut framework_hints = vec![];
+    if dependency_names.contains("react") {
+        framework_hints.push("React".to_string());
+    }
+    if dependency_names.contains("next") {
+        framework_hints.push("Next.js".to_string());
+    }
+    if dependency_names.contains("@tanstack/react-query") {
+        framework_hints.push("React Query".to_string());
+    }
+    if dependency_names.contains("@tauri-apps/api") || dependency_names.contains("@tauri-apps/plugin-dialog") {
+        framework_hints.push("Tauri".to_string());
+    }
+    if dependency_names.contains("vite") {
+        framework_hints.push("Vite".to_string());
+    }
+    if dependency_names.contains("playwright") || dependency_names.contains("@playwright/test") {
+        framework_hints.push("Playwright".to_string());
+    }
+    Some(RepositoryManifestSummary {
+        path: path.to_string(),
+        ecosystem: "node".to_string(),
+        package_name,
+        framework_hints,
+        scripts,
+    })
+}
 
-    let candidate_files = collect_repository_candidate_files(repo);
-    let mut file_sections = vec![];
-    for relative_path in candidate_files.into_iter().take(8) {
-        if let Ok(content) = repo_service::read_repository_file(&repo.local_path, &relative_path) {
-            file_sections.push(format!(
-                "File: {}\n{}",
-                relative_path,
-                truncate_text(&content, 5000)
-            ));
+fn parse_cargo_manifest(path: &str, content: &str) -> Option<RepositoryManifestSummary> {
+    let mut package_name = None;
+    let mut framework_hints = vec![];
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if package_name.is_none() && trimmed.starts_with("name") && trimmed.contains('=') {
+            let value = trimmed.split('=').nth(1)?.trim().trim_matches('"');
+            if !value.is_empty() {
+                package_name = Some(value.to_string());
+            }
+        }
+        if trimmed.starts_with("tauri") || trimmed.contains("tauri =") {
+            framework_hints.push("Tauri".to_string());
+        }
+        if trimmed.starts_with("sqlx") || trimmed.contains("sqlx =") {
+            framework_hints.push("SQLx".to_string());
+        }
+        if trimmed.starts_with("tokio") || trimmed.contains("tokio =") {
+            framework_hints.push("Tokio".to_string());
+        }
+    }
+    framework_hints.sort();
+    framework_hints.dedup();
+    Some(RepositoryManifestSummary {
+        path: path.to_string(),
+        ecosystem: "rust".to_string(),
+        package_name,
+        framework_hints,
+        scripts: vec![],
+    })
+}
+
+fn extract_markdown_headings(content: &str) -> Vec<String> {
+    content
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if !trimmed.starts_with('#') {
+                return None;
+            }
+            Some(trimmed.trim_start_matches('#').trim().to_string())
+        })
+        .filter(|heading| !heading.is_empty())
+        .take(8)
+        .collect::<Vec<_>>()
+}
+
+fn detect_route_from_path(path: &str) -> Option<RepositoryRouteSummary> {
+    let normalized = path.replace('\\', "/");
+    let lower = normalized.to_lowercase();
+    let route = if lower.starts_with("app/") && (lower.ends_with("/page.tsx") || lower.ends_with("/page.jsx") || lower.ends_with("/page.ts")) {
+        let mut parts = normalized.split('/').skip(1).collect::<Vec<_>>();
+        if parts.last().is_some() {
+            parts.pop();
+        }
+        let route_parts = parts
+            .into_iter()
+            .filter(|part| !part.starts_with('(') && !part.starts_with('@') && !part.starts_with('_'))
+            .collect::<Vec<_>>();
+        format!("/{}", route_parts.join("/"))
+    } else if lower.starts_with("src/pages/") {
+        let route = normalized
+            .trim_start_matches("src/pages/")
+            .trim_end_matches(".tsx")
+            .trim_end_matches(".jsx")
+            .trim_end_matches(".ts")
+            .trim_end_matches(".js");
+        format!("/{}", route.trim_end_matches("/index"))
+    } else if lower.contains("/api/") {
+        let route = normalized
+            .split("/api/")
+            .nth(1)
+            .unwrap_or_default()
+            .trim_end_matches(".ts")
+            .trim_end_matches(".js");
+        format!("/api/{}", route)
+    } else {
+        return None;
+    };
+    Some(RepositoryRouteSummary {
+        path: normalized,
+        route,
+        kind: if lower.contains("/api/") { "api".to_string() } else { "page".to_string() },
+    })
+}
+
+fn detect_test_file(path: &str) -> Option<RepositoryTestSummary> {
+    let normalized = path.replace('\\', "/");
+    let lower = normalized.to_lowercase();
+    let is_test = lower.contains("/tests/")
+        || lower.contains("__tests__")
+        || lower.ends_with(".test.ts")
+        || lower.ends_with(".test.tsx")
+        || lower.ends_with(".spec.ts")
+        || lower.ends_with(".spec.tsx")
+        || lower.ends_with("_test.rs");
+    if !is_test {
+        return None;
+    }
+    let framework_hint = if lower.contains("playwright") {
+        Some("Playwright".to_string())
+    } else if lower.ends_with(".spec.ts") || lower.ends_with(".spec.tsx") || lower.ends_with(".test.ts") || lower.ends_with(".test.tsx") {
+        Some("Vitest/Jest-style".to_string())
+    } else if lower.ends_with("_test.rs") {
+        Some("Rust test".to_string())
+    } else {
+        None
+    };
+    Some(RepositoryTestSummary {
+        path: normalized,
+        framework_hint,
+    })
+}
+
+fn build_candidate_areas(
+    paths: &[String],
+    routes: &[RepositoryRouteSummary],
+) -> Vec<RepositoryAreaCandidate> {
+    let mut area_evidence: HashMap<String, Vec<String>> = HashMap::new();
+    for path in paths {
+        let normalized = path.replace('\\', "/");
+        let segments = normalized.split('/').collect::<Vec<_>>();
+        let area_segment = if segments.len() > 2 && segments[0] == "src" && (segments[1] == "features" || segments[1] == "modules") {
+            Some(segments[2])
+        } else if segments.len() > 1 && segments[0] == "app" {
+            segments
+                .iter()
+                .skip(1)
+                .find(|segment| !segment.starts_with('(') && !segment.starts_with('_') && !segment.ends_with(".tsx") && !segment.ends_with(".ts"))
+                .copied()
+        } else if segments.len() > 1 && segments[0] == "packages" {
+            Some(segments[1])
+        } else {
+            None
+        };
+        if let Some(segment) = area_segment {
+            let normalized_segment = normalize_identifier_token(segment);
+            if normalized_segment.is_empty() {
+                continue;
+            }
+            area_evidence
+                .entry(normalized_segment)
+                .or_default()
+                .push(format!("path: {}", normalized));
+        }
+    }
+    for route in routes {
+        for segment in route.route.split('/') {
+            let normalized_segment = normalize_identifier_token(segment);
+            if normalized_segment.is_empty() || normalized_segment == "api" {
+                continue;
+            }
+            area_evidence
+                .entry(normalized_segment)
+                .or_default()
+                .push(format!("route: {}", route.route));
+            break;
         }
     }
 
-    Ok(format!(
-        "Repository:\n- name: {}\n- local_path: {}\n- default_branch: {}\n- remote_url: {}\n\nRepository tree:\n{}\n\nKey files:\n{}",
-        repo.name,
-        repo.local_path,
-        repo.default_branch,
-        if repo.remote_url.is_empty() { "(none)" } else { &repo.remote_url },
-        if tree_lines.is_empty() {
-            "(empty repository)".to_string()
-        } else {
-            tree_lines.join("\n")
-        },
-        if file_sections.is_empty() {
-            "(no key files captured)".to_string()
-        } else {
-            file_sections.join("\n\n---\n\n")
+    let mut areas = area_evidence
+        .into_iter()
+        .map(|(name, mut evidence)| {
+            evidence.sort();
+            evidence.dedup();
+            let confidence = if evidence.len() >= 4 {
+                "high"
+            } else if evidence.len() >= 2 {
+                "medium"
+            } else {
+                "low"
+            };
+            RepositoryAreaCandidate {
+                name: humanize_identifier(&name),
+                kind: "feature_area".to_string(),
+                confidence: confidence.to_string(),
+                rationale: format!(
+                    "Grouped from {} repository signals under a common directory or route segment.",
+                    evidence.len()
+                ),
+                evidence: evidence.into_iter().take(6).collect::<Vec<_>>(),
+            }
+        })
+        .filter(|area| {
+            let normalized = normalize_identifier_token(&area.name);
+            !normalized.is_empty()
+                && !["src", "app", "pages", "components", "lib", "tests", "test"].contains(&normalized.as_str())
+        })
+        .collect::<Vec<_>>();
+    areas.sort_by(|left, right| {
+        right
+            .evidence
+            .len()
+            .cmp(&left.evidence.len())
+            .then(left.name.cmp(&right.name))
+    });
+    areas.truncate(10);
+    areas
+}
+
+fn build_repository_analysis_snapshot(
+    repo: &Repository,
+) -> Result<RepositoryAnalysisSnapshot, AppError> {
+    let tree = repo_service::list_repository_tree(&repo.local_path, false, Some(6))?;
+    let mut remaining = 220usize;
+    let mut tree_lines = vec![];
+    flatten_repository_tree_lines(&tree, 0, &mut remaining, &mut tree_lines);
+    let mut all_paths = vec![];
+    flatten_repository_paths(&tree, &mut all_paths);
+    all_paths.sort();
+
+    let candidate_files = collect_repository_candidate_files(repo, &all_paths);
+    let mut manifests = vec![];
+    let mut docs = vec![];
+    for relative_path in candidate_files.into_iter().take(16) {
+        let Ok(content) = repo_service::read_repository_file(&repo.local_path, &relative_path) else {
+            continue;
+        };
+        let lower = relative_path.to_lowercase();
+        if lower.ends_with("package.json") {
+            if let Some(manifest) = parse_package_json_manifest(&relative_path, &content) {
+                manifests.push(manifest);
+            }
+        } else if lower.ends_with("cargo.toml") {
+            if let Some(manifest) = parse_cargo_manifest(&relative_path, &content) {
+                manifests.push(manifest);
+            }
+        } else if lower.ends_with("readme.md") || lower.ends_with("/readme.md") || lower == "readme" {
+            docs.push(RepositoryDocSummary {
+                path: relative_path.clone(),
+                headings: extract_markdown_headings(&content),
+                excerpt: truncate_text(&content, 1200),
+            });
         }
-    ))
+    }
+
+    let routes = all_paths
+        .iter()
+        .filter_map(|path| detect_route_from_path(path))
+        .take(20)
+        .collect::<Vec<_>>();
+    let tests = all_paths
+        .iter()
+        .filter_map(|path| detect_test_file(path))
+        .take(20)
+        .collect::<Vec<_>>();
+    let candidate_areas = build_candidate_areas(&all_paths, &routes);
+
+    Ok(RepositoryAnalysisSnapshot {
+        repository_name: repo.name.clone(),
+        local_path: repo.local_path.clone(),
+        default_branch: repo.default_branch.clone(),
+        remote_url: if repo.remote_url.is_empty() {
+            None
+        } else {
+            Some(repo.remote_url.clone())
+        },
+        tree_overview: tree_lines,
+        manifests,
+        docs,
+        routes,
+        tests,
+        candidate_areas,
+    })
 }
 
 fn normalize(value: Option<&str>) -> String {
@@ -687,6 +1076,135 @@ fn normalize_planner_action(action: Value) -> Option<Value> {
     }
 
     Some(action)
+}
+
+fn tokenize_for_match(value: &str) -> Vec<String> {
+    value
+        .split(|ch: char| !ch.is_alphanumeric())
+        .map(normalize_identifier_token)
+        .filter(|token| token.len() > 2)
+        .collect::<Vec<_>>()
+}
+
+fn action_primary_label(action: &Value) -> Option<String> {
+    string_field(action, "name")
+        .or_else(|| string_field(action, "title"))
+        .or_else(|| string_field(action, "module_name"))
+        .or_else(|| string_field(action, "capability_name"))
+        .or_else(|| string_field(action, "work_item_name"))
+        .or_else(|| target_field(action, "productName").map(ToString::to_string))
+        .or_else(|| target_field(action, "moduleName").map(ToString::to_string))
+        .or_else(|| target_field(action, "capabilityName").map(ToString::to_string))
+        .or_else(|| target_field(action, "workItemTitle").map(ToString::to_string))
+}
+
+fn score_evidence_match(target: &str, evidence: &str) -> usize {
+    let target_tokens = tokenize_for_match(target);
+    if target_tokens.is_empty() {
+        return 0;
+    }
+    let evidence_lower = evidence.to_lowercase();
+    target_tokens
+        .into_iter()
+        .filter(|token| evidence_lower.contains(token))
+        .count()
+}
+
+fn annotate_repository_analysis_action(
+    snapshot: &RepositoryAnalysisSnapshot,
+    action: &mut Value,
+) {
+    let Some(primary_label) = action_primary_label(action) else {
+        return;
+    };
+
+    let mut evidence_candidates = vec![];
+    for doc in &snapshot.docs {
+        for heading in &doc.headings {
+            let line = format!("doc: {} -> {}", doc.path, heading);
+            let score = score_evidence_match(&primary_label, &line);
+            if score > 0 {
+                evidence_candidates.push((score, line));
+            }
+        }
+    }
+    for manifest in &snapshot.manifests {
+        let package_name = manifest.package_name.clone().unwrap_or_else(|| manifest.path.clone());
+        let line = format!(
+            "manifest: {} -> {} ({})",
+            manifest.path,
+            package_name,
+            manifest.framework_hints.join(", ")
+        );
+        let score = score_evidence_match(&primary_label, &line);
+        if score > 0 || action.get("type").and_then(Value::as_str) == Some("create_product") {
+            evidence_candidates.push((score.max(1), line));
+        }
+    }
+    for area in &snapshot.candidate_areas {
+        let line = format!("area: {} -> {}", area.name, area.evidence.join(" | "));
+        let score = score_evidence_match(&primary_label, &line);
+        if score > 0 {
+            evidence_candidates.push((score + 1, line));
+        }
+    }
+    for route in &snapshot.routes {
+        let line = format!("route: {} ({})", route.route, route.path);
+        let score = score_evidence_match(&primary_label, &line);
+        if score > 0 {
+            evidence_candidates.push((score, line));
+        }
+    }
+    for test in &snapshot.tests {
+        let line = format!("test: {}{}", test.path, test.framework_hint.as_deref().map(|hint| format!(" ({hint})")).unwrap_or_default());
+        let score = score_evidence_match(&primary_label, &line);
+        if score > 0 {
+            evidence_candidates.push((score, line));
+        }
+    }
+
+    evidence_candidates.sort_by(|left, right| right.0.cmp(&left.0).then(left.1.cmp(&right.1)));
+    let mut evidence = evidence_candidates
+        .into_iter()
+        .map(|(_, line)| line)
+        .collect::<Vec<_>>();
+    evidence.dedup();
+    if evidence.is_empty() {
+        if let Some(first_doc) = snapshot.docs.first() {
+            evidence.push(format!("doc: {} -> repository overview", first_doc.path));
+        }
+        if let Some(first_manifest) = snapshot.manifests.first() {
+            evidence.push(format!("manifest: {}", first_manifest.path));
+        }
+    }
+    evidence.truncate(5);
+    let confidence = if evidence.len() >= 3 {
+        "high"
+    } else if evidence.len() >= 2 {
+        "medium"
+    } else {
+        "low"
+    };
+
+    if let Some(object) = action.as_object_mut() {
+        object.insert(
+            "analysis".to_string(),
+            json!({
+                "source": "repository_analysis",
+                "confidence": confidence,
+                "evidence": evidence,
+            }),
+        );
+    }
+}
+
+fn annotate_repository_analysis_plan(
+    snapshot: &RepositoryAnalysisSnapshot,
+    plan: &mut PlannerPlan,
+) {
+    for action in &mut plan.actions {
+        annotate_repository_analysis_action(snapshot, action);
+    }
 }
 
 async fn run_completion(
@@ -1161,6 +1679,29 @@ fn fields_string_array(action: &Value, key: &str) -> Option<Vec<String>> {
         })
 }
 
+fn analysis_field<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
+    value.get("analysis")?.get(key)
+}
+
+fn analysis_string(value: &Value, key: &str) -> Option<String> {
+    analysis_field(value, key)
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
+fn analysis_string_array(value: &Value, key: &str) -> Vec<String> {
+    analysis_field(value, key)
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
 fn format_joined(values: Option<Vec<String>>) -> String {
     values.unwrap_or_default().join(", ")
 }
@@ -1174,6 +1715,18 @@ fn draft_node_meta(node_type: &str) -> String {
         _ => "draft node",
     }
     .to_string()
+}
+
+fn draft_node_source(node: &PlannerDraftNode) -> Option<String> {
+    analysis_string(&node.details, "source")
+}
+
+fn draft_node_confidence(node: &PlannerDraftNode) -> Option<String> {
+    analysis_string(&node.details, "confidence")
+}
+
+fn draft_node_evidence(node: &PlannerDraftNode) -> Vec<String> {
+    analysis_string_array(&node.details, "evidence")
 }
 
 fn build_draft_tree_children(
@@ -1191,6 +1744,12 @@ fn build_draft_tree_children(
     nodes.into_iter()
         .map(|node| {
             let mut meta = draft_node_meta(&node.node_type);
+            if let Some(source) = draft_node_source(&node) {
+                let confidence = draft_node_confidence(&node)
+                    .map(|value| format!("{} confidence", value))
+                    .unwrap_or_else(|| "inferred".to_string());
+                meta = format!("{meta} · {} · {}", source.replace('_', " "), confidence);
+            }
             if selected_node_id == Some(node.id.as_str()) {
                 meta = format!("{meta} selected");
             }
@@ -1198,6 +1757,11 @@ fn build_draft_tree_children(
                 id: node.id.clone(),
                 label: node.name.clone(),
                 meta: Some(meta),
+                node_type: Some(node.node_type.clone()),
+                summary: node.summary.clone(),
+                source: draft_node_source(&node),
+                confidence: draft_node_confidence(&node),
+                evidence: draft_node_evidence(&node),
                 children: build_draft_tree_children(draft_plan, Some(&node.id), selected_node_id),
             }
         })
@@ -1746,6 +2310,15 @@ fn build_tree_nodes_for_items(
             id: item.id.clone(),
             label: item.title.clone(),
             meta: Some(item.status.to_string()),
+            node_type: Some("work_item".to_string()),
+            summary: if item.description.is_empty() {
+                None
+            } else {
+                Some(item.description.clone())
+            },
+            source: None,
+            confidence: None,
+            evidence: vec![],
             children: build_tree_nodes_for_items(items, Some(&item.id)),
         })
         .collect()
@@ -1786,6 +2359,11 @@ async fn build_tree_nodes(
                     id: format!("{}-direct", module_tree.module.id),
                     label: "Direct Work Items".to_string(),
                     meta: None,
+                    node_type: Some("group".to_string()),
+                    summary: None,
+                    source: None,
+                    confidence: None,
+                    evidence: vec![],
                     children: build_tree_nodes_for_items(&direct_items, None),
                 });
             }
@@ -1808,6 +2386,15 @@ async fn build_tree_nodes(
                     id: capability.id.clone(),
                     label: capability.name.clone(),
                     meta: None,
+                    node_type: Some("capability".to_string()),
+                    summary: if capability.description.is_empty() {
+                        None
+                    } else {
+                        Some(capability.description.clone())
+                    },
+                    source: None,
+                    confidence: None,
+                    evidence: vec![],
                     children: build_tree_nodes_for_items(&capability_items, None),
                 });
             }
@@ -1816,6 +2403,15 @@ async fn build_tree_nodes(
                 id: module_tree.module.id.clone(),
                 label: module_tree.module.name.clone(),
                 meta: None,
+                node_type: Some("module".to_string()),
+                summary: if module_tree.module.description.is_empty() {
+                    None
+                } else {
+                    Some(module_tree.module.description.clone())
+                },
+                source: None,
+                confidence: None,
+                evidence: vec![],
                 children,
             });
         }
@@ -1830,6 +2426,11 @@ async fn build_tree_nodes(
                 id: format!("{}-unscoped", product.id),
                 label: "Unscoped".to_string(),
                 meta: None,
+                node_type: Some("group".to_string()),
+                summary: None,
+                source: None,
+                confidence: None,
+                evidence: vec![],
                 children: build_tree_nodes_for_items(&unscoped, None),
             });
         }
@@ -1839,6 +2440,11 @@ async fn build_tree_nodes(
                 id: format!("{}-empty", product.id),
                 label: "No work items".to_string(),
                 meta: Some("empty".to_string()),
+                node_type: Some("info".to_string()),
+                summary: None,
+                source: None,
+                confidence: None,
+                evidence: vec![],
                 children: vec![],
             });
         }
@@ -1847,6 +2453,15 @@ async fn build_tree_nodes(
             id: product.id,
             label: product.name,
             meta: None,
+            node_type: Some("product".to_string()),
+            summary: if product.description.is_empty() {
+                None
+            } else {
+                Some(product.description)
+            },
+            source: None,
+            confidence: None,
+            evidence: vec![],
             children: module_nodes,
         });
     }
@@ -3678,12 +4293,13 @@ pub async fn analyze_repository_for_planner(
         .clone()
         .ok_or_else(|| AppError::Validation("Configure a planner model before analyzing a repository.".to_string()))?;
     let repository = repository_repo::get_repository(db, &repository_id).await?;
-    let repo_snapshot = build_repository_snapshot(&repository)?;
+    let repo_snapshot = build_repository_analysis_snapshot(&repository)?;
+    let repo_snapshot_json = serde_json::to_string_pretty(&repo_snapshot)?;
     push_trace(
         &mut trace,
         "repository",
-        "Captured repository snapshot",
-        truncate_text(&repo_snapshot, 12_000),
+        "Captured structured repository analysis snapshot",
+        truncate_text(&repo_snapshot_json, 12_000),
     );
 
     let draft_context = session
@@ -3700,8 +4316,8 @@ pub async fn analyze_repository_for_planner(
         .transpose()?
         .unwrap_or_else(|| "No draft node selected.".to_string());
     let analysis_request = format!(
-        "Current draft tree:\n{}\n\nSelected draft node:\n{}\n\nRepository evidence:\n{}\n\nTask:\nReverse engineer this repository into a staged planning tree. Infer the product, modules, capabilities, and starter work items from the codebase. Merge into the selected draft node if it exists; otherwise create a product root.",
-        draft_context, selected_context, repo_snapshot
+        "Current draft tree:\n{}\n\nSelected draft node:\n{}\n\nStructured repository analysis snapshot:\n{}\n\nTask:\nReverse engineer this repository into a staged planning tree. Infer the product, modules, capabilities, and starter work items from the codebase. Use the structured evidence first, and only make cautious inferences when the evidence is incomplete. Merge into the selected draft node if it exists; otherwise create a product root.",
+        draft_context, selected_context, repo_snapshot_json
     );
     push_trace(
         &mut trace,
@@ -3733,7 +4349,8 @@ pub async fn analyze_repository_for_planner(
         completion.clone(),
     );
 
-    let plan = parse_final_response(&completion)?;
+    let mut plan = parse_final_response(&completion)?;
+    annotate_repository_analysis_plan(&repo_snapshot, &mut plan);
     push_trace(
         &mut trace,
         "plan",
@@ -3819,12 +4436,15 @@ pub async fn analyze_repository_for_planner(
 #[cfg(test)]
 mod tests {
     use super::{
-        add_draft_child_node, apply_actions_to_draft, commit_draft_plan,
-        delete_draft_node, normalize_planner_action, rename_draft_node, PlannerDraftPlan,
+        add_draft_child_node, apply_actions_to_draft, build_draft_tree_nodes,
+        build_repository_analysis_snapshot, commit_draft_plan, delete_draft_node,
+        normalize_planner_action, rename_draft_node, PlannerDraftPlan, RepositoryAnalysisSnapshot,
     };
+    use crate::domain::repository::Repository;
     use crate::persistence::{db as db_service, product_repo, work_item_repo};
     use crate::state::AppState;
     use serde_json::json;
+    use std::fs;
     use std::path::PathBuf;
     use std::sync::{Arc, OnceLock};
     use tokio::sync::{Mutex, OwnedMutexGuard};
@@ -3867,6 +4487,19 @@ mod tests {
             .collect::<Vec<_>>()
     }
 
+    fn make_repository(temp_root: &PathBuf, name: &str) -> Repository {
+        Repository {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: name.to_string(),
+            local_path: temp_root.display().to_string(),
+            remote_url: "".to_string(),
+            default_branch: "main".to_string(),
+            auth_profile: None,
+            created_at: "2026-03-21 00:00:00".to_string(),
+            updated_at: "2026-03-21 00:00:00".to_string(),
+        }
+    }
+
     #[test]
     fn normalize_planner_action_repairs_relaxed_model_shapes() {
         let normalized = normalize_planner_action(json!({
@@ -3887,6 +4520,53 @@ mod tests {
                 .and_then(|value| value.get("capabilityName"))
                 .and_then(serde_json::Value::as_str),
             Some("Guest Profile Management")
+        );
+    }
+
+    #[test]
+    fn build_repository_analysis_snapshot_extracts_structured_signals() {
+        let temp_root = make_temp_dir("repo_analysis_snapshot");
+        fs::create_dir_all(temp_root.join("src/features/planner")).expect("failed to create feature dir");
+        fs::create_dir_all(temp_root.join("app/hotels")).expect("failed to create route dir");
+        fs::create_dir_all(temp_root.join("e2e")).expect("failed to create e2e dir");
+        fs::write(
+            temp_root.join("README.md"),
+            "# Hotel Management System\n## Planner\nInteractive planning workspace.",
+        )
+        .expect("failed to write README");
+        fs::write(
+            temp_root.join("package.json"),
+            r#"{
+              "name": "hotel-management-system",
+              "scripts": { "dev": "vite", "test:e2e": "playwright test" },
+              "dependencies": { "react": "^18.0.0", "vite": "^5.0.0", "@tanstack/react-query": "^5.0.0" },
+              "devDependencies": { "@playwright/test": "^1.0.0" }
+            }"#,
+        )
+        .expect("failed to write package.json");
+        fs::write(
+            temp_root.join("src/features/planner/PlannerPage.tsx"),
+            "export function PlannerPage() { return null; }",
+        )
+        .expect("failed to write planner page");
+        fs::write(temp_root.join("app/hotels/page.tsx"), "export default function Hotels() { return null; }")
+            .expect("failed to write route");
+        fs::write(temp_root.join("e2e/planner.spec.ts"), "test('planner', () => {});")
+            .expect("failed to write test");
+
+        let snapshot: RepositoryAnalysisSnapshot = build_repository_analysis_snapshot(&make_repository(&temp_root, "hotel-management-system"))
+            .expect("snapshot should build");
+
+        assert!(!snapshot.manifests.is_empty(), "manifest signals should be extracted");
+        assert!(!snapshot.docs.is_empty(), "doc signals should be extracted");
+        assert!(!snapshot.routes.is_empty(), "route signals should be extracted");
+        assert!(!snapshot.tests.is_empty(), "test signals should be extracted");
+        assert!(
+            snapshot
+                .candidate_areas
+                .iter()
+                .any(|area| area.name.contains("Planner") || area.name.contains("Hotels")),
+            "candidate areas should include feature or route-derived areas"
         );
     }
 
@@ -3957,6 +4637,55 @@ mod tests {
             .find(|node| node.node_type == "work_item" && node.name == "Implement Guest Profile CRUD")
             .expect("missing work item node");
         assert_eq!(work_item.parent_id.as_deref(), Some(capability_id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn draft_tree_nodes_surface_repository_analysis_metadata() {
+        let _guard = acquire_planner_test_lock().await;
+        let actions = normalize_actions(vec![
+            json!({
+                "type": "create_product",
+                "name": "Hotel Management System",
+                "description": "Hotel root.",
+                "analysis": {
+                    "source": "repository_analysis",
+                    "confidence": "high",
+                    "evidence": [
+                        "doc: README.md -> Hotel Management System",
+                        "manifest: package.json -> hotel-management-system (React, Vite)"
+                    ]
+                }
+            }),
+            json!({
+                "type": "create_module",
+                "target": { "productName": "Hotel Management System" },
+                "name": "Interactive Planner",
+                "description": "Conversational planning surface.",
+                "analysis": {
+                    "source": "repository_analysis",
+                    "confidence": "medium",
+                    "evidence": [
+                        "path: src/features/planner/PlannerPage.tsx"
+                    ]
+                }
+            }),
+        ]);
+
+        let draft = apply_actions_to_draft(None, None, &actions)
+            .await
+            .expect("failed to build draft");
+        let tree = build_draft_tree_nodes(&draft, None);
+        let product = tree.first().expect("product node should exist");
+        let module = product.children.first().expect("module node should exist");
+
+        assert_eq!(product.source.as_deref(), Some("repository_analysis"));
+        assert_eq!(product.confidence.as_deref(), Some("high"));
+        assert!(product
+            .evidence
+            .iter()
+            .any(|line| line.contains("README.md")));
+        assert_eq!(module.source.as_deref(), Some("repository_analysis"));
+        assert_eq!(module.summary.as_deref(), Some("Conversational planning surface."));
     }
 
     #[tokio::test]

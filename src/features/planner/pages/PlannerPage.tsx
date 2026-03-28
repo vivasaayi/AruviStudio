@@ -161,6 +161,11 @@ type PlannerTreeNode = {
   id: string;
   label: string;
   meta?: string | null;
+  node_type?: string | null;
+  summary?: string | null;
+  source?: string | null;
+  confidence?: string | null;
+  evidence?: string[];
   children: PlannerTreeNode[];
 };
 
@@ -1225,6 +1230,16 @@ function parseDraftNodeType(meta?: string | null) {
   return "node";
 }
 
+function getPlannerNodeType(node: PlannerTreeNode | null | undefined) {
+  if (!node) {
+    return "node";
+  }
+  if (node.node_type) {
+    return node.node_type.replace("_", " ");
+  }
+  return parseDraftNodeType(node.meta);
+}
+
 function collectTreeNodeIds(nodes: PlannerTreeNode[]): string[] {
   return nodes.flatMap((node) => [node.id, ...collectTreeNodeIds(node.children)]);
 }
@@ -1245,7 +1260,7 @@ function SelectableTreeNodeView({
   const isSelected = node.id === selectedNodeId;
   const hasChildren = node.children.length > 0;
   const isExpanded = expandedNodeIds.has(node.id);
-  const nodeType = parseDraftNodeType(node.meta);
+  const nodeType = getPlannerNodeType(node);
   const cardStyle = isSelected ? { ...styles.treeCard, ...styles.treeCardSelected } : styles.treeCard;
   return (
     <div style={styles.treeLevel}>
@@ -1263,8 +1278,10 @@ function SelectableTreeNodeView({
             <div style={styles.treeCardMetaRow}>
               <span style={styles.treeTypeBadge}>{nodeType}</span>
               {hasChildren ? <span style={styles.treeCountBadge}>{node.children.length} children</span> : null}
+              {node.confidence ? <span style={styles.treeCountBadge}>{node.confidence} confidence</span> : null}
             </div>
           </div>
+          {node.summary ? <div style={styles.diffSecondary}>{node.summary}</div> : null}
           {node.meta ? <div style={styles.diffSecondary}>{node.meta}</div> : null}
         </button>
       </div>
@@ -1295,10 +1312,10 @@ function buildProposalTreeNodes(plan: PlannerPlan): PlannerTreeNode[] {
     const label = name?.trim() || "Proposed product";
     let node = productNodes.get(label);
     if (!node) {
-      node = { id: `proposal-product-${label}`, label, meta: "proposed product", children: [] };
+      node = { id: `proposal-product-${label}`, label, meta: "proposed product", node_type: "product", evidence: [], children: [] };
       productNodes.set(label, node);
     }
-    return node;
+    return node!;
   };
 
   const ensureModule = (productName?: string | null, moduleName?: string | null) => {
@@ -1307,11 +1324,11 @@ function buildProposalTreeNodes(plan: PlannerPlan): PlannerTreeNode[] {
     const key = `${product.label}::${label}`;
     let node = moduleNodes.get(key);
     if (!node) {
-      node = { id: `proposal-module-${key}`, label, meta: "proposed module", children: [] };
+      node = { id: `proposal-module-${key}`, label, meta: "proposed module", node_type: "module", evidence: [], children: [] };
       moduleNodes.set(key, node);
       product.children.push(node);
     }
-    return node;
+    return node!;
   };
 
   const ensureCapability = (productName?: string | null, moduleName?: string | null, capabilityName?: string | null) => {
@@ -1320,11 +1337,11 @@ function buildProposalTreeNodes(plan: PlannerPlan): PlannerTreeNode[] {
     const key = `${module.id}::${label}`;
     let node = capabilityNodes.get(key);
     if (!node) {
-      node = { id: `proposal-capability-${key}`, label, meta: "proposed capability", children: [] };
+      node = { id: `proposal-capability-${key}`, label, meta: "proposed capability", node_type: "capability", evidence: [], children: [] };
       capabilityNodes.set(key, node);
       module.children.push(node);
     }
-    return node;
+    return node!;
   };
 
   for (const action of plan.actions) {
@@ -1345,6 +1362,8 @@ function buildProposalTreeNodes(plan: PlannerPlan): PlannerTreeNode[] {
           id: `proposal-work-item-${capability.id}-${action.title ?? target?.workItemTitle ?? capability.children.length}`,
           label: action.title ?? target?.workItemTitle ?? "Proposed work item",
           meta: "proposed work item",
+          node_type: "work_item",
+          evidence: [],
           children: [],
         });
         break;
@@ -1412,7 +1431,7 @@ function buildDraftValidation(nodes: PlannerTreeNode[]): DraftValidationSummary 
   const issues: DraftValidationIssue[] = [];
 
   function visit(node: PlannerTreeNode) {
-    const nodeType = parseDraftNodeType(node.meta);
+    const nodeType = getPlannerNodeType(node);
     if (nodeType in counts) {
       counts[nodeType as keyof typeof counts] += 1;
     }
@@ -1484,8 +1503,8 @@ function buildSuggestedPrompts(node: PlannerTreeNode | null): string[] {
       "Show me what is missing in this plan before I commit it.",
     ];
   }
-  const nodeType = parseDraftNodeType(node.meta);
-  switch (nodeType) {
+  const resolvedNodeType = getPlannerNodeType(node);
+  switch (resolvedNodeType) {
     case "product":
       return [
         `Expand ${node.label} with missing modules and operational areas.`,
@@ -1519,7 +1538,7 @@ function buildSuggestedPrompts(node: PlannerTreeNode | null): string[] {
 }
 
 function getAllowedDraftChildTypes(node: PlannerTreeNode | null): PlannerDraftChildType[] {
-  const nodeType = parseDraftNodeType(node?.meta);
+  const nodeType = getPlannerNodeType(node);
   switch (nodeType) {
     case "product":
       return ["module", "work_item"];
@@ -1548,7 +1567,7 @@ function findRelevantPlanActions(plan: PlannerPlan | null, node: PlannerTreeNode
     return [];
   }
 
-  const nodeType = parseDraftNodeType(node.meta);
+  const nodeType = getPlannerNodeType(node);
   return plan.actions.filter((action) => {
     const target = (action as { target?: { productName?: string; moduleName?: string; capabilityName?: string; workItemTitle?: string } }).target;
     if (nodeType === "product") {
@@ -2844,11 +2863,31 @@ export function PlannerPage() {
                     {selectedDraftNode ? (
                       <>
                         <div style={styles.cardTitle}>{selectedDraftNode.label}</div>
-                        {selectedDraftNode.meta ? <div style={styles.helper}>Type: {selectedDraftNode.meta}</div> : null}
+                        <div style={styles.helper}>Type: {getPlannerNodeType(selectedDraftNode)}</div>
+                        {selectedDraftNode.summary ? <div style={{ ...styles.helper, marginTop: 8 }}>{selectedDraftNode.summary}</div> : null}
+                        {selectedDraftNode.source || selectedDraftNode.confidence ? (
+                          <div style={styles.chipRow}>
+                            {selectedDraftNode.source ? <div style={styles.chip}>source: {selectedDraftNode.source.replace("_", " ")}</div> : null}
+                            {selectedDraftNode.confidence ? <div style={styles.chip}>{selectedDraftNode.confidence} confidence</div> : null}
+                          </div>
+                        ) : null}
                         {selectedDraftNodePath.length > 0 ? (
                           <div style={styles.pathText}>
                             Path: {selectedDraftNodePath.map((node) => node.label).join(" / ")}
                           </div>
+                        ) : null}
+                        {selectedDraftNode.evidence && selectedDraftNode.evidence.length > 0 ? (
+                          <>
+                            <div style={styles.sectionDivider} />
+                            <div style={styles.label}>Evidence</div>
+                            <div style={styles.list}>
+                              {selectedDraftNode.evidence.map((line: string) => (
+                                <div key={line} style={styles.listItem}>
+                                  <div style={styles.listItemMeta}>{line}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </>
                         ) : null}
                         <div style={styles.sectionDivider} />
                         <div style={styles.label}>Edit Node</div>
