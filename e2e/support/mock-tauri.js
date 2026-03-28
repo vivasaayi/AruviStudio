@@ -1053,7 +1053,10 @@
           return ok({ channel: "whatsapp", status: "sent", reason: "Mock router chose WhatsApp for this request." });
         case "send_twilio_whatsapp_message":
         case "start_twilio_voice_call":
+        case "speak_text_natively_command":
           return ok(null);
+        case "transcribe_audio_command":
+          return ok({ transcript: "Add voice-driven planning for the selected node" });
         case "run_model_chat_completion":
           return ok({ content: "{\"type\":\"final\",\"assistant_response\":\"mock\",\"needs_confirmation\":false,\"clarification_question\":null,\"actions\":[]}" });
         case "start_model_chat_stream":

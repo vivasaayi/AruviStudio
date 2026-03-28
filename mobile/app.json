@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "Aruvi Planner Mobile",
+    "slug": "aruvi-planner-mobile",
+    "scheme": "aruvi-planner-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.aruvi.plannermobile",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Record voice planning prompts for the desktop planner.",
+        "NSSpeechRecognitionUsageDescription": "Use voice planning features that transcribe speech through the desktop planner bridge."
+      }
+    }
+  }
+}

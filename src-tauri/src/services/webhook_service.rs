@@ -1,12 +1,20 @@
 use crate::services::channel_service::{
     handle_inbound_message, resolve_twilio_config, ChannelInboundMessage,
 };
+use crate::services::planner_service::{
+    clear_planner_pending, confirm_planner_plan, create_planner_session, submit_planner_turn,
+    update_planner_session,
+};
+use crate::services::speech_service::{
+    transcribe_audio_with_provider, SpeechToTextRequest, SpeechToTextResponse,
+};
 use crate::state::AppState;
-use axum::extract::{Form, Query, State};
-use axum::http::HeaderMap;
-use axum::response::{Html, IntoResponse};
+use crate::persistence::{model_repo, settings_repo};
+use axum::extract::{Form, Path, Query, State};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::Router;
+use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use hmac::{Hmac, Mac};
@@ -15,6 +23,11 @@ use sha1::Sha1;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use tracing::{error, info};
+
+const MOBILE_API_TOKEN_KEY: &str = "mobile.api_token";
+const SPEECH_PROVIDER_KEY: &str = "speech.transcription_provider_id";
+const SPEECH_MODEL_KEY: &str = "speech.transcription_model_name";
+const SPEECH_LOCALE_KEY: &str = "speech.locale";
 
 #[derive(Clone)]
 pub struct WebhookState {
@@ -39,6 +52,33 @@ struct TwilioVoiceForm {
     from: Option<String>,
     #[serde(rename = "SpeechResult")]
     speech_result: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MobilePlannerSessionRequest {
+    provider_id: Option<String>,
+    model_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MobilePlannerUpdateRequest {
+    provider_id: Option<String>,
+    model_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MobilePlannerTurnRequest {
+    user_input: String,
+    selected_draft_node_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MobileSpeechTranscriptionRequest {
+    provider_id: Option<String>,
+    model_name: Option<String>,
+    audio_bytes_base64: String,
+    mime_type: String,
+    locale: Option<String>,
 }
 
 fn xml_escape(value: &str) -> String {
@@ -87,6 +127,172 @@ async fn healthcheck() -> impl IntoResponse {
     "ok"
 }
 
+async fn mobile_healthcheck(
+    State(state): State<WebhookState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await {
+        return response;
+    }
+    Json(serde_json::json!({
+        "status": "ok",
+        "service": "aruvi-mobile-api",
+    }))
+    .into_response()
+}
+
+async fn mobile_create_planner_session(
+    State(state): State<WebhookState>,
+    headers: HeaderMap,
+    Json(body): Json<MobilePlannerSessionRequest>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await {
+        return response;
+    }
+    match create_planner_session(
+        state.app_state.planner_service.clone(),
+        &state.app_state.db,
+        body.provider_id,
+        body.model_name,
+    )
+    .await
+    {
+        Ok(info) => Json(info).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
+}
+
+async fn mobile_update_planner_session(
+    State(state): State<WebhookState>,
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+    Json(body): Json<MobilePlannerUpdateRequest>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await {
+        return response;
+    }
+    match update_planner_session(
+        state.app_state.planner_service.clone(),
+        &state.app_state.db,
+        session_id,
+        body.provider_id,
+        body.model_name,
+    )
+    .await
+    {
+        Ok(info) => Json(info).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
+}
+
+async fn mobile_submit_planner_turn(
+    State(state): State<WebhookState>,
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+    Json(body): Json<MobilePlannerTurnRequest>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await {
+        return response;
+    }
+    match submit_planner_turn(
+        state.app_state.planner_service.clone(),
+        &state.app_state,
+        session_id,
+        body.user_input,
+        body.selected_draft_node_id,
+    )
+    .await
+    {
+        Ok(response) => Json(response).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
+}
+
+async fn mobile_confirm_planner_turn(
+    State(state): State<WebhookState>,
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await {
+        return response;
+    }
+    match confirm_planner_plan(
+        state.app_state.planner_service.clone(),
+        &state.app_state,
+        session_id,
+    )
+    .await
+    {
+        Ok(response) => Json(response).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
+}
+
+async fn mobile_clear_planner_turn(
+    State(state): State<WebhookState>,
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await {
+        return response;
+    }
+    match clear_planner_pending(
+        state.app_state.planner_service.clone(),
+        &state.app_state.db,
+        session_id,
+    )
+    .await
+    {
+        Ok(info) => Json(info).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
+}
+
+async fn mobile_transcribe_audio(
+    State(state): State<WebhookState>,
+    headers: HeaderMap,
+    Json(body): Json<MobileSpeechTranscriptionRequest>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await {
+        return response;
+    }
+
+    let (default_provider_id, default_model_name, default_locale) =
+        match resolve_mobile_speech_defaults(&state.app_state).await {
+            Ok(values) => values,
+            Err(error) => return (StatusCode::BAD_REQUEST, error).into_response(),
+        };
+    let provider_id = body
+        .provider_id
+        .filter(|value| !value.trim().is_empty())
+        .or(default_provider_id);
+    let Some(provider_id) = provider_id else {
+        return (
+            StatusCode::BAD_REQUEST,
+            "A speech transcription provider is required.",
+        )
+            .into_response();
+    };
+    let model_name = body
+        .model_name
+        .filter(|value| !value.trim().is_empty())
+        .or(default_model_name)
+        .unwrap_or_else(|| "whisper-1".to_string());
+    let request = SpeechToTextRequest {
+        audio_bytes_base64: body.audio_bytes_base64,
+        mime_type: body.mime_type,
+        locale: body.locale.or(default_locale),
+    };
+    let provider = match model_repo::get_provider(&state.app_state.db, &provider_id).await {
+        Ok(provider) => provider,
+        Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    };
+    match transcribe_audio_with_provider(&provider, &model_name, request).await {
+        Ok(response) => Json::<SpeechToTextResponse>(response).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
+}
+
 fn validate_twilio_signature(
     auth_token: Option<&str>,
     base_url: Option<&str>,
@@ -123,6 +329,68 @@ fn validate_twilio_signature(
         return Err("Invalid Twilio signature".to_string());
     }
     Ok(())
+}
+
+async fn resolve_mobile_api_token(state: &AppState) -> Result<Option<String>, String> {
+    Ok(
+        std::env::var("ARUVI_MOBILE_API_TOKEN")
+            .ok()
+            .or(settings_repo::get_setting(&state.db, MOBILE_API_TOKEN_KEY).await.map_err(|error| error.to_string())?),
+    )
+}
+
+fn unauthorized(message: impl Into<String>) -> Response {
+    (StatusCode::UNAUTHORIZED, message.into()).into_response()
+}
+
+fn unavailable(message: impl Into<String>) -> Response {
+    (StatusCode::SERVICE_UNAVAILABLE, message.into()).into_response()
+}
+
+async fn ensure_mobile_api_authorized(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(), Response> {
+    let configured_token = resolve_mobile_api_token(state)
+        .await
+        .map_err(unavailable)?;
+    let Some(configured_token) = configured_token.filter(|value| !value.trim().is_empty()) else {
+        return Err(unavailable(
+            "Mobile API token is not configured. Set mobile.api_token first.",
+        ));
+    };
+
+    let provided_token = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .or_else(|| {
+            headers
+                .get("x-aruvi-token")
+                .and_then(|value| value.to_str().ok())
+                .map(str::trim)
+        });
+
+    match provided_token {
+        Some(candidate) if candidate == configured_token => Ok(()),
+        _ => Err(unauthorized("Mobile API authorization failed.")),
+    }
+}
+
+async fn resolve_mobile_speech_defaults(
+    state: &AppState,
+) -> Result<(Option<String>, Option<String>, Option<String>), String> {
+    let provider_id = std::env::var("ARUVI_SPEECH_PROVIDER_ID")
+        .ok()
+        .or(settings_repo::get_setting(&state.db, SPEECH_PROVIDER_KEY).await.map_err(|error| error.to_string())?);
+    let model_name = std::env::var("ARUVI_SPEECH_MODEL_NAME")
+        .ok()
+        .or(settings_repo::get_setting(&state.db, SPEECH_MODEL_KEY).await.map_err(|error| error.to_string())?);
+    let locale = std::env::var("ARUVI_SPEECH_LOCALE")
+        .ok()
+        .or(settings_repo::get_setting(&state.db, SPEECH_LOCALE_KEY).await.map_err(|error| error.to_string())?);
+    Ok((provider_id, model_name, locale))
 }
 
 async fn twilio_whatsapp(
@@ -262,6 +530,13 @@ pub async fn start_webhook_server(app_state: AppState) {
 
     let router = Router::new()
         .route("/health", get(healthcheck))
+        .route("/api/mobile/health", get(mobile_healthcheck))
+        .route("/api/mobile/planner/sessions", post(mobile_create_planner_session))
+        .route("/api/mobile/planner/sessions/:session_id", post(mobile_update_planner_session))
+        .route("/api/mobile/planner/sessions/:session_id/turn", post(mobile_submit_planner_turn))
+        .route("/api/mobile/planner/sessions/:session_id/confirm", post(mobile_confirm_planner_turn))
+        .route("/api/mobile/planner/sessions/:session_id/clear", post(mobile_clear_planner_turn))
+        .route("/api/mobile/speech/transcribe", post(mobile_transcribe_audio))
         .route("/webhooks/twilio/whatsapp", post(twilio_whatsapp))
         .route(
             "/webhooks/twilio/voice",

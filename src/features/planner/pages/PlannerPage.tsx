@@ -17,6 +17,7 @@ import {
   deleteCapability,
   deleteModule,
   deleteWorkItem,
+  getSetting,
   getLatestWorkflowRunForWorkItem,
   getProductTree,
   handleWorkflowUserAction,
@@ -33,10 +34,12 @@ import {
   analyzeRepositoryForPlanner,
   renamePlannerDraftNode,
   runModelChatCompletion,
+  speakTextNatively,
   sendTwilioWhatsappMessage,
   startWorkItemWorkflow,
   startTwilioVoiceCall,
   submitPlannerTurn,
+  transcribeAudio,
   updatePlannerSession,
   updateCapability,
   updateModule,
@@ -361,41 +364,13 @@ type DraftEditOperation =
   | { kind: "add_child"; parentNodeId: string; childType: PlannerDraftChildType; name: string; summary?: string }
   | { kind: "delete"; nodeId: string };
 
-type SpeechRecognitionLike = {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onstart: (() => void) | null;
-  onend: (() => void) | null;
-  onerror: ((event: { error: string }) => void) | null;
-  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
-  start: () => void;
-  stop: () => void;
-};
-
-type SpeechRecognitionAlternativeLike = {
-  transcript: string;
-};
-
-type SpeechRecognitionResultLike = {
-  isFinal: boolean;
-  0: SpeechRecognitionAlternativeLike;
-};
-
-type SpeechRecognitionEventLike = {
-  resultIndex: number;
-  results: SpeechRecognitionResultLike[];
-};
-
-declare global {
-  interface Window {
-    SpeechRecognition?: new () => SpeechRecognitionLike;
-    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
-  }
-}
-
 const DEFAULT_ASSISTANT_OPENING =
   "Talk to me like a planning lead. Describe the product or outcome you want, and I’ll check what already exists, suggest any missing products, capabilities, or work items, and wait for your confirmation before adding them.";
+
+const SPEECH_PROVIDER_KEY = "speech.transcription_provider_id";
+const SPEECH_MODEL_KEY = "speech.transcription_model_name";
+const SPEECH_LOCALE_KEY = "speech.locale";
+const SPEECH_NATIVE_VOICE_KEY = "speech.native_voice";
 
 const PLANNER_SYSTEM_PROMPT = `You are an AI planning lead for a product-management desktop app.
 You can inspect the workspace with tools before proposing changes.
@@ -803,7 +778,7 @@ async function runPlannerToolLoop(params: {
   throw new Error("Planner exceeded tool-step limit before returning a final plan.");
 }
 
-function speak(text: string) {
+function speakInBrowser(text: string) {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) {
     return;
   }
@@ -812,6 +787,16 @@ function speak(text: string) {
   utterance.rate = 1;
   utterance.pitch = 1;
   window.speechSynthesis.speak(utterance);
+}
+
+async function blobToBase64(blob: Blob) {
+  const buffer = await blob.arrayBuffer();
+  let binary = "";
+  const bytes = new Uint8Array(buffer);
+  for (let index = 0; index < bytes.byteLength; index += 1) {
+    binary += String.fromCharCode(bytes[index]);
+  }
+  return window.btoa(binary);
 }
 
 function findProduct(context: ResolverContext, productName?: string) {
@@ -1409,6 +1394,62 @@ function findTreeNodePath(nodes: PlannerTreeNode[], nodeId: string | null, trail
   return [];
 }
 
+function flattenTreeNodes(nodes: PlannerTreeNode[]): PlannerTreeNode[] {
+  return nodes.flatMap((node) => [node, ...flattenTreeNodes(node.children)]);
+}
+
+function findAncestorNodeByType(path: PlannerTreeNode[], nodeType: string) {
+  for (let index = path.length - 1; index >= 0; index -= 1) {
+    if (getPlannerNodeType(path[index]) === nodeType) {
+      return path[index];
+    }
+  }
+  return null;
+}
+
+function resolveVoiceNodeReference(
+  nodes: PlannerTreeNode[],
+  selectedPath: PlannerTreeNode[],
+  rawReference: string,
+  explicitType?: string,
+) {
+  const reference = rawReference.trim().toLowerCase();
+  if (!reference) {
+    return null;
+  }
+
+  if (["this", "selected", "this node", "selected node"].includes(reference)) {
+    return explicitType
+      ? findAncestorNodeByType(selectedPath, explicitType)
+      : (selectedPath.length > 0 ? selectedPath[selectedPath.length - 1] : null);
+  }
+  if (["root", "product", "this product", "selected product", "root product"].includes(reference)) {
+    return findAncestorNodeByType(selectedPath, "product") ?? nodes[0] ?? null;
+  }
+  if (["this module", "selected module"].includes(reference)) {
+    return findAncestorNodeByType(selectedPath, "module");
+  }
+  if (["this capability", "selected capability"].includes(reference)) {
+    return findAncestorNodeByType(selectedPath, "capability");
+  }
+  if (["this work item", "selected work item"].includes(reference)) {
+    return findAncestorNodeByType(selectedPath, "work item");
+  }
+
+  const normalizedType = explicitType?.replace("-", " ");
+  const flattened = flattenTreeNodes(nodes).filter((node) => {
+    if (!normalizedType) {
+      return true;
+    }
+    return getPlannerNodeType(node) === normalizedType;
+  });
+  const exact = flattened.find((node) => node.label.trim().toLowerCase() === reference);
+  if (exact) {
+    return exact;
+  }
+  return flattened.find((node) => node.label.trim().toLowerCase().includes(reference)) ?? null;
+}
+
 type DraftValidationIssue = {
   tone: "ok" | "warn";
   title: string;
@@ -1843,13 +1884,20 @@ export function PlannerPage() {
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [autoSpeak, setAutoSpeak] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
+  const [speechProviderSetting, setSpeechProviderSetting] = useState("");
+  const [speechModelSetting, setSpeechModelSetting] = useState("");
+  const [speechLocaleSetting, setSpeechLocaleSetting] = useState("en-US");
+  const [speechNativeVoiceSetting, setSpeechNativeVoiceSetting] = useState("");
   const [showAdvancedPlannerControls, setShowAdvancedPlannerControls] = useState(false);
   const [contactTarget, setContactTarget] = useState("");
   const [contactDraft, setContactDraft] = useState("Call me and ask what work should be prioritized next.");
   const [contactMsg, setContactMsg] = useState<string | null>(null);
   const [contactError, setContactError] = useState<string | null>(null);
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -1918,6 +1966,44 @@ export function PlannerPage() {
     () => models.filter((model) => model.provider_id === providerId && model.enabled),
     [models, providerId],
   );
+  const speechModelSelection = useMemo(() => {
+    const looksLikeSpeechModel = (model: ModelDefinition) =>
+      model.capability_tags.some((tag) => ["speech_to_text", "transcription", "audio"].includes(tag))
+      || /whisper|transcrib/i.test(model.name);
+
+    if (speechProviderSetting || speechModelSetting) {
+      if (speechProviderSetting && speechModelSetting) {
+        return { providerId: speechProviderSetting, modelName: speechModelSetting, source: "settings" as const };
+      }
+      if (speechProviderSetting) {
+        const providerSpeechModel = models.find((model) => model.enabled && model.provider_id === speechProviderSetting && looksLikeSpeechModel(model));
+        return {
+          providerId: speechProviderSetting,
+          modelName: providerSpeechModel?.name ?? speechModelSetting ?? "whisper-1",
+          source: "settings" as const,
+        };
+      }
+      const namedSpeechModel = models.find((model) => model.enabled && model.name === speechModelSetting);
+      if (namedSpeechModel) {
+        return { providerId: namedSpeechModel.provider_id, modelName: namedSpeechModel.name, source: "settings" as const };
+      }
+    }
+
+    const sameProvider = models.find((model) => model.enabled && model.provider_id === providerId && looksLikeSpeechModel(model));
+    if (sameProvider) {
+      return { providerId: sameProvider.provider_id, modelName: sameProvider.name, source: "planner" as const };
+    }
+
+    const anySpeechModel = models.find((model) => model.enabled && looksLikeSpeechModel(model));
+    if (anySpeechModel) {
+      return { providerId: anySpeechModel.provider_id, modelName: anySpeechModel.name, source: "auto" as const };
+    }
+
+    if (providerId) {
+      return { providerId, modelName: "whisper-1", source: "fallback" as const };
+    }
+    return null;
+  }, [models, providerId, speechModelSetting, speechProviderSetting]);
 
   const context = useMemo<ResolverContext>(() => ({
     products,
@@ -1940,6 +2026,52 @@ export function PlannerPage() {
       setSelectedRepositoryId(repositories[0].id);
     }
   }, [repositories, selectedRepositoryId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([
+      getSetting(SPEECH_PROVIDER_KEY),
+      getSetting(SPEECH_MODEL_KEY),
+      getSetting(SPEECH_LOCALE_KEY),
+      getSetting(SPEECH_NATIVE_VOICE_KEY),
+    ]).then(([providerSetting, modelSetting, localeSetting, nativeVoiceSetting]) => {
+      if (cancelled) {
+        return;
+      }
+      if (providerSetting) {
+        setSpeechProviderSetting(providerSetting);
+      }
+      if (modelSetting) {
+        setSpeechModelSetting(modelSetting);
+      }
+      if (localeSetting) {
+        setSpeechLocaleSetting(localeSetting);
+      }
+      if (nativeVoiceSetting) {
+        setSpeechNativeVoiceSetting(nativeVoiceSetting);
+      }
+    }).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.__ARUVI_E2E__) {
+      return;
+    }
+    window.__ARUVI_E2E__.runPlannerVoiceTranscript = async (transcript: string) => {
+      const handled = await handleVoiceTranscript(transcript);
+      if (!handled) {
+        setDraft((current) => (current ? `${current.trim()} ${transcript.trim()}` : transcript.trim()));
+      }
+    };
+    return () => {
+      if (window.__ARUVI_E2E__) {
+        delete window.__ARUVI_E2E__.runPlannerVoiceTranscript;
+      }
+    };
+  }, [draftTreeNodes, handleVoiceTranscript, selectedDraftNodeId, latestTraceEvents, pendingPlan, autoSpeak]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2035,46 +2167,36 @@ export function PlannerPage() {
 
   useEffect(() => {
     if (!voiceEnabled) {
-      recognitionRef.current?.stop();
-      recognitionRef.current = null;
+      mediaRecorderRef.current?.stop();
+      mediaRecorderRef.current = null;
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
       setIsListening(false);
       return;
     }
-    const RecognitionCtor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
-    if (!RecognitionCtor) {
-      setSpeechError("Speech recognition is not available in this runtime.");
-      return;
-    }
-    const recognition = new RecognitionCtor();
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
-    recognition.onstart = () => {
-      setSpeechError(null);
-      setIsListening(true);
-    };
-    recognition.onend = () => setIsListening(false);
-    recognition.onerror = (event) => {
-      setSpeechError(event.error);
-      setIsListening(false);
-    };
-    recognition.onresult = (event) => {
-      let finalTranscript = "";
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        const result = event.results[index];
-        if (result.isFinal) {
-          finalTranscript += result[0].transcript;
-        }
-      }
-      if (finalTranscript.trim()) {
-        setDraft((current) => (current ? `${current.trim()} ${finalTranscript.trim()}` : finalTranscript.trim()));
-      }
-    };
-    recognitionRef.current = recognition;
     return () => {
-      recognition.stop();
+      mediaRecorderRef.current?.stop();
+      mediaRecorderRef.current = null;
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
     };
   }, [voiceEnabled]);
+
+  const speakAssistantReply = async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return;
+    }
+    try {
+      await speakTextNatively({
+        text: trimmed,
+        voice: speechNativeVoiceSetting || undefined,
+        locale: speechLocaleSetting || "en-US",
+      });
+    } catch {
+      speakInBrowser(trimmed);
+    }
+  };
 
   const mapPlannerResponseToMutationResult = (
     response: PlannerTurnResponse,
@@ -2291,7 +2413,7 @@ export function PlannerPage() {
             : result.mode === "confirmed"
               ? "Executed the pending planner actions."
               : result.plan.assistant_response;
-      speak(lastAssistant);
+      void speakAssistantReply(lastAssistant);
     }
   };
 
@@ -2398,10 +2520,30 @@ export function PlannerPage() {
     },
   });
 
+  const transcribeAudioMutation = useMutation<string, Error, { audioBytesBase64: string; mimeType: string }>({
+    mutationFn: async ({ audioBytesBase64, mimeType }) => {
+      if (!speechModelSelection) {
+        throw new Error("Configure a speech transcription provider or model before using voice input.");
+      }
+      const response = await transcribeAudio({
+        providerId: speechModelSelection.providerId,
+        modelName: speechModelSelection.modelName,
+        audioBytesBase64,
+        mimeType,
+        locale: speechLocaleSetting || "en-US",
+      });
+      return response.transcript;
+    },
+    onError: (error) => {
+      setSpeechError(error instanceof Error ? error.message : String(error));
+    },
+  });
+
   const isPlannerBusy =
     processMutation.isPending ||
     draftEditMutation.isPending ||
-    repositoryAnalysisMutation.isPending;
+    repositoryAnalysisMutation.isPending ||
+    transcribeAudioMutation.isPending;
 
   const send = async () => {
     const content = draft.trim();
@@ -2412,16 +2554,93 @@ export function PlannerPage() {
     await processMutation.mutateAsync(content);
   };
 
-  const toggleListening = () => {
-    if (!recognitionRef.current) {
-      setSpeechError("Speech recognition is not available.");
+  const toggleListening = async () => {
+    if (!voiceEnabled) {
+      setSpeechError("Voice input is disabled.");
       return;
     }
     if (isListening) {
-      recognitionRef.current.stop();
+      mediaRecorderRef.current?.stop();
       return;
     }
-    recognitionRef.current.start();
+
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setSpeechError("Microphone access is not available in this runtime.");
+      return;
+    }
+    if (typeof MediaRecorder === "undefined") {
+      setSpeechError("Audio recording is not supported in this runtime.");
+      return;
+    }
+
+    try {
+      setSpeechError(null);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      const preferredMimeTypes = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+      const mimeType = preferredMimeTypes.find((value) => MediaRecorder.isTypeSupported(value));
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      recorder.onstart = () => {
+        setSpeechError(null);
+        setIsListening(true);
+      };
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+      recorder.onerror = () => {
+        setSpeechError("Microphone capture failed.");
+        setIsListening(false);
+      };
+      recorder.onstop = () => {
+        setIsListening(false);
+        const nextChunks = [...audioChunksRef.current];
+        audioChunksRef.current = [];
+        mediaRecorderRef.current = null;
+        mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+
+        if (nextChunks.length === 0) {
+          return;
+        }
+
+        void (async () => {
+          try {
+            setIsTranscribing(true);
+            const blob = new Blob(nextChunks, {
+              type: recorder.mimeType || mimeType || "audio/webm",
+            });
+            const audioBytesBase64 = await blobToBase64(blob);
+            const transcript = await transcribeAudioMutation.mutateAsync({
+              audioBytesBase64,
+              mimeType: blob.type || "audio/webm",
+            });
+            const trimmedTranscript = transcript.trim();
+            if (trimmedTranscript) {
+              const handledAsVoiceCommand = await handleVoiceTranscript(trimmedTranscript);
+              if (!handledAsVoiceCommand) {
+                setDraft((current) => (current ? `${current.trim()} ${trimmedTranscript}` : trimmedTranscript));
+                composerRef.current?.focus();
+              }
+            }
+          } catch {
+            // Error state is handled by the mutation.
+          } finally {
+            setIsTranscribing(false);
+          }
+        })();
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+    } catch (error) {
+      setSpeechError(error instanceof Error ? error.message : String(error));
+      setIsListening(false);
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+      mediaRecorderRef.current = null;
+    }
   };
 
   const confirmPendingPlan = () => {
@@ -2592,6 +2811,171 @@ export function PlannerPage() {
     setExpandedDraftNodeIds([]);
   };
 
+  function appendVoiceCommandFeedback(transcript: string, reply: string) {
+    setMessages((current) => [
+      ...current,
+      { id: makeId(), role: "user", content: transcript, kind: "text" },
+      { id: makeId(), role: "assistant", content: reply, meta: "Voice command", kind: "text" },
+    ]);
+    if (autoSpeak) {
+      void speakAssistantReply(reply);
+    }
+  }
+
+  function parseVoiceNodeReference(
+    spokenRemainder: string,
+  ): { explicitType?: string; reference: string } {
+    const trimmed = spokenRemainder.trim();
+    const prefixes: Array<{ prefix: string; type: string }> = [
+      { prefix: "work item ", type: "work item" },
+      { prefix: "work-item ", type: "work item" },
+      { prefix: "capability ", type: "capability" },
+      { prefix: "module ", type: "module" },
+      { prefix: "product ", type: "product" },
+      { prefix: "node ", type: "node" },
+    ];
+    for (const option of prefixes) {
+      if (trimmed === option.prefix.trim()) {
+        return { explicitType: option.type, reference: `selected ${option.type}` };
+      }
+      if (trimmed.startsWith(option.prefix)) {
+        return { explicitType: option.type, reference: trimmed.slice(option.prefix.length).trim() };
+      }
+    }
+    return { reference: trimmed };
+  }
+
+  async function handleVoiceTranscript(transcript: string) {
+    const spoken = transcript.trim();
+    if (!spoken) {
+      return true;
+    }
+    const normalizedTranscript = normalize(spoken);
+
+    if (["commit", "commit draft", "commit the draft", "confirm", "confirm draft", "confirm proposal", "commit plan"].includes(normalizedTranscript)) {
+      if (pendingPlan || draftTreeNodes.length > 0) {
+        confirmPendingPlan();
+        return true;
+      }
+      appendVoiceCommandFeedback(spoken, "There is no staged proposal or draft to commit yet.");
+      return true;
+    }
+
+    if (["clear draft", "clear the draft", "clear proposal", "dismiss proposal", "dismiss draft", "cancel draft"].includes(normalizedTranscript)) {
+      if (pendingPlan || draftTreeNodes.length > 0) {
+        dismissPendingPlan();
+        appendVoiceCommandFeedback(spoken, "Cleared the current staged planner draft.");
+      } else {
+        appendVoiceCommandFeedback(spoken, "There is no active draft to clear.");
+      }
+      return true;
+    }
+
+    if (["view draft", "open draft", "show draft", "show draft tree", "view draft tree", "open workspace", "show workspace"].includes(normalizedTranscript)) {
+      if (draftTreeNodes.length === 0) {
+        appendVoiceCommandFeedback(spoken, "There is no staged draft tree yet.");
+      } else {
+        setPlannerView("draft");
+        appendVoiceCommandFeedback(spoken, "Opened the draft workspace.");
+      }
+      return true;
+    }
+
+    if (["view trace", "show trace", "open trace"].includes(normalizedTranscript)) {
+      if (latestTraceEvents.length === 0) {
+        appendVoiceCommandFeedback(spoken, "There is no planner trace available yet.");
+      } else {
+        setPlannerView("trace");
+        appendVoiceCommandFeedback(spoken, "Opened the latest planner trace.");
+      }
+      return true;
+    }
+
+    if (["view conversation", "open conversation", "show conversation", "back to chat", "view chat"].includes(normalizedTranscript)) {
+      setPlannerView("conversation");
+      appendVoiceCommandFeedback(spoken, "Switched back to the planner conversation.");
+      return true;
+    }
+
+    if (["expand draft", "expand the draft", "expand tree", "expand all", "open all branches"].includes(normalizedTranscript)) {
+      setPlannerView("draft");
+      expandAllDraftNodes();
+      appendVoiceCommandFeedback(spoken, "Expanded the staged draft tree.");
+      return true;
+    }
+
+    if (["collapse draft", "collapse the draft", "collapse tree", "collapse all"].includes(normalizedTranscript)) {
+      collapseAllDraftNodes();
+      appendVoiceCommandFeedback(spoken, "Collapsed the staged draft tree.");
+      return true;
+    }
+
+    const selectMatch = normalizedTranscript.match(/^(select|choose|highlight)\s+(.+)$/);
+    const expandMatch = normalizedTranscript.match(/^(expand|open)\s+(.+)$/);
+    const collapseMatch = normalizedTranscript.match(/^(collapse|close)\s+(.+)$/);
+
+    const matchAndSelect = (referenceText: string) => {
+      const { explicitType, reference } = parseVoiceNodeReference(referenceText);
+      const targetNode = resolveVoiceNodeReference(draftTreeNodes, selectedDraftNodePath, reference, explicitType);
+      if (!targetNode) {
+        appendVoiceCommandFeedback(spoken, `I could not find a draft node matching "${referenceText}".`);
+        return false;
+      }
+      setSelectedDraftNodeId(targetNode.id);
+      setPlannerView("draft");
+      const pathIds = findTreeNodePath(draftTreeNodes, targetNode.id).map((node) => node.id);
+      setExpandedDraftNodeIds((current) => Array.from(new Set([...current, ...pathIds])));
+      appendVoiceCommandFeedback(spoken, `Selected ${getPlannerNodeType(targetNode)} "${targetNode.label}".`);
+      return true;
+    };
+
+    if (selectMatch) {
+      return matchAndSelect(selectMatch[2]);
+    }
+
+    if (expandMatch) {
+      const targetText = expandMatch[2];
+      if (["draft", "tree", "all"].includes(targetText)) {
+        setPlannerView("draft");
+        expandAllDraftNodes();
+        appendVoiceCommandFeedback(spoken, "Expanded the staged draft tree.");
+        return true;
+      }
+      const { explicitType, reference } = parseVoiceNodeReference(targetText);
+      const targetNode = resolveVoiceNodeReference(draftTreeNodes, selectedDraftNodePath, reference, explicitType);
+      if (!targetNode) {
+        appendVoiceCommandFeedback(spoken, `I could not find a draft node matching "${targetText}".`);
+        return true;
+      }
+      const pathIds = findTreeNodePath(draftTreeNodes, targetNode.id).map((node) => node.id);
+      setPlannerView("draft");
+      setSelectedDraftNodeId(targetNode.id);
+      setExpandedDraftNodeIds((current) => Array.from(new Set([...current, ...pathIds, targetNode.id])));
+      appendVoiceCommandFeedback(spoken, `Expanded ${getPlannerNodeType(targetNode)} "${targetNode.label}".`);
+      return true;
+    }
+
+    if (collapseMatch) {
+      const targetText = collapseMatch[2];
+      if (["draft", "tree", "all"].includes(targetText)) {
+        collapseAllDraftNodes();
+        appendVoiceCommandFeedback(spoken, "Collapsed the staged draft tree.");
+        return true;
+      }
+      const { explicitType, reference } = parseVoiceNodeReference(targetText);
+      const targetNode = resolveVoiceNodeReference(draftTreeNodes, selectedDraftNodePath, reference, explicitType);
+      if (!targetNode) {
+        appendVoiceCommandFeedback(spoken, `I could not find a draft node matching "${targetText}".`);
+        return true;
+      }
+      setExpandedDraftNodeIds((current) => current.filter((nodeId) => nodeId !== targetNode.id));
+      appendVoiceCommandFeedback(spoken, `Collapsed ${getPlannerNodeType(targetNode)} "${targetNode.label}".`);
+      return true;
+    }
+
+    return false;
+  }
+
   const applyPromptSuggestion = (prompt: string) => {
     setDraft(prompt);
     composerRef.current?.focus();
@@ -2735,7 +3119,7 @@ export function PlannerPage() {
         <div style={styles.titleWrap}>
           <h1 style={styles.title}>Interactive Planner</h1>
           <div style={styles.subtitle}>
-            This is now suggestion-first. Describe what you want in natural language, the planner checks existing products, capabilities, and work items, then proposes additions or changes and waits for confirmation before applying them. Voice input and spoken responses are supported when the runtime exposes browser speech APIs.
+            This is now suggestion-first. Describe what you want in natural language, the planner checks existing products, capabilities, and work items, then proposes additions or changes and waits for confirmation before applying them. Voice input records microphone audio for backend transcription, and spoken replies prefer native macOS speech when available.
           </div>
         </div>
       </div>
@@ -3141,8 +3525,8 @@ export function PlannerPage() {
                 <button data-testid="planner-send" style={styles.btn} onClick={() => void send()} disabled={isPlannerBusy}>
                   {isPlannerBusy ? "Working..." : "Send"}
                 </button>
-                <button style={styles.btnGhost} onClick={toggleListening} disabled={!voiceEnabled}>
-                  {isListening ? "Stop Listening" : "Start Listening"}
+                <button style={styles.btnGhost} onClick={() => void toggleListening()} disabled={!voiceEnabled || isTranscribing}>
+                  {isListening ? "Stop Recording" : isTranscribing ? "Transcribing..." : "Start Voice Input"}
                 </button>
                 <button style={styles.btnGhost} onClick={() => setDraft("confirm")} disabled={!pendingPlan && draftTreeNodes.length === 0}>
                   {draftTreeNodes.length > 0 ? "Commit Draft" : "Confirm Proposal"}
@@ -3151,7 +3535,9 @@ export function PlannerPage() {
                   {draftTreeNodes.length > 0 ? "Clear Draft" : "Clear Pending"}
                 </button>
                 <span style={styles.status}>
-                  {draftTreeNodes.length > 0
+                  {isTranscribing
+                    ? "Transcribing voice input into the planner composer."
+                    : draftTreeNodes.length > 0
                     ? "A staged draft is active. Keep refining it, then commit when ready."
                     : pendingPlan
                       ? "A proposed plan is waiting for confirmation."
@@ -3213,8 +3599,20 @@ export function PlannerPage() {
                       </button>
                     </div>
                     {speechError ? <div style={{ ...styles.error, marginTop: 10 }}>{speechError}</div> : null}
+                    {speechModelSelection ? (
+                      <div style={{ ...styles.helper, marginTop: 10 }}>
+                        Voice input records microphone audio and sends it to `{speechModelSelection.modelName}` on the configured provider instead of using browser speech recognition. Source: {speechModelSelection.source === "settings" ? "Settings" : speechModelSelection.source === "planner" ? "current planner provider" : "automatic discovery"}.
+                      </div>
+                    ) : (
+                      <div style={{ ...styles.helper, marginTop: 10 }}>
+                        Configure a speech-capable provider to enable native voice transcription. The planner will look for a Whisper/transcription model first, then fall back to `whisper-1`.
+                      </div>
+                    )}
                     <div style={{ ...styles.helper, marginTop: 10 }}>
-                      For phone or WhatsApp calls, you still need an external telephony layer such as Twilio. This page gives you the in-app conversational planner first.
+                      Spoken command routing can select draft nodes, expand or collapse the tree, switch views, and commit or clear the draft before it falls back to appending the transcript into the planner composer.
+                    </div>
+                    <div style={{ ...styles.helper, marginTop: 10 }}>
+                      Voice replies use native macOS speech when available and fall back to browser speech synthesis otherwise. Phone or WhatsApp calls still need an external telephony layer such as Twilio.
                     </div>
                   </div>
 

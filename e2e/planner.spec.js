@@ -72,3 +72,27 @@ test("planner can reverse engineer a registered repository into a draft tree", a
   await expect(page.getByText("Interactive Planner").first()).toBeVisible();
   await expect(page.getByText("Repository Intelligence").first()).toBeVisible();
 });
+
+test("planner voice commands can select, switch views, and commit the staged draft", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByTestId("planner-input").fill("I want to build a hotel management system");
+  await page.getByTestId("planner-send").click();
+
+  await expect(page.getByTestId("draft-node-draft-product-hotel-management-system")).toBeVisible();
+
+  await page.evaluate(async () => {
+    await window.__ARUVI_E2E__?.runPlannerVoiceTranscript?.("select module guest management");
+  });
+  await expect(page.getByTestId("draft-node-rename-input")).toHaveValue("Guest Management");
+
+  await page.evaluate(async () => {
+    await window.__ARUVI_E2E__?.runPlannerVoiceTranscript?.("view conversation");
+  });
+  await expect(page.getByText("Switched back to the planner conversation.")).toBeVisible();
+
+  await page.evaluate(async () => {
+    await window.__ARUVI_E2E__?.runPlannerVoiceTranscript?.("commit draft");
+  });
+  await expect(page.getByText("Committed draft plan.")).toBeVisible();
+});

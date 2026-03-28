@@ -32,6 +32,7 @@ import type {
   PlannerContactResult,
   PlannerDraftChildType,
   PlannerSessionInfo,
+  SpeechToTextResponse,
   PlannerTurnResponse,
 } from "./types";
 
@@ -39,6 +40,7 @@ declare global {
   interface Window {
     __ARUVI_E2E__?: {
       invoke?: <T>(command: string, args?: Record<string, unknown>) => Promise<T> | T;
+      runPlannerVoiceTranscript?: (transcript: string) => Promise<void> | void;
     };
   }
 }
@@ -741,6 +743,36 @@ export const analyzeRepositoryForPlanner = (data: {
     repository_id: data.repositoryId,
     selectedDraftNodeId: data.selectedDraftNodeId ?? null,
     selected_draft_node_id: data.selectedDraftNodeId ?? null,
+  });
+
+export const transcribeAudio = (data: {
+  providerId?: string;
+  modelName?: string;
+  audioBytesBase64: string;
+  mimeType: string;
+  locale?: string;
+}) =>
+  invoke<SpeechToTextResponse>("transcribe_audio_command", {
+    providerId: data.providerId ?? null,
+    provider_id: data.providerId ?? null,
+    modelName: data.modelName ?? null,
+    model_name: data.modelName ?? null,
+    audioBytesBase64: data.audioBytesBase64,
+    audio_bytes_base64: data.audioBytesBase64,
+    mimeType: data.mimeType,
+    mime_type: data.mimeType,
+    locale: data.locale ?? null,
+  });
+
+export const speakTextNatively = (data: {
+  text: string;
+  voice?: string;
+  locale?: string;
+}) =>
+  invoke<void>("speak_text_natively_command", {
+    text: data.text,
+    voice: data.voice ?? null,
+    locale: data.locale ?? null,
   });
 
 export const sendTwilioWhatsappMessage = (data: { to: string; content: string }) =>

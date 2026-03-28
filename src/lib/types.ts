@@ -417,6 +417,10 @@ export interface PlannerTurnResponse {
 
 export type PlannerDraftChildType = "module" | "capability" | "work_item";
 
+export interface SpeechToTextResponse {
+  transcript: string;
+}
+
 export interface PlannerContactResult {
   channel: "whatsapp" | "voice";
   status: "sent" | "blocked";

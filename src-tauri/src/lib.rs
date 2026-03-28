@@ -192,6 +192,9 @@ pub fn run() {
             commands::settings_commands::get_database_path_override,
             commands::settings_commands::set_database_path_override,
             commands::settings_commands::clear_database_path_override,
+            // Speech commands
+            commands::speech_commands::transcribe_audio_command,
+            commands::speech_commands::speak_text_natively_command,
             // Observability commands
             commands::observability_commands::get_logs,
         ])
