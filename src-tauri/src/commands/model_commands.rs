@@ -1,10 +1,11 @@
-use crate::domain::model::{ModelDefinition, ModelProvider};
+use crate::domain::model::{ModelDefinition, ModelProvider, ProviderType};
 use crate::error::AppError;
 use crate::persistence::model_repo;
 use crate::providers::gateway::ModelGateway;
 use crate::providers::openai_compatible::OpenAiCompatibleProvider;
 use crate::providers::types::{ChatMessage, CompletionRequest, CompletionResponse};
 use crate::secrets;
+use crate::services::speech_service::resolve_local_runtime_model_path;
 use crate::state::AppState;
 use futures_util::StreamExt;
 use serde::Serialize;
@@ -162,6 +163,13 @@ pub async fn test_provider_connectivity(
     id: String,
 ) -> Result<String, AppError> {
     let provider = model_repo::get_provider(&state.db, &id).await?;
+    if matches!(provider.provider_type, ProviderType::LocalRuntime) {
+        let model_path = resolve_local_runtime_model_path(&provider.base_url)?;
+        return Ok(format!(
+            "Local runtime model is configured at {}",
+            model_path.display()
+        ));
+    }
     let api_key = secrets::resolve_provider_secret(&provider)?;
     let gw = OpenAiCompatibleProvider::new(provider.base_url, api_key);
     match gw.health_check().await {

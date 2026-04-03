@@ -293,6 +293,24 @@
     return response;
   }
 
+  function createPlannerStateResponse(session, status, message, executionLines, selectedNodeId, extraEvents) {
+    const response = {
+      session_id: session.session_id,
+      status,
+      assistant_message: message,
+      pending_plan: session.pending_plan ?? null,
+      tree_nodes: null,
+      draft_tree_nodes: buildDraftTreeNodes(session),
+      selected_draft_node_id: selectedNodeId ?? session.selected_draft_node_id ?? null,
+      execution_lines: executionLines || [],
+      execution_errors: [],
+      trace_events: [],
+    };
+    response.trace_events = makeTraceEvents(executionLines?.[0] ?? message, response, extraEvents);
+    session.selected_draft_node_id = response.selected_draft_node_id;
+    return response;
+  }
+
   function ensureHotelDraft(session) {
     const existing = findDraftNodeByLabel(session, "Hotel Management System", "product");
     if (existing) {
@@ -741,6 +759,110 @@
     };
   }
 
+  function submitPlannerVoiceTurn(args) {
+    const sessionId = getArg(args, "sessionId", "session_id");
+    const transcript = String(getArg(args, "transcript", "userInput", "user_input") ?? "").trim();
+    const session = getPlannerSession(sessionId);
+    if (!session) {
+      throw new Error(`Unknown planner session: ${sessionId}`);
+    }
+    if (!transcript) {
+      throw new Error("Voice transcript cannot be empty");
+    }
+    if (args.selectedDraftNodeId !== undefined || args.selected_draft_node_id !== undefined) {
+      session.selected_draft_node_id = args.selectedDraftNodeId ?? args.selected_draft_node_id ?? null;
+    }
+    const normalized = transcript.toLowerCase();
+
+    if ([
+      "yes",
+      "confirm",
+      "go ahead",
+      "commit",
+      "commit draft",
+      "commit the draft",
+      "confirm draft",
+      "confirm proposal",
+      "commit plan",
+    ].includes(normalized)) {
+      return confirmPlannerPlan(args);
+    }
+
+    if ([
+      "clear draft",
+      "clear the draft",
+      "clear proposal",
+      "dismiss proposal",
+      "dismiss draft",
+      "cancel draft",
+    ].includes(normalized)) {
+      const hadDraft = session.has_draft_plan || session.has_pending_plan;
+      session.has_pending_plan = false;
+      session.pending_plan = null;
+      session.draftNodes = {};
+      session.draftRootIds = [];
+      session.has_draft_plan = false;
+      session.selected_draft_node_id = null;
+      return createPlannerStateResponse(
+        session,
+        "execution",
+        hadDraft ? "Cleared the current staged planner draft." : "There is no active draft to clear.",
+        [hadDraft ? "Cleared the current staged planner draft." : "There is no active draft to clear."],
+        null,
+      );
+    }
+
+    const selectMatch = normalized.match(/^(select|choose|highlight|open|expand)\s+(.+)$/);
+    if (selectMatch && session.has_draft_plan) {
+      const rawTarget = String(transcript.replace(/^(select|choose|highlight|open|expand)\s+/i, "")).trim();
+      const normalizedTarget = rawTarget
+        .replace(/^work item\s+/i, "")
+        .replace(/^work-item\s+/i, "")
+        .replace(/^capability\s+/i, "")
+        .replace(/^module\s+/i, "")
+        .replace(/^product\s+/i, "")
+        .replace(/^node\s+/i, "")
+        .trim();
+      const explicitType = /^work item\s+/i.test(rawTarget)
+        ? "work_item"
+        : /^work-item\s+/i.test(rawTarget)
+          ? "work_item"
+          : /^capability\s+/i.test(rawTarget)
+            ? "capability"
+            : /^module\s+/i.test(rawTarget)
+              ? "module"
+              : /^product\s+/i.test(rawTarget)
+                ? "product"
+                : null;
+      const node = explicitType
+        ? findDraftNodeByLabel(session, normalizedTarget, explicitType)
+        : findDraftNodeByLabel(session, normalizedTarget, null);
+      if (!node) {
+        return createPlannerStateResponse(
+          session,
+          "session_update",
+          `I could not find a draft node matching "${rawTarget}".`,
+          [],
+          session.selected_draft_node_id,
+        );
+      }
+      session.selected_draft_node_id = node.id;
+      return createPlannerStateResponse(
+        session,
+        "session_update",
+        `Selected ${node.type.replace("_", " ")} "${node.label}".`,
+        [`Selected ${node.type.replace("_", " ")} "${node.label}".`],
+        node.id,
+      );
+    }
+
+    return submitPlannerTurn({
+      ...args,
+      user_input: transcript,
+      userInput: transcript,
+    });
+  }
+
   function registerRepository(args) {
     const state = getState();
     const repository = {
@@ -993,6 +1115,8 @@
         }
         case "submit_planner_turn_command":
           return ok(submitPlannerTurn(args || {}));
+        case "submit_planner_voice_turn_command":
+          return ok(submitPlannerVoiceTurn(args || {}));
         case "confirm_planner_plan_command":
           return ok(confirmPlannerPlan(args || {}));
         case "rename_planner_draft_node_command":
@@ -1006,6 +1130,28 @@
         case "set_setting":
           state.settings[getArg(args, "key")] = String(getArg(args, "value") ?? "");
           return ok(null);
+        case "get_mobile_bridge_status": {
+          const bindHost = state.settings["mobile.bind_host"] ?? "127.0.0.1";
+          const bindPort = Number.parseInt(state.settings["mobile.bind_port"] ?? "8787", 10) || 8787;
+          const detectedLanIp = "192.168.1.42";
+          const lanReady = !["127.0.0.1", "localhost", "::1"].includes(bindHost);
+          return ok({
+            bind_host: bindHost,
+            bind_port: bindPort,
+            host_source: state.settings["mobile.bind_host"] ? "settings" : "default",
+            port_source: state.settings["mobile.bind_port"] ? "settings" : "default",
+            bind_scope: lanReady ? (["0.0.0.0", "::"].includes(bindHost) ? "lan" : "custom") : "localhost-only",
+            detected_lan_ip: detectedLanIp,
+            desktop_base_url: `http://${bindHost === "0.0.0.0" ? "127.0.0.1" : bindHost}:${bindPort}`,
+            phone_base_url: lanReady ? `http://${bindHost === "0.0.0.0" ? detectedLanIp : bindHost}:${bindPort}` : null,
+            lan_ready: lanReady,
+            bind_changes_require_restart: true,
+            env_overrides_settings: false,
+            guidance: lanReady
+              ? "Use the phone base URL from the same Wi-Fi network."
+              : `Set mobile.bind_host to 0.0.0.0 and restart, then connect the iPhone to http://${detectedLanIp}:${bindPort}.`,
+          });
+        }
         case "get_database_health":
           return ok({
             applied_migrations: 13,

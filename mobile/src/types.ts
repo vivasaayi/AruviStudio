@@ -28,7 +28,7 @@ export type PlannerSessionInfo = {
 
 export type PlannerTurnResponse = {
   session_id: string;
-  status: "proposal" | "clarification" | "report" | "execution" | "error";
+  status: "proposal" | "clarification" | "report" | "execution" | "error" | "session_update";
   assistant_message: string;
   pending_plan: PlannerPlan | null;
   tree_nodes: PlannerTreeNode[] | null;

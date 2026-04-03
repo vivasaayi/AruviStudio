@@ -13,7 +13,7 @@ use crate::domain::repository::{Repository, RepositoryTreeNode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -1775,6 +1775,16 @@ fn build_draft_tree_nodes(
     build_draft_tree_children(draft_plan, None, selected_node_id)
 }
 
+fn planner_draft_node_type_label(node_type: &str) -> &'static str {
+    match node_type {
+        "product" => "product",
+        "module" => "module",
+        "capability" => "capability",
+        "work_item" => "work item",
+        _ => "node",
+    }
+}
+
 fn find_draft_node<'a>(
     draft_plan: &'a PlannerDraftPlan,
     node_type: &str,
@@ -1809,6 +1819,226 @@ fn find_draft_node_by_id<'a>(
 ) -> Option<&'a PlannerDraftNode> {
     let node_id = node_id?;
     draft_plan.nodes.iter().find(|node| node.id == node_id)
+}
+
+fn build_draft_node_path<'a>(
+    draft_plan: &'a PlannerDraftPlan,
+    node_id: Option<&str>,
+) -> Vec<&'a PlannerDraftNode> {
+    let mut reversed = vec![];
+    let mut current = find_draft_node_by_id(draft_plan, node_id);
+    while let Some(node) = current {
+        reversed.push(node);
+        current = node
+            .parent_id
+            .as_deref()
+            .and_then(|parent_id| find_draft_node_by_id(draft_plan, Some(parent_id)));
+    }
+    reversed.reverse();
+    reversed
+}
+
+fn find_draft_path_ancestor_by_type<'a>(
+    path: &[&'a PlannerDraftNode],
+    node_type: &str,
+) -> Option<&'a PlannerDraftNode> {
+    path.iter()
+        .rev()
+        .find(|node| node.node_type == node_type)
+        .copied()
+}
+
+fn parse_voice_node_reference(spoken_remainder: &str) -> (Option<&'static str>, String) {
+    let trimmed = spoken_remainder.trim();
+    let prefixes = [
+        ("work item ", "work_item"),
+        ("work-item ", "work_item"),
+        ("workitem ", "work_item"),
+        ("capability ", "capability"),
+        ("module ", "module"),
+        ("product ", "product"),
+        ("node ", "node"),
+    ];
+    for (prefix, node_type) in prefixes {
+        if trimmed == prefix.trim() {
+            return (Some(node_type), format!("selected {}", node_type.replace('_', " ")));
+        }
+        if let Some(rest) = trimmed.strip_prefix(prefix) {
+            return (Some(node_type), rest.trim().to_string());
+        }
+    }
+    (None, trimmed.to_string())
+}
+
+fn resolve_voice_draft_node_reference(
+    draft_plan: &PlannerDraftPlan,
+    selected_node_id: Option<&str>,
+    raw_reference: &str,
+    explicit_type: Option<&str>,
+) -> Result<Option<PlannerDraftNode>, AppError> {
+    let reference = normalize(Some(raw_reference));
+    if reference.is_empty() {
+        return Ok(None);
+    }
+
+    let selected_path = build_draft_node_path(draft_plan, selected_node_id);
+    let selected_node = selected_path.last().copied();
+    let effective_type = explicit_type.filter(|value| *value != "node");
+
+    let special_match = match reference.as_str() {
+        "this" | "selected" | "this node" | "selected node" | "current" | "current node" => {
+            if let Some(node_type) = effective_type {
+                find_draft_path_ancestor_by_type(&selected_path, node_type)
+            } else {
+                selected_node
+            }
+        }
+        "root" | "product" | "this product" | "selected product" | "root product" => {
+            find_draft_path_ancestor_by_type(&selected_path, "product").or_else(|| {
+                draft_plan
+                    .nodes
+                    .iter()
+                    .find(|node| node.node_type == "product" && node.parent_id.is_none())
+            })
+        }
+        "this module" | "selected module" | "current module" => {
+            find_draft_path_ancestor_by_type(&selected_path, "module")
+        }
+        "this capability" | "selected capability" | "current capability" => {
+            find_draft_path_ancestor_by_type(&selected_path, "capability")
+        }
+        "this work item" | "selected work item" | "current work item" => {
+            find_draft_path_ancestor_by_type(&selected_path, "work_item")
+        }
+        _ => None,
+    };
+    if let Some(node) = special_match {
+        return Ok(Some(node.clone()));
+    }
+
+    let flattened = draft_plan
+        .nodes
+        .iter()
+        .filter(|node| effective_type.map(|value| node.node_type == value).unwrap_or(true))
+        .collect::<Vec<_>>();
+
+    let exact = flattened
+        .iter()
+        .filter(|node| normalize(Some(&node.name)) == reference)
+        .copied()
+        .collect::<Vec<_>>();
+    if exact.len() == 1 {
+        return Ok(Some(exact[0].clone()));
+    }
+    if exact.len() > 1 {
+        return Err(AppError::Validation(format!(
+            "Multiple draft {} nodes match {}",
+            effective_type
+                .map(planner_draft_node_type_label)
+                .unwrap_or("node"),
+            raw_reference
+        )));
+    }
+
+    let partial = flattened
+        .iter()
+        .filter(|node| normalize(Some(&node.name)).contains(&reference))
+        .copied()
+        .collect::<Vec<_>>();
+    if partial.len() == 1 {
+        return Ok(Some(partial[0].clone()));
+    }
+    if partial.len() > 1 {
+        return Err(AppError::Validation(format!(
+            "Multiple draft {} nodes partially match {}",
+            effective_type
+                .map(planner_draft_node_type_label)
+                .unwrap_or("node"),
+            raw_reference
+        )));
+    }
+
+    Ok(None)
+}
+
+fn summarize_selected_draft_node(
+    draft_plan: &PlannerDraftPlan,
+    node: &PlannerDraftNode,
+) -> String {
+    let children = draft_plan
+        .nodes
+        .iter()
+        .filter(|candidate| candidate.parent_id.as_deref() == Some(node.id.as_str()))
+        .collect::<Vec<_>>();
+    if children.is_empty() {
+        return format!(
+            "Selected {} \"{}\". It has no staged children yet.",
+            planner_draft_node_type_label(&node.node_type),
+            node.name
+        );
+    }
+
+    let mut counts = BTreeMap::<String, usize>::new();
+    for child in &children {
+        *counts
+            .entry(planner_draft_node_type_label(&child.node_type).to_string())
+            .or_insert(0) += 1;
+    }
+    let counts_text = counts
+        .iter()
+        .map(|(node_type, count)| {
+            if *count == 1 {
+                format!("1 {node_type}")
+            } else {
+                format!("{count} {}s", node_type)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sample_names = children
+        .iter()
+        .take(3)
+        .map(|child| child.name.clone())
+        .collect::<Vec<_>>();
+    let sample_text = if sample_names.is_empty() {
+        String::new()
+    } else {
+        format!(" Examples: {}.", sample_names.join(", "))
+    };
+
+    format!(
+        "Selected {} \"{}\". It currently contains {}.{}",
+        planner_draft_node_type_label(&node.node_type),
+        node.name,
+        counts_text,
+        sample_text
+    )
+}
+
+fn build_session_state_response(
+    session_id: String,
+    status: &str,
+    assistant_message: String,
+    session: &PlannerSession,
+    execution_lines: Vec<String>,
+    execution_errors: Vec<String>,
+    trace_events: Vec<PlannerTraceEvent>,
+) -> PlannerTurnResponse {
+    PlannerTurnResponse {
+        session_id,
+        status: status.to_string(),
+        assistant_message,
+        pending_plan: session.pending_plan.clone(),
+        tree_nodes: None,
+        draft_tree_nodes: session
+            .draft_plan
+            .as_ref()
+            .map(|draft| build_draft_tree_nodes(draft, session.selected_draft_node_id.as_deref())),
+        selected_draft_node_id: session.selected_draft_node_id.clone(),
+        execution_lines,
+        execution_errors,
+        trace_events,
+    }
 }
 
 fn find_unique_draft_node_by_name<'a>(
@@ -3539,6 +3769,352 @@ pub async fn clear_planner_pending(
     Ok(info)
 }
 
+pub async fn submit_planner_voice_turn(
+    planner_service: Arc<Mutex<PlannerService>>,
+    state: &AppState,
+    session_id: String,
+    transcript: String,
+    selected_draft_node_id: Option<String>,
+) -> Result<PlannerTurnResponse, AppError> {
+    let spoken = transcript.trim().to_string();
+    if spoken.is_empty() {
+        return Err(AppError::Validation(
+            "Voice transcript cannot be empty".to_string(),
+        ));
+    }
+
+    let mut trace = vec![];
+    let mut session = get_or_load_session(&planner_service, &state.db, &session_id).await?;
+    push_trace(
+        &mut trace,
+        "session",
+        "Loaded planner session",
+        format!(
+            "session_id={}\nprovider_id={:?}\nmodel_name={:?}\nhas_pending_plan={}\nhas_draft_plan={}\nselected_draft_node_id={:?}",
+            session_id,
+            session.provider_id,
+            session.model_name,
+            session.pending_plan.is_some(),
+            session.draft_plan.is_some(),
+            session.selected_draft_node_id
+        ),
+    );
+
+    if selected_draft_node_id != session.selected_draft_node_id {
+        push_trace(
+            &mut trace,
+            "selection",
+            "Updated selected draft node",
+            format!(
+                "previous={:?}\nnext={:?}",
+                session.selected_draft_node_id, selected_draft_node_id
+            ),
+        );
+        session.selected_draft_node_id = selected_draft_node_id.clone();
+        persist_draft_state(
+            &state.db,
+            &session_id,
+            session.draft_plan.as_ref(),
+            session.selected_draft_node_id.as_deref(),
+        )
+        .await?;
+        let mut service = planner_service.lock().await;
+        service.save_session(&session_id, session.clone());
+    }
+
+    let normalized_transcript = normalize(Some(&spoken));
+    push_trace(
+        &mut trace,
+        "voice",
+        "Routing planner voice transcript",
+        format!(
+            "transcript={}\nselected_draft_node_id={:?}",
+            spoken, session.selected_draft_node_id
+        ),
+    );
+
+    if matches!(
+        normalized_transcript.as_str(),
+        "yes"
+            | "confirm"
+            | "go ahead"
+            | "commit"
+            | "commit draft"
+            | "commit the draft"
+            | "confirm draft"
+            | "confirm proposal"
+            | "commit plan"
+    ) {
+        push_trace(
+            &mut trace,
+            "voice",
+            "Matched commit voice command",
+            spoken.clone(),
+        );
+        return confirm_planner_plan(planner_service, state, session_id).await;
+    }
+
+    if matches!(
+        normalized_transcript.as_str(),
+        "clear draft"
+            | "clear the draft"
+            | "clear proposal"
+            | "dismiss proposal"
+            | "dismiss draft"
+            | "cancel draft"
+    ) {
+        push_trace(
+            &mut trace,
+            "voice",
+            "Matched clear voice command",
+            spoken.clone(),
+        );
+        let had_state = session.pending_plan.is_some() || session.draft_plan.is_some();
+        session.pending_plan = None;
+        session.draft_plan = None;
+        session.selected_draft_node_id = None;
+        append_conversation(&state.db, &session_id, "user", &spoken).await?;
+        let assistant_message = if had_state {
+            "Cleared the current staged planner draft.".to_string()
+        } else {
+            "There is no active draft to clear.".to_string()
+        };
+        append_conversation(&state.db, &session_id, "assistant", &assistant_message).await?;
+        session.conversation.push(PlannerConversationEntry {
+            role: "user".to_string(),
+            content: spoken,
+        });
+        session.conversation.push(PlannerConversationEntry {
+            role: "assistant".to_string(),
+            content: assistant_message.clone(),
+        });
+        persist_pending_plan(&state.db, &session_id, None).await?;
+        persist_draft_state(&state.db, &session_id, None, None).await?;
+        {
+            let mut service = planner_service.lock().await;
+            service.save_session(&session_id, session.clone());
+        }
+        return Ok(build_session_state_response(
+            session_id,
+            "execution",
+            assistant_message.clone(),
+            &session,
+            vec![assistant_message],
+            vec![],
+            trace,
+        ));
+    }
+
+    let is_draft_view_command = matches!(
+        normalized_transcript.as_str(),
+        "view draft"
+            | "open draft"
+            | "show draft"
+            | "show draft tree"
+            | "view draft tree"
+            | "open workspace"
+            | "show workspace"
+            | "expand draft"
+            | "expand the draft"
+            | "expand tree"
+    );
+    let is_draft_selection_command = ["select ", "choose ", "highlight ", "open ", "expand "]
+        .iter()
+        .any(|prefix| normalized_transcript.starts_with(prefix));
+
+    if session.draft_plan.is_none() && (is_draft_view_command || is_draft_selection_command) {
+        let assistant_message = "There is no staged draft tree yet.".to_string();
+        append_conversation(&state.db, &session_id, "user", &spoken).await?;
+        append_conversation(&state.db, &session_id, "assistant", &assistant_message).await?;
+        session.conversation.push(PlannerConversationEntry {
+            role: "user".to_string(),
+            content: spoken,
+        });
+        session.conversation.push(PlannerConversationEntry {
+            role: "assistant".to_string(),
+            content: assistant_message.clone(),
+        });
+        {
+            let mut service = planner_service.lock().await;
+            service.save_session(&session_id, session.clone());
+        }
+        return Ok(build_session_state_response(
+            session_id,
+            "session_update",
+            assistant_message.clone(),
+            &session,
+            vec![assistant_message],
+            vec![],
+            trace,
+        ));
+    }
+
+    if let Some(draft_plan) = session.draft_plan.clone() {
+        if is_draft_view_command {
+            let target = find_draft_node_by_id(&draft_plan, session.selected_draft_node_id.as_deref())
+                .or_else(|| draft_plan.nodes.iter().find(|node| node.node_type == "product"));
+            let assistant_message = target
+                .map(|node| summarize_selected_draft_node(&draft_plan, node))
+                .unwrap_or_else(|| "There is no staged draft tree yet.".to_string());
+            append_conversation(&state.db, &session_id, "user", &spoken).await?;
+            append_conversation(&state.db, &session_id, "assistant", &assistant_message).await?;
+            session.conversation.push(PlannerConversationEntry {
+                role: "user".to_string(),
+                content: spoken,
+            });
+            session.conversation.push(PlannerConversationEntry {
+                role: "assistant".to_string(),
+                content: assistant_message.clone(),
+            });
+            {
+                let mut service = planner_service.lock().await;
+                service.save_session(&session_id, session.clone());
+            }
+            return Ok(build_session_state_response(
+                session_id,
+                "session_update",
+                assistant_message.clone(),
+                &session,
+                vec![assistant_message],
+                vec![],
+                trace,
+            ));
+        }
+
+        let command_matchers = ["select ", "choose ", "highlight ", "open ", "expand "];
+        let matched_remainder = command_matchers.iter().find_map(|prefix| {
+            normalized_transcript
+                .strip_prefix(prefix)
+                .map(|_| spoken[prefix.len()..].trim().to_string())
+        });
+
+        if let Some(reference_text) = matched_remainder {
+            push_trace(
+                &mut trace,
+                "voice",
+                "Matched draft selection voice command",
+                reference_text.clone(),
+            );
+            let (explicit_type, reference) = parse_voice_node_reference(&reference_text);
+            let resolved = resolve_voice_draft_node_reference(
+                &draft_plan,
+                session.selected_draft_node_id.as_deref(),
+                &reference,
+                explicit_type,
+            );
+            let target_node = match resolved {
+                Ok(Some(node)) => node,
+                Ok(None) => {
+                    let assistant_message =
+                        format!("I could not find a draft node matching \"{}\".", reference_text);
+                    append_conversation(&state.db, &session_id, "user", &spoken).await?;
+                    append_conversation(&state.db, &session_id, "assistant", &assistant_message)
+                        .await?;
+                    session.conversation.push(PlannerConversationEntry {
+                        role: "user".to_string(),
+                        content: spoken,
+                    });
+                    session.conversation.push(PlannerConversationEntry {
+                        role: "assistant".to_string(),
+                        content: assistant_message.clone(),
+                    });
+                    {
+                        let mut service = planner_service.lock().await;
+                        service.save_session(&session_id, session.clone());
+                    }
+                    return Ok(build_session_state_response(
+                        session_id,
+                        "session_update",
+                        assistant_message.clone(),
+                        &session,
+                        vec![assistant_message],
+                        vec![],
+                        trace,
+                    ));
+                }
+                Err(error) => {
+                    let assistant_message = error.to_string();
+                    append_conversation(&state.db, &session_id, "user", &spoken).await?;
+                    append_conversation(&state.db, &session_id, "assistant", &assistant_message)
+                        .await?;
+                    session.conversation.push(PlannerConversationEntry {
+                        role: "user".to_string(),
+                        content: spoken,
+                    });
+                    session.conversation.push(PlannerConversationEntry {
+                        role: "assistant".to_string(),
+                        content: assistant_message.clone(),
+                    });
+                    {
+                        let mut service = planner_service.lock().await;
+                        service.save_session(&session_id, session.clone());
+                    }
+                    return Ok(build_session_state_response(
+                        session_id,
+                        "session_update",
+                        assistant_message.clone(),
+                        &session,
+                        vec![],
+                        vec![assistant_message],
+                        trace,
+                    ));
+                }
+            };
+
+            session.selected_draft_node_id = Some(target_node.id.clone());
+            persist_draft_state(
+                &state.db,
+                &session_id,
+                Some(&draft_plan),
+                session.selected_draft_node_id.as_deref(),
+            )
+            .await?;
+            let mut assistant_message = summarize_selected_draft_node(&draft_plan, &target_node);
+            if session.pending_plan.is_some() {
+                assistant_message.push_str(" The current draft proposal is still staged; say confirm when you want to commit it.");
+            }
+            append_conversation(&state.db, &session_id, "user", &spoken).await?;
+            append_conversation(&state.db, &session_id, "assistant", &assistant_message).await?;
+            session.conversation.push(PlannerConversationEntry {
+                role: "user".to_string(),
+                content: spoken,
+            });
+            session.conversation.push(PlannerConversationEntry {
+                role: "assistant".to_string(),
+                content: assistant_message.clone(),
+            });
+            {
+                let mut service = planner_service.lock().await;
+                service.save_session(&session_id, session.clone());
+            }
+            return Ok(build_session_state_response(
+                session_id,
+                "session_update",
+                assistant_message.clone(),
+                &session,
+                vec![assistant_message],
+                vec![],
+                trace,
+            ));
+        }
+    }
+
+    push_trace(
+        &mut trace,
+        "voice",
+        "No deterministic voice command matched",
+        "Falling back to the planner turn pipeline.",
+    );
+    submit_planner_turn(
+        planner_service,
+        state,
+        session_id,
+        spoken,
+        session.selected_draft_node_id.clone(),
+    )
+    .await
+}
+
 pub async fn submit_planner_turn(
     planner_service: Arc<Mutex<PlannerService>>,
     state: &AppState,
@@ -4437,8 +5013,9 @@ pub async fn analyze_repository_for_planner(
 mod tests {
     use super::{
         add_draft_child_node, apply_actions_to_draft, build_draft_tree_nodes,
-        build_repository_analysis_snapshot, commit_draft_plan, delete_draft_node,
-        normalize_planner_action, rename_draft_node, PlannerDraftPlan, RepositoryAnalysisSnapshot,
+        build_repository_analysis_snapshot, commit_draft_plan, create_planner_session,
+        delete_draft_node, normalize_planner_action, persist_draft_state, rename_draft_node,
+        submit_planner_voice_turn, PlannerDraftPlan, RepositoryAnalysisSnapshot,
     };
     use crate::domain::repository::Repository;
     use crate::persistence::{db as db_service, product_repo, work_item_repo};
@@ -4747,6 +5324,89 @@ mod tests {
         assert_eq!(module.parent_id.as_deref(), Some(product.id.as_str()));
         assert_eq!(capability.parent_id.as_deref(), Some(module.id.as_str()));
         assert_eq!(work_item.parent_id.as_deref(), Some(capability.id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn submit_planner_voice_turn_selects_draft_nodes() {
+        let _guard = acquire_planner_test_lock().await;
+        let state = make_test_state("voice_selects_draft_node").await;
+        let session = create_planner_session(
+            state.planner_service.clone(),
+            &state.db,
+            None,
+            None,
+        )
+        .await
+        .expect("failed to create planner session");
+
+        let draft = apply_actions_to_draft(
+            None,
+            None,
+            &normalize_actions(vec![
+                json!({
+                    "type": "create_product",
+                    "name": "Hotel Management System",
+                    "description": "Hotel root."
+                }),
+                json!({
+                    "type": "create_module",
+                    "target": { "productName": "Hotel Management System" },
+                    "name": "Guest Management",
+                    "description": "Guest workflows."
+                }),
+            ]),
+        )
+        .await
+        .expect("failed to build draft");
+        let product_id = draft
+            .nodes
+            .iter()
+            .find(|node| node.node_type == "product")
+            .expect("missing product")
+            .id
+            .clone();
+        let module_id = draft
+            .nodes
+            .iter()
+            .find(|node| node.node_type == "module" && node.name == "Guest Management")
+            .expect("missing module")
+            .id
+            .clone();
+
+        {
+            let mut service = state.planner_service.lock().await;
+            let mut loaded = service
+                .get_session(&session.session_id)
+                .expect("planner session should exist");
+            loaded.draft_plan = Some(draft.clone());
+            loaded.selected_draft_node_id = Some(product_id.clone());
+            service.save_session(&session.session_id, loaded);
+        }
+        persist_draft_state(
+            &state.db,
+            &session.session_id,
+            Some(&draft),
+            Some(product_id.as_str()),
+        )
+        .await
+        .expect("failed to persist draft state");
+
+        let response = submit_planner_voice_turn(
+            state.planner_service.clone(),
+            &state,
+            session.session_id.clone(),
+            "select module guest management".to_string(),
+            None,
+        )
+        .await
+        .expect("voice turn should succeed");
+
+        assert_eq!(response.status, "session_update");
+        assert_eq!(response.selected_draft_node_id.as_deref(), Some(module_id.as_str()));
+        assert!(response
+            .assistant_message
+            .contains("Selected module \"Guest Management\""));
+        assert!(response.draft_tree_nodes.is_some());
     }
 
     #[tokio::test]

@@ -170,6 +170,7 @@ pub fn run() {
             commands::planner_commands::update_planner_session_command,
             commands::planner_commands::clear_planner_pending_command,
             commands::planner_commands::submit_planner_turn_command,
+            commands::planner_commands::submit_planner_voice_turn_command,
             commands::planner_commands::confirm_planner_plan_command,
             commands::planner_commands::rename_planner_draft_node_command,
             commands::planner_commands::add_planner_draft_child_command,
@@ -187,6 +188,7 @@ pub fn run() {
             // Settings commands
             commands::settings_commands::get_setting,
             commands::settings_commands::set_setting,
+            commands::settings_commands::get_mobile_bridge_status,
             commands::settings_commands::get_database_health,
             commands::settings_commands::get_active_database_path,
             commands::settings_commands::get_database_path_override,

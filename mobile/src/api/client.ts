@@ -56,6 +56,13 @@ export class PlannerMobileClient {
     });
   }
 
+  submitPlannerVoiceTurn(sessionId: string, body: { user_input: string; selected_draft_node_id?: string | null }) {
+    return this.request<PlannerTurnResponse>(`/api/mobile/planner/sessions/${sessionId}/voice-turn`, {
+      method: "POST",
+      body,
+    });
+  }
+
   confirmPlannerDraft(sessionId: string) {
     return this.request<PlannerTurnResponse>(`/api/mobile/planner/sessions/${sessionId}/confirm`, {
       method: "POST",

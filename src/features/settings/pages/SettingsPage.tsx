@@ -5,6 +5,7 @@ import {
   getActiveDatabasePath,
   getDatabaseHealth,
   getDatabasePathOverride,
+  getMobileBridgeStatus,
   getSetting,
   listModelDefinitions,
   listProviders,
@@ -12,7 +13,7 @@ import {
   setDatabasePathOverride,
   setSetting,
 } from "../../../lib/tauri";
-import type { DatabaseHealth, ModelDefinition, ModelProvider } from "../../../lib/types";
+import type { DatabaseHealth, MobileBridgeStatus, ModelDefinition, ModelProvider } from "../../../lib/types";
 import { useUIStore } from "../../../state/uiStore";
 
 const AUTO_START_AFTER_APPROVAL_KEY = "workflow.auto_start_after_work_item_approval";
@@ -30,6 +31,8 @@ const SPEECH_MODEL_KEY = "speech.transcription_model_name";
 const SPEECH_LOCALE_KEY = "speech.locale";
 const SPEECH_NATIVE_VOICE_KEY = "speech.native_voice";
 const MOBILE_API_TOKEN_KEY = "mobile.api_token";
+const MOBILE_BIND_HOST_KEY = "mobile.bind_host";
+const MOBILE_BIND_PORT_KEY = "mobile.bind_port";
 const TWILIO_ACCOUNT_SID_KEY = "twilio.account_sid";
 const TWILIO_AUTH_TOKEN_KEY = "twilio.auth_token";
 const TWILIO_WHATSAPP_FROM_KEY = "twilio.whatsapp_from";
@@ -74,6 +77,7 @@ const styles: Record<string, React.CSSProperties> = {
   migrationList: { display: "flex", flexDirection: "column" as const, gap: 8, maxHeight: 220, overflowY: "auto" as const },
   migrationRow: { display: "flex", justifyContent: "space-between", gap: 12, padding: "8px 10px", backgroundColor: "#181818", border: "1px solid #2a2a2a", borderRadius: 6 },
   badge: { padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 700 },
+  codeBox: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, color: "#d7e3ff", backgroundColor: "#171b24", border: "1px solid #2d3a52", borderRadius: 6, padding: "8px 10px" },
 };
 
 export function SettingsPage() {
@@ -105,6 +109,8 @@ export function SettingsPage() {
   const [speechLocale, setSpeechLocale] = useState("en-US");
   const [speechNativeVoice, setSpeechNativeVoice] = useState("");
   const [mobileApiToken, setMobileApiToken] = useState("");
+  const [mobileBindHost, setMobileBindHost] = useState("127.0.0.1");
+  const [mobileBindPort, setMobileBindPort] = useState("8787");
   const [twilioAccountSid, setTwilioAccountSid] = useState("");
   const [twilioAuthToken, setTwilioAuthToken] = useState("");
   const [twilioWhatsappFrom, setTwilioWhatsappFrom] = useState("");
@@ -112,6 +118,10 @@ export function SettingsPage() {
   const [twilioWebhookBaseUrl, setTwilioWebhookBaseUrl] = useState("");
   const { data: providers = [] } = useQuery<ModelProvider[]>({ queryKey: ["settingsProviders"], queryFn: listProviders });
   const { data: models = [] } = useQuery<ModelDefinition[]>({ queryKey: ["settingsModels"], queryFn: listModelDefinitions });
+  const { data: mobileBridgeStatus } = useQuery<MobileBridgeStatus>({
+    queryKey: ["mobileBridgeStatus"],
+    queryFn: getMobileBridgeStatus,
+  });
 
   const speechProviderOptions = useMemo(
     () => providers.filter((provider) => provider.enabled),
@@ -142,6 +152,8 @@ export function SettingsPage() {
     getSetting(SPEECH_LOCALE_KEY).then((v) => { if (v) setSpeechLocale(v); });
     getSetting(SPEECH_NATIVE_VOICE_KEY).then((v) => { if (v) setSpeechNativeVoice(v); });
     getSetting(MOBILE_API_TOKEN_KEY).then((v) => { if (v) setMobileApiToken(v); });
+    getSetting(MOBILE_BIND_HOST_KEY).then((v) => { if (v) setMobileBindHost(v); });
+    getSetting(MOBILE_BIND_PORT_KEY).then((v) => { if (v) setMobileBindPort(v); });
     getSetting(TWILIO_ACCOUNT_SID_KEY).then((v) => { if (v) setTwilioAccountSid(v); });
     getSetting(TWILIO_AUTH_TOKEN_KEY).then((v) => { if (v) setTwilioAuthToken(v); });
     getSetting(TWILIO_WHATSAPP_FROM_KEY).then((v) => { if (v) setTwilioWhatsappFrom(v); });
@@ -171,6 +183,7 @@ export function SettingsPage() {
   const saveSetting = async (key: string, value: string) => {
     await setSetting(key, value);
     await queryClient.invalidateQueries({ queryKey: ["setting"] });
+    await queryClient.invalidateQueries({ queryKey: ["mobileBridgeStatus"] });
     if (key === HIDE_EXAMPLE_PRODUCTS_KEY) {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["products"] }),
@@ -203,6 +216,16 @@ export function SettingsPage() {
       setTimeout(() => setDbPathOverrideSaved(null), 2500);
     } catch (error) {
       setDbPathOverrideError(String(error));
+    }
+  };
+
+  const copyText = async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setSavedMsg(`copied:${value}`);
+      setTimeout(() => setSavedMsg(null), 2000);
+    } catch {
+      setSavedMsg(null);
     }
   };
 
@@ -367,8 +390,55 @@ export function SettingsPage() {
           <div><div style={styles.label}>Mobile API Token</div><div style={styles.desc}>Bearer token used by the iPhone planner companion when it talks to the desktop planner bridge.</div></div>
           <div style={{ display: "flex", alignItems: "center" }}><input style={styles.input} value={mobileApiToken} onChange={(e) => setMobileApiToken(e.target.value)} placeholder="set-a-strong-token" /><button style={styles.btn} onClick={() => saveSetting(MOBILE_API_TOKEN_KEY, mobileApiToken)}>Save</button>{savedMsg === MOBILE_API_TOKEN_KEY && <span style={styles.saved}>Saved!</span>}</div>
         </div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>Bind Host</div><div style={styles.desc}>Use `0.0.0.0` for same-LAN iPhone access. `127.0.0.1` keeps the mobile bridge local to this Mac. Restart required.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}><input style={{ ...styles.input, width: 180 }} value={mobileBindHost} onChange={(e) => setMobileBindHost(e.target.value)} placeholder="0.0.0.0" /><button style={styles.btn} onClick={() => saveSetting(MOBILE_BIND_HOST_KEY, mobileBindHost)}>Save</button>{savedMsg === MOBILE_BIND_HOST_KEY && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>Bind Port</div><div style={styles.desc}>Port exposed by the desktop planner bridge. Restart required after changes.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}><input style={{ ...styles.input, width: 120 }} type="number" min="1" max="65535" value={mobileBindPort} onChange={(e) => setMobileBindPort(e.target.value)} placeholder="8787" /><button style={styles.btn} onClick={() => saveSetting(MOBILE_BIND_PORT_KEY, mobileBindPort)}>Save</button>{savedMsg === MOBILE_BIND_PORT_KEY && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
         <div style={{ ...styles.desc, marginTop: 8 }}>
           The phone client uses the same planner and speech APIs as the desktop UI. To reach the desktop from an iPhone, expose the webhook server on a reachable host and connect with this token.
+        </div>
+        <div style={styles.healthCard}>
+          <div style={{ ...styles.label, marginBottom: 8 }}>LAN Ready Status</div>
+          {mobileBridgeStatus ? (
+            <>
+              <div style={styles.healthGrid}>
+                <div>
+                  <div style={styles.healthLabel}>Bind Scope</div>
+                  <div style={styles.healthValue}>{mobileBridgeStatus.bind_scope}</div>
+                </div>
+                <div>
+                  <div style={styles.healthLabel}>Detected Mac LAN IP</div>
+                  <div style={styles.healthValue}>{mobileBridgeStatus.detected_lan_ip ?? "Unavailable"}</div>
+                </div>
+              </div>
+              <div style={{ ...styles.desc, marginBottom: 8 }}>
+                {mobileBridgeStatus.guidance}
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <div style={styles.healthLabel}>Desktop Base URL</div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+                  <div style={{ ...styles.codeBox, flex: 1 }}>{mobileBridgeStatus.desktop_base_url}</div>
+                  <button style={{ ...styles.btn, marginLeft: 0 }} onClick={() => copyText(mobileBridgeStatus.desktop_base_url)}>Copy</button>
+                </div>
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <div style={styles.healthLabel}>Phone Base URL</div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+                  <div style={{ ...styles.codeBox, flex: 1 }}>{mobileBridgeStatus.phone_base_url ?? "Set bind host to 0.0.0.0 and restart to enable same-LAN access."}</div>
+                  {mobileBridgeStatus.phone_base_url && <button style={{ ...styles.btn, marginLeft: 0 }} onClick={() => copyText(mobileBridgeStatus.phone_base_url!)}>Copy</button>}
+                </div>
+              </div>
+              <div style={styles.desc}>
+                Bind host source: {mobileBridgeStatus.host_source}. Port source: {mobileBridgeStatus.port_source}. {mobileBridgeStatus.env_overrides_settings ? "Environment variables currently override these settings. " : ""}{mobileBridgeStatus.bind_changes_require_restart ? "Restart AruviStudio after changing bind host or port." : ""}
+              </div>
+            </>
+          ) : (
+            <div style={styles.desc}>Loading mobile bridge status…</div>
+          )}
         </div>
       </div>
       <div style={styles.section}>

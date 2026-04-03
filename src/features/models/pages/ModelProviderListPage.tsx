@@ -186,12 +186,25 @@ export function ModelProviderListPage() {
     }
   };
 
-  const applyPreset = (preset: "deepseek" | "lm_studio") => {
+  const applyPreset = (preset: "deepseek" | "lm_studio" | "local_whisper") => {
     if (preset === "deepseek") {
       setForm({
         name: "DeepSeek (Hosted)",
         providerType: "openai_compatible",
         baseUrl: "https://api.deepseek.com/v1",
+        authSecretRef: "",
+      });
+      setProviderError(null);
+      setProviderSuccess(null);
+      setShowForm(true);
+      return;
+    }
+
+    if (preset === "local_whisper") {
+      setForm({
+        name: "Whisper.cpp (Local)",
+        providerType: "local_runtime",
+        baseUrl: "/absolute/path/to/ggml-base.en.bin",
         authSecretRef: "",
       });
       setProviderError(null);
@@ -245,11 +258,12 @@ export function ModelProviderListPage() {
       <div style={{ ...styles.form, marginBottom: 18 }}>
         <div style={{ ...styles.title, fontSize: 16, marginBottom: 10 }}>Quick Start</div>
         <div style={{ color: "#9aa0a6", fontSize: 13, lineHeight: 1.5, marginBottom: 14 }}>
-          Use DeepSeek hosted first if you want a quick end-to-end path. The provider is OpenAI-compatible, so it fits the current orchestration layer without waiting on local runtime work.
+          Use DeepSeek hosted first if you want a quick end-to-end path. For fully local desktop voice, add a Whisper.cpp provider and point it at a downloaded local Whisper model file.
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <button style={styles.btn} onClick={() => applyPreset("deepseek")}>Use DeepSeek Hosted</button>
           <button style={{ ...styles.btn, backgroundColor: "#2c3139" }} onClick={() => applyPreset("lm_studio")}>Use LM Studio Local</button>
+          <button style={{ ...styles.btn, backgroundColor: "#355c2b" }} onClick={() => applyPreset("local_whisper")}>Use Whisper.cpp Local</button>
         </div>
       </div>
       {showForm && (
@@ -263,13 +277,17 @@ export function ModelProviderListPage() {
         <div style={styles.form}>
           <label style={styles.label}>Provider Name</label><input style={styles.input} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. DeepSeek (Hosted)" />
           <label style={styles.label}>Provider Type</label><select style={styles.select} value={form.providerType} onChange={(e) => setForm({ ...form, providerType: e.target.value })}><option value="openai_compatible">OpenAI Compatible</option><option value="local_runtime">Local Runtime</option></select>
-          <label style={styles.label}>Base URL</label><input style={styles.input} value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} />
+          <label style={styles.label}>{form.providerType === "local_runtime" ? "Local Model Path" : "Base URL"}</label><input style={styles.input} value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} />
           <div style={{ fontSize: 12, color: "#8f96a3", marginBottom: 8 }}>
-            You can use <code>http://localhost:1234</code> or <code>http://localhost:1234/v1</code>. Aruvi normalizes both.
+            {form.providerType === "local_runtime"
+              ? <>For Whisper.cpp local speech, use an absolute path like <code>/Users/you/models/ggml-base.en.bin</code>.</>
+              : <>You can use <code>http://localhost:1234</code> or <code>http://localhost:1234/v1</code>. Aruvi normalizes both.</>}
           </div>
-          <label style={styles.label}>API Key / Secret Ref (optional)</label><input style={styles.input} value={form.authSecretRef} onChange={(e) => setForm({ ...form, authSecretRef: e.target.value })} placeholder="Paste API key (stored in Keychain) or ref:provider:... value" />
+          <label style={styles.label}>API Key / Secret Ref (optional)</label><input style={styles.input} value={form.authSecretRef} onChange={(e) => setForm({ ...form, authSecretRef: e.target.value })} placeholder={form.providerType === "local_runtime" ? "Leave empty for local runtime" : "Paste API key (stored in Keychain) or ref:provider:... value"} />
           <div style={{ fontSize: 12, color: "#8f96a3", marginBottom: 12 }}>
-            Keys are stored in macOS Keychain. If Keychain access is blocked during development, runtime falls back to <code>~/.aruvistudio/llm-config.json</code>.
+            {form.providerType === "local_runtime"
+              ? <>Local runtime providers do not require an API key. The path above should point directly to a downloaded Whisper model file.</>
+              : <>Keys are stored in macOS Keychain. If Keychain access is blocked during development, runtime falls back to <code>~/.aruvistudio/llm-config.json</code>.</>}
           </div>
           {providerError && <div style={styles.feedbackError}>{providerError}</div>}
           <button style={styles.btn} onClick={() => createMutation.mutate()} disabled={!form.name || createMutation.isPending}>{createMutation.isPending ? "Adding..." : "Add Provider"}</button>
@@ -335,6 +353,21 @@ export function ModelProviderListPage() {
               }}
             >
               DeepSeek Coder Preset
+            </button>
+            <button
+              style={{ ...styles.btn, backgroundColor: "#355c2b" }}
+              onClick={() => {
+                const whisperProvider = (providers ?? []).find((provider) => provider.provider_type === "local_runtime" || provider.name.toLowerCase().includes("whisper"));
+                setModelForm({
+                  providerId: whisperProvider?.id ?? modelForm.providerId,
+                  name: "whisper-base.en",
+                  contextWindow: "",
+                  capabilityTags: "speech_to_text,transcription,audio",
+                  notes: "Local Whisper runtime for desktop voice transcription through whisper-rs/whisper.cpp.",
+                });
+              }}
+            >
+              Local Whisper Preset
             </button>
           </div>
           {modelError && <div style={styles.feedbackError}>{modelError}</div>}

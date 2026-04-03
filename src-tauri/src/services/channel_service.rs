@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::persistence::{planner_repo, settings_repo};
 use crate::services::planner_service::{
-    confirm_planner_plan, create_planner_session, submit_planner_turn, PlannerTurnResponse,
+    create_planner_session, submit_planner_voice_turn, PlannerTurnResponse,
 };
 use crate::state::AppState;
 use chrono::{Local, NaiveTime};
@@ -247,15 +247,7 @@ pub async fn handle_inbound_message(
         &message.remote_conversation_id,
     )
     .await?;
-
-    if matches!(
-        message.content.trim().to_lowercase().as_str(),
-        "yes" | "confirm" | "go ahead"
-    ) {
-        return confirm_planner_plan(state.planner_service.clone(), state, session_id).await;
-    }
-
-    submit_planner_turn(
+    submit_planner_voice_turn(
         state.planner_service.clone(),
         state,
         session_id,

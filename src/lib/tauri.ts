@@ -26,6 +26,7 @@ import type {
   Finding,
   ProductTree,
   DatabaseHealth,
+  MobileBridgeStatus,
   ChatMessagePayload,
   ChatCompletionResponse,
   WorkspaceProvisionResult,
@@ -632,6 +633,7 @@ export const restartWorkflowRun = (workflowRunId: string) =>
 // Settings commands
 export const getSetting = (key: string) => invoke<string | null>("get_setting", { key });
 export const setSetting = (key: string, value: string) => invoke("set_setting", { key, value });
+export const getMobileBridgeStatus = () => invoke<MobileBridgeStatus>("get_mobile_bridge_status");
 export const getDatabaseHealth = () => invoke<DatabaseHealth>("get_database_health");
 export const getActiveDatabasePath = () => invoke<string>("get_active_database_path");
 export const getDatabasePathOverride = () => invoke<string | null>("get_database_path_override");
@@ -679,6 +681,17 @@ export const submitPlannerTurn = (data: { sessionId: string; userInput: string; 
     session_id: data.sessionId,
     userInput: data.userInput,
     user_input: data.userInput,
+    selectedDraftNodeId: data.selectedDraftNodeId ?? null,
+    selected_draft_node_id: data.selectedDraftNodeId ?? null,
+  });
+
+export const submitPlannerVoiceTurn = (data: { sessionId: string; transcript: string; selectedDraftNodeId?: string | null }) =>
+  invoke<PlannerTurnResponse>("submit_planner_voice_turn_command", {
+    sessionId: data.sessionId,
+    session_id: data.sessionId,
+    transcript: data.transcript,
+    userInput: data.transcript,
+    user_input: data.transcript,
     selectedDraftNodeId: data.selectedDraftNodeId ?? null,
     selected_draft_node_id: data.selectedDraftNodeId ?? null,
   });

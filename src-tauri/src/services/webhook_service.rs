@@ -3,7 +3,7 @@ use crate::services::channel_service::{
 };
 use crate::services::planner_service::{
     clear_planner_pending, confirm_planner_plan, create_planner_session, submit_planner_turn,
-    update_planner_session,
+    submit_planner_voice_turn, update_planner_session,
 };
 use crate::services::speech_service::{
     transcribe_audio_with_provider, SpeechToTextRequest, SpeechToTextResponse,
@@ -18,13 +18,15 @@ use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use hmac::{Hmac, Mac};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr, UdpSocket};
 use tracing::{error, info};
 
 const MOBILE_API_TOKEN_KEY: &str = "mobile.api_token";
+pub const MOBILE_BIND_HOST_KEY: &str = "mobile.bind_host";
+pub const MOBILE_BIND_PORT_KEY: &str = "mobile.bind_port";
 const SPEECH_PROVIDER_KEY: &str = "speech.transcription_provider_id";
 const SPEECH_MODEL_KEY: &str = "speech.transcription_model_name";
 const SPEECH_LOCALE_KEY: &str = "speech.locale";
@@ -32,6 +34,14 @@ const SPEECH_LOCALE_KEY: &str = "speech.locale";
 #[derive(Clone)]
 pub struct WebhookState {
     pub app_state: AppState,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WebhookBindConfig {
+    pub host: String,
+    pub port: u16,
+    pub host_source: String,
+    pub port_source: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -195,6 +205,29 @@ async fn mobile_submit_planner_turn(
         return response;
     }
     match submit_planner_turn(
+        state.app_state.planner_service.clone(),
+        &state.app_state,
+        session_id,
+        body.user_input,
+        body.selected_draft_node_id,
+    )
+    .await
+    {
+        Ok(response) => Json(response).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
+}
+
+async fn mobile_submit_planner_voice_turn(
+    State(state): State<WebhookState>,
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+    Json(body): Json<MobilePlannerTurnRequest>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await {
+        return response;
+    }
+    match submit_planner_voice_turn(
         state.app_state.planner_service.clone(),
         &state.app_state,
         session_id,
@@ -393,6 +426,111 @@ async fn resolve_mobile_speech_defaults(
     Ok((provider_id, model_name, locale))
 }
 
+fn parse_bind_host(value: Option<String>) -> Option<String> {
+    value.and_then(|host| {
+        let trimmed = host.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn parse_bind_port(value: Option<String>) -> Option<u16> {
+    value.and_then(|port| port.trim().parse::<u16>().ok())
+}
+
+pub async fn resolve_webhook_bind_config(state: &AppState) -> Result<WebhookBindConfig, String> {
+    let env_host = parse_bind_host(std::env::var("ARUVI_WEBHOOK_HOST").ok());
+    let settings_host = parse_bind_host(
+        settings_repo::get_setting(&state.db, MOBILE_BIND_HOST_KEY)
+            .await
+            .map_err(|error| error.to_string())?,
+    );
+    let (host, host_source) = if let Some(host) = env_host {
+        (host, "env".to_string())
+    } else if let Some(host) = settings_host {
+        (host, "settings".to_string())
+    } else {
+        ("127.0.0.1".to_string(), "default".to_string())
+    };
+
+    let env_port = parse_bind_port(std::env::var("ARUVI_WEBHOOK_PORT").ok());
+    let settings_port = parse_bind_port(
+        settings_repo::get_setting(&state.db, MOBILE_BIND_PORT_KEY)
+            .await
+            .map_err(|error| error.to_string())?,
+    );
+    let (port, port_source) = if let Some(port) = env_port {
+        (port, "env".to_string())
+    } else if let Some(port) = settings_port {
+        (port, "settings".to_string())
+    } else {
+        (8787, "default".to_string())
+    };
+
+    Ok(WebhookBindConfig {
+        host,
+        port,
+        host_source,
+        port_source,
+    })
+}
+
+pub fn detect_primary_lan_ip() -> Option<String> {
+    for probe in ["8.8.8.8:80", "1.1.1.1:80"] {
+        let Ok(socket) = UdpSocket::bind("0.0.0.0:0") else {
+            continue;
+        };
+        if socket.connect(probe).is_err() {
+            continue;
+        }
+        let Ok(local_addr) = socket.local_addr() else {
+            continue;
+        };
+        match local_addr.ip() {
+            IpAddr::V4(ip) if !ip.is_loopback() => return Some(ip.to_string()),
+            _ => continue,
+        }
+    }
+    None
+}
+
+pub fn classify_bind_scope(host: &str) -> &'static str {
+    match host.trim() {
+        "127.0.0.1" | "localhost" | "::1" => "localhost-only",
+        "0.0.0.0" | "::" => "lan",
+        _ => "custom",
+    }
+}
+
+fn format_http_host(host: &str) -> String {
+    if host.contains(':') {
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    }
+}
+
+pub fn build_desktop_base_url(host: &str, port: u16) -> String {
+    let normalized_host = match host.trim() {
+        "0.0.0.0" => "127.0.0.1",
+        "::" => "::1",
+        other => other,
+    };
+    format!("http://{}:{port}", format_http_host(normalized_host))
+}
+
+pub fn build_phone_base_url(host: &str, port: u16, lan_ip: Option<&str>) -> Option<String> {
+    let phone_host = match host.trim() {
+        "127.0.0.1" | "localhost" | "::1" => return None,
+        "0.0.0.0" | "::" => lan_ip?,
+        other => other,
+    };
+    Some(format!("http://{}:{port}", format_http_host(phone_host)))
+}
+
 async fn twilio_whatsapp(
     State(state): State<WebhookState>,
     headers: HeaderMap,
@@ -515,12 +653,21 @@ async fn twilio_voice_entry_with_prompt(
 }
 
 pub async fn start_webhook_server(app_state: AppState) {
-    let host = std::env::var("ARUVI_WEBHOOK_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let port = std::env::var("ARUVI_WEBHOOK_PORT")
-        .ok()
-        .and_then(|value| value.parse::<u16>().ok())
-        .unwrap_or(8787);
-    let address: SocketAddr = match format!("{host}:{port}").parse() {
+    let bind_config = match resolve_webhook_bind_config(&app_state).await {
+        Ok(bind_config) => bind_config,
+        Err(error) => {
+            error!(error = %error, "failed to resolve webhook bind config");
+            return;
+        }
+    };
+    let host = bind_config.host;
+    let port = bind_config.port;
+    let bind_target = if host.contains(':') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    };
+    let address: SocketAddr = match bind_target.parse() {
         Ok(address) => address,
         Err(error) => {
             error!(error = %error, "invalid webhook bind address");
@@ -534,6 +681,10 @@ pub async fn start_webhook_server(app_state: AppState) {
         .route("/api/mobile/planner/sessions", post(mobile_create_planner_session))
         .route("/api/mobile/planner/sessions/:session_id", post(mobile_update_planner_session))
         .route("/api/mobile/planner/sessions/:session_id/turn", post(mobile_submit_planner_turn))
+        .route(
+            "/api/mobile/planner/sessions/:session_id/voice-turn",
+            post(mobile_submit_planner_voice_turn),
+        )
         .route("/api/mobile/planner/sessions/:session_id/confirm", post(mobile_confirm_planner_turn))
         .route("/api/mobile/planner/sessions/:session_id/clear", post(mobile_clear_planner_turn))
         .route("/api/mobile/speech/transcribe", post(mobile_transcribe_audio))

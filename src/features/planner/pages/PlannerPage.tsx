@@ -39,6 +39,7 @@ import {
   startWorkItemWorkflow,
   startTwilioVoiceCall,
   submitPlannerTurn,
+  submitPlannerVoiceTurn,
   transcribeAudio,
   updatePlannerSession,
   updateCapability,
@@ -340,6 +341,16 @@ type PlannerMutationResult =
     }
   | {
       mode: "executed";
+      userInput: string;
+      plan: PlannerPlan;
+      execution: ExecutionResult;
+      treeNodes?: PlannerTreeNode[];
+      draftTreeNodes?: PlannerTreeNode[];
+      selectedDraftNodeId?: string | null;
+      traceEvents?: PlannerTraceEvent[];
+    }
+  | {
+      mode: "session_updated";
       userInput: string;
       plan: PlannerPlan;
       execution: ExecutionResult;
@@ -797,6 +808,128 @@ async function blobToBase64(blob: Blob) {
     binary += String.fromCharCode(bytes[index]);
   }
   return window.btoa(binary);
+}
+
+type ActiveAudioCapture = {
+  stream: MediaStream;
+  stop: () => Promise<Blob>;
+};
+
+function mergeFloat32Chunks(chunks: Float32Array[]) {
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const merged = new Float32Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return merged;
+}
+
+function downsampleAudioBuffer(samples: Float32Array, sourceRate: number, targetRate: number) {
+  if (sourceRate === targetRate || samples.length === 0) {
+    return samples;
+  }
+  const ratio = sourceRate / targetRate;
+  const targetLength = Math.max(1, Math.round(samples.length / ratio));
+  const output = new Float32Array(targetLength);
+  let offsetResult = 0;
+  let offsetBuffer = 0;
+  while (offsetResult < output.length) {
+    const nextOffsetBuffer = Math.min(
+      samples.length,
+      Math.round((offsetResult + 1) * ratio),
+    );
+    let accumulator = 0;
+    let count = 0;
+    for (let index = offsetBuffer; index < nextOffsetBuffer; index += 1) {
+      accumulator += samples[index];
+      count += 1;
+    }
+    output[offsetResult] = count > 0 ? accumulator / count : samples[offsetBuffer] ?? 0;
+    offsetResult += 1;
+    offsetBuffer = nextOffsetBuffer;
+  }
+  return output;
+}
+
+function encodePcm16Wav(samples: Float32Array, sampleRate: number) {
+  const bytesPerSample = 2;
+  const dataLength = samples.length * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataLength);
+  const view = new DataView(buffer);
+
+  const writeString = (offset: number, value: string) => {
+    for (let index = 0; index < value.length; index += 1) {
+      view.setUint8(offset + index, value.charCodeAt(index));
+    }
+  };
+
+  writeString(0, "RIFF");
+  view.setUint32(4, 36 + dataLength, true);
+  writeString(8, "WAVE");
+  writeString(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * bytesPerSample, true);
+  view.setUint16(32, bytesPerSample, true);
+  view.setUint16(34, 16, true);
+  writeString(36, "data");
+  view.setUint32(40, dataLength, true);
+
+  let offset = 44;
+  for (let index = 0; index < samples.length; index += 1) {
+    const sample = Math.max(-1, Math.min(1, samples[index]));
+    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+    offset += bytesPerSample;
+  }
+
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
+async function startWavCapture(): Promise<ActiveAudioCapture> {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const audioContextCtor = window.AudioContext
+    || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+
+  if (!audioContextCtor) {
+    stream.getTracks().forEach((track) => track.stop());
+    throw new Error("Audio capture is not supported in this runtime.");
+  }
+
+  const audioContext = new audioContextCtor();
+  await audioContext.resume();
+  const sampleRate = audioContext.sampleRate;
+  const source = audioContext.createMediaStreamSource(stream);
+  const processor = audioContext.createScriptProcessor(4096, 1, 1);
+  const sink = audioContext.createGain();
+  sink.gain.value = 0;
+  const chunks: Float32Array[] = [];
+
+  processor.onaudioprocess = (event) => {
+    const input = event.inputBuffer.getChannelData(0);
+    chunks.push(new Float32Array(input));
+  };
+
+  source.connect(processor);
+  processor.connect(sink);
+  sink.connect(audioContext.destination);
+
+  return {
+    stream,
+    stop: async () => {
+      processor.disconnect();
+      source.disconnect();
+      sink.disconnect();
+      stream.getTracks().forEach((track) => track.stop());
+      await audioContext.close();
+      const merged = mergeFloat32Chunks(chunks);
+      const resampled = downsampleAudioBuffer(merged, sampleRate, 16_000);
+      return encodePcm16Wav(resampled, 16_000);
+    },
+  };
 }
 
 function findProduct(context: ResolverContext, productName?: string) {
@@ -1895,8 +2028,7 @@ export function PlannerPage() {
   const [contactDraft, setContactDraft] = useState("Call me and ask what work should be prioritized next.");
   const [contactMsg, setContactMsg] = useState<string | null>(null);
   const [contactError, setContactError] = useState<string | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
+  const audioCaptureRef = useRef<ActiveAudioCapture | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -2167,18 +2299,12 @@ export function PlannerPage() {
 
   useEffect(() => {
     if (!voiceEnabled) {
-      mediaRecorderRef.current?.stop();
-      mediaRecorderRef.current = null;
-      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
-      mediaStreamRef.current = null;
+      void stopVoiceCapture(false);
       setIsListening(false);
       return;
     }
     return () => {
-      mediaRecorderRef.current?.stop();
-      mediaRecorderRef.current = null;
-      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
-      mediaStreamRef.current = null;
+      void stopVoiceCapture(false);
     };
   }, [voiceEnabled]);
 
@@ -2249,6 +2375,19 @@ export function PlannerPage() {
         userInput,
         plan: backendPlan,
         execution: null,
+        treeNodes,
+        draftTreeNodes: responseDraftTreeNodes,
+        selectedDraftNodeId: responseSelectedDraftNodeId,
+        traceEvents,
+      };
+    }
+
+    if (response.status === "session_update") {
+      return {
+        mode: "session_updated",
+        userInput,
+        plan: backendPlan,
+        execution,
         treeNodes,
         draftTreeNodes: responseDraftTreeNodes,
         selectedDraftNodeId: responseSelectedDraftNodeId,
@@ -2344,6 +2483,22 @@ export function PlannerPage() {
         });
         return next;
       }
+      if (result.mode === "session_updated") {
+        const output = [
+          result.plan.assistant_response,
+          ...(result.execution?.lines ?? []),
+          ...(result.execution?.errors.length ? [`Errors: ${result.execution.errors.join(" | ")}`] : []),
+        ].join("\n");
+        next.push({
+          id: makeId(),
+          role: "assistant",
+          content: output,
+          meta: "Planner state updated",
+          kind: "text",
+          traceEvents: result.traceEvents,
+        });
+        return next;
+      }
       if (result.mode === "failed") {
         next.push({
           id: makeId(),
@@ -2381,12 +2536,19 @@ export function PlannerPage() {
     }
     if (result.selectedDraftNodeId !== undefined) {
       setSelectedDraftNodeId(result.selectedDraftNodeId ?? null);
+      const treeForPath = result.draftTreeNodes ?? draftTreeNodes;
+      if (result.selectedDraftNodeId && treeForPath.length > 0) {
+        const pathIds = findTreeNodePath(treeForPath, result.selectedDraftNodeId).map((node) => node.id);
+        setExpandedDraftNodeIds((current) => Array.from(new Set([...current, ...pathIds])));
+      }
     }
 
     if (result.mode === "confirmation_required") {
       setPendingPlan({ sourceText: result.userInput, plan: result.plan });
     } else if (result.mode === "draft_updated") {
       setPendingPlan(null);
+    } else if (result.mode === "session_updated") {
+      // Preserve the currently staged plan while updating draft selection or voice-driven session state.
     } else if (result.mode === "failed") {
       setPendingPlan(null);
       setPlannerView("trace");
@@ -2410,6 +2572,8 @@ export function PlannerPage() {
           ? `${result.plan.assistant_response}. Say confirm to apply the proposal.`
           : result.mode === "draft_updated"
             ? `${result.plan.assistant_response}. The draft tree has been updated.`
+            : result.mode === "session_updated"
+              ? result.plan.assistant_response
             : result.mode === "confirmed"
               ? "Executed the pending planner actions."
               : result.plan.assistant_response;
@@ -2545,6 +2709,46 @@ export function PlannerPage() {
     repositoryAnalysisMutation.isPending ||
     transcribeAudioMutation.isPending;
 
+  const stopVoiceCapture = async (shouldTranscribe: boolean) => {
+    const capture = audioCaptureRef.current;
+    if (!capture) {
+      return;
+    }
+
+    audioCaptureRef.current = null;
+    mediaStreamRef.current = null;
+    setIsListening(false);
+
+    try {
+      const blob = await capture.stop();
+      if (!shouldTranscribe || blob.size === 0) {
+        return;
+      }
+
+      setIsTranscribing(true);
+      const audioBytesBase64 = await blobToBase64(blob);
+      const transcript = await transcribeAudioMutation.mutateAsync({
+        audioBytesBase64,
+        mimeType: blob.type || "audio/wav",
+      });
+      const trimmedTranscript = transcript.trim();
+      if (!trimmedTranscript) {
+        return;
+      }
+      const handledAsVoiceCommand = await handleVoiceTranscript(trimmedTranscript);
+      if (!handledAsVoiceCommand) {
+        setDraft((current) => (current ? `${current.trim()} ${trimmedTranscript}` : trimmedTranscript));
+        composerRef.current?.focus();
+      }
+    } catch (error) {
+      if (shouldTranscribe) {
+        setSpeechError(error instanceof Error ? error.message : String(error));
+      }
+    } finally {
+      setIsTranscribing(false);
+    }
+  };
+
   const send = async () => {
     const content = draft.trim();
     if (!content || isPlannerBusy) {
@@ -2560,7 +2764,7 @@ export function PlannerPage() {
       return;
     }
     if (isListening) {
-      mediaRecorderRef.current?.stop();
+      await stopVoiceCapture(true);
       return;
     }
 
@@ -2568,78 +2772,23 @@ export function PlannerPage() {
       setSpeechError("Microphone access is not available in this runtime.");
       return;
     }
-    if (typeof MediaRecorder === "undefined") {
-      setSpeechError("Audio recording is not supported in this runtime.");
+    if (typeof window === "undefined" || (!window.AudioContext && !(window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)) {
+      setSpeechError("PCM audio capture is not supported in this runtime.");
       return;
     }
 
     try {
       setSpeechError(null);
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaStreamRef.current = stream;
-      const preferredMimeTypes = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
-      const mimeType = preferredMimeTypes.find((value) => MediaRecorder.isTypeSupported(value));
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-      audioChunksRef.current = [];
-      recorder.onstart = () => {
-        setSpeechError(null);
-        setIsListening(true);
-      };
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-      recorder.onerror = () => {
-        setSpeechError("Microphone capture failed.");
-        setIsListening(false);
-      };
-      recorder.onstop = () => {
-        setIsListening(false);
-        const nextChunks = [...audioChunksRef.current];
-        audioChunksRef.current = [];
-        mediaRecorderRef.current = null;
-        mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
-        mediaStreamRef.current = null;
-
-        if (nextChunks.length === 0) {
-          return;
-        }
-
-        void (async () => {
-          try {
-            setIsTranscribing(true);
-            const blob = new Blob(nextChunks, {
-              type: recorder.mimeType || mimeType || "audio/webm",
-            });
-            const audioBytesBase64 = await blobToBase64(blob);
-            const transcript = await transcribeAudioMutation.mutateAsync({
-              audioBytesBase64,
-              mimeType: blob.type || "audio/webm",
-            });
-            const trimmedTranscript = transcript.trim();
-            if (trimmedTranscript) {
-              const handledAsVoiceCommand = await handleVoiceTranscript(trimmedTranscript);
-              if (!handledAsVoiceCommand) {
-                setDraft((current) => (current ? `${current.trim()} ${trimmedTranscript}` : trimmedTranscript));
-                composerRef.current?.focus();
-              }
-            }
-          } catch {
-            // Error state is handled by the mutation.
-          } finally {
-            setIsTranscribing(false);
-          }
-        })();
-      };
-      mediaRecorderRef.current = recorder;
-      recorder.start();
+      const capture = await startWavCapture();
+      audioCaptureRef.current = capture;
+      mediaStreamRef.current = capture.stream;
+      setIsListening(true);
     } catch (error) {
       setSpeechError(error instanceof Error ? error.message : String(error));
       setIsListening(false);
       mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
       mediaStreamRef.current = null;
-      mediaRecorderRef.current = null;
+      audioCaptureRef.current = null;
     }
   };
 
@@ -2852,25 +3001,6 @@ export function PlannerPage() {
     }
     const normalizedTranscript = normalize(spoken);
 
-    if (["commit", "commit draft", "commit the draft", "confirm", "confirm draft", "confirm proposal", "commit plan"].includes(normalizedTranscript)) {
-      if (pendingPlan || draftTreeNodes.length > 0) {
-        confirmPendingPlan();
-        return true;
-      }
-      appendVoiceCommandFeedback(spoken, "There is no staged proposal or draft to commit yet.");
-      return true;
-    }
-
-    if (["clear draft", "clear the draft", "clear proposal", "dismiss proposal", "dismiss draft", "cancel draft"].includes(normalizedTranscript)) {
-      if (pendingPlan || draftTreeNodes.length > 0) {
-        dismissPendingPlan();
-        appendVoiceCommandFeedback(spoken, "Cleared the current staged planner draft.");
-      } else {
-        appendVoiceCommandFeedback(spoken, "There is no active draft to clear.");
-      }
-      return true;
-    }
-
     if (["view draft", "open draft", "show draft", "show draft tree", "view draft tree", "open workspace", "show workspace"].includes(normalizedTranscript)) {
       if (draftTreeNodes.length === 0) {
         appendVoiceCommandFeedback(spoken, "There is no staged draft tree yet.");
@@ -2910,54 +3040,20 @@ export function PlannerPage() {
       return true;
     }
 
-    const selectMatch = normalizedTranscript.match(/^(select|choose|highlight)\s+(.+)$/);
-    const expandMatch = normalizedTranscript.match(/^(expand|open)\s+(.+)$/);
     const collapseMatch = normalizedTranscript.match(/^(collapse|close)\s+(.+)$/);
-
-    const matchAndSelect = (referenceText: string) => {
-      const { explicitType, reference } = parseVoiceNodeReference(referenceText);
-      const targetNode = resolveVoiceNodeReference(draftTreeNodes, selectedDraftNodePath, reference, explicitType);
-      if (!targetNode) {
-        appendVoiceCommandFeedback(spoken, `I could not find a draft node matching "${referenceText}".`);
-        return false;
-      }
-      setSelectedDraftNodeId(targetNode.id);
-      setPlannerView("draft");
-      const pathIds = findTreeNodePath(draftTreeNodes, targetNode.id).map((node) => node.id);
-      setExpandedDraftNodeIds((current) => Array.from(new Set([...current, ...pathIds])));
-      appendVoiceCommandFeedback(spoken, `Selected ${getPlannerNodeType(targetNode)} "${targetNode.label}".`);
-      return true;
-    };
-
-    if (selectMatch) {
-      return matchAndSelect(selectMatch[2]);
-    }
-
-    if (expandMatch) {
-      const targetText = expandMatch[2];
-      if (["draft", "tree", "all"].includes(targetText)) {
+    if (normalizedTranscript.startsWith("expand ") || normalizedTranscript.startsWith("open ")) {
+      const targetText = spoken.replace(/^(expand|open)\s+/i, "").trim();
+      if (["draft", "tree", "all"].includes(normalize(targetText))) {
         setPlannerView("draft");
         expandAllDraftNodes();
         appendVoiceCommandFeedback(spoken, "Expanded the staged draft tree.");
         return true;
       }
-      const { explicitType, reference } = parseVoiceNodeReference(targetText);
-      const targetNode = resolveVoiceNodeReference(draftTreeNodes, selectedDraftNodePath, reference, explicitType);
-      if (!targetNode) {
-        appendVoiceCommandFeedback(spoken, `I could not find a draft node matching "${targetText}".`);
-        return true;
-      }
-      const pathIds = findTreeNodePath(draftTreeNodes, targetNode.id).map((node) => node.id);
-      setPlannerView("draft");
-      setSelectedDraftNodeId(targetNode.id);
-      setExpandedDraftNodeIds((current) => Array.from(new Set([...current, ...pathIds, targetNode.id])));
-      appendVoiceCommandFeedback(spoken, `Expanded ${getPlannerNodeType(targetNode)} "${targetNode.label}".`);
-      return true;
     }
 
     if (collapseMatch) {
       const targetText = collapseMatch[2];
-      if (["draft", "tree", "all"].includes(targetText)) {
+      if (["draft", "tree", "all"].includes(normalize(targetText))) {
         collapseAllDraftNodes();
         appendVoiceCommandFeedback(spoken, "Collapsed the staged draft tree.");
         return true;
@@ -2973,7 +3069,23 @@ export function PlannerPage() {
       return true;
     }
 
-    return false;
+    let activeSessionId = sessionId;
+    if (!activeSessionId) {
+      const session = await createPlannerSession({
+        providerId: providerId || undefined,
+        modelName: modelName || undefined,
+      });
+      activeSessionId = session.session_id;
+      setSessionId(session.session_id);
+    }
+
+    const response = await submitPlannerVoiceTurn({
+      sessionId: activeSessionId,
+      transcript: spoken,
+      selectedDraftNodeId,
+    });
+    handlePlannerMutationSuccess(mapPlannerResponseToMutationResult(response, spoken));
+    return true;
   }
 
   const applyPromptSuggestion = (prompt: string) => {

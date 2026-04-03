@@ -255,7 +255,17 @@ export default function App() {
         mime_type: "audio/m4a",
         locale,
       });
-      setComposer((current) => (current ? `${current.trim()} ${transcription.transcript}` : transcription.transcript));
+      const transcript = transcription.transcript.trim();
+      if (!transcript) {
+        return;
+      }
+      const nextSessionId = await ensureSession();
+      setMessages((current) => [...current, { id: makeId(), role: "user", content: transcript }]);
+      const response = await client.submitPlannerVoiceTurn(nextSessionId, {
+        user_input: transcript,
+        selected_draft_node_id: selectedDraftNodeId,
+      });
+      appendAssistantReply(response);
     } catch (error) {
       Alert.alert("Transcription failed", error instanceof Error ? error.message : String(error));
     } finally {
