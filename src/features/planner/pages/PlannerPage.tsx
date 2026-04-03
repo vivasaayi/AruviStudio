@@ -75,6 +75,7 @@ const styles: Record<string, React.CSSProperties> = {
   transcript: { display: "flex", flexDirection: "column", gap: 10 },
   bubbleUser: { alignSelf: "flex-end", maxWidth: "80%", backgroundColor: "#0e639c", color: "#fff", borderRadius: 14, padding: "12px 14px", whiteSpace: "pre-wrap" as const },
   bubbleAssistant: { alignSelf: "flex-start", maxWidth: "84%", backgroundColor: "#2c3139", color: "#edf1f8", borderRadius: 14, padding: "12px 14px", whiteSpace: "pre-wrap" as const },
+  bubblePending: { alignSelf: "flex-end", maxWidth: "80%", backgroundColor: "#17405f", color: "#e9f4ff", borderRadius: 14, padding: "12px 14px", whiteSpace: "pre-wrap" as const, border: "1px dashed #5aa9e6", opacity: 0.95 },
   bubbleMeta: { display: "block", marginTop: 8, fontSize: 11, color: "#a3adbb" },
   composerWrap: { display: "flex", flexDirection: "column", gap: 10, borderTop: "1px solid #32353d", paddingTop: 12, marginTop: 12 },
   textarea: { width: "100%", minHeight: 92, resize: "vertical" as const, padding: "12px 14px", borderRadius: 12, backgroundColor: "#181a1f", border: "1px solid #3c4048", color: "#edf1f8", fontSize: 14, boxSizing: "border-box" as const },
@@ -1876,6 +1877,9 @@ export function PlannerPage() {
   const [autoSpeak, setAutoSpeak] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isVoiceSubmitting, setIsVoiceSubmitting] = useState(false);
+  const [pendingVoiceTranscript, setPendingVoiceTranscript] = useState<string | null>(null);
+  const [voiceActivity, setVoiceActivity] = useState<string | null>(null);
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [speechProviderSetting, setSpeechProviderSetting] = useState("");
   const [speechModelSetting, setSpeechModelSetting] = useState("");
@@ -2279,6 +2283,9 @@ export function PlannerPage() {
   };
 
   const handlePlannerMutationSuccess = (result: PlannerMutationResult) => {
+    setPendingVoiceTranscript(null);
+    setVoiceActivity(null);
+    setIsVoiceSubmitting(false);
     setLatestTraceEvents(result.traceEvents ?? []);
     setMessages((current) => {
       const next: PlannerMessage[] = [...current, { id: makeId(), role: "user", content: result.userInput, kind: "text" }];
@@ -2462,6 +2469,9 @@ export function PlannerPage() {
     },
     onSuccess: handlePlannerMutationSuccess,
     onError: (error, userInput) => {
+      setPendingVoiceTranscript(null);
+      setVoiceActivity(null);
+      setIsVoiceSubmitting(false);
       setLatestTraceEvents([]);
       setMessages((current) => [
         ...current,
@@ -2565,7 +2575,8 @@ export function PlannerPage() {
     processMutation.isPending ||
     draftEditMutation.isPending ||
     repositoryAnalysisMutation.isPending ||
-    transcribeAudioMutation.isPending;
+    transcribeAudioMutation.isPending ||
+    isVoiceSubmitting;
 
   const stopVoiceCapture = async (shouldTranscribe: boolean) => {
     const capture = audioCaptureRef.current;
@@ -2580,9 +2591,11 @@ export function PlannerPage() {
     try {
       const blob = await capture.stop();
       if (!shouldTranscribe || blob.size === 0) {
+        setVoiceActivity(null);
         return;
       }
 
+      setVoiceActivity("Transcribing audio...");
       setIsTranscribing(true);
       const audioBytesBase64 = await blobToBase64(blob);
       const transcript = await transcribeAudioMutation.mutateAsync({
@@ -2590,18 +2603,32 @@ export function PlannerPage() {
         mimeType: blob.type || "audio/wav",
       });
       const trimmedTranscript = transcript.trim();
+      setIsTranscribing(false);
       if (!trimmedTranscript) {
+        setVoiceActivity("No speech detected.");
         return;
       }
+      setPendingVoiceTranscript(trimmedTranscript);
+      setVoiceActivity("Speech recognized. Sending it to the planner...");
+      setIsVoiceSubmitting(true);
       const handledAsVoiceCommand = await handleVoiceTranscript(trimmedTranscript);
+      setIsVoiceSubmitting(false);
       if (!handledAsVoiceCommand) {
         setDraft((current) => (current ? `${current.trim()} ${trimmedTranscript}` : trimmedTranscript));
         composerRef.current?.focus();
+        setVoiceActivity("Speech recognized and added to the composer.");
+        setPendingVoiceTranscript(null);
+      } else {
+        setVoiceActivity("Voice input handled.");
       }
     } catch (error) {
       if (shouldTranscribe) {
         setSpeechError(error instanceof Error ? error.message : String(error));
       }
+      setIsTranscribing(false);
+      setIsVoiceSubmitting(false);
+      setVoiceActivity(null);
+      setPendingVoiceTranscript(null);
     } finally {
       setIsTranscribing(false);
     }
@@ -2637,6 +2664,7 @@ export function PlannerPage() {
 
     try {
       setSpeechError(null);
+      setVoiceActivity("Listening...");
       const capture = await startWavCapture();
       audioCaptureRef.current = capture;
       mediaStreamRef.current = capture.stream;
@@ -2644,6 +2672,7 @@ export function PlannerPage() {
     } catch (error) {
       setSpeechError(error instanceof Error ? error.message : String(error));
       setIsListening(false);
+      setVoiceActivity(null);
       mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
       mediaStreamRef.current = null;
       audioCaptureRef.current = null;
@@ -2819,6 +2848,8 @@ export function PlannerPage() {
   };
 
   function appendVoiceCommandFeedback(transcript: string, reply: string) {
+    setPendingVoiceTranscript(null);
+    setVoiceActivity(null);
     setMessages((current) => [
       ...current,
       { id: makeId(), role: "user", content: transcript, kind: "text" },
@@ -3474,6 +3505,12 @@ export function PlannerPage() {
               </div>
             ) : (
               <div ref={transcriptRef} style={{ ...styles.transcript, flex: 1, minHeight: 0, overflow: "auto" }}>
+                {pendingVoiceTranscript ? (
+                  <div style={styles.bubblePending}>
+                    {pendingVoiceTranscript}
+                    <span style={styles.bubbleMeta}>Recognized from voice input</span>
+                  </div>
+                ) : null}
                 {messages.map((message) => (
                   <div key={message.id} style={message.role === "user" ? styles.bubbleUser : styles.bubbleAssistant}>
                     {message.role === "assistant" ? renderAssistantMessage(message) : message.content}
@@ -3495,8 +3532,14 @@ export function PlannerPage() {
                 <button data-testid="planner-send" style={styles.btn} onClick={() => void send()} disabled={isPlannerBusy}>
                   {isPlannerBusy ? "Working..." : "Send"}
                 </button>
-                <button style={styles.btnGhost} onClick={() => void toggleListening()} disabled={!voiceEnabled || isTranscribing}>
-                  {isListening ? "Stop Recording" : isTranscribing ? "Transcribing..." : "Start Voice Input"}
+                <button style={styles.btnGhost} onClick={() => void toggleListening()} disabled={!voiceEnabled || isTranscribing || isVoiceSubmitting}>
+                  {isListening
+                    ? "Stop Recording"
+                    : isTranscribing
+                      ? "Transcribing..."
+                      : isVoiceSubmitting
+                        ? "Sending Voice..."
+                        : "Start Voice Input"}
                 </button>
                 <button style={styles.btnGhost} onClick={() => setDraft("confirm")} disabled={!pendingPlan && draftTreeNodes.length === 0}>
                   {draftTreeNodes.length > 0 ? "Commit Draft" : "Confirm Proposal"}
@@ -3505,8 +3548,8 @@ export function PlannerPage() {
                   {draftTreeNodes.length > 0 ? "Clear Draft" : "Clear Pending"}
                 </button>
                 <span style={styles.status}>
-                  {isTranscribing
-                    ? "Transcribing voice input into the planner composer."
+                  {voiceActivity
+                    ? voiceActivity
                     : draftTreeNodes.length > 0
                     ? "A staged draft is active. Keep refining it, then commit when ready."
                     : pendingPlan
