@@ -99,6 +99,9 @@ const styles: Record<string, React.CSSProperties> = {
   listItemTitle: { fontSize: 12, fontWeight: 700, color: "#edf1f8", marginBottom: 4 },
   listItemMeta: { fontSize: 12, color: "#9da7b5", whiteSpace: "pre-wrap" as const },
   card: { border: "1px solid #3a4250", backgroundColor: "#1b2029", borderRadius: 12, padding: 12, marginTop: 10 },
+  voiceReviewCard: { border: "1px solid #375172", backgroundColor: "#142536", borderRadius: 12, padding: 12, marginBottom: 10 },
+  voiceReviewHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" as const },
+  voiceReviewTitle: { fontSize: 13, fontWeight: 800, color: "#eef6ff" },
   cardTitle: { fontSize: 13, fontWeight: 800, color: "#eef3fb", marginBottom: 8 },
   cardSection: { marginTop: 10 },
   diffRow: { display: "grid", gridTemplateColumns: "24px minmax(0, 1fr)", gap: 8, alignItems: "start", padding: "8px 0", borderTop: "1px solid #2c3440" },
@@ -817,6 +820,16 @@ function findProduct(context: ResolverContext, productName?: string) {
     return context.products[0];
   }
   throw new Error("Product is required.");
+}
+
+function formatElapsedMs(value: number) {
+  const totalSeconds = Math.max(0, Math.round(value / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes > 0) {
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${seconds}s`;
 }
 
 function findTree(context: ResolverContext, product: Product) {
@@ -1879,7 +1892,10 @@ export function PlannerPage() {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isVoiceSubmitting, setIsVoiceSubmitting] = useState(false);
   const [pendingVoiceTranscript, setPendingVoiceTranscript] = useState<string | null>(null);
+  const [editableVoiceTranscript, setEditableVoiceTranscript] = useState("");
   const [voiceActivity, setVoiceActivity] = useState<string | null>(null);
+  const [voiceCaptureStartedAt, setVoiceCaptureStartedAt] = useState<number | null>(null);
+  const [voiceElapsedMs, setVoiceElapsedMs] = useState<number>(0);
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [speechProviderSetting, setSpeechProviderSetting] = useState("");
   const [speechModelSetting, setSpeechModelSetting] = useState("");
@@ -2284,6 +2300,7 @@ export function PlannerPage() {
 
   const handlePlannerMutationSuccess = (result: PlannerMutationResult) => {
     setPendingVoiceTranscript(null);
+    setEditableVoiceTranscript("");
     setVoiceActivity(null);
     setIsVoiceSubmitting(false);
     setLatestTraceEvents(result.traceEvents ?? []);
@@ -2470,6 +2487,7 @@ export function PlannerPage() {
     onSuccess: handlePlannerMutationSuccess,
     onError: (error, userInput) => {
       setPendingVoiceTranscript(null);
+      setEditableVoiceTranscript("");
       setVoiceActivity(null);
       setIsVoiceSubmitting(false);
       setLatestTraceEvents([]);
@@ -2578,6 +2596,16 @@ export function PlannerPage() {
     transcribeAudioMutation.isPending ||
     isVoiceSubmitting;
 
+  useEffect(() => {
+    if (!isListening || !voiceCaptureStartedAt) {
+      return undefined;
+    }
+    const interval = window.setInterval(() => {
+      setVoiceElapsedMs(Date.now() - voiceCaptureStartedAt);
+    }, 250);
+    return () => window.clearInterval(interval);
+  }, [isListening, voiceCaptureStartedAt]);
+
   const stopVoiceCapture = async (shouldTranscribe: boolean) => {
     const capture = audioCaptureRef.current;
     if (!capture) {
@@ -2587,6 +2615,7 @@ export function PlannerPage() {
     audioCaptureRef.current = null;
     mediaStreamRef.current = null;
     setIsListening(false);
+    setVoiceCaptureStartedAt(null);
 
     try {
       const blob = await capture.stop();
@@ -2609,18 +2638,8 @@ export function PlannerPage() {
         return;
       }
       setPendingVoiceTranscript(trimmedTranscript);
-      setVoiceActivity("Speech recognized. Sending it to the planner...");
-      setIsVoiceSubmitting(true);
-      const handledAsVoiceCommand = await handleVoiceTranscript(trimmedTranscript);
-      setIsVoiceSubmitting(false);
-      if (!handledAsVoiceCommand) {
-        setDraft((current) => (current ? `${current.trim()} ${trimmedTranscript}` : trimmedTranscript));
-        composerRef.current?.focus();
-        setVoiceActivity("Speech recognized and added to the composer.");
-        setPendingVoiceTranscript(null);
-      } else {
-        setVoiceActivity("Voice input handled.");
-      }
+      setEditableVoiceTranscript(trimmedTranscript);
+      setVoiceActivity("Speech recognized. Review or edit before sending.");
     } catch (error) {
       if (shouldTranscribe) {
         setSpeechError(error instanceof Error ? error.message : String(error));
@@ -2629,6 +2648,7 @@ export function PlannerPage() {
       setIsVoiceSubmitting(false);
       setVoiceActivity(null);
       setPendingVoiceTranscript(null);
+      setEditableVoiceTranscript("");
     } finally {
       setIsTranscribing(false);
     }
@@ -2641,6 +2661,41 @@ export function PlannerPage() {
     }
     setDraft("");
     await processMutation.mutateAsync(content);
+  };
+
+  const clearPendingVoiceReview = () => {
+    setPendingVoiceTranscript(null);
+    setEditableVoiceTranscript("");
+    setVoiceActivity(null);
+    setVoiceElapsedMs(0);
+  };
+
+  const submitPendingVoiceTranscript = async () => {
+    const transcript = editableVoiceTranscript.trim();
+    if (!transcript || isPlannerBusy) {
+      return;
+    }
+    setPendingVoiceTranscript(transcript);
+    setVoiceActivity("Sending voice input to the planner...");
+    setIsVoiceSubmitting(true);
+    try {
+      const handledAsVoiceCommand = await handleVoiceTranscript(transcript);
+      if (!handledAsVoiceCommand) {
+        setDraft((current) => (current ? `${current.trim()} ${transcript}` : transcript));
+        composerRef.current?.focus();
+        setVoiceActivity("Speech recognized and added to the composer.");
+      }
+    } catch (error) {
+      setSpeechError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsVoiceSubmitting(false);
+      clearPendingVoiceReview();
+    }
+  };
+
+  const retryVoiceCapture = async () => {
+    clearPendingVoiceReview();
+    await toggleListening();
   };
 
   const toggleListening = async () => {
@@ -2665,6 +2720,10 @@ export function PlannerPage() {
     try {
       setSpeechError(null);
       setVoiceActivity("Listening...");
+      setVoiceElapsedMs(0);
+      setVoiceCaptureStartedAt(Date.now());
+      setPendingVoiceTranscript(null);
+      setEditableVoiceTranscript("");
       const capture = await startWavCapture();
       audioCaptureRef.current = capture;
       mediaStreamRef.current = capture.stream;
@@ -2673,6 +2732,7 @@ export function PlannerPage() {
       setSpeechError(error instanceof Error ? error.message : String(error));
       setIsListening(false);
       setVoiceActivity(null);
+      setVoiceCaptureStartedAt(null);
       mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
       mediaStreamRef.current = null;
       audioCaptureRef.current = null;
@@ -2849,6 +2909,7 @@ export function PlannerPage() {
 
   function appendVoiceCommandFeedback(transcript: string, reply: string) {
     setPendingVoiceTranscript(null);
+    setEditableVoiceTranscript("");
     setVoiceActivity(null);
     setMessages((current) => [
       ...current,
@@ -3506,9 +3567,35 @@ export function PlannerPage() {
             ) : (
               <div ref={transcriptRef} style={{ ...styles.transcript, flex: 1, minHeight: 0, overflow: "auto" }}>
                 {pendingVoiceTranscript ? (
-                  <div style={styles.bubblePending}>
-                    {pendingVoiceTranscript}
-                    <span style={styles.bubbleMeta}>Recognized from voice input</span>
+                  <div style={styles.voiceReviewCard}>
+                    <div style={styles.voiceReviewHeader}>
+                      <div>
+                        <div style={styles.voiceReviewTitle}>Voice Transcript Preview</div>
+                        <div style={styles.helper}>
+                          Review or edit the recognized speech before sending it to the planner.
+                        </div>
+                      </div>
+                      <div style={styles.chipRow}>
+                        <div style={styles.chip}>elapsed {formatElapsedMs(voiceElapsedMs)}</div>
+                        <div style={styles.chip}>{isVoiceSubmitting ? "sending" : "ready to send"}</div>
+                      </div>
+                    </div>
+                    <textarea
+                      style={{ ...styles.compactTextarea, minHeight: 88 }}
+                      value={editableVoiceTranscript}
+                      onChange={(event) => setEditableVoiceTranscript(event.target.value)}
+                    />
+                    <div style={styles.inlineButtonRow}>
+                      <button style={styles.btn} onClick={() => void submitPendingVoiceTranscript()} disabled={!editableVoiceTranscript.trim() || isPlannerBusy}>
+                        Send Transcript
+                      </button>
+                      <button style={styles.btnGhost} onClick={() => void retryVoiceCapture()} disabled={isPlannerBusy}>
+                        Retry
+                      </button>
+                      <button style={styles.btnDanger} onClick={clearPendingVoiceReview} disabled={isPlannerBusy}>
+                        Cancel
+                      </button>
+                    </div>
                   </div>
                 ) : null}
                 {messages.map((message) => (
@@ -3532,7 +3619,7 @@ export function PlannerPage() {
                 <button data-testid="planner-send" style={styles.btn} onClick={() => void send()} disabled={isPlannerBusy}>
                   {isPlannerBusy ? "Working..." : "Send"}
                 </button>
-                <button style={styles.btnGhost} onClick={() => void toggleListening()} disabled={!voiceEnabled || isTranscribing || isVoiceSubmitting}>
+                <button style={styles.btnGhost} onClick={() => void toggleListening()} disabled={!voiceEnabled || isTranscribing || isVoiceSubmitting || Boolean(pendingVoiceTranscript)}>
                   {isListening
                     ? "Stop Recording"
                     : isTranscribing
@@ -3550,6 +3637,8 @@ export function PlannerPage() {
                 <span style={styles.status}>
                   {voiceActivity
                     ? voiceActivity
+                    : pendingVoiceTranscript
+                    ? "Voice transcript is ready. Review, edit, send, retry, or cancel."
                     : draftTreeNodes.length > 0
                     ? "A staged draft is active. Keep refining it, then commit when ready."
                     : pendingPlan
