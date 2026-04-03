@@ -48,7 +48,7 @@ test("planner supports deterministic create, refine, and commit flow", async ({ 
   await expect(page.getByText("Implement Delivery Audit Timeline and Consent Handling").first()).toBeVisible();
 
   await page.getByTestId("draft-commit").click();
-  await expect(page.getByText("Committed draft plan.")).toBeVisible();
+  await expect(page.getByText("Committed draft plan.").first()).toBeVisible();
 
   await page.getByTestId("nav-products").click();
   await expect(page.getByRole("heading", { name: "Product Workspace" })).toBeVisible();
@@ -94,5 +94,5 @@ test("planner voice commands can select, switch views, and commit the staged dra
   await page.evaluate(async () => {
     await window.__ARUVI_E2E__?.runPlannerVoiceTranscript?.("commit draft");
   });
-  await expect(page.getByText("Committed draft plan.")).toBeVisible();
+  await expect(page.getByText("Committed draft plan.").first()).toBeVisible();
 });

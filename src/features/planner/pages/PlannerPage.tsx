@@ -61,15 +61,12 @@ import type {
 } from "../../../lib/types";
 
 const styles: Record<string, React.CSSProperties> = {
-  page: { display: "flex", flexDirection: "column", gap: 12, height: "100%" },
-  header: { display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" },
-  titleWrap: { display: "flex", flexDirection: "column", gap: 4 },
-  headerActions: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" as const },
-  title: { fontSize: 22, fontWeight: 800, color: "#f5f7fb", margin: 0 },
-  subtitle: { fontSize: 13, color: "#9da7b5", maxWidth: 760, lineHeight: 1.45 },
+  page: { display: "flex", flexDirection: "column", gap: 8, height: "100%" },
   topGrid: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) 320px", gap: 12, minHeight: 0, flex: 1 },
+  compactStack: { display: "flex", flexDirection: "column", gap: 12, minHeight: 0, flex: 1 },
   panel: { backgroundColor: "#212327", border: "1px solid #32353d", borderRadius: 14, minHeight: 0, overflow: "hidden" },
   panelBody: { padding: 16, height: "100%", overflow: "auto" },
+  compactPanelBody: { padding: 14, height: "100%", overflow: "auto" },
   sectionTitle: { fontSize: 11, fontWeight: 800, letterSpacing: 0.8, textTransform: "uppercase" as const, color: "#8f96a3", marginBottom: 10 },
   sectionHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10 },
   transcript: { display: "flex", flexDirection: "column", gap: 10 },
@@ -162,6 +159,15 @@ const styles: Record<string, React.CSSProperties> = {
   fieldGroup: { display: "flex", flexDirection: "column", gap: 8, marginTop: 10 },
   compactTextarea: { width: "100%", minHeight: 70, resize: "vertical" as const, padding: "9px 10px", borderRadius: 10, backgroundColor: "#17191d", border: "1px solid #3c4048", color: "#edf1f8", fontSize: 13, boxSizing: "border-box" as const },
   mutedButton: { padding: "9px 14px", fontSize: 13, backgroundColor: "#1f2530", color: "#dce6f4", border: "1px solid #344050", borderRadius: 10, cursor: "pointer", fontWeight: 700 },
+  statusBanner: { border: "1px solid #334154", backgroundColor: "#18202b", borderRadius: 12, padding: "10px 12px", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" as const },
+  statusBannerStrong: { fontSize: 13, fontWeight: 800, color: "#edf1f8" },
+  statusBannerMeta: { fontSize: 12, color: "#9da7b5", lineHeight: 1.45, marginTop: 4 },
+  compactControlStrip: { display: "flex", gap: 8, flexWrap: "wrap" as const, alignItems: "center", marginBottom: 12 },
+  compactSummaryCard: { border: "1px solid #32353d", backgroundColor: "#1b1d22", borderRadius: 12, padding: 12 },
+  compactSummaryGrid: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 },
+  compactSummaryItem: { borderRadius: 10, backgroundColor: "#161920", border: "1px solid #313844", padding: "10px 12px" },
+  compactSummaryLabel: { fontSize: 11, color: "#8f96a3", textTransform: "uppercase" as const, letterSpacing: 0.5 },
+  compactSummaryValue: { fontSize: 13, fontWeight: 800, color: "#edf1f8", marginTop: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
 };
 
 type PlannerMessageKind = "text" | "proposal" | "tree" | "report" | "execution" | "error";
@@ -1930,6 +1936,8 @@ export function PlannerPage() {
   const [contactDraft, setContactDraft] = useState("Call me and ask what work should be prioritized next.");
   const [contactMsg, setContactMsg] = useState<string | null>(null);
   const [contactError, setContactError] = useState<string | null>(null);
+  const [windowWidth, setWindowWidth] = useState<number>(() => (typeof window === "undefined" ? 1440 : window.innerWidth));
+  const [showCompactTools, setShowCompactTools] = useState(false);
   const audioCaptureRef = useRef<ActiveAudioCapture | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
@@ -1955,6 +1963,7 @@ export function PlannerPage() {
   );
   const hasTreeData = productTrees.length > 0;
   const isFocusedWorkspaceView = plannerView === "draft" || plannerView === "trace";
+  const isCompactScreen = windowWidth <= 1360;
   const selectedDraftNode = useMemo(
     () => findTreeNodeById(draftTreeNodes, selectedDraftNodeId),
     [draftTreeNodes, selectedDraftNodeId],
@@ -1995,6 +2004,62 @@ export function PlannerPage() {
     () => findRelevantPlanActions(latestDraftPlan, selectedDraftNode),
     [latestDraftPlan, selectedDraftNode],
   );
+  const latestAssistantMessage = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index].role === "assistant") {
+        return messages[index];
+      }
+    }
+    return null;
+  }, [messages]);
+  const plannerStatusSummary = useMemo(() => {
+    if (voiceActivity) {
+      return {
+        title: voiceActivity,
+        detail: pendingVoiceTranscript
+          ? "The transcript is ready for review before it becomes a planner turn."
+          : "Voice capture is in progress.",
+      };
+    }
+    if (pendingVoiceTranscript) {
+      return {
+        title: "Voice transcript ready",
+        detail: "Review or edit the transcript, then send it to the planner.",
+      };
+    }
+    if (draftTreeNodes.length > 0) {
+      return {
+        title: `Draft active: ${draftValidation.counts.product} product, ${draftValidation.counts.module} module, ${draftValidation.counts.capability} capability, ${draftValidation.counts["work item"]} work item`,
+        detail: selectedDraftNode
+          ? `Selected node: ${selectedDraftNode.label}.`
+          : "Select a node and keep refining before commit.",
+      };
+    }
+    if (pendingPlan) {
+      return {
+        title: "Proposal waiting for confirmation",
+        detail: `${pendingPlan.plan.actions.length} proposed changes are ready for review.`,
+      };
+    }
+    if (latestAssistantMessage) {
+      return {
+        title: latestAssistantMessage.meta ?? "Planner ready",
+        detail: latestAssistantMessage.content.split("\n")[0] || "Describe the product or outcome you want.",
+      };
+    }
+    return {
+      title: "Planner ready",
+      detail: "Describe the product or outcome you want to stage.",
+    };
+  }, [
+    draftTreeNodes.length,
+    draftValidation.counts,
+    latestAssistantMessage,
+    pendingPlan,
+    pendingVoiceTranscript,
+    selectedDraftNode,
+    voiceActivity,
+  ]);
 
   const modelOptions = useMemo(
     () => models.filter((model) => model.provider_id === providerId && model.enabled),
@@ -2048,6 +2113,15 @@ export function PlannerPage() {
     activeCapabilityId,
     activeWorkItemId,
   }), [activeCapabilityId, activeModuleId, activeProductId, activeWorkItemId, productTrees, products, workItems]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    const onResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   useEffect(() => {
     if (!providerId && providers.length > 0) {
@@ -2165,6 +2239,12 @@ export function PlannerPage() {
       setPlannerView("conversation");
     }
   }, [draftTreeNodes.length, plannerView]);
+
+  useEffect(() => {
+    if (!isCompactScreen) {
+      setShowCompactTools(false);
+    }
+  }, [isCompactScreen]);
 
   useEffect(() => {
     const allNodeIds = collectTreeNodeIds(draftTreeNodes);
@@ -3199,25 +3279,273 @@ export function PlannerPage() {
     return <div>{message.content}</div>;
   };
 
-  return (
-    <div style={styles.page}>
-      <div style={styles.header}>
-        <div style={styles.titleWrap}>
-          <h1 style={styles.title}>Interactive Planner</h1>
-          <div style={styles.subtitle}>
-            This is now suggestion-first. Describe what you want in natural language, the planner checks existing products, capabilities, and work items, then proposes additions or changes and waits for confirmation before applying them. Voice input records microphone audio for backend transcription, and spoken replies prefer native macOS speech when available.
+  const renderPlannerSidebar = () => (
+    <div style={styles.panel}>
+      <div style={isCompactScreen ? styles.compactPanelBody : styles.panelBody}>
+        <div style={styles.sectionTitle}>Planner Controls</div>
+
+        <div style={styles.sideCard}>
+          <label style={styles.label}>Provider</label>
+          <select style={styles.select} value={providerId} onChange={(event) => setProviderId(event.target.value)}>
+            <option value="">No provider</option>
+            {providers.map((provider) => (
+              <option key={provider.id} value={provider.id}>
+                {provider.name}
+              </option>
+            ))}
+          </select>
+          <div style={{ height: 10 }} />
+          <label style={styles.label}>Model</label>
+          <select style={styles.select} value={modelName} onChange={(event) => setModelName(event.target.value)}>
+            <option value="">No model</option>
+            {modelOptions.map((model: ModelDefinition) => (
+              <option key={model.id} value={model.name}>
+                {model.name}
+              </option>
+            ))}
+          </select>
+          <div style={{ ...styles.helper, marginTop: 10 }}>
+            With a configured model, the planner can have a more natural conversation, inspect current structure, and suggest additions instead of acting immediately. Without one, it falls back to simple heuristics.
+          </div>
+          <div style={{ ...styles.helper, marginTop: 8 }}>
+            {hasTreeData ? "Tree rendering is active for work-item structure questions." : "Tree rendering will activate once product structure finishes loading."}
+          </div>
+          <div style={styles.inlineButtonRow}>
+            <button style={styles.btnGhost} onClick={() => setShowAdvancedPlannerControls((value) => !value)}>
+              {showAdvancedPlannerControls ? "Hide Advanced Tools" : "Show Advanced Tools"}
+            </button>
           </div>
         </div>
-      </div>
 
+        {showAdvancedPlannerControls ? (
+          <>
+            <div style={styles.sideCard}>
+              <div style={styles.label}>Voice</div>
+              <div style={styles.actionRow}>
+                <button style={voiceEnabled ? styles.btnGhost : styles.btn} onClick={() => setVoiceEnabled((value) => !value)}>
+                  {voiceEnabled ? "Disable Mic" : "Enable Mic"}
+                </button>
+                <button style={autoSpeak ? styles.btn : styles.btnGhost} onClick={() => setAutoSpeak((value) => !value)}>
+                  {autoSpeak ? "Voice Replies On" : "Voice Replies Off"}
+                </button>
+              </div>
+              {speechError ? <div style={{ ...styles.error, marginTop: 10 }}>{speechError}</div> : null}
+              {speechModelSelection ? (
+                <div style={{ ...styles.helper, marginTop: 10 }}>
+                  Voice input records microphone audio and sends it to `{speechModelSelection.modelName}` on the configured provider instead of using browser speech recognition. Source: {speechModelSelection.source === "settings" ? "Settings" : speechModelSelection.source === "planner" ? "current planner provider" : "automatic discovery"}.
+                </div>
+              ) : (
+                <div style={{ ...styles.helper, marginTop: 10 }}>
+                  Configure a speech-capable provider to enable native voice transcription. The planner will look for a Whisper/transcription model first, then fall back to `whisper-1`.
+                </div>
+              )}
+              <div style={{ ...styles.helper, marginTop: 10 }}>
+                Spoken command routing can select draft nodes, expand or collapse the tree, switch views, and commit or clear the draft before it falls back to appending the transcript into the planner composer.
+              </div>
+            </div>
+
+            <div style={styles.sideCard}>
+              <div style={styles.label}>Reverse Engineer Repo</div>
+              <div style={styles.helper}>
+                Point the planner at an existing repository and let the model infer a staged product, module, capability, and work-item tree from the codebase.
+              </div>
+              <div style={{ height: 10 }} />
+              <label style={styles.label}>Registered Repository</label>
+              <select
+                style={styles.select}
+                value={selectedRepositoryId}
+                onChange={(event) => setSelectedRepositoryId(event.target.value)}
+              >
+                <option value="">Select a repository</option>
+                {repositories.map((repository) => (
+                  <option key={repository.id} value={repository.id}>
+                    {repository.name}
+                  </option>
+                ))}
+              </select>
+              <div style={{ height: 10 }} />
+              <label style={styles.label}>Add Existing Repo Path</label>
+              <input
+                style={styles.input}
+                value={repositoryPathDraft}
+                onChange={(event) => setRepositoryPathDraft(event.target.value)}
+                placeholder="/absolute/path/to/repository"
+              />
+              <div style={styles.inlineButtonRow}>
+                <button style={styles.btnGhost} onClick={() => void browseRepositoryPathForPlanner()}>
+                  Browse Path
+                </button>
+                <button
+                  style={styles.btnGhost}
+                  onClick={() => void registerRepositoryForPlanner()}
+                  disabled={!repositoryPathDraft.trim()}
+                >
+                  Register Repo
+                </button>
+              </div>
+              <div style={styles.inlineButtonRow}>
+                <button
+                  style={styles.btn}
+                  onClick={() => void analyzeSelectedRepository()}
+                  disabled={!selectedRepositoryId || isPlannerBusy || !providerId || !modelName}
+                >
+                  Analyze Repo Into Draft
+                </button>
+              </div>
+              {!providerId || !modelName ? (
+                <div style={{ ...styles.helper, marginTop: 10 }}>
+                  Configure a planner model first. Repository reverse engineering depends on the selected LLM.
+                </div>
+              ) : null}
+              {repoAnalysisMessage ? <div style={{ ...styles.success, marginTop: 10 }}>{repoAnalysisMessage}</div> : null}
+              {repoAnalysisError ? <div style={{ ...styles.error, marginTop: 10 }}>{repoAnalysisError}</div> : null}
+            </div>
+
+            <div style={styles.sideCard}>
+              <div style={styles.label}>Contact Me</div>
+              <div style={styles.helper}>Use Auto Route to follow the planner channel policy: routine updates stay on WhatsApp, while ambiguous planning can escalate to a call. Manual buttons still override the policy.</div>
+              <div style={{ height: 10 }} />
+              <label style={styles.label}>Destination</label>
+              <input
+                style={styles.input}
+                value={contactTarget}
+                onChange={(event) => setContactTarget(event.target.value)}
+                placeholder="whatsapp:+15551234567 or +15551234567"
+              />
+              <div style={{ height: 10 }} />
+              <label style={styles.label}>Opening Message</label>
+              <textarea
+                style={{ ...styles.textarea, minHeight: 84 }}
+                value={contactDraft}
+                onChange={(event) => setContactDraft(event.target.value)}
+                placeholder="Tell the planner what the outbound contact should say first."
+              />
+              <div style={styles.actionRow}>
+                <button style={styles.btn} onClick={() => void autoRouteContact()} disabled={!contactTarget.trim() || !contactDraft.trim()}>
+                  Auto Route
+                </button>
+                <button style={styles.btnGhost} onClick={() => void sendWhatsapp()} disabled={!contactTarget.trim()}>
+                  Send WhatsApp
+                </button>
+                <button style={styles.btnGhost} onClick={() => void startVoiceCall()} disabled={!contactTarget.trim()}>
+                  Start Voice Call
+                </button>
+              </div>
+              {contactMsg ? <div style={{ ...styles.success, marginTop: 10 }}>{contactMsg}</div> : null}
+              {contactError ? <div style={{ ...styles.error, marginTop: 10 }}>{contactError}</div> : null}
+            </div>
+          </>
+        ) : null}
+
+        <div style={styles.sideCard}>
+          <div style={styles.label}>Draft Tree</div>
+          <div style={styles.helper}>
+            Build the plan here first. Select a node, then ask follow-up questions like “expand this capability” or “add work items under this module.”
+          </div>
+          <div style={{ height: 10 }} />
+          {draftTreeNodes.length > 0 ? (
+            <div style={styles.treePanel}>
+              <div style={styles.treeExplorer}>
+                {draftTreeNodes.map((node) => (
+                  <SelectableTreeNodeView
+                    key={node.id}
+                    node={node}
+                    selectedNodeId={selectedDraftNodeId}
+                    onSelect={setSelectedDraftNodeId}
+                    expandedNodeIds={expandedDraftNodeIdSet}
+                    onToggle={toggleDraftNodeExpanded}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div style={styles.helper}>No staged draft yet. Ask the planner to sketch a product tree and it will appear here.</div>
+          )}
+          <div style={styles.inlineButtonRow}>
+            <button style={styles.btnGhost} onClick={() => setPlannerView("draft")} disabled={draftTreeNodes.length === 0}>
+              Open Workspace
+            </button>
+            <button style={styles.btn} onClick={confirmPendingPlan} disabled={draftTreeNodes.length === 0 || isPlannerBusy}>
+              Commit Draft
+            </button>
+            <button style={styles.btnGhost} onClick={dismissPendingPlan} disabled={draftTreeNodes.length === 0}>
+              Clear Draft
+            </button>
+          </div>
+        </div>
+
+        <div style={styles.sideCard}>
+          <div style={styles.label}>Current Scope</div>
+          <div style={styles.chipRow}>
+            {selectedDraftNodeId ? <div style={styles.chip}>draft node selected</div> : null}
+            {activeProductId ? <div style={styles.chip}>product selected</div> : null}
+            {activeModuleId ? <div style={styles.chip}>module selected</div> : null}
+            {activeCapabilityId ? <div style={styles.chip}>capability selected</div> : null}
+            {activeWorkItemId ? <div style={styles.chip}>work item selected</div> : null}
+          </div>
+          <div style={{ ...styles.helper, marginTop: 10 }}>
+            If you omit names, the planner first tries the selected draft node, then the selected workspace scope, then asks follow-up questions if it still cannot resolve the target cleanly.
+          </div>
+        </div>
+
+        <div style={styles.sideCard}>
+          <div style={styles.label}>Examples</div>
+          <div style={styles.list}>
+            <div style={styles.listItem}>
+              <div style={styles.listItemTitle}>One-shot draft</div>
+              <div style={styles.listItemMeta}>Design an agent management system. Draft the product, modules, capabilities, and initial work items in one staged tree.</div>
+            </div>
+            <div style={styles.listItem}>
+              <div style={styles.listItemTitle}>Refine selected node</div>
+              <div style={styles.listItemMeta}>After selecting a module in the draft tree: add three capabilities under this module focused on lifecycle, permissions, and monitoring.</div>
+            </div>
+            <div style={styles.listItem}>
+              <div style={styles.listItemTitle}>Commit when ready</div>
+              <div style={styles.listItemMeta}>The staged tree looks right. Commit the draft and create the real product structure.</div>
+            </div>
+          </div>
+        </div>
+
+        {pendingPlan || draftTreeNodes.length > 0 ? (
+          <div style={styles.sideCard}>
+            <div style={styles.label}>Draft Snapshot</div>
+            <div style={styles.helper}>
+              The planner stages structure here first. Keep refining the tree, then commit when the draft looks right.
+            </div>
+            {pendingPlan ? (
+              <div style={styles.list}>
+                {pendingPlan.plan.actions.map((action, index) => (
+                  <div key={`${action.type}-${index}`} style={styles.listItem}>
+                    <div style={styles.listItemTitle}>{action.type}</div>
+                    <div style={styles.listItemMeta}>{JSON.stringify(action, null, 2)}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ ...styles.helper, marginTop: 10 }}>
+                The current staged draft is active in the tree above. Select a node and keep iterating, or commit to persist it.
+              </div>
+            )}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={styles.page}>
       <div
-        style={{
-          ...styles.topGrid,
-          gridTemplateColumns: isFocusedWorkspaceView ? "minmax(0, 1fr)" : styles.topGrid.gridTemplateColumns,
-        }}
+        style={
+          isCompactScreen
+            ? styles.compactStack
+            : {
+                ...styles.topGrid,
+                gridTemplateColumns: isFocusedWorkspaceView ? "minmax(0, 1fr)" : styles.topGrid.gridTemplateColumns,
+              }
+        }
       >
         <div style={styles.panel}>
-          <div style={{ ...styles.panelBody, display: "flex", flexDirection: "column" }}>
+          <div style={{ ...(isCompactScreen ? styles.compactPanelBody : styles.panelBody), display: "flex", flexDirection: "column" }}>
             <div style={styles.sectionHeader}>
               <div style={styles.sectionTitle}>
                 {plannerView === "draft" ? "Draft Workspace" : plannerView === "trace" ? "Planner Trace" : "Conversation"}
@@ -3248,6 +3576,56 @@ export function PlannerPage() {
                 </button>
               </div>
             </div>
+
+            <div style={styles.statusBanner}>
+              <div>
+                <div style={styles.statusBannerStrong}>{plannerStatusSummary.title}</div>
+                <div style={styles.statusBannerMeta}>{plannerStatusSummary.detail}</div>
+              </div>
+              <div style={styles.chipRow}>
+                {providerId ? <div style={styles.chip}>{providers.find((provider) => provider.id === providerId)?.name ?? "provider selected"}</div> : null}
+                {modelName ? <div style={styles.chip}>{modelName}</div> : null}
+                {selectedDraftNode ? <div style={styles.chip}>selected: {selectedDraftNode.label}</div> : null}
+              </div>
+            </div>
+
+            {isCompactScreen && plannerView === "conversation" ? (
+              <>
+                <div style={styles.compactControlStrip}>
+                  <button style={styles.btnGhost} onClick={() => setShowCompactTools((value) => !value)}>
+                    {showCompactTools ? "Hide Tools" : "Show Tools"}
+                  </button>
+                  <button style={styles.btnGhost} onClick={() => setPlannerView("draft")} disabled={draftTreeNodes.length === 0}>
+                    Open Draft
+                  </button>
+                  <button style={styles.btnGhost} onClick={() => setPlannerView("trace")} disabled={latestTraceEvents.length === 0}>
+                    Open Trace
+                  </button>
+                </div>
+                <div style={styles.compactSummaryCard}>
+                  <div style={styles.compactSummaryGrid}>
+                    <div style={styles.compactSummaryItem}>
+                      <div style={styles.compactSummaryLabel}>Draft</div>
+                      <div style={styles.compactSummaryValue}>{draftTreeNodes.length > 0 ? `${draftValidation.counts.module} modules staged` : "No active draft"}</div>
+                    </div>
+                    <div style={styles.compactSummaryItem}>
+                      <div style={styles.compactSummaryLabel}>Selection</div>
+                      <div style={styles.compactSummaryValue}>{selectedDraftNode?.label ?? "None"}</div>
+                    </div>
+                    <div style={styles.compactSummaryItem}>
+                      <div style={styles.compactSummaryLabel}>Readiness</div>
+                      <div style={styles.compactSummaryValue}>{draftTreeNodes.length > 0 ? `${draftValidation.score}` : "n/a"}</div>
+                    </div>
+                    <div style={styles.compactSummaryItem}>
+                      <div style={styles.compactSummaryLabel}>State</div>
+                      <div style={styles.compactSummaryValue}>
+                        {pendingVoiceTranscript ? "Review transcript" : isPlannerBusy ? "Working" : pendingPlan ? "Need confirm" : "Ready"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : null}
 
             {plannerView === "draft" ? (
               <div style={styles.draftWorkspace}>
@@ -3674,261 +4052,8 @@ export function PlannerPage() {
           </div>
         </div>
 
-        {!isFocusedWorkspaceView ? (
-          <div style={styles.panel}>
-            <div style={styles.panelBody}>
-              <div style={styles.sectionTitle}>Planner Controls</div>
-
-              <div style={styles.sideCard}>
-                <label style={styles.label}>Provider</label>
-                <select style={styles.select} value={providerId} onChange={(event) => setProviderId(event.target.value)}>
-                  <option value="">No provider</option>
-                  {providers.map((provider) => (
-                    <option key={provider.id} value={provider.id}>
-                      {provider.name}
-                    </option>
-                  ))}
-                </select>
-                <div style={{ height: 10 }} />
-                <label style={styles.label}>Model</label>
-                <select style={styles.select} value={modelName} onChange={(event) => setModelName(event.target.value)}>
-                  <option value="">No model</option>
-                  {modelOptions.map((model: ModelDefinition) => (
-                    <option key={model.id} value={model.name}>
-                      {model.name}
-                    </option>
-                  ))}
-                </select>
-                <div style={{ ...styles.helper, marginTop: 10 }}>
-                  With a configured model, the planner can have a more natural conversation, inspect current structure, and suggest additions instead of acting immediately. Without one, it falls back to simple heuristics.
-                </div>
-                <div style={{ ...styles.helper, marginTop: 8 }}>
-                  {hasTreeData ? "Tree rendering is active for work-item structure questions." : "Tree rendering will activate once product structure finishes loading."}
-                </div>
-                <div style={styles.inlineButtonRow}>
-                  <button style={styles.btnGhost} onClick={() => setShowAdvancedPlannerControls((value) => !value)}>
-                    {showAdvancedPlannerControls ? "Hide Advanced Tools" : "Show Advanced Tools"}
-                  </button>
-                </div>
-              </div>
-
-              {showAdvancedPlannerControls ? (
-                <>
-                  <div style={styles.sideCard}>
-                    <div style={styles.label}>Voice</div>
-                    <div style={styles.actionRow}>
-                      <button style={voiceEnabled ? styles.btnGhost : styles.btn} onClick={() => setVoiceEnabled((value) => !value)}>
-                        {voiceEnabled ? "Disable Mic" : "Enable Mic"}
-                      </button>
-                      <button style={autoSpeak ? styles.btn : styles.btnGhost} onClick={() => setAutoSpeak((value) => !value)}>
-                        {autoSpeak ? "Voice Replies On" : "Voice Replies Off"}
-                      </button>
-                    </div>
-                    {speechError ? <div style={{ ...styles.error, marginTop: 10 }}>{speechError}</div> : null}
-                    {speechModelSelection ? (
-                      <div style={{ ...styles.helper, marginTop: 10 }}>
-                        Voice input records microphone audio and sends it to `{speechModelSelection.modelName}` on the configured provider instead of using browser speech recognition. Source: {speechModelSelection.source === "settings" ? "Settings" : speechModelSelection.source === "planner" ? "current planner provider" : "automatic discovery"}.
-                      </div>
-                    ) : (
-                      <div style={{ ...styles.helper, marginTop: 10 }}>
-                        Configure a speech-capable provider to enable native voice transcription. The planner will look for a Whisper/transcription model first, then fall back to `whisper-1`.
-                      </div>
-                    )}
-                    <div style={{ ...styles.helper, marginTop: 10 }}>
-                      Spoken command routing can select draft nodes, expand or collapse the tree, switch views, and commit or clear the draft before it falls back to appending the transcript into the planner composer.
-                    </div>
-                    <div style={{ ...styles.helper, marginTop: 10 }}>
-                      Voice replies use native macOS speech when available and fall back to browser speech synthesis otherwise. Phone or WhatsApp calls still need an external telephony layer such as Twilio.
-                    </div>
-                  </div>
-
-                  <div style={styles.sideCard}>
-                    <div style={styles.label}>Reverse Engineer Repo</div>
-                    <div style={styles.helper}>
-                      Point the planner at an existing repository and let the model infer a staged product, module, capability, and work-item tree from the codebase.
-                    </div>
-                    <div style={{ height: 10 }} />
-                    <label style={styles.label}>Registered Repository</label>
-                    <select
-                      style={styles.select}
-                      value={selectedRepositoryId}
-                      onChange={(event) => setSelectedRepositoryId(event.target.value)}
-                    >
-                      <option value="">Select a repository</option>
-                      {repositories.map((repository) => (
-                        <option key={repository.id} value={repository.id}>
-                          {repository.name}
-                        </option>
-                      ))}
-                    </select>
-                    <div style={{ height: 10 }} />
-                    <label style={styles.label}>Add Existing Repo Path</label>
-                    <input
-                      style={styles.input}
-                      value={repositoryPathDraft}
-                      onChange={(event) => setRepositoryPathDraft(event.target.value)}
-                      placeholder="/absolute/path/to/repository"
-                    />
-                    <div style={styles.inlineButtonRow}>
-                      <button style={styles.btnGhost} onClick={() => void browseRepositoryPathForPlanner()}>
-                        Browse Path
-                      </button>
-                      <button
-                        style={styles.btnGhost}
-                        onClick={() => void registerRepositoryForPlanner()}
-                        disabled={!repositoryPathDraft.trim()}
-                      >
-                        Register Repo
-                      </button>
-                    </div>
-                    <div style={styles.inlineButtonRow}>
-                      <button
-                        style={styles.btn}
-                        onClick={() => void analyzeSelectedRepository()}
-                        disabled={!selectedRepositoryId || isPlannerBusy || !providerId || !modelName}
-                      >
-                        Analyze Repo Into Draft
-                      </button>
-                    </div>
-                    {!providerId || !modelName ? (
-                      <div style={{ ...styles.helper, marginTop: 10 }}>
-                        Configure a planner model first. Repository reverse engineering depends on the selected LLM.
-                      </div>
-                    ) : null}
-                    {repoAnalysisMessage ? <div style={{ ...styles.success, marginTop: 10 }}>{repoAnalysisMessage}</div> : null}
-                    {repoAnalysisError ? <div style={{ ...styles.error, marginTop: 10 }}>{repoAnalysisError}</div> : null}
-                  </div>
-
-                  <div style={styles.sideCard}>
-                    <div style={styles.label}>Contact Me</div>
-                    <div style={styles.helper}>Use Auto Route to follow the planner channel policy: routine updates stay on WhatsApp, while ambiguous planning can escalate to a call. Manual buttons still override the policy.</div>
-                    <div style={{ height: 10 }} />
-                    <label style={styles.label}>Destination</label>
-                    <input
-                      style={styles.input}
-                      value={contactTarget}
-                      onChange={(event) => setContactTarget(event.target.value)}
-                      placeholder="whatsapp:+15551234567 or +15551234567"
-                    />
-                    <div style={{ height: 10 }} />
-                    <label style={styles.label}>Opening Message</label>
-                    <textarea
-                      style={{ ...styles.textarea, minHeight: 84 }}
-                      value={contactDraft}
-                      onChange={(event) => setContactDraft(event.target.value)}
-                      placeholder="Tell the planner what the outbound contact should say first."
-                    />
-                    <div style={styles.actionRow}>
-                      <button style={styles.btn} onClick={() => void autoRouteContact()} disabled={!contactTarget.trim() || !contactDraft.trim()}>
-                        Auto Route
-                      </button>
-                      <button style={styles.btnGhost} onClick={() => void sendWhatsapp()} disabled={!contactTarget.trim()}>
-                        Send WhatsApp
-                      </button>
-                      <button style={styles.btnGhost} onClick={() => void startVoiceCall()} disabled={!contactTarget.trim()}>
-                        Start Voice Call
-                      </button>
-                    </div>
-                    {contactMsg ? <div style={{ ...styles.success, marginTop: 10 }}>{contactMsg}</div> : null}
-                    {contactError ? <div style={{ ...styles.error, marginTop: 10 }}>{contactError}</div> : null}
-                  </div>
-                </>
-              ) : null}
-
-              <div style={styles.sideCard}>
-                <div style={styles.label}>Draft Tree</div>
-                <div style={styles.helper}>
-                  Build the plan here first. Select a node, then ask follow-up questions like “expand this capability” or “add work items under this module.”
-                </div>
-                <div style={{ height: 10 }} />
-                {draftTreeNodes.length > 0 ? (
-                  <div style={styles.treePanel}>
-                    <div style={styles.treeExplorer}>
-                      {draftTreeNodes.map((node) => (
-                        <SelectableTreeNodeView
-                          key={node.id}
-                          node={node}
-                          selectedNodeId={selectedDraftNodeId}
-                          onSelect={setSelectedDraftNodeId}
-                          expandedNodeIds={expandedDraftNodeIdSet}
-                          onToggle={toggleDraftNodeExpanded}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <div style={styles.helper}>No staged draft yet. Ask the planner to sketch a product tree and it will appear here.</div>
-                )}
-                <div style={styles.inlineButtonRow}>
-                  <button style={styles.btnGhost} onClick={() => setPlannerView("draft")} disabled={draftTreeNodes.length === 0}>
-                    Open Workspace
-                  </button>
-                  <button style={styles.btn} onClick={confirmPendingPlan} disabled={draftTreeNodes.length === 0 || isPlannerBusy}>
-                    Commit Draft
-                  </button>
-                  <button style={styles.btnGhost} onClick={dismissPendingPlan} disabled={draftTreeNodes.length === 0}>
-                    Clear Draft
-                  </button>
-                </div>
-              </div>
-
-              <div style={styles.sideCard}>
-                <div style={styles.label}>Current Scope</div>
-                <div style={styles.chipRow}>
-                  {selectedDraftNodeId ? <div style={styles.chip}>draft node selected</div> : null}
-                  {activeProductId ? <div style={styles.chip}>product selected</div> : null}
-                  {activeModuleId ? <div style={styles.chip}>module selected</div> : null}
-                  {activeCapabilityId ? <div style={styles.chip}>capability selected</div> : null}
-                  {activeWorkItemId ? <div style={styles.chip}>work item selected</div> : null}
-                </div>
-                <div style={{ ...styles.helper, marginTop: 10 }}>
-                  If you omit names, the planner first tries the selected draft node, then the selected workspace scope, then asks follow-up questions if it still cannot resolve the target cleanly.
-                </div>
-              </div>
-
-              <div style={styles.sideCard}>
-                <div style={styles.label}>Examples</div>
-                <div style={styles.list}>
-                  <div style={styles.listItem}>
-                    <div style={styles.listItemTitle}>One-shot draft</div>
-                    <div style={styles.listItemMeta}>Design an agent management system. Draft the product, modules, capabilities, and initial work items in one staged tree.</div>
-                  </div>
-                  <div style={styles.listItem}>
-                    <div style={styles.listItemTitle}>Refine selected node</div>
-                    <div style={styles.listItemMeta}>After selecting a module in the draft tree: add three capabilities under this module focused on lifecycle, permissions, and monitoring.</div>
-                  </div>
-                  <div style={styles.listItem}>
-                    <div style={styles.listItemTitle}>Commit when ready</div>
-                    <div style={styles.listItemMeta}>The staged tree looks right. Commit the draft and create the real product structure.</div>
-                  </div>
-                </div>
-              </div>
-
-              {pendingPlan || draftTreeNodes.length > 0 ? (
-                <div style={styles.sideCard}>
-                  <div style={styles.label}>Draft Snapshot</div>
-                  <div style={styles.helper}>
-                    The planner stages structure here first. Keep refining the tree, then commit when the draft looks right.
-                  </div>
-                  {pendingPlan ? (
-                    <div style={styles.list}>
-                      {pendingPlan.plan.actions.map((action, index) => (
-                        <div key={`${action.type}-${index}`} style={styles.listItem}>
-                          <div style={styles.listItemTitle}>{action.type}</div>
-                          <div style={styles.listItemMeta}>{JSON.stringify(action, null, 2)}</div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div style={{ ...styles.helper, marginTop: 10 }}>
-                      The current staged draft is active in the tree above. Select a node and keep iterating, or commit to persist it.
-                    </div>
-                  )}
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
+        {!isFocusedWorkspaceView && !isCompactScreen ? renderPlannerSidebar() : null}
+        {!isFocusedWorkspaceView && isCompactScreen && showCompactTools ? renderPlannerSidebar() : null}
       </div>
     </div>
   );
