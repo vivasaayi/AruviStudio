@@ -11,6 +11,7 @@ import type {
   AgentModelBinding,
   ModelProvider,
   ModelDefinition,
+  LocalModelRegistrationResult,
   AgentDefinition,
   AgentTeam,
   AgentTeamMembership,
@@ -410,6 +411,53 @@ export const updateModelDefinition = (data: {
   });
 export const deleteModelDefinition = (id: string) => invoke("delete_model_definition", { id });
 export const testProviderConnectivity = (id: string) => invoke<string>("test_provider_connectivity", { id });
+export const browseForLocalModelFile = () =>
+  invoke<string | null>("browse_for_local_model_file");
+export const registerLocalRuntimeModel = (data: {
+  providerName: string;
+  modelName: string;
+  modelPath: string;
+  capabilityTags?: string[];
+  notes?: string;
+  contextWindow?: number;
+}) =>
+  invoke<LocalModelRegistrationResult>("register_local_runtime_model_command", {
+    providerName: data.providerName,
+    provider_name: data.providerName,
+    modelName: data.modelName,
+    model_name: data.modelName,
+    modelPath: data.modelPath,
+    model_path: data.modelPath,
+    capabilityTags: data.capabilityTags ? toJsonStringArray(data.capabilityTags) : null,
+    capability_tags: data.capabilityTags ? toJsonStringArray(data.capabilityTags) : null,
+    notes: data.notes ?? null,
+    contextWindow: data.contextWindow ?? null,
+    context_window: data.contextWindow ?? null,
+  });
+export const installManagedLocalModel = (data: {
+  providerName: string;
+  modelName: string;
+  downloadUrl: string;
+  fileName: string;
+  capabilityTags?: string[];
+  notes?: string;
+  contextWindow?: number;
+}) =>
+  invoke<LocalModelRegistrationResult>("install_managed_local_model_command", {
+    providerName: data.providerName,
+    provider_name: data.providerName,
+    modelName: data.modelName,
+    model_name: data.modelName,
+    downloadUrl: data.downloadUrl,
+    download_url: data.downloadUrl,
+    fileName: data.fileName,
+    file_name: data.fileName,
+    capabilityTags: data.capabilityTags ? toJsonStringArray(data.capabilityTags) : null,
+    capability_tags: data.capabilityTags ? toJsonStringArray(data.capabilityTags) : null,
+    notes: data.notes ?? null,
+    contextWindow: data.contextWindow ?? null,
+    context_window: data.contextWindow ?? null,
+  });
 export const runModelChatCompletion = (data: {
   providerId: string;
   model: string;

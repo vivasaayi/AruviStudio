@@ -1203,6 +1203,35 @@
           return ok(null);
         case "transcribe_audio_command":
           return ok({ transcript: "Add voice-driven planning for the selected node" });
+        case "browse_for_local_model_file":
+          return ok("/tmp/mock-models/ggml-base.en.bin");
+        case "register_local_runtime_model_command":
+        case "install_managed_local_model_command":
+          return ok({
+            file_path: getArg(args, "modelPath") ?? "/tmp/mock-models/ggml-base.en.bin",
+            downloaded: command === "install_managed_local_model_command",
+            provider: {
+              id: `provider-${slugify(getArg(args, "providerName") ?? "local-runtime")}`,
+              name: getArg(args, "providerName") ?? "Whisper.cpp Base.en (Local)",
+              provider_type: "local_runtime",
+              base_url: getArg(args, "modelPath") ?? "/tmp/mock-models/ggml-base.en.bin",
+              auth_secret_ref: null,
+              enabled: true,
+              created_at: FIXED_TIMESTAMP,
+              updated_at: FIXED_TIMESTAMP,
+            },
+            model_definition: {
+              id: `model-${slugify(getArg(args, "modelName") ?? "whisper-base-en")}`,
+              provider_id: `provider-${slugify(getArg(args, "providerName") ?? "local-runtime")}`,
+              name: getArg(args, "modelName") ?? "whisper-base.en",
+              context_window: null,
+              capability_tags: ["speech_to_text", "transcription", "audio", "local_runtime"],
+              notes: getArg(args, "notes") ?? "",
+              enabled: true,
+              created_at: FIXED_TIMESTAMP,
+              updated_at: FIXED_TIMESTAMP,
+            },
+          });
         case "run_model_chat_completion":
           return ok({ content: "{\"type\":\"final\",\"assistant_response\":\"mock\",\"needs_confirmation\":false,\"clarification_question\":null,\"actions\":[]}" });
         case "start_model_chat_stream":

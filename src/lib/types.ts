@@ -138,6 +138,13 @@ export interface ModelDefinition {
   updated_at: string;
 }
 
+export interface LocalModelRegistrationResult {
+  file_path: string;
+  downloaded: boolean;
+  provider: ModelProvider;
+  model_definition: ModelDefinition;
+}
+
 export interface AgentModelBinding {
   id: string;
   agent_id: string;

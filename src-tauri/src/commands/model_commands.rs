@@ -9,6 +9,7 @@ use crate::services::speech_service::resolve_local_runtime_model_path;
 use crate::state::AppState;
 use futures_util::StreamExt;
 use serde::Serialize;
+use tokio::io::AsyncWriteExt;
 use tauri::{AppHandle, Emitter, State};
 use tracing::warn;
 
@@ -27,6 +28,94 @@ struct ChatStreamDoneEvent {
 struct ChatStreamErrorEvent {
     stream_id: String,
     error: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LocalModelRegistrationResult {
+    pub file_path: String,
+    pub downloaded: bool,
+    pub provider: ModelProvider,
+    pub model_definition: ModelDefinition,
+}
+
+fn slugify(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut last_was_dash = false;
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            output.push(ch.to_ascii_lowercase());
+            last_was_dash = false;
+        } else if !last_was_dash {
+            output.push('-');
+            last_was_dash = true;
+        }
+    }
+    output.trim_matches('-').to_string()
+}
+
+async fn upsert_local_runtime_registration(
+    state: &AppState,
+    provider_name: &str,
+    model_name: &str,
+    model_path: &str,
+    capability_tags: Option<&str>,
+    notes: Option<&str>,
+    context_window: Option<i64>,
+    downloaded: bool,
+) -> Result<LocalModelRegistrationResult, AppError> {
+    let normalized_path = resolve_local_runtime_model_path(model_path)?;
+    let normalized_path_string = normalized_path.display().to_string();
+
+    let existing_provider = model_repo::list_providers(&state.db)
+        .await?
+        .into_iter()
+        .find(|provider| {
+            matches!(provider.provider_type, ProviderType::LocalRuntime)
+                && provider.base_url == normalized_path_string
+        });
+
+    let provider = if let Some(provider) = existing_provider {
+        provider
+    } else {
+        let provider_id = uuid::Uuid::new_v4().to_string();
+        model_repo::create_provider(
+            &state.db,
+            &provider_id,
+            provider_name,
+            ProviderType::LocalRuntime.as_str(),
+            &normalized_path_string,
+            None,
+        )
+        .await?
+    };
+
+    let existing_model = model_repo::list_model_definitions(&state.db)
+        .await?
+        .into_iter()
+        .find(|model| model.provider_id == provider.id && model.name == model_name);
+
+    let model_definition = if let Some(model) = existing_model {
+        model
+    } else {
+        let model_id = uuid::Uuid::new_v4().to_string();
+        model_repo::create_model_definition(
+            &state.db,
+            &model_id,
+            &provider.id,
+            model_name,
+            context_window,
+            capability_tags,
+            notes,
+        )
+        .await?
+    };
+
+    Ok(LocalModelRegistrationResult {
+        file_path: normalized_path_string,
+        downloaded,
+        provider,
+        model_definition,
+    })
 }
 
 fn endpoint_url(base_url: &str, path: &str) -> String {
@@ -166,7 +255,7 @@ pub async fn test_provider_connectivity(
     if matches!(provider.provider_type, ProviderType::LocalRuntime) {
         let model_path = resolve_local_runtime_model_path(&provider.base_url)?;
         return Ok(format!(
-            "Local runtime model is configured at {}",
+            "Local speech runtime is configured at {}. Whisper models transcribe audio; they do not perform speech synthesis.",
             model_path.display()
         ));
     }
@@ -177,6 +266,103 @@ pub async fn test_provider_connectivity(
         Ok(false) => Ok("Connection failed - server responded but not healthy".to_string()),
         Err(e) => Err(e),
     }
+}
+
+#[tauri::command]
+pub async fn browse_for_local_model_file() -> Result<Option<String>, AppError> {
+    let output = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(r#"POSIX path of (choose file with prompt "Select local model file")"#)
+        .output()
+        .map_err(|error| AppError::Validation(format!("Failed to open model picker: {error}")))?;
+
+    if !output.status.success() {
+        return Ok(None);
+    }
+
+    let selected = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if selected.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(selected))
+    }
+}
+
+#[tauri::command]
+pub async fn register_local_runtime_model_command(
+    state: State<'_, AppState>,
+    provider_name: String,
+    model_name: String,
+    model_path: String,
+    capability_tags: Option<String>,
+    notes: Option<String>,
+    context_window: Option<i64>,
+) -> Result<LocalModelRegistrationResult, AppError> {
+    upsert_local_runtime_registration(
+        state.inner(),
+        &provider_name,
+        &model_name,
+        &model_path,
+        capability_tags.as_deref(),
+        notes.as_deref(),
+        context_window,
+        false,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn install_managed_local_model_command(
+    state: State<'_, AppState>,
+    provider_name: String,
+    model_name: String,
+    download_url: String,
+    file_name: String,
+    capability_tags: Option<String>,
+    notes: Option<String>,
+    context_window: Option<i64>,
+) -> Result<LocalModelRegistrationResult, AppError> {
+    let safe_dir = slugify(&provider_name);
+    let models_dir = state.app_data_dir.join("models").join(safe_dir);
+    tokio::fs::create_dir_all(&models_dir).await?;
+    let destination_path = models_dir.join(file_name.trim());
+
+    let mut downloaded = false;
+    if !destination_path.exists() {
+      let response = reqwest::get(download_url.trim())
+            .await
+            .map_err(|error| AppError::Provider(format!("Failed to download model: {error}")))?;
+        if !response.status().is_success() {
+            return Err(AppError::Provider(format!(
+                "Failed to download model: HTTP {}",
+                response.status()
+            )));
+        }
+
+        let mut file = tokio::fs::File::create(&destination_path).await?;
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let bytes = chunk
+                .map_err(|error| AppError::Provider(format!("Failed to read model download stream: {error}")))?;
+            file.write_all(&bytes).await?;
+        }
+        file.flush().await?;
+        downloaded = true;
+    }
+
+    upsert_local_runtime_registration(
+        state.inner(),
+        &provider_name,
+        &model_name,
+        destination_path
+            .to_str()
+            .ok_or_else(|| AppError::Validation("Installed model path is not valid UTF-8".to_string()))?,
+        capability_tags.as_deref(),
+        notes.as_deref(),
+        context_window,
+        downloaded,
+    )
+    .await
 }
 
 #[tauri::command]

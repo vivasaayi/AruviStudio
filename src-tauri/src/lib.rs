@@ -163,6 +163,9 @@ pub fn run() {
             commands::model_commands::update_model_definition,
             commands::model_commands::delete_model_definition,
             commands::model_commands::test_provider_connectivity,
+            commands::model_commands::browse_for_local_model_file,
+            commands::model_commands::register_local_runtime_model_command,
+            commands::model_commands::install_managed_local_model_command,
             commands::model_commands::run_model_chat_completion,
             commands::model_commands::start_model_chat_stream,
             // Planner commands
