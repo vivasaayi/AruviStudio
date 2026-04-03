@@ -393,6 +393,8 @@ const SPEECH_PROVIDER_KEY = "speech.transcription_provider_id";
 const SPEECH_MODEL_KEY = "speech.transcription_model_name";
 const SPEECH_LOCALE_KEY = "speech.locale";
 const SPEECH_NATIVE_VOICE_KEY = "speech.native_voice";
+const SPEECH_ENABLE_MIC_KEY = "speech.enable_mic";
+const SPEECH_AUTO_SPEAK_REPLIES_KEY = "speech.auto_speak_replies";
 
 const PLANNER_SYSTEM_PROMPT = `You are an AI planning lead for a product-management desktop app.
 You can inspect the workspace with tools before proposing changes.
@@ -1231,6 +1233,86 @@ function TreeNodeView({ node }: { node: PlannerTreeNode }) {
   );
 }
 
+function PlannerComposer({
+  draft,
+  onDraftChange,
+  onSend,
+  onToggleListening,
+  onConfirm,
+  onDismiss,
+  isPlannerBusy,
+  voiceEnabled,
+  isListening,
+  isTranscribing,
+  isVoiceSubmitting,
+  pendingVoiceTranscript,
+  draftTreeNodesLength,
+  pendingPlan,
+  voiceActivity,
+  composerRef,
+}: {
+  draft: string;
+  onDraftChange: (value: string) => void;
+  onSend: () => void;
+  onToggleListening: () => void;
+  onConfirm: () => void;
+  onDismiss: () => void;
+  isPlannerBusy: boolean;
+  voiceEnabled: boolean;
+  isListening: boolean;
+  isTranscribing: boolean;
+  isVoiceSubmitting: boolean;
+  pendingVoiceTranscript: string | null;
+  draftTreeNodesLength: number;
+  pendingPlan: PendingPlan | null;
+  voiceActivity: string | null;
+  composerRef: React.RefObject<HTMLTextAreaElement | null>;
+}) {
+  return (
+    <div style={styles.composerWrap}>
+      <textarea
+        ref={composerRef}
+        data-testid="planner-input"
+        style={styles.textarea}
+        value={draft}
+        onChange={(event) => onDraftChange(event.target.value)}
+        placeholder="Say or type what you need. Example: Add a work item called Build voice planner under AruviStudio, then approve it and start the workflow."
+      />
+      <div style={styles.actionRow}>
+        <button data-testid="planner-send" style={styles.btn} onClick={onSend} disabled={isPlannerBusy}>
+          {isPlannerBusy ? "Working..." : "Send"}
+        </button>
+        <button style={styles.btnGhost} onClick={onToggleListening} disabled={!voiceEnabled || isTranscribing || isVoiceSubmitting || Boolean(pendingVoiceTranscript)}>
+          {isListening
+            ? "Stop Recording"
+            : isTranscribing
+              ? "Transcribing..."
+              : isVoiceSubmitting
+                ? "Sending Voice..."
+                : "Start Voice Input"}
+        </button>
+        <button style={styles.btnGhost} onClick={onConfirm} disabled={!pendingPlan && draftTreeNodesLength === 0}>
+          {draftTreeNodesLength > 0 ? "Commit Draft" : "Confirm Proposal"}
+        </button>
+        <button style={styles.btnDanger} onClick={onDismiss} disabled={!pendingPlan && draftTreeNodesLength === 0}>
+          {draftTreeNodesLength > 0 ? "Clear Draft" : "Clear Pending"}
+        </button>
+        <span style={styles.status}>
+          {voiceActivity
+            ? voiceActivity
+            : pendingVoiceTranscript
+              ? "Voice transcript is ready. Review, edit, send, retry, or cancel."
+              : draftTreeNodesLength > 0
+                ? "A staged draft is active. Keep refining it, then commit when ready."
+                : pendingPlan
+                  ? "A proposed plan is waiting for confirmation."
+                  : "No pending proposal."}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function parseDraftNodeType(meta?: string | null) {
   if (!meta) {
     return "node";
@@ -2065,6 +2147,20 @@ export function PlannerPage() {
     () => models.filter((model) => model.provider_id === providerId && model.enabled),
     [models, providerId],
   );
+  const plannerModelPickerOptions = useMemo(
+    () =>
+      models
+        .filter((model) => model.enabled)
+        .map((model) => {
+          const provider = providers.find((entry) => entry.id === model.provider_id);
+          return {
+            value: `${model.provider_id}::${model.name}`,
+            label: `${provider?.name ?? "Unknown Provider"} / ${model.name}`,
+          };
+        }),
+    [models, providers],
+  );
+  const plannerModelPickerValue = providerId && modelName ? `${providerId}::${modelName}` : "";
   const speechModelSelection = useMemo(() => {
     const looksLikeSpeechModel = (model: ModelDefinition) =>
       model.capability_tags.some((tag) => ["speech_to_text", "transcription", "audio"].includes(tag))
@@ -2142,7 +2238,9 @@ export function PlannerPage() {
       getSetting(SPEECH_MODEL_KEY),
       getSetting(SPEECH_LOCALE_KEY),
       getSetting(SPEECH_NATIVE_VOICE_KEY),
-    ]).then(([providerSetting, modelSetting, localeSetting, nativeVoiceSetting]) => {
+      getSetting(SPEECH_ENABLE_MIC_KEY),
+      getSetting(SPEECH_AUTO_SPEAK_REPLIES_KEY),
+    ]).then(([providerSetting, modelSetting, localeSetting, nativeVoiceSetting, micEnabledSetting, autoSpeakSetting]) => {
       if (cancelled) {
         return;
       }
@@ -2157,6 +2255,12 @@ export function PlannerPage() {
       }
       if (nativeVoiceSetting) {
         setSpeechNativeVoiceSetting(nativeVoiceSetting);
+      }
+      if (typeof micEnabledSetting === "string") {
+        setVoiceEnabled(micEnabledSetting.trim().toLowerCase() !== "false");
+      }
+      if (typeof autoSpeakSetting === "string") {
+        setAutoSpeak(autoSpeakSetting.trim().toLowerCase() === "true");
       }
     }).catch(() => {});
     return () => {
@@ -3283,31 +3387,8 @@ export function PlannerPage() {
     <div style={styles.panel}>
       <div style={isCompactScreen ? styles.compactPanelBody : styles.panelBody}>
         <div style={styles.sectionTitle}>Planner Controls</div>
-
         <div style={styles.sideCard}>
-          <label style={styles.label}>Provider</label>
-          <select style={styles.select} value={providerId} onChange={(event) => setProviderId(event.target.value)}>
-            <option value="">No provider</option>
-            {providers.map((provider) => (
-              <option key={provider.id} value={provider.id}>
-                {provider.name}
-              </option>
-            ))}
-          </select>
-          <div style={{ height: 10 }} />
-          <label style={styles.label}>Model</label>
-          <select style={styles.select} value={modelName} onChange={(event) => setModelName(event.target.value)}>
-            <option value="">No model</option>
-            {modelOptions.map((model: ModelDefinition) => (
-              <option key={model.id} value={model.name}>
-                {model.name}
-              </option>
-            ))}
-          </select>
-          <div style={{ ...styles.helper, marginTop: 10 }}>
-            With a configured model, the planner can have a more natural conversation, inspect current structure, and suggest additions instead of acting immediately. Without one, it falls back to simple heuristics.
-          </div>
-          <div style={{ ...styles.helper, marginTop: 8 }}>
+          <div style={styles.helper}>
             {hasTreeData ? "Tree rendering is active for work-item structure questions." : "Tree rendering will activate once product structure finishes loading."}
           </div>
           <div style={styles.inlineButtonRow}>
@@ -3319,31 +3400,6 @@ export function PlannerPage() {
 
         {showAdvancedPlannerControls ? (
           <>
-            <div style={styles.sideCard}>
-              <div style={styles.label}>Voice</div>
-              <div style={styles.actionRow}>
-                <button style={voiceEnabled ? styles.btnGhost : styles.btn} onClick={() => setVoiceEnabled((value) => !value)}>
-                  {voiceEnabled ? "Disable Mic" : "Enable Mic"}
-                </button>
-                <button style={autoSpeak ? styles.btn : styles.btnGhost} onClick={() => setAutoSpeak((value) => !value)}>
-                  {autoSpeak ? "Voice Replies On" : "Voice Replies Off"}
-                </button>
-              </div>
-              {speechError ? <div style={{ ...styles.error, marginTop: 10 }}>{speechError}</div> : null}
-              {speechModelSelection ? (
-                <div style={{ ...styles.helper, marginTop: 10 }}>
-                  Voice input records microphone audio and sends it to `{speechModelSelection.modelName}` on the configured provider instead of using browser speech recognition. Source: {speechModelSelection.source === "settings" ? "Settings" : speechModelSelection.source === "planner" ? "current planner provider" : "automatic discovery"}.
-                </div>
-              ) : (
-                <div style={{ ...styles.helper, marginTop: 10 }}>
-                  Configure a speech-capable provider to enable native voice transcription. The planner will look for a Whisper/transcription model first, then fall back to `whisper-1`.
-                </div>
-              )}
-              <div style={{ ...styles.helper, marginTop: 10 }}>
-                Spoken command routing can select draft nodes, expand or collapse the tree, switch views, and commit or clear the draft before it falls back to appending the transcript into the planner composer.
-              </div>
-            </div>
-
             <div style={styles.sideCard}>
               <div style={styles.label}>Reverse Engineer Repo</div>
               <div style={styles.helper}>
@@ -3488,24 +3544,6 @@ export function PlannerPage() {
           </div>
         </div>
 
-        <div style={styles.sideCard}>
-          <div style={styles.label}>Examples</div>
-          <div style={styles.list}>
-            <div style={styles.listItem}>
-              <div style={styles.listItemTitle}>One-shot draft</div>
-              <div style={styles.listItemMeta}>Design an agent management system. Draft the product, modules, capabilities, and initial work items in one staged tree.</div>
-            </div>
-            <div style={styles.listItem}>
-              <div style={styles.listItemTitle}>Refine selected node</div>
-              <div style={styles.listItemMeta}>After selecting a module in the draft tree: add three capabilities under this module focused on lifecycle, permissions, and monitoring.</div>
-            </div>
-            <div style={styles.listItem}>
-              <div style={styles.listItemTitle}>Commit when ready</div>
-              <div style={styles.listItemMeta}>The staged tree looks right. Commit the draft and create the real product structure.</div>
-            </div>
-          </div>
-        </div>
-
         {pendingPlan || draftTreeNodes.length > 0 ? (
           <div style={styles.sideCard}>
             <div style={styles.label}>Draft Snapshot</div>
@@ -3551,6 +3589,23 @@ export function PlannerPage() {
                 {plannerView === "draft" ? "Draft Workspace" : plannerView === "trace" ? "Planner Trace" : "Conversation"}
               </div>
               <div style={styles.viewToggleRow}>
+                <select
+                  aria-label="Planner model"
+                  style={{ ...styles.select, width: 260 }}
+                  value={plannerModelPickerValue}
+                  onChange={(event) => {
+                    const [nextProviderId, nextModelName] = event.target.value.split("::");
+                    setProviderId(nextProviderId ?? "");
+                    setModelName(nextModelName ?? "");
+                  }}
+                >
+                  <option value="">Select model</option>
+                  {plannerModelPickerOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
                 <button
                   data-testid="planner-view-conversation"
                   style={plannerView === "conversation" ? styles.btn : styles.btnGhost}
@@ -3703,6 +3758,28 @@ export function PlannerPage() {
                       </div>
                     )}
                   </div>
+                  <PlannerComposer
+                    draft={draft}
+                    onDraftChange={setDraft}
+                    onSend={() => {
+                      void send();
+                    }}
+                    onToggleListening={() => {
+                      void toggleListening();
+                    }}
+                    onConfirm={() => setDraft("confirm")}
+                    onDismiss={dismissPendingPlan}
+                    isPlannerBusy={isPlannerBusy}
+                    voiceEnabled={voiceEnabled}
+                    isListening={isListening}
+                    isTranscribing={isTranscribing}
+                    isVoiceSubmitting={isVoiceSubmitting}
+                    pendingVoiceTranscript={pendingVoiceTranscript}
+                    draftTreeNodesLength={draftTreeNodes.length}
+                    pendingPlan={pendingPlan}
+                    voiceActivity={voiceActivity}
+                    composerRef={composerRef}
+                  />
                 </div>
 
                 <div style={styles.draftWorkspaceSide}>
@@ -4008,47 +4085,30 @@ export function PlannerPage() {
                 ))}
               </div>
             )}
-            <div style={styles.composerWrap}>
-              <textarea
-                ref={composerRef}
-                data-testid="planner-input"
-                style={styles.textarea}
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                placeholder="Say or type what you need. Example: Add a work item called Build voice planner under AruviStudio, then approve it and start the workflow."
+            {plannerView !== "draft" ? (
+              <PlannerComposer
+                draft={draft}
+                onDraftChange={setDraft}
+                onSend={() => {
+                  void send();
+                }}
+                onToggleListening={() => {
+                  void toggleListening();
+                }}
+                onConfirm={() => setDraft("confirm")}
+                onDismiss={dismissPendingPlan}
+                isPlannerBusy={isPlannerBusy}
+                voiceEnabled={voiceEnabled}
+                isListening={isListening}
+                isTranscribing={isTranscribing}
+                isVoiceSubmitting={isVoiceSubmitting}
+                pendingVoiceTranscript={pendingVoiceTranscript}
+                draftTreeNodesLength={draftTreeNodes.length}
+                pendingPlan={pendingPlan}
+                voiceActivity={voiceActivity}
+                composerRef={composerRef}
               />
-              <div style={styles.actionRow}>
-                <button data-testid="planner-send" style={styles.btn} onClick={() => void send()} disabled={isPlannerBusy}>
-                  {isPlannerBusy ? "Working..." : "Send"}
-                </button>
-                <button style={styles.btnGhost} onClick={() => void toggleListening()} disabled={!voiceEnabled || isTranscribing || isVoiceSubmitting || Boolean(pendingVoiceTranscript)}>
-                  {isListening
-                    ? "Stop Recording"
-                    : isTranscribing
-                      ? "Transcribing..."
-                      : isVoiceSubmitting
-                        ? "Sending Voice..."
-                        : "Start Voice Input"}
-                </button>
-                <button style={styles.btnGhost} onClick={() => setDraft("confirm")} disabled={!pendingPlan && draftTreeNodes.length === 0}>
-                  {draftTreeNodes.length > 0 ? "Commit Draft" : "Confirm Proposal"}
-                </button>
-                <button style={styles.btnDanger} onClick={dismissPendingPlan} disabled={!pendingPlan && draftTreeNodes.length === 0}>
-                  {draftTreeNodes.length > 0 ? "Clear Draft" : "Clear Pending"}
-                </button>
-                <span style={styles.status}>
-                  {voiceActivity
-                    ? voiceActivity
-                    : pendingVoiceTranscript
-                    ? "Voice transcript is ready. Review, edit, send, retry, or cancel."
-                    : draftTreeNodes.length > 0
-                    ? "A staged draft is active. Keep refining it, then commit when ready."
-                    : pendingPlan
-                      ? "A proposed plan is waiting for confirmation."
-                      : "No pending proposal."}
-                </span>
-              </div>
-            </div>
+            ) : null}
           </div>
         </div>
 

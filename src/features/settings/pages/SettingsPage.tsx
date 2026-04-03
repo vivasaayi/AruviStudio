@@ -30,6 +30,8 @@ const SPEECH_PROVIDER_KEY = "speech.transcription_provider_id";
 const SPEECH_MODEL_KEY = "speech.transcription_model_name";
 const SPEECH_LOCALE_KEY = "speech.locale";
 const SPEECH_NATIVE_VOICE_KEY = "speech.native_voice";
+const SPEECH_ENABLE_MIC_KEY = "speech.enable_mic";
+const SPEECH_AUTO_SPEAK_REPLIES_KEY = "speech.auto_speak_replies";
 const MOBILE_API_TOKEN_KEY = "mobile.api_token";
 const MOBILE_BIND_HOST_KEY = "mobile.bind_host";
 const MOBILE_BIND_PORT_KEY = "mobile.bind_port";
@@ -108,6 +110,8 @@ export function SettingsPage() {
   const [speechModelName, setSpeechModelName] = useState("");
   const [speechLocale, setSpeechLocale] = useState("en-US");
   const [speechNativeVoice, setSpeechNativeVoice] = useState("");
+  const [speechEnableMic, setSpeechEnableMic] = useState(true);
+  const [speechAutoSpeakReplies, setSpeechAutoSpeakReplies] = useState(false);
   const [mobileApiToken, setMobileApiToken] = useState("");
   const [mobileBindHost, setMobileBindHost] = useState("127.0.0.1");
   const [mobileBindPort, setMobileBindPort] = useState("8787");
@@ -151,6 +155,8 @@ export function SettingsPage() {
     getSetting(SPEECH_MODEL_KEY).then((v) => { if (v) setSpeechModelName(v); });
     getSetting(SPEECH_LOCALE_KEY).then((v) => { if (v) setSpeechLocale(v); });
     getSetting(SPEECH_NATIVE_VOICE_KEY).then((v) => { if (v) setSpeechNativeVoice(v); });
+    getSetting(SPEECH_ENABLE_MIC_KEY).then((v) => setSpeechEnableMic(parseBooleanSetting(v, true)));
+    getSetting(SPEECH_AUTO_SPEAK_REPLIES_KEY).then((v) => setSpeechAutoSpeakReplies(parseBooleanSetting(v, false)));
     getSetting(MOBILE_API_TOKEN_KEY).then((v) => { if (v) setMobileApiToken(v); });
     getSetting(MOBILE_BIND_HOST_KEY).then((v) => { if (v) setMobileBindHost(v); });
     getSetting(MOBILE_BIND_PORT_KEY).then((v) => { if (v) setMobileBindPort(v); });
@@ -345,6 +351,34 @@ export function SettingsPage() {
       </div>
       <div style={styles.section}>
         <div style={styles.sectionTitle}>Speech</div>
+        <div style={styles.row}>
+          <div>
+            <div style={styles.label}>Enable Voice Input By Default</div>
+            <div style={styles.desc}>Controls whether planner and chat start with microphone input enabled.</div>
+          </div>
+          <button
+            style={{ ...styles.toggle, backgroundColor: speechEnableMic ? "#0e639c" : "#444" }}
+            onClick={async () => {
+              const next = !speechEnableMic;
+              setSpeechEnableMic(next);
+              await saveSetting(SPEECH_ENABLE_MIC_KEY, String(next));
+            }}
+          />
+        </div>
+        <div style={styles.row}>
+          <div>
+            <div style={styles.label}>Speak Assistant Replies By Default</div>
+            <div style={styles.desc}>Uses native macOS voice when available. This affects planner and direct chat voice replies.</div>
+          </div>
+          <button
+            style={{ ...styles.toggle, backgroundColor: speechAutoSpeakReplies ? "#0e639c" : "#444" }}
+            onClick={async () => {
+              const next = !speechAutoSpeakReplies;
+              setSpeechAutoSpeakReplies(next);
+              await saveSetting(SPEECH_AUTO_SPEAK_REPLIES_KEY, String(next));
+            }}
+          />
+        </div>
         <div style={styles.settingRow}>
           <div><div style={styles.label}>Speech Provider</div><div style={styles.desc}>Explicit provider used for planner voice transcription. Leave blank to allow automatic discovery.</div></div>
           <div style={{ display: "flex", alignItems: "center" }}>

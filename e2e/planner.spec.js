@@ -3,7 +3,7 @@ import { test, expect } from "./support/test.js";
 test("planner supports deterministic create, refine, and commit flow", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "Interactive Planner" })).toBeVisible();
+  await expect(page.getByTestId("planner-input")).toBeVisible();
 
   await page.getByTestId("planner-input").fill("I want to build a hotel management system");
   await page.getByTestId("planner-send").click();
@@ -58,7 +58,7 @@ test("planner supports deterministic create, refine, and commit flow", async ({ 
 test("planner can reverse engineer a registered repository into a draft tree", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "Interactive Planner" })).toBeVisible();
+  await expect(page.getByTestId("planner-input")).toBeVisible();
   await page.getByRole("button", { name: "Show Advanced Tools" }).click();
 
   await page.getByPlaceholder("/absolute/path/to/repository").fill("/tmp/aruvi-studio");
