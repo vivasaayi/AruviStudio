@@ -1134,25 +1134,42 @@ function buildWorkItemTreeNodes(context: ResolverContext, productName?: string):
   });
 }
 
-function summarizeAction(action: PlannerAction) {
-  const target = (action as { target?: { productName?: string; moduleName?: string; capabilityName?: string; workItemTitle?: string } }).target;
-  switch (action.type) {
+function summarizeAction(action: PlannerAction | Record<string, unknown> | null | undefined) {
+  if (!action || typeof action !== "object") {
+    return {
+      symbol: "?",
+      tone: "warn" as const,
+      title: "Unknown planner action",
+      detail: "The planner returned an empty or invalid action payload.",
+    };
+  }
+  const raw = action as Record<string, unknown>;
+  const actionType = typeof (action as { type?: unknown }).type === "string"
+    ? String((action as { type: string }).type)
+    : "unknown_action";
+  const target = raw.target as { productName?: string; moduleName?: string; capabilityName?: string; workItemTitle?: string } | undefined;
+  const name = typeof raw.name === "string" ? raw.name : undefined;
+  const title = typeof raw.title === "string" ? raw.title : undefined;
+  const description = typeof raw.description === "string" ? raw.description : undefined;
+  const vision = typeof raw.vision === "string" ? raw.vision : undefined;
+  const fields = raw.fields ?? undefined;
+  switch (actionType) {
     case "create_product":
-      return { symbol: "+", tone: "add", title: `Create product ${action.name ?? target?.productName ?? "unnamed product"}`, detail: action.description || action.vision || "New product proposal." };
+      return { symbol: "+", tone: "add", title: `Create product ${name ?? target?.productName ?? "unnamed product"}`, detail: description || vision || "New product proposal." };
     case "create_module":
-      return { symbol: "+", tone: "add", title: `Create module ${action.name ?? target?.moduleName ?? "unnamed module"}`, detail: target?.productName ? `Product: ${target.productName}` : "Attach to selected product." };
+      return { symbol: "+", tone: "add", title: `Create module ${name ?? target?.moduleName ?? "unnamed module"}`, detail: target?.productName ? `Product: ${target.productName}` : "Attach to selected product." };
     case "create_capability":
-      return { symbol: "+", tone: "add", title: `Create capability ${action.name ?? target?.capabilityName ?? "unnamed capability"}`, detail: [target?.productName, target?.moduleName].filter(Boolean).join(" / ") || "Attach to selected scope." };
+      return { symbol: "+", tone: "add", title: `Create capability ${name ?? target?.capabilityName ?? "unnamed capability"}`, detail: [target?.productName, target?.moduleName].filter(Boolean).join(" / ") || "Attach to selected scope." };
     case "create_work_item":
-      return { symbol: "+", tone: "add", title: `Create work item ${action.title ?? target?.workItemTitle ?? "untitled work item"}`, detail: [target?.productName, target?.moduleName, target?.capabilityName].filter(Boolean).join(" / ") || action.description || "New work item proposal." };
+      return { symbol: "+", tone: "add", title: `Create work item ${title ?? target?.workItemTitle ?? "untitled work item"}`, detail: [target?.productName, target?.moduleName, target?.capabilityName].filter(Boolean).join(" / ") || description || "New work item proposal." };
     case "update_product":
-      return { symbol: "~", tone: "update", title: `Update product ${action.target?.productName ?? ""}`.trim(), detail: JSON.stringify(action.fields, null, 2) };
+      return { symbol: "~", tone: "update", title: `Update product ${target?.productName ?? ""}`.trim(), detail: JSON.stringify(fields, null, 2) };
     case "update_module":
-      return { symbol: "~", tone: "update", title: `Update module ${action.target?.moduleName ?? ""}`.trim(), detail: JSON.stringify(action.fields, null, 2) };
+      return { symbol: "~", tone: "update", title: `Update module ${target?.moduleName ?? ""}`.trim(), detail: JSON.stringify(fields, null, 2) };
     case "update_capability":
-      return { symbol: "~", tone: "update", title: `Update capability ${action.target?.capabilityName ?? ""}`.trim(), detail: JSON.stringify(action.fields, null, 2) };
+      return { symbol: "~", tone: "update", title: `Update capability ${target?.capabilityName ?? ""}`.trim(), detail: JSON.stringify(fields, null, 2) };
     case "update_work_item":
-      return { symbol: "~", tone: "update", title: `Update work item ${action.target?.workItemTitle ?? ""}`.trim(), detail: JSON.stringify(action.fields, null, 2) };
+      return { symbol: "~", tone: "update", title: `Update work item ${target?.workItemTitle ?? ""}`.trim(), detail: JSON.stringify(fields, null, 2) };
     case "approve_work_item":
     case "approve_work_item_plan":
     case "approve_work_item_test_review":
@@ -1164,11 +1181,18 @@ function summarizeAction(action: PlannerAction) {
     case "delete_module":
     case "delete_capability":
     case "delete_work_item":
-      return { symbol: "!", tone: "warn", title: action.type.replace(/_/g, " "), detail: JSON.stringify(action, null, 2) };
+      return { symbol: "!", tone: "warn", title: actionType.replace(/_/g, " "), detail: JSON.stringify(action, null, 2) };
     case "report_status":
-      return { symbol: "i", tone: "update", title: "Status report", detail: action.target?.productName || action.target?.workItemTitle || "Current scope" };
+      return { symbol: "i", tone: "update", title: "Status report", detail: target?.productName || target?.workItemTitle || "Current scope" };
     case "report_tree":
-      return { symbol: "i", tone: "update", title: "Tree report", detail: action.target?.productName || "All products" };
+      return { symbol: "i", tone: "update", title: "Tree report", detail: target?.productName || "All products" };
+    default:
+      return {
+        symbol: "?",
+        tone: "warn",
+        title: actionType.replace(/_/g, " "),
+        detail: JSON.stringify(action, null, 2),
+      };
   }
 }
 

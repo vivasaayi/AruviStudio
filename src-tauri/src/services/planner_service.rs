@@ -2136,6 +2136,38 @@ fn resolve_draft_product_name(
         }
         return Ok(Some(name.to_string()));
     }
+    if let Some(module_name) = target_field(action, "moduleName") {
+        if let Some(draft_plan) = draft_plan {
+            if let Some(node) = find_unique_draft_node_by_name(draft_plan, "module", module_name)? {
+                return Ok(find_draft_ancestor_name(draft_plan, node, "product"));
+            }
+        }
+    }
+    if let Some(capability_name) = target_field(action, "capabilityName") {
+        if let Some(draft_plan) = draft_plan {
+            if let Some(node) =
+                find_unique_draft_node_by_name(draft_plan, "capability", capability_name)?
+            {
+                return Ok(find_draft_ancestor_name(draft_plan, node, "product"));
+            }
+        }
+    }
+    let work_item_title = target_field(action, "workItemTitle")
+        .map(ToString::to_string)
+        .or_else(|| target_field(action, "work_item_title").map(ToString::to_string))
+        .or_else(|| target_field(action, "work_item_name").map(ToString::to_string))
+        .or_else(|| string_field(action, "title"))
+        .or_else(|| string_field(action, "work_item_title"))
+        .or_else(|| string_field(action, "work_item_name"));
+    if let Some(work_item_title) = work_item_title {
+        if let Some(draft_plan) = draft_plan {
+            if let Some(node) =
+                find_unique_draft_node_by_name(draft_plan, "work_item", &work_item_title)?
+            {
+                return Ok(find_draft_ancestor_name(draft_plan, node, "product"));
+            }
+        }
+    }
     let (product_name, _, _, _) = infer_selected_draft_context(draft_plan, selected_node_id);
     if product_name.is_some() {
         return Ok(product_name);
@@ -5324,6 +5356,53 @@ mod tests {
         assert_eq!(module.parent_id.as_deref(), Some(product.id.as_str()));
         assert_eq!(capability.parent_id.as_deref(), Some(module.id.as_str()));
         assert_eq!(work_item.parent_id.as_deref(), Some(capability.id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn apply_actions_to_draft_infers_product_from_module_target_on_follow_up() {
+        let _guard = acquire_planner_test_lock().await;
+
+        let seed_actions = normalize_actions(vec![
+            json!({
+                "type": "create_product",
+                "name": "Library Management System",
+                "description": "Library root."
+            }),
+            json!({
+                "type": "create_module",
+                "target": { "productName": "Library Management System" },
+                "name": "Circulation",
+                "description": "Loans and returns."
+            }),
+        ]);
+
+        let draft = apply_actions_to_draft(None, None, &seed_actions)
+            .await
+            .expect("failed to seed draft");
+
+        let follow_up_actions = normalize_actions(vec![json!({
+            "type": "create_module",
+            "target": { "moduleName": "Circulation" },
+            "name": "Notifications",
+            "description": "Email and WhatsApp alerts for due dates."
+        })]);
+
+        let draft = apply_actions_to_draft(Some(draft), None, &follow_up_actions)
+            .await
+            .expect("failed to infer sibling module product");
+
+        let product = draft
+            .nodes
+            .iter()
+            .find(|node| node.node_type == "product" && node.name == "Library Management System")
+            .expect("missing product");
+        let notifications = draft
+            .nodes
+            .iter()
+            .find(|node| node.node_type == "module" && node.name == "Notifications")
+            .expect("missing notifications module");
+
+        assert_eq!(notifications.parent_id.as_deref(), Some(product.id.as_str()));
     }
 
     #[tokio::test]
