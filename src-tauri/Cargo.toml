@@ -3,6 +3,7 @@ name = "aruvi-studio"
 version = "0.1.0"
 edition = "2021"
 license-file = "../LICENSE"
+default-run = "aruvi-studio"
 
 [lib]
 name = "aruvi_studio_lib"

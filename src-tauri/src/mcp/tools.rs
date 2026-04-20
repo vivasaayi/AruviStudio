@@ -1,6 +1,6 @@
 use crate::commands::model_commands::upsert_local_runtime_registration;
 use crate::commands::repository_commands::create_local_workspace_for_scope;
-use crate::commands::settings_commands::{DatabaseHealth, MigrationStatus, MobileBridgeStatus};
+use crate::commands::settings_commands::{DatabaseHealth, MigrationStatus};
 use crate::domain::model::{ModelDefinition, ProviderType};
 use crate::domain::workflow::UserAction;
 use crate::error::AppError;
@@ -202,11 +202,12 @@ pub fn definitions() -> Vec<ToolDefinition> {
         ),
         action_tool(
             "aruvi_settings",
-            "Inspect and update operational settings, mobile bridge status, and database configuration.",
+            "Inspect and update operational settings, mobile and MCP bridge status, and database configuration.",
             &[
                 "get_setting",
                 "set_setting",
                 "get_mobile_bridge_status",
+                "get_mcp_bridge_status",
                 "get_database_health",
                 "get_active_database_path",
                 "get_database_path_override",
@@ -1858,49 +1859,18 @@ async fn handle_settings(state: &AppState, payload: Value) -> Result<Value, AppE
             .await?;
             Ok(action_ok("set_setting"))
         }
-        "get_mobile_bridge_status" => {
-            let bind_config = webhook_service::resolve_webhook_bind_config(state)
+        "get_mobile_bridge_status" => action_result(
+            "get_mobile_bridge_status",
+            webhook_service::resolve_mobile_bridge_status(state)
                 .await
-                .map_err(AppError::Internal)?;
-            let detected_lan_ip = webhook_service::detect_primary_lan_ip();
-            let desktop_base_url =
-                webhook_service::build_desktop_base_url(&bind_config.host, bind_config.port);
-            let phone_base_url = webhook_service::build_phone_base_url(
-                &bind_config.host,
-                bind_config.port,
-                detected_lan_ip.as_deref(),
-            );
-            let bind_scope = webhook_service::classify_bind_scope(&bind_config.host).to_string();
-            let lan_ready = phone_base_url.is_some();
-            let guidance = if lan_ready {
-                "Use the phone base URL from the same Wi-Fi network. Bind host or port changes apply on next app launch.".to_string()
-            } else if let Some(lan_ip) = &detected_lan_ip {
-                format!(
-                    "This bridge is currently localhost-only. Set mobile.bind_host to 0.0.0.0 and restart, then connect the iPhone to http://{}:{}.",
-                    lan_ip, bind_config.port
-                )
-            } else {
-                "This bridge is currently localhost-only. Set mobile.bind_host to 0.0.0.0 and restart to enable same-LAN iPhone access.".to_string()
-            };
-            action_result(
-                "get_mobile_bridge_status",
-                MobileBridgeStatus {
-                    bind_host: bind_config.host.clone(),
-                    bind_port: bind_config.port,
-                    host_source: bind_config.host_source.clone(),
-                    port_source: bind_config.port_source.clone(),
-                    bind_scope,
-                    detected_lan_ip,
-                    desktop_base_url,
-                    phone_base_url,
-                    lan_ready,
-                    bind_changes_require_restart: true,
-                    env_overrides_settings: bind_config.host_source == "env"
-                        || bind_config.port_source == "env",
-                    guidance,
-                },
-            )
-        }
+                .map_err(AppError::Internal)?,
+        ),
+        "get_mcp_bridge_status" => action_result(
+            "get_mcp_bridge_status",
+            webhook_service::resolve_mcp_bridge_status(state)
+                .await
+                .map_err(AppError::Internal)?,
+        ),
         "get_database_health" => {
             let migrations = sqlx::query_as::<_, MigrationStatus>(
                 "SELECT version, description, success, datetime(installed_on, 'unixepoch') AS installed_on

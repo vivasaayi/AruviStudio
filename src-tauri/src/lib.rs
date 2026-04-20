@@ -163,6 +163,7 @@ pub fn run() {
             commands::settings_commands::get_setting,
             commands::settings_commands::set_setting,
             commands::settings_commands::get_mobile_bridge_status,
+            commands::settings_commands::get_mcp_bridge_status,
             commands::settings_commands::get_database_health,
             commands::settings_commands::get_active_database_path,
             commands::settings_commands::get_database_path_override,

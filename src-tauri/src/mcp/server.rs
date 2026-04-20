@@ -44,131 +44,173 @@ impl McpServer {
             }
         };
 
-        let object = match parsed.as_object() {
-            Some(object) => object,
-            None => {
-                return Some(error_response(
-                    Value::Null,
-                    -32600,
-                    "Invalid Request",
-                    Some(json!({ "details": "Batch requests are not supported" })),
-                ))
-            }
-        };
+        handle_json_rpc_value(&self.state, parsed).await
+    }
+}
 
-        let id = object.get("id").cloned();
-        let method = match object.get("method").and_then(Value::as_str) {
-            Some(method) => method,
-            None => {
-                return Some(error_response(
-                    id.unwrap_or(Value::Null),
-                    -32600,
-                    "Invalid Request",
-                    Some(json!({ "details": "Missing method" })),
-                ))
-            }
-        };
-        let params = object.get("params").cloned();
+pub async fn handle_json_rpc_value(state: &AppState, parsed: Value) -> Option<Value> {
+    match parsed {
+        Value::Array(batch) => handle_batch(state, batch).await,
+        Value::Object(object) => handle_object(state, object).await,
+        _ => Some(error_response(
+            Value::Null,
+            -32600,
+            "Invalid Request",
+            Some(json!({ "details": "Request must be a JSON object or batch array" })),
+        )),
+    }
+}
 
-        if id.is_none() {
-            self.handle_notification(method, params).await;
+async fn handle_batch(state: &AppState, batch: Vec<Value>) -> Option<Value> {
+    if batch.is_empty() {
+        return Some(error_response(
+            Value::Null,
+            -32600,
+            "Invalid Request",
+            Some(json!({ "details": "Batch requests cannot be empty" })),
+        ));
+    }
+
+    let mut responses = Vec::new();
+    for item in batch {
+        match item {
+            Value::Object(object) => {
+                if let Some(response) = handle_object(state, object).await {
+                    responses.push(response);
+                }
+            }
+            _ => responses.push(error_response(
+                Value::Null,
+                -32600,
+                "Invalid Request",
+                Some(json!({ "details": "Batch items must be JSON objects" })),
+            )),
+        }
+    }
+
+    if responses.is_empty() {
+        None
+    } else {
+        Some(Value::Array(responses))
+    }
+}
+
+async fn handle_object(state: &AppState, object: serde_json::Map<String, Value>) -> Option<Value> {
+    let id = object.get("id").cloned();
+    let method = object.get("method").and_then(Value::as_str);
+    let params = object.get("params").cloned();
+
+    let Some(method) = method else {
+        if object.contains_key("result") || object.contains_key("error") {
             return None;
         }
 
-        let id = id.unwrap_or(Value::Null);
-        let result = match method {
-            "initialize" => Ok(self.handle_initialize(params)),
-            "ping" => Ok(json!({})),
-            "tools/list" => Ok(json!({ "tools": tools::definitions() })),
-            "tools/call" => self.handle_tool_call(params).await,
-            "resources/list" => Ok(json!({ "resources": [] })),
-            "resources/templates/list" => Ok(json!({ "resourceTemplates": [] })),
-            "prompts/list" => Ok(json!({ "prompts": [] })),
-            _ => Err(error_response(
-                id.clone(),
-                -32601,
-                "Method not found",
-                Some(json!({ "method": method })),
-            )),
-        };
+        return Some(error_response(
+            id.unwrap_or(Value::Null),
+            -32600,
+            "Invalid Request",
+            Some(json!({ "details": "Missing method" })),
+        ));
+    };
 
-        Some(match result {
-            Ok(result) => success_response(id, result),
-            Err(error) => error,
-        })
+    if id.is_none() {
+        handle_notification(method, params).await;
+        return None;
     }
 
-    async fn handle_notification(&self, _method: &str, _params: Option<Value>) {}
+    let id = id.unwrap_or(Value::Null);
+    let result = match method {
+        "initialize" => Ok(handle_initialize(params)),
+        "ping" => Ok(json!({})),
+        "tools/list" => Ok(json!({ "tools": tools::definitions() })),
+        "tools/call" => handle_tool_call(state, params).await,
+        "resources/list" => Ok(json!({ "resources": [] })),
+        "resources/templates/list" => Ok(json!({ "resourceTemplates": [] })),
+        "prompts/list" => Ok(json!({ "prompts": [] })),
+        _ => Err(error_response(
+            id.clone(),
+            -32601,
+            "Method not found",
+            Some(json!({ "method": method })),
+        )),
+    };
 
-    fn handle_initialize(&self, params: Option<Value>) -> Value {
-        let negotiated_protocol = params
-            .as_ref()
-            .and_then(|value| value.get("protocolVersion"))
-            .and_then(Value::as_str)
-            .unwrap_or(DEFAULT_PROTOCOL_VERSION);
+    Some(match result {
+        Ok(result) => success_response(id, result),
+        Err(error) => error,
+    })
+}
 
-        json!({
-            "protocolVersion": negotiated_protocol,
-            "capabilities": {
-                "tools": {
-                    "listChanged": false
-                },
-                "resources": {
-                    "listChanged": false,
-                    "subscribe": false
-                },
-                "prompts": {
-                    "listChanged": false
-                }
+async fn handle_notification(_method: &str, _params: Option<Value>) {}
+
+fn handle_initialize(params: Option<Value>) -> Value {
+    let negotiated_protocol = params
+        .as_ref()
+        .and_then(|value| value.get("protocolVersion"))
+        .and_then(Value::as_str)
+        .unwrap_or(DEFAULT_PROTOCOL_VERSION);
+
+    json!({
+        "protocolVersion": negotiated_protocol,
+        "capabilities": {
+            "tools": {
+                "listChanged": false
             },
-            "serverInfo": {
-                "name": "Aruvi Studio MCP",
-                "version": env!("CARGO_PKG_VERSION")
+            "resources": {
+                "listChanged": false,
+                "subscribe": false
+            },
+            "prompts": {
+                "listChanged": false
             }
-        })
-    }
+        },
+        "serverInfo": {
+            "name": "Aruvi Studio MCP",
+            "version": env!("CARGO_PKG_VERSION")
+        }
+    })
+}
 
-    async fn handle_tool_call(&self, params: Option<Value>) -> Result<Value, Value> {
-        let params = params.ok_or_else(|| {
+async fn handle_tool_call(state: &AppState, params: Option<Value>) -> Result<Value, Value> {
+    let params = params.ok_or_else(|| {
+        error_response(
+            Value::Null,
+            -32602,
+            "Invalid params",
+            Some(json!({ "details": "Missing tool call params" })),
+        )
+    })?;
+    let params_object = params.as_object().ok_or_else(|| {
+        error_response(
+            Value::Null,
+            -32602,
+            "Invalid params",
+            Some(json!({ "details": "Tool call params must be an object" })),
+        )
+    })?;
+
+    let tool_name = params_object
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
             error_response(
                 Value::Null,
                 -32602,
                 "Invalid params",
-                Some(json!({ "details": "Missing tool call params" })),
+                Some(json!({ "details": "Tool call params are missing name" })),
             )
         })?;
-        let params_object = params.as_object().ok_or_else(|| {
-            error_response(
-                Value::Null,
-                -32602,
-                "Invalid params",
-                Some(json!({ "details": "Tool call params must be an object" })),
-            )
-        })?;
+    let arguments = params_object
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
 
-        let tool_name = params_object
-            .get("name")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                error_response(
-                    Value::Null,
-                    -32602,
-                    "Invalid params",
-                    Some(json!({ "details": "Tool call params are missing name" })),
-                )
-            })?;
-        let arguments = params_object
-            .get("arguments")
-            .cloned()
-            .unwrap_or_else(|| json!({}));
+    let payload = match tools::dispatch_tool(state, tool_name, arguments).await {
+        Ok(value) => success_tool_result(value),
+        Err(error) => error_tool_result(tool_name, &error.to_string()),
+    };
 
-        let payload = match tools::dispatch_tool(&self.state, tool_name, arguments).await {
-            Ok(value) => success_tool_result(value),
-            Err(error) => error_tool_result(tool_name, &error.to_string()),
-        };
-
-        Ok(payload)
-    }
+    Ok(payload)
 }
 
 fn success_response(id: Value, result: Value) -> Value {

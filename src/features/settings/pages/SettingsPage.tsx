@@ -5,6 +5,7 @@ import {
   getActiveDatabasePath,
   getDatabaseHealth,
   getDatabasePathOverride,
+  getMcpBridgeStatus,
   getMobileBridgeStatus,
   getSetting,
   listModelDefinitions,
@@ -16,7 +17,7 @@ import {
   setDatabasePathOverride,
   setSetting,
 } from "../../../lib/tauri";
-import type { DatabaseHealth, MobileBridgeStatus, ModelDefinition, ModelProvider } from "../../../lib/types";
+import type { DatabaseHealth, McpBridgeStatus, MobileBridgeStatus, ModelDefinition, ModelProvider } from "../../../lib/types";
 import { useUIStore } from "../../../state/uiStore";
 
 const AUTO_START_AFTER_APPROVAL_KEY = "workflow.auto_start_after_work_item_approval";
@@ -36,6 +37,7 @@ const SPEECH_NATIVE_VOICE_KEY = "speech.native_voice";
 const SPEECH_ENABLE_MIC_KEY = "speech.enable_mic";
 const SPEECH_AUTO_SPEAK_REPLIES_KEY = "speech.auto_speak_replies";
 const SPEECH_REVIEW_BEFORE_SEND_KEY = "speech.review_before_send";
+const MCP_API_TOKEN_KEY = "mcp.api_token";
 const MOBILE_API_TOKEN_KEY = "mobile.api_token";
 const MOBILE_BIND_HOST_KEY = "mobile.bind_host";
 const MOBILE_BIND_PORT_KEY = "mobile.bind_port";
@@ -119,6 +121,7 @@ export function SettingsPage() {
   const [speechEnableMic, setSpeechEnableMic] = useState(true);
   const [speechAutoSpeakReplies, setSpeechAutoSpeakReplies] = useState(false);
   const [speechReviewBeforeSend, setSpeechReviewBeforeSend] = useState(false);
+  const [mcpApiToken, setMcpApiToken] = useState("");
   const [mobileApiToken, setMobileApiToken] = useState("");
   const [mobileBindHost, setMobileBindHost] = useState("127.0.0.1");
   const [mobileBindPort, setMobileBindPort] = useState("8787");
@@ -133,6 +136,10 @@ export function SettingsPage() {
   const [plannerContactError, setPlannerContactError] = useState<string | null>(null);
   const { data: providers = [] } = useQuery<ModelProvider[]>({ queryKey: ["settingsProviders"], queryFn: listProviders });
   const { data: models = [] } = useQuery<ModelDefinition[]>({ queryKey: ["settingsModels"], queryFn: listModelDefinitions });
+  const { data: mcpBridgeStatus } = useQuery<McpBridgeStatus>({
+    queryKey: ["mcpBridgeStatus"],
+    queryFn: getMcpBridgeStatus,
+  });
   const { data: mobileBridgeStatus } = useQuery<MobileBridgeStatus>({
     queryKey: ["mobileBridgeStatus"],
     queryFn: getMobileBridgeStatus,
@@ -169,6 +176,7 @@ export function SettingsPage() {
     getSetting(SPEECH_ENABLE_MIC_KEY).then((v) => setSpeechEnableMic(parseBooleanSetting(v, true)));
     getSetting(SPEECH_AUTO_SPEAK_REPLIES_KEY).then((v) => setSpeechAutoSpeakReplies(parseBooleanSetting(v, false)));
     getSetting(SPEECH_REVIEW_BEFORE_SEND_KEY).then((v) => setSpeechReviewBeforeSend(parseBooleanSetting(v, false)));
+    getSetting(MCP_API_TOKEN_KEY).then((v) => { if (v) setMcpApiToken(v); });
     getSetting(MOBILE_API_TOKEN_KEY).then((v) => { if (v) setMobileApiToken(v); });
     getSetting(MOBILE_BIND_HOST_KEY).then((v) => { if (v) setMobileBindHost(v); });
     getSetting(MOBILE_BIND_PORT_KEY).then((v) => { if (v) setMobileBindPort(v); });
@@ -203,6 +211,7 @@ export function SettingsPage() {
   const saveSetting = async (key: string, value: string) => {
     await setSetting(key, value);
     await queryClient.invalidateQueries({ queryKey: ["setting"] });
+    await queryClient.invalidateQueries({ queryKey: ["mcpBridgeStatus"] });
     await queryClient.invalidateQueries({ queryKey: ["mobileBridgeStatus"] });
     if (key === HIDE_EXAMPLE_PRODUCTS_KEY) {
       await Promise.all([
@@ -485,6 +494,55 @@ export function SettingsPage() {
         <div style={styles.settingRow}>
           <div><div style={styles.label}>Native Speech Voice</div><div style={styles.desc}>Optional macOS `say` voice, for example `Samantha`, used for planner replies when native speech is enabled.</div></div>
           <div style={{ display: "flex", alignItems: "center" }}><input style={styles.input} value={speechNativeVoice} onChange={(e) => setSpeechNativeVoice(e.target.value)} placeholder="Samantha" /><button style={styles.btn} onClick={() => saveSetting(SPEECH_NATIVE_VOICE_KEY, speechNativeVoice)}>Save</button>{savedMsg === SPEECH_NATIVE_VOICE_KEY && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
+      </div>
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>Agents / MCP</div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>MCP API Token</div><div style={styles.desc}>Optional bearer token for agent hosts that connect to Aruvi over the embedded HTTP MCP endpoint. Required before exposing the bridge beyond localhost.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}><input style={styles.input} value={mcpApiToken} onChange={(e) => setMcpApiToken(e.target.value)} placeholder="set-a-strong-token" /><button style={styles.btn} onClick={() => saveSetting(MCP_API_TOKEN_KEY, mcpApiToken)}>Save</button>{savedMsg === MCP_API_TOKEN_KEY && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
+        <div style={{ ...styles.desc, marginTop: 8 }}>
+          Aruvi hosts MCP on the same embedded HTTP bridge as the mobile companion, so the bind host and port below also control the MCP endpoint agents connect to.
+        </div>
+        <div style={styles.healthCard}>
+          <div style={{ ...styles.label, marginBottom: 8 }}>Embedded MCP Status</div>
+          {mcpBridgeStatus ? (
+            <>
+              <div style={styles.healthGrid}>
+                <div>
+                  <div style={styles.healthLabel}>Bind Scope</div>
+                  <div style={styles.healthValue}>{mcpBridgeStatus.bind_scope}</div>
+                </div>
+                <div>
+                  <div style={styles.healthLabel}>Auth Mode</div>
+                  <div style={styles.healthValue}>{mcpBridgeStatus.auth_mode}</div>
+                </div>
+              </div>
+              <div style={{ ...styles.desc, marginBottom: 8 }}>
+                {mcpBridgeStatus.guidance}
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <div style={styles.healthLabel}>Local MCP Endpoint</div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+                  <div style={{ ...styles.codeBox, flex: 1 }}>{mcpBridgeStatus.endpoint_url}</div>
+                  <button style={{ ...styles.btn, marginLeft: 0 }} onClick={() => copyText(mcpBridgeStatus.endpoint_url)}>Copy</button>
+                </div>
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <div style={styles.healthLabel}>LAN MCP Endpoint</div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+                  <div style={{ ...styles.codeBox, flex: 1 }}>{mcpBridgeStatus.lan_endpoint_url ?? "Keep bind host on 127.0.0.1 for local-only agent access, or switch to 0.0.0.0 and restart for same-LAN clients."}</div>
+                  {mcpBridgeStatus.lan_endpoint_url && <button style={{ ...styles.btn, marginLeft: 0 }} onClick={() => copyText(mcpBridgeStatus.lan_endpoint_url!)}>Copy</button>}
+                </div>
+              </div>
+              <div style={styles.desc}>
+                Token configured: {mcpBridgeStatus.token_configured ? "yes" : "no"}. Requests allowed: {mcpBridgeStatus.requests_allowed ? "yes" : "no"}. Origin policy: {mcpBridgeStatus.origin_policy} {mcpBridgeStatus.env_overrides_settings ? "Environment variables currently override these settings. " : ""}{mcpBridgeStatus.bind_changes_require_restart ? "Restart AruviStudio after changing bind host or port." : ""}
+              </div>
+            </>
+          ) : (
+            <div style={styles.desc}>Loading MCP bridge status…</div>
+          )}
         </div>
       </div>
       <div style={styles.section}>
