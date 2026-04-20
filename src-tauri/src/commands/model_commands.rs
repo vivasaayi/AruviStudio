@@ -9,8 +9,8 @@ use crate::services::speech_service::resolve_local_runtime_model_path;
 use crate::state::AppState;
 use futures_util::StreamExt;
 use serde::Serialize;
-use tokio::io::AsyncWriteExt;
 use tauri::{AppHandle, Emitter, State};
+use tokio::io::AsyncWriteExt;
 use tracing::warn;
 
 #[derive(Debug, Clone, Serialize)]
@@ -53,7 +53,7 @@ fn slugify(value: &str) -> String {
     output.trim_matches('-').to_string()
 }
 
-async fn upsert_local_runtime_registration(
+pub(crate) async fn upsert_local_runtime_registration(
     state: &AppState,
     provider_name: &str,
     model_name: &str,
@@ -329,7 +329,7 @@ pub async fn install_managed_local_model_command(
 
     let mut downloaded = false;
     if !destination_path.exists() {
-      let response = reqwest::get(download_url.trim())
+        let response = reqwest::get(download_url.trim())
             .await
             .map_err(|error| AppError::Provider(format!("Failed to download model: {error}")))?;
         if !response.status().is_success() {
@@ -342,8 +342,9 @@ pub async fn install_managed_local_model_command(
         let mut file = tokio::fs::File::create(&destination_path).await?;
         let mut stream = response.bytes_stream();
         while let Some(chunk) = stream.next().await {
-            let bytes = chunk
-                .map_err(|error| AppError::Provider(format!("Failed to read model download stream: {error}")))?;
+            let bytes = chunk.map_err(|error| {
+                AppError::Provider(format!("Failed to read model download stream: {error}"))
+            })?;
             file.write_all(&bytes).await?;
         }
         file.flush().await?;
@@ -354,9 +355,9 @@ pub async fn install_managed_local_model_command(
         state.inner(),
         &provider_name,
         &model_name,
-        destination_path
-            .to_str()
-            .ok_or_else(|| AppError::Validation("Installed model path is not valid UTF-8".to_string()))?,
+        destination_path.to_str().ok_or_else(|| {
+            AppError::Validation("Installed model path is not valid UTF-8".to_string())
+        })?,
         capability_tags.as_deref(),
         notes.as_deref(),
         context_window,

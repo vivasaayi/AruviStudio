@@ -205,11 +205,23 @@ pub async fn create_local_workspace(
     preferred_path: Option<String>,
     preferredPath: Option<String>,
 ) -> Result<WorkspaceProvisionResult, AppError> {
-    let product_id = product_id.or(productId);
-    let module_id = module_id.or(moduleId);
-    let work_item_id = work_item_id.or(workItemId);
-    let preferred_path = preferred_path.or(preferredPath);
+    create_local_workspace_for_scope(
+        state.inner(),
+        product_id.or(productId),
+        module_id.or(moduleId),
+        work_item_id.or(workItemId),
+        preferred_path.or(preferredPath),
+    )
+    .await
+}
 
+pub(crate) async fn create_local_workspace_for_scope(
+    state: &AppState,
+    product_id: Option<String>,
+    module_id: Option<String>,
+    work_item_id: Option<String>,
+    preferred_path: Option<String>,
+) -> Result<WorkspaceProvisionResult, AppError> {
     let scope: (
         String,
         Option<String>,

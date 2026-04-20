@@ -118,10 +118,9 @@ pub async fn transcribe_audio_with_provider(
         req = req.bearer_auth(key);
     }
 
-    let response = req
-        .send()
-        .await
-        .map_err(|error| AppError::Provider(format!("Speech transcription request failed: {error}")))?;
+    let response = req.send().await.map_err(|error| {
+        AppError::Provider(format!("Speech transcription request failed: {error}"))
+    })?;
     if !response.status().is_success() {
         let status = response.status();
         let text = response.text().await.unwrap_or_default();
@@ -138,10 +137,9 @@ pub async fn transcribe_audio_with_provider(
         )));
     }
 
-    let json: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|error| AppError::Provider(format!("Failed to parse transcription response: {error}")))?;
+    let json: serde_json::Value = response.json().await.map_err(|error| {
+        AppError::Provider(format!("Failed to parse transcription response: {error}"))
+    })?;
     let transcript = json
         .get("text")
         .and_then(serde_json::Value::as_str)
@@ -385,9 +383,9 @@ fn run_whisper_transcription(
         params.set_language(Some(language));
     }
 
-    state
-        .full(params, samples)
-        .map_err(|error| AppError::Internal(format!("Local Whisper transcription failed: {error}")))?;
+    state.full(params, samples).map_err(|error| {
+        AppError::Internal(format!("Local Whisper transcription failed: {error}"))
+    })?;
 
     let transcript = state
         .as_iter()

@@ -94,7 +94,8 @@ pub async fn get_mobile_bridge_status(
         phone_base_url,
         lan_ready,
         bind_changes_require_restart: true,
-        env_overrides_settings: bind_config.host_source == "env" || bind_config.port_source == "env",
+        env_overrides_settings: bind_config.host_source == "env"
+            || bind_config.port_source == "env",
         guidance,
     })
 }

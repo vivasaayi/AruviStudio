@@ -1,7 +1,9 @@
+mod bootstrap;
 mod commands;
 mod domain;
 mod error;
 mod execution;
+mod mcp;
 mod observability;
 mod persistence;
 mod providers;
@@ -10,7 +12,6 @@ mod services;
 mod state;
 mod workflows;
 
-use state::AppState;
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -22,39 +23,9 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
-            let state = rt.block_on(async {
-                let proj_dirs = directories::ProjectDirs::from("com", "aruvi", "studio")
-                    .expect("Failed to get project directories");
-                let data_dir = proj_dirs.data_dir();
-                std::fs::create_dir_all(data_dir).expect("Failed to create data directory");
-
-                let db_override_path = data_dir.join("db_override_path.txt");
-                let db_path = std::env::var("ARUVI_DB_PATH")
-                    .ok()
-                    .map(std::path::PathBuf::from)
-                    .or_else(|| {
-                        std::fs::read_to_string(&db_override_path)
-                            .ok()
-                            .map(|value| value.trim().to_string())
-                            .filter(|value| !value.is_empty())
-                            .map(std::path::PathBuf::from)
-                    })
-                    .unwrap_or_else(|| data_dir.join("aruvi_studio.db"));
-
-                if let Some(parent) = db_path.parent() {
-                    std::fs::create_dir_all(parent)
-                        .expect("Failed to create parent directory for database path");
-                }
-                let db_url = format!("sqlite:{}", db_path.display());
-
-                let pool = persistence::db::create_pool(&db_url)
-                    .await
-                    .expect("Failed to create database pool");
-
-                AppState::new(pool, data_dir.to_path_buf())
-                    .await
-                    .expect("Failed to create app state")
-            });
+            let state = rt
+                .block_on(async { bootstrap::initialize_app_state().await })
+                .expect("Failed to create app state");
             let webhook_state = state.clone();
             app.manage(state);
             tauri::async_runtime::spawn(async move {
@@ -205,4 +176,9 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+pub fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
+    observability::logger::init_logging();
+    mcp::run_stdio_server()
 }

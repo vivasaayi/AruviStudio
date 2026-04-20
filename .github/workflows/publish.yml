@@ -1,0 +1,158 @@
+name: Publish Desktop Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            bundle_label: macos-arm64
+            target: aarch64-apple-darwin
+            args: --target aarch64-apple-darwin
+          - runner: macos-13
+            bundle_label: macos-intel
+            target: x86_64-apple-darwin
+            args: --target x86_64-apple-darwin
+          - runner: ubuntu-22.04
+            bundle_label: linux-x86_64
+            target: ""
+            args: ""
+          - runner: windows-2022
+            bundle_label: windows-x86_64
+            target: ""
+            args: ""
+
+    runs-on: ${{ matrix.runner }}
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libwebkit2gtk-4.1-dev \
+            patchelf
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        if: matrix.target == ''
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Rust target
+        if: matrix.target != ''
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-${{ matrix.bundle_label }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.bundle_label }}-cargo-
+            ${{ runner.os }}-cargo-
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Configure macOS signing mode
+        id: macos_signing
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE_SECRET: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_SIGNING_IDENTITY_SECRET: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER_SECRET: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_SECRET: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8_SECRET: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          if [[ -n "$APPLE_CERTIFICATE_SECRET" && -n "$APPLE_SIGNING_IDENTITY_SECRET" ]]; then
+            echo "identity=$APPLE_SIGNING_IDENTITY_SECRET" >> "$GITHUB_OUTPUT"
+            echo "has_certificate=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "identity=-" >> "$GITHUB_OUTPUT"
+            echo "has_certificate=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [[ -n "$APPLE_API_ISSUER_SECRET" && -n "$APPLE_API_KEY_SECRET" && -n "$APPLE_API_KEY_P8_SECRET" ]]; then
+            echo "has_notary_api=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_notary_api=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Import Apple Developer certificate
+        if: runner.os == 'macOS' && steps.macos_signing.outputs.has_certificate == 'true'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          printf '%s' "$APPLE_CERTIFICATE" | base64 -d > certificate.p12 || printf '%s' "$APPLE_CERTIFICATE" | base64 -D > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          security find-identity -v -p codesigning build.keychain
+
+      - name: Write App Store Connect API key
+        id: notarization_key
+        if: runner.os == 'macOS' && steps.macos_signing.outputs.has_notary_api == 'true'
+        shell: bash
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+          printf '%s' "$APPLE_API_KEY_P8" > "$key_path"
+          echo "path=$key_path" >> "$GITHUB_OUTPUT"
+
+      - name: Build and publish desktop bundles
+        uses: tauri-apps/tauri-action@v0
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && steps.macos_signing.outputs.identity || '' }}
+          APPLE_API_ISSUER: ${{ runner.os == 'macOS' && secrets.APPLE_API_ISSUER || '' }}
+          APPLE_API_KEY: ${{ runner.os == 'macOS' && secrets.APPLE_API_KEY || '' }}
+          APPLE_API_KEY_PATH: ${{ runner.os == 'macOS' && steps.notarization_key.outputs.path || '' }}
+        with:
+          projectPath: .
+          tauriScript: npm run tauri --
+          tagName: ${{ github.ref_name }}
+          releaseName: AruviStudio ${{ github.ref_name }}
+          releaseBody: |
+            Desktop release for `${{ github.ref_name }}`.
+
+            macOS notes:
+            - Developer ID signing and notarization run automatically when the Apple secrets are configured.
+            - If those secrets are absent, the workflow falls back to ad-hoc signing. Apple Silicon users can still install the app, but macOS may require opening it from Finder or allowing it in Privacy & Security the first time.
+          releaseDraft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          args: ${{ matrix.args }}
