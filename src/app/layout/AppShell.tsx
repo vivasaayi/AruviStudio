@@ -18,6 +18,7 @@ const styles: Record<string, any> = {
 
 const navItems = [
   { key: "planner", label: "Planner" },
+  { key: "product-overview", label: "Product Overview" },
   { key: "products", label: "Products" },
   { key: "work-items", label: "Work Items" },
   { key: "ide", label: "IDE" },
@@ -44,7 +45,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const currentView = navItems.find((item) => location.pathname.startsWith(`/${item.key}`))?.key ?? activeView;
   const supportsHierarchyRail = currentView === "products" || currentView === "work-items";
-  const supportsInspectorRail = currentView !== "ide" && currentView !== "chat" && currentView !== "voice-chat";
+  const supportsInspectorRail =
+    currentView !== "ide"
+    && currentView !== "chat"
+    && currentView !== "voice-chat"
+    && currentView !== "product-overview";
   const showLeftSidebar = leftSidebarVisible && supportsHierarchyRail;
 
   return (

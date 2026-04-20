@@ -4,6 +4,7 @@ import { AppShell } from "./app/layout/AppShell";
 
 const ProductListPage = lazy(() => import("./features/products/pages/ProductListPage").then((module) => ({ default: module.ProductListPage })));
 const ProductDetailPage = lazy(() => import("./features/products/pages/ProductDetailPage").then((module) => ({ default: module.ProductDetailPage })));
+const ProductOverviewPage = lazy(() => import("./features/products/pages/ProductOverviewPage").then((module) => ({ default: module.ProductOverviewPage })));
 const WorkItemListPage = lazy(() => import("./features/work-items/pages/WorkItemListPage").then((module) => ({ default: module.WorkItemListPage })));
 const WorkItemDetailPage = lazy(() => import("./features/work-items/pages/WorkItemDetailPage").then((module) => ({ default: module.WorkItemDetailPage })));
 const RepositoryListPage = lazy(() => import("./features/repositories/pages/RepositoryListPage").then((module) => ({ default: module.RepositoryListPage })));
@@ -24,6 +25,7 @@ function App() {
         <Suspense fallback={fallback}>
           <Routes>
             <Route path="/" element={<Navigate to="/planner" replace />} />
+            <Route path="/product-overview" element={<ProductOverviewPage />} />
             <Route path="/products" element={<ProductListPage />} />
             <Route path="/products/:productId" element={<ProductDetailPage />} />
             <Route path="/work-items" element={<WorkItemListPage />} />
