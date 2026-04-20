@@ -59,7 +59,8 @@ test("planner can reverse engineer a registered repository into a draft tree", a
   await page.goto("/");
 
   await expect(page.getByTestId("planner-input")).toBeVisible();
-  await page.getByRole("button", { name: "Show Advanced Tools" }).click();
+  await page.getByRole("button", { name: "Reverse engineer repository" }).click();
+  await expect(page.getByText("Reverse Engineer Repository")).toBeVisible();
 
   await page.getByPlaceholder("/absolute/path/to/repository").fill("/tmp/aruvi-studio");
   await page.getByRole("button", { name: "Register Repo" }).click();

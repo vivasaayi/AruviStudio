@@ -9,7 +9,10 @@ import {
   getSetting,
   listModelDefinitions,
   listProviders,
+  routePlannerContact,
+  sendTwilioWhatsappMessage,
   seedExampleProducts,
+  startTwilioVoiceCall,
   setDatabasePathOverride,
   setSetting,
 } from "../../../lib/tauri";
@@ -40,6 +43,8 @@ const TWILIO_AUTH_TOKEN_KEY = "twilio.auth_token";
 const TWILIO_WHATSAPP_FROM_KEY = "twilio.whatsapp_from";
 const TWILIO_VOICE_FROM_KEY = "twilio.voice_from";
 const TWILIO_WEBHOOK_BASE_URL_KEY = "twilio.webhook_base_url";
+const PLANNER_CONTACT_TARGET_KEY = "planner.contact_target";
+const PLANNER_CONTACT_OPENING_MESSAGE_KEY = "planner.contact_opening_message";
 
 function parseBooleanSetting(value: string | null | undefined, fallback: boolean) {
   if (value == null) return fallback;
@@ -120,6 +125,10 @@ export function SettingsPage() {
   const [twilioWhatsappFrom, setTwilioWhatsappFrom] = useState("");
   const [twilioVoiceFrom, setTwilioVoiceFrom] = useState("");
   const [twilioWebhookBaseUrl, setTwilioWebhookBaseUrl] = useState("");
+  const [plannerContactTarget, setPlannerContactTarget] = useState("");
+  const [plannerContactOpeningMessage, setPlannerContactOpeningMessage] = useState("Call me and ask what work should be prioritized next.");
+  const [plannerContactMsg, setPlannerContactMsg] = useState<string | null>(null);
+  const [plannerContactError, setPlannerContactError] = useState<string | null>(null);
   const { data: providers = [] } = useQuery<ModelProvider[]>({ queryKey: ["settingsProviders"], queryFn: listProviders });
   const { data: models = [] } = useQuery<ModelDefinition[]>({ queryKey: ["settingsModels"], queryFn: listModelDefinitions });
   const { data: mobileBridgeStatus } = useQuery<MobileBridgeStatus>({
@@ -165,6 +174,8 @@ export function SettingsPage() {
     getSetting(TWILIO_WHATSAPP_FROM_KEY).then((v) => { if (v) setTwilioWhatsappFrom(v); });
     getSetting(TWILIO_VOICE_FROM_KEY).then((v) => { if (v) setTwilioVoiceFrom(v); });
     getSetting(TWILIO_WEBHOOK_BASE_URL_KEY).then((v) => { if (v) setTwilioWebhookBaseUrl(v); });
+    getSetting(PLANNER_CONTACT_TARGET_KEY).then((v) => { if (v) setPlannerContactTarget(v); });
+    getSetting(PLANNER_CONTACT_OPENING_MESSAGE_KEY).then((v) => { if (v) setPlannerContactOpeningMessage(v); });
     getActiveDatabasePath().then(setActiveDbPath).catch((error) => setDbPathOverrideError(String(error)));
     getDatabasePathOverride().then((v) => { if (v) setDbPathOverrideInput(v); });
     getDatabaseHealth()
@@ -232,6 +243,47 @@ export function SettingsPage() {
       setTimeout(() => setSavedMsg(null), 2000);
     } catch {
       setSavedMsg(null);
+    }
+  };
+
+  const autoRoutePlannerContact = async () => {
+    try {
+      setPlannerContactError(null);
+      setPlannerContactMsg(null);
+      const result = await routePlannerContact({
+        to: plannerContactTarget.trim(),
+        content: plannerContactOpeningMessage.trim(),
+      });
+      const channelLabel = result.channel === "voice" ? "voice call" : "WhatsApp";
+      if (result.status === "blocked") {
+        setPlannerContactError(`Auto-routing blocked: ${result.reason}`);
+        return;
+      }
+      setPlannerContactMsg(`Auto-routed to ${channelLabel}. ${result.reason}`);
+    } catch (error) {
+      setPlannerContactError(String(error));
+    }
+  };
+
+  const sendPlannerWhatsapp = async () => {
+    try {
+      setPlannerContactError(null);
+      setPlannerContactMsg(null);
+      await sendTwilioWhatsappMessage({ to: plannerContactTarget.trim(), content: plannerContactOpeningMessage.trim() });
+      setPlannerContactMsg("WhatsApp message queued through Twilio.");
+    } catch (error) {
+      setPlannerContactError(String(error));
+    }
+  };
+
+  const startPlannerVoiceCall = async () => {
+    try {
+      setPlannerContactError(null);
+      setPlannerContactMsg(null);
+      await startTwilioVoiceCall({ to: plannerContactTarget.trim(), initialPrompt: plannerContactOpeningMessage.trim() || undefined });
+      setPlannerContactMsg("Voice call requested through Twilio.");
+    } catch (error) {
+      setPlannerContactError(String(error));
     }
   };
 
@@ -497,6 +549,33 @@ export function SettingsPage() {
           <div><div style={styles.label}>Webhook Base URL</div><div style={styles.desc}>Public base URL Twilio will call, used for signature validation and outbound voice-call callback URLs.</div></div>
           <div style={{ display: "flex", alignItems: "center" }}><input style={{ ...styles.input, width: 380 }} value={twilioWebhookBaseUrl} onChange={(e) => setTwilioWebhookBaseUrl(e.target.value)} placeholder="https://your-public-domain.example.com" /><button style={styles.btn} onClick={() => saveSetting(TWILIO_WEBHOOK_BASE_URL_KEY, twilioWebhookBaseUrl)}>Save</button>{savedMsg === TWILIO_WEBHOOK_BASE_URL_KEY && <span style={styles.saved}>Saved!</span>}</div>
         </div>
+      </div>
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>Planner Contact</div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>Default Destination</div><div style={styles.desc}>Used when you want the planner to contact you by WhatsApp or voice call.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}><input style={styles.input} value={plannerContactTarget} onChange={(e) => setPlannerContactTarget(e.target.value)} placeholder="whatsapp:+15551234567 or +15551234567" /><button style={styles.btn} onClick={() => saveSetting(PLANNER_CONTACT_TARGET_KEY, plannerContactTarget)}>Save</button>{savedMsg === PLANNER_CONTACT_TARGET_KEY && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>Default Opening Message</div><div style={styles.desc}>Starter message used when the planner initiates contact.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}><input style={{ ...styles.input, width: 380 }} value={plannerContactOpeningMessage} onChange={(e) => setPlannerContactOpeningMessage(e.target.value)} placeholder="Call me and ask what work should be prioritized next." /><button style={styles.btn} onClick={() => saveSetting(PLANNER_CONTACT_OPENING_MESSAGE_KEY, plannerContactOpeningMessage)}>Save</button>{savedMsg === PLANNER_CONTACT_OPENING_MESSAGE_KEY && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
+        <div style={{ ...styles.desc, marginTop: 8 }}>
+          Use these actions to test the same outbound contact flow that used to live in the planner surface.
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" as const }}>
+          <button style={styles.btn} onClick={() => void autoRoutePlannerContact()} disabled={!plannerContactTarget.trim() || !plannerContactOpeningMessage.trim()}>
+            Auto Route
+          </button>
+          <button style={styles.btn} onClick={() => void sendPlannerWhatsapp()} disabled={!plannerContactTarget.trim()}>
+            Send WhatsApp
+          </button>
+          <button style={styles.btn} onClick={() => void startPlannerVoiceCall()} disabled={!plannerContactTarget.trim()}>
+            Start Voice Call
+          </button>
+        </div>
+        {plannerContactMsg ? <div style={{ ...styles.desc, color: "#4ec9b0", marginTop: 10 }}>{plannerContactMsg}</div> : null}
+        {plannerContactError ? <div style={{ ...styles.desc, color: "#f48771", marginTop: 10 }}>{plannerContactError}</div> : null}
       </div>
       <div style={styles.section}>
         <div style={styles.sectionTitle}>Workflow Automation</div>

@@ -30,14 +30,11 @@ import {
   rejectWorkItem,
   rejectWorkItemPlan,
   registerRepository,
-  routePlannerContact,
   analyzeRepositoryForPlanner,
   renamePlannerDraftNode,
   runModelChatCompletion,
   speakTextNatively,
-  sendTwilioWhatsappMessage,
   startWorkItemWorkflow,
-  startTwilioVoiceCall,
   submitPlannerTurn,
   submitPlannerVoiceTurn,
   transcribeAudio,
@@ -168,6 +165,13 @@ const styles: Record<string, React.CSSProperties> = {
   compactSummaryItem: { borderRadius: 10, backgroundColor: "#161920", border: "1px solid #313844", padding: "10px 12px" },
   compactSummaryLabel: { fontSize: 11, color: "#8f96a3", textTransform: "uppercase" as const, letterSpacing: 0.5 },
   compactSummaryValue: { fontSize: 13, fontWeight: 800, color: "#edf1f8", marginTop: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
+  composerScopeCard: { border: "1px solid #32353d", backgroundColor: "#1b1d22", borderRadius: 12, padding: 10 },
+  composerScopeTitle: { fontSize: 12, fontWeight: 800, color: "#e7edf7", marginBottom: 6 },
+  modalOverlay: { position: "fixed" as const, inset: 0, backgroundColor: "rgba(5, 8, 12, 0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, zIndex: 50 },
+  modalCard: { width: "min(720px, 100%)", maxHeight: "80vh", overflow: "auto" as const, backgroundColor: "#1b1d22", border: "1px solid #32353d", borderRadius: 16, padding: 16, boxShadow: "0 18px 60px rgba(0,0,0,0.4)" },
+  modalHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 12 },
+  modalTitle: { fontSize: 18, fontWeight: 800, color: "#edf1f8" },
+  iconButton: { padding: "9px 12px", fontSize: 13, backgroundColor: "#2c3139", color: "#e3e8f0", border: "1px solid #3c4048", borderRadius: 10, cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" as const },
 };
 
 type PlannerMessageKind = "text" | "proposal" | "tree" | "report" | "execution" | "error";
@@ -1238,6 +1242,7 @@ function PlannerComposer({
   onDraftChange,
   onSend,
   onToggleListening,
+  onOpenDraftWorkspace,
   onConfirm,
   onDismiss,
   isPlannerBusy,
@@ -1250,11 +1255,14 @@ function PlannerComposer({
   pendingPlan,
   voiceActivity,
   composerRef,
+  scopeChips,
+  scopeHint,
 }: {
   draft: string;
   onDraftChange: (value: string) => void;
   onSend: () => void;
   onToggleListening: () => void;
+  onOpenDraftWorkspace: () => void;
   onConfirm: () => void;
   onDismiss: () => void;
   isPlannerBusy: boolean;
@@ -1267,6 +1275,8 @@ function PlannerComposer({
   pendingPlan: PendingPlan | null;
   voiceActivity: string | null;
   composerRef: React.RefObject<HTMLTextAreaElement | null>;
+  scopeChips: string[];
+  scopeHint: string;
 }) {
   return (
     <div style={styles.composerWrap}>
@@ -1278,6 +1288,32 @@ function PlannerComposer({
         onChange={(event) => onDraftChange(event.target.value)}
         placeholder="Say or type what you need. Example: Add a work item called Build voice planner under AruviStudio, then approve it and start the workflow."
       />
+      {scopeChips.length > 0 ? (
+        <div style={styles.composerScopeCard}>
+          <div style={styles.composerScopeTitle}>Current Scope</div>
+          <div style={{ ...styles.chipRow, marginTop: 0 }}>
+            {scopeChips.map((chip) => (
+              <div key={chip} style={styles.chip}>
+                {chip}
+              </div>
+            ))}
+          </div>
+          <div style={{ ...styles.helper, marginTop: 8 }}>{scopeHint}</div>
+        </div>
+      ) : null}
+      {draftTreeNodesLength > 0 ? (
+        <div style={styles.inlineButtonRow}>
+          <button style={styles.btnGhost} onClick={onOpenDraftWorkspace}>
+            Open Workspace
+          </button>
+          <button style={styles.btnGhost} onClick={onConfirm} disabled={isPlannerBusy}>
+            Commit Draft
+          </button>
+          <button style={styles.btnDanger} onClick={onDismiss} disabled={isPlannerBusy}>
+            Clear Draft
+          </button>
+        </div>
+      ) : null}
       <div style={styles.actionRow}>
         <button data-testid="planner-send" style={styles.btn} onClick={onSend} disabled={isPlannerBusy}>
           {isPlannerBusy ? "Working..." : "Send"}
@@ -1291,12 +1327,16 @@ function PlannerComposer({
                 ? "Sending Voice..."
                 : "Start Voice Input"}
         </button>
-        <button style={styles.btnGhost} onClick={onConfirm} disabled={!pendingPlan && draftTreeNodesLength === 0}>
-          {draftTreeNodesLength > 0 ? "Commit Draft" : "Confirm Proposal"}
-        </button>
-        <button style={styles.btnDanger} onClick={onDismiss} disabled={!pendingPlan && draftTreeNodesLength === 0}>
-          {draftTreeNodesLength > 0 ? "Clear Draft" : "Clear Pending"}
-        </button>
+        {draftTreeNodesLength === 0 ? (
+          <>
+            <button style={styles.btnGhost} onClick={onConfirm} disabled={!pendingPlan}>
+              Confirm Proposal
+            </button>
+            <button style={styles.btnDanger} onClick={onDismiss} disabled={!pendingPlan}>
+              Clear Pending
+            </button>
+          </>
+        ) : null}
         <span style={styles.status}>
           {voiceActivity
             ? voiceActivity
@@ -2013,11 +2053,7 @@ export function PlannerPage() {
   const [speechModelSetting, setSpeechModelSetting] = useState("");
   const [speechLocaleSetting, setSpeechLocaleSetting] = useState("en-US");
   const [speechNativeVoiceSetting, setSpeechNativeVoiceSetting] = useState("");
-  const [showAdvancedPlannerControls, setShowAdvancedPlannerControls] = useState(false);
-  const [contactTarget, setContactTarget] = useState("");
-  const [contactDraft, setContactDraft] = useState("Call me and ask what work should be prioritized next.");
-  const [contactMsg, setContactMsg] = useState<string | null>(null);
-  const [contactError, setContactError] = useState<string | null>(null);
+  const [showRepoModal, setShowRepoModal] = useState(false);
   const [windowWidth, setWindowWidth] = useState<number>(() => (typeof window === "undefined" ? 1440 : window.innerWidth));
   const [showCompactTools, setShowCompactTools] = useState(false);
   const audioCaptureRef = useRef<ActiveAudioCapture | null>(null);
@@ -2142,6 +2178,27 @@ export function PlannerPage() {
     selectedDraftNode,
     voiceActivity,
   ]);
+  const composerScopeChips = useMemo(() => {
+    const chips: string[] = [];
+    if (selectedDraftNodeId) {
+      chips.push("draft node selected");
+    }
+    if (activeProductId) {
+      chips.push("product selected");
+    }
+    if (activeModuleId) {
+      chips.push("module selected");
+    }
+    if (activeCapabilityId) {
+      chips.push("capability selected");
+    }
+    if (activeWorkItemId) {
+      chips.push("work item selected");
+    }
+    return chips;
+  }, [activeCapabilityId, activeModuleId, activeProductId, activeWorkItemId, selectedDraftNodeId]);
+  const composerScopeHint =
+    "If you omit names, the planner first tries the selected draft node, then the selected workspace scope, then asks follow-up questions if it still cannot resolve the target cleanly.";
 
   const modelOptions = useMemo(
     () => models.filter((model) => model.provider_id === providerId && model.enabled),
@@ -3009,47 +3066,6 @@ export function PlannerPage() {
     setPlannerView("conversation");
   };
 
-  const sendWhatsapp = async () => {
-    try {
-      setContactError(null);
-      setContactMsg(null);
-      await sendTwilioWhatsappMessage({ to: contactTarget.trim(), content: contactDraft.trim() });
-      setContactMsg("WhatsApp message queued through Twilio.");
-    } catch (error) {
-      setContactError(String(error));
-    }
-  };
-
-  const autoRouteContact = async () => {
-    try {
-      setContactError(null);
-      setContactMsg(null);
-      const result = await routePlannerContact({
-        to: contactTarget.trim(),
-        content: contactDraft.trim(),
-      });
-      const channelLabel = result.channel === "voice" ? "voice call" : "WhatsApp";
-      if (result.status === "blocked") {
-        setContactError(`Auto-routing blocked: ${result.reason}`);
-        return;
-      }
-      setContactMsg(`Auto-routed to ${channelLabel}. ${result.reason}`);
-    } catch (error) {
-      setContactError(String(error));
-    }
-  };
-
-  const startVoiceCall = async () => {
-    try {
-      setContactError(null);
-      setContactMsg(null);
-      await startTwilioVoiceCall({ to: contactTarget.trim(), initialPrompt: contactDraft.trim() || undefined });
-      setContactMsg("Voice call requested through Twilio.");
-    } catch (error) {
-      setContactError(String(error));
-    }
-  };
-
   const browseRepositoryPathForPlanner = async () => {
     try {
       setRepoAnalysisError(null);
@@ -3391,107 +3407,7 @@ export function PlannerPage() {
           <div style={styles.helper}>
             {hasTreeData ? "Tree rendering is active for work-item structure questions." : "Tree rendering will activate once product structure finishes loading."}
           </div>
-          <div style={styles.inlineButtonRow}>
-            <button style={styles.btnGhost} onClick={() => setShowAdvancedPlannerControls((value) => !value)}>
-              {showAdvancedPlannerControls ? "Hide Advanced Tools" : "Show Advanced Tools"}
-            </button>
-          </div>
         </div>
-
-        {showAdvancedPlannerControls ? (
-          <>
-            <div style={styles.sideCard}>
-              <div style={styles.label}>Reverse Engineer Repo</div>
-              <div style={styles.helper}>
-                Point the planner at an existing repository and let the model infer a staged product, module, capability, and work-item tree from the codebase.
-              </div>
-              <div style={{ height: 10 }} />
-              <label style={styles.label}>Registered Repository</label>
-              <select
-                style={styles.select}
-                value={selectedRepositoryId}
-                onChange={(event) => setSelectedRepositoryId(event.target.value)}
-              >
-                <option value="">Select a repository</option>
-                {repositories.map((repository) => (
-                  <option key={repository.id} value={repository.id}>
-                    {repository.name}
-                  </option>
-                ))}
-              </select>
-              <div style={{ height: 10 }} />
-              <label style={styles.label}>Add Existing Repo Path</label>
-              <input
-                style={styles.input}
-                value={repositoryPathDraft}
-                onChange={(event) => setRepositoryPathDraft(event.target.value)}
-                placeholder="/absolute/path/to/repository"
-              />
-              <div style={styles.inlineButtonRow}>
-                <button style={styles.btnGhost} onClick={() => void browseRepositoryPathForPlanner()}>
-                  Browse Path
-                </button>
-                <button
-                  style={styles.btnGhost}
-                  onClick={() => void registerRepositoryForPlanner()}
-                  disabled={!repositoryPathDraft.trim()}
-                >
-                  Register Repo
-                </button>
-              </div>
-              <div style={styles.inlineButtonRow}>
-                <button
-                  style={styles.btn}
-                  onClick={() => void analyzeSelectedRepository()}
-                  disabled={!selectedRepositoryId || isPlannerBusy || !providerId || !modelName}
-                >
-                  Analyze Repo Into Draft
-                </button>
-              </div>
-              {!providerId || !modelName ? (
-                <div style={{ ...styles.helper, marginTop: 10 }}>
-                  Configure a planner model first. Repository reverse engineering depends on the selected LLM.
-                </div>
-              ) : null}
-              {repoAnalysisMessage ? <div style={{ ...styles.success, marginTop: 10 }}>{repoAnalysisMessage}</div> : null}
-              {repoAnalysisError ? <div style={{ ...styles.error, marginTop: 10 }}>{repoAnalysisError}</div> : null}
-            </div>
-
-            <div style={styles.sideCard}>
-              <div style={styles.label}>Contact Me</div>
-              <div style={styles.helper}>Use Auto Route to follow the planner channel policy: routine updates stay on WhatsApp, while ambiguous planning can escalate to a call. Manual buttons still override the policy.</div>
-              <div style={{ height: 10 }} />
-              <label style={styles.label}>Destination</label>
-              <input
-                style={styles.input}
-                value={contactTarget}
-                onChange={(event) => setContactTarget(event.target.value)}
-                placeholder="whatsapp:+15551234567 or +15551234567"
-              />
-              <div style={{ height: 10 }} />
-              <label style={styles.label}>Opening Message</label>
-              <textarea
-                style={{ ...styles.textarea, minHeight: 84 }}
-                value={contactDraft}
-                onChange={(event) => setContactDraft(event.target.value)}
-                placeholder="Tell the planner what the outbound contact should say first."
-              />
-              <div style={styles.actionRow}>
-                <button style={styles.btn} onClick={() => void autoRouteContact()} disabled={!contactTarget.trim() || !contactDraft.trim()}>
-                  Auto Route
-                </button>
-                <button style={styles.btnGhost} onClick={() => void sendWhatsapp()} disabled={!contactTarget.trim()}>
-                  Send WhatsApp
-                </button>
-                <button style={styles.btnGhost} onClick={() => void startVoiceCall()} disabled={!contactTarget.trim()}>
-                  Start Voice Call
-                </button>
-              </div>
-              {contactMsg ? <div style={{ ...styles.success, marginTop: 10 }}>{contactMsg}</div> : null}
-              {contactError ? <div style={{ ...styles.error, marginTop: 10 }}>{contactError}</div> : null}
-            </div>
-          </>
-        ) : null}
 
         <div style={styles.sideCard}>
           <div style={styles.label}>Draft Tree</div>
@@ -3517,31 +3433,6 @@ export function PlannerPage() {
           ) : (
             <div style={styles.helper}>No staged draft yet. Ask the planner to sketch a product tree and it will appear here.</div>
           )}
-          <div style={styles.inlineButtonRow}>
-            <button style={styles.btnGhost} onClick={() => setPlannerView("draft")} disabled={draftTreeNodes.length === 0}>
-              Open Workspace
-            </button>
-            <button style={styles.btn} onClick={confirmPendingPlan} disabled={draftTreeNodes.length === 0 || isPlannerBusy}>
-              Commit Draft
-            </button>
-            <button style={styles.btnGhost} onClick={dismissPendingPlan} disabled={draftTreeNodes.length === 0}>
-              Clear Draft
-            </button>
-          </div>
-        </div>
-
-        <div style={styles.sideCard}>
-          <div style={styles.label}>Current Scope</div>
-          <div style={styles.chipRow}>
-            {selectedDraftNodeId ? <div style={styles.chip}>draft node selected</div> : null}
-            {activeProductId ? <div style={styles.chip}>product selected</div> : null}
-            {activeModuleId ? <div style={styles.chip}>module selected</div> : null}
-            {activeCapabilityId ? <div style={styles.chip}>capability selected</div> : null}
-            {activeWorkItemId ? <div style={styles.chip}>work item selected</div> : null}
-          </div>
-          <div style={{ ...styles.helper, marginTop: 10 }}>
-            If you omit names, the planner first tries the selected draft node, then the selected workspace scope, then asks follow-up questions if it still cannot resolve the target cleanly.
-          </div>
         </div>
 
         {pendingPlan || draftTreeNodes.length > 0 ? (
@@ -3589,6 +3480,13 @@ export function PlannerPage() {
                 {plannerView === "draft" ? "Draft Workspace" : plannerView === "trace" ? "Planner Trace" : "Conversation"}
               </div>
               <div style={styles.viewToggleRow}>
+                <button
+                  aria-label="Reverse engineer repository"
+                  style={styles.iconButton}
+                  onClick={() => setShowRepoModal(true)}
+                >
+                  ⌕ Repo
+                </button>
                 <select
                   aria-label="Planner model"
                   style={{ ...styles.select, width: 260 }}
@@ -3767,6 +3665,7 @@ export function PlannerPage() {
                     onToggleListening={() => {
                       void toggleListening();
                     }}
+                    onOpenDraftWorkspace={() => setPlannerView("draft")}
                     onConfirm={() => setDraft("confirm")}
                     onDismiss={dismissPendingPlan}
                     isPlannerBusy={isPlannerBusy}
@@ -3779,6 +3678,8 @@ export function PlannerPage() {
                     pendingPlan={pendingPlan}
                     voiceActivity={voiceActivity}
                     composerRef={composerRef}
+                    scopeChips={composerScopeChips}
+                    scopeHint={composerScopeHint}
                   />
                 </div>
 
@@ -4095,6 +3996,7 @@ export function PlannerPage() {
                 onToggleListening={() => {
                   void toggleListening();
                 }}
+                onOpenDraftWorkspace={() => setPlannerView("draft")}
                 onConfirm={() => setDraft("confirm")}
                 onDismiss={dismissPendingPlan}
                 isPlannerBusy={isPlannerBusy}
@@ -4107,6 +4009,8 @@ export function PlannerPage() {
                 pendingPlan={pendingPlan}
                 voiceActivity={voiceActivity}
                 composerRef={composerRef}
+                scopeChips={composerScopeChips}
+                scopeHint={composerScopeHint}
               />
             ) : null}
           </div>
@@ -4115,6 +4019,71 @@ export function PlannerPage() {
         {!isFocusedWorkspaceView && !isCompactScreen ? renderPlannerSidebar() : null}
         {!isFocusedWorkspaceView && isCompactScreen && showCompactTools ? renderPlannerSidebar() : null}
       </div>
+
+      {showRepoModal ? (
+        <div style={styles.modalOverlay} onClick={() => setShowRepoModal(false)}>
+          <div style={styles.modalCard} onClick={(event) => event.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <div>
+                <div style={styles.modalTitle}>Reverse Engineer Repository</div>
+                <div style={styles.helper}>
+                  Point the planner at an existing repository and let the model infer a staged product, module, capability, and work-item tree from the codebase.
+                </div>
+              </div>
+              <button style={styles.btnGhost} onClick={() => setShowRepoModal(false)}>
+                Close
+              </button>
+            </div>
+            <label style={styles.label}>Registered Repository</label>
+            <select
+              style={styles.select}
+              value={selectedRepositoryId}
+              onChange={(event) => setSelectedRepositoryId(event.target.value)}
+            >
+              <option value="">Select a repository</option>
+              {repositories.map((repository) => (
+                <option key={repository.id} value={repository.id}>
+                  {repository.name}
+                </option>
+              ))}
+            </select>
+            <div style={{ height: 10 }} />
+            <label style={styles.label}>Add Existing Repo Path</label>
+            <input
+              style={styles.input}
+              value={repositoryPathDraft}
+              onChange={(event) => setRepositoryPathDraft(event.target.value)}
+              placeholder="/absolute/path/to/repository"
+            />
+            <div style={styles.inlineButtonRow}>
+              <button style={styles.btnGhost} onClick={() => void browseRepositoryPathForPlanner()}>
+                Browse Path
+              </button>
+              <button
+                style={styles.btnGhost}
+                onClick={() => void registerRepositoryForPlanner()}
+                disabled={!repositoryPathDraft.trim()}
+              >
+                Register Repo
+              </button>
+              <button
+                style={styles.btn}
+                onClick={() => void analyzeSelectedRepository()}
+                disabled={!selectedRepositoryId || isPlannerBusy || !providerId || !modelName}
+              >
+                Analyze Repo Into Draft
+              </button>
+            </div>
+            {!providerId || !modelName ? (
+              <div style={{ ...styles.helper, marginTop: 10 }}>
+                Configure a planner model first. Repository reverse engineering depends on the selected LLM.
+              </div>
+            ) : null}
+            {repoAnalysisMessage ? <div style={{ ...styles.success, marginTop: 10 }}>{repoAnalysisMessage}</div> : null}
+            {repoAnalysisError ? <div style={{ ...styles.error, marginTop: 10 }}>{repoAnalysisError}</div> : null}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
