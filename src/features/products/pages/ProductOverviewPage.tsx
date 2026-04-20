@@ -1,12 +1,12 @@
 import React, { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { getProductTree, listProducts, listWorkItems } from "../../../lib/tauri";
+import { exportProductOverviewHtml, getProductTree, listProducts, listWorkItems, revealInFinder } from "../../../lib/tauri";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
 import { ProductOverviewDocument } from "../components/ProductOverviewDocument";
-import type { Capability, Module, Product, WorkItem } from "../../../lib/types";
-import { buildProductOverviewHtml } from "../lib/productOverview";
+import type { Capability, Module, Product, ProductTree, WorkItem } from "../../../lib/types";
+import { buildProductOverviewBookHtml, buildProductOverviewHtml } from "../lib/productOverview";
 
 const styles: Record<string, React.CSSProperties> = {
   page: { display: "flex", flexDirection: "column", gap: 18, minHeight: "100%", maxWidth: 1440, margin: "0 auto", width: "100%" },
@@ -21,6 +21,8 @@ const styles: Record<string, React.CSSProperties> = {
   actionRow: { display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" as const },
   primaryBtn: { padding: "8px 12px", fontSize: 12, fontWeight: 700, backgroundColor: "#0e639c", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" },
   ghostBtn: { padding: "8px 12px", fontSize: 12, fontWeight: 700, backgroundColor: "#1a2430", color: "#d8e2f0", border: "1px solid #314255", borderRadius: 8, cursor: "pointer" },
+  successText: { marginTop: 10, fontSize: 12, color: "#4ec9b0", lineHeight: 1.55, wordBreak: "break-all" as const },
+  errorText: { marginTop: 10, fontSize: 12, color: "#ff8e8e", lineHeight: 1.55 },
   empty: { border: "1px solid #2c3644", borderRadius: 18, backgroundColor: "#141b24", padding: 24, color: "#9aa7bb", fontSize: 14 },
 };
 
@@ -35,6 +37,9 @@ export function ProductOverviewPage() {
     openModuleDialog,
     openCapabilityDialog,
   } = useUIStore();
+  const [exportPath, setExportPath] = React.useState<string | null>(null);
+  const [exportError, setExportError] = React.useState<string | null>(null);
+  const [isExporting, setIsExporting] = React.useState(false);
 
   const { data: products = [], isLoading: productsLoading } = useQuery<Product[]>({
     queryKey: ["products"],
@@ -67,25 +72,41 @@ export function ProductOverviewPage() {
     navigate("/products");
   };
 
-  const exportHtml = () => {
+  const exportHtml = async () => {
+    await runExport("overview", buildProductOverviewHtml);
+  };
+
+  const exportBookHtml = async () => {
+    await runExport("book", buildProductOverviewBookHtml);
+  };
+
+  const runExport = async (
+    variant: "overview" | "book",
+    builder: (input: { product: Product; tree?: ProductTree; workItems?: WorkItem[] }) => string,
+  ) => {
     if (!selectedProduct) {
       return;
     }
 
-    const html = buildProductOverviewHtml({
-      product: selectedProduct,
-      tree,
-      workItems,
-    });
-    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-    const url = window.URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${slugify(selectedProduct.name)}-overview.html`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    window.setTimeout(() => window.URL.revokeObjectURL(url), 0);
+    try {
+      setIsExporting(true);
+      setExportError(null);
+      const html = builder({
+        product: selectedProduct,
+        tree,
+        workItems,
+      });
+      const path = await exportProductOverviewHtml({
+        fileName: `${slugify(selectedProduct.name)}-${variant}.html`,
+        html,
+      });
+      setExportPath(path);
+    } catch (error) {
+      setExportPath(null);
+      setExportError(String(error));
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const editProduct = () => {
@@ -171,20 +192,35 @@ export function ProductOverviewPage() {
             ))}
           </select>
           <div style={styles.helper}>
-            This route is product-wide. Use the single dropdown here instead of the left hierarchy rail.
+            This route is product-wide. Export writes the file to `~/Documents/AruviStudio/exports/`.
           </div>
           <div style={styles.actionRow}>
             <button
               style={styles.primaryBtn}
               onClick={exportHtml}
-              disabled={!selectedProduct || treeLoading || workItemsLoading}
+              disabled={!selectedProduct || treeLoading || workItemsLoading || isExporting}
             >
-              Export HTML
+              {isExporting ? "Exporting…" : "Export Docs HTML"}
             </button>
-            <button style={styles.ghostBtn} onClick={goToProductWorkspace}>
-              Open Products
+            <button
+              style={styles.ghostBtn}
+              onClick={exportBookHtml}
+              disabled={!selectedProduct || treeLoading || workItemsLoading || isExporting}
+            >
+              Export Book HTML
             </button>
+            {exportPath ? (
+              <button style={styles.ghostBtn} onClick={() => revealInFinder(exportPath)}>
+                Reveal Export
+              </button>
+            ) : (
+              <button style={styles.ghostBtn} onClick={goToProductWorkspace}>
+                Open Products
+              </button>
+            )}
           </div>
+          {exportPath ? <div style={styles.successText}>Exported to {exportPath}</div> : null}
+          {exportError ? <div style={styles.errorText}>Export failed: {exportError}</div> : null}
         </div>
       </div>
 

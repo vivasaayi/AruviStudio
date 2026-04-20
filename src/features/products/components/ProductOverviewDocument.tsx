@@ -15,14 +15,26 @@ import {
   type WorkItemNode,
 } from "../lib/productOverview";
 
+type TocGroup = {
+  item: { id: string; title: string; level: number };
+  children: { id: string; title: string; level: number }[];
+};
+
 const styles: Record<string, React.CSSProperties> = {
   layout: { display: "flex", gap: 24, alignItems: "flex-start" },
+  layoutCollapsed: { display: "block" },
   article: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 18 },
-  aside: { width: 268, flexShrink: 0, position: "sticky" as const, top: 12, display: "flex", flexDirection: "column", gap: 14 },
+  aside: { width: 268, flexShrink: 0, position: "sticky" as const, top: 12, display: "flex", flexDirection: "column", gap: 14, height: "calc(100vh - 24px)", minHeight: 0 },
+  asideCollapsed: { display: "none" },
   panel: { borderRadius: 18, border: "1px solid #2a3340", backgroundColor: "#141b24", padding: 16, boxShadow: "0 18px 40px rgba(0,0,0,0.22)" },
+  panelScrollable: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column" as const },
   panelTitle: { fontSize: 11, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" as const, color: "#8fb8ff", marginBottom: 10 },
+  tocWrap: { overflowY: "auto" as const, paddingRight: 4, display: "flex", flexDirection: "column", gap: 6, flex: 1, minHeight: 0 },
   tocList: { display: "flex", flexDirection: "column", gap: 4 },
   tocLink: { display: "block", padding: "7px 10px", borderRadius: 10, color: "#c8d5e8", textDecoration: "none", fontSize: 13, lineHeight: 1.45 },
+  tocGroup: { borderRadius: 12, border: "1px solid #233041", backgroundColor: "#111821", overflow: "hidden" },
+  tocSummary: { listStyle: "none" as const, cursor: "pointer", padding: "8px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, color: "#d7e3f3", fontSize: 13, fontWeight: 700 },
+  tocChildren: { display: "flex", flexDirection: "column", gap: 3, padding: "0 6px 8px" },
   legendRow: { display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: "#a8b5c8" },
   legendDot: { width: 10, height: 10, borderRadius: 999 },
   hero: {
@@ -39,6 +51,9 @@ const styles: Record<string, React.CSSProperties> = {
   prose: { fontSize: 14, color: "#dce5f2", lineHeight: 1.75, whiteSpace: "pre-wrap" as const },
   button: { padding: "7px 12px", fontSize: 12, fontWeight: 700, backgroundColor: "#22344a", color: "#f4f8ff", border: "1px solid #406183", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
   subtleButton: { padding: "6px 10px", fontSize: 12, fontWeight: 700, backgroundColor: "#182433", color: "#cfe0f7", border: "1px solid #31465f", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
+  toggleButton: { padding: "7px 12px", fontSize: 12, fontWeight: 700, backgroundColor: "#182433", color: "#d9e7fa", border: "1px solid #35506f", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
+  readerToolbar: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" as const },
+  toolbarHint: { fontSize: 12, color: "#92a2b8" },
   progressPanel: { marginTop: 18, borderRadius: 16, border: "1px solid rgba(255,255,255,0.1)", backgroundColor: "rgba(255,255,255,0.06)", padding: 14 },
   progressRow: { display: "flex", justifyContent: "space-between", gap: 16, fontSize: 12, color: "#dce4f1" },
   progressTrack: { width: "100%", height: 10, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.12)", overflow: "hidden", marginTop: 10 },
@@ -105,6 +120,7 @@ export function ProductOverviewDocument({
   onEditCapability,
   onOpenWorkItem,
 }: ProductOverviewDocumentProps) {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const allWorkItems = useMemo(() => sortWorkItems(workItems ?? []), [workItems]);
   const metrics = useMemo(() => buildWorkItemMetrics(allWorkItems), [allWorkItems]);
   const productLevelWorkItems = useMemo(
@@ -117,10 +133,19 @@ export function ProductOverviewDocument({
     () => buildProductOverviewToc(tree, productLevelWorkItems.length > 0),
     [productLevelWorkItems.length, tree],
   );
+  const tocGroups = useMemo(() => groupTocItems(tocItems), [tocItems]);
 
   return (
-    <div style={styles.layout}>
+    <div style={sidebarCollapsed ? { ...styles.layout, ...styles.layoutCollapsed } : styles.layout}>
       <div style={styles.article}>
+        <div style={styles.readerToolbar}>
+          <div style={styles.toolbarHint}>
+            Reader controls
+          </div>
+          <button style={styles.toggleButton} onClick={() => setSidebarCollapsed((current) => !current)}>
+            {sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar"}
+          </button>
+        </div>
         <section id={PRODUCT_OVERVIEW_TOP_ID} style={styles.hero}>
           <div style={styles.eyebrow}>Product Overview</div>
           <div style={styles.heroTop}>
@@ -237,18 +262,41 @@ export function ProductOverviewDocument({
         ) : null}
       </div>
 
-      <aside style={styles.aside}>
-        <div style={styles.panel}>
+      <aside style={sidebarCollapsed ? { ...styles.aside, ...styles.asideCollapsed } : styles.aside}>
+        <div style={{ ...styles.panel, ...styles.panelScrollable }}>
           <div style={styles.panelTitle}>On This Page</div>
-          <div style={styles.tocList}>
-            {tocItems.map((item) => (
-              <a
-                key={item.id}
-                href={`#${item.id}`}
-                style={{ ...styles.tocLink, paddingLeft: 10 + Math.min(item.level, 3) * 14 }}
-              >
-                {item.title}
-              </a>
+          <div style={styles.tocWrap}>
+            {tocGroups.map((group) => (
+              group.children.length === 0 ? (
+                <a
+                  key={group.item.id}
+                  href={`#${group.item.id}`}
+                  style={styles.tocLink}
+                >
+                  {group.item.title}
+                </a>
+              ) : (
+                <details key={group.item.id} open style={styles.tocGroup}>
+                  <summary style={styles.tocSummary}>
+                    <span>{group.item.title}</span>
+                    <span>{group.children.length}</span>
+                  </summary>
+                  <div style={styles.tocChildren}>
+                    <a href={`#${group.item.id}`} style={styles.tocLink}>
+                      Section overview
+                    </a>
+                    {group.children.map((item) => (
+                      <a
+                        key={item.id}
+                        href={`#${item.id}`}
+                        style={{ ...styles.tocLink, paddingLeft: 10 + Math.min(item.level, 3) * 14 }}
+                      >
+                        {item.title}
+                      </a>
+                    ))}
+                  </div>
+                </details>
+              )
             ))}
           </div>
         </div>
@@ -262,6 +310,24 @@ export function ProductOverviewDocument({
       </aside>
     </div>
   );
+}
+
+function groupTocItems(items: { id: string; title: string; level: number }[]): TocGroup[] {
+  const groups: TocGroup[] = [];
+
+  items.forEach((item) => {
+    if (item.level === 0) {
+      groups.push({ item, children: [] });
+      return;
+    }
+
+    const currentGroup = groups[groups.length - 1];
+    if (currentGroup) {
+      currentGroup.children.push(item);
+    }
+  });
+
+  return groups;
 }
 
 function MetricCard({ label, value }: { label: string; value: number }) {

@@ -72,6 +72,7 @@ pub fn run() {
             commands::repository_commands::create_local_workspace,
             commands::repository_commands::browse_for_repository_path,
             commands::repository_commands::reveal_in_finder,
+            commands::repository_commands::export_product_overview_html,
             commands::repository_commands::list_repository_tree,
             commands::repository_commands::read_repository_file,
             commands::repository_commands::write_repository_file,

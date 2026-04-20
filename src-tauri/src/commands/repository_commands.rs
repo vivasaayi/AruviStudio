@@ -3,7 +3,9 @@ use crate::error::AppError;
 use crate::persistence::repository_repo;
 use crate::services::repo_service;
 use crate::state::AppState;
+use directories::UserDirs;
 use git2::{Repository as GitRepository, Signature};
+use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use tauri::State;
@@ -126,6 +128,29 @@ pub async fn reveal_in_finder(path: String) -> Result<(), AppError> {
             "Finder could not reveal the requested path".to_string(),
         ))
     }
+}
+
+#[tauri::command]
+pub async fn export_product_overview_html(
+    file_name: String,
+    html: String,
+) -> Result<String, AppError> {
+    let user_dirs = UserDirs::new().ok_or_else(|| {
+        AppError::Validation("Could not determine a writable user documents directory".to_string())
+    })?;
+
+    let documents_dir = user_dirs.document_dir().ok_or_else(|| {
+        AppError::Validation("Could not determine a writable user documents directory".to_string())
+    })?;
+
+    let export_dir = documents_dir.join("AruviStudio").join("exports");
+    fs::create_dir_all(&export_dir)?;
+
+    let safe_name = sanitize_export_file_name(&file_name);
+    let destination = export_dir.join(safe_name);
+    fs::write(&destination, html)?;
+
+    Ok(destination.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -351,6 +376,30 @@ pub(crate) async fn create_local_workspace_for_scope(
         attached_scope_type,
         attached_scope_id,
     })
+}
+
+fn sanitize_export_file_name(file_name: &str) -> String {
+    let mut sanitized: String = file_name
+        .chars()
+        .map(|character| match character {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' => character,
+            _ => '-',
+        })
+        .collect();
+
+    while sanitized.contains("--") {
+        sanitized = sanitized.replace("--", "-");
+    }
+
+    sanitized = sanitized.trim_matches('-').to_string();
+
+    if sanitized.is_empty() {
+        "product-overview.html".to_string()
+    } else if sanitized.ends_with(".html") {
+        sanitized
+    } else {
+        format!("{sanitized}.html")
+    }
 }
 
 fn default_workspace_root() -> PathBuf {
