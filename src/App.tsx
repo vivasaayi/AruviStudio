@@ -12,6 +12,7 @@ const ModelProviderListPage = lazy(() => import("./features/models/pages/ModelPr
 const SettingsPage = lazy(() => import("./features/settings/pages/SettingsPage").then((module) => ({ default: module.SettingsPage })));
 const IDEPage = lazy(() => import("./features/ide/pages/IDEPage").then((module) => ({ default: module.IDEPage })));
 const ChatPage = lazy(() => import("./features/chat/pages/ChatPage").then((module) => ({ default: module.ChatPage })));
+const VoiceChatPage = lazy(() => import("./features/chat/pages/VoiceChatPage").then((module) => ({ default: module.VoiceChatPage })));
 const PlannerPage = lazy(() => import("./features/planner/pages/PlannerPage").then((module) => ({ default: module.PlannerPage })));
 
 const fallback = <div style={{ padding: 16, color: "#8f96a3" }}>Loading workspace…</div>;
@@ -32,6 +33,7 @@ function App() {
             <Route path="/agents" element={<AgentRegistryPage />} />
             <Route path="/models" element={<ModelProviderListPage />} />
             <Route path="/chat" element={<ChatPage />} />
+            <Route path="/voice-chat" element={<VoiceChatPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/ide" element={<IDEPage />} />
           </Routes>

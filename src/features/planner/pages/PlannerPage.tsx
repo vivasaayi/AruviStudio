@@ -399,6 +399,7 @@ const SPEECH_LOCALE_KEY = "speech.locale";
 const SPEECH_NATIVE_VOICE_KEY = "speech.native_voice";
 const SPEECH_ENABLE_MIC_KEY = "speech.enable_mic";
 const SPEECH_AUTO_SPEAK_REPLIES_KEY = "speech.auto_speak_replies";
+const SPEECH_REVIEW_BEFORE_SEND_KEY = "speech.review_before_send";
 
 const PLANNER_SYSTEM_PROMPT = `You are an AI planning lead for a product-management desktop app.
 You can inspect the workspace with tools before proposing changes.
@@ -2053,6 +2054,7 @@ export function PlannerPage() {
   const [speechModelSetting, setSpeechModelSetting] = useState("");
   const [speechLocaleSetting, setSpeechLocaleSetting] = useState("en-US");
   const [speechNativeVoiceSetting, setSpeechNativeVoiceSetting] = useState("");
+  const [reviewVoiceBeforeSend, setReviewVoiceBeforeSend] = useState(false);
   const [showRepoModal, setShowRepoModal] = useState(false);
   const [windowWidth, setWindowWidth] = useState<number>(() => (typeof window === "undefined" ? 1440 : window.innerWidth));
   const [showCompactTools, setShowCompactTools] = useState(false);
@@ -2135,11 +2137,13 @@ export function PlannerPage() {
       return {
         title: voiceActivity,
         detail: pendingVoiceTranscript
-          ? "The transcript is ready for review before it becomes a planner turn."
+          ? reviewVoiceBeforeSend
+            ? "The transcript is ready for review before it becomes a planner turn."
+            : "The transcript is being sent to the planner."
           : "Voice capture is in progress.",
       };
     }
-    if (pendingVoiceTranscript) {
+    if (pendingVoiceTranscript && reviewVoiceBeforeSend) {
       return {
         title: "Voice transcript ready",
         detail: "Review or edit the transcript, then send it to the planner.",
@@ -2175,6 +2179,7 @@ export function PlannerPage() {
     latestAssistantMessage,
     pendingPlan,
     pendingVoiceTranscript,
+    reviewVoiceBeforeSend,
     selectedDraftNode,
     voiceActivity,
   ]);
@@ -2297,7 +2302,8 @@ export function PlannerPage() {
       getSetting(SPEECH_NATIVE_VOICE_KEY),
       getSetting(SPEECH_ENABLE_MIC_KEY),
       getSetting(SPEECH_AUTO_SPEAK_REPLIES_KEY),
-    ]).then(([providerSetting, modelSetting, localeSetting, nativeVoiceSetting, micEnabledSetting, autoSpeakSetting]) => {
+      getSetting(SPEECH_REVIEW_BEFORE_SEND_KEY),
+    ]).then(([providerSetting, modelSetting, localeSetting, nativeVoiceSetting, micEnabledSetting, autoSpeakSetting, reviewBeforeSendSetting]) => {
       if (cancelled) {
         return;
       }
@@ -2318,6 +2324,9 @@ export function PlannerPage() {
       }
       if (typeof autoSpeakSetting === "string") {
         setAutoSpeak(autoSpeakSetting.trim().toLowerCase() === "true");
+      }
+      if (typeof reviewBeforeSendSetting === "string") {
+        setReviewVoiceBeforeSend(reviewBeforeSendSetting.trim().toLowerCase() === "true");
       }
     }).catch(() => {});
     return () => {
@@ -2902,9 +2911,15 @@ export function PlannerPage() {
         setVoiceActivity("No speech detected.");
         return;
       }
-      setPendingVoiceTranscript(trimmedTranscript);
+      if (reviewVoiceBeforeSend) {
+        setPendingVoiceTranscript(trimmedTranscript);
+        setEditableVoiceTranscript(trimmedTranscript);
+        setVoiceActivity("Speech recognized. Review or edit before sending.");
+        return;
+      }
       setEditableVoiceTranscript(trimmedTranscript);
-      setVoiceActivity("Speech recognized. Review or edit before sending.");
+      setVoiceActivity("Speech recognized. Sending it to the planner...");
+      await submitVoiceTranscript(trimmedTranscript);
     } catch (error) {
       if (shouldTranscribe) {
         setSpeechError(error instanceof Error ? error.message : String(error));
@@ -2935,8 +2950,7 @@ export function PlannerPage() {
     setVoiceElapsedMs(0);
   };
 
-  const submitPendingVoiceTranscript = async () => {
-    const transcript = editableVoiceTranscript.trim();
+  const submitVoiceTranscript = async (transcript: string) => {
     if (!transcript || isPlannerBusy) {
       return;
     }
@@ -2956,6 +2970,14 @@ export function PlannerPage() {
       setIsVoiceSubmitting(false);
       clearPendingVoiceReview();
     }
+  };
+
+  const submitPendingVoiceTranscript = async () => {
+    const transcript = editableVoiceTranscript.trim();
+    if (!transcript || isPlannerBusy) {
+      return;
+    }
+    await submitVoiceTranscript(transcript);
   };
 
   const retryVoiceCapture = async () => {
@@ -3946,7 +3968,7 @@ export function PlannerPage() {
               </div>
             ) : (
               <div ref={transcriptRef} style={{ ...styles.transcript, flex: 1, minHeight: 0, overflow: "auto" }}>
-                {pendingVoiceTranscript ? (
+                {pendingVoiceTranscript && reviewVoiceBeforeSend ? (
                   <div style={styles.voiceReviewCard}>
                     <div style={styles.voiceReviewHeader}>
                       <div>

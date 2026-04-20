@@ -25,6 +25,7 @@ const navItems = [
   { key: "agents", label: "Agents" },
   { key: "models", label: "Models" },
   { key: "chat", label: "Chat" },
+  { key: "voice-chat", label: "Voice Chat" },
   { key: "settings", label: "Settings" },
 ] as const;
 
@@ -43,7 +44,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const currentView = navItems.find((item) => location.pathname.startsWith(`/${item.key}`))?.key ?? activeView;
   const supportsHierarchyRail = currentView === "products" || currentView === "work-items";
-  const supportsInspectorRail = currentView !== "ide" && currentView !== "chat";
+  const supportsInspectorRail = currentView !== "ide" && currentView !== "chat" && currentView !== "voice-chat";
   const showLeftSidebar = leftSidebarVisible && supportsHierarchyRail;
 
   return (

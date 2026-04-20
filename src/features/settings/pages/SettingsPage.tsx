@@ -35,6 +35,7 @@ const SPEECH_LOCALE_KEY = "speech.locale";
 const SPEECH_NATIVE_VOICE_KEY = "speech.native_voice";
 const SPEECH_ENABLE_MIC_KEY = "speech.enable_mic";
 const SPEECH_AUTO_SPEAK_REPLIES_KEY = "speech.auto_speak_replies";
+const SPEECH_REVIEW_BEFORE_SEND_KEY = "speech.review_before_send";
 const MOBILE_API_TOKEN_KEY = "mobile.api_token";
 const MOBILE_BIND_HOST_KEY = "mobile.bind_host";
 const MOBILE_BIND_PORT_KEY = "mobile.bind_port";
@@ -117,6 +118,7 @@ export function SettingsPage() {
   const [speechNativeVoice, setSpeechNativeVoice] = useState("");
   const [speechEnableMic, setSpeechEnableMic] = useState(true);
   const [speechAutoSpeakReplies, setSpeechAutoSpeakReplies] = useState(false);
+  const [speechReviewBeforeSend, setSpeechReviewBeforeSend] = useState(false);
   const [mobileApiToken, setMobileApiToken] = useState("");
   const [mobileBindHost, setMobileBindHost] = useState("127.0.0.1");
   const [mobileBindPort, setMobileBindPort] = useState("8787");
@@ -166,6 +168,7 @@ export function SettingsPage() {
     getSetting(SPEECH_NATIVE_VOICE_KEY).then((v) => { if (v) setSpeechNativeVoice(v); });
     getSetting(SPEECH_ENABLE_MIC_KEY).then((v) => setSpeechEnableMic(parseBooleanSetting(v, true)));
     getSetting(SPEECH_AUTO_SPEAK_REPLIES_KEY).then((v) => setSpeechAutoSpeakReplies(parseBooleanSetting(v, false)));
+    getSetting(SPEECH_REVIEW_BEFORE_SEND_KEY).then((v) => setSpeechReviewBeforeSend(parseBooleanSetting(v, false)));
     getSetting(MOBILE_API_TOKEN_KEY).then((v) => { if (v) setMobileApiToken(v); });
     getSetting(MOBILE_BIND_HOST_KEY).then((v) => { if (v) setMobileBindHost(v); });
     getSetting(MOBILE_BIND_PORT_KEY).then((v) => { if (v) setMobileBindPort(v); });
@@ -428,6 +431,20 @@ export function SettingsPage() {
               const next = !speechAutoSpeakReplies;
               setSpeechAutoSpeakReplies(next);
               await saveSetting(SPEECH_AUTO_SPEAK_REPLIES_KEY, String(next));
+            }}
+          />
+        </div>
+        <div style={styles.row}>
+          <div>
+            <div style={styles.label}>Review Transcript Before Sending</div>
+            <div style={styles.desc}>Turn this on if you want voice input to pause for transcript editing. Leave it off for a hands-free flow that sends speech straight to the planner.</div>
+          </div>
+          <button
+            style={{ ...styles.toggle, backgroundColor: speechReviewBeforeSend ? "#0e639c" : "#444" }}
+            onClick={async () => {
+              const next = !speechReviewBeforeSend;
+              setSpeechReviewBeforeSend(next);
+              await saveSetting(SPEECH_REVIEW_BEFORE_SEND_KEY, String(next));
             }}
           />
         </div>

@@ -9,6 +9,7 @@ const routes = [
   { key: "agents", path: "/agents", heading: "Agent Management" },
   { key: "models", path: "/models", heading: "Model Providers" },
   { key: "chat", path: "/chat", heading: "Direct Chat" },
+  { key: "voice-chat", path: "/voice-chat", heading: "Voice Chat" },
   { key: "settings", path: "/settings", heading: "Settings" },
 ];
 
