@@ -1,17 +1,25 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  browseForLocalModelFile,
   listProviders,
   createProvider,
   createModelDefinition,
   listModelDefinitions,
+  setSetting,
   testProviderConnectivity,
+  installManagedLocalModel,
+  registerLocalRuntimeModel,
   updateProvider,
   deleteProvider,
   updateModelDefinition,
   deleteModelDefinition,
 } from "../../../lib/tauri";
 import type { ModelDefinition, ModelProvider } from "../../../lib/types";
+
+const SPEECH_PROVIDER_KEY = "speech.transcription_provider_id";
+const SPEECH_MODEL_KEY = "speech.transcription_model_name";
+const LEGACY_WHISPER_PLACEHOLDER_PATH = "/absolute/path/to/ggml-base.en.bin";
 
 const styles: Record<string, React.CSSProperties> = {
   page: { maxWidth: 960, margin: "0 auto" },
@@ -44,7 +52,46 @@ const styles: Record<string, React.CSSProperties> = {
   modalHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid #333" },
   modalTitle: { fontSize: 16, fontWeight: 600, color: "#e0e0e0" },
   modalBody: { padding: 16, overflow: "auto", maxHeight: "calc(86vh - 56px)" },
+  managedGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 },
+  managedCard: { backgroundColor: "#1f2228", borderRadius: 10, padding: 14, border: "1px solid #333" },
+  managedTitle: { fontSize: 14, fontWeight: 700, color: "#eef3fb", marginBottom: 6 },
+  managedMeta: { fontSize: 12, color: "#9aa0a6", lineHeight: 1.5, marginBottom: 8 },
+  managedBadgeRow: { display: "flex", gap: 8, flexWrap: "wrap" as const, marginBottom: 10 },
+  managedBadge: { fontSize: 11, padding: "3px 8px", borderRadius: 999, backgroundColor: "#24364d", color: "#d7e8fb", fontWeight: 700 },
 };
+
+const MANAGED_LOCAL_MODELS = [
+  {
+    id: "whisper-tiny-en",
+    displayName: "Whisper Tiny English",
+    providerName: "Whisper.cpp Tiny.en (Local)",
+    modelName: "whisper-tiny.en",
+    fileName: "ggml-tiny.en.bin",
+    downloadUrl: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin?download=true",
+    sizeLabel: "75 MiB",
+    notes: "Fastest local transcription option for lightweight desktop voice testing.",
+  },
+  {
+    id: "whisper-base-en",
+    displayName: "Whisper Base English",
+    providerName: "Whisper.cpp Base.en (Local)",
+    modelName: "whisper-base.en",
+    fileName: "ggml-base.en.bin",
+    downloadUrl: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin?download=true",
+    sizeLabel: "142 MiB",
+    notes: "Best default local speech-to-text model for desktop voice planning and chat.",
+  },
+  {
+    id: "whisper-small-en",
+    displayName: "Whisper Small English",
+    providerName: "Whisper.cpp Small.en (Local)",
+    modelName: "whisper-small.en",
+    fileName: "ggml-small.en.bin",
+    downloadUrl: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin?download=true",
+    sizeLabel: "466 MiB",
+    notes: "Higher accuracy local transcription model when you can trade more disk and latency.",
+  },
+] as const;
 
 export function ModelProviderListPage() {
   const queryClient = useQueryClient();
@@ -64,6 +111,63 @@ export function ModelProviderListPage() {
 
   const { data: providers, isLoading } = useQuery({ queryKey: ["providers"], queryFn: listProviders });
   const { data: modelDefinitions } = useQuery({ queryKey: ["model-definitions"], queryFn: listModelDefinitions });
+  const refreshModelQueries = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["providers"] }),
+      queryClient.invalidateQueries({ queryKey: ["model-definitions"] }),
+    ]);
+  };
+
+  const installLocalModelMutation = useMutation({
+    mutationFn: (entry: (typeof MANAGED_LOCAL_MODELS)[number]) =>
+      installManagedLocalModel({
+        providerName: entry.providerName,
+        modelName: entry.modelName,
+        downloadUrl: entry.downloadUrl,
+        fileName: entry.fileName,
+        capabilityTags: ["speech_to_text", "transcription", "audio", "local_runtime"],
+        notes: entry.notes,
+      }),
+    onSuccess: async (result, entry) => {
+      await refreshModelQueries();
+      await applySpeechSettings(result.provider.id, result.model_definition.name);
+      setProviderSuccess(`${entry.displayName} is ready at ${result.file_path} and set as the active speech model.`);
+      setProviderError(null);
+    },
+    onError: (error) => {
+      setProviderError(String(error));
+      setProviderSuccess(null);
+    },
+  });
+
+  const registerLocalModelMutation = useMutation({
+    mutationFn: async (entry: (typeof MANAGED_LOCAL_MODELS)[number]) => {
+      const selectedPath = await browseForLocalModelFile();
+      if (!selectedPath) {
+        throw new Error("Model registration cancelled.");
+      }
+      return registerLocalRuntimeModel({
+        providerName: entry.providerName,
+        modelName: entry.modelName,
+        modelPath: selectedPath,
+        capabilityTags: ["speech_to_text", "transcription", "audio", "local_runtime"],
+        notes: entry.notes,
+      });
+    },
+    onSuccess: async (result, entry) => {
+      await refreshModelQueries();
+      await applySpeechSettings(result.provider.id, result.model_definition.name);
+      setProviderSuccess(`${entry.displayName} registered from ${result.file_path} and set as the active speech model.`);
+      setProviderError(null);
+    },
+    onError: (error) => {
+      if (String(error).includes("cancelled")) {
+        return;
+      }
+      setProviderError(String(error));
+      setProviderSuccess(null);
+    },
+  });
 
   const createMutation = useMutation({
     mutationFn: () => createProvider(form),
@@ -211,6 +315,19 @@ export function ModelProviderListPage() {
     setShowForm(true);
   };
 
+  const applySpeechSettings = async (providerId: string, modelName: string) => {
+    await Promise.all([
+      setSetting(SPEECH_PROVIDER_KEY, providerId),
+      setSetting(SPEECH_MODEL_KEY, modelName),
+    ]);
+    setProviderSuccess(`Speech settings now use ${modelName}.`);
+    setProviderError(null);
+  };
+
+  const visibleProviders = (providers ?? []).filter(
+    (provider) => !(provider.provider_type === "local_runtime" && provider.base_url === LEGACY_WHISPER_PLACEHOLDER_PATH),
+  );
+
   return (
     <div style={styles.page}>
       <div style={styles.header}>
@@ -245,11 +362,72 @@ export function ModelProviderListPage() {
       <div style={{ ...styles.form, marginBottom: 18 }}>
         <div style={{ ...styles.title, fontSize: 16, marginBottom: 10 }}>Quick Start</div>
         <div style={{ color: "#9aa0a6", fontSize: 13, lineHeight: 1.5, marginBottom: 14 }}>
-          Use DeepSeek hosted first if you want a quick end-to-end path. The provider is OpenAI-compatible, so it fits the current orchestration layer without waiting on local runtime work.
+          Use DeepSeek hosted first if you want a quick end-to-end path. For fully local desktop voice, use the managed Whisper installs below instead of creating manual placeholder providers.
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <button style={styles.btn} onClick={() => applyPreset("deepseek")}>Use DeepSeek Hosted</button>
           <button style={{ ...styles.btn, backgroundColor: "#2c3139" }} onClick={() => applyPreset("lm_studio")}>Use LM Studio Local</button>
+        </div>
+      </div>
+      <div style={{ ...styles.form, marginBottom: 18 }}>
+        <div style={{ ...styles.title, fontSize: 16, marginBottom: 10 }}>Managed Local Speech Models</div>
+        <div style={{ color: "#9aa0a6", fontSize: 13, lineHeight: 1.5, marginBottom: 14 }}>
+          Install Whisper models into AruviStudio-managed storage, or register an existing local model file without typing absolute paths by hand.
+        </div>
+        <div style={styles.managedGrid}>
+          {MANAGED_LOCAL_MODELS.map((entry) => {
+            const installedProvider = (providers ?? []).find((provider) => provider.name === entry.providerName);
+            const installedModel = (modelDefinitions ?? []).find(
+              (model) => model.provider_id === installedProvider?.id && model.name === entry.modelName,
+            );
+            const isInstalled = Boolean(installedProvider && installedModel);
+            const isBusy = installLocalModelMutation.isPending || registerLocalModelMutation.isPending;
+
+            return (
+              <div key={entry.id} style={styles.managedCard}>
+                <div style={styles.managedTitle}>{entry.displayName}</div>
+                <div style={styles.managedBadgeRow}>
+                  <span style={styles.managedBadge}>{entry.sizeLabel}</span>
+                  <span style={styles.managedBadge}>speech_to_text</span>
+                  <span style={styles.managedBadge}>{isInstalled ? "installed" : "not installed"}</span>
+                </div>
+                <div style={styles.managedMeta}>{entry.notes}</div>
+                {installedProvider ? (
+                  <div style={{ ...styles.managedMeta, fontFamily: "monospace" }}>
+                    Provider path: {installedProvider.base_url}
+                  </div>
+                ) : null}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                  <button
+                    style={styles.btn}
+                    onClick={() => installLocalModelMutation.mutate(entry)}
+                    disabled={isBusy}
+                  >
+                    {installLocalModelMutation.isPending ? "Installing..." : isInstalled ? "Reinstall / Reuse" : "Install & Register"}
+                  </button>
+                  <button
+                    style={{ ...styles.btn, backgroundColor: "#2c3139" }}
+                    onClick={() => registerLocalModelMutation.mutate(entry)}
+                    disabled={isBusy}
+                  >
+                    Use Existing File
+                  </button>
+                  {installedProvider && installedModel ? (
+                    <button
+                      style={{ ...styles.btn, backgroundColor: "#355c2b" }}
+                      onClick={() => void applySpeechSettings(installedProvider.id, installedModel.name)}
+                      disabled={isBusy}
+                    >
+                      Use for Speech
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ color: "#8f96a3", fontSize: 12, marginTop: 12 }}>
+          This release manages local Whisper models for speech. Local in-app hosting for GGUF chat/coding models is the next runtime step after speech.
         </div>
       </div>
       {showForm && (
@@ -263,13 +441,17 @@ export function ModelProviderListPage() {
         <div style={styles.form}>
           <label style={styles.label}>Provider Name</label><input style={styles.input} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. DeepSeek (Hosted)" />
           <label style={styles.label}>Provider Type</label><select style={styles.select} value={form.providerType} onChange={(e) => setForm({ ...form, providerType: e.target.value })}><option value="openai_compatible">OpenAI Compatible</option><option value="local_runtime">Local Runtime</option></select>
-          <label style={styles.label}>Base URL</label><input style={styles.input} value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} />
+          <label style={styles.label}>{form.providerType === "local_runtime" ? "Local Model Path" : "Base URL"}</label><input style={styles.input} value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} />
           <div style={{ fontSize: 12, color: "#8f96a3", marginBottom: 8 }}>
-            You can use <code>http://localhost:1234</code> or <code>http://localhost:1234/v1</code>. Aruvi normalizes both.
+            {form.providerType === "local_runtime"
+              ? <>For Whisper.cpp local speech, use an absolute path like <code>/Users/you/models/ggml-base.en.bin</code>.</>
+              : <>You can use <code>http://localhost:1234</code> or <code>http://localhost:1234/v1</code>. Aruvi normalizes both.</>}
           </div>
-          <label style={styles.label}>API Key / Secret Ref (optional)</label><input style={styles.input} value={form.authSecretRef} onChange={(e) => setForm({ ...form, authSecretRef: e.target.value })} placeholder="Paste API key (stored in Keychain) or ref:provider:... value" />
+          <label style={styles.label}>API Key / Secret Ref (optional)</label><input style={styles.input} value={form.authSecretRef} onChange={(e) => setForm({ ...form, authSecretRef: e.target.value })} placeholder={form.providerType === "local_runtime" ? "Leave empty for local runtime" : "Paste API key (stored in Keychain) or ref:provider:... value"} />
           <div style={{ fontSize: 12, color: "#8f96a3", marginBottom: 12 }}>
-            Keys are stored in macOS Keychain. If Keychain access is blocked during development, runtime falls back to <code>~/.aruvistudio/llm-config.json</code>.
+            {form.providerType === "local_runtime"
+              ? <>Local runtime providers do not require an API key. The path above should point directly to a downloaded Whisper model file.</>
+              : <>Keys are stored in macOS Keychain. If Keychain access is blocked during development, runtime falls back to <code>~/.aruvistudio/llm-config.json</code>.</>}
           </div>
           {providerError && <div style={styles.feedbackError}>{providerError}</div>}
           <button style={styles.btn} onClick={() => createMutation.mutate()} disabled={!form.name || createMutation.isPending}>{createMutation.isPending ? "Adding..." : "Add Provider"}</button>
@@ -336,6 +518,21 @@ export function ModelProviderListPage() {
             >
               DeepSeek Coder Preset
             </button>
+            <button
+              style={{ ...styles.btn, backgroundColor: "#355c2b" }}
+              onClick={() => {
+                const whisperProvider = (providers ?? []).find((provider) => provider.provider_type === "local_runtime" || provider.name.toLowerCase().includes("whisper"));
+                setModelForm({
+                  providerId: whisperProvider?.id ?? modelForm.providerId,
+                  name: "whisper-base.en",
+                  contextWindow: "",
+                  capabilityTags: "speech_to_text,transcription,audio",
+                  notes: "Local Whisper runtime for desktop voice transcription through whisper-rs/whisper.cpp.",
+                });
+              }}
+            >
+              Local Whisper Preset
+            </button>
           </div>
           {modelError && <div style={styles.feedbackError}>{modelError}</div>}
           <button style={styles.btn} onClick={() => createModelMutation.mutate()} disabled={!modelForm.providerId || !modelForm.name || createModelMutation.isPending}>
@@ -346,10 +543,10 @@ export function ModelProviderListPage() {
           </div>
         </div>
       )}
-      {isLoading ? (<div style={styles.empty}>Loading providers...</div>) : providers && providers.length > 0 ? (
+      {isLoading ? (<div style={styles.empty}>Loading providers...</div>) : visibleProviders.length > 0 ? (
         <>
           <div style={styles.grid}>
-            {providers.map((p: ModelProvider) => (
+            {visibleProviders.map((p: ModelProvider) => (
               <div key={p.id} style={styles.card}>
                 <div style={styles.name}>{p.name}</div><div style={styles.type}>{p.provider_type}</div><div style={styles.url}>{p.base_url}</div>
                 <div style={styles.cardFooter}>
@@ -377,7 +574,8 @@ export function ModelProviderListPage() {
             {modelDefinitions && modelDefinitions.length > 0 ? (
               <div style={styles.subGrid}>
                 {modelDefinitions.map((model: ModelDefinition) => {
-                  const provider = providers.find((entry) => entry.id === model.provider_id);
+                  const provider = visibleProviders.find((entry) => entry.id === model.provider_id)
+                    ?? (providers ?? []).find((entry) => entry.id === model.provider_id);
                   return (
                     <div key={model.id} style={styles.modelCard}>
                       <div style={styles.modelName}>{model.name}</div>

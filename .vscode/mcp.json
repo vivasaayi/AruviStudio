@@ -1,0 +1,19 @@
+{
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "aruvi-mcp-token",
+      "description": "Aruvi MCP bearer token (leave blank if the app is localhost-only and mcp.api_token is unset)",
+      "password": true
+    }
+  ],
+  "servers": {
+    "aruviStudio": {
+      "type": "http",
+      "url": "http://127.0.0.1:8787/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${input:aruvi-mcp-token}"
+      }
+    }
+  }
+}

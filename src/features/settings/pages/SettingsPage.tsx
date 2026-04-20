@@ -1,16 +1,23 @@
-import React, { useState, useEffect } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import React, { useState, useEffect, useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   clearDatabasePathOverride,
   getActiveDatabasePath,
   getDatabaseHealth,
   getDatabasePathOverride,
+  getMcpBridgeStatus,
+  getMobileBridgeStatus,
   getSetting,
+  listModelDefinitions,
+  listProviders,
+  routePlannerContact,
+  sendTwilioWhatsappMessage,
   seedExampleProducts,
+  startTwilioVoiceCall,
   setDatabasePathOverride,
   setSetting,
 } from "../../../lib/tauri";
-import type { DatabaseHealth } from "../../../lib/types";
+import type { DatabaseHealth, McpBridgeStatus, MobileBridgeStatus, ModelDefinition, ModelProvider } from "../../../lib/types";
 import { useUIStore } from "../../../state/uiStore";
 
 const AUTO_START_AFTER_APPROVAL_KEY = "workflow.auto_start_after_work_item_approval";
@@ -23,11 +30,24 @@ const PLANNER_CHANNEL_PREFERENCE_KEY = "planner.channel_preference";
 const PLANNER_ESCALATE_TO_CALL_KEY = "planner.escalate_to_call_on_ambiguity";
 const PLANNER_CALL_QUIET_HOURS_START_KEY = "planner.call_quiet_hours_start";
 const PLANNER_CALL_QUIET_HOURS_END_KEY = "planner.call_quiet_hours_end";
+const SPEECH_PROVIDER_KEY = "speech.transcription_provider_id";
+const SPEECH_MODEL_KEY = "speech.transcription_model_name";
+const SPEECH_LOCALE_KEY = "speech.locale";
+const SPEECH_NATIVE_VOICE_KEY = "speech.native_voice";
+const SPEECH_ENABLE_MIC_KEY = "speech.enable_mic";
+const SPEECH_AUTO_SPEAK_REPLIES_KEY = "speech.auto_speak_replies";
+const SPEECH_REVIEW_BEFORE_SEND_KEY = "speech.review_before_send";
+const MCP_API_TOKEN_KEY = "mcp.api_token";
+const MOBILE_API_TOKEN_KEY = "mobile.api_token";
+const MOBILE_BIND_HOST_KEY = "mobile.bind_host";
+const MOBILE_BIND_PORT_KEY = "mobile.bind_port";
 const TWILIO_ACCOUNT_SID_KEY = "twilio.account_sid";
 const TWILIO_AUTH_TOKEN_KEY = "twilio.auth_token";
 const TWILIO_WHATSAPP_FROM_KEY = "twilio.whatsapp_from";
 const TWILIO_VOICE_FROM_KEY = "twilio.voice_from";
 const TWILIO_WEBHOOK_BASE_URL_KEY = "twilio.webhook_base_url";
+const PLANNER_CONTACT_TARGET_KEY = "planner.contact_target";
+const PLANNER_CONTACT_OPENING_MESSAGE_KEY = "planner.contact_opening_message";
 
 function parseBooleanSetting(value: string | null | undefined, fallback: boolean) {
   if (value == null) return fallback;
@@ -67,6 +87,7 @@ const styles: Record<string, React.CSSProperties> = {
   migrationList: { display: "flex", flexDirection: "column" as const, gap: 8, maxHeight: 220, overflowY: "auto" as const },
   migrationRow: { display: "flex", justifyContent: "space-between", gap: 12, padding: "8px 10px", backgroundColor: "#181818", border: "1px solid #2a2a2a", borderRadius: 6 },
   badge: { padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 700 },
+  codeBox: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, color: "#d7e3ff", backgroundColor: "#171b24", border: "1px solid #2d3a52", borderRadius: 6, padding: "8px 10px" },
 };
 
 export function SettingsPage() {
@@ -93,11 +114,47 @@ export function SettingsPage() {
   const [plannerEscalateToCall, setPlannerEscalateToCall] = useState(true);
   const [plannerCallQuietHoursStart, setPlannerCallQuietHoursStart] = useState("21:00");
   const [plannerCallQuietHoursEnd, setPlannerCallQuietHoursEnd] = useState("08:00");
+  const [speechProviderId, setSpeechProviderId] = useState("");
+  const [speechModelName, setSpeechModelName] = useState("");
+  const [speechLocale, setSpeechLocale] = useState("en-US");
+  const [speechNativeVoice, setSpeechNativeVoice] = useState("");
+  const [speechEnableMic, setSpeechEnableMic] = useState(true);
+  const [speechAutoSpeakReplies, setSpeechAutoSpeakReplies] = useState(false);
+  const [speechReviewBeforeSend, setSpeechReviewBeforeSend] = useState(false);
+  const [mcpApiToken, setMcpApiToken] = useState("");
+  const [mobileApiToken, setMobileApiToken] = useState("");
+  const [mobileBindHost, setMobileBindHost] = useState("127.0.0.1");
+  const [mobileBindPort, setMobileBindPort] = useState("8787");
   const [twilioAccountSid, setTwilioAccountSid] = useState("");
   const [twilioAuthToken, setTwilioAuthToken] = useState("");
   const [twilioWhatsappFrom, setTwilioWhatsappFrom] = useState("");
   const [twilioVoiceFrom, setTwilioVoiceFrom] = useState("");
   const [twilioWebhookBaseUrl, setTwilioWebhookBaseUrl] = useState("");
+  const [plannerContactTarget, setPlannerContactTarget] = useState("");
+  const [plannerContactOpeningMessage, setPlannerContactOpeningMessage] = useState("Call me and ask what work should be prioritized next.");
+  const [plannerContactMsg, setPlannerContactMsg] = useState<string | null>(null);
+  const [plannerContactError, setPlannerContactError] = useState<string | null>(null);
+  const { data: providers = [] } = useQuery<ModelProvider[]>({ queryKey: ["settingsProviders"], queryFn: listProviders });
+  const { data: models = [] } = useQuery<ModelDefinition[]>({ queryKey: ["settingsModels"], queryFn: listModelDefinitions });
+  const { data: mcpBridgeStatus } = useQuery<McpBridgeStatus>({
+    queryKey: ["mcpBridgeStatus"],
+    queryFn: getMcpBridgeStatus,
+  });
+  const { data: mobileBridgeStatus } = useQuery<MobileBridgeStatus>({
+    queryKey: ["mobileBridgeStatus"],
+    queryFn: getMobileBridgeStatus,
+  });
+
+  const speechProviderOptions = useMemo(
+    () => providers.filter((provider) => provider.enabled),
+    [providers],
+  );
+  const speechModelOptions = useMemo(() => {
+    const looksLikeSpeechModel = (model: ModelDefinition) =>
+      model.capability_tags.some((tag) => ["speech_to_text", "transcription", "audio"].includes(tag))
+      || /whisper|transcrib/i.test(model.name);
+    return models.filter((model) => model.enabled && looksLikeSpeechModel(model) && (!speechProviderId || model.provider_id === speechProviderId));
+  }, [models, speechProviderId]);
 
   useEffect(() => {
     getSetting("docker_host").then((v) => { if (v) setDockerHost(v); });
@@ -112,11 +169,24 @@ export function SettingsPage() {
     getSetting(PLANNER_ESCALATE_TO_CALL_KEY).then((v) => setPlannerEscalateToCall(parseBooleanSetting(v, true)));
     getSetting(PLANNER_CALL_QUIET_HOURS_START_KEY).then((v) => { if (v) setPlannerCallQuietHoursStart(v); });
     getSetting(PLANNER_CALL_QUIET_HOURS_END_KEY).then((v) => { if (v) setPlannerCallQuietHoursEnd(v); });
+    getSetting(SPEECH_PROVIDER_KEY).then((v) => { if (v) setSpeechProviderId(v); });
+    getSetting(SPEECH_MODEL_KEY).then((v) => { if (v) setSpeechModelName(v); });
+    getSetting(SPEECH_LOCALE_KEY).then((v) => { if (v) setSpeechLocale(v); });
+    getSetting(SPEECH_NATIVE_VOICE_KEY).then((v) => { if (v) setSpeechNativeVoice(v); });
+    getSetting(SPEECH_ENABLE_MIC_KEY).then((v) => setSpeechEnableMic(parseBooleanSetting(v, true)));
+    getSetting(SPEECH_AUTO_SPEAK_REPLIES_KEY).then((v) => setSpeechAutoSpeakReplies(parseBooleanSetting(v, false)));
+    getSetting(SPEECH_REVIEW_BEFORE_SEND_KEY).then((v) => setSpeechReviewBeforeSend(parseBooleanSetting(v, false)));
+    getSetting(MCP_API_TOKEN_KEY).then((v) => { if (v) setMcpApiToken(v); });
+    getSetting(MOBILE_API_TOKEN_KEY).then((v) => { if (v) setMobileApiToken(v); });
+    getSetting(MOBILE_BIND_HOST_KEY).then((v) => { if (v) setMobileBindHost(v); });
+    getSetting(MOBILE_BIND_PORT_KEY).then((v) => { if (v) setMobileBindPort(v); });
     getSetting(TWILIO_ACCOUNT_SID_KEY).then((v) => { if (v) setTwilioAccountSid(v); });
     getSetting(TWILIO_AUTH_TOKEN_KEY).then((v) => { if (v) setTwilioAuthToken(v); });
     getSetting(TWILIO_WHATSAPP_FROM_KEY).then((v) => { if (v) setTwilioWhatsappFrom(v); });
     getSetting(TWILIO_VOICE_FROM_KEY).then((v) => { if (v) setTwilioVoiceFrom(v); });
     getSetting(TWILIO_WEBHOOK_BASE_URL_KEY).then((v) => { if (v) setTwilioWebhookBaseUrl(v); });
+    getSetting(PLANNER_CONTACT_TARGET_KEY).then((v) => { if (v) setPlannerContactTarget(v); });
+    getSetting(PLANNER_CONTACT_OPENING_MESSAGE_KEY).then((v) => { if (v) setPlannerContactOpeningMessage(v); });
     getActiveDatabasePath().then(setActiveDbPath).catch((error) => setDbPathOverrideError(String(error)));
     getDatabasePathOverride().then((v) => { if (v) setDbPathOverrideInput(v); });
     getDatabaseHealth()
@@ -129,8 +199,20 @@ export function SettingsPage() {
       });
   }, []);
 
+  useEffect(() => {
+    if (!speechProviderId || speechModelName === "") {
+      return;
+    }
+    if (!speechModelOptions.some((model) => model.name === speechModelName)) {
+      setSpeechModelName("");
+    }
+  }, [speechModelName, speechModelOptions, speechProviderId]);
+
   const saveSetting = async (key: string, value: string) => {
     await setSetting(key, value);
+    await queryClient.invalidateQueries({ queryKey: ["setting"] });
+    await queryClient.invalidateQueries({ queryKey: ["mcpBridgeStatus"] });
+    await queryClient.invalidateQueries({ queryKey: ["mobileBridgeStatus"] });
     if (key === HIDE_EXAMPLE_PRODUCTS_KEY) {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["products"] }),
@@ -163,6 +245,57 @@ export function SettingsPage() {
       setTimeout(() => setDbPathOverrideSaved(null), 2500);
     } catch (error) {
       setDbPathOverrideError(String(error));
+    }
+  };
+
+  const copyText = async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setSavedMsg(`copied:${value}`);
+      setTimeout(() => setSavedMsg(null), 2000);
+    } catch {
+      setSavedMsg(null);
+    }
+  };
+
+  const autoRoutePlannerContact = async () => {
+    try {
+      setPlannerContactError(null);
+      setPlannerContactMsg(null);
+      const result = await routePlannerContact({
+        to: plannerContactTarget.trim(),
+        content: plannerContactOpeningMessage.trim(),
+      });
+      const channelLabel = result.channel === "voice" ? "voice call" : "WhatsApp";
+      if (result.status === "blocked") {
+        setPlannerContactError(`Auto-routing blocked: ${result.reason}`);
+        return;
+      }
+      setPlannerContactMsg(`Auto-routed to ${channelLabel}. ${result.reason}`);
+    } catch (error) {
+      setPlannerContactError(String(error));
+    }
+  };
+
+  const sendPlannerWhatsapp = async () => {
+    try {
+      setPlannerContactError(null);
+      setPlannerContactMsg(null);
+      await sendTwilioWhatsappMessage({ to: plannerContactTarget.trim(), content: plannerContactOpeningMessage.trim() });
+      setPlannerContactMsg("WhatsApp message queued through Twilio.");
+    } catch (error) {
+      setPlannerContactError(String(error));
+    }
+  };
+
+  const startPlannerVoiceCall = async () => {
+    try {
+      setPlannerContactError(null);
+      setPlannerContactMsg(null);
+      await startTwilioVoiceCall({ to: plannerContactTarget.trim(), initialPrompt: plannerContactOpeningMessage.trim() || undefined });
+      setPlannerContactMsg("Voice call requested through Twilio.");
+    } catch (error) {
+      setPlannerContactError(String(error));
     }
   };
 
@@ -281,6 +414,195 @@ export function SettingsPage() {
         </div>
       </div>
       <div style={styles.section}>
+        <div style={styles.sectionTitle}>Speech</div>
+        <div style={styles.row}>
+          <div>
+            <div style={styles.label}>Enable Voice Input By Default</div>
+            <div style={styles.desc}>Controls whether planner and chat start with microphone input enabled.</div>
+          </div>
+          <button
+            style={{ ...styles.toggle, backgroundColor: speechEnableMic ? "#0e639c" : "#444" }}
+            onClick={async () => {
+              const next = !speechEnableMic;
+              setSpeechEnableMic(next);
+              await saveSetting(SPEECH_ENABLE_MIC_KEY, String(next));
+            }}
+          />
+        </div>
+        <div style={styles.row}>
+          <div>
+            <div style={styles.label}>Speak Assistant Replies By Default</div>
+            <div style={styles.desc}>Uses native macOS voice when available. This affects planner and direct chat voice replies.</div>
+          </div>
+          <button
+            style={{ ...styles.toggle, backgroundColor: speechAutoSpeakReplies ? "#0e639c" : "#444" }}
+            onClick={async () => {
+              const next = !speechAutoSpeakReplies;
+              setSpeechAutoSpeakReplies(next);
+              await saveSetting(SPEECH_AUTO_SPEAK_REPLIES_KEY, String(next));
+            }}
+          />
+        </div>
+        <div style={styles.row}>
+          <div>
+            <div style={styles.label}>Review Transcript Before Sending</div>
+            <div style={styles.desc}>Turn this on if you want voice input to pause for transcript editing. Leave it off for a hands-free flow that sends speech straight to the planner.</div>
+          </div>
+          <button
+            style={{ ...styles.toggle, backgroundColor: speechReviewBeforeSend ? "#0e639c" : "#444" }}
+            onClick={async () => {
+              const next = !speechReviewBeforeSend;
+              setSpeechReviewBeforeSend(next);
+              await saveSetting(SPEECH_REVIEW_BEFORE_SEND_KEY, String(next));
+            }}
+          />
+        </div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>Speech Provider</div><div style={styles.desc}>Explicit provider used for planner voice transcription. Leave blank to allow automatic discovery.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <select style={styles.input} value={speechProviderId} onChange={(e) => setSpeechProviderId(e.target.value)}>
+              <option value="">Automatic</option>
+              {speechProviderOptions.map((provider) => (
+                <option key={provider.id} value={provider.id}>
+                  {provider.name}
+                </option>
+              ))}
+            </select>
+            <button style={styles.btn} onClick={() => saveSetting(SPEECH_PROVIDER_KEY, speechProviderId)}>Save</button>
+            {savedMsg === SPEECH_PROVIDER_KEY && <span style={styles.saved}>Saved!</span>}
+          </div>
+        </div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>Speech Model</div><div style={styles.desc}>Pick a Whisper/transcription model explicitly so desktop and mobile voice use the same backend speech path.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <select style={styles.input} value={speechModelName} onChange={(e) => setSpeechModelName(e.target.value)}>
+              <option value="">Automatic</option>
+              {speechModelOptions.map((model) => (
+                <option key={model.id} value={model.name}>
+                  {model.name}
+                </option>
+              ))}
+            </select>
+            <button style={styles.btn} onClick={() => saveSetting(SPEECH_MODEL_KEY, speechModelName)}>Save</button>
+            {savedMsg === SPEECH_MODEL_KEY && <span style={styles.saved}>Saved!</span>}
+          </div>
+        </div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>Speech Locale</div><div style={styles.desc}>Locale hint for transcription and spoken replies, for example `en-US`.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}><input style={styles.input} value={speechLocale} onChange={(e) => setSpeechLocale(e.target.value)} placeholder="en-US" /><button style={styles.btn} onClick={() => saveSetting(SPEECH_LOCALE_KEY, speechLocale)}>Save</button>{savedMsg === SPEECH_LOCALE_KEY && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>Native Speech Voice</div><div style={styles.desc}>Optional macOS `say` voice, for example `Samantha`, used for planner replies when native speech is enabled.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}><input style={styles.input} value={speechNativeVoice} onChange={(e) => setSpeechNativeVoice(e.target.value)} placeholder="Samantha" /><button style={styles.btn} onClick={() => saveSetting(SPEECH_NATIVE_VOICE_KEY, speechNativeVoice)}>Save</button>{savedMsg === SPEECH_NATIVE_VOICE_KEY && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
+      </div>
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>Agents / MCP</div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>MCP API Token</div><div style={styles.desc}>Optional bearer token for agent hosts that connect to Aruvi over the embedded HTTP MCP endpoint. Required before exposing the bridge beyond localhost.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}><input style={styles.input} value={mcpApiToken} onChange={(e) => setMcpApiToken(e.target.value)} placeholder="set-a-strong-token" /><button style={styles.btn} onClick={() => saveSetting(MCP_API_TOKEN_KEY, mcpApiToken)}>Save</button>{savedMsg === MCP_API_TOKEN_KEY && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
+        <div style={{ ...styles.desc, marginTop: 8 }}>
+          Aruvi hosts MCP on the same embedded HTTP bridge as the mobile companion, so the bind host and port below also control the MCP endpoint agents connect to.
+        </div>
+        <div style={styles.healthCard}>
+          <div style={{ ...styles.label, marginBottom: 8 }}>Embedded MCP Status</div>
+          {mcpBridgeStatus ? (
+            <>
+              <div style={styles.healthGrid}>
+                <div>
+                  <div style={styles.healthLabel}>Bind Scope</div>
+                  <div style={styles.healthValue}>{mcpBridgeStatus.bind_scope}</div>
+                </div>
+                <div>
+                  <div style={styles.healthLabel}>Auth Mode</div>
+                  <div style={styles.healthValue}>{mcpBridgeStatus.auth_mode}</div>
+                </div>
+              </div>
+              <div style={{ ...styles.desc, marginBottom: 8 }}>
+                {mcpBridgeStatus.guidance}
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <div style={styles.healthLabel}>Local MCP Endpoint</div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+                  <div style={{ ...styles.codeBox, flex: 1 }}>{mcpBridgeStatus.endpoint_url}</div>
+                  <button style={{ ...styles.btn, marginLeft: 0 }} onClick={() => copyText(mcpBridgeStatus.endpoint_url)}>Copy</button>
+                </div>
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <div style={styles.healthLabel}>LAN MCP Endpoint</div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+                  <div style={{ ...styles.codeBox, flex: 1 }}>{mcpBridgeStatus.lan_endpoint_url ?? "Keep bind host on 127.0.0.1 for local-only agent access, or switch to 0.0.0.0 and restart for same-LAN clients."}</div>
+                  {mcpBridgeStatus.lan_endpoint_url && <button style={{ ...styles.btn, marginLeft: 0 }} onClick={() => copyText(mcpBridgeStatus.lan_endpoint_url!)}>Copy</button>}
+                </div>
+              </div>
+              <div style={styles.desc}>
+                Token configured: {mcpBridgeStatus.token_configured ? "yes" : "no"}. Requests allowed: {mcpBridgeStatus.requests_allowed ? "yes" : "no"}. Origin policy: {mcpBridgeStatus.origin_policy} {mcpBridgeStatus.env_overrides_settings ? "Environment variables currently override these settings. " : ""}{mcpBridgeStatus.bind_changes_require_restart ? "Restart AruviStudio after changing bind host or port." : ""}
+              </div>
+            </>
+          ) : (
+            <div style={styles.desc}>Loading MCP bridge status…</div>
+          )}
+        </div>
+      </div>
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>Mobile Companion</div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>Mobile API Token</div><div style={styles.desc}>Bearer token used by the iPhone planner companion when it talks to the desktop planner bridge.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}><input style={styles.input} value={mobileApiToken} onChange={(e) => setMobileApiToken(e.target.value)} placeholder="set-a-strong-token" /><button style={styles.btn} onClick={() => saveSetting(MOBILE_API_TOKEN_KEY, mobileApiToken)}>Save</button>{savedMsg === MOBILE_API_TOKEN_KEY && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>Bind Host</div><div style={styles.desc}>Use `0.0.0.0` for same-LAN iPhone access. `127.0.0.1` keeps the mobile bridge local to this Mac. Restart required.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}><input style={{ ...styles.input, width: 180 }} value={mobileBindHost} onChange={(e) => setMobileBindHost(e.target.value)} placeholder="0.0.0.0" /><button style={styles.btn} onClick={() => saveSetting(MOBILE_BIND_HOST_KEY, mobileBindHost)}>Save</button>{savedMsg === MOBILE_BIND_HOST_KEY && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>Bind Port</div><div style={styles.desc}>Port exposed by the desktop planner bridge. Restart required after changes.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}><input style={{ ...styles.input, width: 120 }} type="number" min="1" max="65535" value={mobileBindPort} onChange={(e) => setMobileBindPort(e.target.value)} placeholder="8787" /><button style={styles.btn} onClick={() => saveSetting(MOBILE_BIND_PORT_KEY, mobileBindPort)}>Save</button>{savedMsg === MOBILE_BIND_PORT_KEY && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
+        <div style={{ ...styles.desc, marginTop: 8 }}>
+          The phone client uses the same planner and speech APIs as the desktop UI. To reach the desktop from an iPhone, expose the webhook server on a reachable host and connect with this token.
+        </div>
+        <div style={styles.healthCard}>
+          <div style={{ ...styles.label, marginBottom: 8 }}>LAN Ready Status</div>
+          {mobileBridgeStatus ? (
+            <>
+              <div style={styles.healthGrid}>
+                <div>
+                  <div style={styles.healthLabel}>Bind Scope</div>
+                  <div style={styles.healthValue}>{mobileBridgeStatus.bind_scope}</div>
+                </div>
+                <div>
+                  <div style={styles.healthLabel}>Detected Mac LAN IP</div>
+                  <div style={styles.healthValue}>{mobileBridgeStatus.detected_lan_ip ?? "Unavailable"}</div>
+                </div>
+              </div>
+              <div style={{ ...styles.desc, marginBottom: 8 }}>
+                {mobileBridgeStatus.guidance}
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <div style={styles.healthLabel}>Desktop Base URL</div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+                  <div style={{ ...styles.codeBox, flex: 1 }}>{mobileBridgeStatus.desktop_base_url}</div>
+                  <button style={{ ...styles.btn, marginLeft: 0 }} onClick={() => copyText(mobileBridgeStatus.desktop_base_url)}>Copy</button>
+                </div>
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <div style={styles.healthLabel}>Phone Base URL</div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+                  <div style={{ ...styles.codeBox, flex: 1 }}>{mobileBridgeStatus.phone_base_url ?? "Set bind host to 0.0.0.0 and restart to enable same-LAN access."}</div>
+                  {mobileBridgeStatus.phone_base_url && <button style={{ ...styles.btn, marginLeft: 0 }} onClick={() => copyText(mobileBridgeStatus.phone_base_url!)}>Copy</button>}
+                </div>
+              </div>
+              <div style={styles.desc}>
+                Bind host source: {mobileBridgeStatus.host_source}. Port source: {mobileBridgeStatus.port_source}. {mobileBridgeStatus.env_overrides_settings ? "Environment variables currently override these settings. " : ""}{mobileBridgeStatus.bind_changes_require_restart ? "Restart AruviStudio after changing bind host or port." : ""}
+              </div>
+            </>
+          ) : (
+            <div style={styles.desc}>Loading mobile bridge status…</div>
+          )}
+        </div>
+      </div>
+      <div style={styles.section}>
         <div style={styles.sectionTitle}>Twilio</div>
         <div style={styles.settingRow}>
           <div><div style={styles.label}>Account SID</div><div style={styles.desc}>Twilio account sid used for webhook validation and outbound API calls.</div></div>
@@ -302,6 +624,33 @@ export function SettingsPage() {
           <div><div style={styles.label}>Webhook Base URL</div><div style={styles.desc}>Public base URL Twilio will call, used for signature validation and outbound voice-call callback URLs.</div></div>
           <div style={{ display: "flex", alignItems: "center" }}><input style={{ ...styles.input, width: 380 }} value={twilioWebhookBaseUrl} onChange={(e) => setTwilioWebhookBaseUrl(e.target.value)} placeholder="https://your-public-domain.example.com" /><button style={styles.btn} onClick={() => saveSetting(TWILIO_WEBHOOK_BASE_URL_KEY, twilioWebhookBaseUrl)}>Save</button>{savedMsg === TWILIO_WEBHOOK_BASE_URL_KEY && <span style={styles.saved}>Saved!</span>}</div>
         </div>
+      </div>
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>Planner Contact</div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>Default Destination</div><div style={styles.desc}>Used when you want the planner to contact you by WhatsApp or voice call.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}><input style={styles.input} value={plannerContactTarget} onChange={(e) => setPlannerContactTarget(e.target.value)} placeholder="whatsapp:+15551234567 or +15551234567" /><button style={styles.btn} onClick={() => saveSetting(PLANNER_CONTACT_TARGET_KEY, plannerContactTarget)}>Save</button>{savedMsg === PLANNER_CONTACT_TARGET_KEY && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
+        <div style={styles.settingRow}>
+          <div><div style={styles.label}>Default Opening Message</div><div style={styles.desc}>Starter message used when the planner initiates contact.</div></div>
+          <div style={{ display: "flex", alignItems: "center" }}><input style={{ ...styles.input, width: 380 }} value={plannerContactOpeningMessage} onChange={(e) => setPlannerContactOpeningMessage(e.target.value)} placeholder="Call me and ask what work should be prioritized next." /><button style={styles.btn} onClick={() => saveSetting(PLANNER_CONTACT_OPENING_MESSAGE_KEY, plannerContactOpeningMessage)}>Save</button>{savedMsg === PLANNER_CONTACT_OPENING_MESSAGE_KEY && <span style={styles.saved}>Saved!</span>}</div>
+        </div>
+        <div style={{ ...styles.desc, marginTop: 8 }}>
+          Use these actions to test the same outbound contact flow that used to live in the planner surface.
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" as const }}>
+          <button style={styles.btn} onClick={() => void autoRoutePlannerContact()} disabled={!plannerContactTarget.trim() || !plannerContactOpeningMessage.trim()}>
+            Auto Route
+          </button>
+          <button style={styles.btn} onClick={() => void sendPlannerWhatsapp()} disabled={!plannerContactTarget.trim()}>
+            Send WhatsApp
+          </button>
+          <button style={styles.btn} onClick={() => void startPlannerVoiceCall()} disabled={!plannerContactTarget.trim()}>
+            Start Voice Call
+          </button>
+        </div>
+        {plannerContactMsg ? <div style={{ ...styles.desc, color: "#4ec9b0", marginTop: 10 }}>{plannerContactMsg}</div> : null}
+        {plannerContactError ? <div style={{ ...styles.desc, color: "#f48771", marginTop: 10 }}>{plannerContactError}</div> : null}
       </div>
       <div style={styles.section}>
         <div style={styles.sectionTitle}>Workflow Automation</div>

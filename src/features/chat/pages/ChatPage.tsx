@@ -1,8 +1,15 @@
-import React, { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import React, { useMemo, useRef, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { listModelDefinitions, listProviders, startModelChatStream } from "../../../lib/tauri";
+import {
+  speakTextNatively,
+  listModelDefinitions,
+  listProviders,
+  startModelChatStream,
+  transcribeAudio,
+} from "../../../lib/tauri";
 import type { ChatMessagePayload } from "../../../lib/types";
+import { blobToBase64, speakInBrowser, startWavCapture, type ActiveAudioCapture } from "../../shared/voice";
 
 const styles: Record<string, React.CSSProperties> = {
   page: { display: "flex", flexDirection: "column", gap: 12, height: "100%" },
@@ -17,9 +24,11 @@ const styles: Record<string, React.CSSProperties> = {
   bubbleUser: { alignSelf: "flex-end", maxWidth: "78%", backgroundColor: "#0e639c", borderRadius: 10, padding: "10px 12px", color: "#fff", whiteSpace: "pre-wrap" as const },
   bubbleAssistant: { alignSelf: "flex-start", maxWidth: "85%", backgroundColor: "#2b2f37", borderRadius: 10, padding: "10px 12px", color: "#e9edf6", whiteSpace: "pre-wrap" as const },
   composer: { display: "flex", gap: 10 },
+  composerActions: { display: "flex", flexDirection: "column", gap: 8 },
   textarea: { flex: 1, minHeight: 80, padding: "10px 12px", backgroundColor: "#181a1f", border: "1px solid #3c4048", borderRadius: 10, color: "#e0e0e0", resize: "vertical" as const, fontSize: 13 },
   btn: { padding: "8px 14px", fontSize: 13, backgroundColor: "#0e639c", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700 },
   btnGhost: { padding: "8px 14px", fontSize: 13, backgroundColor: "#2c3139", color: "#e0e0e0", border: "1px solid #3c4048", borderRadius: 8, cursor: "pointer", fontWeight: 700 },
+  toggleRow: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" as const },
   error: { color: "#f44747", fontSize: 12 },
   info: { color: "#8f96a3", fontSize: 12 },
   empty: { color: "#777", textAlign: "center" as const, padding: 24 },
@@ -38,10 +47,23 @@ export function ChatPage() {
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<LocalChatMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [voiceRepliesEnabled, setVoiceRepliesEnabled] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const audioCaptureRef = useRef<ActiveAudioCapture | null>(null);
+  const latestAssistantRef = useRef("");
 
   const { data: providers = [] } = useQuery({ queryKey: ["providers"], queryFn: listProviders });
   const { data: models = [] } = useQuery({ queryKey: ["model-definitions"], queryFn: listModelDefinitions });
+  const transcribeAudioMutation = useMutation<string, Error, { audioBytesBase64: string; mimeType: string }>({
+    mutationFn: async ({ audioBytesBase64, mimeType }) => {
+      const response = await transcribeAudio({
+        audioBytesBase64,
+        mimeType,
+      });
+      return response.transcript;
+    },
+  });
 
   const modelOptions = useMemo(
     () => models.filter((model) => model.provider_id === providerId && model.enabled),
@@ -79,6 +101,7 @@ export function ChatPage() {
     const assistantPlaceholder: LocalChatMessage = { id: assistantMessageId, role: "assistant", content: "" };
     const nextMessages = [...messages, userMessage, assistantPlaceholder];
     setMessages(nextMessages);
+    latestAssistantRef.current = "";
     setDraft("");
     setIsSending(true);
 
@@ -114,11 +137,17 @@ export function ChatPage() {
               : entry,
           ),
         );
+        latestAssistantRef.current = `${latestAssistantRef.current}${event.payload.delta}`;
       });
 
       unlistenDone = await listen<{ stream_id: string }>("chat_stream_done", (event) => {
         if (!activeStreamId || event.payload.stream_id !== activeStreamId) {
           return;
+        }
+        if (voiceRepliesEnabled && latestAssistantRef.current.trim()) {
+          void speakTextNatively({ text: latestAssistantRef.current }).catch(() => {
+            speakInBrowser(latestAssistantRef.current);
+          });
         }
         setIsSending(false);
         cleanup();
@@ -167,6 +196,42 @@ export function ChatPage() {
     }
   };
 
+  const toggleListening = async () => {
+    setError(null);
+    if (isListening && audioCaptureRef.current) {
+      try {
+        const audioBlob = await audioCaptureRef.current.stop();
+        audioCaptureRef.current = null;
+        setIsListening(false);
+        const transcript = await transcribeAudioMutation.mutateAsync({
+          audioBytesBase64: await blobToBase64(audioBlob),
+          mimeType: audioBlob.type || "audio/wav",
+        });
+        setDraft((current) => [current.trim(), transcript.trim()].filter(Boolean).join(current.trim() ? "\n" : ""));
+      } catch (listenError) {
+        audioCaptureRef.current = null;
+        setIsListening(false);
+        setError(String(listenError));
+      }
+      return;
+    }
+
+    try {
+      const capture = await startWavCapture();
+      audioCaptureRef.current = capture;
+      setIsListening(true);
+    } catch (listenError) {
+      setError(String(listenError));
+    }
+  };
+
+  React.useEffect(() => () => {
+    if (audioCaptureRef.current) {
+      void audioCaptureRef.current.stop().catch(() => undefined);
+      audioCaptureRef.current = null;
+    }
+  }, []);
+
   return (
     <div style={styles.page}>
       <div style={styles.header}>
@@ -209,6 +274,26 @@ export function ChatPage() {
             <input style={styles.input} value={maxTokens} onChange={(e) => setMaxTokens(e.target.value)} />
           </div>
         </div>
+        <div style={{ ...styles.toggleRow, marginTop: 10 }}>
+          <button
+            style={styles.btnGhost}
+            onClick={() => void toggleListening()}
+            disabled={transcribeAudioMutation.isPending}
+            data-testid="chat-mic-toggle"
+          >
+            {isListening ? "Stop Listening" : "Start Listening"}
+          </button>
+          <button
+            style={voiceRepliesEnabled ? styles.btn : styles.btnGhost}
+            onClick={() => setVoiceRepliesEnabled((current) => !current)}
+            data-testid="chat-voice-replies-toggle"
+          >
+            {voiceRepliesEnabled ? "Voice Replies On" : "Voice Replies Off"}
+          </button>
+          <div style={styles.info}>
+            Direct chat voice uses the global speech settings. Local Whisper works here once you configure it in Settings/Models.
+          </div>
+        </div>
         {providerId && modelOptions.length === 0 && (
           <div style={styles.info}>No models registered for this provider. Add one in the Models tab.</div>
         )}
@@ -247,16 +332,22 @@ export function ChatPage() {
               void send();
             }
           }}
+          data-testid="chat-input"
         />
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <button style={styles.btn} onClick={() => void send()} disabled={isSending}>
+        <div style={styles.composerActions}>
+          <button style={styles.btn} onClick={() => void send()} disabled={isSending} data-testid="chat-send">
             {isSending ? "Sending..." : "Send"}
           </button>
-          <button style={styles.btnGhost} onClick={() => setMessages([])} disabled={isSending}>
+          <button style={styles.btnGhost} onClick={() => setMessages([])} disabled={isSending} data-testid="chat-clear">
             Clear
           </button>
         </div>
       </div>
+      {(isListening || transcribeAudioMutation.isPending) && (
+        <div style={styles.info}>
+          {isListening ? "Listening for speech..." : "Transcribing audio with the configured speech provider..."}
+        </div>
+      )}
       {error && <div style={styles.error}>{error}</div>}
     </div>
   );

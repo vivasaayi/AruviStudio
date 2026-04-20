@@ -138,6 +138,13 @@ export interface ModelDefinition {
   updated_at: string;
 }
 
+export interface LocalModelRegistrationResult {
+  file_path: string;
+  downloaded: boolean;
+  provider: ModelProvider;
+  model_definition: ModelDefinition;
+}
+
 export interface AgentModelBinding {
   id: string;
   agent_id: string;
@@ -324,6 +331,41 @@ export interface DatabaseHealth {
   latest_version: number | null;
   migrations: MigrationStatus[];
 }
+
+export interface MobileBridgeStatus {
+  bind_host: string;
+  bind_port: number;
+  host_source: string;
+  port_source: string;
+  bind_scope: string;
+  detected_lan_ip: string | null;
+  desktop_base_url: string;
+  phone_base_url: string | null;
+  lan_ready: boolean;
+  bind_changes_require_restart: boolean;
+  env_overrides_settings: boolean;
+  guidance: string;
+}
+
+export interface McpBridgeStatus {
+  bind_host: string;
+  bind_port: number;
+  host_source: string;
+  port_source: string;
+  bind_scope: string;
+  detected_lan_ip: string | null;
+  desktop_base_url: string;
+  lan_base_url: string | null;
+  endpoint_url: string;
+  lan_endpoint_url: string | null;
+  token_configured: boolean;
+  requests_allowed: boolean;
+  auth_mode: string;
+  origin_policy: string;
+  bind_changes_require_restart: boolean;
+  env_overrides_settings: boolean;
+  guidance: string;
+}
 export type Outcome = Capability;
 export type CapabilityNode = Capability;
 
@@ -378,6 +420,11 @@ export interface PlannerTreeNode {
   id: string;
   label: string;
   meta: string | null;
+  node_type?: string | null;
+  summary?: string | null;
+  source?: string | null;
+  confidence?: string | null;
+  evidence?: string[];
   children: PlannerTreeNode[];
 }
 
@@ -399,7 +446,7 @@ export interface PlannerSessionInfo {
 
 export interface PlannerTurnResponse {
   session_id: string;
-  status: "proposal" | "clarification" | "report" | "execution" | "error";
+  status: "proposal" | "clarification" | "report" | "execution" | "error" | "session_update";
   assistant_message: string;
   pending_plan: PlannerPlan | null;
   tree_nodes: PlannerTreeNode[] | null;
@@ -411,6 +458,10 @@ export interface PlannerTurnResponse {
 }
 
 export type PlannerDraftChildType = "module" | "capability" | "work_item";
+
+export interface SpeechToTextResponse {
+  transcript: string;
+}
 
 export interface PlannerContactResult {
   channel: "whatsapp" | "voice";

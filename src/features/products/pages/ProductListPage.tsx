@@ -215,6 +215,12 @@ export function ProductListPage() {
   }, [activeProductId, products, setActiveProduct]);
 
   useEffect(() => {
+    if (productWorkspaceTab === "overview") {
+      setProductWorkspaceTab("dashboard");
+    }
+  }, [productWorkspaceTab, setProductWorkspaceTab]);
+
+  useEffect(() => {
     setActiveWorkItem(null);
     setFormError(null);
     setWorkspaceActionMsg(null);

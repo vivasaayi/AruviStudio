@@ -3,7 +3,7 @@ import { test, expect } from "./support/test.js";
 test("planner supports deterministic create, refine, and commit flow", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "Interactive Planner" })).toBeVisible();
+  await expect(page.getByTestId("planner-input")).toBeVisible();
 
   await page.getByTestId("planner-input").fill("I want to build a hotel management system");
   await page.getByTestId("planner-send").click();
@@ -48,7 +48,7 @@ test("planner supports deterministic create, refine, and commit flow", async ({ 
   await expect(page.getByText("Implement Delivery Audit Timeline and Consent Handling").first()).toBeVisible();
 
   await page.getByTestId("draft-commit").click();
-  await expect(page.getByText("Committed draft plan.")).toBeVisible();
+  await expect(page.getByText("Committed draft plan.").first()).toBeVisible();
 
   await page.getByTestId("nav-products").click();
   await expect(page.getByRole("heading", { name: "Product Workspace" })).toBeVisible();
@@ -58,8 +58,9 @@ test("planner supports deterministic create, refine, and commit flow", async ({ 
 test("planner can reverse engineer a registered repository into a draft tree", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "Interactive Planner" })).toBeVisible();
-  await page.getByRole("button", { name: "Show Advanced Tools" }).click();
+  await expect(page.getByTestId("planner-input")).toBeVisible();
+  await page.getByRole("button", { name: "Reverse engineer repository" }).click();
+  await expect(page.getByText("Reverse Engineer Repository")).toBeVisible();
 
   await page.getByPlaceholder("/absolute/path/to/repository").fill("/tmp/aruvi-studio");
   await page.getByRole("button", { name: "Register Repo" }).click();
@@ -71,4 +72,28 @@ test("planner can reverse engineer a registered repository into a draft tree", a
   await expect(page.getByText("AruviStudio").first()).toBeVisible();
   await expect(page.getByText("Interactive Planner").first()).toBeVisible();
   await expect(page.getByText("Repository Intelligence").first()).toBeVisible();
+});
+
+test("planner voice commands can select, switch views, and commit the staged draft", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByTestId("planner-input").fill("I want to build a hotel management system");
+  await page.getByTestId("planner-send").click();
+
+  await expect(page.getByTestId("draft-node-draft-product-hotel-management-system")).toBeVisible();
+
+  await page.evaluate(async () => {
+    await window.__ARUVI_E2E__?.runPlannerVoiceTranscript?.("select module guest management");
+  });
+  await expect(page.getByTestId("draft-node-rename-input")).toHaveValue("Guest Management");
+
+  await page.evaluate(async () => {
+    await window.__ARUVI_E2E__?.runPlannerVoiceTranscript?.("view conversation");
+  });
+  await expect(page.getByText("Switched back to the planner conversation.")).toBeVisible();
+
+  await page.evaluate(async () => {
+    await window.__ARUVI_E2E__?.runPlannerVoiceTranscript?.("commit draft");
+  });
+  await expect(page.getByText("Committed draft plan.").first()).toBeVisible();
 });

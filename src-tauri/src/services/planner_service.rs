@@ -1,19 +1,19 @@
+use crate::domain::repository::{Repository, RepositoryTreeNode};
 use crate::error::AppError;
 use crate::persistence::{
     approval_repo, model_repo, planner_repo, product_repo, repository_repo, settings_repo,
     work_item_repo, workflow_repo,
 };
-use crate::services::repo_service;
 use crate::providers::gateway::ModelGateway;
 use crate::providers::openai_compatible::OpenAiCompatibleProvider;
 use crate::providers::types::{ChatMessage, CompletionRequest};
 use crate::secrets;
+use crate::services::repo_service;
 use crate::state::AppState;
-use crate::domain::repository::{Repository, RepositoryTreeNode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -43,6 +43,11 @@ pub struct PlannerTreeNode {
     pub id: String,
     pub label: String,
     pub meta: Option<String>,
+    pub node_type: Option<String>,
+    pub summary: Option<String>,
+    pub source: Option<String>,
+    pub confidence: Option<String>,
+    pub evidence: Vec<String>,
     pub children: Vec<PlannerTreeNode>,
 }
 
@@ -116,6 +121,58 @@ struct PlannerFinalResponse {
     needs_confirmation: bool,
     clarification_question: Option<String>,
     actions: Vec<Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RepositoryManifestSummary {
+    path: String,
+    ecosystem: String,
+    package_name: Option<String>,
+    framework_hints: Vec<String>,
+    scripts: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RepositoryDocSummary {
+    path: String,
+    headings: Vec<String>,
+    excerpt: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RepositoryRouteSummary {
+    path: String,
+    route: String,
+    kind: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RepositoryTestSummary {
+    path: String,
+    framework_hint: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RepositoryAreaCandidate {
+    name: String,
+    kind: String,
+    confidence: String,
+    rationale: String,
+    evidence: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RepositoryAnalysisSnapshot {
+    repository_name: String,
+    local_path: String,
+    default_branch: String,
+    remote_url: Option<String>,
+    tree_overview: Vec<String>,
+    manifests: Vec<RepositoryManifestSummary>,
+    docs: Vec<RepositoryDocSummary>,
+    routes: Vec<RepositoryRouteSummary>,
+    tests: Vec<RepositoryTestSummary>,
+    candidate_areas: Vec<RepositoryAreaCandidate>,
 }
 
 pub struct PlannerService {
@@ -364,7 +421,7 @@ fn repository_analysis_prompt() -> &'static str {
     r#"You are an AI planning lead reverse-engineering a software repository into a staged product plan.
 Return exactly one JSON object of type "final". No markdown.
 
-Your task is to inspect the provided repository evidence and convert it into a draft planning tree using these action types only:
+Your task is to inspect the provided structured repository analysis snapshot and convert it into a draft planning tree using these action types only:
 create_product, update_product,
 create_module, update_module,
 create_capability, update_capability,
@@ -372,7 +429,7 @@ create_work_item, update_work_item,
 report_tree.
 
 Rules:
-- Base the structure on repository evidence, not wishful features.
+- Base the structure on the provided evidence, not wishful features.
 - If there is no current draft root, create one product.
 - If a selected draft node is provided, merge into that context instead of creating a duplicate root.
 - Prefer a practical structure:
@@ -384,6 +441,14 @@ Rules:
 - Use update_* when refining an already selected/root draft node from repository evidence.
 - Keep names concise and product-manager friendly.
 - Mention assumptions briefly in assistant_response.
+- Prioritize explicit signals from docs, manifests, routes, tests, and candidate areas.
+- Avoid generic modules that are not supported by the evidence.
+- Optional but preferred: include an analysis object on actions with:
+  {
+    "source": "repository_analysis",
+    "confidence": "high|medium|low",
+    "evidence": ["short evidence line", "..."]
+  }
 - If the repository evidence is too weak, return actions=[] with a clarification_question asking what to focus on.
 
 Return this shape:
@@ -431,7 +496,16 @@ fn truncate_text(value: &str, max_chars: usize) -> String {
     format!("{truncated}\n...[truncated]")
 }
 
-fn collect_repository_candidate_files(repo: &Repository) -> Vec<String> {
+fn flatten_repository_paths(nodes: &[RepositoryTreeNode], output: &mut Vec<String>) {
+    for node in nodes {
+        output.push(node.relative_path.clone());
+        if !node.children.is_empty() {
+            flatten_repository_paths(&node.children, output);
+        }
+    }
+}
+
+fn collect_repository_candidate_files(repo: &Repository, all_paths: &[String]) -> Vec<String> {
     let preferred = [
         "README.md",
         "README",
@@ -447,56 +521,398 @@ fn collect_repository_candidate_files(repo: &Repository) -> Vec<String> {
         "src-tauri/Cargo.toml",
         "src-tauri/src/lib.rs",
     ];
-    preferred
-        .iter()
-        .filter_map(|relative_path| {
-            let candidate = std::path::Path::new(&repo.local_path).join(relative_path);
-            if candidate.exists() && candidate.is_file() {
-                Some((*relative_path).to_string())
-            } else {
-                None
+    let mut seen = BTreeSet::new();
+    for relative_path in preferred {
+        let candidate = std::path::Path::new(&repo.local_path).join(relative_path);
+        if candidate.exists() && candidate.is_file() {
+            seen.insert(relative_path.to_string());
+        }
+    }
+    for path in all_paths {
+        let lower = path.to_lowercase();
+        if lower.ends_with("readme.md")
+            || lower.ends_with("package.json")
+            || lower.ends_with("cargo.toml")
+            || lower.ends_with("pyproject.toml")
+        {
+            seen.insert(path.clone());
+        }
+    }
+    seen.into_iter().collect::<Vec<_>>()
+}
+
+fn normalize_identifier_token(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches(|ch: char| !ch.is_alphanumeric())
+        .to_lowercase()
+}
+
+fn humanize_identifier(value: &str) -> String {
+    let mut spaced = String::new();
+    let mut prev_lower_or_digit = false;
+    for ch in value.chars() {
+        if ch == '-' || ch == '_' || ch == '/' {
+            if !spaced.ends_with(' ') {
+                spaced.push(' ');
+            }
+            prev_lower_or_digit = false;
+            continue;
+        }
+        if ch.is_uppercase() && prev_lower_or_digit && !spaced.ends_with(' ') {
+            spaced.push(' ');
+        }
+        spaced.push(ch);
+        prev_lower_or_digit = ch.is_lowercase() || ch.is_ascii_digit();
+    }
+    spaced
+        .split_whitespace()
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str()),
+                None => String::new(),
             }
         })
         .collect::<Vec<_>>()
+        .join(" ")
 }
 
-fn build_repository_snapshot(
-    repo: &Repository,
-) -> Result<String, AppError> {
-    let tree = repo_service::list_repository_tree(&repo.local_path, false, Some(4))?;
-    let mut remaining = 220usize;
-    let mut tree_lines = vec![];
-    flatten_repository_tree_lines(&tree, 0, &mut remaining, &mut tree_lines);
+fn parse_package_json_manifest(path: &str, content: &str) -> Option<RepositoryManifestSummary> {
+    let value: Value = serde_json::from_str(content).ok()?;
+    let package_name = value
+        .get("name")
+        .and_then(Value::as_str)
+        .map(ToString::to_string);
+    let scripts = value
+        .get("scripts")
+        .and_then(Value::as_object)
+        .map(|scripts| scripts.keys().take(8).cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    let dependency_names = ["dependencies", "devDependencies", "peerDependencies"]
+        .into_iter()
+        .filter_map(|section| value.get(section).and_then(Value::as_object))
+        .flat_map(|deps| deps.keys().cloned().collect::<Vec<_>>())
+        .collect::<BTreeSet<_>>();
+    let mut framework_hints = vec![];
+    if dependency_names.contains("react") {
+        framework_hints.push("React".to_string());
+    }
+    if dependency_names.contains("next") {
+        framework_hints.push("Next.js".to_string());
+    }
+    if dependency_names.contains("@tanstack/react-query") {
+        framework_hints.push("React Query".to_string());
+    }
+    if dependency_names.contains("@tauri-apps/api")
+        || dependency_names.contains("@tauri-apps/plugin-dialog")
+    {
+        framework_hints.push("Tauri".to_string());
+    }
+    if dependency_names.contains("vite") {
+        framework_hints.push("Vite".to_string());
+    }
+    if dependency_names.contains("playwright") || dependency_names.contains("@playwright/test") {
+        framework_hints.push("Playwright".to_string());
+    }
+    Some(RepositoryManifestSummary {
+        path: path.to_string(),
+        ecosystem: "node".to_string(),
+        package_name,
+        framework_hints,
+        scripts,
+    })
+}
 
-    let candidate_files = collect_repository_candidate_files(repo);
-    let mut file_sections = vec![];
-    for relative_path in candidate_files.into_iter().take(8) {
-        if let Ok(content) = repo_service::read_repository_file(&repo.local_path, &relative_path) {
-            file_sections.push(format!(
-                "File: {}\n{}",
-                relative_path,
-                truncate_text(&content, 5000)
-            ));
+fn parse_cargo_manifest(path: &str, content: &str) -> Option<RepositoryManifestSummary> {
+    let mut package_name = None;
+    let mut framework_hints = vec![];
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if package_name.is_none() && trimmed.starts_with("name") && trimmed.contains('=') {
+            let value = trimmed.split('=').nth(1)?.trim().trim_matches('"');
+            if !value.is_empty() {
+                package_name = Some(value.to_string());
+            }
+        }
+        if trimmed.starts_with("tauri") || trimmed.contains("tauri =") {
+            framework_hints.push("Tauri".to_string());
+        }
+        if trimmed.starts_with("sqlx") || trimmed.contains("sqlx =") {
+            framework_hints.push("SQLx".to_string());
+        }
+        if trimmed.starts_with("tokio") || trimmed.contains("tokio =") {
+            framework_hints.push("Tokio".to_string());
+        }
+    }
+    framework_hints.sort();
+    framework_hints.dedup();
+    Some(RepositoryManifestSummary {
+        path: path.to_string(),
+        ecosystem: "rust".to_string(),
+        package_name,
+        framework_hints,
+        scripts: vec![],
+    })
+}
+
+fn extract_markdown_headings(content: &str) -> Vec<String> {
+    content
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if !trimmed.starts_with('#') {
+                return None;
+            }
+            Some(trimmed.trim_start_matches('#').trim().to_string())
+        })
+        .filter(|heading| !heading.is_empty())
+        .take(8)
+        .collect::<Vec<_>>()
+}
+
+fn detect_route_from_path(path: &str) -> Option<RepositoryRouteSummary> {
+    let normalized = path.replace('\\', "/");
+    let lower = normalized.to_lowercase();
+    let route = if lower.starts_with("app/")
+        && (lower.ends_with("/page.tsx")
+            || lower.ends_with("/page.jsx")
+            || lower.ends_with("/page.ts"))
+    {
+        let mut parts = normalized.split('/').skip(1).collect::<Vec<_>>();
+        if parts.last().is_some() {
+            parts.pop();
+        }
+        let route_parts = parts
+            .into_iter()
+            .filter(|part| {
+                !part.starts_with('(') && !part.starts_with('@') && !part.starts_with('_')
+            })
+            .collect::<Vec<_>>();
+        format!("/{}", route_parts.join("/"))
+    } else if lower.starts_with("src/pages/") {
+        let route = normalized
+            .trim_start_matches("src/pages/")
+            .trim_end_matches(".tsx")
+            .trim_end_matches(".jsx")
+            .trim_end_matches(".ts")
+            .trim_end_matches(".js");
+        format!("/{}", route.trim_end_matches("/index"))
+    } else if lower.contains("/api/") {
+        let route = normalized
+            .split("/api/")
+            .nth(1)
+            .unwrap_or_default()
+            .trim_end_matches(".ts")
+            .trim_end_matches(".js");
+        format!("/api/{}", route)
+    } else {
+        return None;
+    };
+    Some(RepositoryRouteSummary {
+        path: normalized,
+        route,
+        kind: if lower.contains("/api/") {
+            "api".to_string()
+        } else {
+            "page".to_string()
+        },
+    })
+}
+
+fn detect_test_file(path: &str) -> Option<RepositoryTestSummary> {
+    let normalized = path.replace('\\', "/");
+    let lower = normalized.to_lowercase();
+    let is_test = lower.contains("/tests/")
+        || lower.contains("__tests__")
+        || lower.ends_with(".test.ts")
+        || lower.ends_with(".test.tsx")
+        || lower.ends_with(".spec.ts")
+        || lower.ends_with(".spec.tsx")
+        || lower.ends_with("_test.rs");
+    if !is_test {
+        return None;
+    }
+    let framework_hint = if lower.contains("playwright") {
+        Some("Playwright".to_string())
+    } else if lower.ends_with(".spec.ts")
+        || lower.ends_with(".spec.tsx")
+        || lower.ends_with(".test.ts")
+        || lower.ends_with(".test.tsx")
+    {
+        Some("Vitest/Jest-style".to_string())
+    } else if lower.ends_with("_test.rs") {
+        Some("Rust test".to_string())
+    } else {
+        None
+    };
+    Some(RepositoryTestSummary {
+        path: normalized,
+        framework_hint,
+    })
+}
+
+fn build_candidate_areas(
+    paths: &[String],
+    routes: &[RepositoryRouteSummary],
+) -> Vec<RepositoryAreaCandidate> {
+    let mut area_evidence: HashMap<String, Vec<String>> = HashMap::new();
+    for path in paths {
+        let normalized = path.replace('\\', "/");
+        let segments = normalized.split('/').collect::<Vec<_>>();
+        let area_segment = if segments.len() > 2
+            && segments[0] == "src"
+            && (segments[1] == "features" || segments[1] == "modules")
+        {
+            Some(segments[2])
+        } else if segments.len() > 1 && segments[0] == "app" {
+            segments
+                .iter()
+                .skip(1)
+                .find(|segment| {
+                    !segment.starts_with('(')
+                        && !segment.starts_with('_')
+                        && !segment.ends_with(".tsx")
+                        && !segment.ends_with(".ts")
+                })
+                .copied()
+        } else if segments.len() > 1 && segments[0] == "packages" {
+            Some(segments[1])
+        } else {
+            None
+        };
+        if let Some(segment) = area_segment {
+            let normalized_segment = normalize_identifier_token(segment);
+            if normalized_segment.is_empty() {
+                continue;
+            }
+            area_evidence
+                .entry(normalized_segment)
+                .or_default()
+                .push(format!("path: {}", normalized));
+        }
+    }
+    for route in routes {
+        for segment in route.route.split('/') {
+            let normalized_segment = normalize_identifier_token(segment);
+            if normalized_segment.is_empty() || normalized_segment == "api" {
+                continue;
+            }
+            area_evidence
+                .entry(normalized_segment)
+                .or_default()
+                .push(format!("route: {}", route.route));
+            break;
         }
     }
 
-    Ok(format!(
-        "Repository:\n- name: {}\n- local_path: {}\n- default_branch: {}\n- remote_url: {}\n\nRepository tree:\n{}\n\nKey files:\n{}",
-        repo.name,
-        repo.local_path,
-        repo.default_branch,
-        if repo.remote_url.is_empty() { "(none)" } else { &repo.remote_url },
-        if tree_lines.is_empty() {
-            "(empty repository)".to_string()
-        } else {
-            tree_lines.join("\n")
-        },
-        if file_sections.is_empty() {
-            "(no key files captured)".to_string()
-        } else {
-            file_sections.join("\n\n---\n\n")
+    let mut areas = area_evidence
+        .into_iter()
+        .map(|(name, mut evidence)| {
+            evidence.sort();
+            evidence.dedup();
+            let confidence = if evidence.len() >= 4 {
+                "high"
+            } else if evidence.len() >= 2 {
+                "medium"
+            } else {
+                "low"
+            };
+            RepositoryAreaCandidate {
+                name: humanize_identifier(&name),
+                kind: "feature_area".to_string(),
+                confidence: confidence.to_string(),
+                rationale: format!(
+                    "Grouped from {} repository signals under a common directory or route segment.",
+                    evidence.len()
+                ),
+                evidence: evidence.into_iter().take(6).collect::<Vec<_>>(),
+            }
+        })
+        .filter(|area| {
+            let normalized = normalize_identifier_token(&area.name);
+            !normalized.is_empty()
+                && !["src", "app", "pages", "components", "lib", "tests", "test"]
+                    .contains(&normalized.as_str())
+        })
+        .collect::<Vec<_>>();
+    areas.sort_by(|left, right| {
+        right
+            .evidence
+            .len()
+            .cmp(&left.evidence.len())
+            .then(left.name.cmp(&right.name))
+    });
+    areas.truncate(10);
+    areas
+}
+
+fn build_repository_analysis_snapshot(
+    repo: &Repository,
+) -> Result<RepositoryAnalysisSnapshot, AppError> {
+    let tree = repo_service::list_repository_tree(&repo.local_path, false, Some(6))?;
+    let mut remaining = 220usize;
+    let mut tree_lines = vec![];
+    flatten_repository_tree_lines(&tree, 0, &mut remaining, &mut tree_lines);
+    let mut all_paths = vec![];
+    flatten_repository_paths(&tree, &mut all_paths);
+    all_paths.sort();
+
+    let candidate_files = collect_repository_candidate_files(repo, &all_paths);
+    let mut manifests = vec![];
+    let mut docs = vec![];
+    for relative_path in candidate_files.into_iter().take(16) {
+        let Ok(content) = repo_service::read_repository_file(&repo.local_path, &relative_path)
+        else {
+            continue;
+        };
+        let lower = relative_path.to_lowercase();
+        if lower.ends_with("package.json") {
+            if let Some(manifest) = parse_package_json_manifest(&relative_path, &content) {
+                manifests.push(manifest);
+            }
+        } else if lower.ends_with("cargo.toml") {
+            if let Some(manifest) = parse_cargo_manifest(&relative_path, &content) {
+                manifests.push(manifest);
+            }
+        } else if lower.ends_with("readme.md") || lower.ends_with("/readme.md") || lower == "readme"
+        {
+            docs.push(RepositoryDocSummary {
+                path: relative_path.clone(),
+                headings: extract_markdown_headings(&content),
+                excerpt: truncate_text(&content, 1200),
+            });
         }
-    ))
+    }
+
+    let routes = all_paths
+        .iter()
+        .filter_map(|path| detect_route_from_path(path))
+        .take(20)
+        .collect::<Vec<_>>();
+    let tests = all_paths
+        .iter()
+        .filter_map(|path| detect_test_file(path))
+        .take(20)
+        .collect::<Vec<_>>();
+    let candidate_areas = build_candidate_areas(&all_paths, &routes);
+
+    Ok(RepositoryAnalysisSnapshot {
+        repository_name: repo.name.clone(),
+        local_path: repo.local_path.clone(),
+        default_branch: repo.default_branch.clone(),
+        remote_url: if repo.remote_url.is_empty() {
+            None
+        } else {
+            Some(repo.remote_url.clone())
+        },
+        tree_overview: tree_lines,
+        manifests,
+        docs,
+        routes,
+        tests,
+        candidate_areas,
+    })
 }
 
 fn normalize(value: Option<&str>) -> String {
@@ -582,12 +998,13 @@ fn parse_agent_turn(raw: &str) -> Result<Result<PlannerToolCall, PlannerPlan>, A
 }
 
 fn normalized_target_string(action: &Value, key: &str) -> Option<String> {
-    action
-        .get("target")
-        .and_then(|target| match target {
-            Value::Object(map) => map.get(key).and_then(Value::as_str).map(ToString::to_string),
-            _ => None,
-        })
+    action.get("target").and_then(|target| match target {
+        Value::Object(map) => map
+            .get(key)
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        _ => None,
+    })
 }
 
 fn target_as_string(action: &Value) -> Option<String> {
@@ -622,7 +1039,10 @@ fn normalize_planner_action(action: Value) -> Option<Value> {
         "create_product" => {
             if let Some(target_name) = raw_target_name.clone() {
                 if let Some(Value::String(_)) = object.get("target") {
-                    object.insert("target".to_string(), json!({ "productName": target_name.clone() }));
+                    object.insert(
+                        "target".to_string(),
+                        json!({ "productName": target_name.clone() }),
+                    );
                 }
             }
             if !object.contains_key("name") {
@@ -661,14 +1081,20 @@ fn normalize_planner_action(action: Value) -> Option<Value> {
             }
             if !object.contains_key("capabilityName") {
                 if let Some(name) = object.get("name").and_then(Value::as_str) {
-                    object.insert("capabilityName".to_string(), Value::String(name.to_string()));
+                    object.insert(
+                        "capabilityName".to_string(),
+                        Value::String(name.to_string()),
+                    );
                 }
             }
         }
         "create_work_item" => {
             if let Some(target_name) = raw_target_name {
                 if let Some(Value::String(_)) = object.get("target") {
-                    object.insert("target".to_string(), json!({ "capabilityName": target_name }));
+                    object.insert(
+                        "target".to_string(),
+                        json!({ "capabilityName": target_name }),
+                    );
                 }
             }
             if !object.contains_key("title") {
@@ -687,6 +1113,142 @@ fn normalize_planner_action(action: Value) -> Option<Value> {
     }
 
     Some(action)
+}
+
+fn tokenize_for_match(value: &str) -> Vec<String> {
+    value
+        .split(|ch: char| !ch.is_alphanumeric())
+        .map(normalize_identifier_token)
+        .filter(|token| token.len() > 2)
+        .collect::<Vec<_>>()
+}
+
+fn action_primary_label(action: &Value) -> Option<String> {
+    string_field(action, "name")
+        .or_else(|| string_field(action, "title"))
+        .or_else(|| string_field(action, "module_name"))
+        .or_else(|| string_field(action, "capability_name"))
+        .or_else(|| string_field(action, "work_item_name"))
+        .or_else(|| target_field(action, "productName").map(ToString::to_string))
+        .or_else(|| target_field(action, "moduleName").map(ToString::to_string))
+        .or_else(|| target_field(action, "capabilityName").map(ToString::to_string))
+        .or_else(|| target_field(action, "workItemTitle").map(ToString::to_string))
+}
+
+fn score_evidence_match(target: &str, evidence: &str) -> usize {
+    let target_tokens = tokenize_for_match(target);
+    if target_tokens.is_empty() {
+        return 0;
+    }
+    let evidence_lower = evidence.to_lowercase();
+    target_tokens
+        .into_iter()
+        .filter(|token| evidence_lower.contains(token))
+        .count()
+}
+
+fn annotate_repository_analysis_action(snapshot: &RepositoryAnalysisSnapshot, action: &mut Value) {
+    let Some(primary_label) = action_primary_label(action) else {
+        return;
+    };
+
+    let mut evidence_candidates = vec![];
+    for doc in &snapshot.docs {
+        for heading in &doc.headings {
+            let line = format!("doc: {} -> {}", doc.path, heading);
+            let score = score_evidence_match(&primary_label, &line);
+            if score > 0 {
+                evidence_candidates.push((score, line));
+            }
+        }
+    }
+    for manifest in &snapshot.manifests {
+        let package_name = manifest
+            .package_name
+            .clone()
+            .unwrap_or_else(|| manifest.path.clone());
+        let line = format!(
+            "manifest: {} -> {} ({})",
+            manifest.path,
+            package_name,
+            manifest.framework_hints.join(", ")
+        );
+        let score = score_evidence_match(&primary_label, &line);
+        if score > 0 || action.get("type").and_then(Value::as_str) == Some("create_product") {
+            evidence_candidates.push((score.max(1), line));
+        }
+    }
+    for area in &snapshot.candidate_areas {
+        let line = format!("area: {} -> {}", area.name, area.evidence.join(" | "));
+        let score = score_evidence_match(&primary_label, &line);
+        if score > 0 {
+            evidence_candidates.push((score + 1, line));
+        }
+    }
+    for route in &snapshot.routes {
+        let line = format!("route: {} ({})", route.route, route.path);
+        let score = score_evidence_match(&primary_label, &line);
+        if score > 0 {
+            evidence_candidates.push((score, line));
+        }
+    }
+    for test in &snapshot.tests {
+        let line = format!(
+            "test: {}{}",
+            test.path,
+            test.framework_hint
+                .as_deref()
+                .map(|hint| format!(" ({hint})"))
+                .unwrap_or_default()
+        );
+        let score = score_evidence_match(&primary_label, &line);
+        if score > 0 {
+            evidence_candidates.push((score, line));
+        }
+    }
+
+    evidence_candidates.sort_by(|left, right| right.0.cmp(&left.0).then(left.1.cmp(&right.1)));
+    let mut evidence = evidence_candidates
+        .into_iter()
+        .map(|(_, line)| line)
+        .collect::<Vec<_>>();
+    evidence.dedup();
+    if evidence.is_empty() {
+        if let Some(first_doc) = snapshot.docs.first() {
+            evidence.push(format!("doc: {} -> repository overview", first_doc.path));
+        }
+        if let Some(first_manifest) = snapshot.manifests.first() {
+            evidence.push(format!("manifest: {}", first_manifest.path));
+        }
+    }
+    evidence.truncate(5);
+    let confidence = if evidence.len() >= 3 {
+        "high"
+    } else if evidence.len() >= 2 {
+        "medium"
+    } else {
+        "low"
+    };
+
+    if let Some(object) = action.as_object_mut() {
+        object.insert(
+            "analysis".to_string(),
+            json!({
+                "source": "repository_analysis",
+                "confidence": confidence,
+                "evidence": evidence,
+            }),
+        );
+    }
+}
+
+fn annotate_repository_analysis_plan(
+    snapshot: &RepositoryAnalysisSnapshot,
+    plan: &mut PlannerPlan,
+) {
+    for action in &mut plan.actions {
+        annotate_repository_analysis_action(snapshot, action);
+    }
 }
 
 async fn run_completion(
@@ -1161,6 +1723,29 @@ fn fields_string_array(action: &Value, key: &str) -> Option<Vec<String>> {
         })
 }
 
+fn analysis_field<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
+    value.get("analysis")?.get(key)
+}
+
+fn analysis_string(value: &Value, key: &str) -> Option<String> {
+    analysis_field(value, key)
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
+fn analysis_string_array(value: &Value, key: &str) -> Vec<String> {
+    analysis_field(value, key)
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
 fn format_joined(values: Option<Vec<String>>) -> String {
     values.unwrap_or_default().join(", ")
 }
@@ -1176,6 +1761,18 @@ fn draft_node_meta(node_type: &str) -> String {
     .to_string()
 }
 
+fn draft_node_source(node: &PlannerDraftNode) -> Option<String> {
+    analysis_string(&node.details, "source")
+}
+
+fn draft_node_confidence(node: &PlannerDraftNode) -> Option<String> {
+    analysis_string(&node.details, "confidence")
+}
+
+fn draft_node_evidence(node: &PlannerDraftNode) -> Vec<String> {
+    analysis_string_array(&node.details, "evidence")
+}
+
 fn build_draft_tree_children(
     draft_plan: &PlannerDraftPlan,
     parent_id: Option<&str>,
@@ -1188,9 +1785,16 @@ fn build_draft_tree_children(
         .cloned()
         .collect::<Vec<_>>();
     nodes.sort_by(|left, right| left.name.cmp(&right.name));
-    nodes.into_iter()
+    nodes
+        .into_iter()
         .map(|node| {
             let mut meta = draft_node_meta(&node.node_type);
+            if let Some(source) = draft_node_source(&node) {
+                let confidence = draft_node_confidence(&node)
+                    .map(|value| format!("{} confidence", value))
+                    .unwrap_or_else(|| "inferred".to_string());
+                meta = format!("{meta} · {} · {}", source.replace('_', " "), confidence);
+            }
             if selected_node_id == Some(node.id.as_str()) {
                 meta = format!("{meta} selected");
             }
@@ -1198,6 +1802,11 @@ fn build_draft_tree_children(
                 id: node.id.clone(),
                 label: node.name.clone(),
                 meta: Some(meta),
+                node_type: Some(node.node_type.clone()),
+                summary: node.summary.clone(),
+                source: draft_node_source(&node),
+                confidence: draft_node_confidence(&node),
+                evidence: draft_node_evidence(&node),
                 children: build_draft_tree_children(draft_plan, Some(&node.id), selected_node_id),
             }
         })
@@ -1209,6 +1818,16 @@ fn build_draft_tree_nodes(
     selected_node_id: Option<&str>,
 ) -> Vec<PlannerTreeNode> {
     build_draft_tree_children(draft_plan, None, selected_node_id)
+}
+
+fn planner_draft_node_type_label(node_type: &str) -> &'static str {
+    match node_type {
+        "product" => "product",
+        "module" => "module",
+        "capability" => "capability",
+        "work_item" => "work item",
+        _ => "node",
+    }
 }
 
 fn find_draft_node<'a>(
@@ -1245,6 +1864,230 @@ fn find_draft_node_by_id<'a>(
 ) -> Option<&'a PlannerDraftNode> {
     let node_id = node_id?;
     draft_plan.nodes.iter().find(|node| node.id == node_id)
+}
+
+fn build_draft_node_path<'a>(
+    draft_plan: &'a PlannerDraftPlan,
+    node_id: Option<&str>,
+) -> Vec<&'a PlannerDraftNode> {
+    let mut reversed = vec![];
+    let mut current = find_draft_node_by_id(draft_plan, node_id);
+    while let Some(node) = current {
+        reversed.push(node);
+        current = node
+            .parent_id
+            .as_deref()
+            .and_then(|parent_id| find_draft_node_by_id(draft_plan, Some(parent_id)));
+    }
+    reversed.reverse();
+    reversed
+}
+
+fn find_draft_path_ancestor_by_type<'a>(
+    path: &[&'a PlannerDraftNode],
+    node_type: &str,
+) -> Option<&'a PlannerDraftNode> {
+    path.iter()
+        .rev()
+        .find(|node| node.node_type == node_type)
+        .copied()
+}
+
+fn parse_voice_node_reference(spoken_remainder: &str) -> (Option<&'static str>, String) {
+    let trimmed = spoken_remainder.trim();
+    let prefixes = [
+        ("work item ", "work_item"),
+        ("work-item ", "work_item"),
+        ("workitem ", "work_item"),
+        ("capability ", "capability"),
+        ("module ", "module"),
+        ("product ", "product"),
+        ("node ", "node"),
+    ];
+    for (prefix, node_type) in prefixes {
+        if trimmed == prefix.trim() {
+            return (
+                Some(node_type),
+                format!("selected {}", node_type.replace('_', " ")),
+            );
+        }
+        if let Some(rest) = trimmed.strip_prefix(prefix) {
+            return (Some(node_type), rest.trim().to_string());
+        }
+    }
+    (None, trimmed.to_string())
+}
+
+fn resolve_voice_draft_node_reference(
+    draft_plan: &PlannerDraftPlan,
+    selected_node_id: Option<&str>,
+    raw_reference: &str,
+    explicit_type: Option<&str>,
+) -> Result<Option<PlannerDraftNode>, AppError> {
+    let reference = normalize(Some(raw_reference));
+    if reference.is_empty() {
+        return Ok(None);
+    }
+
+    let selected_path = build_draft_node_path(draft_plan, selected_node_id);
+    let selected_node = selected_path.last().copied();
+    let effective_type = explicit_type.filter(|value| *value != "node");
+
+    let special_match = match reference.as_str() {
+        "this" | "selected" | "this node" | "selected node" | "current" | "current node" => {
+            if let Some(node_type) = effective_type {
+                find_draft_path_ancestor_by_type(&selected_path, node_type)
+            } else {
+                selected_node
+            }
+        }
+        "root" | "product" | "this product" | "selected product" | "root product" => {
+            find_draft_path_ancestor_by_type(&selected_path, "product").or_else(|| {
+                draft_plan
+                    .nodes
+                    .iter()
+                    .find(|node| node.node_type == "product" && node.parent_id.is_none())
+            })
+        }
+        "this module" | "selected module" | "current module" => {
+            find_draft_path_ancestor_by_type(&selected_path, "module")
+        }
+        "this capability" | "selected capability" | "current capability" => {
+            find_draft_path_ancestor_by_type(&selected_path, "capability")
+        }
+        "this work item" | "selected work item" | "current work item" => {
+            find_draft_path_ancestor_by_type(&selected_path, "work_item")
+        }
+        _ => None,
+    };
+    if let Some(node) = special_match {
+        return Ok(Some(node.clone()));
+    }
+
+    let flattened = draft_plan
+        .nodes
+        .iter()
+        .filter(|node| {
+            effective_type
+                .map(|value| node.node_type == value)
+                .unwrap_or(true)
+        })
+        .collect::<Vec<_>>();
+
+    let exact = flattened
+        .iter()
+        .filter(|node| normalize(Some(&node.name)) == reference)
+        .copied()
+        .collect::<Vec<_>>();
+    if exact.len() == 1 {
+        return Ok(Some(exact[0].clone()));
+    }
+    if exact.len() > 1 {
+        return Err(AppError::Validation(format!(
+            "Multiple draft {} nodes match {}",
+            effective_type
+                .map(planner_draft_node_type_label)
+                .unwrap_or("node"),
+            raw_reference
+        )));
+    }
+
+    let partial = flattened
+        .iter()
+        .filter(|node| normalize(Some(&node.name)).contains(&reference))
+        .copied()
+        .collect::<Vec<_>>();
+    if partial.len() == 1 {
+        return Ok(Some(partial[0].clone()));
+    }
+    if partial.len() > 1 {
+        return Err(AppError::Validation(format!(
+            "Multiple draft {} nodes partially match {}",
+            effective_type
+                .map(planner_draft_node_type_label)
+                .unwrap_or("node"),
+            raw_reference
+        )));
+    }
+
+    Ok(None)
+}
+
+fn summarize_selected_draft_node(draft_plan: &PlannerDraftPlan, node: &PlannerDraftNode) -> String {
+    let children = draft_plan
+        .nodes
+        .iter()
+        .filter(|candidate| candidate.parent_id.as_deref() == Some(node.id.as_str()))
+        .collect::<Vec<_>>();
+    if children.is_empty() {
+        return format!(
+            "Selected {} \"{}\". It has no staged children yet.",
+            planner_draft_node_type_label(&node.node_type),
+            node.name
+        );
+    }
+
+    let mut counts = BTreeMap::<String, usize>::new();
+    for child in &children {
+        *counts
+            .entry(planner_draft_node_type_label(&child.node_type).to_string())
+            .or_insert(0) += 1;
+    }
+    let counts_text = counts
+        .iter()
+        .map(|(node_type, count)| {
+            if *count == 1 {
+                format!("1 {node_type}")
+            } else {
+                format!("{count} {}s", node_type)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sample_names = children
+        .iter()
+        .take(3)
+        .map(|child| child.name.clone())
+        .collect::<Vec<_>>();
+    let sample_text = if sample_names.is_empty() {
+        String::new()
+    } else {
+        format!(" Examples: {}.", sample_names.join(", "))
+    };
+
+    format!(
+        "Selected {} \"{}\". It currently contains {}.{}",
+        planner_draft_node_type_label(&node.node_type),
+        node.name,
+        counts_text,
+        sample_text
+    )
+}
+
+fn build_session_state_response(
+    session_id: String,
+    status: &str,
+    assistant_message: String,
+    session: &PlannerSession,
+    execution_lines: Vec<String>,
+    execution_errors: Vec<String>,
+    trace_events: Vec<PlannerTraceEvent>,
+) -> PlannerTurnResponse {
+    PlannerTurnResponse {
+        session_id,
+        status: status.to_string(),
+        assistant_message,
+        pending_plan: session.pending_plan.clone(),
+        tree_nodes: None,
+        draft_tree_nodes: session
+            .draft_plan
+            .as_ref()
+            .map(|draft| build_draft_tree_nodes(draft, session.selected_draft_node_id.as_deref())),
+        selected_draft_node_id: session.selected_draft_node_id.clone(),
+        execution_lines,
+        execution_errors,
+        trace_events,
+    }
 }
 
 fn find_unique_draft_node_by_name<'a>(
@@ -1291,7 +2134,12 @@ fn find_draft_ancestor_name(
 fn infer_selected_draft_context(
     draft_plan: Option<&PlannerDraftPlan>,
     selected_node_id: Option<&str>,
-) -> (Option<String>, Option<String>, Option<String>, Option<String>) {
+) -> (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+) {
     let Some(draft_plan) = draft_plan else {
         return (None, None, None, None);
     };
@@ -1341,6 +2189,38 @@ fn resolve_draft_product_name(
             }
         }
         return Ok(Some(name.to_string()));
+    }
+    if let Some(module_name) = target_field(action, "moduleName") {
+        if let Some(draft_plan) = draft_plan {
+            if let Some(node) = find_unique_draft_node_by_name(draft_plan, "module", module_name)? {
+                return Ok(find_draft_ancestor_name(draft_plan, node, "product"));
+            }
+        }
+    }
+    if let Some(capability_name) = target_field(action, "capabilityName") {
+        if let Some(draft_plan) = draft_plan {
+            if let Some(node) =
+                find_unique_draft_node_by_name(draft_plan, "capability", capability_name)?
+            {
+                return Ok(find_draft_ancestor_name(draft_plan, node, "product"));
+            }
+        }
+    }
+    let work_item_title = target_field(action, "workItemTitle")
+        .map(ToString::to_string)
+        .or_else(|| target_field(action, "work_item_title").map(ToString::to_string))
+        .or_else(|| target_field(action, "work_item_name").map(ToString::to_string))
+        .or_else(|| string_field(action, "title"))
+        .or_else(|| string_field(action, "work_item_title"))
+        .or_else(|| string_field(action, "work_item_name"));
+    if let Some(work_item_title) = work_item_title {
+        if let Some(draft_plan) = draft_plan {
+            if let Some(node) =
+                find_unique_draft_node_by_name(draft_plan, "work_item", &work_item_title)?
+            {
+                return Ok(find_draft_ancestor_name(draft_plan, node, "product"));
+            }
+        }
     }
     let (product_name, _, _, _) = infer_selected_draft_context(draft_plan, selected_node_id);
     if product_name.is_some() {
@@ -1407,7 +2287,9 @@ fn remove_draft_node_subtree(draft_plan: &mut PlannerDraftPlan, node_id: &str) {
         }
         index += 1;
     }
-    draft_plan.nodes.retain(|node| !to_remove.contains(&node.id));
+    draft_plan
+        .nodes
+        .retain(|node| !to_remove.contains(&node.id));
 }
 
 fn set_string_value(target: &mut Value, key: &str, value: &str) {
@@ -1746,6 +2628,15 @@ fn build_tree_nodes_for_items(
             id: item.id.clone(),
             label: item.title.clone(),
             meta: Some(item.status.to_string()),
+            node_type: Some("work_item".to_string()),
+            summary: if item.description.is_empty() {
+                None
+            } else {
+                Some(item.description.clone())
+            },
+            source: None,
+            confidence: None,
+            evidence: vec![],
             children: build_tree_nodes_for_items(items, Some(&item.id)),
         })
         .collect()
@@ -1786,6 +2677,11 @@ async fn build_tree_nodes(
                     id: format!("{}-direct", module_tree.module.id),
                     label: "Direct Work Items".to_string(),
                     meta: None,
+                    node_type: Some("group".to_string()),
+                    summary: None,
+                    source: None,
+                    confidence: None,
+                    evidence: vec![],
                     children: build_tree_nodes_for_items(&direct_items, None),
                 });
             }
@@ -1808,6 +2704,15 @@ async fn build_tree_nodes(
                     id: capability.id.clone(),
                     label: capability.name.clone(),
                     meta: None,
+                    node_type: Some("capability".to_string()),
+                    summary: if capability.description.is_empty() {
+                        None
+                    } else {
+                        Some(capability.description.clone())
+                    },
+                    source: None,
+                    confidence: None,
+                    evidence: vec![],
                     children: build_tree_nodes_for_items(&capability_items, None),
                 });
             }
@@ -1816,6 +2721,15 @@ async fn build_tree_nodes(
                 id: module_tree.module.id.clone(),
                 label: module_tree.module.name.clone(),
                 meta: None,
+                node_type: Some("module".to_string()),
+                summary: if module_tree.module.description.is_empty() {
+                    None
+                } else {
+                    Some(module_tree.module.description.clone())
+                },
+                source: None,
+                confidence: None,
+                evidence: vec![],
                 children,
             });
         }
@@ -1830,6 +2744,11 @@ async fn build_tree_nodes(
                 id: format!("{}-unscoped", product.id),
                 label: "Unscoped".to_string(),
                 meta: None,
+                node_type: Some("group".to_string()),
+                summary: None,
+                source: None,
+                confidence: None,
+                evidence: vec![],
                 children: build_tree_nodes_for_items(&unscoped, None),
             });
         }
@@ -1839,6 +2758,11 @@ async fn build_tree_nodes(
                 id: format!("{}-empty", product.id),
                 label: "No work items".to_string(),
                 meta: Some("empty".to_string()),
+                node_type: Some("info".to_string()),
+                summary: None,
+                source: None,
+                confidence: None,
+                evidence: vec![],
                 children: vec![],
             });
         }
@@ -1847,6 +2771,15 @@ async fn build_tree_nodes(
             id: product.id,
             label: product.name,
             meta: None,
+            node_type: Some("product".to_string()),
+            summary: if product.description.is_empty() {
+                None
+            } else {
+                Some(product.description)
+            },
+            source: None,
+            confidence: None,
+            evidence: vec![],
             children: module_nodes,
         });
     }
@@ -1867,8 +2800,9 @@ async fn apply_actions_to_draft(
             .ok_or_else(|| AppError::Validation("Planner action missing type".to_string()))?;
         match action_type {
             "create_product" => {
-                let name = string_field(action, "name")
-                    .ok_or_else(|| AppError::Validation("Draft product name is required".to_string()))?;
+                let name = string_field(action, "name").ok_or_else(|| {
+                    AppError::Validation("Draft product name is required".to_string())
+                })?;
                 if find_draft_node(&draft_plan, "product", &name, None).is_none() {
                     draft_plan.nodes.push(PlannerDraftNode {
                         id: uuid::Uuid::new_v4().to_string(),
@@ -1882,16 +2816,16 @@ async fn apply_actions_to_draft(
                 }
             }
             "create_module" => {
-                let product_name = resolve_draft_product_name(
-                    Some(&draft_plan),
-                    selected_draft_node_id,
-                    action,
-                )?
-                .ok_or_else(|| AppError::Validation("Draft module needs a product".to_string()))?;
+                let product_name =
+                    resolve_draft_product_name(Some(&draft_plan), selected_draft_node_id, action)?
+                        .ok_or_else(|| {
+                            AppError::Validation("Draft module needs a product".to_string())
+                        })?;
                 let product = find_draft_node(&draft_plan, "product", &product_name, None)
                     .ok_or_else(|| AppError::Validation("Draft product is required".to_string()))?;
-                let name = string_field(action, "name")
-                    .ok_or_else(|| AppError::Validation("Draft module name is required".to_string()))?;
+                let name = string_field(action, "name").ok_or_else(|| {
+                    AppError::Validation("Draft module name is required".to_string())
+                })?;
                 if find_draft_node(&draft_plan, "module", &name, Some(&product.id)).is_none() {
                     draft_plan.nodes.push(PlannerDraftNode {
                         id: uuid::Uuid::new_v4().to_string(),
@@ -1905,24 +2839,26 @@ async fn apply_actions_to_draft(
                 }
             }
             "create_capability" => {
-                let product_name = resolve_draft_product_name(
-                    Some(&draft_plan),
-                    selected_draft_node_id,
-                    action,
-                )?
-                .ok_or_else(|| AppError::Validation("Draft capability needs a product".to_string()))?;
+                let product_name =
+                    resolve_draft_product_name(Some(&draft_plan), selected_draft_node_id, action)?
+                        .ok_or_else(|| {
+                            AppError::Validation("Draft capability needs a product".to_string())
+                        })?;
                 let product = find_draft_node(&draft_plan, "product", &product_name, None)
                     .ok_or_else(|| AppError::Validation("Draft product is required".to_string()))?;
-                let module_name = resolve_draft_module_name(
-                    Some(&draft_plan),
-                    selected_draft_node_id,
-                    action,
-                )?
-                .ok_or_else(|| AppError::Validation("Draft capability needs a module".to_string()))?;
-                let module = find_draft_node(&draft_plan, "module", &module_name, Some(&product.id))
-                    .ok_or_else(|| AppError::Validation("Draft module is required".to_string()))?;
-                let name = string_field(action, "name")
-                    .ok_or_else(|| AppError::Validation("Draft capability name is required".to_string()))?;
+                let module_name =
+                    resolve_draft_module_name(Some(&draft_plan), selected_draft_node_id, action)?
+                        .ok_or_else(|| {
+                        AppError::Validation("Draft capability needs a module".to_string())
+                    })?;
+                let module =
+                    find_draft_node(&draft_plan, "module", &module_name, Some(&product.id))
+                        .ok_or_else(|| {
+                            AppError::Validation("Draft module is required".to_string())
+                        })?;
+                let name = string_field(action, "name").ok_or_else(|| {
+                    AppError::Validation("Draft capability name is required".to_string())
+                })?;
                 if find_draft_node(&draft_plan, "capability", &name, Some(&module.id)).is_none() {
                     draft_plan.nodes.push(PlannerDraftNode {
                         id: uuid::Uuid::new_v4().to_string(),
@@ -1936,16 +2872,16 @@ async fn apply_actions_to_draft(
                 }
             }
             "create_work_item" => {
-                let product_name = resolve_draft_product_name(
-                    Some(&draft_plan),
-                    selected_draft_node_id,
-                    action,
-                )?
-                .ok_or_else(|| AppError::Validation("Draft work item needs a product".to_string()))?;
+                let product_name =
+                    resolve_draft_product_name(Some(&draft_plan), selected_draft_node_id, action)?
+                        .ok_or_else(|| {
+                            AppError::Validation("Draft work item needs a product".to_string())
+                        })?;
                 let product = find_draft_node(&draft_plan, "product", &product_name, None)
                     .ok_or_else(|| AppError::Validation("Draft product is required".to_string()))?;
-                let title = string_field(action, "title")
-                    .ok_or_else(|| AppError::Validation("Draft work item title is required".to_string()))?;
+                let title = string_field(action, "title").ok_or_else(|| {
+                    AppError::Validation("Draft work item title is required".to_string())
+                })?;
                 let parent_id = if let Some(capability_name) = resolve_draft_capability_name(
                     Some(&draft_plan),
                     selected_draft_node_id,
@@ -1956,26 +2892,34 @@ async fn apply_actions_to_draft(
                         selected_draft_node_id,
                         action,
                     )?
-                    .ok_or_else(|| AppError::Validation("Draft work item capability needs a module".to_string()))?;
+                    .ok_or_else(|| {
+                        AppError::Validation(
+                            "Draft work item capability needs a module".to_string(),
+                        )
+                    })?;
                     let module =
                         find_draft_node(&draft_plan, "module", &module_name, Some(&product.id))
-                            .ok_or_else(|| AppError::Validation("Draft module is required".to_string()))?;
+                            .ok_or_else(|| {
+                                AppError::Validation("Draft module is required".to_string())
+                            })?;
                     let capability = find_draft_node(
                         &draft_plan,
                         "capability",
                         &capability_name,
                         Some(&module.id),
                     )
-                    .ok_or_else(|| AppError::Validation("Draft capability is required".to_string()))?;
+                    .ok_or_else(|| {
+                        AppError::Validation("Draft capability is required".to_string())
+                    })?;
                     Some(capability.id.clone())
-                } else if let Some(module_name) = resolve_draft_module_name(
-                    Some(&draft_plan),
-                    selected_draft_node_id,
-                    action,
-                )? {
+                } else if let Some(module_name) =
+                    resolve_draft_module_name(Some(&draft_plan), selected_draft_node_id, action)?
+                {
                     let module =
                         find_draft_node(&draft_plan, "module", &module_name, Some(&product.id))
-                            .ok_or_else(|| AppError::Validation("Draft module is required".to_string()))?;
+                            .ok_or_else(|| {
+                                AppError::Validation("Draft module is required".to_string())
+                            })?;
                     Some(module.id.clone())
                 } else {
                     Some(product.id.clone())
@@ -1994,27 +2938,26 @@ async fn apply_actions_to_draft(
                 }
             }
             "update_product" => {
-                let product_name = resolve_draft_product_name(
-                    Some(&draft_plan),
-                    selected_draft_node_id,
-                    action,
-                )?
-                .ok_or_else(|| AppError::Validation("Draft product is required".to_string()))?;
+                let product_name =
+                    resolve_draft_product_name(Some(&draft_plan), selected_draft_node_id, action)?
+                        .ok_or_else(|| {
+                            AppError::Validation("Draft product is required".to_string())
+                        })?;
                 let node = find_draft_node_mut(&mut draft_plan, "product", &product_name, None)
                     .ok_or_else(|| AppError::Validation("Draft product is required".to_string()))?;
                 if let Some(name) = fields_string(action, "name") {
                     node.name = name;
                 }
-                node.summary = fields_string(action, "description").or_else(|| node.summary.clone());
+                node.summary =
+                    fields_string(action, "description").or_else(|| node.summary.clone());
                 node.details = action.clone();
             }
             "update_module" => {
-                let product_name = resolve_draft_product_name(
-                    Some(&draft_plan),
-                    selected_draft_node_id,
-                    action,
-                )?
-                .ok_or_else(|| AppError::Validation("Draft module needs a product".to_string()))?;
+                let product_name =
+                    resolve_draft_product_name(Some(&draft_plan), selected_draft_node_id, action)?
+                        .ok_or_else(|| {
+                            AppError::Validation("Draft module needs a product".to_string())
+                        })?;
                 let product_id = find_draft_node(&draft_plan, "product", &product_name, None)
                     .ok_or_else(|| AppError::Validation("Draft product is required".to_string()))?
                     .id
@@ -2025,35 +2968,40 @@ async fn apply_actions_to_draft(
                     action,
                 )?
                 .ok_or_else(|| AppError::Validation("Draft module is required".to_string()))?;
-                let node = find_draft_node_mut(&mut draft_plan, "module", &module_name, Some(&product_id))
-                    .ok_or_else(|| AppError::Validation("Draft module is required".to_string()))?;
+                let node =
+                    find_draft_node_mut(&mut draft_plan, "module", &module_name, Some(&product_id))
+                        .ok_or_else(|| {
+                            AppError::Validation("Draft module is required".to_string())
+                        })?;
                 if let Some(name) = fields_string(action, "name") {
                     node.name = name;
                 }
-                node.summary = fields_string(action, "description").or_else(|| node.summary.clone());
+                node.summary =
+                    fields_string(action, "description").or_else(|| node.summary.clone());
                 node.details = action.clone();
             }
             "update_capability" => {
-                let product_name = resolve_draft_product_name(
-                    Some(&draft_plan),
-                    selected_draft_node_id,
-                    action,
-                )?
-                .ok_or_else(|| AppError::Validation("Draft capability needs a product".to_string()))?;
+                let product_name =
+                    resolve_draft_product_name(Some(&draft_plan), selected_draft_node_id, action)?
+                        .ok_or_else(|| {
+                            AppError::Validation("Draft capability needs a product".to_string())
+                        })?;
                 let product_id = find_draft_node(&draft_plan, "product", &product_name, None)
                     .ok_or_else(|| AppError::Validation("Draft product is required".to_string()))?
                     .id
                     .clone();
-                let module_name = resolve_draft_module_name(
-                    Some(&draft_plan),
-                    selected_draft_node_id,
-                    action,
-                )?
-                .ok_or_else(|| AppError::Validation("Draft capability needs a module".to_string()))?;
-                let module_id = find_draft_node(&draft_plan, "module", &module_name, Some(&product_id))
-                    .ok_or_else(|| AppError::Validation("Draft module is required".to_string()))?
-                    .id
-                    .clone();
+                let module_name =
+                    resolve_draft_module_name(Some(&draft_plan), selected_draft_node_id, action)?
+                        .ok_or_else(|| {
+                        AppError::Validation("Draft capability needs a module".to_string())
+                    })?;
+                let module_id =
+                    find_draft_node(&draft_plan, "module", &module_name, Some(&product_id))
+                        .ok_or_else(|| {
+                            AppError::Validation("Draft module is required".to_string())
+                        })?
+                        .id
+                        .clone();
                 let capability_name = resolve_draft_capability_name(
                     Some(&draft_plan),
                     selected_draft_node_id,
@@ -2070,7 +3018,8 @@ async fn apply_actions_to_draft(
                 if let Some(name) = fields_string(action, "name") {
                     node.name = name;
                 }
-                node.summary = fields_string(action, "description").or_else(|| node.summary.clone());
+                node.summary =
+                    fields_string(action, "description").or_else(|| node.summary.clone());
                 node.details = action.clone();
             }
             "update_work_item" => {
@@ -2080,18 +3029,24 @@ async fn apply_actions_to_draft(
                 let title = target_field(action, "workItemTitle")
                     .map(ToString::to_string)
                     .or(selected_work_item_title)
-                    .ok_or_else(|| AppError::Validation("Draft work item is required".to_string()))?;
+                    .ok_or_else(|| {
+                        AppError::Validation("Draft work item is required".to_string())
+                    })?;
                 let node = draft_plan
                     .nodes
                     .iter_mut()
                     .find(|node| {
-                        node.node_type == "work_item" && normalize(Some(&node.name)) == normalize(Some(&title))
+                        node.node_type == "work_item"
+                            && normalize(Some(&node.name)) == normalize(Some(&title))
                     })
-                    .ok_or_else(|| AppError::Validation("Draft work item is required".to_string()))?;
+                    .ok_or_else(|| {
+                        AppError::Validation("Draft work item is required".to_string())
+                    })?;
                 if let Some(name) = fields_string(action, "title") {
                     node.name = name;
                 }
-                node.summary = fields_string(action, "description").or_else(|| node.summary.clone());
+                node.summary =
+                    fields_string(action, "description").or_else(|| node.summary.clone());
                 node.details = action.clone();
             }
             "archive_product" | "delete_module" | "delete_capability" | "delete_work_item" => {
@@ -2101,7 +3056,10 @@ async fn apply_actions_to_draft(
                         selected_draft_node_id,
                         action,
                     )?
-                    .and_then(|name| find_draft_node(&draft_plan, "product", &name, None).map(|node| node.id.clone())),
+                    .and_then(|name| {
+                        find_draft_node(&draft_plan, "product", &name, None)
+                            .map(|node| node.id.clone())
+                    }),
                     "delete_module" => {
                         let product_name = resolve_draft_product_name(
                             Some(&draft_plan),
@@ -2142,9 +3100,12 @@ async fn apply_actions_to_draft(
                             action,
                         )?;
                         let module = match (product, module_name) {
-                            (Some(product), Some(module_name)) => {
-                                find_draft_node(&draft_plan, "module", &module_name, Some(&product.id))
-                            }
+                            (Some(product), Some(module_name)) => find_draft_node(
+                                &draft_plan,
+                                "module",
+                                &module_name,
+                                Some(&product.id),
+                            ),
                             _ => None,
                         };
                         let capability_name = resolve_draft_capability_name(
@@ -2166,12 +3127,17 @@ async fn apply_actions_to_draft(
                     "delete_work_item" => {
                         let title = target_field(action, "workItemTitle")
                             .map(ToString::to_string)
-                            .ok_or_else(|| AppError::Validation("Draft work item is required".to_string()))?;
-                        draft_plan.nodes.iter().find(|node| {
-                            node.node_type == "work_item"
-                                && normalize(Some(&node.name)) == normalize(Some(&title))
-                        })
-                        .map(|node| node.id.clone())
+                            .ok_or_else(|| {
+                                AppError::Validation("Draft work item is required".to_string())
+                            })?;
+                        draft_plan
+                            .nodes
+                            .iter()
+                            .find(|node| {
+                                node.node_type == "work_item"
+                                    && normalize(Some(&node.name)) == normalize(Some(&title))
+                            })
+                            .map(|node| node.id.clone())
                     }
                     _ => None,
                 };
@@ -2222,7 +3188,9 @@ async fn commit_draft_plan(
         let mut modules = draft_plan
             .nodes
             .iter()
-            .filter(|node| node.node_type == "module" && node.parent_id.as_deref() == Some(&product_node.id))
+            .filter(|node| {
+                node.node_type == "module" && node.parent_id.as_deref() == Some(&product_node.id)
+            })
             .cloned()
             .collect::<Vec<_>>();
         modules.sort_by(|left, right| left.name.cmp(&right.name));
@@ -2237,13 +3205,19 @@ async fn commit_draft_plan(
                 &string_field(&module_node.details, "purpose").unwrap_or_default(),
             )
             .await?;
-            lines.push(format!("Created module \"{}\" in \"{}\".", module.name, product.name));
+            lines.push(format!(
+                "Created module \"{}\" in \"{}\".",
+                module.name, product.name
+            ));
             module_ids.insert(module_node.id.clone(), module.id.clone());
 
             let mut capabilities = draft_plan
                 .nodes
                 .iter()
-                .filter(|node| node.node_type == "capability" && node.parent_id.as_deref() == Some(&module_node.id))
+                .filter(|node| {
+                    node.node_type == "capability"
+                        && node.parent_id.as_deref() == Some(&module_node.id)
+                })
                 .cloned()
                 .collect::<Vec<_>>();
             capabilities.sort_by(|left, right| left.name.cmp(&right.name));
@@ -2256,13 +3230,21 @@ async fn commit_draft_plan(
                     None,
                     &capability_node.name,
                     &capability_node.summary.clone().unwrap_or_default(),
-                    &string_field(&capability_node.details, "acceptanceCriteria").unwrap_or_default(),
-                    string_field(&capability_node.details, "priority").as_deref().unwrap_or("medium"),
-                    string_field(&capability_node.details, "risk").as_deref().unwrap_or("medium"),
+                    &string_field(&capability_node.details, "acceptanceCriteria")
+                        .unwrap_or_default(),
+                    string_field(&capability_node.details, "priority")
+                        .as_deref()
+                        .unwrap_or("medium"),
+                    string_field(&capability_node.details, "risk")
+                        .as_deref()
+                        .unwrap_or("medium"),
                     &string_field(&capability_node.details, "technicalNotes").unwrap_or_default(),
                 )
                 .await?;
-                lines.push(format!("Created capability \"{}\" in \"{}\".", capability.name, module.name));
+                lines.push(format!(
+                    "Created capability \"{}\" in \"{}\".",
+                    capability.name, module.name
+                ));
                 capability_ids.insert(capability_node.id.clone(), capability.id.clone());
             }
         }
@@ -2282,7 +3264,11 @@ async fn commit_draft_plan(
         let mut capability_id = None;
         let mut parent = work_item_node.parent_id.as_deref();
         while let Some(parent_id) = parent {
-            if let Some(node) = draft_plan.nodes.iter().find(|candidate| candidate.id == parent_id) {
+            if let Some(node) = draft_plan
+                .nodes
+                .iter()
+                .find(|candidate| candidate.id == parent_id)
+            {
                 match node.node_type.as_str() {
                     "capability" => {
                         capability_id = capability_ids.get(&node.id).cloned();
@@ -2312,7 +3298,9 @@ async fn commit_draft_plan(
                         .cloned()
                 })
             })
-            .ok_or_else(|| AppError::Validation("Draft work item is missing a product".to_string()))?;
+            .ok_or_else(|| {
+                AppError::Validation("Draft work item is missing a product".to_string())
+            })?;
 
         let work_item = work_item_repo::create_work_item(
             &state.db,
@@ -2924,6 +3912,360 @@ pub async fn clear_planner_pending(
     Ok(info)
 }
 
+pub async fn submit_planner_voice_turn(
+    planner_service: Arc<Mutex<PlannerService>>,
+    state: &AppState,
+    session_id: String,
+    transcript: String,
+    selected_draft_node_id: Option<String>,
+) -> Result<PlannerTurnResponse, AppError> {
+    let spoken = transcript.trim().to_string();
+    if spoken.is_empty() {
+        return Err(AppError::Validation(
+            "Voice transcript cannot be empty".to_string(),
+        ));
+    }
+
+    let mut trace = vec![];
+    let mut session = get_or_load_session(&planner_service, &state.db, &session_id).await?;
+    push_trace(
+        &mut trace,
+        "session",
+        "Loaded planner session",
+        format!(
+            "session_id={}\nprovider_id={:?}\nmodel_name={:?}\nhas_pending_plan={}\nhas_draft_plan={}\nselected_draft_node_id={:?}",
+            session_id,
+            session.provider_id,
+            session.model_name,
+            session.pending_plan.is_some(),
+            session.draft_plan.is_some(),
+            session.selected_draft_node_id
+        ),
+    );
+
+    if selected_draft_node_id != session.selected_draft_node_id {
+        push_trace(
+            &mut trace,
+            "selection",
+            "Updated selected draft node",
+            format!(
+                "previous={:?}\nnext={:?}",
+                session.selected_draft_node_id, selected_draft_node_id
+            ),
+        );
+        session.selected_draft_node_id = selected_draft_node_id.clone();
+        persist_draft_state(
+            &state.db,
+            &session_id,
+            session.draft_plan.as_ref(),
+            session.selected_draft_node_id.as_deref(),
+        )
+        .await?;
+        let mut service = planner_service.lock().await;
+        service.save_session(&session_id, session.clone());
+    }
+
+    let normalized_transcript = normalize(Some(&spoken));
+    push_trace(
+        &mut trace,
+        "voice",
+        "Routing planner voice transcript",
+        format!(
+            "transcript={}\nselected_draft_node_id={:?}",
+            spoken, session.selected_draft_node_id
+        ),
+    );
+
+    if matches!(
+        normalized_transcript.as_str(),
+        "yes"
+            | "confirm"
+            | "go ahead"
+            | "commit"
+            | "commit draft"
+            | "commit the draft"
+            | "confirm draft"
+            | "confirm proposal"
+            | "commit plan"
+    ) {
+        push_trace(
+            &mut trace,
+            "voice",
+            "Matched commit voice command",
+            spoken.clone(),
+        );
+        return confirm_planner_plan(planner_service, state, session_id).await;
+    }
+
+    if matches!(
+        normalized_transcript.as_str(),
+        "clear draft"
+            | "clear the draft"
+            | "clear proposal"
+            | "dismiss proposal"
+            | "dismiss draft"
+            | "cancel draft"
+    ) {
+        push_trace(
+            &mut trace,
+            "voice",
+            "Matched clear voice command",
+            spoken.clone(),
+        );
+        let had_state = session.pending_plan.is_some() || session.draft_plan.is_some();
+        session.pending_plan = None;
+        session.draft_plan = None;
+        session.selected_draft_node_id = None;
+        append_conversation(&state.db, &session_id, "user", &spoken).await?;
+        let assistant_message = if had_state {
+            "Cleared the current staged planner draft.".to_string()
+        } else {
+            "There is no active draft to clear.".to_string()
+        };
+        append_conversation(&state.db, &session_id, "assistant", &assistant_message).await?;
+        session.conversation.push(PlannerConversationEntry {
+            role: "user".to_string(),
+            content: spoken,
+        });
+        session.conversation.push(PlannerConversationEntry {
+            role: "assistant".to_string(),
+            content: assistant_message.clone(),
+        });
+        persist_pending_plan(&state.db, &session_id, None).await?;
+        persist_draft_state(&state.db, &session_id, None, None).await?;
+        {
+            let mut service = planner_service.lock().await;
+            service.save_session(&session_id, session.clone());
+        }
+        return Ok(build_session_state_response(
+            session_id,
+            "execution",
+            assistant_message.clone(),
+            &session,
+            vec![assistant_message],
+            vec![],
+            trace,
+        ));
+    }
+
+    let is_draft_view_command = matches!(
+        normalized_transcript.as_str(),
+        "view draft"
+            | "open draft"
+            | "show draft"
+            | "show draft tree"
+            | "view draft tree"
+            | "open workspace"
+            | "show workspace"
+            | "expand draft"
+            | "expand the draft"
+            | "expand tree"
+    );
+    let is_draft_selection_command = ["select ", "choose ", "highlight ", "open ", "expand "]
+        .iter()
+        .any(|prefix| normalized_transcript.starts_with(prefix));
+
+    if session.draft_plan.is_none() && (is_draft_view_command || is_draft_selection_command) {
+        let assistant_message = "There is no staged draft tree yet.".to_string();
+        append_conversation(&state.db, &session_id, "user", &spoken).await?;
+        append_conversation(&state.db, &session_id, "assistant", &assistant_message).await?;
+        session.conversation.push(PlannerConversationEntry {
+            role: "user".to_string(),
+            content: spoken,
+        });
+        session.conversation.push(PlannerConversationEntry {
+            role: "assistant".to_string(),
+            content: assistant_message.clone(),
+        });
+        {
+            let mut service = planner_service.lock().await;
+            service.save_session(&session_id, session.clone());
+        }
+        return Ok(build_session_state_response(
+            session_id,
+            "session_update",
+            assistant_message.clone(),
+            &session,
+            vec![assistant_message],
+            vec![],
+            trace,
+        ));
+    }
+
+    if let Some(draft_plan) = session.draft_plan.clone() {
+        if is_draft_view_command {
+            let target =
+                find_draft_node_by_id(&draft_plan, session.selected_draft_node_id.as_deref())
+                    .or_else(|| {
+                        draft_plan
+                            .nodes
+                            .iter()
+                            .find(|node| node.node_type == "product")
+                    });
+            let assistant_message = target
+                .map(|node| summarize_selected_draft_node(&draft_plan, node))
+                .unwrap_or_else(|| "There is no staged draft tree yet.".to_string());
+            append_conversation(&state.db, &session_id, "user", &spoken).await?;
+            append_conversation(&state.db, &session_id, "assistant", &assistant_message).await?;
+            session.conversation.push(PlannerConversationEntry {
+                role: "user".to_string(),
+                content: spoken,
+            });
+            session.conversation.push(PlannerConversationEntry {
+                role: "assistant".to_string(),
+                content: assistant_message.clone(),
+            });
+            {
+                let mut service = planner_service.lock().await;
+                service.save_session(&session_id, session.clone());
+            }
+            return Ok(build_session_state_response(
+                session_id,
+                "session_update",
+                assistant_message.clone(),
+                &session,
+                vec![assistant_message],
+                vec![],
+                trace,
+            ));
+        }
+
+        let command_matchers = ["select ", "choose ", "highlight ", "open ", "expand "];
+        let matched_remainder = command_matchers.iter().find_map(|prefix| {
+            normalized_transcript
+                .strip_prefix(prefix)
+                .map(|_| spoken[prefix.len()..].trim().to_string())
+        });
+
+        if let Some(reference_text) = matched_remainder {
+            push_trace(
+                &mut trace,
+                "voice",
+                "Matched draft selection voice command",
+                reference_text.clone(),
+            );
+            let (explicit_type, reference) = parse_voice_node_reference(&reference_text);
+            let resolved = resolve_voice_draft_node_reference(
+                &draft_plan,
+                session.selected_draft_node_id.as_deref(),
+                &reference,
+                explicit_type,
+            );
+            let target_node = match resolved {
+                Ok(Some(node)) => node,
+                Ok(None) => {
+                    let assistant_message = format!(
+                        "I could not find a draft node matching \"{}\".",
+                        reference_text
+                    );
+                    append_conversation(&state.db, &session_id, "user", &spoken).await?;
+                    append_conversation(&state.db, &session_id, "assistant", &assistant_message)
+                        .await?;
+                    session.conversation.push(PlannerConversationEntry {
+                        role: "user".to_string(),
+                        content: spoken,
+                    });
+                    session.conversation.push(PlannerConversationEntry {
+                        role: "assistant".to_string(),
+                        content: assistant_message.clone(),
+                    });
+                    {
+                        let mut service = planner_service.lock().await;
+                        service.save_session(&session_id, session.clone());
+                    }
+                    return Ok(build_session_state_response(
+                        session_id,
+                        "session_update",
+                        assistant_message.clone(),
+                        &session,
+                        vec![assistant_message],
+                        vec![],
+                        trace,
+                    ));
+                }
+                Err(error) => {
+                    let assistant_message = error.to_string();
+                    append_conversation(&state.db, &session_id, "user", &spoken).await?;
+                    append_conversation(&state.db, &session_id, "assistant", &assistant_message)
+                        .await?;
+                    session.conversation.push(PlannerConversationEntry {
+                        role: "user".to_string(),
+                        content: spoken,
+                    });
+                    session.conversation.push(PlannerConversationEntry {
+                        role: "assistant".to_string(),
+                        content: assistant_message.clone(),
+                    });
+                    {
+                        let mut service = planner_service.lock().await;
+                        service.save_session(&session_id, session.clone());
+                    }
+                    return Ok(build_session_state_response(
+                        session_id,
+                        "session_update",
+                        assistant_message.clone(),
+                        &session,
+                        vec![],
+                        vec![assistant_message],
+                        trace,
+                    ));
+                }
+            };
+
+            session.selected_draft_node_id = Some(target_node.id.clone());
+            persist_draft_state(
+                &state.db,
+                &session_id,
+                Some(&draft_plan),
+                session.selected_draft_node_id.as_deref(),
+            )
+            .await?;
+            let mut assistant_message = summarize_selected_draft_node(&draft_plan, &target_node);
+            if session.pending_plan.is_some() {
+                assistant_message.push_str(" The current draft proposal is still staged; say confirm when you want to commit it.");
+            }
+            append_conversation(&state.db, &session_id, "user", &spoken).await?;
+            append_conversation(&state.db, &session_id, "assistant", &assistant_message).await?;
+            session.conversation.push(PlannerConversationEntry {
+                role: "user".to_string(),
+                content: spoken,
+            });
+            session.conversation.push(PlannerConversationEntry {
+                role: "assistant".to_string(),
+                content: assistant_message.clone(),
+            });
+            {
+                let mut service = planner_service.lock().await;
+                service.save_session(&session_id, session.clone());
+            }
+            return Ok(build_session_state_response(
+                session_id,
+                "session_update",
+                assistant_message.clone(),
+                &session,
+                vec![assistant_message],
+                vec![],
+                trace,
+            ));
+        }
+    }
+
+    push_trace(
+        &mut trace,
+        "voice",
+        "No deterministic voice command matched",
+        "Falling back to the planner turn pipeline.",
+    );
+    submit_planner_turn(
+        planner_service,
+        state,
+        session_id,
+        spoken,
+        session.selected_draft_node_id.clone(),
+    )
+    .await
+}
+
 pub async fn submit_planner_turn(
     planner_service: Arc<Mutex<PlannerService>>,
     state: &AppState,
@@ -3003,10 +4345,7 @@ pub async fn submit_planner_turn(
                         pending_plan: session.pending_plan.clone(),
                         tree_nodes: None,
                         draft_tree_nodes: session.draft_plan.as_ref().map(|draft| {
-                            build_draft_tree_nodes(
-                                draft,
-                                session.selected_draft_node_id.as_deref(),
-                            )
+                            build_draft_tree_nodes(draft, session.selected_draft_node_id.as_deref())
                         }),
                         selected_draft_node_id: session.selected_draft_node_id.clone(),
                         execution_lines: vec![],
@@ -3122,10 +4461,9 @@ pub async fn submit_planner_turn(
         None
     };
 
-    let draft_tree_nodes = session
-        .draft_plan
-        .as_ref()
-        .map(|draft_plan| build_draft_tree_nodes(draft_plan, session.selected_draft_node_id.as_deref()));
+    let draft_tree_nodes = session.draft_plan.as_ref().map(|draft_plan| {
+        build_draft_tree_nodes(draft_plan, session.selected_draft_node_id.as_deref())
+    });
 
     append_conversation(&state.db, &session_id, "user", &user_input).await?;
     session.conversation.push(PlannerConversationEntry {
@@ -3171,8 +4509,10 @@ pub async fn submit_planner_turn(
                 });
             }
         };
-        let updated_draft_tree_nodes =
-            Some(build_draft_tree_nodes(&updated_draft, session.selected_draft_node_id.as_deref()));
+        let updated_draft_tree_nodes = Some(build_draft_tree_nodes(
+            &updated_draft,
+            session.selected_draft_node_id.as_deref(),
+        ));
         session.draft_plan = Some(updated_draft.clone());
         session.pending_plan = Some(plan.clone());
         persist_pending_plan(&state.db, &session_id, Some(&plan)).await?;
@@ -3183,7 +4523,13 @@ pub async fn submit_planner_turn(
             session.selected_draft_node_id.as_deref(),
         )
         .await?;
-        append_conversation(&state.db, &session_id, "assistant", &plan.assistant_response).await?;
+        append_conversation(
+            &state.db,
+            &session_id,
+            "assistant",
+            &plan.assistant_response,
+        )
+        .await?;
         session.conversation.push(PlannerConversationEntry {
             role: "assistant".to_string(),
             content: plan.assistant_response.clone(),
@@ -3406,7 +4752,11 @@ pub async fn rename_planner_draft_node(
         _ => json!({ "type": "update_node" }),
     };
     let plan = PlannerPlan {
-        assistant_response: format!("Renamed draft {} to \"{}\".", renamed.node_type.replace('_', " "), renamed.name),
+        assistant_response: format!(
+            "Renamed draft {} to \"{}\".",
+            renamed.node_type.replace('_', " "),
+            renamed.name
+        ),
         needs_confirmation: false,
         clarification_question: None,
         actions: vec![action],
@@ -3669,21 +5019,20 @@ pub async fn analyze_repository_for_planner(
         .await?;
     }
 
-    let provider_id = session
-        .provider_id
-        .clone()
-        .ok_or_else(|| AppError::Validation("Configure a planner model before analyzing a repository.".to_string()))?;
-    let model_name = session
-        .model_name
-        .clone()
-        .ok_or_else(|| AppError::Validation("Configure a planner model before analyzing a repository.".to_string()))?;
+    let provider_id = session.provider_id.clone().ok_or_else(|| {
+        AppError::Validation("Configure a planner model before analyzing a repository.".to_string())
+    })?;
+    let model_name = session.model_name.clone().ok_or_else(|| {
+        AppError::Validation("Configure a planner model before analyzing a repository.".to_string())
+    })?;
     let repository = repository_repo::get_repository(db, &repository_id).await?;
-    let repo_snapshot = build_repository_snapshot(&repository)?;
+    let repo_snapshot = build_repository_analysis_snapshot(&repository)?;
+    let repo_snapshot_json = serde_json::to_string_pretty(&repo_snapshot)?;
     push_trace(
         &mut trace,
         "repository",
-        "Captured repository snapshot",
-        truncate_text(&repo_snapshot, 12_000),
+        "Captured structured repository analysis snapshot",
+        truncate_text(&repo_snapshot_json, 12_000),
     );
 
     let draft_context = session
@@ -3695,13 +5044,18 @@ pub async fn analyze_repository_for_planner(
     let selected_context = session
         .selected_draft_node_id
         .as_deref()
-        .and_then(|node_id| session.draft_plan.as_ref().and_then(|draft| draft.nodes.iter().find(|node| node.id == node_id)))
+        .and_then(|node_id| {
+            session
+                .draft_plan
+                .as_ref()
+                .and_then(|draft| draft.nodes.iter().find(|node| node.id == node_id))
+        })
         .map(serde_json::to_string_pretty)
         .transpose()?
         .unwrap_or_else(|| "No draft node selected.".to_string());
     let analysis_request = format!(
-        "Current draft tree:\n{}\n\nSelected draft node:\n{}\n\nRepository evidence:\n{}\n\nTask:\nReverse engineer this repository into a staged planning tree. Infer the product, modules, capabilities, and starter work items from the codebase. Merge into the selected draft node if it exists; otherwise create a product root.",
-        draft_context, selected_context, repo_snapshot
+        "Current draft tree:\n{}\n\nSelected draft node:\n{}\n\nStructured repository analysis snapshot:\n{}\n\nTask:\nReverse engineer this repository into a staged planning tree. Infer the product, modules, capabilities, and starter work items from the codebase. Use the structured evidence first, and only make cautious inferences when the evidence is incomplete. Merge into the selected draft node if it exists; otherwise create a product root.",
+        draft_context, selected_context, repo_snapshot_json
     );
     push_trace(
         &mut trace,
@@ -3733,7 +5087,8 @@ pub async fn analyze_repository_for_planner(
         completion.clone(),
     );
 
-    let plan = parse_final_response(&completion)?;
+    let mut plan = parse_final_response(&completion)?;
+    annotate_repository_analysis_plan(&repo_snapshot, &mut plan);
     push_trace(
         &mut trace,
         "plan",
@@ -3751,10 +5106,9 @@ pub async fn analyze_repository_for_planner(
                 .unwrap_or_else(|| plan.assistant_response.clone()),
             pending_plan: Some(plan),
             tree_nodes: None,
-            draft_tree_nodes: session
-                .draft_plan
-                .as_ref()
-                .map(|draft| build_draft_tree_nodes(draft, session.selected_draft_node_id.as_deref())),
+            draft_tree_nodes: session.draft_plan.as_ref().map(|draft| {
+                build_draft_tree_nodes(draft, session.selected_draft_node_id.as_deref())
+            }),
             selected_draft_node_id: session.selected_draft_node_id.clone(),
             execution_lines: vec![],
             execution_errors: vec![],
@@ -3819,12 +5173,16 @@ pub async fn analyze_repository_for_planner(
 #[cfg(test)]
 mod tests {
     use super::{
-        add_draft_child_node, apply_actions_to_draft, commit_draft_plan,
-        delete_draft_node, normalize_planner_action, rename_draft_node, PlannerDraftPlan,
+        add_draft_child_node, apply_actions_to_draft, build_draft_tree_nodes,
+        build_repository_analysis_snapshot, commit_draft_plan, create_planner_session,
+        delete_draft_node, normalize_planner_action, persist_draft_state, rename_draft_node,
+        submit_planner_voice_turn, PlannerDraftPlan, RepositoryAnalysisSnapshot,
     };
+    use crate::domain::repository::Repository;
     use crate::persistence::{db as db_service, product_repo, work_item_repo};
     use crate::state::AppState;
     use serde_json::json;
+    use std::fs;
     use std::path::PathBuf;
     use std::sync::{Arc, OnceLock};
     use tokio::sync::{Mutex, OwnedMutexGuard};
@@ -3867,6 +5225,19 @@ mod tests {
             .collect::<Vec<_>>()
     }
 
+    fn make_repository(temp_root: &PathBuf, name: &str) -> Repository {
+        Repository {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: name.to_string(),
+            local_path: temp_root.display().to_string(),
+            remote_url: "".to_string(),
+            default_branch: "main".to_string(),
+            auth_profile: None,
+            created_at: "2026-03-21 00:00:00".to_string(),
+            updated_at: "2026-03-21 00:00:00".to_string(),
+        }
+    }
+
     #[test]
     fn normalize_planner_action_repairs_relaxed_model_shapes() {
         let normalized = normalize_planner_action(json!({
@@ -3887,6 +5258,71 @@ mod tests {
                 .and_then(|value| value.get("capabilityName"))
                 .and_then(serde_json::Value::as_str),
             Some("Guest Profile Management")
+        );
+    }
+
+    #[test]
+    fn build_repository_analysis_snapshot_extracts_structured_signals() {
+        let temp_root = make_temp_dir("repo_analysis_snapshot");
+        fs::create_dir_all(temp_root.join("src/features/planner"))
+            .expect("failed to create feature dir");
+        fs::create_dir_all(temp_root.join("app/hotels")).expect("failed to create route dir");
+        fs::create_dir_all(temp_root.join("e2e")).expect("failed to create e2e dir");
+        fs::write(
+            temp_root.join("README.md"),
+            "# Hotel Management System\n## Planner\nInteractive planning workspace.",
+        )
+        .expect("failed to write README");
+        fs::write(
+            temp_root.join("package.json"),
+            r#"{
+              "name": "hotel-management-system",
+              "scripts": { "dev": "vite", "test:e2e": "playwright test" },
+              "dependencies": { "react": "^18.0.0", "vite": "^5.0.0", "@tanstack/react-query": "^5.0.0" },
+              "devDependencies": { "@playwright/test": "^1.0.0" }
+            }"#,
+        )
+        .expect("failed to write package.json");
+        fs::write(
+            temp_root.join("src/features/planner/PlannerPage.tsx"),
+            "export function PlannerPage() { return null; }",
+        )
+        .expect("failed to write planner page");
+        fs::write(
+            temp_root.join("app/hotels/page.tsx"),
+            "export default function Hotels() { return null; }",
+        )
+        .expect("failed to write route");
+        fs::write(
+            temp_root.join("e2e/planner.spec.ts"),
+            "test('planner', () => {});",
+        )
+        .expect("failed to write test");
+
+        let snapshot: RepositoryAnalysisSnapshot = build_repository_analysis_snapshot(
+            &make_repository(&temp_root, "hotel-management-system"),
+        )
+        .expect("snapshot should build");
+
+        assert!(
+            !snapshot.manifests.is_empty(),
+            "manifest signals should be extracted"
+        );
+        assert!(!snapshot.docs.is_empty(), "doc signals should be extracted");
+        assert!(
+            !snapshot.routes.is_empty(),
+            "route signals should be extracted"
+        );
+        assert!(
+            !snapshot.tests.is_empty(),
+            "test signals should be extracted"
+        );
+        assert!(
+            snapshot
+                .candidate_areas
+                .iter()
+                .any(|area| area.name.contains("Planner") || area.name.contains("Hotels")),
+            "candidate areas should include feature or route-derived areas"
         );
     }
 
@@ -3954,9 +5390,63 @@ mod tests {
         let work_item = draft
             .nodes
             .iter()
-            .find(|node| node.node_type == "work_item" && node.name == "Implement Guest Profile CRUD")
+            .find(|node| {
+                node.node_type == "work_item" && node.name == "Implement Guest Profile CRUD"
+            })
             .expect("missing work item node");
         assert_eq!(work_item.parent_id.as_deref(), Some(capability_id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn draft_tree_nodes_surface_repository_analysis_metadata() {
+        let _guard = acquire_planner_test_lock().await;
+        let actions = normalize_actions(vec![
+            json!({
+                "type": "create_product",
+                "name": "Hotel Management System",
+                "description": "Hotel root.",
+                "analysis": {
+                    "source": "repository_analysis",
+                    "confidence": "high",
+                    "evidence": [
+                        "doc: README.md -> Hotel Management System",
+                        "manifest: package.json -> hotel-management-system (React, Vite)"
+                    ]
+                }
+            }),
+            json!({
+                "type": "create_module",
+                "target": { "productName": "Hotel Management System" },
+                "name": "Interactive Planner",
+                "description": "Conversational planning surface.",
+                "analysis": {
+                    "source": "repository_analysis",
+                    "confidence": "medium",
+                    "evidence": [
+                        "path: src/features/planner/PlannerPage.tsx"
+                    ]
+                }
+            }),
+        ]);
+
+        let draft = apply_actions_to_draft(None, None, &actions)
+            .await
+            .expect("failed to build draft");
+        let tree = build_draft_tree_nodes(&draft, None);
+        let product = tree.first().expect("product node should exist");
+        let module = product.children.first().expect("module node should exist");
+
+        assert_eq!(product.source.as_deref(), Some("repository_analysis"));
+        assert_eq!(product.confidence.as_deref(), Some("high"));
+        assert!(product
+            .evidence
+            .iter()
+            .any(|line| line.contains("README.md")));
+        assert_eq!(module.source.as_deref(), Some("repository_analysis"));
+        assert_eq!(
+            module.summary.as_deref(),
+            Some("Conversational planning surface.")
+        );
     }
 
     #[tokio::test]
@@ -4012,12 +5502,145 @@ mod tests {
         let work_item = draft
             .nodes
             .iter()
-            .find(|node| node.node_type == "work_item" && node.name == "Implement Guest Profile CRUD")
+            .find(|node| {
+                node.node_type == "work_item" && node.name == "Implement Guest Profile CRUD"
+            })
             .expect("missing work item");
 
         assert_eq!(module.parent_id.as_deref(), Some(product.id.as_str()));
         assert_eq!(capability.parent_id.as_deref(), Some(module.id.as_str()));
         assert_eq!(work_item.parent_id.as_deref(), Some(capability.id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn apply_actions_to_draft_infers_product_from_module_target_on_follow_up() {
+        let _guard = acquire_planner_test_lock().await;
+
+        let seed_actions = normalize_actions(vec![
+            json!({
+                "type": "create_product",
+                "name": "Library Management System",
+                "description": "Library root."
+            }),
+            json!({
+                "type": "create_module",
+                "target": { "productName": "Library Management System" },
+                "name": "Circulation",
+                "description": "Loans and returns."
+            }),
+        ]);
+
+        let draft = apply_actions_to_draft(None, None, &seed_actions)
+            .await
+            .expect("failed to seed draft");
+
+        let follow_up_actions = normalize_actions(vec![json!({
+            "type": "create_module",
+            "target": { "moduleName": "Circulation" },
+            "name": "Notifications",
+            "description": "Email and WhatsApp alerts for due dates."
+        })]);
+
+        let draft = apply_actions_to_draft(Some(draft), None, &follow_up_actions)
+            .await
+            .expect("failed to infer sibling module product");
+
+        let product = draft
+            .nodes
+            .iter()
+            .find(|node| node.node_type == "product" && node.name == "Library Management System")
+            .expect("missing product");
+        let notifications = draft
+            .nodes
+            .iter()
+            .find(|node| node.node_type == "module" && node.name == "Notifications")
+            .expect("missing notifications module");
+
+        assert_eq!(
+            notifications.parent_id.as_deref(),
+            Some(product.id.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn submit_planner_voice_turn_selects_draft_nodes() {
+        let _guard = acquire_planner_test_lock().await;
+        let state = make_test_state("voice_selects_draft_node").await;
+        let session = create_planner_session(state.planner_service.clone(), &state.db, None, None)
+            .await
+            .expect("failed to create planner session");
+
+        let draft = apply_actions_to_draft(
+            None,
+            None,
+            &normalize_actions(vec![
+                json!({
+                    "type": "create_product",
+                    "name": "Hotel Management System",
+                    "description": "Hotel root."
+                }),
+                json!({
+                    "type": "create_module",
+                    "target": { "productName": "Hotel Management System" },
+                    "name": "Guest Management",
+                    "description": "Guest workflows."
+                }),
+            ]),
+        )
+        .await
+        .expect("failed to build draft");
+        let product_id = draft
+            .nodes
+            .iter()
+            .find(|node| node.node_type == "product")
+            .expect("missing product")
+            .id
+            .clone();
+        let module_id = draft
+            .nodes
+            .iter()
+            .find(|node| node.node_type == "module" && node.name == "Guest Management")
+            .expect("missing module")
+            .id
+            .clone();
+
+        {
+            let mut service = state.planner_service.lock().await;
+            let mut loaded = service
+                .get_session(&session.session_id)
+                .expect("planner session should exist");
+            loaded.draft_plan = Some(draft.clone());
+            loaded.selected_draft_node_id = Some(product_id.clone());
+            service.save_session(&session.session_id, loaded);
+        }
+        persist_draft_state(
+            &state.db,
+            &session.session_id,
+            Some(&draft),
+            Some(product_id.as_str()),
+        )
+        .await
+        .expect("failed to persist draft state");
+
+        let response = submit_planner_voice_turn(
+            state.planner_service.clone(),
+            &state,
+            session.session_id.clone(),
+            "select module guest management".to_string(),
+            None,
+        )
+        .await
+        .expect("voice turn should succeed");
+
+        assert_eq!(response.status, "session_update");
+        assert_eq!(
+            response.selected_draft_node_id.as_deref(),
+            Some(module_id.as_str())
+        );
+        assert!(response
+            .assistant_message
+            .contains("Selected module \"Guest Management\""));
+        assert!(response.draft_tree_nodes.is_some());
     }
 
     #[tokio::test]
@@ -4087,9 +5710,10 @@ mod tests {
             .map(|feature| feature.capability.name.clone());
         assert_eq!(capability.as_deref(), Some("Guest Profile Management"));
 
-        let work_items = work_item_repo::list_work_items(&state.db, Some(&product.id), None, None, None)
-            .await
-            .expect("failed to list work items");
+        let work_items =
+            work_item_repo::list_work_items(&state.db, Some(&product.id), None, None, None)
+                .await
+                .expect("failed to list work items");
         assert!(work_items
             .iter()
             .any(|item| item.title == "Implement Guest Profile CRUD"));
@@ -4219,13 +5843,14 @@ mod tests {
         assert_eq!(capability.parent_id.as_deref(), Some(module_id.as_str()));
         assert_eq!(work_item.parent_id.as_deref(), Some(capability.id.as_str()));
 
-        let (_, fallback_parent_id) = delete_draft_node(&mut draft, &capability.id)
-            .expect("delete should succeed");
+        let (_, fallback_parent_id) =
+            delete_draft_node(&mut draft, &capability.id).expect("delete should succeed");
 
         assert_eq!(fallback_parent_id.as_deref(), Some(module_id.as_str()));
         assert!(draft
             .nodes
             .iter()
-            .all(|node| node.name != "Notification Preferences" && node.name != "Build Preference Capture Form"));
+            .all(|node| node.name != "Notification Preferences"
+                && node.name != "Build Preference Capture Form"));
     }
 }

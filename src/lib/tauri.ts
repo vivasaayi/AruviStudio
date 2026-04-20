@@ -11,6 +11,7 @@ import type {
   AgentModelBinding,
   ModelProvider,
   ModelDefinition,
+  LocalModelRegistrationResult,
   AgentDefinition,
   AgentTeam,
   AgentTeamMembership,
@@ -26,12 +27,15 @@ import type {
   Finding,
   ProductTree,
   DatabaseHealth,
+  MobileBridgeStatus,
+  McpBridgeStatus,
   ChatMessagePayload,
   ChatCompletionResponse,
   WorkspaceProvisionResult,
   PlannerContactResult,
   PlannerDraftChildType,
   PlannerSessionInfo,
+  SpeechToTextResponse,
   PlannerTurnResponse,
 } from "./types";
 
@@ -39,6 +43,7 @@ declare global {
   interface Window {
     __ARUVI_E2E__?: {
       invoke?: <T>(command: string, args?: Record<string, unknown>) => Promise<T> | T;
+      runPlannerVoiceTranscript?: (transcript: string) => Promise<void> | void;
     };
   }
 }
@@ -249,6 +254,12 @@ export const listRepositories = () => invoke<Repository[]>("list_repositories");
 export const deleteRepository = (id: string) => invoke("delete_repository", { id });
 export const browseForRepositoryPath = () => invoke<string | null>("browse_for_repository_path");
 export const revealInFinder = (path: string) => invoke<void>("reveal_in_finder", { path });
+export const exportProductOverviewHtml = (data: { fileName: string; html: string }) =>
+  invoke<string>("export_product_overview_html", {
+    fileName: data.fileName,
+    file_name: data.fileName,
+    html: data.html,
+  });
 export const attachRepository = (data: { scopeType: "product" | "module"; scopeId: string; repositoryId: string; isDefault: boolean }) =>
   invoke("attach_repository", {
     scope_type: data.scopeType,
@@ -407,6 +418,53 @@ export const updateModelDefinition = (data: {
   });
 export const deleteModelDefinition = (id: string) => invoke("delete_model_definition", { id });
 export const testProviderConnectivity = (id: string) => invoke<string>("test_provider_connectivity", { id });
+export const browseForLocalModelFile = () =>
+  invoke<string | null>("browse_for_local_model_file");
+export const registerLocalRuntimeModel = (data: {
+  providerName: string;
+  modelName: string;
+  modelPath: string;
+  capabilityTags?: string[];
+  notes?: string;
+  contextWindow?: number;
+}) =>
+  invoke<LocalModelRegistrationResult>("register_local_runtime_model_command", {
+    providerName: data.providerName,
+    provider_name: data.providerName,
+    modelName: data.modelName,
+    model_name: data.modelName,
+    modelPath: data.modelPath,
+    model_path: data.modelPath,
+    capabilityTags: data.capabilityTags ? toJsonStringArray(data.capabilityTags) : null,
+    capability_tags: data.capabilityTags ? toJsonStringArray(data.capabilityTags) : null,
+    notes: data.notes ?? null,
+    contextWindow: data.contextWindow ?? null,
+    context_window: data.contextWindow ?? null,
+  });
+export const installManagedLocalModel = (data: {
+  providerName: string;
+  modelName: string;
+  downloadUrl: string;
+  fileName: string;
+  capabilityTags?: string[];
+  notes?: string;
+  contextWindow?: number;
+}) =>
+  invoke<LocalModelRegistrationResult>("install_managed_local_model_command", {
+    providerName: data.providerName,
+    provider_name: data.providerName,
+    modelName: data.modelName,
+    model_name: data.modelName,
+    downloadUrl: data.downloadUrl,
+    download_url: data.downloadUrl,
+    fileName: data.fileName,
+    file_name: data.fileName,
+    capabilityTags: data.capabilityTags ? toJsonStringArray(data.capabilityTags) : null,
+    capability_tags: data.capabilityTags ? toJsonStringArray(data.capabilityTags) : null,
+    notes: data.notes ?? null,
+    contextWindow: data.contextWindow ?? null,
+    context_window: data.contextWindow ?? null,
+  });
 export const runModelChatCompletion = (data: {
   providerId: string;
   model: string;
@@ -630,6 +688,8 @@ export const restartWorkflowRun = (workflowRunId: string) =>
 // Settings commands
 export const getSetting = (key: string) => invoke<string | null>("get_setting", { key });
 export const setSetting = (key: string, value: string) => invoke("set_setting", { key, value });
+export const getMobileBridgeStatus = () => invoke<MobileBridgeStatus>("get_mobile_bridge_status");
+export const getMcpBridgeStatus = () => invoke<McpBridgeStatus>("get_mcp_bridge_status");
 export const getDatabaseHealth = () => invoke<DatabaseHealth>("get_database_health");
 export const getActiveDatabasePath = () => invoke<string>("get_active_database_path");
 export const getDatabasePathOverride = () => invoke<string | null>("get_database_path_override");
@@ -677,6 +737,17 @@ export const submitPlannerTurn = (data: { sessionId: string; userInput: string; 
     session_id: data.sessionId,
     userInput: data.userInput,
     user_input: data.userInput,
+    selectedDraftNodeId: data.selectedDraftNodeId ?? null,
+    selected_draft_node_id: data.selectedDraftNodeId ?? null,
+  });
+
+export const submitPlannerVoiceTurn = (data: { sessionId: string; transcript: string; selectedDraftNodeId?: string | null }) =>
+  invoke<PlannerTurnResponse>("submit_planner_voice_turn_command", {
+    sessionId: data.sessionId,
+    session_id: data.sessionId,
+    transcript: data.transcript,
+    userInput: data.transcript,
+    user_input: data.transcript,
     selectedDraftNodeId: data.selectedDraftNodeId ?? null,
     selected_draft_node_id: data.selectedDraftNodeId ?? null,
   });
@@ -741,6 +812,36 @@ export const analyzeRepositoryForPlanner = (data: {
     repository_id: data.repositoryId,
     selectedDraftNodeId: data.selectedDraftNodeId ?? null,
     selected_draft_node_id: data.selectedDraftNodeId ?? null,
+  });
+
+export const transcribeAudio = (data: {
+  providerId?: string;
+  modelName?: string;
+  audioBytesBase64: string;
+  mimeType: string;
+  locale?: string;
+}) =>
+  invoke<SpeechToTextResponse>("transcribe_audio_command", {
+    providerId: data.providerId ?? null,
+    provider_id: data.providerId ?? null,
+    modelName: data.modelName ?? null,
+    model_name: data.modelName ?? null,
+    audioBytesBase64: data.audioBytesBase64,
+    audio_bytes_base64: data.audioBytesBase64,
+    mimeType: data.mimeType,
+    mime_type: data.mimeType,
+    locale: data.locale ?? null,
+  });
+
+export const speakTextNatively = (data: {
+  text: string;
+  voice?: string;
+  locale?: string;
+}) =>
+  invoke<void>("speak_text_natively_command", {
+    text: data.text,
+    voice: data.voice ?? null,
+    locale: data.locale ?? null,
   });
 
 export const sendTwilioWhatsappMessage = (data: { to: string; content: string }) =>

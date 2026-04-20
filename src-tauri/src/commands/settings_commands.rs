@@ -1,5 +1,6 @@
 use crate::error::AppError;
 use crate::persistence::settings_repo;
+use crate::services::webhook_service::{self, McpBridgeStatus, MobileBridgeStatus};
 use crate::state::AppState;
 use serde::Serialize;
 use sqlx::FromRow;
@@ -36,6 +37,24 @@ pub async fn set_setting(
     value: String,
 ) -> Result<(), AppError> {
     settings_repo::set_setting(&state.db, &key, &value).await
+}
+
+#[tauri::command]
+pub async fn get_mobile_bridge_status(
+    state: State<'_, AppState>,
+) -> Result<MobileBridgeStatus, AppError> {
+    webhook_service::resolve_mobile_bridge_status(&state)
+        .await
+        .map_err(AppError::Internal)
+}
+
+#[tauri::command]
+pub async fn get_mcp_bridge_status(
+    state: State<'_, AppState>,
+) -> Result<McpBridgeStatus, AppError> {
+    webhook_service::resolve_mcp_bridge_status(&state)
+        .await
+        .map_err(AppError::Internal)
 }
 
 #[tauri::command]

@@ -10,13 +10,13 @@ interface UIState {
   moduleDialogMode: "closed" | "create" | "edit";
   capabilityDialogMode: "closed" | "create" | "edit";
   workItemCreateDialogOpen: boolean;
-  productWorkspaceTab: "dashboard" | "structure" | "work-items";
+  productWorkspaceTab: "dashboard" | "overview" | "structure" | "work-items";
   workItemWorkspaceTab: "backlog" | "detail" | "review";
   expandedModules: Record<string, boolean>;
   expandedCapabilities: Record<string, boolean>;
   showHierarchyWorkItems: boolean;
   productPickerCollapsed: boolean;
-  activeView: "products" | "work-items" | "planner" | "chat" | "ide" | "repositories" | "agents" | "models" | "settings";
+  activeView: "products" | "product-overview" | "work-items" | "planner" | "chat" | "voice-chat" | "ide" | "repositories" | "agents" | "models" | "settings";
   toggleLeftSidebar: () => void;
   toggleRightSidebar: () => void;
   toggleBottomPanel: () => void;
@@ -29,7 +29,7 @@ interface UIState {
   closeCapabilityDialog: () => void;
   openWorkItemCreateDialog: () => void;
   closeWorkItemCreateDialog: () => void;
-  setProductWorkspaceTab: (tab: "dashboard" | "structure" | "work-items") => void;
+  setProductWorkspaceTab: (tab: "dashboard" | "overview" | "structure" | "work-items") => void;
   setWorkItemWorkspaceTab: (tab: "backlog" | "detail" | "review") => void;
   toggleModuleExpanded: (id: string) => void;
   toggleCapabilityExpanded: (id: string) => void;

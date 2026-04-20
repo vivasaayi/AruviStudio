@@ -1,7 +1,9 @@
+mod bootstrap;
 mod commands;
 mod domain;
 mod error;
 mod execution;
+mod mcp;
 mod observability;
 mod persistence;
 mod providers;
@@ -10,7 +12,6 @@ mod services;
 mod state;
 mod workflows;
 
-use state::AppState;
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -22,39 +23,9 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
-            let state = rt.block_on(async {
-                let proj_dirs = directories::ProjectDirs::from("com", "aruvi", "studio")
-                    .expect("Failed to get project directories");
-                let data_dir = proj_dirs.data_dir();
-                std::fs::create_dir_all(data_dir).expect("Failed to create data directory");
-
-                let db_override_path = data_dir.join("db_override_path.txt");
-                let db_path = std::env::var("ARUVI_DB_PATH")
-                    .ok()
-                    .map(std::path::PathBuf::from)
-                    .or_else(|| {
-                        std::fs::read_to_string(&db_override_path)
-                            .ok()
-                            .map(|value| value.trim().to_string())
-                            .filter(|value| !value.is_empty())
-                            .map(std::path::PathBuf::from)
-                    })
-                    .unwrap_or_else(|| data_dir.join("aruvi_studio.db"));
-
-                if let Some(parent) = db_path.parent() {
-                    std::fs::create_dir_all(parent)
-                        .expect("Failed to create parent directory for database path");
-                }
-                let db_url = format!("sqlite:{}", db_path.display());
-
-                let pool = persistence::db::create_pool(&db_url)
-                    .await
-                    .expect("Failed to create database pool");
-
-                AppState::new(pool, data_dir.to_path_buf())
-                    .await
-                    .expect("Failed to create app state")
-            });
+            let state = rt
+                .block_on(async { bootstrap::initialize_app_state().await })
+                .expect("Failed to create app state");
             let webhook_state = state.clone();
             app.manage(state);
             tauri::async_runtime::spawn(async move {
@@ -101,6 +72,7 @@ pub fn run() {
             commands::repository_commands::create_local_workspace,
             commands::repository_commands::browse_for_repository_path,
             commands::repository_commands::reveal_in_finder,
+            commands::repository_commands::export_product_overview_html,
             commands::repository_commands::list_repository_tree,
             commands::repository_commands::read_repository_file,
             commands::repository_commands::write_repository_file,
@@ -163,6 +135,9 @@ pub fn run() {
             commands::model_commands::update_model_definition,
             commands::model_commands::delete_model_definition,
             commands::model_commands::test_provider_connectivity,
+            commands::model_commands::browse_for_local_model_file,
+            commands::model_commands::register_local_runtime_model_command,
+            commands::model_commands::install_managed_local_model_command,
             commands::model_commands::run_model_chat_completion,
             commands::model_commands::start_model_chat_stream,
             // Planner commands
@@ -170,6 +145,7 @@ pub fn run() {
             commands::planner_commands::update_planner_session_command,
             commands::planner_commands::clear_planner_pending_command,
             commands::planner_commands::submit_planner_turn_command,
+            commands::planner_commands::submit_planner_voice_turn_command,
             commands::planner_commands::confirm_planner_plan_command,
             commands::planner_commands::rename_planner_draft_node_command,
             commands::planner_commands::add_planner_draft_child_command,
@@ -187,14 +163,24 @@ pub fn run() {
             // Settings commands
             commands::settings_commands::get_setting,
             commands::settings_commands::set_setting,
+            commands::settings_commands::get_mobile_bridge_status,
+            commands::settings_commands::get_mcp_bridge_status,
             commands::settings_commands::get_database_health,
             commands::settings_commands::get_active_database_path,
             commands::settings_commands::get_database_path_override,
             commands::settings_commands::set_database_path_override,
             commands::settings_commands::clear_database_path_override,
+            // Speech commands
+            commands::speech_commands::transcribe_audio_command,
+            commands::speech_commands::speak_text_natively_command,
             // Observability commands
             commands::observability_commands::get_logs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+pub fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
+    observability::logger::init_logging();
+    mcp::run_stdio_server()
 }

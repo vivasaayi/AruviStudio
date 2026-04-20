@@ -9,5 +9,6 @@ pub mod planner_commands;
 pub mod product_commands;
 pub mod repository_commands;
 pub mod settings_commands;
+pub mod speech_commands;
 pub mod work_item_commands;
 pub mod workflow_commands;

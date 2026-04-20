@@ -2,8 +2,8 @@ use crate::error::AppError;
 use crate::services::planner_service::{
     add_planner_draft_child, analyze_repository_for_planner, clear_planner_pending,
     confirm_planner_plan, create_planner_session, delete_planner_draft_node,
-    rename_planner_draft_node, submit_planner_turn, update_planner_session, PlannerSessionInfo,
-    PlannerTurnResponse,
+    rename_planner_draft_node, submit_planner_turn, submit_planner_voice_turn,
+    update_planner_session, PlannerSessionInfo, PlannerTurnResponse,
 };
 use crate::state::AppState;
 use tauri::State;
@@ -85,6 +85,35 @@ pub async fn submit_planner_turn_command(
         &state,
         session_id,
         user_input,
+        selected_draft_node_id.or(selectedDraftNodeId),
+    )
+    .await
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn submit_planner_voice_turn_command(
+    state: State<'_, AppState>,
+    session_id: Option<String>,
+    sessionId: Option<String>,
+    transcript: Option<String>,
+    user_input: Option<String>,
+    userInput: Option<String>,
+    selected_draft_node_id: Option<String>,
+    selectedDraftNodeId: Option<String>,
+) -> Result<PlannerTurnResponse, AppError> {
+    let session_id = session_id
+        .or(sessionId)
+        .ok_or_else(|| AppError::Validation("missing planner session id".to_string()))?;
+    let transcript = transcript
+        .or(user_input)
+        .or(userInput)
+        .ok_or_else(|| AppError::Validation("missing planner voice transcript".to_string()))?;
+    submit_planner_voice_turn(
+        state.planner_service.clone(),
+        &state,
+        session_id,
+        transcript,
         selected_draft_node_id.or(selectedDraftNodeId),
     )
     .await

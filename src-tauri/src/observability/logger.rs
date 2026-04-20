@@ -6,7 +6,12 @@ pub fn init_logging() {
 
     tracing_subscriber::registry()
         .with(filter)
-        .with(fmt::layer().with_target(true).with_thread_ids(true))
+        .with(
+            fmt::layer()
+                .with_target(true)
+                .with_thread_ids(true)
+                .with_writer(std::io::stderr),
+        )
         .init();
 
     tracing::info!("AruviStudio logging initialized");

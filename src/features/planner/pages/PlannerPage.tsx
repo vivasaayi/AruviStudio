@@ -17,6 +17,7 @@ import {
   deleteCapability,
   deleteModule,
   deleteWorkItem,
+  getSetting,
   getLatestWorkflowRunForWorkItem,
   getProductTree,
   handleWorkflowUserAction,
@@ -29,20 +30,21 @@ import {
   rejectWorkItem,
   rejectWorkItemPlan,
   registerRepository,
-  routePlannerContact,
   analyzeRepositoryForPlanner,
   renamePlannerDraftNode,
   runModelChatCompletion,
-  sendTwilioWhatsappMessage,
+  speakTextNatively,
   startWorkItemWorkflow,
-  startTwilioVoiceCall,
   submitPlannerTurn,
+  submitPlannerVoiceTurn,
+  transcribeAudio,
   updatePlannerSession,
   updateCapability,
   updateModule,
   updateProduct,
   updateWorkItem,
 } from "../../../lib/tauri";
+import { blobToBase64, speakInBrowser, startWavCapture, type ActiveAudioCapture } from "../../shared/voice";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import type {
   CapabilityTree,
@@ -56,20 +58,18 @@ import type {
 } from "../../../lib/types";
 
 const styles: Record<string, React.CSSProperties> = {
-  page: { display: "flex", flexDirection: "column", gap: 12, height: "100%" },
-  header: { display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" },
-  titleWrap: { display: "flex", flexDirection: "column", gap: 4 },
-  headerActions: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" as const },
-  title: { fontSize: 22, fontWeight: 800, color: "#f5f7fb", margin: 0 },
-  subtitle: { fontSize: 13, color: "#9da7b5", maxWidth: 760, lineHeight: 1.45 },
+  page: { display: "flex", flexDirection: "column", gap: 8, height: "100%" },
   topGrid: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) 320px", gap: 12, minHeight: 0, flex: 1 },
+  compactStack: { display: "flex", flexDirection: "column", gap: 12, minHeight: 0, flex: 1 },
   panel: { backgroundColor: "#212327", border: "1px solid #32353d", borderRadius: 14, minHeight: 0, overflow: "hidden" },
   panelBody: { padding: 16, height: "100%", overflow: "auto" },
+  compactPanelBody: { padding: 14, height: "100%", overflow: "auto" },
   sectionTitle: { fontSize: 11, fontWeight: 800, letterSpacing: 0.8, textTransform: "uppercase" as const, color: "#8f96a3", marginBottom: 10 },
   sectionHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10 },
   transcript: { display: "flex", flexDirection: "column", gap: 10 },
   bubbleUser: { alignSelf: "flex-end", maxWidth: "80%", backgroundColor: "#0e639c", color: "#fff", borderRadius: 14, padding: "12px 14px", whiteSpace: "pre-wrap" as const },
   bubbleAssistant: { alignSelf: "flex-start", maxWidth: "84%", backgroundColor: "#2c3139", color: "#edf1f8", borderRadius: 14, padding: "12px 14px", whiteSpace: "pre-wrap" as const },
+  bubblePending: { alignSelf: "flex-end", maxWidth: "80%", backgroundColor: "#17405f", color: "#e9f4ff", borderRadius: 14, padding: "12px 14px", whiteSpace: "pre-wrap" as const, border: "1px dashed #5aa9e6", opacity: 0.95 },
   bubbleMeta: { display: "block", marginTop: 8, fontSize: 11, color: "#a3adbb" },
   composerWrap: { display: "flex", flexDirection: "column", gap: 10, borderTop: "1px solid #32353d", paddingTop: 12, marginTop: 12 },
   textarea: { width: "100%", minHeight: 92, resize: "vertical" as const, padding: "12px 14px", borderRadius: 12, backgroundColor: "#181a1f", border: "1px solid #3c4048", color: "#edf1f8", fontSize: 14, boxSizing: "border-box" as const },
@@ -93,6 +93,9 @@ const styles: Record<string, React.CSSProperties> = {
   listItemTitle: { fontSize: 12, fontWeight: 700, color: "#edf1f8", marginBottom: 4 },
   listItemMeta: { fontSize: 12, color: "#9da7b5", whiteSpace: "pre-wrap" as const },
   card: { border: "1px solid #3a4250", backgroundColor: "#1b2029", borderRadius: 12, padding: 12, marginTop: 10 },
+  voiceReviewCard: { border: "1px solid #375172", backgroundColor: "#142536", borderRadius: 12, padding: 12, marginBottom: 10 },
+  voiceReviewHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" as const },
+  voiceReviewTitle: { fontSize: 13, fontWeight: 800, color: "#eef6ff" },
   cardTitle: { fontSize: 13, fontWeight: 800, color: "#eef3fb", marginBottom: 8 },
   cardSection: { marginTop: 10 },
   diffRow: { display: "grid", gridTemplateColumns: "24px minmax(0, 1fr)", gap: 8, alignItems: "start", padding: "8px 0", borderTop: "1px solid #2c3440" },
@@ -153,6 +156,22 @@ const styles: Record<string, React.CSSProperties> = {
   fieldGroup: { display: "flex", flexDirection: "column", gap: 8, marginTop: 10 },
   compactTextarea: { width: "100%", minHeight: 70, resize: "vertical" as const, padding: "9px 10px", borderRadius: 10, backgroundColor: "#17191d", border: "1px solid #3c4048", color: "#edf1f8", fontSize: 13, boxSizing: "border-box" as const },
   mutedButton: { padding: "9px 14px", fontSize: 13, backgroundColor: "#1f2530", color: "#dce6f4", border: "1px solid #344050", borderRadius: 10, cursor: "pointer", fontWeight: 700 },
+  statusBanner: { border: "1px solid #334154", backgroundColor: "#18202b", borderRadius: 12, padding: "10px 12px", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" as const },
+  statusBannerStrong: { fontSize: 13, fontWeight: 800, color: "#edf1f8" },
+  statusBannerMeta: { fontSize: 12, color: "#9da7b5", lineHeight: 1.45, marginTop: 4 },
+  compactControlStrip: { display: "flex", gap: 8, flexWrap: "wrap" as const, alignItems: "center", marginBottom: 12 },
+  compactSummaryCard: { border: "1px solid #32353d", backgroundColor: "#1b1d22", borderRadius: 12, padding: 12 },
+  compactSummaryGrid: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 },
+  compactSummaryItem: { borderRadius: 10, backgroundColor: "#161920", border: "1px solid #313844", padding: "10px 12px" },
+  compactSummaryLabel: { fontSize: 11, color: "#8f96a3", textTransform: "uppercase" as const, letterSpacing: 0.5 },
+  compactSummaryValue: { fontSize: 13, fontWeight: 800, color: "#edf1f8", marginTop: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
+  composerScopeCard: { border: "1px solid #32353d", backgroundColor: "#1b1d22", borderRadius: 12, padding: 10 },
+  composerScopeTitle: { fontSize: 12, fontWeight: 800, color: "#e7edf7", marginBottom: 6 },
+  modalOverlay: { position: "fixed" as const, inset: 0, backgroundColor: "rgba(5, 8, 12, 0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, zIndex: 50 },
+  modalCard: { width: "min(720px, 100%)", maxHeight: "80vh", overflow: "auto" as const, backgroundColor: "#1b1d22", border: "1px solid #32353d", borderRadius: 16, padding: 16, boxShadow: "0 18px 60px rgba(0,0,0,0.4)" },
+  modalHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 12 },
+  modalTitle: { fontSize: 18, fontWeight: 800, color: "#edf1f8" },
+  iconButton: { padding: "9px 12px", fontSize: 13, backgroundColor: "#2c3139", color: "#e3e8f0", border: "1px solid #3c4048", borderRadius: 10, cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" as const },
 };
 
 type PlannerMessageKind = "text" | "proposal" | "tree" | "report" | "execution" | "error";
@@ -161,6 +180,11 @@ type PlannerTreeNode = {
   id: string;
   label: string;
   meta?: string | null;
+  node_type?: string | null;
+  summary?: string | null;
+  source?: string | null;
+  confidence?: string | null;
+  evidence?: string[];
   children: PlannerTreeNode[];
 };
 
@@ -341,6 +365,16 @@ type PlannerMutationResult =
       traceEvents?: PlannerTraceEvent[];
     }
   | {
+      mode: "session_updated";
+      userInput: string;
+      plan: PlannerPlan;
+      execution: ExecutionResult;
+      treeNodes?: PlannerTreeNode[];
+      draftTreeNodes?: PlannerTreeNode[];
+      selectedDraftNodeId?: string | null;
+      traceEvents?: PlannerTraceEvent[];
+    }
+  | {
       mode: "failed";
       userInput: string;
       plan: PlannerPlan;
@@ -356,41 +390,16 @@ type DraftEditOperation =
   | { kind: "add_child"; parentNodeId: string; childType: PlannerDraftChildType; name: string; summary?: string }
   | { kind: "delete"; nodeId: string };
 
-type SpeechRecognitionLike = {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onstart: (() => void) | null;
-  onend: (() => void) | null;
-  onerror: ((event: { error: string }) => void) | null;
-  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
-  start: () => void;
-  stop: () => void;
-};
-
-type SpeechRecognitionAlternativeLike = {
-  transcript: string;
-};
-
-type SpeechRecognitionResultLike = {
-  isFinal: boolean;
-  0: SpeechRecognitionAlternativeLike;
-};
-
-type SpeechRecognitionEventLike = {
-  resultIndex: number;
-  results: SpeechRecognitionResultLike[];
-};
-
-declare global {
-  interface Window {
-    SpeechRecognition?: new () => SpeechRecognitionLike;
-    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
-  }
-}
-
 const DEFAULT_ASSISTANT_OPENING =
   "Talk to me like a planning lead. Describe the product or outcome you want, and I’ll check what already exists, suggest any missing products, capabilities, or work items, and wait for your confirmation before adding them.";
+
+const SPEECH_PROVIDER_KEY = "speech.transcription_provider_id";
+const SPEECH_MODEL_KEY = "speech.transcription_model_name";
+const SPEECH_LOCALE_KEY = "speech.locale";
+const SPEECH_NATIVE_VOICE_KEY = "speech.native_voice";
+const SPEECH_ENABLE_MIC_KEY = "speech.enable_mic";
+const SPEECH_AUTO_SPEAK_REPLIES_KEY = "speech.auto_speak_replies";
+const SPEECH_REVIEW_BEFORE_SEND_KEY = "speech.review_before_send";
 
 const PLANNER_SYSTEM_PROMPT = `You are an AI planning lead for a product-management desktop app.
 You can inspect the workspace with tools before proposing changes.
@@ -798,17 +807,6 @@ async function runPlannerToolLoop(params: {
   throw new Error("Planner exceeded tool-step limit before returning a final plan.");
 }
 
-function speak(text: string) {
-  if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-    return;
-  }
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.rate = 1;
-  utterance.pitch = 1;
-  window.speechSynthesis.speak(utterance);
-}
-
 function findProduct(context: ResolverContext, productName?: string) {
   if (productName) {
     const normalized = normalize(productName);
@@ -835,6 +833,16 @@ function findProduct(context: ResolverContext, productName?: string) {
     return context.products[0];
   }
   throw new Error("Product is required.");
+}
+
+function formatElapsedMs(value: number) {
+  const totalSeconds = Math.max(0, Math.round(value / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes > 0) {
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${seconds}s`;
 }
 
 function findTree(context: ResolverContext, product: Product) {
@@ -1139,25 +1147,42 @@ function buildWorkItemTreeNodes(context: ResolverContext, productName?: string):
   });
 }
 
-function summarizeAction(action: PlannerAction) {
-  const target = (action as { target?: { productName?: string; moduleName?: string; capabilityName?: string; workItemTitle?: string } }).target;
-  switch (action.type) {
+function summarizeAction(action: PlannerAction | Record<string, unknown> | null | undefined) {
+  if (!action || typeof action !== "object") {
+    return {
+      symbol: "?",
+      tone: "warn" as const,
+      title: "Unknown planner action",
+      detail: "The planner returned an empty or invalid action payload.",
+    };
+  }
+  const raw = action as Record<string, unknown>;
+  const actionType = typeof (action as { type?: unknown }).type === "string"
+    ? String((action as { type: string }).type)
+    : "unknown_action";
+  const target = raw.target as { productName?: string; moduleName?: string; capabilityName?: string; workItemTitle?: string } | undefined;
+  const name = typeof raw.name === "string" ? raw.name : undefined;
+  const title = typeof raw.title === "string" ? raw.title : undefined;
+  const description = typeof raw.description === "string" ? raw.description : undefined;
+  const vision = typeof raw.vision === "string" ? raw.vision : undefined;
+  const fields = raw.fields ?? undefined;
+  switch (actionType) {
     case "create_product":
-      return { symbol: "+", tone: "add", title: `Create product ${action.name ?? target?.productName ?? "unnamed product"}`, detail: action.description || action.vision || "New product proposal." };
+      return { symbol: "+", tone: "add", title: `Create product ${name ?? target?.productName ?? "unnamed product"}`, detail: description || vision || "New product proposal." };
     case "create_module":
-      return { symbol: "+", tone: "add", title: `Create module ${action.name ?? target?.moduleName ?? "unnamed module"}`, detail: target?.productName ? `Product: ${target.productName}` : "Attach to selected product." };
+      return { symbol: "+", tone: "add", title: `Create module ${name ?? target?.moduleName ?? "unnamed module"}`, detail: target?.productName ? `Product: ${target.productName}` : "Attach to selected product." };
     case "create_capability":
-      return { symbol: "+", tone: "add", title: `Create capability ${action.name ?? target?.capabilityName ?? "unnamed capability"}`, detail: [target?.productName, target?.moduleName].filter(Boolean).join(" / ") || "Attach to selected scope." };
+      return { symbol: "+", tone: "add", title: `Create capability ${name ?? target?.capabilityName ?? "unnamed capability"}`, detail: [target?.productName, target?.moduleName].filter(Boolean).join(" / ") || "Attach to selected scope." };
     case "create_work_item":
-      return { symbol: "+", tone: "add", title: `Create work item ${action.title ?? target?.workItemTitle ?? "untitled work item"}`, detail: [target?.productName, target?.moduleName, target?.capabilityName].filter(Boolean).join(" / ") || action.description || "New work item proposal." };
+      return { symbol: "+", tone: "add", title: `Create work item ${title ?? target?.workItemTitle ?? "untitled work item"}`, detail: [target?.productName, target?.moduleName, target?.capabilityName].filter(Boolean).join(" / ") || description || "New work item proposal." };
     case "update_product":
-      return { symbol: "~", tone: "update", title: `Update product ${action.target?.productName ?? ""}`.trim(), detail: JSON.stringify(action.fields, null, 2) };
+      return { symbol: "~", tone: "update", title: `Update product ${target?.productName ?? ""}`.trim(), detail: JSON.stringify(fields, null, 2) };
     case "update_module":
-      return { symbol: "~", tone: "update", title: `Update module ${action.target?.moduleName ?? ""}`.trim(), detail: JSON.stringify(action.fields, null, 2) };
+      return { symbol: "~", tone: "update", title: `Update module ${target?.moduleName ?? ""}`.trim(), detail: JSON.stringify(fields, null, 2) };
     case "update_capability":
-      return { symbol: "~", tone: "update", title: `Update capability ${action.target?.capabilityName ?? ""}`.trim(), detail: JSON.stringify(action.fields, null, 2) };
+      return { symbol: "~", tone: "update", title: `Update capability ${target?.capabilityName ?? ""}`.trim(), detail: JSON.stringify(fields, null, 2) };
     case "update_work_item":
-      return { symbol: "~", tone: "update", title: `Update work item ${action.target?.workItemTitle ?? ""}`.trim(), detail: JSON.stringify(action.fields, null, 2) };
+      return { symbol: "~", tone: "update", title: `Update work item ${target?.workItemTitle ?? ""}`.trim(), detail: JSON.stringify(fields, null, 2) };
     case "approve_work_item":
     case "approve_work_item_plan":
     case "approve_work_item_test_review":
@@ -1169,11 +1194,18 @@ function summarizeAction(action: PlannerAction) {
     case "delete_module":
     case "delete_capability":
     case "delete_work_item":
-      return { symbol: "!", tone: "warn", title: action.type.replace(/_/g, " "), detail: JSON.stringify(action, null, 2) };
+      return { symbol: "!", tone: "warn", title: actionType.replace(/_/g, " "), detail: JSON.stringify(action, null, 2) };
     case "report_status":
-      return { symbol: "i", tone: "update", title: "Status report", detail: action.target?.productName || action.target?.workItemTitle || "Current scope" };
+      return { symbol: "i", tone: "update", title: "Status report", detail: target?.productName || target?.workItemTitle || "Current scope" };
     case "report_tree":
-      return { symbol: "i", tone: "update", title: "Tree report", detail: action.target?.productName || "All products" };
+      return { symbol: "i", tone: "update", title: "Tree report", detail: target?.productName || "All products" };
+    default:
+      return {
+        symbol: "?",
+        tone: "warn",
+        title: actionType.replace(/_/g, " "),
+        detail: JSON.stringify(action, null, 2),
+      };
   }
 }
 
@@ -1206,6 +1238,122 @@ function TreeNodeView({ node }: { node: PlannerTreeNode }) {
   );
 }
 
+function PlannerComposer({
+  draft,
+  onDraftChange,
+  onSend,
+  onToggleListening,
+  onOpenDraftWorkspace,
+  onConfirm,
+  onDismiss,
+  isPlannerBusy,
+  voiceEnabled,
+  isListening,
+  isTranscribing,
+  isVoiceSubmitting,
+  pendingVoiceTranscript,
+  draftTreeNodesLength,
+  pendingPlan,
+  voiceActivity,
+  composerRef,
+  scopeChips,
+  scopeHint,
+}: {
+  draft: string;
+  onDraftChange: (value: string) => void;
+  onSend: () => void;
+  onToggleListening: () => void;
+  onOpenDraftWorkspace: () => void;
+  onConfirm: () => void;
+  onDismiss: () => void;
+  isPlannerBusy: boolean;
+  voiceEnabled: boolean;
+  isListening: boolean;
+  isTranscribing: boolean;
+  isVoiceSubmitting: boolean;
+  pendingVoiceTranscript: string | null;
+  draftTreeNodesLength: number;
+  pendingPlan: PendingPlan | null;
+  voiceActivity: string | null;
+  composerRef: React.RefObject<HTMLTextAreaElement | null>;
+  scopeChips: string[];
+  scopeHint: string;
+}) {
+  return (
+    <div style={styles.composerWrap}>
+      <textarea
+        ref={composerRef}
+        data-testid="planner-input"
+        style={styles.textarea}
+        value={draft}
+        onChange={(event) => onDraftChange(event.target.value)}
+        placeholder="Say or type what you need. Example: Add a work item called Build voice planner under AruviStudio, then approve it and start the workflow."
+      />
+      {scopeChips.length > 0 ? (
+        <div style={styles.composerScopeCard}>
+          <div style={styles.composerScopeTitle}>Current Scope</div>
+          <div style={{ ...styles.chipRow, marginTop: 0 }}>
+            {scopeChips.map((chip) => (
+              <div key={chip} style={styles.chip}>
+                {chip}
+              </div>
+            ))}
+          </div>
+          <div style={{ ...styles.helper, marginTop: 8 }}>{scopeHint}</div>
+        </div>
+      ) : null}
+      {draftTreeNodesLength > 0 ? (
+        <div style={styles.inlineButtonRow}>
+          <button style={styles.btnGhost} onClick={onOpenDraftWorkspace}>
+            Open Workspace
+          </button>
+          <button style={styles.btnGhost} onClick={onConfirm} disabled={isPlannerBusy}>
+            Commit Draft
+          </button>
+          <button style={styles.btnDanger} onClick={onDismiss} disabled={isPlannerBusy}>
+            Clear Draft
+          </button>
+        </div>
+      ) : null}
+      <div style={styles.actionRow}>
+        <button data-testid="planner-send" style={styles.btn} onClick={onSend} disabled={isPlannerBusy}>
+          {isPlannerBusy ? "Working..." : "Send"}
+        </button>
+        <button style={styles.btnGhost} onClick={onToggleListening} disabled={!voiceEnabled || isTranscribing || isVoiceSubmitting || Boolean(pendingVoiceTranscript)}>
+          {isListening
+            ? "Stop Recording"
+            : isTranscribing
+              ? "Transcribing..."
+              : isVoiceSubmitting
+                ? "Sending Voice..."
+                : "Start Voice Input"}
+        </button>
+        {draftTreeNodesLength === 0 ? (
+          <>
+            <button style={styles.btnGhost} onClick={onConfirm} disabled={!pendingPlan}>
+              Confirm Proposal
+            </button>
+            <button style={styles.btnDanger} onClick={onDismiss} disabled={!pendingPlan}>
+              Clear Pending
+            </button>
+          </>
+        ) : null}
+        <span style={styles.status}>
+          {voiceActivity
+            ? voiceActivity
+            : pendingVoiceTranscript
+              ? "Voice transcript is ready. Review, edit, send, retry, or cancel."
+              : draftTreeNodesLength > 0
+                ? "A staged draft is active. Keep refining it, then commit when ready."
+                : pendingPlan
+                  ? "A proposed plan is waiting for confirmation."
+                  : "No pending proposal."}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function parseDraftNodeType(meta?: string | null) {
   if (!meta) {
     return "node";
@@ -1223,6 +1371,16 @@ function parseDraftNodeType(meta?: string | null) {
     return "work item";
   }
   return "node";
+}
+
+function getPlannerNodeType(node: PlannerTreeNode | null | undefined) {
+  if (!node) {
+    return "node";
+  }
+  if (node.node_type) {
+    return node.node_type.replace("_", " ");
+  }
+  return parseDraftNodeType(node.meta);
 }
 
 function collectTreeNodeIds(nodes: PlannerTreeNode[]): string[] {
@@ -1245,7 +1403,7 @@ function SelectableTreeNodeView({
   const isSelected = node.id === selectedNodeId;
   const hasChildren = node.children.length > 0;
   const isExpanded = expandedNodeIds.has(node.id);
-  const nodeType = parseDraftNodeType(node.meta);
+  const nodeType = getPlannerNodeType(node);
   const cardStyle = isSelected ? { ...styles.treeCard, ...styles.treeCardSelected } : styles.treeCard;
   return (
     <div style={styles.treeLevel}>
@@ -1263,8 +1421,10 @@ function SelectableTreeNodeView({
             <div style={styles.treeCardMetaRow}>
               <span style={styles.treeTypeBadge}>{nodeType}</span>
               {hasChildren ? <span style={styles.treeCountBadge}>{node.children.length} children</span> : null}
+              {node.confidence ? <span style={styles.treeCountBadge}>{node.confidence} confidence</span> : null}
             </div>
           </div>
+          {node.summary ? <div style={styles.diffSecondary}>{node.summary}</div> : null}
           {node.meta ? <div style={styles.diffSecondary}>{node.meta}</div> : null}
         </button>
       </div>
@@ -1295,10 +1455,10 @@ function buildProposalTreeNodes(plan: PlannerPlan): PlannerTreeNode[] {
     const label = name?.trim() || "Proposed product";
     let node = productNodes.get(label);
     if (!node) {
-      node = { id: `proposal-product-${label}`, label, meta: "proposed product", children: [] };
+      node = { id: `proposal-product-${label}`, label, meta: "proposed product", node_type: "product", evidence: [], children: [] };
       productNodes.set(label, node);
     }
-    return node;
+    return node!;
   };
 
   const ensureModule = (productName?: string | null, moduleName?: string | null) => {
@@ -1307,11 +1467,11 @@ function buildProposalTreeNodes(plan: PlannerPlan): PlannerTreeNode[] {
     const key = `${product.label}::${label}`;
     let node = moduleNodes.get(key);
     if (!node) {
-      node = { id: `proposal-module-${key}`, label, meta: "proposed module", children: [] };
+      node = { id: `proposal-module-${key}`, label, meta: "proposed module", node_type: "module", evidence: [], children: [] };
       moduleNodes.set(key, node);
       product.children.push(node);
     }
-    return node;
+    return node!;
   };
 
   const ensureCapability = (productName?: string | null, moduleName?: string | null, capabilityName?: string | null) => {
@@ -1320,11 +1480,11 @@ function buildProposalTreeNodes(plan: PlannerPlan): PlannerTreeNode[] {
     const key = `${module.id}::${label}`;
     let node = capabilityNodes.get(key);
     if (!node) {
-      node = { id: `proposal-capability-${key}`, label, meta: "proposed capability", children: [] };
+      node = { id: `proposal-capability-${key}`, label, meta: "proposed capability", node_type: "capability", evidence: [], children: [] };
       capabilityNodes.set(key, node);
       module.children.push(node);
     }
-    return node;
+    return node!;
   };
 
   for (const action of plan.actions) {
@@ -1345,6 +1505,8 @@ function buildProposalTreeNodes(plan: PlannerPlan): PlannerTreeNode[] {
           id: `proposal-work-item-${capability.id}-${action.title ?? target?.workItemTitle ?? capability.children.length}`,
           label: action.title ?? target?.workItemTitle ?? "Proposed work item",
           meta: "proposed work item",
+          node_type: "work_item",
+          evidence: [],
           children: [],
         });
         break;
@@ -1390,6 +1552,62 @@ function findTreeNodePath(nodes: PlannerTreeNode[], nodeId: string | null, trail
   return [];
 }
 
+function flattenTreeNodes(nodes: PlannerTreeNode[]): PlannerTreeNode[] {
+  return nodes.flatMap((node) => [node, ...flattenTreeNodes(node.children)]);
+}
+
+function findAncestorNodeByType(path: PlannerTreeNode[], nodeType: string) {
+  for (let index = path.length - 1; index >= 0; index -= 1) {
+    if (getPlannerNodeType(path[index]) === nodeType) {
+      return path[index];
+    }
+  }
+  return null;
+}
+
+function resolveVoiceNodeReference(
+  nodes: PlannerTreeNode[],
+  selectedPath: PlannerTreeNode[],
+  rawReference: string,
+  explicitType?: string,
+) {
+  const reference = rawReference.trim().toLowerCase();
+  if (!reference) {
+    return null;
+  }
+
+  if (["this", "selected", "this node", "selected node"].includes(reference)) {
+    return explicitType
+      ? findAncestorNodeByType(selectedPath, explicitType)
+      : (selectedPath.length > 0 ? selectedPath[selectedPath.length - 1] : null);
+  }
+  if (["root", "product", "this product", "selected product", "root product"].includes(reference)) {
+    return findAncestorNodeByType(selectedPath, "product") ?? nodes[0] ?? null;
+  }
+  if (["this module", "selected module"].includes(reference)) {
+    return findAncestorNodeByType(selectedPath, "module");
+  }
+  if (["this capability", "selected capability"].includes(reference)) {
+    return findAncestorNodeByType(selectedPath, "capability");
+  }
+  if (["this work item", "selected work item"].includes(reference)) {
+    return findAncestorNodeByType(selectedPath, "work item");
+  }
+
+  const normalizedType = explicitType?.replace("-", " ");
+  const flattened = flattenTreeNodes(nodes).filter((node) => {
+    if (!normalizedType) {
+      return true;
+    }
+    return getPlannerNodeType(node) === normalizedType;
+  });
+  const exact = flattened.find((node) => node.label.trim().toLowerCase() === reference);
+  if (exact) {
+    return exact;
+  }
+  return flattened.find((node) => node.label.trim().toLowerCase().includes(reference)) ?? null;
+}
+
 type DraftValidationIssue = {
   tone: "ok" | "warn";
   title: string;
@@ -1412,7 +1630,7 @@ function buildDraftValidation(nodes: PlannerTreeNode[]): DraftValidationSummary 
   const issues: DraftValidationIssue[] = [];
 
   function visit(node: PlannerTreeNode) {
-    const nodeType = parseDraftNodeType(node.meta);
+    const nodeType = getPlannerNodeType(node);
     if (nodeType in counts) {
       counts[nodeType as keyof typeof counts] += 1;
     }
@@ -1484,8 +1702,8 @@ function buildSuggestedPrompts(node: PlannerTreeNode | null): string[] {
       "Show me what is missing in this plan before I commit it.",
     ];
   }
-  const nodeType = parseDraftNodeType(node.meta);
-  switch (nodeType) {
+  const resolvedNodeType = getPlannerNodeType(node);
+  switch (resolvedNodeType) {
     case "product":
       return [
         `Expand ${node.label} with missing modules and operational areas.`,
@@ -1519,7 +1737,7 @@ function buildSuggestedPrompts(node: PlannerTreeNode | null): string[] {
 }
 
 function getAllowedDraftChildTypes(node: PlannerTreeNode | null): PlannerDraftChildType[] {
-  const nodeType = parseDraftNodeType(node?.meta);
+  const nodeType = getPlannerNodeType(node);
   switch (nodeType) {
     case "product":
       return ["module", "work_item"];
@@ -1548,7 +1766,7 @@ function findRelevantPlanActions(plan: PlannerPlan | null, node: PlannerTreeNode
     return [];
   }
 
-  const nodeType = parseDraftNodeType(node.meta);
+  const nodeType = getPlannerNodeType(node);
   return plan.actions.filter((action) => {
     const target = (action as { target?: { productName?: string; moduleName?: string; capabilityName?: string; workItemTitle?: string } }).target;
     if (nodeType === "product") {
@@ -1824,13 +2042,24 @@ export function PlannerPage() {
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [autoSpeak, setAutoSpeak] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isVoiceSubmitting, setIsVoiceSubmitting] = useState(false);
+  const [pendingVoiceTranscript, setPendingVoiceTranscript] = useState<string | null>(null);
+  const [editableVoiceTranscript, setEditableVoiceTranscript] = useState("");
+  const [voiceActivity, setVoiceActivity] = useState<string | null>(null);
+  const [voiceCaptureStartedAt, setVoiceCaptureStartedAt] = useState<number | null>(null);
+  const [voiceElapsedMs, setVoiceElapsedMs] = useState<number>(0);
   const [speechError, setSpeechError] = useState<string | null>(null);
-  const [showAdvancedPlannerControls, setShowAdvancedPlannerControls] = useState(false);
-  const [contactTarget, setContactTarget] = useState("");
-  const [contactDraft, setContactDraft] = useState("Call me and ask what work should be prioritized next.");
-  const [contactMsg, setContactMsg] = useState<string | null>(null);
-  const [contactError, setContactError] = useState<string | null>(null);
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const [speechProviderSetting, setSpeechProviderSetting] = useState("");
+  const [speechModelSetting, setSpeechModelSetting] = useState("");
+  const [speechLocaleSetting, setSpeechLocaleSetting] = useState("en-US");
+  const [speechNativeVoiceSetting, setSpeechNativeVoiceSetting] = useState("");
+  const [reviewVoiceBeforeSend, setReviewVoiceBeforeSend] = useState(false);
+  const [showRepoModal, setShowRepoModal] = useState(false);
+  const [windowWidth, setWindowWidth] = useState<number>(() => (typeof window === "undefined" ? 1440 : window.innerWidth));
+  const [showCompactTools, setShowCompactTools] = useState(false);
+  const audioCaptureRef = useRef<ActiveAudioCapture | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -1854,6 +2083,7 @@ export function PlannerPage() {
   );
   const hasTreeData = productTrees.length > 0;
   const isFocusedWorkspaceView = plannerView === "draft" || plannerView === "trace";
+  const isCompactScreen = windowWidth <= 1360;
   const selectedDraftNode = useMemo(
     () => findTreeNodeById(draftTreeNodes, selectedDraftNodeId),
     [draftTreeNodes, selectedDraftNodeId],
@@ -1894,11 +2124,143 @@ export function PlannerPage() {
     () => findRelevantPlanActions(latestDraftPlan, selectedDraftNode),
     [latestDraftPlan, selectedDraftNode],
   );
+  const latestAssistantMessage = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index].role === "assistant") {
+        return messages[index];
+      }
+    }
+    return null;
+  }, [messages]);
+  const plannerStatusSummary = useMemo(() => {
+    if (voiceActivity) {
+      return {
+        title: voiceActivity,
+        detail: pendingVoiceTranscript
+          ? reviewVoiceBeforeSend
+            ? "The transcript is ready for review before it becomes a planner turn."
+            : "The transcript is being sent to the planner."
+          : "Voice capture is in progress.",
+      };
+    }
+    if (pendingVoiceTranscript && reviewVoiceBeforeSend) {
+      return {
+        title: "Voice transcript ready",
+        detail: "Review or edit the transcript, then send it to the planner.",
+      };
+    }
+    if (draftTreeNodes.length > 0) {
+      return {
+        title: `Draft active: ${draftValidation.counts.product} product, ${draftValidation.counts.module} module, ${draftValidation.counts.capability} capability, ${draftValidation.counts["work item"]} work item`,
+        detail: selectedDraftNode
+          ? `Selected node: ${selectedDraftNode.label}.`
+          : "Select a node and keep refining before commit.",
+      };
+    }
+    if (pendingPlan) {
+      return {
+        title: "Proposal waiting for confirmation",
+        detail: `${pendingPlan.plan.actions.length} proposed changes are ready for review.`,
+      };
+    }
+    if (latestAssistantMessage) {
+      return {
+        title: latestAssistantMessage.meta ?? "Planner ready",
+        detail: latestAssistantMessage.content.split("\n")[0] || "Describe the product or outcome you want.",
+      };
+    }
+    return {
+      title: "Planner ready",
+      detail: "Describe the product or outcome you want to stage.",
+    };
+  }, [
+    draftTreeNodes.length,
+    draftValidation.counts,
+    latestAssistantMessage,
+    pendingPlan,
+    pendingVoiceTranscript,
+    reviewVoiceBeforeSend,
+    selectedDraftNode,
+    voiceActivity,
+  ]);
+  const composerScopeChips = useMemo(() => {
+    const chips: string[] = [];
+    if (selectedDraftNodeId) {
+      chips.push("draft node selected");
+    }
+    if (activeProductId) {
+      chips.push("product selected");
+    }
+    if (activeModuleId) {
+      chips.push("module selected");
+    }
+    if (activeCapabilityId) {
+      chips.push("capability selected");
+    }
+    if (activeWorkItemId) {
+      chips.push("work item selected");
+    }
+    return chips;
+  }, [activeCapabilityId, activeModuleId, activeProductId, activeWorkItemId, selectedDraftNodeId]);
+  const composerScopeHint =
+    "If you omit names, the planner first tries the selected draft node, then the selected workspace scope, then asks follow-up questions if it still cannot resolve the target cleanly.";
 
   const modelOptions = useMemo(
     () => models.filter((model) => model.provider_id === providerId && model.enabled),
     [models, providerId],
   );
+  const plannerModelPickerOptions = useMemo(
+    () =>
+      models
+        .filter((model) => model.enabled)
+        .map((model) => {
+          const provider = providers.find((entry) => entry.id === model.provider_id);
+          return {
+            value: `${model.provider_id}::${model.name}`,
+            label: `${provider?.name ?? "Unknown Provider"} / ${model.name}`,
+          };
+        }),
+    [models, providers],
+  );
+  const plannerModelPickerValue = providerId && modelName ? `${providerId}::${modelName}` : "";
+  const speechModelSelection = useMemo(() => {
+    const looksLikeSpeechModel = (model: ModelDefinition) =>
+      model.capability_tags.some((tag) => ["speech_to_text", "transcription", "audio"].includes(tag))
+      || /whisper|transcrib/i.test(model.name);
+
+    if (speechProviderSetting || speechModelSetting) {
+      if (speechProviderSetting && speechModelSetting) {
+        return { providerId: speechProviderSetting, modelName: speechModelSetting, source: "settings" as const };
+      }
+      if (speechProviderSetting) {
+        const providerSpeechModel = models.find((model) => model.enabled && model.provider_id === speechProviderSetting && looksLikeSpeechModel(model));
+        return {
+          providerId: speechProviderSetting,
+          modelName: providerSpeechModel?.name ?? speechModelSetting ?? "whisper-1",
+          source: "settings" as const,
+        };
+      }
+      const namedSpeechModel = models.find((model) => model.enabled && model.name === speechModelSetting);
+      if (namedSpeechModel) {
+        return { providerId: namedSpeechModel.provider_id, modelName: namedSpeechModel.name, source: "settings" as const };
+      }
+    }
+
+    const sameProvider = models.find((model) => model.enabled && model.provider_id === providerId && looksLikeSpeechModel(model));
+    if (sameProvider) {
+      return { providerId: sameProvider.provider_id, modelName: sameProvider.name, source: "planner" as const };
+    }
+
+    const anySpeechModel = models.find((model) => model.enabled && looksLikeSpeechModel(model));
+    if (anySpeechModel) {
+      return { providerId: anySpeechModel.provider_id, modelName: anySpeechModel.name, source: "auto" as const };
+    }
+
+    if (providerId) {
+      return { providerId, modelName: "whisper-1", source: "fallback" as const };
+    }
+    return null;
+  }, [models, providerId, speechModelSetting, speechProviderSetting]);
 
   const context = useMemo<ResolverContext>(() => ({
     products,
@@ -1911,6 +2273,15 @@ export function PlannerPage() {
   }), [activeCapabilityId, activeModuleId, activeProductId, activeWorkItemId, productTrees, products, workItems]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    const onResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
     if (!providerId && providers.length > 0) {
       setProviderId(providers[0].id);
     }
@@ -1921,6 +2292,64 @@ export function PlannerPage() {
       setSelectedRepositoryId(repositories[0].id);
     }
   }, [repositories, selectedRepositoryId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([
+      getSetting(SPEECH_PROVIDER_KEY),
+      getSetting(SPEECH_MODEL_KEY),
+      getSetting(SPEECH_LOCALE_KEY),
+      getSetting(SPEECH_NATIVE_VOICE_KEY),
+      getSetting(SPEECH_ENABLE_MIC_KEY),
+      getSetting(SPEECH_AUTO_SPEAK_REPLIES_KEY),
+      getSetting(SPEECH_REVIEW_BEFORE_SEND_KEY),
+    ]).then(([providerSetting, modelSetting, localeSetting, nativeVoiceSetting, micEnabledSetting, autoSpeakSetting, reviewBeforeSendSetting]) => {
+      if (cancelled) {
+        return;
+      }
+      if (providerSetting) {
+        setSpeechProviderSetting(providerSetting);
+      }
+      if (modelSetting) {
+        setSpeechModelSetting(modelSetting);
+      }
+      if (localeSetting) {
+        setSpeechLocaleSetting(localeSetting);
+      }
+      if (nativeVoiceSetting) {
+        setSpeechNativeVoiceSetting(nativeVoiceSetting);
+      }
+      if (typeof micEnabledSetting === "string") {
+        setVoiceEnabled(micEnabledSetting.trim().toLowerCase() !== "false");
+      }
+      if (typeof autoSpeakSetting === "string") {
+        setAutoSpeak(autoSpeakSetting.trim().toLowerCase() === "true");
+      }
+      if (typeof reviewBeforeSendSetting === "string") {
+        setReviewVoiceBeforeSend(reviewBeforeSendSetting.trim().toLowerCase() === "true");
+      }
+    }).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.__ARUVI_E2E__) {
+      return;
+    }
+    window.__ARUVI_E2E__.runPlannerVoiceTranscript = async (transcript: string) => {
+      const handled = await handleVoiceTranscript(transcript);
+      if (!handled) {
+        setDraft((current) => (current ? `${current.trim()} ${transcript.trim()}` : transcript.trim()));
+      }
+    };
+    return () => {
+      if (window.__ARUVI_E2E__) {
+        delete window.__ARUVI_E2E__.runPlannerVoiceTranscript;
+      }
+    };
+  }, [draftTreeNodes, handleVoiceTranscript, selectedDraftNodeId, latestTraceEvents, pendingPlan, autoSpeak]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1982,6 +2411,12 @@ export function PlannerPage() {
   }, [draftTreeNodes.length, plannerView]);
 
   useEffect(() => {
+    if (!isCompactScreen) {
+      setShowCompactTools(false);
+    }
+  }, [isCompactScreen]);
+
+  useEffect(() => {
     const allNodeIds = collectTreeNodeIds(draftTreeNodes);
     if (allNodeIds.length === 0) {
       setExpandedDraftNodeIds([]);
@@ -2016,46 +2451,30 @@ export function PlannerPage() {
 
   useEffect(() => {
     if (!voiceEnabled) {
-      recognitionRef.current?.stop();
-      recognitionRef.current = null;
+      void stopVoiceCapture(false);
       setIsListening(false);
       return;
     }
-    const RecognitionCtor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
-    if (!RecognitionCtor) {
-      setSpeechError("Speech recognition is not available in this runtime.");
-      return;
-    }
-    const recognition = new RecognitionCtor();
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
-    recognition.onstart = () => {
-      setSpeechError(null);
-      setIsListening(true);
-    };
-    recognition.onend = () => setIsListening(false);
-    recognition.onerror = (event) => {
-      setSpeechError(event.error);
-      setIsListening(false);
-    };
-    recognition.onresult = (event) => {
-      let finalTranscript = "";
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        const result = event.results[index];
-        if (result.isFinal) {
-          finalTranscript += result[0].transcript;
-        }
-      }
-      if (finalTranscript.trim()) {
-        setDraft((current) => (current ? `${current.trim()} ${finalTranscript.trim()}` : finalTranscript.trim()));
-      }
-    };
-    recognitionRef.current = recognition;
     return () => {
-      recognition.stop();
+      void stopVoiceCapture(false);
     };
   }, [voiceEnabled]);
+
+  const speakAssistantReply = async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return;
+    }
+    try {
+      await speakTextNatively({
+        text: trimmed,
+        voice: speechNativeVoiceSetting || undefined,
+        locale: speechLocaleSetting || "en-US",
+      });
+    } catch {
+      speakInBrowser(trimmed);
+    }
+  };
 
   const mapPlannerResponseToMutationResult = (
     response: PlannerTurnResponse,
@@ -2115,6 +2534,19 @@ export function PlannerPage() {
       };
     }
 
+    if (response.status === "session_update") {
+      return {
+        mode: "session_updated",
+        userInput,
+        plan: backendPlan,
+        execution,
+        treeNodes,
+        draftTreeNodes: responseDraftTreeNodes,
+        selectedDraftNodeId: responseSelectedDraftNodeId,
+        traceEvents,
+      };
+    }
+
     if (response.status === "error") {
       return {
         mode: "failed",
@@ -2141,6 +2573,10 @@ export function PlannerPage() {
   };
 
   const handlePlannerMutationSuccess = (result: PlannerMutationResult) => {
+    setPendingVoiceTranscript(null);
+    setEditableVoiceTranscript("");
+    setVoiceActivity(null);
+    setIsVoiceSubmitting(false);
     setLatestTraceEvents(result.traceEvents ?? []);
     setMessages((current) => {
       const next: PlannerMessage[] = [...current, { id: makeId(), role: "user", content: result.userInput, kind: "text" }];
@@ -2203,6 +2639,22 @@ export function PlannerPage() {
         });
         return next;
       }
+      if (result.mode === "session_updated") {
+        const output = [
+          result.plan.assistant_response,
+          ...(result.execution?.lines ?? []),
+          ...(result.execution?.errors.length ? [`Errors: ${result.execution.errors.join(" | ")}`] : []),
+        ].join("\n");
+        next.push({
+          id: makeId(),
+          role: "assistant",
+          content: output,
+          meta: "Planner state updated",
+          kind: "text",
+          traceEvents: result.traceEvents,
+        });
+        return next;
+      }
       if (result.mode === "failed") {
         next.push({
           id: makeId(),
@@ -2240,12 +2692,19 @@ export function PlannerPage() {
     }
     if (result.selectedDraftNodeId !== undefined) {
       setSelectedDraftNodeId(result.selectedDraftNodeId ?? null);
+      const treeForPath = result.draftTreeNodes ?? draftTreeNodes;
+      if (result.selectedDraftNodeId && treeForPath.length > 0) {
+        const pathIds = findTreeNodePath(treeForPath, result.selectedDraftNodeId).map((node) => node.id);
+        setExpandedDraftNodeIds((current) => Array.from(new Set([...current, ...pathIds])));
+      }
     }
 
     if (result.mode === "confirmation_required") {
       setPendingPlan({ sourceText: result.userInput, plan: result.plan });
     } else if (result.mode === "draft_updated") {
       setPendingPlan(null);
+    } else if (result.mode === "session_updated") {
+      // Preserve the currently staged plan while updating draft selection or voice-driven session state.
     } else if (result.mode === "failed") {
       setPendingPlan(null);
       setPlannerView("trace");
@@ -2269,10 +2728,12 @@ export function PlannerPage() {
           ? `${result.plan.assistant_response}. Say confirm to apply the proposal.`
           : result.mode === "draft_updated"
             ? `${result.plan.assistant_response}. The draft tree has been updated.`
+            : result.mode === "session_updated"
+              ? result.plan.assistant_response
             : result.mode === "confirmed"
               ? "Executed the pending planner actions."
               : result.plan.assistant_response;
-      speak(lastAssistant);
+      void speakAssistantReply(lastAssistant);
     }
   };
 
@@ -2299,6 +2760,10 @@ export function PlannerPage() {
     },
     onSuccess: handlePlannerMutationSuccess,
     onError: (error, userInput) => {
+      setPendingVoiceTranscript(null);
+      setEditableVoiceTranscript("");
+      setVoiceActivity(null);
+      setIsVoiceSubmitting(false);
       setLatestTraceEvents([]);
       setMessages((current) => [
         ...current,
@@ -2379,10 +2844,95 @@ export function PlannerPage() {
     },
   });
 
+  const transcribeAudioMutation = useMutation<string, Error, { audioBytesBase64: string; mimeType: string }>({
+    mutationFn: async ({ audioBytesBase64, mimeType }) => {
+      if (!speechModelSelection) {
+        throw new Error("Configure a speech transcription provider or model before using voice input.");
+      }
+      const response = await transcribeAudio({
+        providerId: speechModelSelection.providerId,
+        modelName: speechModelSelection.modelName,
+        audioBytesBase64,
+        mimeType,
+        locale: speechLocaleSetting || "en-US",
+      });
+      return response.transcript;
+    },
+    onError: (error) => {
+      setSpeechError(error instanceof Error ? error.message : String(error));
+    },
+  });
+
   const isPlannerBusy =
     processMutation.isPending ||
     draftEditMutation.isPending ||
-    repositoryAnalysisMutation.isPending;
+    repositoryAnalysisMutation.isPending ||
+    transcribeAudioMutation.isPending ||
+    isVoiceSubmitting;
+
+  useEffect(() => {
+    if (!isListening || !voiceCaptureStartedAt) {
+      return undefined;
+    }
+    const interval = window.setInterval(() => {
+      setVoiceElapsedMs(Date.now() - voiceCaptureStartedAt);
+    }, 250);
+    return () => window.clearInterval(interval);
+  }, [isListening, voiceCaptureStartedAt]);
+
+  const stopVoiceCapture = async (shouldTranscribe: boolean) => {
+    const capture = audioCaptureRef.current;
+    if (!capture) {
+      return;
+    }
+
+    audioCaptureRef.current = null;
+    mediaStreamRef.current = null;
+    setIsListening(false);
+    setVoiceCaptureStartedAt(null);
+
+    try {
+      const blob = await capture.stop();
+      if (!shouldTranscribe || blob.size === 0) {
+        setVoiceActivity(null);
+        return;
+      }
+
+      setVoiceActivity("Transcribing audio...");
+      setIsTranscribing(true);
+      const audioBytesBase64 = await blobToBase64(blob);
+      const transcript = await transcribeAudioMutation.mutateAsync({
+        audioBytesBase64,
+        mimeType: blob.type || "audio/wav",
+      });
+      const trimmedTranscript = transcript.trim();
+      setIsTranscribing(false);
+      if (!trimmedTranscript) {
+        setVoiceActivity("No speech detected.");
+        return;
+      }
+      if (reviewVoiceBeforeSend) {
+        setPendingVoiceTranscript(trimmedTranscript);
+        setEditableVoiceTranscript(trimmedTranscript);
+        setVoiceActivity("Speech recognized. Review or edit before sending.");
+        return;
+      }
+      setEditableVoiceTranscript(trimmedTranscript);
+      setVoiceActivity("Speech recognized. Sending it to the planner...");
+      await submitVoiceTranscript(trimmedTranscript);
+    } catch (error) {
+      if (shouldTranscribe) {
+        setSpeechError(error instanceof Error ? error.message : String(error));
+      }
+      setIsTranscribing(false);
+      setIsVoiceSubmitting(false);
+      setVoiceActivity(null);
+      setPendingVoiceTranscript(null);
+      setEditableVoiceTranscript("");
+    } finally {
+      setIsTranscribing(false);
+    }
+  };
 
   const send = async () => {
     const content = draft.trim();
@@ -2393,16 +2943,87 @@ export function PlannerPage() {
     await processMutation.mutateAsync(content);
   };
 
-  const toggleListening = () => {
-    if (!recognitionRef.current) {
-      setSpeechError("Speech recognition is not available.");
+  const clearPendingVoiceReview = () => {
+    setPendingVoiceTranscript(null);
+    setEditableVoiceTranscript("");
+    setVoiceActivity(null);
+    setVoiceElapsedMs(0);
+  };
+
+  const submitVoiceTranscript = async (transcript: string) => {
+    if (!transcript || isPlannerBusy) {
+      return;
+    }
+    setPendingVoiceTranscript(transcript);
+    setVoiceActivity("Sending voice input to the planner...");
+    setIsVoiceSubmitting(true);
+    try {
+      const handledAsVoiceCommand = await handleVoiceTranscript(transcript);
+      if (!handledAsVoiceCommand) {
+        setDraft((current) => (current ? `${current.trim()} ${transcript}` : transcript));
+        composerRef.current?.focus();
+        setVoiceActivity("Speech recognized and added to the composer.");
+      }
+    } catch (error) {
+      setSpeechError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsVoiceSubmitting(false);
+      clearPendingVoiceReview();
+    }
+  };
+
+  const submitPendingVoiceTranscript = async () => {
+    const transcript = editableVoiceTranscript.trim();
+    if (!transcript || isPlannerBusy) {
+      return;
+    }
+    await submitVoiceTranscript(transcript);
+  };
+
+  const retryVoiceCapture = async () => {
+    clearPendingVoiceReview();
+    await toggleListening();
+  };
+
+  const toggleListening = async () => {
+    if (!voiceEnabled) {
+      setSpeechError("Voice input is disabled.");
       return;
     }
     if (isListening) {
-      recognitionRef.current.stop();
+      await stopVoiceCapture(true);
       return;
     }
-    recognitionRef.current.start();
+
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setSpeechError("Microphone access is not available in this runtime.");
+      return;
+    }
+    if (typeof window === "undefined" || (!window.AudioContext && !(window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)) {
+      setSpeechError("PCM audio capture is not supported in this runtime.");
+      return;
+    }
+
+    try {
+      setSpeechError(null);
+      setVoiceActivity("Listening...");
+      setVoiceElapsedMs(0);
+      setVoiceCaptureStartedAt(Date.now());
+      setPendingVoiceTranscript(null);
+      setEditableVoiceTranscript("");
+      const capture = await startWavCapture();
+      audioCaptureRef.current = capture;
+      mediaStreamRef.current = capture.stream;
+      setIsListening(true);
+    } catch (error) {
+      setSpeechError(error instanceof Error ? error.message : String(error));
+      setIsListening(false);
+      setVoiceActivity(null);
+      setVoiceCaptureStartedAt(null);
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+      audioCaptureRef.current = null;
+    }
   };
 
   const confirmPendingPlan = () => {
@@ -2465,47 +3086,6 @@ export function PlannerPage() {
     setDraftTreeNodes([]);
     setSelectedDraftNodeId(null);
     setPlannerView("conversation");
-  };
-
-  const sendWhatsapp = async () => {
-    try {
-      setContactError(null);
-      setContactMsg(null);
-      await sendTwilioWhatsappMessage({ to: contactTarget.trim(), content: contactDraft.trim() });
-      setContactMsg("WhatsApp message queued through Twilio.");
-    } catch (error) {
-      setContactError(String(error));
-    }
-  };
-
-  const autoRouteContact = async () => {
-    try {
-      setContactError(null);
-      setContactMsg(null);
-      const result = await routePlannerContact({
-        to: contactTarget.trim(),
-        content: contactDraft.trim(),
-      });
-      const channelLabel = result.channel === "voice" ? "voice call" : "WhatsApp";
-      if (result.status === "blocked") {
-        setContactError(`Auto-routing blocked: ${result.reason}`);
-        return;
-      }
-      setContactMsg(`Auto-routed to ${channelLabel}. ${result.reason}`);
-    } catch (error) {
-      setContactError(String(error));
-    }
-  };
-
-  const startVoiceCall = async () => {
-    try {
-      setContactError(null);
-      setContactMsg(null);
-      await startTwilioVoiceCall({ to: contactTarget.trim(), initialPrompt: contactDraft.trim() || undefined });
-      setContactMsg("Voice call requested through Twilio.");
-    } catch (error) {
-      setContactError(String(error));
-    }
   };
 
   const browseRepositoryPathForPlanner = async () => {
@@ -2572,6 +3152,137 @@ export function PlannerPage() {
   const collapseAllDraftNodes = () => {
     setExpandedDraftNodeIds([]);
   };
+
+  function appendVoiceCommandFeedback(transcript: string, reply: string) {
+    setPendingVoiceTranscript(null);
+    setEditableVoiceTranscript("");
+    setVoiceActivity(null);
+    setMessages((current) => [
+      ...current,
+      { id: makeId(), role: "user", content: transcript, kind: "text" },
+      { id: makeId(), role: "assistant", content: reply, meta: "Voice command", kind: "text" },
+    ]);
+    if (autoSpeak) {
+      void speakAssistantReply(reply);
+    }
+  }
+
+  function parseVoiceNodeReference(
+    spokenRemainder: string,
+  ): { explicitType?: string; reference: string } {
+    const trimmed = spokenRemainder.trim();
+    const prefixes: Array<{ prefix: string; type: string }> = [
+      { prefix: "work item ", type: "work item" },
+      { prefix: "work-item ", type: "work item" },
+      { prefix: "capability ", type: "capability" },
+      { prefix: "module ", type: "module" },
+      { prefix: "product ", type: "product" },
+      { prefix: "node ", type: "node" },
+    ];
+    for (const option of prefixes) {
+      if (trimmed === option.prefix.trim()) {
+        return { explicitType: option.type, reference: `selected ${option.type}` };
+      }
+      if (trimmed.startsWith(option.prefix)) {
+        return { explicitType: option.type, reference: trimmed.slice(option.prefix.length).trim() };
+      }
+    }
+    return { reference: trimmed };
+  }
+
+  async function handleVoiceTranscript(transcript: string) {
+    const spoken = transcript.trim();
+    if (!spoken) {
+      return true;
+    }
+    const normalizedTranscript = normalize(spoken);
+
+    if (["view draft", "open draft", "show draft", "show draft tree", "view draft tree", "open workspace", "show workspace"].includes(normalizedTranscript)) {
+      if (draftTreeNodes.length === 0) {
+        appendVoiceCommandFeedback(spoken, "There is no staged draft tree yet.");
+      } else {
+        setPlannerView("draft");
+        appendVoiceCommandFeedback(spoken, "Opened the draft workspace.");
+      }
+      return true;
+    }
+
+    if (["view trace", "show trace", "open trace"].includes(normalizedTranscript)) {
+      if (latestTraceEvents.length === 0) {
+        appendVoiceCommandFeedback(spoken, "There is no planner trace available yet.");
+      } else {
+        setPlannerView("trace");
+        appendVoiceCommandFeedback(spoken, "Opened the latest planner trace.");
+      }
+      return true;
+    }
+
+    if (["view conversation", "open conversation", "show conversation", "back to chat", "view chat"].includes(normalizedTranscript)) {
+      setPlannerView("conversation");
+      appendVoiceCommandFeedback(spoken, "Switched back to the planner conversation.");
+      return true;
+    }
+
+    if (["expand draft", "expand the draft", "expand tree", "expand all", "open all branches"].includes(normalizedTranscript)) {
+      setPlannerView("draft");
+      expandAllDraftNodes();
+      appendVoiceCommandFeedback(spoken, "Expanded the staged draft tree.");
+      return true;
+    }
+
+    if (["collapse draft", "collapse the draft", "collapse tree", "collapse all"].includes(normalizedTranscript)) {
+      collapseAllDraftNodes();
+      appendVoiceCommandFeedback(spoken, "Collapsed the staged draft tree.");
+      return true;
+    }
+
+    const collapseMatch = normalizedTranscript.match(/^(collapse|close)\s+(.+)$/);
+    if (normalizedTranscript.startsWith("expand ") || normalizedTranscript.startsWith("open ")) {
+      const targetText = spoken.replace(/^(expand|open)\s+/i, "").trim();
+      if (["draft", "tree", "all"].includes(normalize(targetText))) {
+        setPlannerView("draft");
+        expandAllDraftNodes();
+        appendVoiceCommandFeedback(spoken, "Expanded the staged draft tree.");
+        return true;
+      }
+    }
+
+    if (collapseMatch) {
+      const targetText = collapseMatch[2];
+      if (["draft", "tree", "all"].includes(normalize(targetText))) {
+        collapseAllDraftNodes();
+        appendVoiceCommandFeedback(spoken, "Collapsed the staged draft tree.");
+        return true;
+      }
+      const { explicitType, reference } = parseVoiceNodeReference(targetText);
+      const targetNode = resolveVoiceNodeReference(draftTreeNodes, selectedDraftNodePath, reference, explicitType);
+      if (!targetNode) {
+        appendVoiceCommandFeedback(spoken, `I could not find a draft node matching "${targetText}".`);
+        return true;
+      }
+      setExpandedDraftNodeIds((current) => current.filter((nodeId) => nodeId !== targetNode.id));
+      appendVoiceCommandFeedback(spoken, `Collapsed ${getPlannerNodeType(targetNode)} "${targetNode.label}".`);
+      return true;
+    }
+
+    let activeSessionId = sessionId;
+    if (!activeSessionId) {
+      const session = await createPlannerSession({
+        providerId: providerId || undefined,
+        modelName: modelName || undefined,
+      });
+      activeSessionId = session.session_id;
+      setSessionId(session.session_id);
+    }
+
+    const response = await submitPlannerVoiceTurn({
+      sessionId: activeSessionId,
+      transcript: spoken,
+      selectedDraftNodeId,
+    });
+    handlePlannerMutationSuccess(mapPlannerResponseToMutationResult(response, spoken));
+    return true;
+  }
 
   const applyPromptSuggestion = (prompt: string) => {
     setDraft(prompt);
@@ -2710,30 +3421,111 @@ export function PlannerPage() {
     return <div>{message.content}</div>;
   };
 
-  return (
-    <div style={styles.page}>
-      <div style={styles.header}>
-        <div style={styles.titleWrap}>
-          <h1 style={styles.title}>Interactive Planner</h1>
-          <div style={styles.subtitle}>
-            This is now suggestion-first. Describe what you want in natural language, the planner checks existing products, capabilities, and work items, then proposes additions or changes and waits for confirmation before applying them. Voice input and spoken responses are supported when the runtime exposes browser speech APIs.
+  const renderPlannerSidebar = () => (
+    <div style={styles.panel}>
+      <div style={isCompactScreen ? styles.compactPanelBody : styles.panelBody}>
+        <div style={styles.sectionTitle}>Planner Controls</div>
+        <div style={styles.sideCard}>
+          <div style={styles.helper}>
+            {hasTreeData ? "Tree rendering is active for work-item structure questions." : "Tree rendering will activate once product structure finishes loading."}
           </div>
         </div>
-      </div>
 
+        <div style={styles.sideCard}>
+          <div style={styles.label}>Draft Tree</div>
+          <div style={styles.helper}>
+            Build the plan here first. Select a node, then ask follow-up questions like “expand this capability” or “add work items under this module.”
+          </div>
+          <div style={{ height: 10 }} />
+          {draftTreeNodes.length > 0 ? (
+            <div style={styles.treePanel}>
+              <div style={styles.treeExplorer}>
+                {draftTreeNodes.map((node) => (
+                  <SelectableTreeNodeView
+                    key={node.id}
+                    node={node}
+                    selectedNodeId={selectedDraftNodeId}
+                    onSelect={setSelectedDraftNodeId}
+                    expandedNodeIds={expandedDraftNodeIdSet}
+                    onToggle={toggleDraftNodeExpanded}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div style={styles.helper}>No staged draft yet. Ask the planner to sketch a product tree and it will appear here.</div>
+          )}
+        </div>
+
+        {pendingPlan || draftTreeNodes.length > 0 ? (
+          <div style={styles.sideCard}>
+            <div style={styles.label}>Draft Snapshot</div>
+            <div style={styles.helper}>
+              The planner stages structure here first. Keep refining the tree, then commit when the draft looks right.
+            </div>
+            {pendingPlan ? (
+              <div style={styles.list}>
+                {pendingPlan.plan.actions.map((action, index) => (
+                  <div key={`${action.type}-${index}`} style={styles.listItem}>
+                    <div style={styles.listItemTitle}>{action.type}</div>
+                    <div style={styles.listItemMeta}>{JSON.stringify(action, null, 2)}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ ...styles.helper, marginTop: 10 }}>
+                The current staged draft is active in the tree above. Select a node and keep iterating, or commit to persist it.
+              </div>
+            )}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={styles.page}>
       <div
-        style={{
-          ...styles.topGrid,
-          gridTemplateColumns: isFocusedWorkspaceView ? "minmax(0, 1fr)" : styles.topGrid.gridTemplateColumns,
-        }}
+        style={
+          isCompactScreen
+            ? styles.compactStack
+            : {
+                ...styles.topGrid,
+                gridTemplateColumns: isFocusedWorkspaceView ? "minmax(0, 1fr)" : styles.topGrid.gridTemplateColumns,
+              }
+        }
       >
         <div style={styles.panel}>
-          <div style={{ ...styles.panelBody, display: "flex", flexDirection: "column" }}>
+          <div style={{ ...(isCompactScreen ? styles.compactPanelBody : styles.panelBody), display: "flex", flexDirection: "column" }}>
             <div style={styles.sectionHeader}>
               <div style={styles.sectionTitle}>
                 {plannerView === "draft" ? "Draft Workspace" : plannerView === "trace" ? "Planner Trace" : "Conversation"}
               </div>
               <div style={styles.viewToggleRow}>
+                <button
+                  aria-label="Reverse engineer repository"
+                  style={styles.iconButton}
+                  onClick={() => setShowRepoModal(true)}
+                >
+                  ⌕ Repo
+                </button>
+                <select
+                  aria-label="Planner model"
+                  style={{ ...styles.select, width: 260 }}
+                  value={plannerModelPickerValue}
+                  onChange={(event) => {
+                    const [nextProviderId, nextModelName] = event.target.value.split("::");
+                    setProviderId(nextProviderId ?? "");
+                    setModelName(nextModelName ?? "");
+                  }}
+                >
+                  <option value="">Select model</option>
+                  {plannerModelPickerOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
                 <button
                   data-testid="planner-view-conversation"
                   style={plannerView === "conversation" ? styles.btn : styles.btnGhost}
@@ -2759,6 +3551,56 @@ export function PlannerPage() {
                 </button>
               </div>
             </div>
+
+            <div style={styles.statusBanner}>
+              <div>
+                <div style={styles.statusBannerStrong}>{plannerStatusSummary.title}</div>
+                <div style={styles.statusBannerMeta}>{plannerStatusSummary.detail}</div>
+              </div>
+              <div style={styles.chipRow}>
+                {providerId ? <div style={styles.chip}>{providers.find((provider) => provider.id === providerId)?.name ?? "provider selected"}</div> : null}
+                {modelName ? <div style={styles.chip}>{modelName}</div> : null}
+                {selectedDraftNode ? <div style={styles.chip}>selected: {selectedDraftNode.label}</div> : null}
+              </div>
+            </div>
+
+            {isCompactScreen && plannerView === "conversation" ? (
+              <>
+                <div style={styles.compactControlStrip}>
+                  <button style={styles.btnGhost} onClick={() => setShowCompactTools((value) => !value)}>
+                    {showCompactTools ? "Hide Tools" : "Show Tools"}
+                  </button>
+                  <button style={styles.btnGhost} onClick={() => setPlannerView("draft")} disabled={draftTreeNodes.length === 0}>
+                    Open Draft
+                  </button>
+                  <button style={styles.btnGhost} onClick={() => setPlannerView("trace")} disabled={latestTraceEvents.length === 0}>
+                    Open Trace
+                  </button>
+                </div>
+                <div style={styles.compactSummaryCard}>
+                  <div style={styles.compactSummaryGrid}>
+                    <div style={styles.compactSummaryItem}>
+                      <div style={styles.compactSummaryLabel}>Draft</div>
+                      <div style={styles.compactSummaryValue}>{draftTreeNodes.length > 0 ? `${draftValidation.counts.module} modules staged` : "No active draft"}</div>
+                    </div>
+                    <div style={styles.compactSummaryItem}>
+                      <div style={styles.compactSummaryLabel}>Selection</div>
+                      <div style={styles.compactSummaryValue}>{selectedDraftNode?.label ?? "None"}</div>
+                    </div>
+                    <div style={styles.compactSummaryItem}>
+                      <div style={styles.compactSummaryLabel}>Readiness</div>
+                      <div style={styles.compactSummaryValue}>{draftTreeNodes.length > 0 ? `${draftValidation.score}` : "n/a"}</div>
+                    </div>
+                    <div style={styles.compactSummaryItem}>
+                      <div style={styles.compactSummaryLabel}>State</div>
+                      <div style={styles.compactSummaryValue}>
+                        {pendingVoiceTranscript ? "Review transcript" : isPlannerBusy ? "Working" : pendingPlan ? "Need confirm" : "Ready"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : null}
 
             {plannerView === "draft" ? (
               <div style={styles.draftWorkspace}>
@@ -2836,6 +3678,31 @@ export function PlannerPage() {
                       </div>
                     )}
                   </div>
+                  <PlannerComposer
+                    draft={draft}
+                    onDraftChange={setDraft}
+                    onSend={() => {
+                      void send();
+                    }}
+                    onToggleListening={() => {
+                      void toggleListening();
+                    }}
+                    onOpenDraftWorkspace={() => setPlannerView("draft")}
+                    onConfirm={() => setDraft("confirm")}
+                    onDismiss={dismissPendingPlan}
+                    isPlannerBusy={isPlannerBusy}
+                    voiceEnabled={voiceEnabled}
+                    isListening={isListening}
+                    isTranscribing={isTranscribing}
+                    isVoiceSubmitting={isVoiceSubmitting}
+                    pendingVoiceTranscript={pendingVoiceTranscript}
+                    draftTreeNodesLength={draftTreeNodes.length}
+                    pendingPlan={pendingPlan}
+                    voiceActivity={voiceActivity}
+                    composerRef={composerRef}
+                    scopeChips={composerScopeChips}
+                    scopeHint={composerScopeHint}
+                  />
                 </div>
 
                 <div style={styles.draftWorkspaceSide}>
@@ -2844,11 +3711,31 @@ export function PlannerPage() {
                     {selectedDraftNode ? (
                       <>
                         <div style={styles.cardTitle}>{selectedDraftNode.label}</div>
-                        {selectedDraftNode.meta ? <div style={styles.helper}>Type: {selectedDraftNode.meta}</div> : null}
+                        <div style={styles.helper}>Type: {getPlannerNodeType(selectedDraftNode)}</div>
+                        {selectedDraftNode.summary ? <div style={{ ...styles.helper, marginTop: 8 }}>{selectedDraftNode.summary}</div> : null}
+                        {selectedDraftNode.source || selectedDraftNode.confidence ? (
+                          <div style={styles.chipRow}>
+                            {selectedDraftNode.source ? <div style={styles.chip}>source: {selectedDraftNode.source.replace("_", " ")}</div> : null}
+                            {selectedDraftNode.confidence ? <div style={styles.chip}>{selectedDraftNode.confidence} confidence</div> : null}
+                          </div>
+                        ) : null}
                         {selectedDraftNodePath.length > 0 ? (
                           <div style={styles.pathText}>
                             Path: {selectedDraftNodePath.map((node) => node.label).join(" / ")}
                           </div>
+                        ) : null}
+                        {selectedDraftNode.evidence && selectedDraftNode.evidence.length > 0 ? (
+                          <>
+                            <div style={styles.sectionDivider} />
+                            <div style={styles.label}>Evidence</div>
+                            <div style={styles.list}>
+                              {selectedDraftNode.evidence.map((line: string) => (
+                                <div key={line} style={styles.listItem}>
+                                  <div style={styles.listItemMeta}>{line}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </>
                         ) : null}
                         <div style={styles.sectionDivider} />
                         <div style={styles.label}>Edit Node</div>
@@ -3081,6 +3968,38 @@ export function PlannerPage() {
               </div>
             ) : (
               <div ref={transcriptRef} style={{ ...styles.transcript, flex: 1, minHeight: 0, overflow: "auto" }}>
+                {pendingVoiceTranscript && reviewVoiceBeforeSend ? (
+                  <div style={styles.voiceReviewCard}>
+                    <div style={styles.voiceReviewHeader}>
+                      <div>
+                        <div style={styles.voiceReviewTitle}>Voice Transcript Preview</div>
+                        <div style={styles.helper}>
+                          Review or edit the recognized speech before sending it to the planner.
+                        </div>
+                      </div>
+                      <div style={styles.chipRow}>
+                        <div style={styles.chip}>elapsed {formatElapsedMs(voiceElapsedMs)}</div>
+                        <div style={styles.chip}>{isVoiceSubmitting ? "sending" : "ready to send"}</div>
+                      </div>
+                    </div>
+                    <textarea
+                      style={{ ...styles.compactTextarea, minHeight: 88 }}
+                      value={editableVoiceTranscript}
+                      onChange={(event) => setEditableVoiceTranscript(event.target.value)}
+                    />
+                    <div style={styles.inlineButtonRow}>
+                      <button style={styles.btn} onClick={() => void submitPendingVoiceTranscript()} disabled={!editableVoiceTranscript.trim() || isPlannerBusy}>
+                        Send Transcript
+                      </button>
+                      <button style={styles.btnGhost} onClick={() => void retryVoiceCapture()} disabled={isPlannerBusy}>
+                        Retry
+                      </button>
+                      <button style={styles.btnDanger} onClick={clearPendingVoiceReview} disabled={isPlannerBusy}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 {messages.map((message) => (
                   <div key={message.id} style={message.role === "user" ? styles.bubbleUser : styles.bubbleAssistant}>
                     {message.role === "assistant" ? renderAssistantMessage(message) : message.content}
@@ -3089,284 +4008,104 @@ export function PlannerPage() {
                 ))}
               </div>
             )}
-            <div style={styles.composerWrap}>
-              <textarea
-                ref={composerRef}
-                data-testid="planner-input"
-                style={styles.textarea}
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                placeholder="Say or type what you need. Example: Add a work item called Build voice planner under AruviStudio, then approve it and start the workflow."
+            {plannerView !== "draft" ? (
+              <PlannerComposer
+                draft={draft}
+                onDraftChange={setDraft}
+                onSend={() => {
+                  void send();
+                }}
+                onToggleListening={() => {
+                  void toggleListening();
+                }}
+                onOpenDraftWorkspace={() => setPlannerView("draft")}
+                onConfirm={() => setDraft("confirm")}
+                onDismiss={dismissPendingPlan}
+                isPlannerBusy={isPlannerBusy}
+                voiceEnabled={voiceEnabled}
+                isListening={isListening}
+                isTranscribing={isTranscribing}
+                isVoiceSubmitting={isVoiceSubmitting}
+                pendingVoiceTranscript={pendingVoiceTranscript}
+                draftTreeNodesLength={draftTreeNodes.length}
+                pendingPlan={pendingPlan}
+                voiceActivity={voiceActivity}
+                composerRef={composerRef}
+                scopeChips={composerScopeChips}
+                scopeHint={composerScopeHint}
               />
-              <div style={styles.actionRow}>
-                <button data-testid="planner-send" style={styles.btn} onClick={() => void send()} disabled={isPlannerBusy}>
-                  {isPlannerBusy ? "Working..." : "Send"}
-                </button>
-                <button style={styles.btnGhost} onClick={toggleListening} disabled={!voiceEnabled}>
-                  {isListening ? "Stop Listening" : "Start Listening"}
-                </button>
-                <button style={styles.btnGhost} onClick={() => setDraft("confirm")} disabled={!pendingPlan && draftTreeNodes.length === 0}>
-                  {draftTreeNodes.length > 0 ? "Commit Draft" : "Confirm Proposal"}
-                </button>
-                <button style={styles.btnDanger} onClick={dismissPendingPlan} disabled={!pendingPlan && draftTreeNodes.length === 0}>
-                  {draftTreeNodes.length > 0 ? "Clear Draft" : "Clear Pending"}
-                </button>
-                <span style={styles.status}>
-                  {draftTreeNodes.length > 0
-                    ? "A staged draft is active. Keep refining it, then commit when ready."
-                    : pendingPlan
-                      ? "A proposed plan is waiting for confirmation."
-                      : "No pending proposal."}
-                </span>
-              </div>
-            </div>
+            ) : null}
           </div>
         </div>
 
-        {!isFocusedWorkspaceView ? (
-          <div style={styles.panel}>
-            <div style={styles.panelBody}>
-              <div style={styles.sectionTitle}>Planner Controls</div>
-
-              <div style={styles.sideCard}>
-                <label style={styles.label}>Provider</label>
-                <select style={styles.select} value={providerId} onChange={(event) => setProviderId(event.target.value)}>
-                  <option value="">No provider</option>
-                  {providers.map((provider) => (
-                    <option key={provider.id} value={provider.id}>
-                      {provider.name}
-                    </option>
-                  ))}
-                </select>
-                <div style={{ height: 10 }} />
-                <label style={styles.label}>Model</label>
-                <select style={styles.select} value={modelName} onChange={(event) => setModelName(event.target.value)}>
-                  <option value="">No model</option>
-                  {modelOptions.map((model: ModelDefinition) => (
-                    <option key={model.id} value={model.name}>
-                      {model.name}
-                    </option>
-                  ))}
-                </select>
-                <div style={{ ...styles.helper, marginTop: 10 }}>
-                  With a configured model, the planner can have a more natural conversation, inspect current structure, and suggest additions instead of acting immediately. Without one, it falls back to simple heuristics.
-                </div>
-                <div style={{ ...styles.helper, marginTop: 8 }}>
-                  {hasTreeData ? "Tree rendering is active for work-item structure questions." : "Tree rendering will activate once product structure finishes loading."}
-                </div>
-                <div style={styles.inlineButtonRow}>
-                  <button style={styles.btnGhost} onClick={() => setShowAdvancedPlannerControls((value) => !value)}>
-                    {showAdvancedPlannerControls ? "Hide Advanced Tools" : "Show Advanced Tools"}
-                  </button>
-                </div>
-              </div>
-
-              {showAdvancedPlannerControls ? (
-                <>
-                  <div style={styles.sideCard}>
-                    <div style={styles.label}>Voice</div>
-                    <div style={styles.actionRow}>
-                      <button style={voiceEnabled ? styles.btnGhost : styles.btn} onClick={() => setVoiceEnabled((value) => !value)}>
-                        {voiceEnabled ? "Disable Mic" : "Enable Mic"}
-                      </button>
-                      <button style={autoSpeak ? styles.btn : styles.btnGhost} onClick={() => setAutoSpeak((value) => !value)}>
-                        {autoSpeak ? "Voice Replies On" : "Voice Replies Off"}
-                      </button>
-                    </div>
-                    {speechError ? <div style={{ ...styles.error, marginTop: 10 }}>{speechError}</div> : null}
-                    <div style={{ ...styles.helper, marginTop: 10 }}>
-                      For phone or WhatsApp calls, you still need an external telephony layer such as Twilio. This page gives you the in-app conversational planner first.
-                    </div>
-                  </div>
-
-                  <div style={styles.sideCard}>
-                    <div style={styles.label}>Reverse Engineer Repo</div>
-                    <div style={styles.helper}>
-                      Point the planner at an existing repository and let the model infer a staged product, module, capability, and work-item tree from the codebase.
-                    </div>
-                    <div style={{ height: 10 }} />
-                    <label style={styles.label}>Registered Repository</label>
-                    <select
-                      style={styles.select}
-                      value={selectedRepositoryId}
-                      onChange={(event) => setSelectedRepositoryId(event.target.value)}
-                    >
-                      <option value="">Select a repository</option>
-                      {repositories.map((repository) => (
-                        <option key={repository.id} value={repository.id}>
-                          {repository.name}
-                        </option>
-                      ))}
-                    </select>
-                    <div style={{ height: 10 }} />
-                    <label style={styles.label}>Add Existing Repo Path</label>
-                    <input
-                      style={styles.input}
-                      value={repositoryPathDraft}
-                      onChange={(event) => setRepositoryPathDraft(event.target.value)}
-                      placeholder="/absolute/path/to/repository"
-                    />
-                    <div style={styles.inlineButtonRow}>
-                      <button style={styles.btnGhost} onClick={() => void browseRepositoryPathForPlanner()}>
-                        Browse Path
-                      </button>
-                      <button
-                        style={styles.btnGhost}
-                        onClick={() => void registerRepositoryForPlanner()}
-                        disabled={!repositoryPathDraft.trim()}
-                      >
-                        Register Repo
-                      </button>
-                    </div>
-                    <div style={styles.inlineButtonRow}>
-                      <button
-                        style={styles.btn}
-                        onClick={() => void analyzeSelectedRepository()}
-                        disabled={!selectedRepositoryId || isPlannerBusy || !providerId || !modelName}
-                      >
-                        Analyze Repo Into Draft
-                      </button>
-                    </div>
-                    {!providerId || !modelName ? (
-                      <div style={{ ...styles.helper, marginTop: 10 }}>
-                        Configure a planner model first. Repository reverse engineering depends on the selected LLM.
-                      </div>
-                    ) : null}
-                    {repoAnalysisMessage ? <div style={{ ...styles.success, marginTop: 10 }}>{repoAnalysisMessage}</div> : null}
-                    {repoAnalysisError ? <div style={{ ...styles.error, marginTop: 10 }}>{repoAnalysisError}</div> : null}
-                  </div>
-
-                  <div style={styles.sideCard}>
-                    <div style={styles.label}>Contact Me</div>
-                    <div style={styles.helper}>Use Auto Route to follow the planner channel policy: routine updates stay on WhatsApp, while ambiguous planning can escalate to a call. Manual buttons still override the policy.</div>
-                    <div style={{ height: 10 }} />
-                    <label style={styles.label}>Destination</label>
-                    <input
-                      style={styles.input}
-                      value={contactTarget}
-                      onChange={(event) => setContactTarget(event.target.value)}
-                      placeholder="whatsapp:+15551234567 or +15551234567"
-                    />
-                    <div style={{ height: 10 }} />
-                    <label style={styles.label}>Opening Message</label>
-                    <textarea
-                      style={{ ...styles.textarea, minHeight: 84 }}
-                      value={contactDraft}
-                      onChange={(event) => setContactDraft(event.target.value)}
-                      placeholder="Tell the planner what the outbound contact should say first."
-                    />
-                    <div style={styles.actionRow}>
-                      <button style={styles.btn} onClick={() => void autoRouteContact()} disabled={!contactTarget.trim() || !contactDraft.trim()}>
-                        Auto Route
-                      </button>
-                      <button style={styles.btnGhost} onClick={() => void sendWhatsapp()} disabled={!contactTarget.trim()}>
-                        Send WhatsApp
-                      </button>
-                      <button style={styles.btnGhost} onClick={() => void startVoiceCall()} disabled={!contactTarget.trim()}>
-                        Start Voice Call
-                      </button>
-                    </div>
-                    {contactMsg ? <div style={{ ...styles.success, marginTop: 10 }}>{contactMsg}</div> : null}
-                    {contactError ? <div style={{ ...styles.error, marginTop: 10 }}>{contactError}</div> : null}
-                  </div>
-                </>
-              ) : null}
-
-              <div style={styles.sideCard}>
-                <div style={styles.label}>Draft Tree</div>
-                <div style={styles.helper}>
-                  Build the plan here first. Select a node, then ask follow-up questions like “expand this capability” or “add work items under this module.”
-                </div>
-                <div style={{ height: 10 }} />
-                {draftTreeNodes.length > 0 ? (
-                  <div style={styles.treePanel}>
-                    <div style={styles.treeExplorer}>
-                      {draftTreeNodes.map((node) => (
-                        <SelectableTreeNodeView
-                          key={node.id}
-                          node={node}
-                          selectedNodeId={selectedDraftNodeId}
-                          onSelect={setSelectedDraftNodeId}
-                          expandedNodeIds={expandedDraftNodeIdSet}
-                          onToggle={toggleDraftNodeExpanded}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <div style={styles.helper}>No staged draft yet. Ask the planner to sketch a product tree and it will appear here.</div>
-                )}
-                <div style={styles.inlineButtonRow}>
-                  <button style={styles.btnGhost} onClick={() => setPlannerView("draft")} disabled={draftTreeNodes.length === 0}>
-                    Open Workspace
-                  </button>
-                  <button style={styles.btn} onClick={confirmPendingPlan} disabled={draftTreeNodes.length === 0 || isPlannerBusy}>
-                    Commit Draft
-                  </button>
-                  <button style={styles.btnGhost} onClick={dismissPendingPlan} disabled={draftTreeNodes.length === 0}>
-                    Clear Draft
-                  </button>
-                </div>
-              </div>
-
-              <div style={styles.sideCard}>
-                <div style={styles.label}>Current Scope</div>
-                <div style={styles.chipRow}>
-                  {selectedDraftNodeId ? <div style={styles.chip}>draft node selected</div> : null}
-                  {activeProductId ? <div style={styles.chip}>product selected</div> : null}
-                  {activeModuleId ? <div style={styles.chip}>module selected</div> : null}
-                  {activeCapabilityId ? <div style={styles.chip}>capability selected</div> : null}
-                  {activeWorkItemId ? <div style={styles.chip}>work item selected</div> : null}
-                </div>
-                <div style={{ ...styles.helper, marginTop: 10 }}>
-                  If you omit names, the planner first tries the selected draft node, then the selected workspace scope, then asks follow-up questions if it still cannot resolve the target cleanly.
-                </div>
-              </div>
-
-              <div style={styles.sideCard}>
-                <div style={styles.label}>Examples</div>
-                <div style={styles.list}>
-                  <div style={styles.listItem}>
-                    <div style={styles.listItemTitle}>One-shot draft</div>
-                    <div style={styles.listItemMeta}>Design an agent management system. Draft the product, modules, capabilities, and initial work items in one staged tree.</div>
-                  </div>
-                  <div style={styles.listItem}>
-                    <div style={styles.listItemTitle}>Refine selected node</div>
-                    <div style={styles.listItemMeta}>After selecting a module in the draft tree: add three capabilities under this module focused on lifecycle, permissions, and monitoring.</div>
-                  </div>
-                  <div style={styles.listItem}>
-                    <div style={styles.listItemTitle}>Commit when ready</div>
-                    <div style={styles.listItemMeta}>The staged tree looks right. Commit the draft and create the real product structure.</div>
-                  </div>
-                </div>
-              </div>
-
-              {pendingPlan || draftTreeNodes.length > 0 ? (
-                <div style={styles.sideCard}>
-                  <div style={styles.label}>Draft Snapshot</div>
-                  <div style={styles.helper}>
-                    The planner stages structure here first. Keep refining the tree, then commit when the draft looks right.
-                  </div>
-                  {pendingPlan ? (
-                    <div style={styles.list}>
-                      {pendingPlan.plan.actions.map((action, index) => (
-                        <div key={`${action.type}-${index}`} style={styles.listItem}>
-                          <div style={styles.listItemTitle}>{action.type}</div>
-                          <div style={styles.listItemMeta}>{JSON.stringify(action, null, 2)}</div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div style={{ ...styles.helper, marginTop: 10 }}>
-                      The current staged draft is active in the tree above. Select a node and keep iterating, or commit to persist it.
-                    </div>
-                  )}
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
+        {!isFocusedWorkspaceView && !isCompactScreen ? renderPlannerSidebar() : null}
+        {!isFocusedWorkspaceView && isCompactScreen && showCompactTools ? renderPlannerSidebar() : null}
       </div>
+
+      {showRepoModal ? (
+        <div style={styles.modalOverlay} onClick={() => setShowRepoModal(false)}>
+          <div style={styles.modalCard} onClick={(event) => event.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <div>
+                <div style={styles.modalTitle}>Reverse Engineer Repository</div>
+                <div style={styles.helper}>
+                  Point the planner at an existing repository and let the model infer a staged product, module, capability, and work-item tree from the codebase.
+                </div>
+              </div>
+              <button style={styles.btnGhost} onClick={() => setShowRepoModal(false)}>
+                Close
+              </button>
+            </div>
+            <label style={styles.label}>Registered Repository</label>
+            <select
+              style={styles.select}
+              value={selectedRepositoryId}
+              onChange={(event) => setSelectedRepositoryId(event.target.value)}
+            >
+              <option value="">Select a repository</option>
+              {repositories.map((repository) => (
+                <option key={repository.id} value={repository.id}>
+                  {repository.name}
+                </option>
+              ))}
+            </select>
+            <div style={{ height: 10 }} />
+            <label style={styles.label}>Add Existing Repo Path</label>
+            <input
+              style={styles.input}
+              value={repositoryPathDraft}
+              onChange={(event) => setRepositoryPathDraft(event.target.value)}
+              placeholder="/absolute/path/to/repository"
+            />
+            <div style={styles.inlineButtonRow}>
+              <button style={styles.btnGhost} onClick={() => void browseRepositoryPathForPlanner()}>
+                Browse Path
+              </button>
+              <button
+                style={styles.btnGhost}
+                onClick={() => void registerRepositoryForPlanner()}
+                disabled={!repositoryPathDraft.trim()}
+              >
+                Register Repo
+              </button>
+              <button
+                style={styles.btn}
+                onClick={() => void analyzeSelectedRepository()}
+                disabled={!selectedRepositoryId || isPlannerBusy || !providerId || !modelName}
+              >
+                Analyze Repo Into Draft
+              </button>
+            </div>
+            {!providerId || !modelName ? (
+              <div style={{ ...styles.helper, marginTop: 10 }}>
+                Configure a planner model first. Repository reverse engineering depends on the selected LLM.
+              </div>
+            ) : null}
+            {repoAnalysisMessage ? <div style={{ ...styles.success, marginTop: 10 }}>{repoAnalysisMessage}</div> : null}
+            {repoAnalysisError ? <div style={{ ...styles.error, marginTop: 10 }}>{repoAnalysisError}</div> : null}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
