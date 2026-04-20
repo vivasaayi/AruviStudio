@@ -1,5 +1,6 @@
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
+import { getCapabilityChildLabel, getCapabilityHierarchyLabel } from "../../lib/hierarchyLabels";
 import { useWorkspaceStore } from "../../state/workspaceStore";
 import { getProductTree, getWorkItem, listProducts } from "../../lib/tauri";
 
@@ -25,9 +26,7 @@ export function RightSidebar() {
   const activeModule = tree?.modules.find((entry) => entry.module.id === activeModuleId)?.module ?? null;
   const activeCapabilityNode = tree ? findCapabilityNodeInTree(tree.modules, activeCapabilityId) : null;
   const scopeName = activeCapabilityNode
-    ? activeCapabilityNode.capability.level === 0
-      ? "Capability scope"
-      : "Outcome scope"
+    ? `${getCapabilityHierarchyLabel(activeCapabilityNode.capability.level)} scope`
     : activeModuleId
       ? "Module scope"
       : activeProductId
@@ -53,7 +52,7 @@ export function RightSidebar() {
         <div style={styles.info}>{scopeName}</div>
         <div style={styles.meta}>
           {activeCapabilityNode
-            ? `${activeCapabilityNode.capability.name} · ${activeCapabilityNode.children.length} ${activeCapabilityNode.capability.level === 0 ? "outcomes" : "children"}`
+            ? `${activeCapabilityNode.capability.name} · ${activeCapabilityNode.children.length} ${getCapabilityChildLabel(activeCapabilityNode.capability.level, { plural: activeCapabilityNode.children.length !== 1, lowercase: true })}`
             : activeModule
               ? `${activeModule.name} · ${(tree?.modules.find((entry) => entry.module.id === activeModule.id)?.features.length ?? 0)} capabilities`
               : "Backlog and work item intake follow the active hierarchy."}

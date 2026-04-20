@@ -47,7 +47,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
     vec![
         action_tool(
             "aruvi_catalog",
-            "Manage products, modules, capabilities, and product trees for planning.",
+            "Manage products, modules, capabilities, and capability rollouts (child capabilities) for planning.",
             &[
                 "create_product",
                 "get_product",
@@ -70,7 +70,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
         ),
         action_tool(
             "aruvi_work_items",
-            "Manage work items and their hierarchy for execution planning.",
+            "Manage work items and their hierarchy for execution planning. Work items attach directly to capability_id, including capability rollout nodes.",
             &[
                 "create_work_item",
                 "get_work_item",

@@ -37,6 +37,7 @@ import {
   startWorkItemWorkflow,
   updateWorkItem,
 } from "../../../lib/tauri";
+import { getCapabilityHierarchyLabel } from "../../../lib/hierarchyLabels";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
 import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
@@ -1852,7 +1853,15 @@ export function WorkItemListPage() {
           <div style={styles.detailCard}>
             <div style={styles.detailLabel}>Creation Scope</div>
             <div style={styles.detailValue}>
-              {activeCapabilityId ? "Current outcome" : activeModuleId ? "Current module" : activeProductId ? "Current product" : "No product selected"}
+              {activeCapability
+                ? `Current ${getCapabilityHierarchyLabel(activeCapability.level, { lowercase: true })}`
+                : activeCapabilityId
+                  ? "Current capability"
+                  : activeModuleId
+                    ? "Current module"
+                    : activeProductId
+                      ? "Current product"
+                      : "No product selected"}
             </div>
           </div>
           <label style={styles.detailLabel}>Title</label>

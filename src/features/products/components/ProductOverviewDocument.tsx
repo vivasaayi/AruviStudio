@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { getCapabilityHierarchyLabel } from "../../../lib/hierarchyLabels";
 import type { Capability, CapabilityTree, Module, ModuleTree, Product, ProductTree, WorkItem } from "../../../lib/types";
 import {
   PRODUCT_DELIVERY_ID,
@@ -441,7 +442,7 @@ function CapabilityChapter({
   onOpenWorkItem: (workItem: WorkItem) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const capabilityType = capabilityTree.capability.level === 0 ? "Capability" : "Outcome";
+  const capabilityType = getCapabilityHierarchyLabel(capabilityTree.capability.level);
   const directWorkItems = useMemo(
     () => buildScopedWorkItemTree(allWorkItems.filter((workItem) => workItem.capability_id === capabilityTree.capability.id)),
     [allWorkItems, capabilityTree.capability.id],

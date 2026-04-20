@@ -1627,7 +1627,7 @@ export function AgentRegistryPage() {
         <div style={styles.headerRow}>
           <div style={styles.titleWrap}>
             <h2 style={styles.title}>Scope Assignments</h2>
-            <div style={styles.subtitle}>Resolve work items to a team first: capability or outcome beats module, module beats product.</div>
+            <div style={styles.subtitle}>Resolve work items to a team first: capability or capability rollout beats module, module beats product.</div>
           </div>
         </div>
         <div style={styles.formGrid}>
@@ -1670,7 +1670,7 @@ export function AgentRegistryPage() {
             >
               <option value="product">Product</option>
               <option value="module">Module</option>
-              <option value="capability">Capability / Outcome</option>
+              <option value="capability">Capability / Rollout</option>
             </select>
           </div>
           {assignmentScopeType === "module" ? (
@@ -1688,9 +1688,9 @@ export function AgentRegistryPage() {
           ) : null}
           {assignmentScopeType === "capability" ? (
             <div style={styles.field}>
-              <label style={styles.label}>Capability / Outcome</label>
+              <label style={styles.label}>Capability / Rollout</label>
               <select style={styles.select} value={assignmentCapabilityId} onChange={(e) => setAssignmentCapabilityId(e.target.value)}>
-                <option value="">Select a capability or outcome</option>
+                <option value="">Select a capability or rollout</option>
                 {currentCapabilityOptions.map((capability) => (
                   <option key={capability.id} value={capability.id}>
                     {capability.name}

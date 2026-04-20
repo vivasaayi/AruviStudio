@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import { getCapabilityChildLabel, isCapabilityRolloutLevel } from "../../lib/hierarchyLabels";
 import { getProductTree, listProducts, listWorkItems, summarizeWorkItemsByProduct } from "../../lib/tauri";
 import { useWorkspaceStore } from "../../state/workspaceStore";
 import { useUIStore } from "../../state/uiStore";
@@ -160,9 +161,9 @@ export function LeftSidebar() {
   }, [scopedSidebarWorkItems]);
 
   const getCapabilityAggregateMeta = useMemo(() => {
-    const cache = new Map<string, { outcomeCount: number; workItemCount: number }>();
+    const cache = new Map<string, { rolloutCount: number; workItemCount: number }>();
 
-    const walk = (capabilityTree: CapabilityTree): { outcomeCount: number; workItemCount: number } => {
+    const walk = (capabilityTree: CapabilityTree): { rolloutCount: number; workItemCount: number } => {
       const cached = cache.get(capabilityTree.capability.id);
       if (cached) {
         return cached;
@@ -170,7 +171,7 @@ export function LeftSidebar() {
       const directWorkItemCount = (workItemsByCapability.get(capabilityTree.capability.id) ?? []).length;
       const childMeta = capabilityTree.children.map((child) => walk(child));
       const meta = {
-        outcomeCount: capabilityTree.children.length,
+        rolloutCount: capabilityTree.children.length,
         workItemCount: directWorkItemCount + childMeta.reduce((sum, child) => sum + child.workItemCount, 0),
       };
       cache.set(capabilityTree.capability.id, meta);
@@ -457,7 +458,7 @@ function renderCapabilityNode(
     goToProductStructure: () => void;
     goToTaskIntake: () => void;
     workItemsByCapability: Map<string, Array<{ id: string; title: string; status: string }>>;
-    getCapabilityAggregateMeta: (capabilityTree: CapabilityTree) => { outcomeCount: number; workItemCount: number };
+    getCapabilityAggregateMeta: (capabilityTree: CapabilityTree) => { rolloutCount: number; workItemCount: number };
     showHierarchyWorkItems: boolean;
     depth: number;
     maxDepth: number;
@@ -485,6 +486,10 @@ function renderCapabilityNode(
   const isOpen = expandedCapabilities[capabilityTree.capability.id] ?? true;
   const workItems = workItemsByCapability.get(capabilityTree.capability.id) ?? [];
   const capabilityMeta = getCapabilityAggregateMeta(capabilityTree);
+  const childLabel = getCapabilityChildLabel(
+    capabilityTree.capability.level,
+    { plural: capabilityMeta.rolloutCount !== 1, lowercase: true },
+  );
 
   return (
     <div key={capabilityTree.capability.id}>
@@ -499,7 +504,7 @@ function renderCapabilityNode(
         }}
       >
         <div style={styles.nodeTitle}>{capabilityTree.capability.name}</div>
-        <div style={styles.nodeMeta}>{capabilityMeta.outcomeCount} outcomes · {capabilityMeta.workItemCount} work items</div>
+        <div style={styles.nodeMeta}>{capabilityMeta.rolloutCount} {childLabel} · {capabilityMeta.workItemCount} work items</div>
         <div style={{ ...styles.actionRow, ...(hoveredCapabilityId === capabilityTree.capability.id ? styles.actionRowVisible : styles.actionRowHidden) }}>
             <button
               style={styles.actionBtn}
@@ -512,18 +517,20 @@ function renderCapabilityNode(
             >
               + Work Item
             </button>
-            <button
-              style={styles.actionBtn}
-              onClick={(e) => {
-                e.stopPropagation();
-                setActiveModule(capabilityTree.capability.module_id);
-                setActiveCapability(capabilityTree.capability.id);
-                goToProductStructure();
-                openCapabilityDialog("create");
-              }}
-            >
-              + Outcome
-            </button>
+            {!isCapabilityRolloutLevel(capabilityTree.capability.level) ? (
+              <button
+                style={styles.actionBtn}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveModule(capabilityTree.capability.module_id);
+                  setActiveCapability(capabilityTree.capability.id);
+                  goToProductStructure();
+                  openCapabilityDialog("create");
+                }}
+              >
+                + Rollout
+              </button>
+            ) : null}
             <button
               style={styles.actionBtn}
               onClick={(e) => {

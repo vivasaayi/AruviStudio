@@ -19,6 +19,11 @@ import {
   updateModule,
   updateProduct,
 } from "../../../lib/tauri";
+import {
+  getCapabilityChildLabel,
+  getCapabilityHierarchyLabel,
+  isCapabilityRolloutLevel,
+} from "../../../lib/hierarchyLabels";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
 import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
@@ -500,13 +505,17 @@ export function ProductListPage() {
   const capabilityCount = tree ? countCapabilities(tree.modules) : 0;
   const activeWorkItemCount = filteredScopedTasks.filter((workItem) => workItem.status !== "done" && workItem.status !== "cancelled").length;
   const completedWorkItemCount = filteredScopedTasks.filter((workItem) => workItem.status === "done").length;
+  const canCreateChildCapability = !selectedCapability || !isCapabilityRolloutLevel(selectedCapability.level);
+  const selectedCapabilityEntityLabel = selectedCapability
+    ? getCapabilityHierarchyLabel(selectedCapability.level)
+    : getCapabilityHierarchyLabel(0);
+  const nextCapabilityEntityLabel = selectedCapability ? getCapabilityHierarchyLabel(1) : getCapabilityHierarchyLabel(0);
   const orderedModules = useMemo(() => {
     if (!tree) {
       return [];
     }
     return orderItemsByIds(tree.modules, moduleOrderIds, (moduleTree) => moduleTree.module.id);
   }, [tree, moduleOrderIds]);
-  const selectedCapabilityEntityLabel = selectedCapability ? getHierarchyLabelForCapability(selectedCapability.level) : "Capability";
   const structureRows = useMemo(() => {
     if (!tree) {
       return [];
@@ -515,10 +524,10 @@ export function ProductListPage() {
       return selectedCapabilityTree.children.map((child) => ({
         id: child.capability.id,
         name: child.capability.name,
-        subtitle: child.capability.description || "Outcome",
-        type: "outcome",
+        subtitle: child.capability.description || getCapabilityHierarchyLabel(child.capability.level),
+        type: getCapabilityHierarchyLabel(child.capability.level, { lowercase: true }),
         status: child.capability.status.replace(/_/g, " "),
-        metric: `${child.children.length} children`,
+        metric: `${child.children.length} ${getCapabilityChildLabel(child.capability.level, { plural: child.children.length !== 1, lowercase: true })}`,
         onSelect: () => {
           setActiveModule(child.capability.module_id);
           setActiveCapability(child.capability.id);
@@ -543,10 +552,10 @@ export function ProductListPage() {
       ).map((capabilityTree) => ({
         id: capabilityTree.capability.id,
         name: capabilityTree.capability.name,
-        subtitle: capabilityTree.capability.description || "Capability",
-        type: "capability",
+        subtitle: capabilityTree.capability.description || getCapabilityHierarchyLabel(capabilityTree.capability.level),
+        type: getCapabilityHierarchyLabel(capabilityTree.capability.level, { lowercase: true }),
         status: capabilityTree.capability.status.replace(/_/g, " "),
-        metric: `${capabilityTree.children.length} children`,
+        metric: `${capabilityTree.children.length} ${getCapabilityChildLabel(capabilityTree.capability.level, { plural: capabilityTree.children.length !== 1, lowercase: true })}`,
         onSelect: () => {
           setActiveModule(capabilityTree.capability.module_id);
           setActiveCapability(capabilityTree.capability.id);
@@ -687,9 +696,7 @@ export function ProductListPage() {
                         <div style={styles.contextTitle}>{selectedCapability?.name ?? selectedModule?.name ?? selectedProduct.name}</div>
                         <div style={styles.contextText}>
                           {selectedCapability
-                            ? selectedCapability.level === 0
-                              ? "This view is scoped to a capability. Work item intake and backlog stay pinned to this slice."
-                              : "This view is scoped to an outcome. Work item intake and backlog stay pinned to this slice."
+                            ? `This view is scoped to a ${getCapabilityHierarchyLabel(selectedCapability.level, { lowercase: true })}. Work item intake and backlog stay pinned to this slice.`
                             : selectedModule
                               ? "This view is scoped to a module. Use it to balance work across related capabilities."
                               : "This view is scoped to the product. Use it to orient before drilling into structure or delivery."}
@@ -733,7 +740,13 @@ export function ProductListPage() {
                         >
                           Work Items
                         </button>
-                        <button style={styles.ghostBtn} onClick={() => useUIStore.getState().openCapabilityDialog("create")} disabled={!activeModuleId}>+ {selectedCapability ? "Outcome" : "Capability"}</button>
+                        <button
+                          style={styles.ghostBtn}
+                          onClick={() => useUIStore.getState().openCapabilityDialog("create")}
+                          disabled={!activeModuleId || !canCreateChildCapability}
+                        >
+                          + {nextCapabilityEntityLabel}
+                        </button>
                         <button style={styles.ghostBtn} onClick={() => setShowWorkItemForm(true)}>+ Work Item</button>
                         <button style={styles.ghostBtn} onClick={() => useUIStore.getState().openModuleDialog("create")}>+ Module</button>
                       </div>
@@ -746,9 +759,9 @@ export function ProductListPage() {
                         {structureViewMode === "work_items"
                           ? "Work items attached to the selected node are listed below."
                           : selectedCapability
-                            ? selectedCapability.level === 0
-                              ? "Outcomes for the selected capability are listed below."
-                              : "Any remaining child rows are listed below, but new hierarchy creation stops at outcomes."
+                            ? isCapabilityRolloutLevel(selectedCapability.level)
+                              ? "Capability rollouts are direct children of capabilities. This rollout cannot contain deeper hierarchy."
+                              : "Capability rollouts for the selected capability are listed below."
                             : selectedModule
                               ? "Capabilities for the selected module are listed below."
                               : "Modules for the selected product are listed below."}
@@ -793,7 +806,13 @@ export function ProductListPage() {
                       </div>
                     ) : (
                       <div style={styles.empty}>
-                        {selectedCapability ? "No child outcomes yet." : selectedModule ? "No capabilities yet in this module." : "No modules yet. Start with the first module and build from there."}
+                        {selectedCapability
+                          ? isCapabilityRolloutLevel(selectedCapability.level)
+                            ? "Capability rollouts cannot contain deeper hierarchy."
+                            : "No capability rollouts yet."
+                          : selectedModule
+                            ? "No capabilities yet in this module."
+                            : "No modules yet. Start with the first module and build from there."}
                       </div>
                       )
                     ) : filteredScopedTasks.length > 0 ? (
@@ -956,8 +975,13 @@ export function ProductListPage() {
             <>
               <label style={styles.label}>Parent Module</label>
               <input style={styles.input} value={selectedModule?.name ?? ""} readOnly />
-              <label style={styles.label}>Parent {selectedCapability ? "Outcome" : "Capability"} (optional)</label>
-              <input style={styles.input} value={selectedCapability?.name ?? ""} readOnly placeholder={`Create top-level ${selectedCapability ? "outcome" : "capability"} if empty`} />
+              <label style={styles.label}>Parent {selectedCapability ? selectedCapabilityEntityLabel : getCapabilityHierarchyLabel(0)} (optional)</label>
+              <input
+                style={styles.input}
+                value={selectedCapability?.name ?? ""}
+                readOnly
+                placeholder={`Create top-level ${nextCapabilityEntityLabel.toLowerCase()} if empty`}
+              />
               <label style={styles.label}>{selectedCapabilityEntityLabel} Name</label>
               <input style={styles.input} value={capabilityForm.name} onChange={(e) => setCapabilityForm({ ...capabilityForm, name: e.target.value })} />
               <label style={styles.label}>Description</label>
@@ -1121,10 +1145,6 @@ function findCapabilityTree(modules: ModuleTree[], capabilityId: string | null):
   }
 
   return null;
-}
-
-function getHierarchyLabelForCapability(level: number) {
-  return level === 0 ? "Capability" : "Outcome";
 }
 
 function searchCapabilityTree(capabilityTree: CapabilityTree, capabilityId: string | null): CapabilityTree | null {

@@ -366,7 +366,8 @@ export interface McpBridgeStatus {
   env_overrides_settings: boolean;
   guidance: string;
 }
-export type Outcome = Capability;
+export type CapabilityRollout = Capability;
+export type Outcome = CapabilityRollout;
 export type CapabilityNode = Capability;
 
 export interface ChatMessagePayload {

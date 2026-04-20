@@ -162,7 +162,8 @@ pub async fn create_capability(
             .await?;
         if parent_level >= 1 {
             return Err(AppError::Validation(
-                "Only two hierarchy levels are supported: capability -> outcome".to_string(),
+                "Only two hierarchy levels are supported: capability -> capability rollout"
+                    .to_string(),
             ));
         }
         parent_level + 1

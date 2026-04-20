@@ -391,7 +391,7 @@ type DraftEditOperation =
   | { kind: "delete"; nodeId: string };
 
 const DEFAULT_ASSISTANT_OPENING =
-  "Talk to me like a planning lead. Describe the product or outcome you want, and I’ll check what already exists, suggest any missing products, capabilities, or work items, and wait for your confirmation before adding them.";
+  "Talk to me like a planning lead. Describe the product, capability, or rollout you want, and I’ll check what already exists, suggest any missing products, modules, capabilities, rollouts, or work items, and wait for your confirmation before adding them.";
 
 const SPEECH_PROVIDER_KEY = "speech.transcription_provider_id";
 const SPEECH_MODEL_KEY = "speech.transcription_model_name";
@@ -441,6 +441,7 @@ create_work_item, update_work_item, delete_work_item,
 approve_work_item, reject_work_item, approve_work_item_plan, reject_work_item_plan, approve_work_item_test_review,
 start_workflow, workflow_action, report_status, report_tree.
 - Use product/module/capability/work item names in target fields, never IDs.
+- A capability rollout is represented as a child capability (level 1). Work items attach directly to capability_id, including rollout nodes.
 - For create_work_item defaults when omitted: workItemType=feature, priority=medium, complexity=medium.
 - For create_capability defaults when omitted: priority=medium, risk=medium.
 - For workflow_action action must be one of approve,reject,pause,resume,cancel.
@@ -1714,7 +1715,7 @@ function buildSuggestedPrompts(node: PlannerTreeNode | null): string[] {
       return [
         `Enhance ${node.label} with 3 concrete capabilities.`,
         `Break ${node.label} into implementation-ready capabilities and work items.`,
-        `What risks or missing outcomes exist under ${node.label}?`,
+        `What risks or missing capability rollouts exist under ${node.label}?`,
       ];
     case "capability":
       return [
@@ -2166,12 +2167,12 @@ export function PlannerPage() {
     if (latestAssistantMessage) {
       return {
         title: latestAssistantMessage.meta ?? "Planner ready",
-        detail: latestAssistantMessage.content.split("\n")[0] || "Describe the product or outcome you want.",
+        detail: latestAssistantMessage.content.split("\n")[0] || "Describe the product, capability, or rollout you want.",
       };
     }
     return {
       title: "Planner ready",
-      detail: "Describe the product or outcome you want to stage.",
+      detail: "Describe the product, capability, or rollout you want to stage.",
     };
   }, [
     draftTreeNodes.length,

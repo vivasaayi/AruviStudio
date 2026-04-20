@@ -1,4 +1,5 @@
 import type { Capability, CapabilityTree, Module, ModuleTree, Product, ProductTree, WorkItem } from "../../../lib/types";
+import { getCapabilityHierarchyLabel } from "../../../lib/hierarchyLabels";
 
 export const PRODUCT_OVERVIEW_TOP_ID = "product-overview-top";
 export const PRODUCT_DELIVERY_ID = "product-delivery";
@@ -1517,7 +1518,7 @@ function renderModuleHtml(moduleTree: ModuleTree, chapterNumber: number, allWork
 }
 
 function renderCapabilityHtml(capabilityTree: CapabilityTree, numbering: string, allWorkItems: WorkItem[]): string {
-  const capabilityType = capabilityTree.capability.level === 0 ? "Capability" : "Outcome";
+  const capabilityType = getCapabilityHierarchyLabel(capabilityTree.capability.level);
   const scopedItems = getCapabilityScopedWorkItems(capabilityTree, allWorkItems);
   const directWorkItems = buildScopedWorkItemTree(
     allWorkItems.filter((workItem) => workItem.capability_id === capabilityTree.capability.id),
@@ -1718,7 +1719,7 @@ function renderBookModuleHtml(moduleTree: ModuleTree, chapterNumber: number, all
 }
 
 function renderBookCapabilityHtml(capabilityTree: CapabilityTree, numbering: string, allWorkItems: WorkItem[]): string {
-  const capabilityType = capabilityTree.capability.level === 0 ? "Capability" : "Outcome";
+  const capabilityType = getCapabilityHierarchyLabel(capabilityTree.capability.level);
   const directWorkItems = buildScopedWorkItemTree(
     allWorkItems.filter((workItem) => workItem.capability_id === capabilityTree.capability.id),
   );
