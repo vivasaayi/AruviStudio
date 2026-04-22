@@ -27,7 +27,89 @@
     };
   }
 
+  function createModule(id, productId, nodeKind, name, description, purpose, sortOrder) {
+    return {
+      id,
+      product_id: productId,
+      node_kind: nodeKind,
+      name,
+      description,
+      purpose,
+      sort_order: sortOrder,
+      created_at: FIXED_TIMESTAMP,
+      updated_at: FIXED_TIMESTAMP,
+    };
+  }
+
+  function createCapability(id, moduleId, parentCapabilityId, level, nodeKind, name, description, acceptanceCriteria, sortOrder) {
+    return {
+      id,
+      module_id: moduleId,
+      parent_capability_id: parentCapabilityId,
+      level,
+      node_kind: nodeKind,
+      sort_order: sortOrder,
+      name,
+      description,
+      acceptance_criteria: acceptanceCriteria,
+      priority: "medium",
+      risk: "low",
+      status: "in_progress",
+      technical_notes: `${name} technical notes`,
+      created_at: FIXED_TIMESTAMP,
+      updated_at: FIXED_TIMESTAMP,
+    };
+  }
+
+  function createWorkItem(
+    id,
+    productId,
+    moduleId,
+    capabilityId,
+    sourceNodeId,
+    sourceNodeType,
+    title,
+    description,
+    workItemType,
+    priority,
+    status,
+    sortOrder,
+  ) {
+    return {
+      id,
+      product_id: productId,
+      module_id: moduleId,
+      capability_id: capabilityId,
+      source_node_id: sourceNodeId,
+      source_node_type: sourceNodeType,
+      parent_work_item_id: null,
+      title,
+      problem_statement: description,
+      description,
+      acceptance_criteria: `${title} is verifiable in the UI.`,
+      constraints: "",
+      work_item_type: workItemType,
+      priority,
+      complexity: "medium",
+      status,
+      repo_override_id: null,
+      active_repo_id: null,
+      branch_name: null,
+      sort_order: sortOrder,
+      created_at: FIXED_TIMESTAMP,
+      updated_at: FIXED_TIMESTAMP,
+    };
+  }
+
+  const ROOT_ALLOWED_CHILD_KINDS = ["area", "domain", "system", "subsystem", "feature_set", "capability", "reference"];
+  const NESTED_ALLOWED_CHILD_KINDS = ["feature_set", "capability", "rollout", "reference"];
+
   function createState() {
+    const calculatorProductId = "example-product-calculator";
+    const coreMathModuleId = "calc-core-math-engine";
+    const expressionCapabilityId = "calc-expression-evaluation";
+    const rolloutCapabilityId = "calc-scientific-mode-rollout";
+
     return {
       nextId: 1,
       settings: {
@@ -62,7 +144,7 @@
       ],
       products: [
         createProduct(
-          "example-product-calculator",
+          calculatorProductId,
           "Calculator",
           "A staged React calculator used to pressure-test implementation and validation agents.",
           "Ship calculator outcomes one by one and verify the full autonomous delivery loop.",
@@ -73,9 +155,99 @@
           ["example_product", "seeded_catalog", "react", "calculator"],
         ),
       ],
-      modules: [],
-      capabilities: [],
-      workItems: [],
+      modules: [
+        createModule(
+          coreMathModuleId,
+          calculatorProductId,
+          "area",
+          "Core Math Engine",
+          "Semantic root section for the calculator's parsing and evaluation logic.",
+          "Coordinate the parser, evaluator, and delivery work attached to the engine.",
+          0,
+        ),
+      ],
+      capabilities: [
+        createCapability(
+          expressionCapabilityId,
+          coreMathModuleId,
+          null,
+          0,
+          "capability",
+          "Expression Evaluation",
+          "Parse tokens, resolve precedence, and produce deterministic calculation results.",
+          "Expressions evaluate correctly for chained operators and nested grouping.",
+          0,
+        ),
+        createCapability(
+          rolloutCapabilityId,
+          coreMathModuleId,
+          expressionCapabilityId,
+          1,
+          "rollout",
+          "Scientific Mode Rollout",
+          "Release advanced evaluation paths without losing the base calculator flow.",
+          "Scientific functions are safely introduced behind the rollout plan.",
+          0,
+        ),
+      ],
+      workItems: [
+        createWorkItem(
+          "work-item-calc-product-docs",
+          calculatorProductId,
+          null,
+          null,
+          null,
+          null,
+          "Publish keyboard shortcuts guide",
+          "Document product-level shortcuts and usage notes for calculator operators.",
+          "review",
+          "low",
+          "ready_for_review",
+          0,
+        ),
+        createWorkItem(
+          "work-item-calc-parser-errors",
+          calculatorProductId,
+          coreMathModuleId,
+          null,
+          coreMathModuleId,
+          "module",
+          "Refine parser error surfaces",
+          "Improve direct engine-level error messages for malformed expressions.",
+          "refactor",
+          "medium",
+          "in_progress",
+          1,
+        ),
+        createWorkItem(
+          "work-item-calc-precedence",
+          calculatorProductId,
+          coreMathModuleId,
+          expressionCapabilityId,
+          expressionCapabilityId,
+          "capability",
+          "Implement expression precedence resolution",
+          "Attach direct delivery work to the semantic capability that owns evaluation logic.",
+          "feature",
+          "high",
+          "in_progress",
+          2,
+        ),
+        createWorkItem(
+          "work-item-calc-rollout-checklist",
+          calculatorProductId,
+          coreMathModuleId,
+          rolloutCapabilityId,
+          rolloutCapabilityId,
+          "capability",
+          "Ship scientific mode rollout checklist",
+          "Track rollout-specific delivery work against the rollout node instead of the product root.",
+          "setup",
+          "medium",
+          "draft",
+          3,
+        ),
+      ],
       repositories: [],
       plannerSessions: {},
     };
@@ -108,7 +280,7 @@
         module: moduleEntry,
         features: buildCapabilityChildren(moduleEntry.id, null),
       }));
-    return { product, modules };
+    return { product, modules, roots: buildHierarchyRoots(productId) };
   }
 
   function buildCapabilityChildren(moduleId, parentCapabilityId) {
@@ -122,6 +294,52 @@
       }));
   }
 
+  function buildHierarchyRoots(productId) {
+    const state = getState();
+    return state.modules
+      .filter((entry) => entry.product_id === productId)
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((moduleEntry) => ({
+        id: moduleEntry.id,
+        node_type: "module",
+        node_kind: moduleEntry.node_kind,
+        module_id: moduleEntry.id,
+        capability_id: null,
+        parent_node_id: null,
+        parent_node_type: null,
+        depth: 0,
+        name: moduleEntry.name,
+        description: moduleEntry.description,
+        summary: moduleEntry.purpose,
+        path: [moduleEntry.name],
+        allowed_child_kinds: ROOT_ALLOWED_CHILD_KINDS,
+        children: buildHierarchyCapabilityNodes(moduleEntry.id, null, [moduleEntry.name], 1),
+      }));
+  }
+
+  function buildHierarchyCapabilityNodes(moduleId, parentCapabilityId, parentPath, depth) {
+    const state = getState();
+    return state.capabilities
+      .filter((entry) => entry.module_id === moduleId && entry.parent_capability_id === parentCapabilityId)
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((capability) => ({
+        id: capability.id,
+        node_type: "capability",
+        node_kind: capability.node_kind,
+        module_id: moduleId,
+        capability_id: capability.id,
+        parent_node_id: parentCapabilityId ?? moduleId,
+        parent_node_type: parentCapabilityId ? "capability" : "module",
+        depth,
+        name: capability.name,
+        description: capability.description,
+        summary: capability.description,
+        path: [...parentPath, capability.name],
+        allowed_child_kinds: capability.node_kind === "rollout" ? [] : NESTED_ALLOWED_CHILD_KINDS,
+        children: buildHierarchyCapabilityNodes(moduleId, capability.id, [...parentPath, capability.name], depth + 1),
+      }));
+  }
+
   function listWorkItemsFiltered(filters) {
     const state = getState();
     return state.workItems.filter((item) => {
@@ -132,6 +350,18 @@
         return false;
       }
       if (filters?.capabilityId && item.capability_id !== filters.capabilityId) {
+        return false;
+      }
+      if (filters?.sourceNodeId && item.source_node_id !== filters.sourceNodeId) {
+        return false;
+      }
+      if (filters?.source_node_id && item.source_node_id !== filters.source_node_id) {
+        return false;
+      }
+      if (filters?.sourceNodeType && item.source_node_type !== filters.sourceNodeType) {
+        return false;
+      }
+      if (filters?.source_node_type && item.source_node_type !== filters.source_node_type) {
         return false;
       }
       if (filters?.status && item.status !== filters.status) {

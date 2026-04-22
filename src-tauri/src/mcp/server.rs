@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use std::io::{self, BufReader};
 use tokio::runtime::Runtime;
 
-const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
+const DEFAULT_PROTOCOL_VERSION: &str = "2025-11-25";
 
 pub struct McpServer {
     state: AppState,
@@ -256,4 +256,35 @@ fn error_tool_result(tool_name: &str, message: &str) -> Value {
         ],
         "isError": true
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn initialize_defaults_to_latest_supported_protocol_version() {
+        let response = handle_initialize(None);
+        assert_eq!(
+            response
+                .get("protocolVersion")
+                .and_then(Value::as_str)
+                .expect("protocolVersion"),
+            DEFAULT_PROTOCOL_VERSION
+        );
+    }
+
+    #[test]
+    fn initialize_echoes_requested_protocol_version() {
+        let response = handle_initialize(Some(json!({
+            "protocolVersion": "2025-11-25"
+        })));
+        assert_eq!(
+            response
+                .get("protocolVersion")
+                .and_then(Value::as_str)
+                .expect("protocolVersion"),
+            "2025-11-25"
+        );
+    }
 }

@@ -112,18 +112,27 @@ export const updateProduct = (data: { id: string; name?: string; description?: s
 export const archiveProduct = (id: string) => invoke<Product>("archive_product", { id });
 
 // Module commands
-export const createModule = (data: { productId: string; name: string; description: string; purpose: string }) =>
+export const createModule = (data: { productId: string; name: string; description: string; purpose: string; nodeKind?: string }) =>
   invoke<Module>("create_module", {
     productId: data.productId,
     product_id: data.productId,
     name: data.name,
     description: data.description,
     purpose: data.purpose,
+    nodeKind: data.nodeKind,
+    node_kind: data.nodeKind,
   });
 export const listModules = (productId: string) =>
   invoke<Module[]>("list_modules", { productId, product_id: productId });
-export const updateModule = (data: { id: string; name?: string; description?: string; purpose?: string }) =>
-  invoke<Module>("update_module", data);
+export const updateModule = (data: { id: string; name?: string; description?: string; purpose?: string; nodeKind?: string }) =>
+  invoke<Module>("update_module", {
+    id: data.id,
+    name: data.name,
+    description: data.description,
+    purpose: data.purpose,
+    nodeKind: data.nodeKind,
+    node_kind: data.nodeKind,
+  });
 export const deleteModule = (id: string) => invoke("delete_module", { id });
 export const reorderModules = (productId: string, orderedIds: string[]) =>
   invoke("reorder_modules", {
@@ -134,7 +143,7 @@ export const reorderModules = (productId: string, orderedIds: string[]) =>
   });
 
 // Capability commands
-export const createCapability = (data: { moduleId: string; parentCapabilityId?: string; name: string; description: string; acceptanceCriteria: string; priority: string; risk: string; technicalNotes: string }) =>
+export const createCapability = (data: { moduleId: string; parentCapabilityId?: string; name: string; description: string; acceptanceCriteria: string; priority: string; risk: string; technicalNotes: string; nodeKind?: string }) =>
   invoke<Capability>("create_capability", {
     moduleId: data.moduleId,
     module_id: data.moduleId,
@@ -148,6 +157,8 @@ export const createCapability = (data: { moduleId: string; parentCapabilityId?: 
     risk: data.risk,
     technicalNotes: data.technicalNotes,
     technical_notes: data.technicalNotes,
+    nodeKind: data.nodeKind,
+    node_kind: data.nodeKind,
   });
 export const listCapabilities = (moduleId: string) =>
   invoke<Capability[]>("list_capabilities", { moduleId, module_id: moduleId });
@@ -159,6 +170,7 @@ export const updateCapability = (data: {
   priority?: string;
   risk?: string;
   technicalNotes?: string;
+  nodeKind?: string;
 }) =>
   invoke<Capability>("update_capability", {
     id: data.id,
@@ -168,6 +180,8 @@ export const updateCapability = (data: {
     priority: data.priority,
     risk: data.risk,
     technical_notes: data.technicalNotes,
+    nodeKind: data.nodeKind,
+    node_kind: data.nodeKind,
   });
 export const deleteCapability = (id: string) => invoke("delete_capability", { id });
 export const reorderCapabilities = (data: { moduleId: string; parentCapabilityId?: string; orderedIds: string[] }) =>
@@ -183,7 +197,7 @@ export const getProductTree = (productId: string) =>
 
 // Work item commands
 export const createWorkItem = (data: {
-  productId: string; moduleId?: string; capabilityId?: string; parentWorkItemId?: string;
+  productId: string; moduleId?: string; capabilityId?: string; sourceNodeId?: string; sourceNodeType?: string; parentWorkItemId?: string;
   title: string; problemStatement: string; description: string; acceptanceCriteria: string;
   constraints: string; workItemType: string; priority: string; complexity: string;
 }) =>
@@ -194,6 +208,10 @@ export const createWorkItem = (data: {
     module_id: data.moduleId,
     capabilityId: data.capabilityId,
     capability_id: data.capabilityId,
+    sourceNodeId: data.sourceNodeId,
+    source_node_id: data.sourceNodeId,
+    sourceNodeType: data.sourceNodeType,
+    source_node_type: data.sourceNodeType,
     parentWorkItemId: data.parentWorkItemId,
     parent_work_item_id: data.parentWorkItemId,
     title: data.title,
@@ -210,10 +228,13 @@ export const createWorkItem = (data: {
   });
 
 export const getWorkItem = (id: string) => invoke<WorkItem>("get_work_item", { id });
-export const listWorkItems = (filters?: { productId?: string; moduleId?: string; capabilityId?: string; status?: string }) =>
+export const listWorkItems = (filters?: { productId?: string; moduleId?: string; capabilityId?: string; sourceNodeId?: string; sourceNodeType?: string; status?: string }) =>
   invoke<WorkItem[]>("list_work_items", {
     product_id: filters?.productId, module_id: filters?.moduleId,
-    capability_id: filters?.capabilityId, status: filters?.status,
+    capability_id: filters?.capabilityId,
+    source_node_id: filters?.sourceNodeId,
+    source_node_type: filters?.sourceNodeType,
+    status: filters?.status,
   });
 export const summarizeWorkItemsByProduct = () =>
   invoke<ProductWorkItemSummary[]>("summarize_work_items_by_product");

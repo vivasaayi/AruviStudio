@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { getCapabilityChildLabel, isCapabilityRolloutLevel } from "../../lib/hierarchyLabels";
+import { countHierarchyNodes, countLeafNodes, findHierarchyNodePath, flattenHierarchyNodes, getDirectWorkItemsForNode, getHierarchyNodeKey, getProductDirectWorkItems, getSubtreeWorkItemsForNode } from "../../lib/hierarchyTree";
+import { getHierarchyNodeKindLabel, supportsHierarchyChildren } from "../../lib/hierarchyLabels";
 import { getProductTree, listProducts, listWorkItems, summarizeWorkItemsByProduct } from "../../lib/tauri";
 import { useWorkspaceStore } from "../../state/workspaceStore";
 import { useUIStore } from "../../state/uiStore";
-import type { CapabilityTree, Product, ProductTree, WorkItem } from "../../lib/types";
+import type { HierarchyNodeKind, HierarchyTreeNode, Product, ProductTree, WorkItem } from "../../lib/types";
 
 const styles: Record<string, React.CSSProperties> = {
   container: { height: "100%", backgroundColor: "#17191d", overflow: "auto", padding: 10 },
@@ -27,16 +28,28 @@ const styles: Record<string, React.CSSProperties> = {
   exampleBadge: { fontSize: 10, fontWeight: 700, color: "#d7ba7d", border: "1px solid #5a5034", borderRadius: 999, padding: "2px 6px", backgroundColor: "#2a2619" },
   selectedProductCard: { padding: "10px 12px", borderRadius: 10, border: "1px solid #0e639c", background: "linear-gradient(135deg, rgba(14,99,156,0.16), rgba(32,36,42,1))", marginBottom: 8 },
   treeSection: { marginTop: 14 },
+  treeSearch: { width: "100%", padding: "8px 10px", fontSize: 12, backgroundColor: "#141820", color: "#f1f3f7", border: "1px solid #3b4049", borderRadius: 10, boxSizing: "border-box" as const },
+  filterSelect: { width: "100%", padding: "8px 10px", fontSize: 12, backgroundColor: "#141820", color: "#f1f3f7", border: "1px solid #3b4049", borderRadius: 10, boxSizing: "border-box" as const },
+  treeControls: { display: "grid", gridTemplateColumns: "1fr", gap: 8, marginBottom: 10 },
+  toolRow: { display: "flex", gap: 6, flexWrap: "wrap" as const },
   treeRoot: { display: "flex", flexDirection: "column", gap: 6 },
   node: { borderRadius: 8, border: "1px solid transparent", backgroundColor: "#1d2025", color: "#ced4de", cursor: "pointer", padding: "8px 10px" },
   nodeActive: { borderRadius: 8, border: "1px solid #0e639c", backgroundColor: "#1f2a35", color: "#ffffff", cursor: "pointer", padding: "8px 10px" },
+  nodeHeader: { display: "flex", alignItems: "flex-start", gap: 8 },
+  nodeToggle: { width: 20, height: 20, borderRadius: 6, border: "1px solid #38404d", backgroundColor: "#141820", color: "#cfd6e4", fontSize: 10, cursor: "pointer", flexShrink: 0 },
+  nodeBody: { flex: 1, minWidth: 0 },
+  nodeTitleRow: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" as const },
   nodeTitle: { fontSize: 12, fontWeight: 600 },
+  nodeKindPill: { fontSize: 10, fontWeight: 700, color: "#8fc8ff", borderRadius: 999, padding: "2px 6px", border: "1px solid #36516e", backgroundColor: "#1a2736" },
   nodeMeta: { fontSize: 10, color: "#8f96a3", marginTop: 3 },
   childWrap: { marginLeft: 12, paddingLeft: 8, borderLeft: "1px solid #2c3139", display: "flex", flexDirection: "column", gap: 6, marginTop: 6 },
   taskItem: { borderRadius: 8, border: "1px solid #2c3139", backgroundColor: "#1a1d22", color: "#d8dde6", cursor: "pointer", padding: "7px 9px" },
   taskItemActive: { borderRadius: 8, border: "1px solid #0e639c", backgroundColor: "#1c2733", color: "#ffffff", cursor: "pointer", padding: "7px 9px" },
   taskTitle: { fontSize: 11, fontWeight: 600 },
   taskMeta: { fontSize: 10, color: "#8f96a3", marginTop: 3 },
+  recentSection: { border: "1px solid #30343c", borderRadius: 10, backgroundColor: "#141820", padding: 8, marginBottom: 10 },
+  recentWrap: { display: "flex", flexDirection: "column", gap: 6 },
+  recentBtn: { width: "100%", textAlign: "left" as const, padding: "7px 8px", borderRadius: 8, border: "1px solid #2f3641", backgroundColor: "#1b2028", color: "#d8e1ef", cursor: "pointer", fontSize: 11 },
   empty: { fontSize: 12, color: "#666", padding: 8 },
   headerRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 },
   addBtn: { padding: "4px 8px", borderRadius: 8, border: "1px solid #3b4049", backgroundColor: "#2c3139", color: "#e0e0e0", fontSize: 11, fontWeight: 700, cursor: "pointer" },
@@ -53,10 +66,13 @@ export function LeftSidebar() {
     activeProductId,
     activeModuleId,
     activeCapabilityId,
+    activeNodeId,
+    activeNodeType,
     activeWorkItemId,
     setActiveProduct,
     setActiveModule,
     setActiveCapability,
+    setActiveHierarchyNode,
     setActiveWorkItem,
   } = useWorkspaceStore();
   const {
@@ -66,6 +82,8 @@ export function LeftSidebar() {
     toggleModuleExpanded,
     toggleCapabilityExpanded,
     toggleHierarchyWorkItems,
+    setModuleExpanded,
+    setCapabilityExpanded,
     setProductWorkspaceTab,
     openProductDialog,
     openModuleDialog,
@@ -77,9 +95,11 @@ export function LeftSidebar() {
     toggleProductPickerCollapsed,
   } = useUIStore();
 
-  const [hoveredModuleId, setHoveredModuleId] = useState<string | null>(null);
-  const [hoveredCapabilityId, setHoveredCapabilityId] = useState<string | null>(null);
   const [productSearch, setProductSearch] = useState("");
+  const [treeSearchTerm, setTreeSearchTerm] = useState("");
+  const [nodeKindFilter, setNodeKindFilter] = useState<HierarchyNodeKind | "">("");
+  const [recentNodeKeys, setRecentNodeKeys] = useState<string[]>([]);
+  const nodeRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
 
   const { data: products } = useQuery({ queryKey: ["products"], queryFn: listProducts });
   const selectedProductId = activeProductId ?? products?.[0]?.id ?? null;
@@ -137,62 +157,65 @@ export function LeftSidebar() {
   const activeWorkItemCount = selectedProductId
     ? productCounts.get(selectedProductId)?.active ?? 0
     : 0;
-  const workItemsByModule = useMemo(() => {
-    const map = new Map<string, WorkItem[]>();
-    scopedSidebarWorkItems.forEach((workItem) => {
-      const key = workItem.module_id ?? "unscoped";
-      const existing = map.get(key) ?? [];
-      existing.push(workItem);
-      map.set(key, existing);
-    });
-    return map;
-  }, [scopedSidebarWorkItems]);
-  const workItemsByCapability = useMemo(() => {
-    const map = new Map<string, WorkItem[]>();
-    scopedSidebarWorkItems.forEach((workItem) => {
-      if (!workItem.capability_id) {
-        return;
-      }
-      const existing = map.get(workItem.capability_id) ?? [];
-      existing.push(workItem);
-      map.set(workItem.capability_id, existing);
-    });
-    return map;
-  }, [scopedSidebarWorkItems]);
+  const allTreeNodes = useMemo(() => (tree ? flattenHierarchyNodes(tree.roots) : []), [tree]);
+  const nodeLookup = useMemo(
+    () => new Map(allTreeNodes.map((node) => [getHierarchyNodeKey(node), node])),
+    [allTreeNodes],
+  );
+  const selectedNodeKey = activeNodeId && activeNodeType ? `${activeNodeType}:${activeNodeId}` : null;
+  const selectedNodePath = useMemo(
+    () => (tree ? findHierarchyNodePath(tree.roots, activeNodeId, activeNodeType) : []),
+    [tree, activeNodeId, activeNodeType],
+  );
+  const selectedPathKeySet = useMemo(
+    () => new Set(selectedNodePath.map((node) => getHierarchyNodeKey(node))),
+    [selectedNodePath],
+  );
+  const rootSectionCount = tree?.roots.length ?? 0;
+  const totalNodeCount = tree ? countHierarchyNodes(tree.roots) : 0;
+  const leafNodeCount = tree ? countLeafNodes(tree.roots) : 0;
+  const nodeKindOptions = useMemo(
+    () => Array.from(new Set(allTreeNodes.map((node) => node.node_kind))),
+    [allTreeNodes],
+  );
+  const hasTreeFilter = treeSearchTerm.trim().length > 0 || nodeKindFilter.length > 0;
 
-  const getCapabilityAggregateMeta = useMemo(() => {
-    const cache = new Map<string, { rolloutCount: number; workItemCount: number }>();
+  const filteredRoots = useMemo(() => {
+    if (!tree) {
+      return [];
+    }
+    if (!hasTreeFilter) {
+      return tree.roots;
+    }
 
-    const walk = (capabilityTree: CapabilityTree): { rolloutCount: number; workItemCount: number } => {
-      const cached = cache.get(capabilityTree.capability.id);
-      if (cached) {
-        return cached;
+    const normalizedSearch = treeSearchTerm.trim().toLowerCase();
+    const filterNode = (node: HierarchyTreeNode): HierarchyTreeNode | null => {
+      const childMatches = node.children
+        .map(filterNode)
+        .filter(Boolean) as HierarchyTreeNode[];
+      const matchesSearch = normalizedSearch.length === 0
+        || [node.name, ...node.path, node.description, node.summary].join(" ").toLowerCase().includes(normalizedSearch);
+      const matchesKind = !nodeKindFilter || node.node_kind === nodeKindFilter;
+      if ((matchesSearch && matchesKind) || childMatches.length > 0) {
+        return {
+          ...node,
+          children: childMatches,
+        };
       }
-      const directWorkItemCount = (workItemsByCapability.get(capabilityTree.capability.id) ?? []).length;
-      const childMeta = capabilityTree.children.map((child) => walk(child));
-      const meta = {
-        rolloutCount: capabilityTree.children.length,
-        workItemCount: directWorkItemCount + childMeta.reduce((sum, child) => sum + child.workItemCount, 0),
-      };
-      cache.set(capabilityTree.capability.id, meta);
-      return meta;
+      return null;
     };
 
-    return walk;
-  }, [workItemsByCapability]);
+    return tree.roots
+      .map(filterNode)
+      .filter(Boolean) as HierarchyTreeNode[];
+  }, [hasTreeFilter, nodeKindFilter, tree, treeSearchTerm]);
 
-  const getModuleAggregateMeta = useMemo(() => {
-    return (moduleTree: ProductTree["modules"][number]) => {
-      const directWorkItemCount = (workItemsByModule.get(moduleTree.module.id) ?? [])
-        .filter((workItem) => !workItem.capability_id)
-        .length;
-      const capabilityMeta = moduleTree.features.map((featureTree: CapabilityTree) => getCapabilityAggregateMeta(featureTree));
-      return {
-        capabilityCount: moduleTree.features.length,
-        workItemCount: directWorkItemCount + capabilityMeta.reduce((sum: number, meta: { workItemCount: number }) => sum + meta.workItemCount, 0),
-      };
-    };
-  }, [getCapabilityAggregateMeta, workItemsByModule]);
+  useEffect(() => {
+    if (!selectedNodeKey) {
+      return;
+    }
+    setRecentNodeKeys((current) => [selectedNodeKey, ...current.filter((key) => key !== selectedNodeKey)].slice(0, 6));
+  }, [selectedNodeKey]);
 
   const goToProductStructure = () => {
     setActiveView("products");
@@ -207,12 +230,163 @@ export function LeftSidebar() {
     openWorkItemCreateDialog();
   };
 
+  const setNodeExpandedState = (node: HierarchyTreeNode, expanded: boolean) => {
+    if (node.node_type === "module") {
+      setModuleExpanded(node.id, expanded);
+      return;
+    }
+    setCapabilityExpanded(node.id, expanded);
+  };
+
+  const collapseAllNodes = () => {
+    allTreeNodes.forEach((node) => setNodeExpandedState(node, false));
+  };
+
+  const expandSelectedPath = () => {
+    selectedNodePath.forEach((node) => setNodeExpandedState(node, true));
+  };
+
+  const jumpToSelectedNode = () => {
+    if (!selectedNodeKey) {
+      return;
+    }
+    expandSelectedPath();
+    requestAnimationFrame(() => {
+      nodeRefs.current[selectedNodeKey]?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  };
+
+  const openHierarchyNode = (node: HierarchyTreeNode) => {
+    setActiveHierarchyNode({
+      nodeId: node.id,
+      nodeType: node.node_type,
+      moduleId: node.module_id,
+      capabilityId: node.capability_id,
+    });
+    goToProductStructure();
+  };
+
+  const renderTreeNode = (node: HierarchyTreeNode, depth = 0): React.ReactNode => {
+    const nodeKey = getHierarchyNodeKey(node);
+    const isActive = selectedNodeKey === nodeKey;
+    const isExpanded = hasTreeFilter
+      ? true
+      : node.node_type === "module"
+        ? expandedModules[node.id] ?? true
+        : expandedCapabilities[node.id] ?? true;
+    const directWorkItemCount = getDirectWorkItemsForNode(node, scopedSidebarWorkItems).length;
+    const totalWorkItemCount = getSubtreeWorkItemsForNode(node, scopedSidebarWorkItems).length;
+
+    return (
+      <div key={nodeKey}>
+        <div
+          ref={(element) => {
+            nodeRefs.current[nodeKey] = element;
+          }}
+          style={{
+            ...(isActive ? styles.nodeActive : styles.node),
+            marginLeft: depth * 10,
+          }}
+        >
+          <div style={styles.nodeHeader}>
+            {node.children.length > 0 ? (
+              <button
+                style={styles.nodeToggle}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (node.node_type === "module") {
+                    toggleModuleExpanded(node.id);
+                  } else {
+                    toggleCapabilityExpanded(node.id);
+                  }
+                }}
+              >
+                {isExpanded ? "−" : "+"}
+              </button>
+            ) : (
+              <div style={styles.nodeToggle}>•</div>
+            )}
+            <div style={styles.nodeBody} onClick={() => openHierarchyNode(node)}>
+              <div style={styles.nodeTitleRow}>
+                <div style={styles.nodeTitle}>{node.name}</div>
+                <span style={styles.nodeKindPill}>{getHierarchyNodeKindLabel(node.node_kind)}</span>
+              </div>
+              <div style={styles.nodeMeta}>
+                {node.children.length} {node.children.length === 1 ? "child" : "children"} · {directWorkItemCount} direct work items · {totalWorkItemCount} total
+              </div>
+              {node.summary || node.description ? <div style={styles.nodeMeta}>{node.summary || node.description}</div> : null}
+            </div>
+          </div>
+          <div style={styles.actionRow}>
+            <button
+              style={styles.actionBtn}
+              onClick={(event) => {
+                event.stopPropagation();
+                openHierarchyNode(node);
+                goToTaskIntake();
+              }}
+            >
+              + Work Item
+            </button>
+            {supportsHierarchyChildren(node.node_kind) ? (
+              <button
+                style={styles.actionBtn}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openHierarchyNode(node);
+                  openCapabilityDialog("create");
+                }}
+              >
+                + Child Node
+              </button>
+            ) : null}
+            <button
+              style={styles.actionBtn}
+              onClick={(event) => {
+                event.stopPropagation();
+                openHierarchyNode(node);
+                if (node.node_type === "module") {
+                  openModuleDialog("edit");
+                } else {
+                  openCapabilityDialog("edit");
+                }
+              }}
+            >
+              Edit
+            </button>
+          </div>
+        </div>
+        {isExpanded && node.children.length > 0 ? (
+          <div style={styles.childWrap}>
+            {node.children.map((child) => renderTreeNode(child, depth + 1))}
+            {showHierarchyWorkItems
+              ? getDirectWorkItemsForNode(node, scopedSidebarWorkItems).slice(0, 6).map((workItem) => (
+                  <div
+                    key={workItem.id}
+                    style={activeWorkItemId === workItem.id ? styles.taskItemActive : styles.taskItem}
+                    onClick={() => setActiveWorkItem(workItem.id)}
+                  >
+                    <div style={styles.taskTitle}>{workItem.title}</div>
+                    <div style={styles.taskMeta}>{workItem.status.replace(/_/g, " ")}</div>
+                  </div>
+                ))
+              : null}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
   return (
     <div style={styles.container}>
       <div style={styles.summary}>
-        <div style={styles.header}>Workspace</div>
-        <div style={styles.summaryValue}>{products?.length ?? 0}</div>
-        <div style={styles.summaryMeta}>Products · {activeWorkItemCount} active work items in scope</div>
+        <div style={styles.header}>{selectedProduct ? selectedProduct.name : "Workspace"}</div>
+        <div style={styles.summaryValue}>{selectedProduct ? totalNodeCount : products?.length ?? 0}</div>
+        <div style={styles.summaryMeta}>
+          {selectedProduct
+            ? `${rootSectionCount} root sections · ${leafNodeCount} leaf nodes · ${activeWorkItemCount} active work items`
+            : "Visible products"}
+        </div>
       </div>
 
       <div style={styles.headerRow}>
@@ -306,7 +480,7 @@ export function LeftSidebar() {
                     openModuleDialog("create");
                   }}
                 >
-                  + Module
+                  + Root Section
                 </button>
                 <button
                   style={styles.actionBtn}
@@ -332,232 +506,82 @@ export function LeftSidebar() {
       {tree && (
         <div style={styles.treeSection}>
           <div style={styles.headerRow}>
-            <div style={{ ...styles.header, marginBottom: 0 }}>Hierarchy</div>
+            <div style={{ ...styles.header, marginBottom: 0 }}>Outline</div>
             <button style={styles.addBtn} onClick={toggleHierarchyWorkItems}>
               {showHierarchyWorkItems ? "Hide Work Items" : "Show Work Items"}
             </button>
           </div>
-          <div style={styles.treeRoot}>
-            {tree.modules.length > 0 ? (
-              tree.modules.map((moduleTree) => {
-                const moduleOpen = expandedModules[moduleTree.module.id] ?? true;
-                const moduleTasks = workItemsByModule.get(moduleTree.module.id) ?? [];
-                const moduleMeta = getModuleAggregateMeta(moduleTree);
-                return (
-                  <div key={moduleTree.module.id}>
-                    <div
-                      style={activeModuleId === moduleTree.module.id ? styles.nodeActive : styles.node}
-                      onMouseEnter={() => setHoveredModuleId(moduleTree.module.id)}
-                      onMouseLeave={() => setHoveredModuleId((current) => (current === moduleTree.module.id ? null : current))}
+          <div style={styles.treeControls}>
+            <input
+              style={styles.treeSearch}
+              value={treeSearchTerm}
+              onChange={(event) => setTreeSearchTerm(event.target.value)}
+              placeholder="Search nodes"
+            />
+            <select
+              style={styles.filterSelect}
+              value={nodeKindFilter}
+              onChange={(event) => setNodeKindFilter(event.target.value as HierarchyNodeKind | "")}
+            >
+              <option value="">All node kinds</option>
+              {nodeKindOptions.map((nodeKind) => (
+                <option key={nodeKind} value={nodeKind}>{getHierarchyNodeKindLabel(nodeKind)}</option>
+              ))}
+            </select>
+            <div style={styles.toolRow}>
+              <button style={styles.collapseBtn} onClick={collapseAllNodes}>Collapse All</button>
+              <button style={styles.collapseBtn} onClick={expandSelectedPath} disabled={!selectedNodeKey}>Expand Path</button>
+              <button style={styles.collapseBtn} onClick={jumpToSelectedNode} disabled={!selectedNodeKey}>Jump To Selected</button>
+            </div>
+          </div>
+          {recentNodeKeys.length > 0 ? (
+            <div style={styles.recentSection}>
+              <div style={styles.pickerGroupTitle}>Recent Nodes</div>
+              <div style={styles.recentWrap}>
+                {recentNodeKeys
+                  .map((key) => nodeLookup.get(key))
+                  .filter((node): node is HierarchyTreeNode => Boolean(node))
+                  .map((node) => (
+                    <button
+                      key={getHierarchyNodeKey(node)}
+                      style={styles.recentBtn}
                       onClick={() => {
-                        setActiveModule(moduleTree.module.id);
-                        toggleModuleExpanded(moduleTree.module.id);
+                        openHierarchyNode(node);
+                        requestAnimationFrame(() => {
+                          nodeRefs.current[getHierarchyNodeKey(node)]?.scrollIntoView({ block: "center", behavior: "smooth" });
+                        });
                       }}
                     >
-                      <div style={styles.nodeTitle}>{moduleTree.module.name}</div>
-                      <div style={styles.nodeMeta}>{moduleMeta.capabilityCount} capabilities · {moduleMeta.workItemCount} work items</div>
-                      <div style={{ ...styles.actionRow, ...(hoveredModuleId === moduleTree.module.id ? styles.actionRowVisible : styles.actionRowHidden) }}>
-                          <button
-                            style={styles.actionBtn}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveModule(moduleTree.module.id);
-                              setActiveCapability(null);
-                              goToTaskIntake();
-                            }}
-                          >
-                            + Work Item
-                          </button>
-                          <button
-                            style={styles.actionBtn}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveModule(moduleTree.module.id);
-                              setActiveCapability(null);
-                              goToProductStructure();
-                              openCapabilityDialog("create");
-                            }}
-                          >
-                            + Capability
-                          </button>
-                          <button
-                            style={styles.actionBtn}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveModule(moduleTree.module.id);
-                              setActiveCapability(null);
-                              goToProductStructure();
-                              openModuleDialog("edit");
-                            }}
-                          >
-                            Edit
-                          </button>
-                      </div>
-                    </div>
-                    {moduleOpen && (
-                      <div style={styles.childWrap}>
-                        {moduleTree.features.map((capabilityTree) =>
-                          renderCapabilityNode(capabilityTree, {
-                            activeCapabilityId,
-                            activeWorkItemId,
-                            expandedCapabilities,
-                            hoveredCapabilityId,
-                            setHoveredCapabilityId,
-                            toggleCapabilityExpanded,
-                            setActiveCapability,
-                            setActiveWorkItem,
-                            setActiveModule,
-                            openCapabilityDialog,
-                            goToProductStructure,
-                            goToTaskIntake,
-                            workItemsByCapability,
-                            getCapabilityAggregateMeta,
-                            showHierarchyWorkItems,
-                            depth: 0,
-                            maxDepth: 1,
-                          }),
-                        )}
-                        {showHierarchyWorkItems && moduleTasks.filter((workItem) => !workItem.capability_id).slice(0, 6).map((workItem) => (
-                          <div
-                            key={workItem.id}
-                            style={activeWorkItemId === workItem.id ? styles.taskItemActive : styles.taskItem}
-                            onClick={() => setActiveWorkItem(workItem.id)}
-                          >
-                            <div style={styles.taskTitle}>{workItem.title}</div>
-                            <div style={styles.taskMeta}>{workItem.status.replace(/_/g, " ")}</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            ) : (
-              <div style={styles.empty}>Create modules to begin building the hierarchy.</div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function renderCapabilityNode(
-  capabilityTree: CapabilityTree,
-  context: {
-    activeCapabilityId: string | null;
-    activeWorkItemId: string | null;
-    expandedCapabilities: Record<string, boolean>;
-    hoveredCapabilityId: string | null;
-    setHoveredCapabilityId: React.Dispatch<React.SetStateAction<string | null>>;
-    toggleCapabilityExpanded: (id: string) => void;
-    setActiveCapability: (id: string | null) => void;
-    setActiveWorkItem: (id: string | null) => void;
-    setActiveModule: (id: string | null) => void;
-    openCapabilityDialog: (mode: "create" | "edit") => void;
-    goToProductStructure: () => void;
-    goToTaskIntake: () => void;
-    workItemsByCapability: Map<string, Array<{ id: string; title: string; status: string }>>;
-    getCapabilityAggregateMeta: (capabilityTree: CapabilityTree) => { rolloutCount: number; workItemCount: number };
-    showHierarchyWorkItems: boolean;
-    depth: number;
-    maxDepth: number;
-  },
-): React.ReactNode {
-  const {
-    activeCapabilityId,
-    activeWorkItemId,
-    expandedCapabilities,
-    hoveredCapabilityId,
-    setHoveredCapabilityId,
-    toggleCapabilityExpanded,
-    setActiveCapability,
-    setActiveWorkItem,
-    setActiveModule,
-    openCapabilityDialog,
-    goToProductStructure,
-    goToTaskIntake,
-    workItemsByCapability,
-    getCapabilityAggregateMeta,
-    showHierarchyWorkItems,
-    depth,
-    maxDepth,
-  } = context;
-  const isOpen = expandedCapabilities[capabilityTree.capability.id] ?? true;
-  const workItems = workItemsByCapability.get(capabilityTree.capability.id) ?? [];
-  const capabilityMeta = getCapabilityAggregateMeta(capabilityTree);
-  const childLabel = getCapabilityChildLabel(
-    capabilityTree.capability.level,
-    { plural: capabilityMeta.rolloutCount !== 1, lowercase: true },
-  );
-
-  return (
-    <div key={capabilityTree.capability.id}>
-      <div
-        style={activeCapabilityId === capabilityTree.capability.id ? styles.nodeActive : styles.node}
-        onMouseEnter={() => setHoveredCapabilityId(capabilityTree.capability.id)}
-        onMouseLeave={() => setHoveredCapabilityId((current: string | null) => (current === capabilityTree.capability.id ? null : current))}
-        onClick={() => {
-          setActiveModule(capabilityTree.capability.module_id);
-          setActiveCapability(capabilityTree.capability.id);
-          toggleCapabilityExpanded(capabilityTree.capability.id);
-        }}
-      >
-        <div style={styles.nodeTitle}>{capabilityTree.capability.name}</div>
-        <div style={styles.nodeMeta}>{capabilityMeta.rolloutCount} {childLabel} · {capabilityMeta.workItemCount} work items</div>
-        <div style={{ ...styles.actionRow, ...(hoveredCapabilityId === capabilityTree.capability.id ? styles.actionRowVisible : styles.actionRowHidden) }}>
-            <button
-              style={styles.actionBtn}
-              onClick={(e) => {
-                e.stopPropagation();
-                setActiveModule(capabilityTree.capability.module_id);
-                setActiveCapability(capabilityTree.capability.id);
-                goToTaskIntake();
-              }}
-            >
-              + Work Item
-            </button>
-            {!isCapabilityRolloutLevel(capabilityTree.capability.level) ? (
-              <button
-                style={styles.actionBtn}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setActiveModule(capabilityTree.capability.module_id);
-                  setActiveCapability(capabilityTree.capability.id);
-                  goToProductStructure();
-                  openCapabilityDialog("create");
-                }}
-              >
-                + Rollout
-              </button>
-            ) : null}
-            <button
-              style={styles.actionBtn}
-              onClick={(e) => {
-                e.stopPropagation();
-                setActiveModule(capabilityTree.capability.module_id);
-                setActiveCapability(capabilityTree.capability.id);
-                goToProductStructure();
-                openCapabilityDialog("edit");
-              }}
-            >
-              Edit
-            </button>
-        </div>
-      </div>
-      {isOpen && (
-        <div style={styles.childWrap}>
-          {depth < maxDepth ? capabilityTree.children.map((child) => renderCapabilityNode(child, { ...context, depth: depth + 1 })) : null}
-          {showHierarchyWorkItems && workItems.slice(0, 6).map((workItem) => (
-            <div
-              key={workItem.id}
-              style={activeWorkItemId === workItem.id ? styles.taskItemActive : styles.taskItem}
-              onClick={() => setActiveWorkItem(workItem.id)}
-            >
-              <div style={styles.taskTitle}>{workItem.title}</div>
-              <div style={styles.taskMeta}>{workItem.status.replace(/_/g, " ")}</div>
+                      {node.path.join(" / ")}
+                    </button>
+                  ))}
+              </div>
             </div>
-          ))}
+          ) : null}
+          <div style={styles.treeRoot}>
+            {filteredRoots.length > 0 ? (
+              filteredRoots.map((node) => renderTreeNode(node))
+            ) : (
+              <div style={styles.empty}>
+                {hasTreeFilter ? "No nodes match the current filters." : "Create root sections to begin building the hierarchy."}
+              </div>
+            )}
+            {showHierarchyWorkItems && getProductDirectWorkItems(scopedSidebarWorkItems).length > 0 ? (
+              <div style={styles.recentSection}>
+                <div style={styles.pickerGroupTitle}>Product Work Items</div>
+                {getProductDirectWorkItems(scopedSidebarWorkItems).slice(0, 6).map((workItem) => (
+                  <div
+                    key={workItem.id}
+                    style={activeWorkItemId === workItem.id ? styles.taskItemActive : styles.taskItem}
+                    onClick={() => setActiveWorkItem(workItem.id)}
+                  >
+                    <div style={styles.taskTitle}>{workItem.title}</div>
+                    <div style={styles.taskMeta}>{workItem.status.replace(/_/g, " ")}</div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
       )}
     </div>

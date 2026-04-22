@@ -25,10 +25,12 @@ Build a local-first, AI-native software engineering desktop platform that lets a
 Vision principles:
 
 - The human defines intent, priority, and approval.
+- The human must be able to read the product structure as documentation.
 - The agents execute engineering work autonomously.
 - The system is transparent, auditable, and replayable.
 - The product is useful even before full autonomy is perfect.
 - The platform should reduce manual engineering effort, not just repackage it.
+- The system should preserve human comprehension, not optimize it away.
 
 ## 4. Problem Statement
 
@@ -54,6 +56,9 @@ The result is fragmented work, manual orchestration, and high cognitive overhead
 ### 5.2 User Goals
 
 - Define products, modules, features, and tasks in a structured hierarchy.
+- Read the product hierarchy as a navigable system document or book.
+- Export the hierarchy into a readable book-like artifact for review.
+- Make progressive changes to one part of the structure while staying grounded in the wider product context.
 - Attach multiple repositories and resolve the right workspace at runtime.
 - Approve task scope and execution plans, then let agents code autonomously.
 - Review test results and final diffs without manually implementing most changes.
@@ -91,6 +96,14 @@ The result is fragmented work, manual orchestration, and high cognitive overhead
 - Accepts local-first desktop workflows on macOS
 
 ## 8. Core User Journeys
+
+### 8.0 Product Reading and Progressive Refinement
+
+1. User opens a product and reads its structure as a navigable architecture or rollout book.
+2. User moves through modules, features, work items, and related context to understand the wider system.
+3. User exports the current structure as a readable book artifact when deeper review is needed.
+4. User identifies one section that is incomplete, unclear, or outdated.
+5. User edits that section and verifies that the updated structure still makes sense in the wider product context.
 
 ### 8.1 Product Setup
 
@@ -132,6 +145,8 @@ The result is fragmented work, manual orchestration, and high cognitive overhead
 
 ## 9.1 Product Management
 
+The product hierarchy is not only a planning structure. It is also the canonical human-readable representation of the product.
+
 ### Product
 
 - The system shall allow the user to create, edit, archive, and browse products.
@@ -148,7 +163,8 @@ The result is fragmented work, manual orchestration, and high cognitive overhead
 ### Feature
 
 - The system shall support features under modules.
-- The system shall support nested features up to 3 levels.
+- The system shall support nested features.
+- The maximum supported hierarchy depth shall remain open for larger products and shall not be prematurely constrained to a shallow fixed model if deeper structure improves readability and system comprehension.
 - The system shall store feature acceptance criteria, priority, risk, and technical notes.
 - The system shall allow features to be linked to tasks.
 
@@ -168,6 +184,55 @@ The result is fragmented work, manual orchestration, and high cognitive overhead
 - The system shall support task types including feature, bug, refactor, test, review, security, and performance.
 - The system shall allow task-level repository/workspace override.
 - The system shall maintain task status and approval state.
+
+### Product Structure as Documentation
+
+- The system shall treat the product tree as a first-class documentation surface, not only as planning metadata.
+- The system shall allow the hierarchy to be read in sequence like a technical manual or book.
+- The system shall support export of the current hierarchy into a readable book/document format.
+- The system shall support progressive editing, where local changes can be made while preserving visibility into the surrounding system context.
+- The system shall avoid devolving into a Jira-style hierarchy manager that optimizes for ticket nesting over human understanding.
+
+### Hierarchy Semantics
+
+The hierarchy shall be treated as the canonical readable model of the product.
+
+It serves two purposes at the same time:
+
+- a human-readable documentation surface for understanding the system
+- a structural source from which rollouts and work items are derived
+
+The hierarchy shall optimize for:
+
+- readability in sequence
+- navigability by topic or system area
+- local editing without losing global context
+- derivation of execution work from the documented structure
+
+Each level in the hierarchy shall have a distinct semantic meaning. A node shall exist only when it improves human understanding of the wider system, not merely to satisfy a fixed planning template.
+
+Recommended semantic node kinds include:
+
+- Product: the whole system or application
+- Domain or Area: a major functional area of the system
+- Subdomain or Subsystem: a meaningful subdivision inside a domain when scale requires it
+- Capability or Feature Set: a user-visible or system-visible ability the product must provide
+- Rollout: a concrete delivery slice that evolves, implements, or ships part of a capability
+- Work Item: an implementation task derived from a rollout or directly from a documented node when necessary
+
+The system shall support semantic hierarchies such as:
+
+- Product -> Domain -> Capability -> Rollout -> Work Item
+- Product -> Domain -> Subdomain -> Capability -> Rollout -> Work Item
+- Product -> System -> Subsystem -> Feature Set -> Capability -> Rollout -> Work Item
+
+The system shall not prematurely constrain the hierarchy to a shallow fixed number of levels if deeper structure improves comprehension for large products such as simulation software, complex creative tools, or broad platform products.
+
+Execution must remain subordinate to the hierarchy:
+
+- rollouts and work items shall be derived from the documented structure
+- execution state shall not become a disconnected second planning system
+- exported book/document views shall read like a technical manual or architecture book, not a backlog dump
 
 ## 9.2 Approval Workflow
 
@@ -373,6 +438,9 @@ Agents may recommend completion, but the system shall enforce the completion che
 ## 13. UX Requirements
 
 - The application shall provide a clear hierarchy browser for products, modules, features, and tasks.
+- The hierarchy browser shall support reading and orientation, not only CRUD operations.
+- The user shall be able to understand the wider product context while focused on a local part of the tree.
+- The application shall provide a book/document style representation of the product structure suitable for export and human review.
 - The application shall provide an IDE-like central workspace.
 - The application shall provide a dedicated task detail surface showing:
   - status

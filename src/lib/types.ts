@@ -1,5 +1,18 @@
 // Domain types matching Rust backend
 
+export type HierarchyNodeKind =
+  | "area"
+  | "domain"
+  | "subdomain"
+  | "system"
+  | "subsystem"
+  | "feature_set"
+  | "capability"
+  | "rollout"
+  | "reference";
+
+export type HierarchyNodeType = "module" | "capability";
+
 export interface Product {
   id: string;
   name: string;
@@ -15,6 +28,7 @@ export interface Product {
 export interface Module {
   id: string;
   product_id: string;
+  node_kind: HierarchyNodeKind;
   name: string;
   description: string;
   purpose: string;
@@ -28,6 +42,7 @@ export interface Capability {
   module_id: string;
   parent_capability_id: string | null;
   level: number;
+  node_kind: HierarchyNodeKind;
   sort_order: number;
   name: string;
   description: string;
@@ -45,6 +60,8 @@ export interface WorkItem {
   product_id: string;
   module_id: string | null;
   capability_id: string | null;
+  source_node_id: string | null;
+  source_node_type: HierarchyNodeType | null;
   parent_work_item_id: string | null;
   title: string;
   problem_statement: string;
@@ -307,6 +324,7 @@ export interface Finding {
 export interface ProductTree {
   product: Product;
   modules: ModuleTree[];
+  roots: HierarchyTreeNode[];
 }
 
 export interface ModuleTree {
@@ -317,6 +335,23 @@ export interface ModuleTree {
 export interface CapabilityTree {
   capability: Capability;
   children: CapabilityTree[];
+}
+
+export interface HierarchyTreeNode {
+  id: string;
+  node_type: HierarchyNodeType;
+  node_kind: HierarchyNodeKind;
+  module_id: string;
+  capability_id: string | null;
+  parent_node_id: string | null;
+  parent_node_type: HierarchyNodeType | null;
+  depth: number;
+  name: string;
+  description: string;
+  summary: string;
+  path: string[];
+  allowed_child_kinds: HierarchyNodeKind[];
+  children: HierarchyTreeNode[];
 }
 
 export interface MigrationStatus {

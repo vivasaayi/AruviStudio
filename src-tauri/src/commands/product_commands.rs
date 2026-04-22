@@ -94,12 +94,20 @@ pub async fn create_module(
     name: String,
     description: String,
     purpose: String,
+    node_kind: Option<String>,
 ) -> Result<Module, AppError> {
     info!(product_id = %product_id, module_name = %name, "create_module requested");
     let id = uuid::Uuid::new_v4().to_string();
-    let result =
-        product_repo::create_module(&state.db, &id, &product_id, &name, &description, &purpose)
-            .await;
+    let result = product_repo::create_module(
+        &state.db,
+        &id,
+        &product_id,
+        &name,
+        &description,
+        &purpose,
+        node_kind.as_deref(),
+    )
+    .await;
     match &result {
         Ok(module) => {
             info!(module_id = %module.id, product_id = %module.product_id, "create_module succeeded")
@@ -126,15 +134,17 @@ pub async fn update_module(
     name: Option<String>,
     description: Option<String>,
     purpose: Option<String>,
+    node_kind: Option<String>,
 ) -> Result<Module, AppError> {
     info!(module_id = %id, "update_module requested");
-    debug!(module_id = %id, has_name = name.is_some(), has_description = description.is_some(), has_purpose = purpose.is_some(), "update_module payload summary");
+    debug!(module_id = %id, has_name = name.is_some(), has_description = description.is_some(), has_purpose = purpose.is_some(), has_node_kind = node_kind.is_some(), "update_module payload summary");
     let result = product_repo::update_module(
         &state.db,
         &id,
         name.as_deref(),
         description.as_deref(),
         purpose.as_deref(),
+        node_kind.as_deref(),
     )
     .await;
     match &result {
@@ -175,6 +185,7 @@ pub async fn create_capability(
     priority: String,
     risk: String,
     technical_notes: String,
+    node_kind: Option<String>,
 ) -> Result<Capability, AppError> {
     info!(module_id = %module_id, parent_capability_id = ?parent_capability_id, capability_name = %name, "create_capability requested");
     let id = uuid::Uuid::new_v4().to_string();
@@ -189,6 +200,7 @@ pub async fn create_capability(
         &priority,
         &risk,
         &technical_notes,
+        node_kind.as_deref(),
     )
     .await;
     match &result {
@@ -220,9 +232,10 @@ pub async fn update_capability(
     priority: Option<String>,
     risk: Option<String>,
     technical_notes: Option<String>,
+    node_kind: Option<String>,
 ) -> Result<Capability, AppError> {
     info!(capability_id = %id, "update_capability requested");
-    debug!(capability_id = %id, has_name = name.is_some(), has_description = description.is_some(), has_acceptance_criteria = acceptance_criteria.is_some(), has_priority = priority.is_some(), has_risk = risk.is_some(), has_technical_notes = technical_notes.is_some(), "update_capability payload summary");
+    debug!(capability_id = %id, has_name = name.is_some(), has_description = description.is_some(), has_acceptance_criteria = acceptance_criteria.is_some(), has_priority = priority.is_some(), has_risk = risk.is_some(), has_technical_notes = technical_notes.is_some(), has_node_kind = node_kind.is_some(), "update_capability payload summary");
     let result = product_repo::update_capability(
         &state.db,
         &id,
@@ -232,6 +245,7 @@ pub async fn update_capability(
         priority.as_deref(),
         risk.as_deref(),
         technical_notes.as_deref(),
+        node_kind.as_deref(),
     )
     .await;
     match &result {

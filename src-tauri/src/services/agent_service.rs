@@ -2545,6 +2545,7 @@ mod tests {
             "Core Module",
             "desc",
             "purpose",
+            None,
         )
         .await
         .expect("failed to create module");
@@ -2570,6 +2571,8 @@ mod tests {
             "test-work-item",
             &product.id,
             Some(&module.id),
+            None,
+            None,
             None,
             None,
             "Implement tool loop",

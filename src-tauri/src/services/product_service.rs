@@ -75,6 +75,7 @@ async fn seed_example_product(
             module.name,
             module.description,
             module.purpose,
+            None,
         )
         .await?;
     }
@@ -86,6 +87,8 @@ async fn seed_example_product(
             &bootstrap_work_item_id,
             product.id,
             Some(module.id),
+            None,
+            None,
             None,
             None,
             "Initialize local repository and test scaffold",
@@ -132,6 +135,7 @@ async fn seed_example_capability(
             capability.priority,
             capability.risk,
             capability.technical_notes,
+            None,
         )
         .await?;
     }
@@ -161,6 +165,7 @@ async fn seed_example_capability(
                     "Outcome belongs to the {} example product seed and should be delivered incrementally.",
                     product.name
                 ),
+                None,
             )
             .await?;
         }
@@ -172,6 +177,8 @@ async fn seed_example_capability(
                 product.id,
                 Some(module.id),
                 Some(&outcome_id),
+                None,
+                None,
                 None,
                 &format!("Ship {}", outcome_name),
                 &format!(

@@ -67,6 +67,22 @@ export function ProductOverviewPage() {
     enabled: !!selectedProductId,
   });
 
+  useEffect(() => {
+    if (treeLoading || workItemsLoading) {
+      return;
+    }
+    if (typeof window === "undefined") {
+      return;
+    }
+    const hash = window.location.hash.replace(/^#/, "");
+    if (!hash) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      document.getElementById(hash)?.scrollIntoView({ block: "start" });
+    });
+  }, [selectedProductId, treeLoading, workItemsLoading, tree, workItems.length]);
+
   const goToProductWorkspace = () => {
     setActiveView("products");
     navigate("/products");

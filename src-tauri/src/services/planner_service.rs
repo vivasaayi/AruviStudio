@@ -1296,7 +1296,8 @@ async fn list_work_items_tool(
         None
     };
     let work_items =
-        work_item_repo::list_work_items(db, product_id.as_deref(), None, None, status).await?;
+        work_item_repo::list_work_items(db, product_id.as_deref(), None, None, None, None, status)
+            .await?;
     Ok(serde_json::to_value(work_items)?)
 }
 
@@ -1643,7 +1644,8 @@ async fn find_work_item(
         None
     };
     let work_items =
-        work_item_repo::list_work_items(db, product_id.as_deref(), None, None, None).await?;
+        work_item_repo::list_work_items(db, product_id.as_deref(), None, None, None, None, None)
+            .await?;
     if let Some(title) = work_item_title {
         let normalized = normalize(Some(title));
         let exact = work_items
@@ -2656,7 +2658,8 @@ async fn build_tree_nodes(
     for product in products {
         let tree = product_repo::get_product_tree(db, &product.id).await?;
         let product_items =
-            work_item_repo::list_work_items(db, Some(&product.id), None, None, None).await?;
+            work_item_repo::list_work_items(db, Some(&product.id), None, None, None, None, None)
+                .await?;
         let mut included = std::collections::HashSet::new();
         let mut module_nodes = vec![];
         for module_tree in tree.modules {
@@ -3203,6 +3206,7 @@ async fn commit_draft_plan(
                 &module_node.name,
                 &module_node.summary.clone().unwrap_or_default(),
                 &string_field(&module_node.details, "purpose").unwrap_or_default(),
+                string_field(&module_node.details, "nodeKind").as_deref(),
             )
             .await?;
             lines.push(format!(
@@ -3239,6 +3243,7 @@ async fn commit_draft_plan(
                         .as_deref()
                         .unwrap_or("medium"),
                     &string_field(&capability_node.details, "technicalNotes").unwrap_or_default(),
+                    string_field(&capability_node.details, "nodeKind").as_deref(),
                 )
                 .await?;
                 lines.push(format!(
@@ -3308,6 +3313,8 @@ async fn commit_draft_plan(
             &product_id,
             module_id.as_deref(),
             capability_id.as_deref(),
+            None,
+            None,
             None,
             &work_item_node.name,
             &string_field(&work_item_node.details, "problemStatement")
@@ -3392,6 +3399,7 @@ async fn execute_action(state: &AppState, action: &Value) -> Result<Vec<String>,
                 &name,
                 &string_field(action, "description").unwrap_or_default(),
                 &string_field(action, "purpose").unwrap_or_default(),
+                fields_string(action, "nodeKind").as_deref(),
             )
             .await?;
             Ok(vec![format!(
@@ -3412,6 +3420,7 @@ async fn execute_action(state: &AppState, action: &Value) -> Result<Vec<String>,
                 fields_string(action, "name").as_deref(),
                 fields_string(action, "description").as_deref(),
                 fields_string(action, "purpose").as_deref(),
+                fields_string(action, "nodeKind").as_deref(),
             )
             .await?;
             Ok(vec![format!("Updated module \"{}\".", updated.name)])
@@ -3461,6 +3470,7 @@ async fn execute_action(state: &AppState, action: &Value) -> Result<Vec<String>,
                 &string_field(action, "priority").unwrap_or_else(|| "medium".to_string()),
                 &string_field(action, "risk").unwrap_or_else(|| "medium".to_string()),
                 &string_field(action, "technicalNotes").unwrap_or_default(),
+                fields_string(action, "nodeKind").as_deref(),
             )
             .await?;
             Ok(vec![format!(
@@ -3485,6 +3495,7 @@ async fn execute_action(state: &AppState, action: &Value) -> Result<Vec<String>,
                 fields_string(action, "priority").as_deref(),
                 fields_string(action, "risk").as_deref(),
                 fields_string(action, "technicalNotes").as_deref(),
+                fields_string(action, "nodeKind").as_deref(),
             )
             .await?;
             Ok(vec![format!("Updated capability \"{}\".", updated.name)])
@@ -3538,6 +3549,8 @@ async fn execute_action(state: &AppState, action: &Value) -> Result<Vec<String>,
                 &product.id,
                 module_id.as_deref(),
                 capability_id.as_deref(),
+                None,
+                None,
                 None,
                 &title,
                 &string_field(action, "problemStatement")
@@ -3811,9 +3824,16 @@ async fn execute_action(state: &AppState, action: &Value) -> Result<Vec<String>,
                 Ok(lines)
             } else {
                 let product = find_product(&state.db, target_field(action, "productName")).await?;
-                let items =
-                    work_item_repo::list_work_items(&state.db, Some(&product.id), None, None, None)
-                        .await?;
+                let items = work_item_repo::list_work_items(
+                    &state.db,
+                    Some(&product.id),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .await?;
                 let mut counts: HashMap<String, usize> = HashMap::new();
                 for item in items {
                     *counts.entry(item.status.to_string()).or_insert(0) += 1;
@@ -5710,10 +5730,17 @@ mod tests {
             .map(|feature| feature.capability.name.clone());
         assert_eq!(capability.as_deref(), Some("Guest Profile Management"));
 
-        let work_items =
-            work_item_repo::list_work_items(&state.db, Some(&product.id), None, None, None)
-                .await
-                .expect("failed to list work items");
+        let work_items = work_item_repo::list_work_items(
+            &state.db,
+            Some(&product.id),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("failed to list work items");
         assert!(work_items
             .iter()
             .any(|item| item.title == "Implement Guest Profile CRUD"));
