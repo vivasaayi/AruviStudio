@@ -6,6 +6,7 @@ use std::io::{self, BufReader};
 use tokio::runtime::Runtime;
 
 const DEFAULT_PROTOCOL_VERSION: &str = "2025-11-25";
+const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[DEFAULT_PROTOCOL_VERSION];
 
 pub struct McpServer {
     state: AppState,
@@ -144,11 +145,11 @@ async fn handle_object(state: &AppState, object: serde_json::Map<String, Value>)
 async fn handle_notification(_method: &str, _params: Option<Value>) {}
 
 fn handle_initialize(params: Option<Value>) -> Value {
-    let negotiated_protocol = params
+    let requested_protocol = params
         .as_ref()
         .and_then(|value| value.get("protocolVersion"))
-        .and_then(Value::as_str)
-        .unwrap_or(DEFAULT_PROTOCOL_VERSION);
+        .and_then(Value::as_str);
+    let negotiated_protocol = negotiate_protocol_version(requested_protocol);
 
     json!({
         "protocolVersion": negotiated_protocol,
@@ -169,6 +170,17 @@ fn handle_initialize(params: Option<Value>) -> Value {
             "version": env!("CARGO_PKG_VERSION")
         }
     })
+}
+
+fn negotiate_protocol_version(requested_protocol: Option<&str>) -> &'static str {
+    match requested_protocol {
+        Some(requested) => SUPPORTED_PROTOCOL_VERSIONS
+            .iter()
+            .copied()
+            .find(|supported| *supported == requested)
+            .unwrap_or(DEFAULT_PROTOCOL_VERSION),
+        _ => DEFAULT_PROTOCOL_VERSION,
+    }
 }
 
 async fn handle_tool_call(state: &AppState, params: Option<Value>) -> Result<Value, Value> {
@@ -285,6 +297,20 @@ mod tests {
                 .and_then(Value::as_str)
                 .expect("protocolVersion"),
             "2025-11-25"
+        );
+    }
+
+    #[test]
+    fn initialize_negotiates_to_supported_protocol_version_when_request_is_unsupported() {
+        let response = handle_initialize(Some(json!({
+            "protocolVersion": "2099-01-01"
+        })));
+        assert_eq!(
+            response
+                .get("protocolVersion")
+                .and_then(Value::as_str)
+                .expect("protocolVersion"),
+            DEFAULT_PROTOCOL_VERSION
         );
     }
 }
