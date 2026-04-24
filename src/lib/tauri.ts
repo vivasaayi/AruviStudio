@@ -388,6 +388,57 @@ export const exportProductOverviewHtml = (data: { fileName: string; html: string
     file_name: data.fileName,
     html: data.html,
   });
+export const exportProductOverviewEpub = (data: {
+  fileName: string;
+  title: string;
+  html: string;
+  tocItems: { id: string; title: string; level: number }[];
+  author?: string;
+  language?: string;
+}) =>
+  invoke<string>("export_product_overview_epub", {
+    fileName: data.fileName,
+    file_name: data.fileName,
+    title: data.title,
+    html: data.html,
+    tocItems: data.tocItems,
+    toc_items: data.tocItems,
+    author: data.author ?? null,
+    language: data.language ?? "en",
+  });
+export const exportProductOverviewPdf = (data: {
+  fileName: string;
+  html: string;
+  pageWidth: string;
+  pageHeight: string;
+  marginTop: string;
+  marginRight: string;
+  marginBottom: string;
+  marginLeft: string;
+  headerTitle: string;
+  headerRight?: string;
+}) =>
+  invoke<string>("export_product_overview_pdf", {
+    fileName: data.fileName,
+    file_name: data.fileName,
+    html: data.html,
+    pageWidth: data.pageWidth,
+    page_width: data.pageWidth,
+    pageHeight: data.pageHeight,
+    page_height: data.pageHeight,
+    marginTop: data.marginTop,
+    margin_top: data.marginTop,
+    marginRight: data.marginRight,
+    margin_right: data.marginRight,
+    marginBottom: data.marginBottom,
+    margin_bottom: data.marginBottom,
+    marginLeft: data.marginLeft,
+    margin_left: data.marginLeft,
+    headerTitle: data.headerTitle,
+    header_title: data.headerTitle,
+    headerRight: data.headerRight ?? null,
+    header_right: data.headerRight ?? null,
+  });
 export const attachRepository = (data: { scopeType: "product" | "module"; scopeId: string; repositoryId: string; isDefault: boolean }) =>
   invoke("attach_repository", {
     scope_type: data.scopeType,

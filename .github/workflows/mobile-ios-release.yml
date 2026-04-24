@@ -1,0 +1,97 @@
+name: Mobile iOS Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: EAS build profile
+        required: true
+        default: production
+        type: choice
+        options:
+          - production
+          - preview
+      submit:
+        description: Auto-submit the completed build to App Store Connect/TestFlight
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-ios-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ios-release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: mobile
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Setup Expo and EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Validate EAS project initialization
+        run: |
+          if ! grep -q '"projectId"' app.json; then
+            echo "mobile/app.json is missing expo.extra.eas.projectId."
+            echo "Run a successful local 'eas build --platform ios --profile production' once,"
+            echo "or add the EAS projectId manually before using this GitHub workflow."
+            exit 1
+          fi
+
+      - name: Validate App Store Connect submit configuration
+        if: ${{ inputs.submit }}
+        run: |
+          if grep -q 'REPLACE_WITH_APP_STORE_CONNECT_APP_ID' eas.json; then
+            echo "Set mobile/eas.json submit.production.ios.ascAppId before auto-submit is enabled."
+            exit 1
+          fi
+
+      - name: Install mobile dependencies
+        run: npm install
+
+      - name: Write App Store Connect API key
+        if: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 != '' && secrets.APP_STORE_CONNECT_KEY_ID != '' && secrets.APP_STORE_CONNECT_ISSUER_ID != '' }}
+        run: |
+          key_path="$RUNNER_TEMP/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8"
+          printf '%s' "${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}" > "$key_path"
+          {
+            echo "EXPO_ASC_API_KEY_PATH=$key_path"
+            echo "EXPO_ASC_KEY_ID=${{ secrets.APP_STORE_CONNECT_KEY_ID }}"
+            echo "EXPO_ASC_ISSUER_ID=${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
+            echo "EXPO_APPLE_TEAM_ID=${{ secrets.APP_STORE_CONNECT_TEAM_ID }}"
+            echo "EXPO_APPLE_TEAM_TYPE=${{ secrets.APP_STORE_CONNECT_TEAM_TYPE }}"
+          } >> "$GITHUB_ENV"
+
+      - name: Trigger EAS iOS build
+        run: |
+          cmd=(
+            eas
+            build
+            --platform ios
+            --profile "${{ inputs.profile }}"
+            --non-interactive
+          )
+
+          if [[ "${{ inputs.submit }}" == "true" ]]; then
+            cmd+=(--auto-submit)
+          fi
+
+          "${cmd[@]}"

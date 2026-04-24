@@ -101,8 +101,11 @@ export function LeftSidebar() {
   const [recentNodeKeys, setRecentNodeKeys] = useState<string[]>([]);
   const nodeRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
 
-  const { data: products } = useQuery({ queryKey: ["products"], queryFn: listProducts });
-  const selectedProductId = activeProductId ?? products?.[0]?.id ?? null;
+  const { data: products = [], isLoading: productsLoading } = useQuery({ queryKey: ["products"], queryFn: listProducts });
+  const visibleActiveProductId = products.some((product) => product.id === activeProductId)
+    ? activeProductId
+    : null;
+  const selectedProductId = visibleActiveProductId ?? products[0]?.id ?? null;
   const { data: workItems } = useQuery({ queryKey: ["sidebarWorkItems", selectedProductId], queryFn: () => listWorkItems({ productId: selectedProductId ?? undefined }), enabled: !!selectedProductId });
   const { data: productSummaries } = useQuery({ queryKey: ["productWorkItemSummaries"], queryFn: summarizeWorkItemsByProduct });
   const { data: tree } = useQuery({
@@ -112,18 +115,21 @@ export function LeftSidebar() {
   });
 
   useEffect(() => {
-    if (!activeProductId && products?.[0]?.id) {
-      setActiveProduct(products[0].id);
+    if (productsLoading) {
+      return;
     }
-  }, [activeProductId, products, setActiveProduct]);
+    if (activeProductId !== selectedProductId) {
+      setActiveProduct(selectedProductId);
+    }
+  }, [activeProductId, productsLoading, selectedProductId, setActiveProduct]);
 
-  const selectedProduct = (products ?? []).find((product) => product.id === selectedProductId) ?? null;
+  const selectedProduct = products.find((product) => product.id === selectedProductId) ?? null;
   const filteredProducts = useMemo(() => {
     const normalized = productSearch.trim().toLowerCase();
     if (!normalized) {
-      return products ?? [];
+      return products;
     }
-    return (products ?? []).filter((product: Product) => {
+    return products.filter((product: Product) => {
       const haystack = [product.name, product.description, ...product.tags].join(" ").toLowerCase();
       return haystack.includes(normalized);
     });

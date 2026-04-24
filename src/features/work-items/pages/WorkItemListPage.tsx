@@ -287,7 +287,16 @@ function getWorkItemExecutionSteps(workItem: WorkItem, workspaceName?: string | 
 
 export function WorkItemListPage() {
   const queryClient = useQueryClient();
-  const { activeProductId, activeModuleId, activeCapabilityId, activeNodeId, activeNodeType, activeWorkItemId, setActiveWorkItem } = useWorkspaceStore();
+  const {
+    activeProductId,
+    activeModuleId,
+    activeCapabilityId,
+    activeNodeId,
+    activeNodeType,
+    activeWorkItemId,
+    setActiveProduct,
+    setActiveWorkItem,
+  } = useWorkspaceStore();
   const { workItemWorkspaceTab, setWorkItemWorkspaceTab, workItemCreateDialogOpen, openWorkItemCreateDialog, closeWorkItemCreateDialog, setActiveView } = useUIStore();
 
   const [statusFilter, setStatusFilter] = useState("");
@@ -324,31 +333,45 @@ export function WorkItemListPage() {
     constraints: "",
   });
 
+  const { data: products, isLoading: productsLoading } = useQuery({
+    queryKey: ["products"],
+    queryFn: () => listProducts(),
+  });
+  const selectedProductId = (products ?? []).some((product) => product.id === activeProductId)
+    ? activeProductId
+    : ((products ?? [])[0]?.id ?? null);
+
+  useEffect(() => {
+    if (productsLoading) {
+      return;
+    }
+    if (activeProductId !== selectedProductId) {
+      setActiveProduct(selectedProductId);
+    }
+  }, [activeProductId, productsLoading, selectedProductId, setActiveProduct]);
+
   const { data: workItems, isLoading } = useQuery({
-    queryKey: ["workItems", activeProductId, activeNodeId, activeNodeType, statusFilter],
+    queryKey: ["workItems", selectedProductId, activeNodeId, activeNodeType, statusFilter],
     queryFn: () =>
       listWorkItems({
-        productId: activeProductId ?? undefined,
+        productId: selectedProductId ?? undefined,
         sourceNodeId: activeNodeId ?? undefined,
         sourceNodeType: activeNodeType ?? undefined,
         status: statusFilter || undefined,
       }),
-  });
-  const { data: products } = useQuery({
-    queryKey: ["products"],
-    queryFn: () => listProducts(),
+    enabled: !!selectedProductId,
   });
   const { data: activeProductTree } = useQuery({
-    queryKey: ["workItemProductTree", activeProductId],
-    queryFn: () => getProductTree(activeProductId!),
-    enabled: !!activeProductId,
+    queryKey: ["workItemProductTree", selectedProductId],
+    queryFn: () => getProductTree(selectedProductId!),
+    enabled: !!selectedProductId,
   });
   const filteredWorkItems = useMemo(() => {
-    if (!activeProductId) {
+    if (!selectedProductId) {
       return [];
     }
-    return (workItems ?? []).filter((workItem) => workItem.product_id === activeProductId);
-  }, [activeProductId, workItems]);
+    return (workItems ?? []).filter((workItem) => workItem.product_id === selectedProductId);
+  }, [selectedProductId, workItems]);
 
   const selectedWorkItemId = useMemo(() => {
     const activeIdInScope = activeWorkItemId && filteredWorkItems.some((workItem) => workItem.id === activeWorkItemId)

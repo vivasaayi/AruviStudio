@@ -29,20 +29,31 @@ const styles: Record<string, React.CSSProperties> = {
 
 export function RepositoryListPage() {
   const queryClient = useQueryClient();
-  const { activeProductId, activeModuleId, activeCapabilityId } = useWorkspaceStore();
+  const { activeProductId, activeModuleId, activeCapabilityId, setActiveProduct } = useWorkspaceStore();
   const [showForm, setShowForm] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [form, setForm] = useState({ name: "", localPath: "", remoteUrl: "", defaultBranch: "main" });
   const [formError, setFormError] = useState<string | null>(null);
 
   const { data: repos, isLoading } = useQuery({ queryKey: ["repositories"], queryFn: listRepositories });
-  const { data: products = [] } = useQuery({ queryKey: ["products"], queryFn: listProducts });
+  const { data: products = [], isLoading: productsLoading } = useQuery({ queryKey: ["products"], queryFn: listProducts });
+  const selectedProductId = products.some((product) => product.id === activeProductId)
+    ? activeProductId
+    : (products[0]?.id ?? null);
+  React.useEffect(() => {
+    if (productsLoading) {
+      return;
+    }
+    if (activeProductId !== selectedProductId) {
+      setActiveProduct(selectedProductId);
+    }
+  }, [activeProductId, productsLoading, selectedProductId, setActiveProduct]);
   const { data: activeProductTree } = useQuery({
-    queryKey: ["repositoryProductTree", activeProductId],
-    queryFn: () => getProductTree(activeProductId!),
-    enabled: !!activeProductId,
+    queryKey: ["repositoryProductTree", selectedProductId],
+    queryFn: () => getProductTree(selectedProductId!),
+    enabled: !!selectedProductId,
   });
-  const activeProduct = products.find((product) => product.id === activeProductId) ?? null;
+  const activeProduct = products.find((product) => product.id === selectedProductId) ?? null;
   const activeModule = activeProductTree?.modules.find((moduleTree) => moduleTree.module.id === activeModuleId)?.module ?? null;
   const activeCapability = useMemo(() => {
     if (!activeCapabilityId || !activeProductTree) {

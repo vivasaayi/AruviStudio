@@ -162,22 +162,34 @@ export function ProductListPage() {
   const [capabilityOrderMap, setFeatureOrderMap] = useState<Record<string, string[]>>({});
 
   const { data: products, isLoading } = useQuery({ queryKey: ["products"], queryFn: listProducts });
-  const selectedProductId = activeProductId ?? products?.[0]?.id ?? null;
+  const visibleActiveProductId = products?.some((product) => product.id === activeProductId)
+    ? activeProductId
+    : null;
+  const selectedProductId = visibleActiveProductId ?? products?.[0]?.id ?? null;
   const selectedProduct = useMemo(
     () => products?.find((product) => product.id === selectedProductId) ?? null,
     [products, selectedProductId],
   );
 
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+    if (activeProductId !== selectedProductId) {
+      setActiveProduct(selectedProductId);
+    }
+  }, [activeProductId, isLoading, selectedProductId, setActiveProduct]);
+
   const { data: tree } = useQuery({
     queryKey: ["productTree", selectedProductId],
     queryFn: () => getProductTree(selectedProductId!),
-    enabled: !!selectedProductId,
+    enabled: !!selectedProduct,
   });
 
   const { data: productWorkItems } = useQuery({
     queryKey: ["productAllTasks", selectedProductId],
     queryFn: () => listWorkItems({ productId: selectedProductId ?? undefined }),
-    enabled: !!selectedProductId,
+    enabled: !!selectedProduct,
   });
 
   const { data: scopedTasks } = useQuery({
@@ -188,13 +200,13 @@ export function ProductListPage() {
         sourceNodeId: activeNodeId ?? undefined,
         sourceNodeType: activeNodeType ?? undefined,
       }),
-    enabled: !!selectedProductId,
+    enabled: !!selectedProduct,
   });
 
   const { data: resolvedWorkspace } = useQuery<Repository | null>({
     queryKey: ["productScopeRepo", selectedProductId, activeModuleId],
     queryFn: () => resolveRepositoryForScope({ productId: selectedProductId, moduleId: activeModuleId }),
-    enabled: !!selectedProductId,
+    enabled: !!selectedProduct,
   });
   const effectiveWorkspacePath = resolvedWorkspace?.local_path ?? activeWorkspacePath ?? null;
 
