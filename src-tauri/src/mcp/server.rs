@@ -1,4 +1,5 @@
 use crate::mcp::protocol;
+use crate::mcp::resources;
 use crate::mcp::tools;
 use crate::state::AppState;
 use serde_json::{json, Value};
@@ -125,7 +126,8 @@ async fn handle_object(state: &AppState, object: serde_json::Map<String, Value>)
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tools::definitions() })),
         "tools/call" => handle_tool_call(state, params).await,
-        "resources/list" => Ok(json!({ "resources": [] })),
+        "resources/list" => handle_resources_list(id.clone(), params),
+        "resources/read" => handle_resources_read(id.clone(), params),
         "resources/templates/list" => Ok(json!({ "resourceTemplates": [] })),
         "prompts/list" => Ok(json!({ "prompts": [] })),
         _ => Err(error_response(
@@ -225,6 +227,65 @@ async fn handle_tool_call(state: &AppState, params: Option<Value>) -> Result<Val
     Ok(payload)
 }
 
+fn handle_resources_list(id: Value, params: Option<Value>) -> Result<Value, Value> {
+    if let Some(value) = params {
+        if !value.is_object() {
+            return Err(error_response(
+                id,
+                -32602,
+                "Invalid params",
+                Some(json!({ "details": "resources/list params must be an object when provided" })),
+            ));
+        }
+    }
+
+    Ok(json!({
+        "resources": resources::definitions()
+    }))
+}
+
+fn handle_resources_read(id: Value, params: Option<Value>) -> Result<Value, Value> {
+    let params = params.ok_or_else(|| {
+        error_response(
+            id.clone(),
+            -32602,
+            "Invalid params",
+            Some(json!({ "details": "Missing resources/read params" })),
+        )
+    })?;
+    let params_object = params.as_object().ok_or_else(|| {
+        error_response(
+            id.clone(),
+            -32602,
+            "Invalid params",
+            Some(json!({ "details": "resources/read params must be an object" })),
+        )
+    })?;
+    let uri = params_object
+        .get("uri")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            error_response(
+                id.clone(),
+                -32602,
+                "Invalid params",
+                Some(json!({ "details": "resources/read params are missing uri" })),
+            )
+        })?;
+
+    match resources::read(uri) {
+        Some(content) => Ok(json!({
+            "contents": [content]
+        })),
+        None => Err(error_response(
+            id,
+            -32002,
+            "Resource not found",
+            Some(json!({ "uri": uri })),
+        )),
+    }
+}
+
 fn success_response(id: Value, result: Value) -> Value {
     json!({
         "jsonrpc": "2.0",
@@ -311,6 +372,60 @@ mod tests {
                 .and_then(Value::as_str)
                 .expect("protocolVersion"),
             DEFAULT_PROTOCOL_VERSION
+        );
+    }
+
+    #[test]
+    fn resources_list_returns_doctrine_resources() {
+        let response = handle_resources_list(Value::from(1), None).expect("resources/list");
+        let resources = response
+            .get("resources")
+            .and_then(Value::as_array)
+            .expect("resources array");
+        assert!(resources.iter().any(|resource| {
+            resource
+                .get("uri")
+                .and_then(Value::as_str)
+                == Some("aruvi://guides/product-philosophy")
+        }));
+    }
+
+    #[test]
+    fn resources_read_returns_markdown_contents() {
+        let response = handle_resources_read(
+            Value::from(1),
+            Some(json!({
+                "uri": "aruvi://guides/product-philosophy"
+            })),
+        )
+        .expect("resources/read");
+        let contents = response
+            .get("contents")
+            .and_then(Value::as_array)
+            .expect("contents array");
+        assert!(contents.iter().any(|entry| {
+            entry
+                .get("text")
+                .and_then(Value::as_str)
+                .map(|text| text.contains("# Aruvi Product Philosophy"))
+                .unwrap_or(false)
+        }));
+    }
+
+    #[test]
+    fn resources_read_returns_not_found_for_unknown_uri() {
+        let error = handle_resources_read(
+            Value::from(1),
+            Some(json!({
+                "uri": "aruvi://guides/not-real"
+            })),
+        )
+        .expect_err("resources/read should fail");
+        assert_eq!(
+            error.get("error")
+                .and_then(|value| value.get("code"))
+                .and_then(Value::as_i64),
+            Some(-32002)
         );
     }
 }

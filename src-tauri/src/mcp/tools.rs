@@ -75,6 +75,8 @@ fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "update_capability",
                 "delete_capability",
                 "reorder_capabilities",
+                "apply_capability_template",
+                "convert_capability_kind",
                 "get_product_tree",
             ],
         ),
@@ -314,28 +316,28 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "catalog.modules.create",
             "Create Module",
-            "Create a new root section for a product.",
+            "Create a new root section for a product. Root node kinds are limited to area, domain, or system. Discover detailed constraints via aruvi://catalog/node-kind-constraints.",
             object_schema(
                 vec![
                     ("productId", string_property("The product id.")),
                     ("name", string_property("The root section name.")),
                     ("description", string_property("Short section description.")),
                     ("purpose", string_property("Section purpose or summary.")),
+                    ("explanation", string_property("Long-form chapter explanation.")),
+                    ("examples", string_property("Worked examples or concrete scenarios.")),
+                    (
+                        "implementationNotes",
+                        string_property("Implementation-oriented notes for the section."),
+                    ),
+                    (
+                        "testGuidance",
+                        string_property("Test guidance or validation notes for the section."),
+                    ),
                     (
                         "nodeKind",
                         enum_property(
-                            "The semantic root node kind.",
-                            &[
-                                "area",
-                                "domain",
-                                "subdomain",
-                                "system",
-                                "subsystem",
-                                "feature_set",
-                                "capability",
-                                "rollout",
-                                "reference",
-                            ],
+                            "The semantic root node kind. Only root kinds are allowed.",
+                            &["area", "domain", "system"],
                         ),
                     ),
                 ],
@@ -345,28 +347,28 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "catalog.modules.update",
             "Update Module",
-            "Update an existing root section.",
+            "Update an existing root section. Root node kinds are limited to area, domain, or system. Discover detailed constraints via aruvi://catalog/node-kind-constraints.",
             object_schema(
                 vec![
                     ("id", string_property("The module id.")),
                     ("name", string_property("Updated root section name.")),
                     ("description", string_property("Updated description.")),
                     ("purpose", string_property("Updated purpose.")),
+                    ("explanation", string_property("Updated chapter explanation.")),
+                    ("examples", string_property("Updated worked examples.")),
+                    (
+                        "implementationNotes",
+                        string_property("Updated implementation-oriented notes."),
+                    ),
+                    (
+                        "testGuidance",
+                        string_property("Updated test guidance."),
+                    ),
                     (
                         "nodeKind",
                         enum_property(
-                            "Updated semantic root node kind.",
-                            &[
-                                "area",
-                                "domain",
-                                "subdomain",
-                                "system",
-                                "subsystem",
-                                "feature_set",
-                                "capability",
-                                "rollout",
-                                "reference",
-                            ],
+                            "Updated semantic root node kind. Only root kinds are allowed.",
+                            &["area", "domain", "system"],
                         ),
                     ),
                 ],
@@ -406,7 +408,7 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "catalog.capabilities.create",
             "Create Capability",
-            "Create a semantic child node within a module or capability.",
+            "Create a semantic child node within a module or capability. Allowed node kinds depend on the parent node kind. Rollout and reference are leaves. Discover detailed constraints via aruvi://catalog/node-kind-constraints.",
             object_schema(
                 vec![
                     ("moduleId", string_property("The module id.")),
@@ -417,6 +419,8 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
                         "acceptanceCriteria",
                         string_property("Acceptance criteria for the node."),
                     ),
+                    ("explanation", string_property("Long-form explanation for the node.")),
+                    ("examples", string_property("Worked examples for the node.")),
                     (
                         "priority",
                         enum_property(
@@ -431,6 +435,14 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
                     (
                         "technicalNotes",
                         string_property("Technical notes for the node."),
+                    ),
+                    (
+                        "implementationNotes",
+                        string_property("Implementation plan or engineering notes."),
+                    ),
+                    (
+                        "testGuidance",
+                        string_property("Test strategy or verification notes."),
                     ),
                     (
                         "nodeKind",
@@ -456,7 +468,7 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "catalog.capabilities.update",
             "Update Capability",
-            "Update a semantic child node.",
+            "Update a semantic child node. Allowed node kinds depend on the parent node kind. Rollout and reference are leaves. Discover detailed constraints via aruvi://catalog/node-kind-constraints.",
             object_schema(
                 vec![
                     ("id", string_property("The capability id.")),
@@ -466,6 +478,8 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
                         "acceptanceCriteria",
                         string_property("Updated acceptance criteria."),
                     ),
+                    ("explanation", string_property("Updated long-form explanation.")),
+                    ("examples", string_property("Updated worked examples.")),
                     (
                         "priority",
                         enum_property(
@@ -480,6 +494,14 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
                     (
                         "technicalNotes",
                         string_property("Updated technical notes."),
+                    ),
+                    (
+                        "implementationNotes",
+                        string_property("Updated implementation plan or engineering notes."),
+                    ),
+                    (
+                        "testGuidance",
+                        string_property("Updated test strategy or verification notes."),
                     ),
                     (
                         "nodeKind",
@@ -522,6 +544,83 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
                     ),
                 ],
                 &["moduleId", "orderedIds"],
+            ),
+        ),
+        first_class_tool(
+            "catalog.capabilities.apply_template",
+            "Apply Capability Template",
+            "Create a supported book-shaped subtree under a module or capability. Use this for topics such as operator chapters with definition, examples, implementation, and tests.",
+            object_schema(
+                vec![
+                    ("moduleId", string_property("The module id.")),
+                    ("parentCapabilityId", string_property("Optional parent capability id.")),
+                    (
+                        "templateKind",
+                        enum_property(
+                            "Template kind to apply.",
+                            &["operator_chapter", "technical_topic_book"],
+                        ),
+                    ),
+                    ("name", string_property("Topic name for the generated subtree.")),
+                    ("description", string_property("Optional chapter description.")),
+                    ("explanation", string_property("Long-form explanation content.")),
+                    ("examples", string_property("Worked examples content.")),
+                    (
+                        "implementationNotes",
+                        string_property("Implementation guidance for the generated subtree."),
+                    ),
+                    (
+                        "testGuidance",
+                        string_property("Test guidance for the generated subtree."),
+                    ),
+                    (
+                        "priority",
+                        enum_property(
+                            "Priority level applied to generated nodes and work items.",
+                            &["critical", "high", "medium", "low"],
+                        ),
+                    ),
+                    (
+                        "risk",
+                        enum_property("Risk level.", &["high", "medium", "low"]),
+                    ),
+                ],
+                &["moduleId", "templateKind", "name"],
+            ),
+        ),
+        first_class_tool(
+            "catalog.capabilities.convert_kind",
+            "Convert Capability Kind",
+            "Safely convert a semantic node between rollout, reference, feature_set, capability, or other supported child kinds. Use childStrategy=reparent_to_parent when converting a structural node into a leaf while preserving child chapters.",
+            object_schema(
+                vec![
+                    ("id", string_property("The capability id.")),
+                    (
+                        "nodeKind",
+                        enum_property(
+                            "Target semantic node kind.",
+                            &[
+                                "area",
+                                "domain",
+                                "subdomain",
+                                "system",
+                                "subsystem",
+                                "feature_set",
+                                "capability",
+                                "rollout",
+                                "reference",
+                            ],
+                        ),
+                    ),
+                    (
+                        "childStrategy",
+                        enum_property(
+                            "How to handle existing structural children during conversion.",
+                            &["reject", "reparent_to_parent"],
+                        ),
+                    ),
+                ],
+                &["id", "nodeKind"],
             ),
         ),
         first_class_tool(
@@ -894,6 +993,8 @@ fn translate_first_class_tool(
         "catalog.capabilities.update" => ("aruvi_catalog", "update_capability"),
         "catalog.capabilities.delete" => ("aruvi_catalog", "delete_capability"),
         "catalog.capabilities.reorder" => ("aruvi_catalog", "reorder_capabilities"),
+        "catalog.capabilities.apply_template" => ("aruvi_catalog", "apply_capability_template"),
+        "catalog.capabilities.convert_kind" => ("aruvi_catalog", "convert_capability_kind"),
         "work_items.list" => ("aruvi_work_items", "list_work_items"),
         "work_items.get" => ("aruvi_work_items", "get_work_item"),
         "work_items.create" => ("aruvi_work_items", "create_work_item"),
@@ -1382,6 +1483,11 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
                 &args.string_or_default(&["description"], "")?,
                 &args.string_or_default(&["purpose"], "")?,
                 args.optional_string(&["node_kind", "nodeKind"])?.as_deref(),
+                &args.string_or_default(&["explanation"], "")?,
+                &args.string_or_default(&["examples"], "")?,
+                &args
+                    .string_or_default(&["implementation_notes", "implementationNotes"], "")?,
+                &args.string_or_default(&["test_guidance", "testGuidance"], "")?,
             )
             .await?;
             action_result("create_module", module)
@@ -1402,6 +1508,12 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
                 args.optional_string(&["description"])?.as_deref(),
                 args.optional_string(&["purpose"])?.as_deref(),
                 args.optional_string(&["node_kind", "nodeKind"])?.as_deref(),
+                args.optional_string(&["explanation"])?.as_deref(),
+                args.optional_string(&["examples"])?.as_deref(),
+                args.optional_string(&["implementation_notes", "implementationNotes"])?
+                    .as_deref(),
+                args.optional_string(&["test_guidance", "testGuidance"])?
+                    .as_deref(),
             )
             .await?;
             action_result("update_module", module)
@@ -1434,6 +1546,11 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
                 &args.string_or_default(&["risk"], "medium")?,
                 &args.string_or_default(&["technical_notes", "technicalNotes"], "")?,
                 args.optional_string(&["node_kind", "nodeKind"])?.as_deref(),
+                &args.string_or_default(&["explanation"], "")?,
+                &args.string_or_default(&["examples"], "")?,
+                &args
+                    .string_or_default(&["implementation_notes", "implementationNotes"], "")?,
+                &args.string_or_default(&["test_guidance", "testGuidance"], "")?,
             )
             .await?;
             action_result("create_capability", capability)
@@ -1459,6 +1576,12 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
                 args.optional_string(&["technical_notes", "technicalNotes"])?
                     .as_deref(),
                 args.optional_string(&["node_kind", "nodeKind"])?.as_deref(),
+                args.optional_string(&["explanation"])?.as_deref(),
+                args.optional_string(&["examples"])?.as_deref(),
+                args.optional_string(&["implementation_notes", "implementationNotes"])?
+                    .as_deref(),
+                args.optional_string(&["test_guidance", "testGuidance"])?
+                    .as_deref(),
             )
             .await?;
             action_result("update_capability", capability)
@@ -1482,6 +1605,37 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
             )
             .await?;
             Ok(action_ok("reorder_capabilities"))
+        }
+        "apply_capability_template" => {
+            let result = product_service::apply_semantic_template(
+                &state.db,
+                &args.required_string(&["module_id", "moduleId"], "module_id")?,
+                args.optional_string(&["parent_capability_id", "parentCapabilityId"])?
+                    .as_deref(),
+                &args.required_string(&["template_kind", "templateKind"], "template_kind")?,
+                &args.required_string(&["name"], "name")?,
+                &args.string_or_default(&["description"], "")?,
+                args.optional_string(&["priority"])?.as_deref(),
+                args.optional_string(&["risk"])?.as_deref(),
+                &args.string_or_default(&["explanation"], "")?,
+                &args.string_or_default(&["examples"], "")?,
+                &args
+                    .string_or_default(&["implementation_notes", "implementationNotes"], "")?,
+                &args.string_or_default(&["test_guidance", "testGuidance"], "")?,
+            )
+            .await?;
+            action_result("apply_capability_template", result)
+        }
+        "convert_capability_kind" => {
+            let result = product_service::convert_capability_kind(
+                &state.db,
+                &args.required_string(&["id"], "id")?,
+                &args.required_string(&["node_kind", "nodeKind"], "node_kind")?,
+                args.optional_string(&["child_strategy", "childStrategy"])?
+                    .as_deref(),
+            )
+            .await?;
+            action_result("convert_capability_kind", result)
         }
         "get_product_tree" => {
             let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
@@ -2903,6 +3057,44 @@ mod tests {
                 .get("additionalProperties")
                 .and_then(Value::as_bool),
             Some(false)
+        );
+    }
+
+    #[test]
+    fn discovery_exposes_node_kind_constraints_in_catalog_tool_schemas() {
+        let definitions = definitions();
+        let module_create_tool = definitions
+            .iter()
+            .find(|tool| tool.name == "catalog.modules.create")
+            .expect("catalog.modules.create");
+        let capability_create_tool = definitions
+            .iter()
+            .find(|tool| tool.name == "catalog.capabilities.create")
+            .expect("catalog.capabilities.create");
+
+        let root_kind_enum = module_create_tool
+            .input_schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .and_then(|properties| properties.get("nodeKind"))
+            .and_then(Value::as_object)
+            .and_then(|node_kind| node_kind.get("enum"))
+            .and_then(Value::as_array)
+            .expect("module nodeKind enum");
+
+        assert_eq!(
+            root_kind_enum,
+            &vec![json!("area"), json!("domain"), json!("system")]
+        );
+        assert!(
+            module_create_tool
+                .description
+                .contains("aruvi://catalog/node-kind-constraints")
+        );
+        assert!(
+            capability_create_tool
+                .description
+                .contains("Rollout and reference are leaves")
         );
     }
 

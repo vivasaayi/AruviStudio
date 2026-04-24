@@ -1717,6 +1717,30 @@ function renderBookModuleHtml(moduleTree: ModuleTree, chapterNumber: number, all
           <div class="note-copy">${toHtmlParagraph(moduleTree.module.purpose)}</div>
         </div>
       ` : ""}
+      ${moduleTree.module.explanation ? `
+        <div class="note-block">
+          <div class="note-label">Explanation</div>
+          <div class="note-copy">${toHtmlParagraph(moduleTree.module.explanation)}</div>
+        </div>
+      ` : ""}
+      ${moduleTree.module.examples ? `
+        <div class="note-block">
+          <div class="note-label">Examples</div>
+          <div class="note-copy">${toHtmlParagraph(moduleTree.module.examples)}</div>
+        </div>
+      ` : ""}
+      ${moduleTree.module.implementation_notes ? `
+        <div class="note-block">
+          <div class="note-label">Implementation Notes</div>
+          <div class="note-copy">${toHtmlParagraph(moduleTree.module.implementation_notes)}</div>
+        </div>
+      ` : ""}
+      ${moduleTree.module.test_guidance ? `
+        <div class="note-block">
+          <div class="note-label">Test Guidance</div>
+          <div class="note-copy">${toHtmlParagraph(moduleTree.module.test_guidance)}</div>
+        </div>
+      ` : ""}
       ${directModuleWorkItems.length > 0 ? `
         <div class="section-block">
           <div class="section-kicker">Direct Delivery Notes</div>
@@ -1753,10 +1777,34 @@ function renderBookCapabilityHtml(capabilityTree: CapabilityTree, numbering: str
           <div class="note-copy">${toHtmlParagraph(capabilityTree.capability.acceptance_criteria)}</div>
         </div>
       ` : ""}
+      ${capabilityTree.capability.explanation ? `
+        <div class="note-block">
+          <div class="note-label">Explanation</div>
+          <div class="note-copy">${toHtmlParagraph(capabilityTree.capability.explanation)}</div>
+        </div>
+      ` : ""}
+      ${capabilityTree.capability.examples ? `
+        <div class="note-block">
+          <div class="note-label">Examples</div>
+          <div class="note-copy">${toHtmlParagraph(capabilityTree.capability.examples)}</div>
+        </div>
+      ` : ""}
       ${capabilityTree.capability.technical_notes ? `
         <div class="note-block">
           <div class="note-label">Implementation Notes</div>
           <div class="note-copy">${toHtmlParagraph(capabilityTree.capability.technical_notes)}</div>
+        </div>
+      ` : ""}
+      ${capabilityTree.capability.implementation_notes ? `
+        <div class="note-block">
+          <div class="note-label">Build Notes</div>
+          <div class="note-copy">${toHtmlParagraph(capabilityTree.capability.implementation_notes)}</div>
+        </div>
+      ` : ""}
+      ${capabilityTree.capability.test_guidance ? `
+        <div class="note-block">
+          <div class="note-label">Test Guidance</div>
+          <div class="note-copy">${toHtmlParagraph(capabilityTree.capability.test_guidance)}</div>
         </div>
       ` : ""}
       ${directWorkItems.length > 0 ? `

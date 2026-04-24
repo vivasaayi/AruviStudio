@@ -1368,6 +1368,10 @@ mod tests {
             "desc",
             "purpose",
             None,
+            "",
+            "",
+            "",
+            "",
         )
         .await
         .expect("failed to create module");
@@ -1583,6 +1587,10 @@ mod tests {
             "desc",
             "purpose",
             None,
+            "",
+            "",
+            "",
+            "",
         )
         .await
         .expect("failed to create module");
@@ -1747,6 +1755,10 @@ mod tests {
             "desc",
             "purpose",
             None,
+            "",
+            "",
+            "",
+            "",
         )
         .await
         .expect("failed to create module");
@@ -1913,6 +1925,10 @@ mod tests {
             "Core capability delivery module for calculator behavior.",
             "Implement and validate calculator functionality end-to-end.",
             None,
+            "",
+            "",
+            "",
+            "",
         )
         .await
         .expect("failed to create calculator module");
@@ -1970,6 +1986,10 @@ mod tests {
                 "low",
                 "Build in iterative outcomes with full test gates.",
                 None,
+                "",
+                "",
+                "",
+                "",
             )
             .await
             .expect("failed to create capability");
@@ -1988,6 +2008,10 @@ mod tests {
                     "low",
                     "Deliver as a focused outcome with full workflow validation.",
                     None,
+                    "",
+                    "",
+                    "",
+                    "",
                 )
                 .await
                 .expect("failed to create outcome capability");

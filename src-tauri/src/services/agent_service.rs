@@ -2546,6 +2546,10 @@ mod tests {
             "desc",
             "purpose",
             None,
+            "",
+            "",
+            "",
+            "",
         )
         .await
         .expect("failed to create module");

@@ -1,3 +1,4 @@
+use crate::domain::product::{ChildReparentStrategy, HierarchyNodeKind, SemanticTemplateKind};
 use crate::domain::repository::{Repository, RepositoryTreeNode};
 use crate::error::AppError;
 use crate::persistence::{
@@ -8,7 +9,7 @@ use crate::providers::gateway::ModelGateway;
 use crate::providers::openai_compatible::OpenAiCompatibleProvider;
 use crate::providers::types::{ChatMessage, CompletionRequest};
 use crate::secrets;
-use crate::services::repo_service;
+use crate::services::{product_service, repo_service};
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -19,6 +20,8 @@ use tokio::sync::Mutex;
 
 const AUTO_START_AFTER_WORK_ITEM_APPROVAL_KEY: &str =
     "workflow.auto_start_after_work_item_approval";
+const DEFAULT_PROVIDER_SETTING_KEY: &str = "planner.default_provider_id";
+const DEFAULT_MODEL_SETTING_KEY: &str = "planner.default_model_name";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlannerSessionInfo {
@@ -405,10 +408,18 @@ Rules:
 - If a tool reports that a proposed entity does not exist yet, treat that as expected for proposal refinement and continue planning against the pending proposal instead of failing.
 - Do not call mutation tools. Draft edits go in final.actions.
 - After receiving tool results, continue reasoning and either call another tool or return type=final.
+- Prefer semantic root sections instead of shallow modules. Root sections should use module nodeKind values area, domain, or system.
+- Capability nodes should use semantic node kinds intentionally: feature_set or capability for structure, reference for explanation-only leaves, rollout for execution leaves.
+- rollout and reference nodes cannot contain structural children. If the user needs chapter-like detail under a rollout topic, create a structural parent capability or feature_set and put reference or capability children above rollout execution slices.
+- For book-grade technical authoring, prefer long-form fields:
+  explanation, examples, implementationNotes, testGuidance.
+- Use apply_capability_template when the user wants a chapter scaffold such as definition/examples/implementation/tests.
+- Use convert_capability_kind when an existing draft node should change between rollout, reference, capability, or feature_set. If the target kind is a leaf and the node already has structural children, set childStrategy to reparent_to_parent.
 - Use these action types only:
 create_product, update_product, archive_product,
 create_module, update_module, delete_module,
 create_capability, update_capability, delete_capability,
+apply_capability_template, convert_capability_kind,
 create_work_item, update_work_item, delete_work_item,
 approve_work_item, reject_work_item, approve_work_item_plan, reject_work_item_plan, approve_work_item_test_review,
 start_workflow, workflow_action, report_status, report_tree.
@@ -432,11 +443,13 @@ Rules:
 - Base the structure on the provided evidence, not wishful features.
 - If there is no current draft root, create one product.
 - If a selected draft node is provided, merge into that context instead of creating a duplicate root.
-- Prefer a practical structure:
+- Prefer a semantic structure:
   - 1 product root
-  - 3-8 modules when the evidence supports it
-  - 2-5 capabilities per module when the evidence supports it
-  - 1-3 starter work items per concrete capability where implementation work is visible or obviously missing
+  - 2-6 root sections using module nodeKind values area, domain, or system when the evidence supports them
+  - nested feature_set/capability/reference/rollout nodes where the codebase clearly shows deeper technical structure
+  - 1-3 starter work items per concrete rollout or directly executable capability where implementation work is visible or obviously missing
+- Use reference for explanatory leaves, rollout for execution leaves, and keep rollout/reference as structural leaves.
+- When a topic deserves book-grade depth, add explanation, examples, implementationNotes, and testGuidance fields instead of stopping at shallow summaries.
 - Use create_* when adding inferred structure to the draft.
 - Use update_* when refining an already selected/root draft node from repository evidence.
 - Keep names concise and product-manager friendly.
@@ -1445,6 +1458,97 @@ async fn run_tool_loop(
     ))
 }
 
+fn normalize_optional_config(value: Option<String>) -> Option<String> {
+    value.map(|candidate| candidate.trim().to_string())
+        .filter(|candidate| !candidate.is_empty())
+}
+
+async fn resolve_planner_model_binding(
+    db: &SqlitePool,
+    provider_id: Option<String>,
+    model_name: Option<String>,
+) -> Result<(Option<String>, Option<String>), AppError> {
+    let requested_provider_id = normalize_optional_config(provider_id);
+    let requested_model_name = normalize_optional_config(model_name);
+    let env_provider_id = normalize_optional_config(std::env::var("ARUVI_PLANNER_PROVIDER_ID").ok());
+    let env_model_name = normalize_optional_config(std::env::var("ARUVI_PLANNER_MODEL_NAME").ok());
+    let default_provider_id =
+        normalize_optional_config(settings_repo::get_setting(db, DEFAULT_PROVIDER_SETTING_KEY).await?);
+    let default_model_name =
+        normalize_optional_config(settings_repo::get_setting(db, DEFAULT_MODEL_SETTING_KEY).await?);
+
+    let providers = model_repo::list_providers(db).await?;
+    let enabled_provider_ids = providers
+        .into_iter()
+        .filter(|provider| provider.enabled)
+        .map(|provider| provider.id)
+        .collect::<BTreeSet<_>>();
+    let enabled_models = model_repo::list_model_definitions(db)
+        .await?
+        .into_iter()
+        .filter(|model| model.enabled && enabled_provider_ids.contains(&model.provider_id))
+        .collect::<Vec<_>>();
+
+    let first_valid_pair = |pairs: Vec<(Option<String>, Option<String>)>| {
+        pairs.into_iter().find_map(|(provider_id, model_name)| {
+            let provider_id = provider_id?;
+            let model_name = model_name?;
+            enabled_models
+                .iter()
+                .find(|model| model.provider_id == provider_id && model.name == model_name)
+                .map(|model| (Some(model.provider_id.clone()), Some(model.name.clone())))
+        })
+    };
+
+    if let Some(pair) = first_valid_pair(vec![
+        (requested_provider_id.clone(), requested_model_name.clone()),
+        (requested_provider_id.clone(), default_model_name.clone()),
+        (env_provider_id.clone(), env_model_name.clone()),
+        (default_provider_id.clone(), default_model_name.clone()),
+    ]) {
+        return Ok(pair);
+    }
+
+    let provider_candidates = [
+        requested_provider_id.clone(),
+        env_provider_id.clone(),
+        default_provider_id.clone(),
+    ];
+    for provider_id in provider_candidates.into_iter().flatten() {
+        let provider_models = enabled_models
+            .iter()
+            .filter(|model| model.provider_id == provider_id)
+            .collect::<Vec<_>>();
+        if provider_models.len() == 1 {
+            let model = provider_models[0];
+            return Ok((Some(model.provider_id.clone()), Some(model.name.clone())));
+        }
+    }
+
+    let model_candidates = [
+        requested_model_name.clone(),
+        env_model_name.clone(),
+        default_model_name.clone(),
+    ];
+    for model_name in model_candidates.into_iter().flatten() {
+        let matches = enabled_models
+            .iter()
+            .filter(|model| model.name == model_name)
+            .collect::<Vec<_>>();
+        if matches.len() == 1 {
+            let model = matches[0];
+            return Ok((Some(model.provider_id.clone()), Some(model.name.clone())));
+        }
+    }
+
+    if enabled_models.len() == 1 {
+        let model = &enabled_models[0];
+        return Ok((Some(model.provider_id.clone()), Some(model.name.clone())));
+    }
+
+    Ok((requested_provider_id, requested_model_name))
+}
+
 fn heuristic_plan(input: &str) -> PlannerPlan {
     let lower = input.trim().to_lowercase();
     if (lower.contains("tree") || lower.contains("hierarch"))
@@ -1495,6 +1599,8 @@ fn has_draft_mutations(plan: &PlannerPlan) -> bool {
                 "create_product"
                     | "create_module"
                     | "create_capability"
+                    | "apply_capability_template"
+                    | "convert_capability_kind"
                     | "create_work_item"
                     | "update_product"
                     | "update_module"
@@ -1713,6 +1819,64 @@ fn fields_string(action: &Value, key: &str) -> Option<String> {
         .map(ToString::to_string)
 }
 
+fn node_kind_field(value: &Value) -> Option<String> {
+    string_field(value, "nodeKind")
+        .or_else(|| string_field(value, "node_kind"))
+        .or_else(|| fields_string(value, "nodeKind"))
+        .or_else(|| fields_string(value, "node_kind"))
+}
+
+fn parse_node_kind_value(value: Option<String>) -> Option<HierarchyNodeKind> {
+    value.and_then(|candidate| HierarchyNodeKind::parse(candidate.trim()))
+}
+
+fn draft_node_kind(draft_plan: &PlannerDraftPlan, node: &PlannerDraftNode) -> HierarchyNodeKind {
+    if let Some(kind) = parse_node_kind_value(node_kind_field(&node.details)) {
+        return kind;
+    }
+    match node.node_type.as_str() {
+        "module" => HierarchyNodeKind::default_root(),
+        "capability" => node
+            .parent_id
+            .as_deref()
+            .and_then(|parent_id| find_draft_node_by_id(draft_plan, Some(parent_id)))
+            .map(|parent| HierarchyNodeKind::default_child(&draft_node_kind(draft_plan, parent)))
+            .unwrap_or(HierarchyNodeKind::Capability),
+        _ => HierarchyNodeKind::Capability,
+    }
+}
+
+fn draft_node_has_long_form_fields(node: &PlannerDraftNode) -> bool {
+    [
+        string_field(&node.details, "explanation"),
+        string_field(&node.details, "examples"),
+        string_field(&node.details, "implementationNotes")
+            .or_else(|| string_field(&node.details, "implementation_notes")),
+        string_field(&node.details, "testGuidance")
+            .or_else(|| string_field(&node.details, "test_guidance")),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|value| !value.trim().is_empty())
+}
+
+fn set_optional_string_value(target: &mut Value, key: &str, value: Option<String>) {
+    if let Some(value) = value {
+        set_string_value(target, key, &value);
+    }
+}
+
+fn copy_analysis(target: &mut Value, source: &Value) {
+    if let Some(analysis) = source.get("analysis").cloned() {
+        if !target.is_object() {
+            *target = json!({});
+        }
+        if let Value::Object(map) = target {
+            map.insert("analysis".to_string(), analysis);
+        }
+    }
+}
+
 fn fields_string_array(action: &Value, key: &str) -> Option<Vec<String>> {
     fields_field(action, key)
         .and_then(Value::as_array)
@@ -1752,15 +1916,22 @@ fn format_joined(values: Option<Vec<String>>) -> String {
     values.unwrap_or_default().join(", ")
 }
 
-fn draft_node_meta(node_type: &str) -> String {
-    match node_type {
+fn draft_node_meta(draft_plan: &PlannerDraftPlan, node: &PlannerDraftNode) -> String {
+    let mut meta = match node.node_type.as_str() {
         "product" => "draft product",
         "module" => "draft module",
         "capability" => "draft capability",
         "work_item" => "draft work item",
         _ => "draft node",
     }
-    .to_string()
+    .to_string();
+    if matches!(node.node_type.as_str(), "module" | "capability") {
+        meta.push_str(&format!(" · {}", draft_node_kind(draft_plan, node)));
+    }
+    if draft_node_has_long_form_fields(node) {
+        meta.push_str(" · long-form");
+    }
+    meta
 }
 
 fn draft_node_source(node: &PlannerDraftNode) -> Option<String> {
@@ -1790,7 +1961,7 @@ fn build_draft_tree_children(
     nodes
         .into_iter()
         .map(|node| {
-            let mut meta = draft_node_meta(&node.node_type);
+            let mut meta = draft_node_meta(draft_plan, &node);
             if let Some(source) = draft_node_source(&node) {
                 let confidence = draft_node_confidence(&node)
                     .map(|value| format!("{} confidence", value))
@@ -1840,20 +2011,6 @@ fn find_draft_node<'a>(
 ) -> Option<&'a PlannerDraftNode> {
     let normalized = normalize(Some(name));
     draft_plan.nodes.iter().find(|node| {
-        node.node_type == node_type
-            && node.parent_id.as_deref() == parent_id
-            && normalize(Some(&node.name)) == normalized
-    })
-}
-
-fn find_draft_node_mut<'a>(
-    draft_plan: &'a mut PlannerDraftPlan,
-    node_type: &str,
-    name: &str,
-    parent_id: Option<&str>,
-) -> Option<&'a mut PlannerDraftNode> {
-    let normalized = normalize(Some(name));
-    draft_plan.nodes.iter_mut().find(|node| {
         node.node_type == node_type
             && node.parent_id.as_deref() == parent_id
             && normalize(Some(&node.name)) == normalized
@@ -2133,6 +2290,83 @@ fn find_draft_ancestor_name(
     None
 }
 
+fn find_draft_ancestor_node_by_type<'a>(
+    draft_plan: &'a PlannerDraftPlan,
+    node: &'a PlannerDraftNode,
+    ancestor_type: &str,
+) -> Option<&'a PlannerDraftNode> {
+    let mut current = node
+        .parent_id
+        .as_deref()
+        .and_then(|parent_id| find_draft_node_by_id(draft_plan, Some(parent_id)));
+    while let Some(parent) = current {
+        if parent.node_type == ancestor_type {
+            return Some(parent);
+        }
+        current = parent
+            .parent_id
+            .as_deref()
+            .and_then(|parent_id| find_draft_node_by_id(draft_plan, Some(parent_id)));
+    }
+    None
+}
+
+fn resolve_draft_module_node_id(
+    draft_plan: &PlannerDraftPlan,
+    selected_draft_node_id: Option<&str>,
+    action: &Value,
+) -> Result<Option<String>, AppError> {
+    let product_name = resolve_draft_product_name(Some(draft_plan), selected_draft_node_id, action)?;
+    let product_id = product_name
+        .as_deref()
+        .and_then(|name| find_draft_node(draft_plan, "product", name, None))
+        .map(|node| node.id.clone());
+    let module_name = resolve_draft_module_name(Some(draft_plan), selected_draft_node_id, action)?;
+    let Some(module_name) = module_name else {
+        return Ok(None);
+    };
+    if let Some(product_id) = product_id.as_deref() {
+        if let Some(module) = find_draft_node(draft_plan, "module", &module_name, Some(product_id)) {
+            return Ok(Some(module.id.clone()));
+        }
+    }
+    Ok(find_unique_draft_node_by_name(draft_plan, "module", &module_name)?.map(|node| node.id.clone()))
+}
+
+fn resolve_draft_capability_node_id(
+    draft_plan: &PlannerDraftPlan,
+    selected_draft_node_id: Option<&str>,
+    action: &Value,
+) -> Result<Option<String>, AppError> {
+    let capability_name =
+        resolve_draft_capability_name(Some(draft_plan), selected_draft_node_id, action)?;
+    let Some(capability_name) = capability_name else {
+        return Ok(None);
+    };
+    let module_id = resolve_draft_module_node_id(draft_plan, selected_draft_node_id, action)?;
+    let normalized_name = normalize(Some(&capability_name));
+    let matches = draft_plan
+        .nodes
+        .iter()
+        .filter(|node| {
+            node.node_type == "capability"
+                && normalize(Some(&node.name)) == normalized_name
+                && module_id.as_ref().map(|module_id| {
+                    find_draft_ancestor_node_by_type(draft_plan, node, "module")
+                        .map(|module| module.id == *module_id)
+                        .unwrap_or(false)
+                }).unwrap_or(true)
+        })
+        .collect::<Vec<_>>();
+    if matches.len() > 1 {
+        return Err(AppError::Validation(format!(
+            "Multiple draft capability nodes match {}",
+            capability_name
+        )));
+    }
+    Ok(matches.first().map(|node| node.id.clone()))
+}
+
 fn infer_selected_draft_context(
     draft_plan: Option<&PlannerDraftPlan>,
     selected_node_id: Option<&str>,
@@ -2303,6 +2537,18 @@ fn set_string_value(target: &mut Value, key: &str, value: &str) {
     }
 }
 
+fn set_string_array_value(target: &mut Value, key: &str, values: &[String]) {
+    if !target.is_object() {
+        *target = json!({});
+    }
+    if let Value::Object(map) = target {
+        map.insert(
+            key.to_string(),
+            Value::Array(values.iter().cloned().map(Value::String).collect()),
+        );
+    }
+}
+
 fn set_target_string_value(target: &mut Value, key: &str, value: &str) {
     if !target.is_object() {
         *target = json!({});
@@ -2315,6 +2561,12 @@ fn set_target_string_value(target: &mut Value, key: &str, value: &str) {
         if let Value::Object(target_map) = target_entry {
             target_map.insert(key.to_string(), Value::String(value.to_string()));
         }
+    }
+}
+
+fn remove_target_value(target: &mut Value, key: &str) {
+    if let Some(Value::Object(target_map)) = target.get_mut("target") {
+        target_map.remove(key);
     }
 }
 
@@ -2338,7 +2590,7 @@ fn allowed_draft_child_types(parent_type: &str) -> &'static [&'static str] {
     match parent_type {
         "product" => &["module", "work_item"],
         "module" => &["capability", "work_item"],
-        "capability" => &["work_item"],
+        "capability" => &["capability", "work_item"],
         _ => &[],
     }
 }
@@ -2555,6 +2807,7 @@ fn add_draft_child_node(
             "name": trimmed_name,
             "module_name": trimmed_name,
             "description": trimmed_summary,
+            "nodeKind": HierarchyNodeKind::default_root().to_string(),
             "target": {
                 "productName": product_name
             }
@@ -2564,9 +2817,11 @@ fn add_draft_child_node(
             "name": trimmed_name,
             "capability_name": trimmed_name,
             "description": trimmed_summary,
+            "nodeKind": HierarchyNodeKind::default_child(&draft_node_kind(draft_plan, &parent)).to_string(),
             "target": {
                 "productName": product_name,
-                "moduleName": module_name
+                "moduleName": module_name,
+                "capabilityName": if parent.node_type == "capability" { capability_name } else { None }
             }
         }),
         "work_item" => json!({
@@ -2789,7 +3044,7 @@ async fn build_tree_nodes(
     Ok(nodes)
 }
 
-async fn apply_actions_to_draft(
+fn apply_actions_to_draft(
     draft_plan: Option<PlannerDraftPlan>,
     selected_draft_node_id: Option<&str>,
     actions: &[Value],
@@ -2807,14 +3062,24 @@ async fn apply_actions_to_draft(
                     AppError::Validation("Draft product name is required".to_string())
                 })?;
                 if find_draft_node(&draft_plan, "product", &name, None).is_none() {
+                    let description = string_field(action, "description");
+                    let vision = string_field(action, "vision");
+                    let mut details = json!({
+                        "type": "create_product",
+                        "name": string_field(action, "name").unwrap_or_default(),
+                        "description": description,
+                        "vision": vision,
+                        "goals": string_array_field(action, "goals"),
+                        "tags": string_array_field(action, "tags"),
+                    });
+                    copy_analysis(&mut details, action);
                     draft_plan.nodes.push(PlannerDraftNode {
                         id: uuid::Uuid::new_v4().to_string(),
                         parent_id: None,
                         node_type: "product".to_string(),
                         name,
-                        summary: string_field(action, "description")
-                            .or_else(|| string_field(action, "vision")),
-                        details: action.clone(),
+                        summary: description.clone().or(vision.clone()),
+                        details,
                     });
                 }
             }
@@ -2830,14 +3095,41 @@ async fn apply_actions_to_draft(
                     AppError::Validation("Draft module name is required".to_string())
                 })?;
                 if find_draft_node(&draft_plan, "module", &name, Some(&product.id)).is_none() {
+                    let description = string_field(action, "description");
+                    let purpose = string_field(action, "purpose");
+                    let explanation = string_field(action, "explanation");
+                    let implementation_notes = string_field(action, "implementationNotes")
+                        .or_else(|| string_field(action, "implementation_notes"));
+                    let mut details = json!({
+                        "type": "create_module",
+                        "name": string_field(action, "name").unwrap_or_default(),
+                        "module_name": string_field(action, "name").unwrap_or_default(),
+                        "description": description,
+                        "purpose": purpose,
+                        "nodeKind": parse_node_kind_value(node_kind_field(action))
+                            .unwrap_or_else(HierarchyNodeKind::default_root)
+                            .to_string(),
+                        "explanation": explanation,
+                        "examples": string_field(action, "examples"),
+                        "implementationNotes": implementation_notes,
+                        "testGuidance": string_field(action, "testGuidance")
+                            .or_else(|| string_field(action, "test_guidance")),
+                        "target": {
+                            "productName": product_name,
+                        }
+                    });
+                    copy_analysis(&mut details, action);
                     draft_plan.nodes.push(PlannerDraftNode {
                         id: uuid::Uuid::new_v4().to_string(),
                         parent_id: Some(product.id.clone()),
                         node_type: "module".to_string(),
                         name,
-                        summary: string_field(action, "description")
-                            .or_else(|| string_field(action, "purpose")),
-                        details: action.clone(),
+                        summary: description
+                            .clone()
+                            .or(purpose.clone())
+                            .or(explanation.clone())
+                            .or(implementation_notes.clone()),
+                        details,
                     });
                 }
             }
@@ -2859,18 +3151,69 @@ async fn apply_actions_to_draft(
                         .ok_or_else(|| {
                             AppError::Validation("Draft module is required".to_string())
                         })?;
+                let parent_capability_id =
+                    resolve_draft_capability_node_id(&draft_plan, selected_draft_node_id, action)?;
+                let parent_node = parent_capability_id
+                    .as_deref()
+                    .and_then(|node_id| find_draft_node_by_id(&draft_plan, Some(node_id)))
+                    .cloned();
                 let name = string_field(action, "name").ok_or_else(|| {
                     AppError::Validation("Draft capability name is required".to_string())
                 })?;
-                if find_draft_node(&draft_plan, "capability", &name, Some(&module.id)).is_none() {
+                let parent_id = parent_capability_id
+                    .clone()
+                    .unwrap_or_else(|| module.id.clone());
+                if find_draft_node(&draft_plan, "capability", &name, Some(&parent_id)).is_none() {
+                    let description = string_field(action, "description");
+                    let explanation = string_field(action, "explanation");
+                    let acceptance_criteria = string_field(action, "acceptanceCriteria")
+                        .or_else(|| string_field(action, "acceptance_criteria"));
+                    let implementation_notes = string_field(action, "implementationNotes")
+                        .or_else(|| string_field(action, "implementation_notes"));
+                    let test_guidance = string_field(action, "testGuidance")
+                        .or_else(|| string_field(action, "test_guidance"));
+                    let parent_kind = parent_node
+                        .as_ref()
+                        .map(|node| draft_node_kind(&draft_plan, node))
+                        .unwrap_or_else(|| draft_node_kind(&draft_plan, module));
+                    let mut details = json!({
+                        "type": "create_capability",
+                        "name": string_field(action, "name").unwrap_or_default(),
+                        "capability_name": string_field(action, "name").unwrap_or_default(),
+                        "description": description,
+                        "acceptanceCriteria": acceptance_criteria,
+                        "priority": string_field(action, "priority")
+                            .unwrap_or_else(|| "medium".to_string()),
+                        "risk": string_field(action, "risk")
+                            .unwrap_or_else(|| "medium".to_string()),
+                        "technicalNotes": string_field(action, "technicalNotes")
+                            .or_else(|| string_field(action, "technical_notes")),
+                        "nodeKind": parse_node_kind_value(node_kind_field(action))
+                            .unwrap_or_else(|| HierarchyNodeKind::default_child(&parent_kind))
+                            .to_string(),
+                        "explanation": explanation,
+                        "examples": string_field(action, "examples"),
+                        "implementationNotes": implementation_notes,
+                        "testGuidance": test_guidance,
+                        "target": {
+                            "productName": product_name,
+                            "moduleName": module_name,
+                            "capabilityName": parent_node.as_ref().map(|node| node.name.clone()),
+                        }
+                    });
+                    copy_analysis(&mut details, action);
                     draft_plan.nodes.push(PlannerDraftNode {
                         id: uuid::Uuid::new_v4().to_string(),
-                        parent_id: Some(module.id.clone()),
+                        parent_id: Some(parent_id),
                         node_type: "capability".to_string(),
                         name,
-                        summary: string_field(action, "description")
-                            .or_else(|| string_field(action, "acceptanceCriteria")),
-                        details: action.clone(),
+                        summary: description
+                            .clone()
+                            .or(explanation.clone())
+                            .or(acceptance_criteria.clone())
+                            .or(implementation_notes.clone())
+                            .or(test_guidance.clone()),
+                        details,
                     });
                 }
             }
@@ -2885,58 +3228,67 @@ async fn apply_actions_to_draft(
                 let title = string_field(action, "title").ok_or_else(|| {
                     AppError::Validation("Draft work item title is required".to_string())
                 })?;
-                let parent_id = if let Some(capability_name) = resolve_draft_capability_name(
-                    Some(&draft_plan),
-                    selected_draft_node_id,
-                    action,
-                )? {
-                    let module_name = resolve_draft_module_name(
-                        Some(&draft_plan),
-                        selected_draft_node_id,
-                        action,
-                    )?
-                    .ok_or_else(|| {
-                        AppError::Validation(
-                            "Draft work item capability needs a module".to_string(),
-                        )
-                    })?;
-                    let module =
-                        find_draft_node(&draft_plan, "module", &module_name, Some(&product.id))
-                            .ok_or_else(|| {
-                                AppError::Validation("Draft module is required".to_string())
-                            })?;
-                    let capability = find_draft_node(
-                        &draft_plan,
-                        "capability",
-                        &capability_name,
-                        Some(&module.id),
-                    )
-                    .ok_or_else(|| {
-                        AppError::Validation("Draft capability is required".to_string())
-                    })?;
-                    Some(capability.id.clone())
-                } else if let Some(module_name) =
-                    resolve_draft_module_name(Some(&draft_plan), selected_draft_node_id, action)?
-                {
-                    let module =
-                        find_draft_node(&draft_plan, "module", &module_name, Some(&product.id))
-                            .ok_or_else(|| {
-                                AppError::Validation("Draft module is required".to_string())
-                            })?;
-                    Some(module.id.clone())
+                let module_id =
+                    resolve_draft_module_node_id(&draft_plan, selected_draft_node_id, action)?;
+                let capability_id =
+                    resolve_draft_capability_node_id(&draft_plan, selected_draft_node_id, action)?;
+                let parent_id = if let Some(capability_id) = capability_id.clone() {
+                    Some(capability_id)
+                } else if let Some(module_id) = module_id.clone() {
+                    Some(module_id)
                 } else {
                     Some(product.id.clone())
                 };
                 if find_draft_node(&draft_plan, "work_item", &title, parent_id.as_deref()).is_none()
                 {
+                    let module_name = module_id
+                        .as_deref()
+                        .and_then(|node_id| find_draft_node_by_id(&draft_plan, Some(node_id)))
+                        .filter(|node| node.node_type == "module")
+                        .map(|node| node.name.clone())
+                        .or_else(|| {
+                            capability_id
+                                .as_deref()
+                                .and_then(|node_id| find_draft_node_by_id(&draft_plan, Some(node_id)))
+                                .and_then(|node| find_draft_ancestor_name(&draft_plan, node, "module"))
+                        });
+                    let capability_name = capability_id
+                        .as_deref()
+                        .and_then(|node_id| find_draft_node_by_id(&draft_plan, Some(node_id)))
+                        .map(|node| node.name.clone());
+                    let mut details = json!({
+                        "type": "create_work_item",
+                        "title": string_field(action, "title").unwrap_or_default(),
+                        "work_item_name": string_field(action, "title").unwrap_or_default(),
+                        "description": string_field(action, "description"),
+                        "problemStatement": string_field(action, "problemStatement")
+                            .or_else(|| string_field(action, "problem_statement")),
+                        "acceptanceCriteria": string_field(action, "acceptanceCriteria")
+                            .or_else(|| string_field(action, "acceptance_criteria")),
+                        "constraints": string_field(action, "constraints"),
+                        "workItemType": string_field(action, "workItemType")
+                            .or_else(|| string_field(action, "work_item_type"))
+                            .unwrap_or_else(|| "feature".to_string()),
+                        "priority": string_field(action, "priority")
+                            .unwrap_or_else(|| "medium".to_string()),
+                        "complexity": string_field(action, "complexity")
+                            .unwrap_or_else(|| "medium".to_string()),
+                        "target": {
+                            "productName": product_name,
+                            "moduleName": module_name,
+                            "capabilityName": capability_name,
+                        }
+                    });
+                    copy_analysis(&mut details, action);
                     draft_plan.nodes.push(PlannerDraftNode {
                         id: uuid::Uuid::new_v4().to_string(),
                         parent_id,
                         node_type: "work_item".to_string(),
                         name: title,
                         summary: string_field(action, "description")
-                            .or_else(|| string_field(action, "problemStatement")),
-                        details: action.clone(),
+                            .or_else(|| string_field(action, "problemStatement"))
+                            .or_else(|| string_field(action, "problem_statement")),
+                        details,
                     });
                 }
             }
@@ -2946,14 +3298,53 @@ async fn apply_actions_to_draft(
                         .ok_or_else(|| {
                             AppError::Validation("Draft product is required".to_string())
                         })?;
-                let node = find_draft_node_mut(&mut draft_plan, "product", &product_name, None)
+                let node_index = draft_plan
+                    .nodes
+                    .iter()
+                    .position(|node| {
+                        node.node_type == "product"
+                            && node.parent_id.is_none()
+                            && normalize(Some(&node.name)) == normalize(Some(&product_name))
+                    })
                     .ok_or_else(|| AppError::Validation("Draft product is required".to_string()))?;
-                if let Some(name) = fields_string(action, "name") {
-                    node.name = name;
+                let previous_name = draft_plan.nodes[node_index].name.clone();
+                let next_name = fields_string(action, "name");
+                let next_description = fields_string(action, "description");
+                let next_vision = fields_string(action, "vision");
+                let next_goals = fields_string_array(action, "goals");
+                let next_tags = fields_string_array(action, "tags");
+                {
+                    let node = &mut draft_plan.nodes[node_index];
+                    if let Some(name) = next_name.clone() {
+                        node.name = name.clone();
+                        set_string_value(&mut node.details, "name", &name);
+                    }
+                    if let Some(description) = next_description.clone() {
+                        node.summary = Some(description.clone());
+                        set_string_value(&mut node.details, "description", &description);
+                    }
+                    if let Some(vision) = next_vision {
+                        set_string_value(&mut node.details, "vision", &vision);
+                    }
+                    if let Some(goals) = next_goals {
+                        set_string_array_value(&mut node.details, "goals", &goals);
+                    }
+                    if let Some(tags) = next_tags {
+                        set_string_array_value(&mut node.details, "tags", &tags);
+                    }
                 }
-                node.summary =
-                    fields_string(action, "description").or_else(|| node.summary.clone());
-                node.details = action.clone();
+                if let Some(name) = next_name {
+                    if normalize(Some(&previous_name)) != normalize(Some(&name)) {
+                        let node_id = draft_plan.nodes[node_index].id.clone();
+                        update_descendant_targets_for_rename(
+                            &mut draft_plan,
+                            &node_id,
+                            "product",
+                            &previous_name,
+                            &name,
+                        );
+                    }
+                }
             }
             "update_module" => {
                 let product_name =
@@ -2971,59 +3362,134 @@ async fn apply_actions_to_draft(
                     action,
                 )?
                 .ok_or_else(|| AppError::Validation("Draft module is required".to_string()))?;
-                let node =
-                    find_draft_node_mut(&mut draft_plan, "module", &module_name, Some(&product_id))
-                        .ok_or_else(|| {
-                            AppError::Validation("Draft module is required".to_string())
-                        })?;
-                if let Some(name) = fields_string(action, "name") {
-                    node.name = name;
+                let node_index = draft_plan
+                    .nodes
+                    .iter()
+                    .position(|node| {
+                        node.node_type == "module"
+                            && node.parent_id.as_deref() == Some(product_id.as_str())
+                            && normalize(Some(&node.name)) == normalize(Some(&module_name))
+                    })
+                    .ok_or_else(|| AppError::Validation("Draft module is required".to_string()))?;
+                let previous_name = draft_plan.nodes[node_index].name.clone();
+                let next_name = fields_string(action, "name");
+                let next_description = fields_string(action, "description");
+                {
+                    let node = &mut draft_plan.nodes[node_index];
+                    if let Some(name) = next_name.clone() {
+                        node.name = name.clone();
+                        set_string_value(&mut node.details, "name", &name);
+                        set_string_value(&mut node.details, "module_name", &name);
+                    }
+                    if let Some(description) = next_description.clone() {
+                        node.summary = Some(description.clone());
+                        set_string_value(&mut node.details, "description", &description);
+                    }
+                    set_optional_string_value(&mut node.details, "purpose", fields_string(action, "purpose"));
+                    set_optional_string_value(
+                        &mut node.details,
+                        "nodeKind",
+                        fields_string(action, "nodeKind").or_else(|| fields_string(action, "node_kind")),
+                    );
+                    set_optional_string_value(&mut node.details, "explanation", fields_string(action, "explanation"));
+                    set_optional_string_value(&mut node.details, "examples", fields_string(action, "examples"));
+                    set_optional_string_value(
+                        &mut node.details,
+                        "implementationNotes",
+                        fields_string(action, "implementationNotes")
+                            .or_else(|| fields_string(action, "implementation_notes")),
+                    );
+                    set_optional_string_value(
+                        &mut node.details,
+                        "testGuidance",
+                        fields_string(action, "testGuidance")
+                            .or_else(|| fields_string(action, "test_guidance")),
+                    );
                 }
-                node.summary =
-                    fields_string(action, "description").or_else(|| node.summary.clone());
-                node.details = action.clone();
+                if let Some(name) = next_name {
+                    if normalize(Some(&previous_name)) != normalize(Some(&name)) {
+                        let node_id = draft_plan.nodes[node_index].id.clone();
+                        update_descendant_targets_for_rename(
+                            &mut draft_plan,
+                            &node_id,
+                            "module",
+                            &previous_name,
+                            &name,
+                        );
+                    }
+                }
             }
             "update_capability" => {
-                let product_name =
-                    resolve_draft_product_name(Some(&draft_plan), selected_draft_node_id, action)?
+                let capability_id =
+                    resolve_draft_capability_node_id(&draft_plan, selected_draft_node_id, action)?
                         .ok_or_else(|| {
-                            AppError::Validation("Draft capability needs a product".to_string())
+                            AppError::Validation("Draft capability is required".to_string())
                         })?;
-                let product_id = find_draft_node(&draft_plan, "product", &product_name, None)
-                    .ok_or_else(|| AppError::Validation("Draft product is required".to_string()))?
-                    .id
-                    .clone();
-                let module_name =
-                    resolve_draft_module_name(Some(&draft_plan), selected_draft_node_id, action)?
-                        .ok_or_else(|| {
-                        AppError::Validation("Draft capability needs a module".to_string())
-                    })?;
-                let module_id =
-                    find_draft_node(&draft_plan, "module", &module_name, Some(&product_id))
-                        .ok_or_else(|| {
-                            AppError::Validation("Draft module is required".to_string())
-                        })?
-                        .id
-                        .clone();
-                let capability_name = resolve_draft_capability_name(
-                    Some(&draft_plan),
-                    selected_draft_node_id,
-                    action,
-                )?
-                .ok_or_else(|| AppError::Validation("Draft capability is required".to_string()))?;
-                let node = find_draft_node_mut(
-                    &mut draft_plan,
-                    "capability",
-                    &capability_name,
-                    Some(&module_id),
-                )
-                .ok_or_else(|| AppError::Validation("Draft capability is required".to_string()))?;
-                if let Some(name) = fields_string(action, "name") {
-                    node.name = name;
+                let node_index = draft_plan
+                    .nodes
+                    .iter()
+                    .position(|node| node.id == capability_id)
+                    .ok_or_else(|| AppError::Validation("Draft capability is required".to_string()))?;
+                let previous_name = draft_plan.nodes[node_index].name.clone();
+                let next_name = fields_string(action, "name");
+                let next_description = fields_string(action, "description");
+                {
+                    let node = &mut draft_plan.nodes[node_index];
+                    if let Some(name) = next_name.clone() {
+                        node.name = name.clone();
+                        set_string_value(&mut node.details, "name", &name);
+                        set_string_value(&mut node.details, "capability_name", &name);
+                    }
+                    if let Some(description) = next_description.clone() {
+                        node.summary = Some(description.clone());
+                        set_string_value(&mut node.details, "description", &description);
+                    }
+                    set_optional_string_value(
+                        &mut node.details,
+                        "acceptanceCriteria",
+                        fields_string(action, "acceptanceCriteria")
+                            .or_else(|| fields_string(action, "acceptance_criteria")),
+                    );
+                    set_optional_string_value(&mut node.details, "priority", fields_string(action, "priority"));
+                    set_optional_string_value(&mut node.details, "risk", fields_string(action, "risk"));
+                    set_optional_string_value(
+                        &mut node.details,
+                        "technicalNotes",
+                        fields_string(action, "technicalNotes")
+                            .or_else(|| fields_string(action, "technical_notes")),
+                    );
+                    set_optional_string_value(
+                        &mut node.details,
+                        "nodeKind",
+                        fields_string(action, "nodeKind").or_else(|| fields_string(action, "node_kind")),
+                    );
+                    set_optional_string_value(&mut node.details, "explanation", fields_string(action, "explanation"));
+                    set_optional_string_value(&mut node.details, "examples", fields_string(action, "examples"));
+                    set_optional_string_value(
+                        &mut node.details,
+                        "implementationNotes",
+                        fields_string(action, "implementationNotes")
+                            .or_else(|| fields_string(action, "implementation_notes")),
+                    );
+                    set_optional_string_value(
+                        &mut node.details,
+                        "testGuidance",
+                        fields_string(action, "testGuidance")
+                            .or_else(|| fields_string(action, "test_guidance")),
+                    );
                 }
-                node.summary =
-                    fields_string(action, "description").or_else(|| node.summary.clone());
-                node.details = action.clone();
+                if let Some(name) = next_name {
+                    if normalize(Some(&previous_name)) != normalize(Some(&name)) {
+                        let node_id = draft_plan.nodes[node_index].id.clone();
+                        update_descendant_targets_for_rename(
+                            &mut draft_plan,
+                            &node_id,
+                            "capability",
+                            &previous_name,
+                            &name,
+                        );
+                    }
+                }
             }
             "update_work_item" => {
                 // First-cut: work item updates apply by title when uniquely scoped by selection.
@@ -3047,10 +3513,294 @@ async fn apply_actions_to_draft(
                     })?;
                 if let Some(name) = fields_string(action, "title") {
                     node.name = name;
+                    set_string_value(&mut node.details, "title", &node.name);
+                    set_string_value(&mut node.details, "work_item_name", &node.name);
                 }
-                node.summary =
-                    fields_string(action, "description").or_else(|| node.summary.clone());
-                node.details = action.clone();
+                if let Some(description) = fields_string(action, "description") {
+                    node.summary = Some(description.clone());
+                    set_string_value(&mut node.details, "description", &description);
+                }
+                set_optional_string_value(
+                    &mut node.details,
+                    "problemStatement",
+                    fields_string(action, "problemStatement")
+                        .or_else(|| fields_string(action, "problem_statement")),
+                );
+                set_optional_string_value(
+                    &mut node.details,
+                    "acceptanceCriteria",
+                    fields_string(action, "acceptanceCriteria")
+                        .or_else(|| fields_string(action, "acceptance_criteria")),
+                );
+                set_optional_string_value(&mut node.details, "constraints", fields_string(action, "constraints"));
+                set_optional_string_value(&mut node.details, "status", fields_string(action, "status"));
+            }
+            "apply_capability_template" => {
+                let product_name =
+                    resolve_draft_product_name(Some(&draft_plan), selected_draft_node_id, action)?
+                        .ok_or_else(|| {
+                            AppError::Validation("Draft template needs a product".to_string())
+                        })?;
+                let module_name =
+                    resolve_draft_module_name(Some(&draft_plan), selected_draft_node_id, action)?
+                        .ok_or_else(|| {
+                            AppError::Validation("Draft template needs a module".to_string())
+                        })?;
+                let parent_capability_name =
+                    resolve_draft_capability_name(Some(&draft_plan), selected_draft_node_id, action)?;
+                let name = string_field(action, "name").ok_or_else(|| {
+                    AppError::Validation("Draft template name is required".to_string())
+                })?;
+                let template_kind_value = string_field(action, "templateKind")
+                    .or_else(|| string_field(action, "template_kind"))
+                    .ok_or_else(|| {
+                        AppError::Validation("Draft template kind is required".to_string())
+                    })?;
+                let template_kind = SemanticTemplateKind::parse(&template_kind_value).ok_or_else(|| {
+                    AppError::Validation(
+                        "Unsupported template kind. Use operator_chapter or technical_topic_book."
+                            .to_string(),
+                    )
+                })?;
+                let priority = string_field(action, "priority")
+                    .unwrap_or_else(|| "medium".to_string());
+                let risk = string_field(action, "risk")
+                    .unwrap_or_else(|| "medium".to_string());
+                let explanation = string_field(action, "explanation").unwrap_or_default();
+                let examples = string_field(action, "examples").unwrap_or_default();
+                let implementation_notes = string_field(action, "implementationNotes")
+                    .or_else(|| string_field(action, "implementation_notes"))
+                    .unwrap_or_default();
+                let test_guidance = string_field(action, "testGuidance")
+                    .or_else(|| string_field(action, "test_guidance"))
+                    .unwrap_or_default();
+                let description = string_field(action, "description")
+                    .unwrap_or_else(|| format!("{name} book section."));
+                let (definition_label, examples_label, implementation_label, tests_label) =
+                    match template_kind {
+                        SemanticTemplateKind::OperatorChapter => (
+                            format!("{name} Definition"),
+                            format!("{name} Examples"),
+                            format!("{name} Implementation"),
+                            format!("{name} Tests"),
+                        ),
+                        SemanticTemplateKind::TechnicalTopicBook => (
+                            format!("{name} Overview"),
+                            format!("{name} Examples"),
+                            format!("{name} Implementation"),
+                            format!("{name} Tests"),
+                        ),
+                    };
+                let template_actions = vec![
+                    json!({
+                        "type": "create_capability",
+                        "target": {
+                            "productName": product_name,
+                            "moduleName": module_name,
+                            "capabilityName": parent_capability_name,
+                        },
+                        "name": name,
+                        "description": description,
+                        "acceptanceCriteria": format!("{name} has definition, examples, implementation guidance, and test guidance captured."),
+                        "priority": priority,
+                        "risk": risk,
+                        "technicalNotes": "Template-generated semantic chapter root.",
+                        "nodeKind": "capability"
+                    }),
+                    json!({
+                        "type": "create_capability",
+                        "target": {
+                            "productName": product_name,
+                            "moduleName": module_name,
+                            "capabilityName": name,
+                        },
+                        "name": definition_label,
+                        "description": format!("Explain what {name} is and when it should be used."),
+                        "priority": priority,
+                        "risk": risk,
+                        "technicalNotes": "Reference chapter for explanation and conceptual boundaries.",
+                        "nodeKind": "reference",
+                        "explanation": explanation,
+                    }),
+                    json!({
+                        "type": "create_capability",
+                        "target": {
+                            "productName": product_name,
+                            "moduleName": module_name,
+                            "capabilityName": name,
+                        },
+                        "name": examples_label,
+                        "description": format!("Capture worked examples and expected behaviors for {name}."),
+                        "priority": priority,
+                        "risk": risk,
+                        "technicalNotes": "Reference chapter for examples and concrete edge cases.",
+                        "nodeKind": "reference",
+                        "examples": examples,
+                    }),
+                    json!({
+                        "type": "create_capability",
+                        "target": {
+                            "productName": product_name,
+                            "moduleName": module_name,
+                            "capabilityName": name,
+                        },
+                        "name": implementation_label,
+                        "description": format!("Describe how {name} should be implemented."),
+                        "priority": priority,
+                        "risk": risk,
+                        "technicalNotes": "Execution rollout for implementation tasks.",
+                        "nodeKind": "rollout",
+                        "implementationNotes": implementation_notes,
+                    }),
+                    json!({
+                        "type": "create_capability",
+                        "target": {
+                            "productName": product_name,
+                            "moduleName": module_name,
+                            "capabilityName": name,
+                        },
+                        "name": tests_label,
+                        "description": format!("Describe how {name} should be validated."),
+                        "priority": priority,
+                        "risk": risk,
+                        "technicalNotes": "Execution rollout for tests and verification work.",
+                        "nodeKind": "rollout",
+                        "testGuidance": test_guidance,
+                    }),
+                    json!({
+                        "type": "create_work_item",
+                        "target": {
+                            "productName": product_name,
+                            "moduleName": module_name,
+                            "capabilityName": implementation_label,
+                        },
+                        "title": format!("Implement {name}"),
+                        "problemStatement": format!("{name} needs implementation aligned to the authored chapter structure."),
+                        "description": implementation_notes,
+                        "acceptanceCriteria": format!("{name} is implemented and matches the documented behavior, examples, and edge cases."),
+                        "constraints": "Preserve the authored semantic structure and keep behavior deterministic.",
+                        "workItemType": "feature",
+                        "priority": priority,
+                        "complexity": "medium",
+                    }),
+                    json!({
+                        "type": "create_work_item",
+                        "target": {
+                            "productName": product_name,
+                            "moduleName": module_name,
+                            "capabilityName": tests_label,
+                        },
+                        "title": format!("Write {name} test cases"),
+                        "problemStatement": format!("{name} needs verification that matches the documented examples and risks."),
+                        "description": test_guidance,
+                        "acceptanceCriteria": format!("Coverage validates happy paths, edge cases, and regressions for {name}."),
+                        "constraints": "Keep tests aligned with the authored examples and implementation notes.",
+                        "workItemType": "test",
+                        "priority": priority,
+                        "complexity": "medium",
+                    }),
+                ];
+                draft_plan =
+                    apply_actions_to_draft(Some(draft_plan), selected_draft_node_id, &template_actions)?;
+            }
+            "convert_capability_kind" => {
+                let capability_id =
+                    resolve_draft_capability_node_id(&draft_plan, selected_draft_node_id, action)?
+                        .ok_or_else(|| {
+                            AppError::Validation("Draft capability is required".to_string())
+                        })?;
+                let target_kind_value = string_field(action, "nodeKind")
+                    .or_else(|| string_field(action, "node_kind"))
+                    .ok_or_else(|| {
+                        AppError::Validation("Draft node kind is required".to_string())
+                    })?;
+                let target_kind = HierarchyNodeKind::parse(&target_kind_value).ok_or_else(|| {
+                    AppError::Validation(format!("Unsupported node kind {}", target_kind_value))
+                })?;
+                let strategy = string_field(action, "childStrategy")
+                    .or_else(|| string_field(action, "child_strategy"))
+                    .map(|value| {
+                        ChildReparentStrategy::parse(&value).ok_or_else(|| {
+                            AppError::Validation(format!(
+                                "Unsupported child strategy {}",
+                                value
+                            ))
+                        })
+                    })
+                    .transpose()?
+                    .unwrap_or(ChildReparentStrategy::Reject);
+                let target_node = draft_plan
+                    .nodes
+                    .iter()
+                    .find(|node| node.id == capability_id)
+                    .cloned()
+                    .ok_or_else(|| AppError::Validation("Draft capability is required".to_string()))?;
+                let parent_kind = target_node
+                    .parent_id
+                    .as_deref()
+                    .and_then(|parent_id| find_draft_node_by_id(&draft_plan, Some(parent_id)))
+                    .map(|parent| draft_node_kind(&draft_plan, parent))
+                    .unwrap_or(HierarchyNodeKind::Capability);
+                if !parent_kind.supports_child_kind(&target_kind) {
+                    return Err(AppError::Validation(format!(
+                        "{} cannot contain {}.",
+                        parent_kind, target_kind
+                    )));
+                }
+                let direct_structural_children = draft_plan
+                    .nodes
+                    .iter()
+                    .filter(|child| {
+                        child.parent_id.as_deref() == Some(capability_id.as_str())
+                            && child.node_type == "capability"
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if !direct_structural_children.is_empty() && !target_kind.can_have_children() {
+                    if strategy != ChildReparentStrategy::ReparentToParent {
+                        return Err(AppError::Validation(format!(
+                            "{} cannot contain structural children. Re-run with childStrategy=reparent_to_parent to preserve descendants.",
+                            target_kind
+                        )));
+                    }
+                    for child in &direct_structural_children {
+                        let child_kind = draft_node_kind(&draft_plan, child);
+                        if !parent_kind.supports_child_kind(&child_kind) {
+                            return Err(AppError::Validation(format!(
+                                "{} cannot receive existing {} children.",
+                                parent_kind, child_kind
+                            )));
+                        }
+                    }
+                    let new_parent = target_node
+                        .parent_id
+                        .as_deref()
+                        .and_then(|parent_id| find_draft_node_by_id(&draft_plan, Some(parent_id)))
+                        .cloned();
+                    for child in direct_structural_children {
+                        if let Some(child_node) =
+                            draft_plan.nodes.iter_mut().find(|node| node.id == child.id)
+                        {
+                            child_node.parent_id = target_node.parent_id.clone();
+                            if let Some(parent) = new_parent.as_ref() {
+                                if parent.node_type == "capability" {
+                                    set_target_string_value(
+                                        &mut child_node.details,
+                                        "capabilityName",
+                                        &parent.name,
+                                    );
+                                } else {
+                                    remove_target_value(&mut child_node.details, "capabilityName");
+                                }
+                            } else {
+                                remove_target_value(&mut child_node.details, "capabilityName");
+                            }
+                        }
+                    }
+                }
+                if let Some(node) = draft_plan.nodes.iter_mut().find(|node| node.id == capability_id) {
+                    set_string_value(&mut node.details, "nodeKind", &target_kind.to_string());
+                }
             }
             "archive_product" | "delete_module" | "delete_capability" | "delete_work_item" => {
                 let candidate = match action_type {
@@ -3088,45 +3838,11 @@ async fn apply_actions_to_draft(
                             _ => None,
                         }
                     }
-                    "delete_capability" => {
-                        let product_name = resolve_draft_product_name(
-                            Some(&draft_plan),
-                            selected_draft_node_id,
-                            action,
-                        )?;
-                        let product = product_name
-                            .as_deref()
-                            .and_then(|name| find_draft_node(&draft_plan, "product", name, None));
-                        let module_name = resolve_draft_module_name(
-                            Some(&draft_plan),
-                            selected_draft_node_id,
-                            action,
-                        )?;
-                        let module = match (product, module_name) {
-                            (Some(product), Some(module_name)) => find_draft_node(
-                                &draft_plan,
-                                "module",
-                                &module_name,
-                                Some(&product.id),
-                            ),
-                            _ => None,
-                        };
-                        let capability_name = resolve_draft_capability_name(
-                            Some(&draft_plan),
-                            selected_draft_node_id,
-                            action,
-                        )?;
-                        match (module, capability_name) {
-                            (Some(module), Some(capability_name)) => find_draft_node(
-                                &draft_plan,
-                                "capability",
-                                &capability_name,
-                                Some(&module.id),
-                            )
-                            .map(|node| node.id.clone()),
-                            _ => None,
-                        }
-                    }
+                    "delete_capability" => resolve_draft_capability_node_id(
+                        &draft_plan,
+                        selected_draft_node_id,
+                        action,
+                    )?,
                     "delete_work_item" => {
                         let title = target_field(action, "workItemTitle")
                             .map(ToString::to_string)
@@ -3207,6 +3923,14 @@ async fn commit_draft_plan(
                 &module_node.summary.clone().unwrap_or_default(),
                 &string_field(&module_node.details, "purpose").unwrap_or_default(),
                 string_field(&module_node.details, "nodeKind").as_deref(),
+                &string_field(&module_node.details, "explanation").unwrap_or_default(),
+                &string_field(&module_node.details, "examples").unwrap_or_default(),
+                &string_field(&module_node.details, "implementationNotes")
+                    .or_else(|| string_field(&module_node.details, "implementation_notes"))
+                    .unwrap_or_default(),
+                &string_field(&module_node.details, "testGuidance")
+                    .or_else(|| string_field(&module_node.details, "test_guidance"))
+                    .unwrap_or_default(),
             )
             .await?;
             lines.push(format!(
@@ -3214,45 +3938,106 @@ async fn commit_draft_plan(
                 module.name, product.name
             ));
             module_ids.insert(module_node.id.clone(), module.id.clone());
-
-            let mut capabilities = draft_plan
-                .nodes
-                .iter()
-                .filter(|node| {
-                    node.node_type == "capability"
-                        && node.parent_id.as_deref() == Some(&module_node.id)
-                })
-                .cloned()
-                .collect::<Vec<_>>();
-            capabilities.sort_by(|left, right| left.name.cmp(&right.name));
-
-            for capability_node in capabilities {
-                let capability = product_repo::create_capability(
-                    &state.db,
-                    &uuid::Uuid::new_v4().to_string(),
-                    &module.id,
-                    None,
-                    &capability_node.name,
-                    &capability_node.summary.clone().unwrap_or_default(),
-                    &string_field(&capability_node.details, "acceptanceCriteria")
-                        .unwrap_or_default(),
-                    string_field(&capability_node.details, "priority")
-                        .as_deref()
-                        .unwrap_or("medium"),
-                    string_field(&capability_node.details, "risk")
-                        .as_deref()
-                        .unwrap_or("medium"),
-                    &string_field(&capability_node.details, "technicalNotes").unwrap_or_default(),
-                    string_field(&capability_node.details, "nodeKind").as_deref(),
-                )
-                .await?;
-                lines.push(format!(
-                    "Created capability \"{}\" in \"{}\".",
-                    capability.name, module.name
-                ));
-                capability_ids.insert(capability_node.id.clone(), capability.id.clone());
-            }
         }
+    }
+
+    let mut pending_capabilities = draft_plan
+        .nodes
+        .iter()
+        .filter(|node| node.node_type == "capability")
+        .cloned()
+        .collect::<Vec<_>>();
+    pending_capabilities.sort_by(|left, right| {
+        build_draft_node_path(draft_plan, Some(&left.id))
+            .len()
+            .cmp(&build_draft_node_path(draft_plan, Some(&right.id)).len())
+            .then(left.name.cmp(&right.name))
+    });
+
+    while !pending_capabilities.is_empty() {
+        let mut progressed = false;
+        let mut remaining = vec![];
+
+        for capability_node in pending_capabilities {
+            let Some(parent_draft_id) = capability_node.parent_id.as_deref() else {
+                return Err(AppError::Validation(format!(
+                    "Draft capability {} is missing a parent",
+                    capability_node.name
+                )));
+            };
+
+            let (module_id, parent_capability_id) = if let Some(module_id) = module_ids.get(parent_draft_id) {
+                (module_id.clone(), None)
+            } else if let Some(parent_capability_id) = capability_ids.get(parent_draft_id) {
+                let module_node = find_draft_ancestor_node_by_type(draft_plan, &capability_node, "module")
+                    .ok_or_else(|| {
+                        AppError::Validation(format!(
+                            "Draft capability {} is missing a module ancestor",
+                            capability_node.name
+                        ))
+                    })?;
+                let module_id = module_ids.get(&module_node.id).cloned().ok_or_else(|| {
+                    AppError::Validation(format!(
+                        "Draft capability {} could not resolve its persisted module parent",
+                        capability_node.name
+                    ))
+                })?;
+                (module_id, Some(parent_capability_id.clone()))
+            } else {
+                remaining.push(capability_node);
+                continue;
+            };
+
+            let capability = product_repo::create_capability(
+                &state.db,
+                &uuid::Uuid::new_v4().to_string(),
+                &module_id,
+                parent_capability_id.as_deref(),
+                &capability_node.name,
+                &capability_node.summary.clone().unwrap_or_default(),
+                &string_field(&capability_node.details, "acceptanceCriteria")
+                    .or_else(|| string_field(&capability_node.details, "acceptance_criteria"))
+                    .unwrap_or_default(),
+                string_field(&capability_node.details, "priority")
+                    .as_deref()
+                    .unwrap_or("medium"),
+                string_field(&capability_node.details, "risk")
+                    .as_deref()
+                    .unwrap_or("medium"),
+                &string_field(&capability_node.details, "technicalNotes")
+                    .or_else(|| string_field(&capability_node.details, "technical_notes"))
+                    .unwrap_or_default(),
+                string_field(&capability_node.details, "nodeKind")
+                    .or_else(|| string_field(&capability_node.details, "node_kind"))
+                    .as_deref(),
+                &string_field(&capability_node.details, "explanation").unwrap_or_default(),
+                &string_field(&capability_node.details, "examples").unwrap_or_default(),
+                &string_field(&capability_node.details, "implementationNotes")
+                    .or_else(|| string_field(&capability_node.details, "implementation_notes"))
+                    .unwrap_or_default(),
+                &string_field(&capability_node.details, "testGuidance")
+                    .or_else(|| string_field(&capability_node.details, "test_guidance"))
+                    .unwrap_or_default(),
+            )
+            .await?;
+            lines.push(format!("Created capability \"{}\".", capability.name));
+            capability_ids.insert(capability_node.id.clone(), capability.id.clone());
+            progressed = true;
+        }
+
+        if !progressed {
+            let unresolved = remaining
+                .iter()
+                .map(|node| node.name.clone())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(AppError::Validation(format!(
+                "Draft capabilities could not resolve persisted parents: {}",
+                unresolved
+            )));
+        }
+
+        pending_capabilities = remaining;
     }
 
     let mut work_items = draft_plan
@@ -3392,6 +4177,8 @@ async fn execute_action(state: &AppState, action: &Value) -> Result<Vec<String>,
             let id = uuid::Uuid::new_v4().to_string();
             let name = string_field(action, "name")
                 .ok_or_else(|| AppError::Validation("Missing module name".to_string()))?;
+            let node_kind = string_field(action, "nodeKind")
+                .or_else(|| string_field(action, "node_kind"));
             let module = product_repo::create_module(
                 &state.db,
                 &id,
@@ -3399,7 +4186,15 @@ async fn execute_action(state: &AppState, action: &Value) -> Result<Vec<String>,
                 &name,
                 &string_field(action, "description").unwrap_or_default(),
                 &string_field(action, "purpose").unwrap_or_default(),
-                fields_string(action, "nodeKind").as_deref(),
+                node_kind.as_deref(),
+                &string_field(action, "explanation").unwrap_or_default(),
+                &string_field(action, "examples").unwrap_or_default(),
+                &string_field(action, "implementationNotes")
+                    .or_else(|| string_field(action, "implementation_notes"))
+                    .unwrap_or_default(),
+                &string_field(action, "testGuidance")
+                    .or_else(|| string_field(action, "test_guidance"))
+                    .unwrap_or_default(),
             )
             .await?;
             Ok(vec![format!(
@@ -3420,7 +4215,17 @@ async fn execute_action(state: &AppState, action: &Value) -> Result<Vec<String>,
                 fields_string(action, "name").as_deref(),
                 fields_string(action, "description").as_deref(),
                 fields_string(action, "purpose").as_deref(),
-                fields_string(action, "nodeKind").as_deref(),
+                fields_string(action, "nodeKind")
+                    .or_else(|| fields_string(action, "node_kind"))
+                    .as_deref(),
+                fields_string(action, "explanation").as_deref(),
+                fields_string(action, "examples").as_deref(),
+                fields_string(action, "implementationNotes")
+                    .or_else(|| fields_string(action, "implementation_notes"))
+                    .as_deref(),
+                fields_string(action, "testGuidance")
+                    .or_else(|| fields_string(action, "test_guidance"))
+                    .as_deref(),
             )
             .await?;
             Ok(vec![format!("Updated module \"{}\".", updated.name)])
@@ -3459,6 +4264,8 @@ async fn execute_action(state: &AppState, action: &Value) -> Result<Vec<String>,
             let id = uuid::Uuid::new_v4().to_string();
             let name = string_field(action, "name")
                 .ok_or_else(|| AppError::Validation("Missing capability name".to_string()))?;
+            let node_kind = string_field(action, "nodeKind")
+                .or_else(|| string_field(action, "node_kind"));
             let capability = product_repo::create_capability(
                 &state.db,
                 &id,
@@ -3470,7 +4277,15 @@ async fn execute_action(state: &AppState, action: &Value) -> Result<Vec<String>,
                 &string_field(action, "priority").unwrap_or_else(|| "medium".to_string()),
                 &string_field(action, "risk").unwrap_or_else(|| "medium".to_string()),
                 &string_field(action, "technicalNotes").unwrap_or_default(),
-                fields_string(action, "nodeKind").as_deref(),
+                node_kind.as_deref(),
+                &string_field(action, "explanation").unwrap_or_default(),
+                &string_field(action, "examples").unwrap_or_default(),
+                &string_field(action, "implementationNotes")
+                    .or_else(|| string_field(action, "implementation_notes"))
+                    .unwrap_or_default(),
+                &string_field(action, "testGuidance")
+                    .or_else(|| string_field(action, "test_guidance"))
+                    .unwrap_or_default(),
             )
             .await?;
             Ok(vec![format!(
@@ -3495,7 +4310,17 @@ async fn execute_action(state: &AppState, action: &Value) -> Result<Vec<String>,
                 fields_string(action, "priority").as_deref(),
                 fields_string(action, "risk").as_deref(),
                 fields_string(action, "technicalNotes").as_deref(),
-                fields_string(action, "nodeKind").as_deref(),
+                fields_string(action, "nodeKind")
+                    .or_else(|| fields_string(action, "node_kind"))
+                    .as_deref(),
+                fields_string(action, "explanation").as_deref(),
+                fields_string(action, "examples").as_deref(),
+                fields_string(action, "implementationNotes")
+                    .or_else(|| fields_string(action, "implementation_notes"))
+                    .as_deref(),
+                fields_string(action, "testGuidance")
+                    .or_else(|| fields_string(action, "test_guidance"))
+                    .as_deref(),
             )
             .await?;
             Ok(vec![format!("Updated capability \"{}\".", updated.name)])
@@ -3510,6 +4335,81 @@ async fn execute_action(state: &AppState, action: &Value) -> Result<Vec<String>,
             .await?;
             product_repo::delete_capability(&state.db, &capability.id).await?;
             Ok(vec![format!("Deleted capability \"{}\".", capability.name)])
+        }
+        "apply_capability_template" => {
+            let module = find_module(
+                &state.db,
+                target_field(action, "productName"),
+                target_field(action, "moduleName"),
+            )
+            .await?;
+            let parent_capability_id = if target_field(action, "capabilityName").is_some() {
+                Some(
+                    find_capability(
+                        &state.db,
+                        target_field(action, "productName"),
+                        target_field(action, "moduleName"),
+                        target_field(action, "capabilityName"),
+                    )
+                    .await?
+                    .id,
+                )
+            } else {
+                None
+            };
+            let result = product_service::apply_semantic_template(
+                &state.db,
+                &module.id,
+                parent_capability_id.as_deref(),
+                &string_field(action, "templateKind")
+                    .or_else(|| string_field(action, "template_kind"))
+                    .ok_or_else(|| AppError::Validation("Missing template kind".to_string()))?,
+                &string_field(action, "name")
+                    .ok_or_else(|| AppError::Validation("Missing template topic name".to_string()))?,
+                &string_field(action, "description").unwrap_or_default(),
+                string_field(action, "priority").as_deref(),
+                string_field(action, "risk").as_deref(),
+                &string_field(action, "explanation").unwrap_or_default(),
+                &string_field(action, "examples").unwrap_or_default(),
+                &string_field(action, "implementationNotes")
+                    .or_else(|| string_field(action, "implementation_notes"))
+                    .unwrap_or_default(),
+                &string_field(action, "testGuidance")
+                    .or_else(|| string_field(action, "test_guidance"))
+                    .unwrap_or_default(),
+            )
+            .await?;
+            Ok(vec![format!(
+                "Applied template {} to create chapter root \"{}\".",
+                result.template_kind,
+                result.topic_node.name
+            )])
+        }
+        "convert_capability_kind" => {
+            let capability = find_capability(
+                &state.db,
+                target_field(action, "productName"),
+                target_field(action, "moduleName"),
+                target_field(action, "capabilityName"),
+            )
+            .await?;
+            let result = product_service::convert_capability_kind(
+                &state.db,
+                &capability.id,
+                &string_field(action, "nodeKind")
+                    .or_else(|| string_field(action, "node_kind"))
+                    .ok_or_else(|| AppError::Validation("Missing node kind".to_string()))?,
+                string_field(action, "childStrategy")
+                    .or_else(|| string_field(action, "child_strategy"))
+                    .as_deref(),
+            )
+            .await?;
+            Ok(vec![format!(
+                "Converted capability \"{}\" from {} to {}.",
+                result.capability.name,
+                result.previous_node_kind,
+                result.capability.node_kind
+            )])
         }
         "create_work_item" => {
             let product = find_product(&state.db, target_field(action, "productName")).await?;
@@ -3889,6 +4789,8 @@ pub async fn create_planner_session(
     provider_id: Option<String>,
     model_name: Option<String>,
 ) -> Result<PlannerSessionInfo, AppError> {
+    let (provider_id, model_name) =
+        resolve_planner_model_binding(db, provider_id, model_name).await?;
     let mut service = planner_service.lock().await;
     let info = service.create_session(provider_id.clone(), model_name.clone());
     planner_repo::create_session(
@@ -3908,6 +4810,8 @@ pub async fn update_planner_session(
     provider_id: Option<String>,
     model_name: Option<String>,
 ) -> Result<PlannerSessionInfo, AppError> {
+    let (provider_id, model_name) =
+        resolve_planner_model_binding(db, provider_id, model_name).await?;
     let mut service = planner_service.lock().await;
     let info = service.update_session(&session_id, provider_id.clone(), model_name.clone())?;
     planner_repo::update_session(
@@ -4503,7 +5407,6 @@ pub async fn submit_planner_turn(
             session.selected_draft_node_id.as_deref(),
             &plan.actions,
         )
-        .await
         {
             Ok(draft) => draft,
             Err(error) => {
@@ -5140,8 +6043,7 @@ pub async fn analyze_repository_for_planner(
         session.draft_plan.clone(),
         session.selected_draft_node_id.as_deref(),
         &plan.actions,
-    )
-    .await?;
+    )?;
     session.draft_plan = Some(updated_draft.clone());
     session.pending_plan = Some(plan.clone());
     persist_pending_plan(db, &session_id, Some(&plan)).await?;
@@ -5357,7 +6259,6 @@ mod tests {
             "description": "Hotel operations root."
         })]);
         let draft = apply_actions_to_draft(None, None, &create_root)
-            .await
             .expect("failed to create root draft");
         let product_id = draft
             .nodes
@@ -5373,7 +6274,6 @@ mod tests {
             "description": "Guest workflows."
         })]);
         let draft = apply_actions_to_draft(Some(draft), Some(&product_id), &add_module)
-            .await
             .expect("failed to add module");
         let module = draft
             .nodes
@@ -5389,7 +6289,6 @@ mod tests {
             "description": "Profiles and preferences."
         })]);
         let draft = apply_actions_to_draft(Some(draft), Some(&module_id), &add_capability)
-            .await
             .expect("failed to add capability");
         let capability = draft
             .nodes
@@ -5405,7 +6304,6 @@ mod tests {
             "description": "Backend and frontend CRUD."
         })]);
         let draft = apply_actions_to_draft(Some(draft), Some(&capability_id), &add_work_item)
-            .await
             .expect("failed to add work item");
         let work_item = draft
             .nodes
@@ -5450,7 +6348,6 @@ mod tests {
         ]);
 
         let draft = apply_actions_to_draft(None, None, &actions)
-            .await
             .expect("failed to build draft");
         let tree = build_draft_tree_nodes(&draft, None);
         let product = tree.first().expect("product node should exist");
@@ -5501,7 +6398,6 @@ mod tests {
         ]);
 
         let draft = apply_actions_to_draft(None, None, &actions)
-            .await
             .expect("failed to apply relaxed nested actions");
 
         let product = draft
@@ -5551,7 +6447,6 @@ mod tests {
         ]);
 
         let draft = apply_actions_to_draft(None, None, &seed_actions)
-            .await
             .expect("failed to seed draft");
 
         let follow_up_actions = normalize_actions(vec![json!({
@@ -5562,7 +6457,6 @@ mod tests {
         })]);
 
         let draft = apply_actions_to_draft(Some(draft), None, &follow_up_actions)
-            .await
             .expect("failed to infer sibling module product");
 
         let product = draft
@@ -5607,7 +6501,6 @@ mod tests {
                 }),
             ]),
         )
-        .await
         .expect("failed to build draft");
         let product_id = draft
             .nodes
@@ -5695,7 +6588,6 @@ mod tests {
             }),
         ]);
         let draft: PlannerDraftPlan = apply_actions_to_draft(None, None, &actions)
-            .await
             .expect("failed to build draft");
 
         let execution = commit_draft_plan(&state, &draft)
@@ -5782,7 +6674,6 @@ mod tests {
         ]);
 
         let mut draft = apply_actions_to_draft(None, None, &actions)
-            .await
             .expect("failed to create draft");
         let module_id = draft
             .nodes
@@ -5841,7 +6732,6 @@ mod tests {
         ]);
 
         let mut draft = apply_actions_to_draft(None, None, &actions)
-            .await
             .expect("failed to create draft");
         let module_id = draft
             .nodes

@@ -1,4 +1,7 @@
-use crate::domain::product::{Capability, Module, Product, ProductTree};
+use crate::domain::product::{
+    Capability, Module, NodeKindConversionResult, Product, ProductTree,
+    SemanticTemplateApplicationResult,
+};
 use crate::error::AppError;
 use crate::persistence::{product_repo, settings_repo};
 use crate::services::product_service::{self, HIDE_EXAMPLE_PRODUCTS_KEY};
@@ -95,6 +98,12 @@ pub async fn create_module(
     description: String,
     purpose: String,
     node_kind: Option<String>,
+    explanation: Option<String>,
+    examples: Option<String>,
+    implementation_notes: Option<String>,
+    implementationNotes: Option<String>,
+    test_guidance: Option<String>,
+    testGuidance: Option<String>,
 ) -> Result<Module, AppError> {
     info!(product_id = %product_id, module_name = %name, "create_module requested");
     let id = uuid::Uuid::new_v4().to_string();
@@ -106,6 +115,16 @@ pub async fn create_module(
         &description,
         &purpose,
         node_kind.as_deref(),
+        explanation.as_deref().unwrap_or_default(),
+        examples.as_deref().unwrap_or_default(),
+        implementation_notes
+            .or(implementationNotes)
+            .as_deref()
+            .unwrap_or_default(),
+        test_guidance
+            .or(testGuidance)
+            .as_deref()
+            .unwrap_or_default(),
     )
     .await;
     match &result {
@@ -135,6 +154,12 @@ pub async fn update_module(
     description: Option<String>,
     purpose: Option<String>,
     node_kind: Option<String>,
+    explanation: Option<String>,
+    examples: Option<String>,
+    implementation_notes: Option<String>,
+    implementationNotes: Option<String>,
+    test_guidance: Option<String>,
+    testGuidance: Option<String>,
 ) -> Result<Module, AppError> {
     info!(module_id = %id, "update_module requested");
     debug!(module_id = %id, has_name = name.is_some(), has_description = description.is_some(), has_purpose = purpose.is_some(), has_node_kind = node_kind.is_some(), "update_module payload summary");
@@ -145,6 +170,12 @@ pub async fn update_module(
         description.as_deref(),
         purpose.as_deref(),
         node_kind.as_deref(),
+        explanation.as_deref(),
+        examples.as_deref(),
+        implementation_notes
+            .as_deref()
+            .or(implementationNotes.as_deref()),
+        test_guidance.as_deref().or(testGuidance.as_deref()),
     )
     .await;
     match &result {
@@ -186,6 +217,12 @@ pub async fn create_capability(
     risk: String,
     technical_notes: String,
     node_kind: Option<String>,
+    explanation: Option<String>,
+    examples: Option<String>,
+    implementation_notes: Option<String>,
+    implementationNotes: Option<String>,
+    test_guidance: Option<String>,
+    testGuidance: Option<String>,
 ) -> Result<Capability, AppError> {
     info!(module_id = %module_id, parent_capability_id = ?parent_capability_id, capability_name = %name, "create_capability requested");
     let id = uuid::Uuid::new_v4().to_string();
@@ -201,6 +238,16 @@ pub async fn create_capability(
         &risk,
         &technical_notes,
         node_kind.as_deref(),
+        explanation.as_deref().unwrap_or_default(),
+        examples.as_deref().unwrap_or_default(),
+        implementation_notes
+            .or(implementationNotes)
+            .as_deref()
+            .unwrap_or_default(),
+        test_guidance
+            .or(testGuidance)
+            .as_deref()
+            .unwrap_or_default(),
     )
     .await;
     match &result {
@@ -233,6 +280,12 @@ pub async fn update_capability(
     risk: Option<String>,
     technical_notes: Option<String>,
     node_kind: Option<String>,
+    explanation: Option<String>,
+    examples: Option<String>,
+    implementation_notes: Option<String>,
+    implementationNotes: Option<String>,
+    test_guidance: Option<String>,
+    testGuidance: Option<String>,
 ) -> Result<Capability, AppError> {
     info!(capability_id = %id, "update_capability requested");
     debug!(capability_id = %id, has_name = name.is_some(), has_description = description.is_some(), has_acceptance_criteria = acceptance_criteria.is_some(), has_priority = priority.is_some(), has_risk = risk.is_some(), has_technical_notes = technical_notes.is_some(), has_node_kind = node_kind.is_some(), "update_capability payload summary");
@@ -246,6 +299,12 @@ pub async fn update_capability(
         risk.as_deref(),
         technical_notes.as_deref(),
         node_kind.as_deref(),
+        explanation.as_deref(),
+        examples.as_deref(),
+        implementation_notes
+            .as_deref()
+            .or(implementationNotes.as_deref()),
+        test_guidance.as_deref().or(testGuidance.as_deref()),
     )
     .await;
     match &result {
@@ -297,4 +356,76 @@ pub async fn get_product_tree(
         error!(product_id = %product_id, error = %err, "get_product_tree failed");
     }
     result
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn apply_semantic_template(
+    state: State<'_, AppState>,
+    module_id: Option<String>,
+    moduleId: Option<String>,
+    parent_capability_id: Option<String>,
+    parentCapabilityId: Option<String>,
+    template_kind: Option<String>,
+    templateKind: Option<String>,
+    name: String,
+    description: Option<String>,
+    priority: Option<String>,
+    risk: Option<String>,
+    explanation: Option<String>,
+    examples: Option<String>,
+    implementation_notes: Option<String>,
+    implementationNotes: Option<String>,
+    test_guidance: Option<String>,
+    testGuidance: Option<String>,
+) -> Result<SemanticTemplateApplicationResult, AppError> {
+    let module_id = module_id
+        .or(moduleId)
+        .ok_or_else(|| AppError::Validation("missing module id".to_string()))?;
+    let template_kind = template_kind
+        .or(templateKind)
+        .ok_or_else(|| AppError::Validation("missing template kind".to_string()))?;
+    product_service::apply_semantic_template(
+        &state.db,
+        &module_id,
+        parent_capability_id.or(parentCapabilityId).as_deref(),
+        &template_kind,
+        &name,
+        description.as_deref().unwrap_or_default(),
+        priority.as_deref(),
+        risk.as_deref(),
+        explanation.as_deref().unwrap_or_default(),
+        examples.as_deref().unwrap_or_default(),
+        implementation_notes
+            .or(implementationNotes)
+            .as_deref()
+            .unwrap_or_default(),
+        test_guidance
+            .or(testGuidance)
+            .as_deref()
+            .unwrap_or_default(),
+    )
+    .await
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn convert_capability_kind(
+    state: State<'_, AppState>,
+    id: String,
+    node_kind: Option<String>,
+    nodeKind: Option<String>,
+    child_strategy: Option<String>,
+    childStrategy: Option<String>,
+) -> Result<NodeKindConversionResult, AppError> {
+    let node_kind = node_kind
+        .or(nodeKind)
+        .ok_or_else(|| AppError::Validation("missing node kind".to_string()))?;
+    product_service::convert_capability_kind(
+        &state.db,
+        &id,
+        &node_kind,
+        child_strategy.or(childStrategy).as_deref(),
+    )
+    .await
 }

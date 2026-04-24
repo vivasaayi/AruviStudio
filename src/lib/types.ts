@@ -32,6 +32,10 @@ export interface Module {
   name: string;
   description: string;
   purpose: string;
+  explanation: string;
+  examples: string;
+  implementation_notes: string;
+  test_guidance: string;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -47,10 +51,14 @@ export interface Capability {
   name: string;
   description: string;
   acceptance_criteria: string;
+  explanation: string;
+  examples: string;
   priority: "critical" | "high" | "medium" | "low";
   risk: "high" | "medium" | "low";
   status: "draft" | "in_progress" | "done" | "archived";
   technical_notes: string;
+  implementation_notes: string;
+  test_guidance: string;
   created_at: string;
   updated_at: string;
 }
@@ -404,6 +412,8 @@ export interface McpBridgeStatus {
 export type CapabilityRollout = Capability;
 export type Outcome = CapabilityRollout;
 export type CapabilityNode = Capability;
+export type SemanticTemplateKind = "operator_chapter" | "technical_topic_book";
+export type ChildReparentStrategy = "reject" | "reparent_to_parent";
 
 export interface ChatMessagePayload {
   role: "system" | "user" | "assistant";
@@ -426,6 +436,9 @@ export interface PlannerTarget {
 export interface PlannerAction {
   type: string;
   target?: PlannerTarget;
+  templateKind?: SemanticTemplateKind;
+  nodeKind?: HierarchyNodeKind;
+  childStrategy?: ChildReparentStrategy;
   name?: string;
   title?: string;
   description?: string;
@@ -433,7 +446,11 @@ export interface PlannerAction {
   goals?: string[];
   tags?: string[];
   acceptanceCriteria?: string;
+  explanation?: string;
+  examples?: string;
   technicalNotes?: string;
+  implementationNotes?: string;
+  testGuidance?: string;
   problemStatement?: string;
   constraints?: string;
   workItemType?: string;
@@ -462,6 +479,22 @@ export interface PlannerTreeNode {
   confidence?: string | null;
   evidence?: string[];
   children: PlannerTreeNode[];
+}
+
+export interface SemanticTemplateApplicationResult {
+  template_kind: SemanticTemplateKind;
+  parent_node_id: string;
+  parent_node_type: HierarchyNodeType;
+  topic_node: Capability;
+  created_nodes: Capability[];
+  created_work_items: WorkItem[];
+}
+
+export interface NodeKindConversionResult {
+  capability: Capability;
+  previous_node_kind: HierarchyNodeKind;
+  child_strategy: ChildReparentStrategy | null;
+  reparented_children: Capability[];
 }
 
 export interface PlannerTraceEvent {

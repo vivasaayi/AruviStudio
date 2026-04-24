@@ -1,3 +1,4 @@
+use crate::domain::work_item::WorkItem;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +45,10 @@ pub struct Module {
     pub name: String,
     pub description: String,
     pub purpose: String,
+    pub explanation: String,
+    pub examples: String,
+    pub implementation_notes: String,
+    pub test_guidance: String,
     pub sort_order: i32,
     pub created_at: String,
     pub updated_at: String,
@@ -60,10 +65,14 @@ pub struct Capability {
     pub name: String,
     pub description: String,
     pub acceptance_criteria: String,
+    pub explanation: String,
+    pub examples: String,
     pub priority: Priority,
     pub risk: Risk,
     pub status: CapabilityStatus,
     pub technical_notes: String,
+    pub implementation_notes: String,
+    pub test_guidance: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -310,4 +319,74 @@ pub struct HierarchyTreeNode {
     pub path: Vec<String>,
     pub allowed_child_kinds: Vec<HierarchyNodeKind>,
     pub children: Vec<HierarchyTreeNode>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SemanticTemplateKind {
+    OperatorChapter,
+    TechnicalTopicBook,
+}
+
+impl SemanticTemplateKind {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "operator_chapter" => Some(Self::OperatorChapter),
+            "technical_topic_book" | "book_topic" => Some(Self::TechnicalTopicBook),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for SemanticTemplateKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OperatorChapter => write!(f, "operator_chapter"),
+            Self::TechnicalTopicBook => write!(f, "technical_topic_book"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ChildReparentStrategy {
+    Reject,
+    ReparentToParent,
+}
+
+impl ChildReparentStrategy {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "reject" => Some(Self::Reject),
+            "reparent_to_parent" => Some(Self::ReparentToParent),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for ChildReparentStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Reject => write!(f, "reject"),
+            Self::ReparentToParent => write!(f, "reparent_to_parent"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SemanticTemplateApplicationResult {
+    pub template_kind: SemanticTemplateKind,
+    pub parent_node_id: String,
+    pub parent_node_type: HierarchyNodeType,
+    pub topic_node: Capability,
+    pub created_nodes: Vec<Capability>,
+    pub created_work_items: Vec<WorkItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeKindConversionResult {
+    pub capability: Capability,
+    pub previous_node_kind: HierarchyNodeKind,
+    pub child_strategy: Option<ChildReparentStrategy>,
+    pub reparented_children: Vec<Capability>,
 }

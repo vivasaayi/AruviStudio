@@ -52,6 +52,8 @@ pub fn run() {
             commands::product_commands::update_capability,
             commands::product_commands::delete_capability,
             commands::product_commands::reorder_capabilities,
+            commands::product_commands::apply_semantic_template,
+            commands::product_commands::convert_capability_kind,
             commands::product_commands::get_product_tree,
             // Work item commands
             commands::work_item_commands::create_work_item,
