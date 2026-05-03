@@ -1367,6 +1367,11 @@ mod tests {
             "Delivery Module",
             "desc",
             "purpose",
+            None,
+            "",
+            "",
+            "",
+            "",
         )
         .await
         .expect("failed to create module");
@@ -1376,6 +1381,8 @@ mod tests {
             "workflow-work-item",
             &product.id,
             Some(&module.id),
+            None,
+            None,
             None,
             None,
             "Implement workflow continuation",
@@ -1579,6 +1586,11 @@ mod tests {
             "Delivery Module",
             "desc",
             "purpose",
+            None,
+            "",
+            "",
+            "",
+            "",
         )
         .await
         .expect("failed to create module");
@@ -1588,6 +1600,8 @@ mod tests {
             "workflow-auto-approval-work-item",
             &product.id,
             Some(&module.id),
+            None,
+            None,
             None,
             None,
             "Implement workflow continuation",
@@ -1740,6 +1754,11 @@ mod tests {
             "Delivery Module",
             "desc",
             "purpose",
+            None,
+            "",
+            "",
+            "",
+            "",
         )
         .await
         .expect("failed to create module");
@@ -1749,6 +1768,8 @@ mod tests {
             "workflow-auto-test-review-work-item",
             &product.id,
             Some(&module.id),
+            None,
+            None,
             None,
             None,
             "Implement workflow continuation",
@@ -1903,6 +1924,11 @@ mod tests {
             "Calculator Engine",
             "Core capability delivery module for calculator behavior.",
             "Implement and validate calculator functionality end-to-end.",
+            None,
+            "",
+            "",
+            "",
+            "",
         )
         .await
         .expect("failed to create calculator module");
@@ -1912,6 +1938,8 @@ mod tests {
             "work-item-bootstrap-initialize-repo",
             &product.id,
             Some(&module.id),
+            None,
+            None,
             None,
             None,
             "Initialize repository and test folder",
@@ -1957,6 +1985,11 @@ mod tests {
                 "medium",
                 "low",
                 "Build in iterative outcomes with full test gates.",
+                None,
+                "",
+                "",
+                "",
+                "",
             )
             .await
             .expect("failed to create capability");
@@ -1974,6 +2007,11 @@ mod tests {
                     "medium",
                     "low",
                     "Deliver as a focused outcome with full workflow validation.",
+                    None,
+                    "",
+                    "",
+                    "",
+                    "",
                 )
                 .await
                 .expect("failed to create outcome capability");
@@ -1985,6 +2023,8 @@ mod tests {
                     &product.id,
                     Some(&module.id),
                     Some(&outcome_capability.id),
+                    None,
+                    None,
                     None,
                     &format!("{capability_name}: {outcome}"),
                     &format!("Implement {outcome} behavior for {capability_name}."),

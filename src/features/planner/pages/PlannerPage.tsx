@@ -5,9 +5,11 @@ import {
   approveWorkItem,
   approveWorkItemPlan,
   approveWorkItemTestReview,
+  applySemanticTemplate,
   archiveProduct,
   clearPlannerPending,
   confirmPlannerPlan,
+  convertCapabilityKind,
   createCapability,
   createModule,
   createPlannerSession,
@@ -238,6 +240,25 @@ type PlannerAction =
       risk?: "high" | "medium" | "low";
     }
   | {
+      type: "apply_capability_template";
+      target?: { productName?: string; moduleName?: string; capabilityName?: string };
+      templateKind: "operator_chapter" | "technical_topic_book";
+      name: string;
+      description?: string;
+      priority?: "critical" | "high" | "medium" | "low";
+      risk?: "high" | "medium" | "low";
+      explanation?: string;
+      examples?: string;
+      implementationNotes?: string;
+      testGuidance?: string;
+    }
+  | {
+      type: "convert_capability_kind";
+      target?: { productName?: string; moduleName?: string; capabilityName?: string };
+      nodeKind: string;
+      childStrategy?: "reject" | "reparent_to_parent";
+    }
+  | {
       type: "update_capability";
       target?: { productName?: string; moduleName?: string; capabilityName?: string };
       fields: { name?: string; description?: string; acceptanceCriteria?: string; technicalNotes?: string; priority?: "critical" | "high" | "medium" | "low"; risk?: "high" | "medium" | "low" };
@@ -391,7 +412,7 @@ type DraftEditOperation =
   | { kind: "delete"; nodeId: string };
 
 const DEFAULT_ASSISTANT_OPENING =
-  "Talk to me like a planning lead. Describe the product or outcome you want, and I’ll check what already exists, suggest any missing products, capabilities, or work items, and wait for your confirmation before adding them.";
+  "Talk to me like a planning lead. Describe the product, capability, or rollout you want, and I’ll check what already exists, suggest any missing products, modules, capabilities, rollouts, or work items, and wait for your confirmation before adding them.";
 
 const SPEECH_PROVIDER_KEY = "speech.transcription_provider_id";
 const SPEECH_MODEL_KEY = "speech.transcription_model_name";
@@ -441,6 +462,7 @@ create_work_item, update_work_item, delete_work_item,
 approve_work_item, reject_work_item, approve_work_item_plan, reject_work_item_plan, approve_work_item_test_review,
 start_workflow, workflow_action, report_status, report_tree.
 - Use product/module/capability/work item names in target fields, never IDs.
+- A capability rollout is represented as a child capability (level 1). Work items attach directly to capability_id, including rollout nodes.
 - For create_work_item defaults when omitted: workItemType=feature, priority=medium, complexity=medium.
 - For create_capability defaults when omitted: priority=medium, risk=medium.
 - For workflow_action action must be one of approve,reject,pause,resume,cancel.
@@ -1173,6 +1195,20 @@ function summarizeAction(action: PlannerAction | Record<string, unknown> | null 
       return { symbol: "+", tone: "add", title: `Create module ${name ?? target?.moduleName ?? "unnamed module"}`, detail: target?.productName ? `Product: ${target.productName}` : "Attach to selected product." };
     case "create_capability":
       return { symbol: "+", tone: "add", title: `Create capability ${name ?? target?.capabilityName ?? "unnamed capability"}`, detail: [target?.productName, target?.moduleName].filter(Boolean).join(" / ") || "Attach to selected scope." };
+    case "apply_capability_template":
+      return {
+        symbol: "+",
+        tone: "add",
+        title: `Apply template ${String(raw.templateKind ?? "chapter")} to ${name ?? "unnamed topic"}`,
+        detail: [target?.productName, target?.moduleName, target?.capabilityName].filter(Boolean).join(" / ") || description || "Create a semantic chapter scaffold.",
+      };
+    case "convert_capability_kind":
+      return {
+        symbol: "~",
+        tone: "update",
+        title: `Convert capability ${target?.capabilityName ?? ""}`.trim(),
+        detail: `nodeKind=${String(raw.nodeKind ?? "unknown")} childStrategy=${String(raw.childStrategy ?? "reject")}`,
+      };
     case "create_work_item":
       return { symbol: "+", tone: "add", title: `Create work item ${title ?? target?.workItemTitle ?? "untitled work item"}`, detail: [target?.productName, target?.moduleName, target?.capabilityName].filter(Boolean).join(" / ") || description || "New work item proposal." };
     case "update_product":
@@ -1497,6 +1533,7 @@ function buildProposalTreeNodes(plan: PlannerPlan): PlannerTreeNode[] {
         ensureModule(target?.productName, action.name ?? target?.moduleName ?? null);
         break;
       case "create_capability":
+      case "apply_capability_template":
         ensureCapability(target?.productName, target?.moduleName, action.name ?? target?.capabilityName ?? null);
         break;
       case "create_work_item": {
@@ -1714,7 +1751,7 @@ function buildSuggestedPrompts(node: PlannerTreeNode | null): string[] {
       return [
         `Enhance ${node.label} with 3 concrete capabilities.`,
         `Break ${node.label} into implementation-ready capabilities and work items.`,
-        `What risks or missing outcomes exist under ${node.label}?`,
+        `What risks or missing capability rollouts exist under ${node.label}?`,
       ];
     case "capability":
       return [
@@ -1744,7 +1781,7 @@ function getAllowedDraftChildTypes(node: PlannerTreeNode | null): PlannerDraftCh
     case "module":
       return ["capability", "work_item"];
     case "capability":
-      return ["work_item"];
+      return ["capability", "work_item"];
     default:
       return [];
   }
@@ -1780,7 +1817,7 @@ function findRelevantPlanActions(plan: PlannerPlan | null, node: PlannerTreeNode
         : target?.moduleName === node.label;
     }
     if (nodeType === "capability") {
-      return action.type === "create_capability"
+      return action.type === "create_capability" || action.type === "apply_capability_template"
         ? action.name === node.label || target?.capabilityName === node.label
         : target?.capabilityName === node.label;
     }
@@ -1829,6 +1866,11 @@ async function executePlannerAction(action: PlannerAction, context: ResolverCont
         name: action.name,
         description: action.description ?? "",
         purpose: action.purpose ?? "",
+        nodeKind: (action as { nodeKind?: string }).nodeKind,
+        explanation: (action as { explanation?: string }).explanation,
+        examples: (action as { examples?: string }).examples,
+        implementationNotes: (action as { implementationNotes?: string }).implementationNotes,
+        testGuidance: (action as { testGuidance?: string }).testGuidance,
       });
       return [`Created module "${module.name}" in "${product.name}".`];
     }
@@ -1840,6 +1882,11 @@ async function executePlannerAction(action: PlannerAction, context: ResolverCont
         name: action.fields.name,
         description: action.fields.description,
         purpose: action.fields.purpose,
+        nodeKind: (action.fields as { nodeKind?: string }).nodeKind,
+        explanation: (action.fields as { explanation?: string }).explanation,
+        examples: (action.fields as { examples?: string }).examples,
+        implementationNotes: (action.fields as { implementationNotes?: string }).implementationNotes,
+        testGuidance: (action.fields as { testGuidance?: string }).testGuidance,
       });
       return [`Updated module "${updated.name}" in "${product.name}".`];
     }
@@ -1864,8 +1911,44 @@ async function executePlannerAction(action: PlannerAction, context: ResolverCont
         priority: action.priority ?? "medium",
         risk: action.risk ?? "medium",
         technicalNotes: action.technicalNotes ?? "",
+        nodeKind: (action as { nodeKind?: string }).nodeKind,
+        explanation: (action as { explanation?: string }).explanation,
+        examples: (action as { examples?: string }).examples,
+        implementationNotes: (action as { implementationNotes?: string }).implementationNotes,
+        testGuidance: (action as { testGuidance?: string }).testGuidance,
       });
       return [`Created capability "${capability.name}" in "${module.name}".`];
+    }
+    case "apply_capability_template": {
+      const product = findProduct(context, action.target?.productName);
+      const module = findModule(context, product, action.target?.moduleName);
+      const parentCapability = action.target?.capabilityName
+        ? findCapability(context, product, module.name, action.target.capabilityName)
+        : null;
+      const result = await applySemanticTemplate({
+        moduleId: module.id,
+        parentCapabilityId: parentCapability?.id,
+        templateKind: action.templateKind,
+        name: action.name,
+        description: action.description,
+        priority: action.priority,
+        risk: action.risk,
+        explanation: action.explanation,
+        examples: action.examples,
+        implementationNotes: action.implementationNotes,
+        testGuidance: action.testGuidance,
+      });
+      return [`Applied template ${result.template_kind} to "${result.topic_node.name}".`];
+    }
+    case "convert_capability_kind": {
+      const product = findProduct(context, action.target?.productName);
+      const capability = findCapability(context, product, action.target?.moduleName, action.target?.capabilityName);
+      const result = await convertCapabilityKind({
+        id: capability.id,
+        nodeKind: action.nodeKind,
+        childStrategy: action.childStrategy,
+      });
+      return [`Converted capability "${result.capability.name}" to ${result.capability.node_kind}.`];
     }
     case "update_capability": {
       const product = findProduct(context, action.target?.productName);
@@ -1878,6 +1961,11 @@ async function executePlannerAction(action: PlannerAction, context: ResolverCont
         technicalNotes: action.fields.technicalNotes,
         priority: action.fields.priority,
         risk: action.fields.risk,
+        nodeKind: (action.fields as { nodeKind?: string }).nodeKind,
+        explanation: (action.fields as { explanation?: string }).explanation,
+        examples: (action.fields as { examples?: string }).examples,
+        implementationNotes: (action.fields as { implementationNotes?: string }).implementationNotes,
+        testGuidance: (action.fields as { testGuidance?: string }).testGuidance,
       });
       return [`Updated capability "${updated.name}".`];
     }
@@ -2166,12 +2254,12 @@ export function PlannerPage() {
     if (latestAssistantMessage) {
       return {
         title: latestAssistantMessage.meta ?? "Planner ready",
-        detail: latestAssistantMessage.content.split("\n")[0] || "Describe the product or outcome you want.",
+        detail: latestAssistantMessage.content.split("\n")[0] || "Describe the product, capability, or rollout you want.",
       };
     }
     return {
       title: "Planner ready",
-      detail: "Describe the product or outcome you want to stage.",
+      detail: "Describe the product, capability, or rollout you want to stage.",
     };
   }, [
     draftTreeNodes.length,

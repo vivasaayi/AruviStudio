@@ -1,5 +1,6 @@
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
+import { getCapabilityChildLabel, getCapabilityHierarchyLabel } from "../../lib/hierarchyLabels";
 import { useWorkspaceStore } from "../../state/workspaceStore";
 import { getProductTree, getWorkItem, listProducts } from "../../lib/tauri";
 
@@ -13,24 +14,34 @@ const styles: Record<string, React.CSSProperties> = {
 };
 
 export function RightSidebar() {
-  const { activeWorkItemId, activeProductId, activeModuleId, activeCapabilityId } = useWorkspaceStore();
-  const { data: products } = useQuery({ queryKey: ["products"], queryFn: listProducts });
+  const { activeWorkItemId, activeProductId, activeModuleId, activeCapabilityId, setActiveProduct } = useWorkspaceStore();
+  const { data: products = [], isLoading: productsLoading } = useQuery({ queryKey: ["products"], queryFn: listProducts });
+  const visibleActiveProductId = products.some((product) => product.id === activeProductId)
+    ? activeProductId
+    : null;
+  const selectedProductId = visibleActiveProductId ?? products[0]?.id ?? null;
+  React.useEffect(() => {
+    if (productsLoading) {
+      return;
+    }
+    if (activeProductId !== selectedProductId) {
+      setActiveProduct(selectedProductId);
+    }
+  }, [activeProductId, productsLoading, selectedProductId, setActiveProduct]);
   const { data: tree } = useQuery({
-    queryKey: ["inspectorProductTree", activeProductId],
-    queryFn: () => getProductTree(activeProductId!),
-    enabled: !!activeProductId,
+    queryKey: ["inspectorProductTree", selectedProductId],
+    queryFn: () => getProductTree(selectedProductId!),
+    enabled: !!selectedProductId,
   });
   const { data: workItem } = useQuery({ queryKey: ["sidebarWorkItem", activeWorkItemId], queryFn: () => getWorkItem(activeWorkItemId!), enabled: !!activeWorkItemId });
-  const activeProduct = products?.find((product) => product.id === activeProductId) ?? null;
+  const activeProduct = products.find((product) => product.id === selectedProductId) ?? null;
   const activeModule = tree?.modules.find((entry) => entry.module.id === activeModuleId)?.module ?? null;
   const activeCapabilityNode = tree ? findCapabilityNodeInTree(tree.modules, activeCapabilityId) : null;
   const scopeName = activeCapabilityNode
-    ? activeCapabilityNode.capability.level === 0
-      ? "Capability scope"
-      : "Outcome scope"
+    ? `${getCapabilityHierarchyLabel(activeCapabilityNode.capability.level)} scope`
     : activeModuleId
       ? "Module scope"
-      : activeProductId
+      : selectedProductId
         ? "Product scope"
         : "No scope selected";
 
@@ -53,7 +64,7 @@ export function RightSidebar() {
         <div style={styles.info}>{scopeName}</div>
         <div style={styles.meta}>
           {activeCapabilityNode
-            ? `${activeCapabilityNode.capability.name} · ${activeCapabilityNode.children.length} ${activeCapabilityNode.capability.level === 0 ? "outcomes" : "children"}`
+            ? `${activeCapabilityNode.capability.name} · ${activeCapabilityNode.children.length} ${getCapabilityChildLabel(activeCapabilityNode.capability.level, { plural: activeCapabilityNode.children.length !== 1, lowercase: true })}`
             : activeModule
               ? `${activeModule.name} · ${(tree?.modules.find((entry) => entry.module.id === activeModule.id)?.features.length ?? 0)} capabilities`
               : "Backlog and work item intake follow the active hierarchy."}

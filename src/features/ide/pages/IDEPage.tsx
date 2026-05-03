@@ -97,7 +97,15 @@ export function IDEPage() {
     replaceFileContent,
     markFileSaved,
   } = useEditorStore();
-  const { activeProductId, activeModuleId, activeCapabilityId, activeWorkItemId, activeRepoId, setActiveRepo } = useWorkspaceStore();
+  const {
+    activeProductId,
+    activeModuleId,
+    activeCapabilityId,
+    activeWorkItemId,
+    activeRepoId,
+    setActiveProduct,
+    setActiveRepo,
+  } = useWorkspaceStore();
   const activeFile = openFiles.find((entry) => entry.id === activeFileId) ?? null;
 
   const [selectedRepoId, setSelectedRepoId] = useState<string>(activeRepoId ?? "");
@@ -127,18 +135,29 @@ export function IDEPage() {
     queryKey: ["repositories"],
     queryFn: listRepositories,
   });
-  const { data: products = [] } = useQuery({ queryKey: ["products"], queryFn: listProducts });
+  const { data: products = [], isLoading: productsLoading } = useQuery({ queryKey: ["products"], queryFn: listProducts });
+  const selectedProductId = products.some((product) => product.id === activeProductId)
+    ? activeProductId
+    : (products[0]?.id ?? null);
+  useEffect(() => {
+    if (productsLoading) {
+      return;
+    }
+    if (activeProductId !== selectedProductId) {
+      setActiveProduct(selectedProductId);
+    }
+  }, [activeProductId, productsLoading, selectedProductId, setActiveProduct]);
   const { data: activeProductTree } = useQuery({
-    queryKey: ["ideProductTree", activeProductId],
-    queryFn: () => getProductTree(activeProductId!),
-    enabled: !!activeProductId,
+    queryKey: ["ideProductTree", selectedProductId],
+    queryFn: () => getProductTree(selectedProductId!),
+    enabled: !!selectedProductId,
   });
   const { data: providers = [] } = useQuery({ queryKey: ["providers"], queryFn: listProviders });
   const { data: models = [] } = useQuery({ queryKey: ["model-definitions"], queryFn: listModelDefinitions });
   const { data: scopeResolvedRepo } = useQuery({
-    queryKey: ["ideScopeRepo", activeProductId, activeModuleId],
-    queryFn: () => resolveRepositoryForScope({ productId: activeProductId, moduleId: activeModuleId }),
-    enabled: !!activeProductId || !!activeModuleId,
+    queryKey: ["ideScopeRepo", selectedProductId, activeModuleId],
+    queryFn: () => resolveRepositoryForScope({ productId: selectedProductId, moduleId: activeModuleId }),
+    enabled: !!selectedProductId || !!activeModuleId,
     staleTime: 30000,
   });
   const { data: workItemResolvedRepo } = useQuery({

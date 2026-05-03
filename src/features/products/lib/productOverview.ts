@@ -1,4 +1,6 @@
-import type { Capability, CapabilityTree, Module, ModuleTree, Product, ProductTree, WorkItem } from "../../../lib/types";
+import { countHierarchyNodes, countLeafNodes, getHierarchyNodeSectionId, getProductDirectWorkItems } from "../../../lib/hierarchyTree";
+import type { Capability, CapabilityTree, HierarchyTreeNode, Module, ModuleTree, Product, ProductTree, WorkItem } from "../../../lib/types";
+import { getCapabilityHierarchyLabel, getHierarchyNodeKindLabel } from "../../../lib/hierarchyLabels";
 
 export const PRODUCT_OVERVIEW_TOP_ID = "product-overview-top";
 export const PRODUCT_DELIVERY_ID = "product-delivery";
@@ -176,14 +178,7 @@ export function buildProductOverviewToc(tree: ProductTree | undefined, hasProduc
     items.push({ id: PRODUCT_DELIVERY_ID, title: "Product Delivery", level: 0 });
   }
 
-  (tree?.modules ?? []).forEach((moduleTree, index) => {
-    items.push({
-      id: getModuleSectionId(moduleTree.module),
-      title: `${index + 1}. ${moduleTree.module.name}`,
-      level: 0,
-    });
-    appendCapabilityToc(items, moduleTree.features, `${index + 1}`, 1);
-  });
+  appendHierarchyToc(items, tree?.roots ?? [], "", 0);
 
   return items;
 }
@@ -199,9 +194,11 @@ export function buildProductOverviewHtml({
 }) {
   const allWorkItems = sortWorkItems(workItems);
   const metrics = buildWorkItemMetrics(allWorkItems);
-  const moduleCount = tree?.modules.length ?? 0;
-  const capabilityCount = countCapabilities(tree?.modules ?? []);
-  const productLevelWorkItems = buildScopedWorkItemTree(allWorkItems.filter((workItem) => !workItem.module_id && !workItem.capability_id));
+  const rootSectionCount = tree?.roots.length ?? 0;
+  const totalNodeCount = tree ? countHierarchyNodes(tree.roots) : 0;
+  const leafNodeCount = tree ? countLeafNodes(tree.roots) : 0;
+  const activeWorkItemCount = allWorkItems.filter((workItem) => workItem.status !== "done" && workItem.status !== "cancelled").length;
+  const productLevelWorkItems = buildScopedWorkItemTree(getProductDirectWorkItems(allWorkItems));
   const tocItems = buildProductOverviewToc(tree, productLevelWorkItems.length > 0);
   const tocGroups = groupTocItems(tocItems);
   const generatedAt = new Date().toLocaleString();
@@ -847,11 +844,11 @@ export function buildProductOverviewHtml({
             <div class="progress-track"><span style="width: ${metrics.completion}%"></span></div>
           </div>
           <div class="metric-grid">
-            ${renderMetricHtml("Modules", moduleCount)}
-            ${renderMetricHtml("Capabilities", capabilityCount)}
+            ${renderMetricHtml("Root Sections", rootSectionCount)}
+            ${renderMetricHtml("Total Nodes", totalNodeCount)}
+            ${renderMetricHtml("Leaf Nodes", leafNodeCount)}
+            ${renderMetricHtml("Active Work Items", activeWorkItemCount)}
             ${renderMetricHtml("Done", metrics.done)}
-            ${renderMetricHtml("WIP", metrics.wip)}
-            ${renderMetricHtml("TBD", metrics.tbd)}
             ${renderMetricHtml("Blocked", metrics.blocked)}
           </div>
         </section>
@@ -899,8 +896,8 @@ export function buildProductOverviewHtml({
             <section class="section">
               <div class="section-header">
                 <div class="eyebrow">Product</div>
-                <h3>No Modules Yet</h3>
-                <p>Create the first module in Aruvi Studio to turn the product into a navigable system map.</p>
+                <h3>No Root Sections Yet</h3>
+                <p>Create the first semantic root section in Aruvi Studio to turn the product into a navigable system map.</p>
               </div>
             </section>
           `}
@@ -941,11 +938,11 @@ export function buildProductOverviewBookHtml({
   workItems?: WorkItem[];
 }) {
   const allWorkItems = sortWorkItems(workItems);
-  const moduleCount = tree?.modules.length ?? 0;
-  const capabilityCount = countCapabilities(tree?.modules ?? []);
+  const rootSectionCount = tree?.roots.length ?? 0;
+  const totalNodeCount = tree ? countHierarchyNodes(tree.roots) : 0;
   const metrics = buildWorkItemMetrics(allWorkItems);
   const productLevelWorkItems = buildScopedWorkItemTree(
-    allWorkItems.filter((workItem) => !workItem.module_id && !workItem.capability_id),
+    getProductDirectWorkItems(allWorkItems),
   );
   const generatedAt = new Date().toLocaleString();
 
@@ -1371,8 +1368,8 @@ export function buildProductOverviewBookHtml({
         <h1>${escapeHtml(product.name)}</h1>
         <div class="deck">${toHtmlParagraph(product.description || "A durable product narrative generated from Aruvi Studio.")}</div>
         <div class="book-meta">
-          <div class="meta-item"><strong>Modules</strong>${moduleCount}</div>
-          <div class="meta-item"><strong>Capabilities</strong>${capabilityCount}</div>
+          <div class="meta-item"><strong>Root Sections</strong>${rootSectionCount}</div>
+          <div class="meta-item"><strong>Total Nodes</strong>${totalNodeCount}</div>
           <div class="meta-item"><strong>Delivery</strong>${metrics.done} done, ${metrics.wip} active, ${metrics.tbd} planned</div>
           <div class="meta-item"><strong>Generated</strong>${escapeHtml(generatedAt)}</div>
         </div>
@@ -1380,7 +1377,7 @@ export function buildProductOverviewBookHtml({
 
       <section class="page">
         <div class="toc-title">Contents</div>
-        <div class="lead">This edition strips down operational UI detail and keeps the product readable as a narrative: direction first, then modules, then capabilities, with delivery work shown only as concise implementation notes.</div>
+        <div class="lead">This edition keeps the semantic product tree readable as a narrative: direction first, then root sections, then nested nodes, with delivery work shown only as concise implementation notes.</div>
         <div class="section-grid">
           <div class="panel">
             <h3>Vision</h3>
@@ -1410,8 +1407,8 @@ export function buildProductOverviewBookHtml({
         : `
           <section class="page">
             <div class="chapter-kicker">Catalog</div>
-            <h2 class="chapter-title">No Modules Yet</h2>
-            <div class="chapter-intro">Create the first module in Aruvi Studio to turn this product into a readable book.</div>
+            <h2 class="chapter-title">No Root Sections Yet</h2>
+            <div class="chapter-intro">Create the first semantic root section in Aruvi Studio to turn this product into a readable book.</div>
           </section>
         `}
     </article>
@@ -1428,6 +1425,18 @@ function appendCapabilityToc(items: ProductOverviewTocItem[], capabilities: Capa
       level,
     });
     appendCapabilityToc(items, capabilityTree.children, numbering, level + 1);
+  });
+}
+
+function appendHierarchyToc(items: ProductOverviewTocItem[], nodes: HierarchyTreeNode[], prefix: string, level: number) {
+  nodes.forEach((node, index) => {
+    const numbering = prefix ? `${prefix}.${index + 1}` : `${index + 1}`;
+    items.push({
+      id: getHierarchyNodeSectionId(node),
+      title: `${numbering}. ${node.name}`,
+      level,
+    });
+    appendHierarchyToc(items, node.children, numbering, level + 1);
   });
 }
 
@@ -1517,7 +1526,7 @@ function renderModuleHtml(moduleTree: ModuleTree, chapterNumber: number, allWork
 }
 
 function renderCapabilityHtml(capabilityTree: CapabilityTree, numbering: string, allWorkItems: WorkItem[]): string {
-  const capabilityType = capabilityTree.capability.level === 0 ? "Capability" : "Outcome";
+  const capabilityType = getCapabilityHierarchyLabel(capabilityTree.capability.level);
   const scopedItems = getCapabilityScopedWorkItems(capabilityTree, allWorkItems);
   const directWorkItems = buildScopedWorkItemTree(
     allWorkItems.filter((workItem) => workItem.capability_id === capabilityTree.capability.id),
@@ -1637,24 +1646,27 @@ function renderBookContentsHtml(tree: ProductTree | undefined, hasProductLevelWo
     `);
   }
 
-  (tree?.modules ?? []).forEach((moduleTree, index) => {
-    const moduleId = getModuleSectionId(moduleTree.module);
-    blocks.push(`
-      <div class="toc-group">
-        <div class="toc-module">
-          <a href="#${moduleId}" class="inline-link">${index + 1}. ${escapeHtml(moduleTree.module.name)}</a>
-          <span>${countCapabilityTreeList(moduleTree.features)}</span>
-        </div>
-        ${moduleTree.features.length > 0 ? `
-          <div class="toc-children">
-            ${renderBookContentsChildren(moduleTree.features, `${index + 1}`)}
-          </div>
-        ` : ""}
-      </div>
-    `);
+  (tree?.roots ?? []).forEach((node, index) => {
+    blocks.push(renderBookContentsNode(node, `${index + 1}`));
   });
 
   return blocks.join("");
+}
+
+function renderBookContentsNode(node: HierarchyTreeNode, numbering: string): string {
+  const childrenMarkup = node.children.length > 0
+    ? `<div class="toc-children">${node.children.map((child, index) => renderBookContentsNode(child, `${numbering}.${index + 1}`)).join("")}</div>`
+    : "";
+
+  return `
+    <div class="toc-group">
+      <div class="toc-module">
+        <a href="#${getHierarchyNodeSectionId(node)}" class="inline-link">${escapeHtml(numbering)}. ${escapeHtml(node.name)}</a>
+        <span>${node.children.length > 0 ? node.children.length : ""}</span>
+      </div>
+      ${childrenMarkup}
+    </div>
+  `;
 }
 
 function renderBookContentsChildren(capabilities: CapabilityTree[], prefix: string): string {
@@ -1685,14 +1697,16 @@ function renderBookModuleHtml(moduleTree: ModuleTree, chapterNumber: number, all
   const directModuleWorkItems = buildScopedWorkItemTree(
     allWorkItems.filter((workItem) => workItem.module_id === moduleTree.module.id && !workItem.capability_id),
   );
+  const rootKindLabel = getHierarchyNodeKindLabel(moduleTree.module.node_kind);
+  const childCountLabel = moduleTree.features.length === 1 ? "child node" : "child nodes";
 
   return `
     <section class="page page-break" id="${getModuleSectionId(moduleTree.module)}">
-      <div class="chapter-kicker">Chapter ${chapterNumber}</div>
+      <div class="chapter-kicker">${escapeHtml(rootKindLabel)} ${chapterNumber}</div>
       <h2 class="chapter-title">${escapeHtml(moduleTree.module.name)}</h2>
       <div class="chapter-intro">${toHtmlParagraph(moduleTree.module.description || moduleTree.module.purpose || "This chapter describes the module’s role inside the product.")}</div>
       <div class="chapter-stats">
-        <span class="stat-pill">${moduleTree.features.length} ${moduleTree.features.length === 1 ? "capability" : "capabilities"}</span>
+        <span class="stat-pill">${moduleTree.features.length} ${childCountLabel}</span>
         <span class="stat-pill">${metrics.done} done</span>
         <span class="stat-pill">${metrics.wip} active</span>
         <span class="stat-pill">${metrics.tbd} planned</span>
@@ -1701,6 +1715,30 @@ function renderBookModuleHtml(moduleTree: ModuleTree, chapterNumber: number, all
         <div class="note-block">
           <div class="note-label">Purpose</div>
           <div class="note-copy">${toHtmlParagraph(moduleTree.module.purpose)}</div>
+        </div>
+      ` : ""}
+      ${moduleTree.module.explanation ? `
+        <div class="note-block">
+          <div class="note-label">Explanation</div>
+          <div class="note-copy">${toHtmlParagraph(moduleTree.module.explanation)}</div>
+        </div>
+      ` : ""}
+      ${moduleTree.module.examples ? `
+        <div class="note-block">
+          <div class="note-label">Examples</div>
+          <div class="note-copy">${toHtmlParagraph(moduleTree.module.examples)}</div>
+        </div>
+      ` : ""}
+      ${moduleTree.module.implementation_notes ? `
+        <div class="note-block">
+          <div class="note-label">Implementation Notes</div>
+          <div class="note-copy">${toHtmlParagraph(moduleTree.module.implementation_notes)}</div>
+        </div>
+      ` : ""}
+      ${moduleTree.module.test_guidance ? `
+        <div class="note-block">
+          <div class="note-label">Test Guidance</div>
+          <div class="note-copy">${toHtmlParagraph(moduleTree.module.test_guidance)}</div>
         </div>
       ` : ""}
       ${directModuleWorkItems.length > 0 ? `
@@ -1718,7 +1756,7 @@ function renderBookModuleHtml(moduleTree: ModuleTree, chapterNumber: number, all
 }
 
 function renderBookCapabilityHtml(capabilityTree: CapabilityTree, numbering: string, allWorkItems: WorkItem[]): string {
-  const capabilityType = capabilityTree.capability.level === 0 ? "Capability" : "Outcome";
+  const capabilityType = getHierarchyNodeKindLabel(capabilityTree.capability.node_kind);
   const directWorkItems = buildScopedWorkItemTree(
     allWorkItems.filter((workItem) => workItem.capability_id === capabilityTree.capability.id),
   );
@@ -1739,10 +1777,34 @@ function renderBookCapabilityHtml(capabilityTree: CapabilityTree, numbering: str
           <div class="note-copy">${toHtmlParagraph(capabilityTree.capability.acceptance_criteria)}</div>
         </div>
       ` : ""}
+      ${capabilityTree.capability.explanation ? `
+        <div class="note-block">
+          <div class="note-label">Explanation</div>
+          <div class="note-copy">${toHtmlParagraph(capabilityTree.capability.explanation)}</div>
+        </div>
+      ` : ""}
+      ${capabilityTree.capability.examples ? `
+        <div class="note-block">
+          <div class="note-label">Examples</div>
+          <div class="note-copy">${toHtmlParagraph(capabilityTree.capability.examples)}</div>
+        </div>
+      ` : ""}
       ${capabilityTree.capability.technical_notes ? `
         <div class="note-block">
           <div class="note-label">Implementation Notes</div>
           <div class="note-copy">${toHtmlParagraph(capabilityTree.capability.technical_notes)}</div>
+        </div>
+      ` : ""}
+      ${capabilityTree.capability.implementation_notes ? `
+        <div class="note-block">
+          <div class="note-label">Build Notes</div>
+          <div class="note-copy">${toHtmlParagraph(capabilityTree.capability.implementation_notes)}</div>
+        </div>
+      ` : ""}
+      ${capabilityTree.capability.test_guidance ? `
+        <div class="note-block">
+          <div class="note-label">Test Guidance</div>
+          <div class="note-copy">${toHtmlParagraph(capabilityTree.capability.test_guidance)}</div>
         </div>
       ` : ""}
       ${directWorkItems.length > 0 ? `

@@ -1,11 +1,15 @@
 use serde::{Deserialize, Serialize};
 
+use super::product::HierarchyNodeType;
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct WorkItem {
     pub id: String,
     pub product_id: Option<String>,
     pub module_id: Option<String>,
     pub capability_id: Option<String>,
+    pub source_node_id: Option<String>,
+    pub source_node_type: Option<HierarchyNodeType>,
     pub parent_work_item_id: Option<String>,
     pub title: String,
     pub problem_statement: String,

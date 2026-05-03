@@ -9,6 +9,7 @@ The goal is to let the developer define what needs to be built at the product le
 The human should primarily:
 
 - define products, features, and tasks,
+- read and navigate the evolving product structure as documentation,
 - review plans,
 - review test outcomes,
 - and approve final progress.
@@ -26,10 +27,12 @@ The agents should primarily:
 This is intended to be:
 
 - a VS Code-style AI-first IDE,
-- a product and project management platform,
+- a readable product architecture and rollout planning platform,
 - and an autonomous multi-agent SDLC engine
 
 all within one system.
+
+The product structure should not behave like a Jira-style hierarchy manager. It should behave more like a navigable technical book or systems manual, where the user can move through the structure, understand the wider system, and make progressive changes without losing context.
 
 ## 2. Original Product Requirement Summary
 
@@ -49,18 +52,55 @@ The product should also include a full embedded product management system where 
 
 The product is centered around AI-assisted coding. The system should allow the developer to define work and let AI agents handle most of the implementation lifecycle.
 
-### 3.2 Product Management Built In
+### 3.2 Product Structure and Documentation Built In
 
 The app should have an integrated product management structure:
 
 - A developer can manage multiple products.
 - A product can contain multiple modules.
 - A module can contain multiple top-level features.
-- A feature can have nested subfeatures up to 3 levels.
+- A feature can have nested subfeatures when the product demands it.
 - Each feature can have multiple tasks.
 - Each task can have nested subtasks.
 
 This hierarchy should be native to the product and directly connected to the agent workflow.
+
+The hierarchy should also serve as product documentation:
+
+- the product tree should be readable as a coherent system description,
+- the exported book should be a first-class human review surface,
+- the user should be able to read the structure the way they would read a large product manual or architecture document,
+- and edits should be progressive, with local changes remaining understandable in the wider system context.
+
+Hierarchy depth should remain flexible. For very large products, such as a flight simulator or other systems with large operational surface area, the structure may need more than a fixed shallow model.
+
+### 3.2.1 Hierarchy Semantics
+
+The hierarchy should be treated as the canonical readable model of the product.
+
+It should work like a navigable technical book:
+
+- broad at the top
+- progressively more specific as the user drills in
+- clear enough that a human can enter from many points and still build a mental map
+
+The hierarchy serves two purposes at once:
+
+- documentation for understanding the product
+- structure for deriving rollouts and work items
+
+Semantic levels should be preferred over rigid fixed levels. Useful node kinds may include:
+
+- Product
+- Domain or Area
+- Subdomain or Subsystem
+- Capability or Feature Set
+- Rollout
+- Work Item
+
+Each parent should explain the grouping logic of its children. A node should only exist if it improves readability, navigation, or execution clarity.
+
+Execution should be derived from the hierarchy, not managed in a second disconnected planning structure. The exported book should read like a technical manual, not like a backlog dump.
 
 ### 3.3 Agent Army
 
@@ -102,13 +142,14 @@ The human should not be doing most of the coding.
 The human should mainly:
 
 - create the product structure,
+- read and refine the product book/document,
 - define tasks,
 - approve tasks,
 - review plans,
 - review test outputs,
 - and inspect results.
 
-The product should reduce the human role from implementer to reviewer/operator.
+The product should reduce the human role from implementer to reviewer/operator without destroying human comprehension. The system should reduce implementation burden while preserving the user’s cognitive map of the product.
 
 ### 3.6 Sandbox Execution
 
@@ -145,13 +186,16 @@ The original goals can be summarized as:
 From the user’s point of view, the ideal experience is:
 
 - Define the product, module, feature, and task hierarchy.
+- Read the hierarchy as a structured book that explains the product.
+- Export that structure into a readable document when needed.
+- Review one area, chapter, or section at a time and make progressive improvements.
 - Approve the task and plan.
 - Watch agents break work down and execute it.
 - See status updates, agent activity, and task progress through the UI.
 - Review test outcomes and final changes.
 - Let the system handle the majority of technical execution behind the scenes.
 
-The user should experience the platform as a product-thinking cockpit, not just a coding tool.
+The user should experience the platform as a product-thinking cockpit and navigable product book, not just a coding tool.
 
 ## 6. Original Scope in Plain Terms
 
@@ -165,6 +209,8 @@ Any implementation should still align with these original intentions:
 
 - Is the system reducing hands-on coding work for the human?
 - Is the product hierarchy directly driving execution?
+- Is the product hierarchy readable as documentation and exportable as a book?
+- Can the user make progressive changes without losing the wider system context?
 - Are agents behaving like specialized team members?
 - Is the UI centered on task status, progress, and review?
 - Is the system moving toward local model support and stronger autonomy?

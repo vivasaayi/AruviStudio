@@ -33,11 +33,13 @@ import type {
   ChatCompletionResponse,
   WorkspaceProvisionResult,
   PlannerContactResult,
-  PlannerDraftChildType,
-  PlannerSessionInfo,
-  SpeechToTextResponse,
-  PlannerTurnResponse,
-} from "./types";
+    PlannerDraftChildType,
+    PlannerSessionInfo,
+    SpeechToTextResponse,
+    PlannerTurnResponse,
+    SemanticTemplateApplicationResult,
+    NodeKindConversionResult,
+  } from "./types";
 
 declare global {
   interface Window {
@@ -112,18 +114,59 @@ export const updateProduct = (data: { id: string; name?: string; description?: s
 export const archiveProduct = (id: string) => invoke<Product>("archive_product", { id });
 
 // Module commands
-export const createModule = (data: { productId: string; name: string; description: string; purpose: string }) =>
+export const createModule = (data: {
+  productId: string;
+  name: string;
+  description: string;
+  purpose: string;
+  nodeKind?: string;
+  explanation?: string;
+  examples?: string;
+  implementationNotes?: string;
+  testGuidance?: string;
+}) =>
   invoke<Module>("create_module", {
     productId: data.productId,
     product_id: data.productId,
     name: data.name,
     description: data.description,
     purpose: data.purpose,
+    nodeKind: data.nodeKind,
+    node_kind: data.nodeKind,
+    explanation: data.explanation,
+    examples: data.examples,
+    implementationNotes: data.implementationNotes,
+    implementation_notes: data.implementationNotes,
+    testGuidance: data.testGuidance,
+    test_guidance: data.testGuidance,
   });
 export const listModules = (productId: string) =>
   invoke<Module[]>("list_modules", { productId, product_id: productId });
-export const updateModule = (data: { id: string; name?: string; description?: string; purpose?: string }) =>
-  invoke<Module>("update_module", data);
+export const updateModule = (data: {
+  id: string;
+  name?: string;
+  description?: string;
+  purpose?: string;
+  nodeKind?: string;
+  explanation?: string;
+  examples?: string;
+  implementationNotes?: string;
+  testGuidance?: string;
+}) =>
+  invoke<Module>("update_module", {
+    id: data.id,
+    name: data.name,
+    description: data.description,
+    purpose: data.purpose,
+    nodeKind: data.nodeKind,
+    node_kind: data.nodeKind,
+    explanation: data.explanation,
+    examples: data.examples,
+    implementationNotes: data.implementationNotes,
+    implementation_notes: data.implementationNotes,
+    testGuidance: data.testGuidance,
+    test_guidance: data.testGuidance,
+  });
 export const deleteModule = (id: string) => invoke("delete_module", { id });
 export const reorderModules = (productId: string, orderedIds: string[]) =>
   invoke("reorder_modules", {
@@ -134,7 +177,21 @@ export const reorderModules = (productId: string, orderedIds: string[]) =>
   });
 
 // Capability commands
-export const createCapability = (data: { moduleId: string; parentCapabilityId?: string; name: string; description: string; acceptanceCriteria: string; priority: string; risk: string; technicalNotes: string }) =>
+export const createCapability = (data: {
+  moduleId: string;
+  parentCapabilityId?: string;
+  name: string;
+  description: string;
+  acceptanceCriteria: string;
+  priority: string;
+  risk: string;
+  technicalNotes: string;
+  nodeKind?: string;
+  explanation?: string;
+  examples?: string;
+  implementationNotes?: string;
+  testGuidance?: string;
+}) =>
   invoke<Capability>("create_capability", {
     moduleId: data.moduleId,
     module_id: data.moduleId,
@@ -148,6 +205,14 @@ export const createCapability = (data: { moduleId: string; parentCapabilityId?: 
     risk: data.risk,
     technicalNotes: data.technicalNotes,
     technical_notes: data.technicalNotes,
+    nodeKind: data.nodeKind,
+    node_kind: data.nodeKind,
+    explanation: data.explanation,
+    examples: data.examples,
+    implementationNotes: data.implementationNotes,
+    implementation_notes: data.implementationNotes,
+    testGuidance: data.testGuidance,
+    test_guidance: data.testGuidance,
   });
 export const listCapabilities = (moduleId: string) =>
   invoke<Capability[]>("list_capabilities", { moduleId, module_id: moduleId });
@@ -159,6 +224,11 @@ export const updateCapability = (data: {
   priority?: string;
   risk?: string;
   technicalNotes?: string;
+  nodeKind?: string;
+  explanation?: string;
+  examples?: string;
+  implementationNotes?: string;
+  testGuidance?: string;
 }) =>
   invoke<Capability>("update_capability", {
     id: data.id,
@@ -168,6 +238,14 @@ export const updateCapability = (data: {
     priority: data.priority,
     risk: data.risk,
     technical_notes: data.technicalNotes,
+    nodeKind: data.nodeKind,
+    node_kind: data.nodeKind,
+    explanation: data.explanation,
+    examples: data.examples,
+    implementationNotes: data.implementationNotes,
+    implementation_notes: data.implementationNotes,
+    testGuidance: data.testGuidance,
+    test_guidance: data.testGuidance,
   });
 export const deleteCapability = (id: string) => invoke("delete_capability", { id });
 export const reorderCapabilities = (data: { moduleId: string; parentCapabilityId?: string; orderedIds: string[] }) =>
@@ -176,6 +254,49 @@ export const reorderCapabilities = (data: { moduleId: string; parentCapabilityId
     parent_capability_id: data.parentCapabilityId,
     ordered_ids: data.orderedIds,
   });
+export const applySemanticTemplate = (data: {
+  moduleId: string;
+  parentCapabilityId?: string;
+  templateKind: "operator_chapter" | "technical_topic_book";
+  name: string;
+  description?: string;
+  priority?: string;
+  risk?: string;
+  explanation?: string;
+  examples?: string;
+  implementationNotes?: string;
+  testGuidance?: string;
+}) =>
+  invoke<SemanticTemplateApplicationResult>("apply_semantic_template", {
+    moduleId: data.moduleId,
+    module_id: data.moduleId,
+    parentCapabilityId: data.parentCapabilityId,
+    parent_capability_id: data.parentCapabilityId,
+    templateKind: data.templateKind,
+    template_kind: data.templateKind,
+    name: data.name,
+    description: data.description,
+    priority: data.priority,
+    risk: data.risk,
+    explanation: data.explanation,
+    examples: data.examples,
+    implementationNotes: data.implementationNotes,
+    implementation_notes: data.implementationNotes,
+    testGuidance: data.testGuidance,
+    test_guidance: data.testGuidance,
+  });
+export const convertCapabilityKind = (data: {
+  id: string;
+  nodeKind: string;
+  childStrategy?: "reject" | "reparent_to_parent";
+}) =>
+  invoke<NodeKindConversionResult>("convert_capability_kind", {
+    id: data.id,
+    nodeKind: data.nodeKind,
+    node_kind: data.nodeKind,
+    childStrategy: data.childStrategy,
+    child_strategy: data.childStrategy,
+  });
 
 // Product tree
 export const getProductTree = (productId: string) =>
@@ -183,7 +304,7 @@ export const getProductTree = (productId: string) =>
 
 // Work item commands
 export const createWorkItem = (data: {
-  productId: string; moduleId?: string; capabilityId?: string; parentWorkItemId?: string;
+  productId: string; moduleId?: string; capabilityId?: string; sourceNodeId?: string; sourceNodeType?: string; parentWorkItemId?: string;
   title: string; problemStatement: string; description: string; acceptanceCriteria: string;
   constraints: string; workItemType: string; priority: string; complexity: string;
 }) =>
@@ -194,6 +315,10 @@ export const createWorkItem = (data: {
     module_id: data.moduleId,
     capabilityId: data.capabilityId,
     capability_id: data.capabilityId,
+    sourceNodeId: data.sourceNodeId,
+    source_node_id: data.sourceNodeId,
+    sourceNodeType: data.sourceNodeType,
+    source_node_type: data.sourceNodeType,
     parentWorkItemId: data.parentWorkItemId,
     parent_work_item_id: data.parentWorkItemId,
     title: data.title,
@@ -210,10 +335,13 @@ export const createWorkItem = (data: {
   });
 
 export const getWorkItem = (id: string) => invoke<WorkItem>("get_work_item", { id });
-export const listWorkItems = (filters?: { productId?: string; moduleId?: string; capabilityId?: string; status?: string }) =>
+export const listWorkItems = (filters?: { productId?: string; moduleId?: string; capabilityId?: string; sourceNodeId?: string; sourceNodeType?: string; status?: string }) =>
   invoke<WorkItem[]>("list_work_items", {
     product_id: filters?.productId, module_id: filters?.moduleId,
-    capability_id: filters?.capabilityId, status: filters?.status,
+    capability_id: filters?.capabilityId,
+    source_node_id: filters?.sourceNodeId,
+    source_node_type: filters?.sourceNodeType,
+    status: filters?.status,
   });
 export const summarizeWorkItemsByProduct = () =>
   invoke<ProductWorkItemSummary[]>("summarize_work_items_by_product");
@@ -259,6 +387,57 @@ export const exportProductOverviewHtml = (data: { fileName: string; html: string
     fileName: data.fileName,
     file_name: data.fileName,
     html: data.html,
+  });
+export const exportProductOverviewEpub = (data: {
+  fileName: string;
+  title: string;
+  html: string;
+  tocItems: { id: string; title: string; level: number }[];
+  author?: string;
+  language?: string;
+}) =>
+  invoke<string>("export_product_overview_epub", {
+    fileName: data.fileName,
+    file_name: data.fileName,
+    title: data.title,
+    html: data.html,
+    tocItems: data.tocItems,
+    toc_items: data.tocItems,
+    author: data.author ?? null,
+    language: data.language ?? "en",
+  });
+export const exportProductOverviewPdf = (data: {
+  fileName: string;
+  html: string;
+  pageWidth: string;
+  pageHeight: string;
+  marginTop: string;
+  marginRight: string;
+  marginBottom: string;
+  marginLeft: string;
+  headerTitle: string;
+  headerRight?: string;
+}) =>
+  invoke<string>("export_product_overview_pdf", {
+    fileName: data.fileName,
+    file_name: data.fileName,
+    html: data.html,
+    pageWidth: data.pageWidth,
+    page_width: data.pageWidth,
+    pageHeight: data.pageHeight,
+    page_height: data.pageHeight,
+    marginTop: data.marginTop,
+    margin_top: data.marginTop,
+    marginRight: data.marginRight,
+    margin_right: data.marginRight,
+    marginBottom: data.marginBottom,
+    margin_bottom: data.marginBottom,
+    marginLeft: data.marginLeft,
+    margin_left: data.marginLeft,
+    headerTitle: data.headerTitle,
+    header_title: data.headerTitle,
+    headerRight: data.headerRight ?? null,
+    header_right: data.headerRight ?? null,
   });
 export const attachRepository = (data: { scopeType: "product" | "module"; scopeId: string; repositoryId: string; isDefault: boolean }) =>
   invoke("attach_repository", {

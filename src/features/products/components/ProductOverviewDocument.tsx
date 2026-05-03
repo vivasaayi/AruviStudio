@@ -1,4 +1,6 @@
 import React, { useMemo, useState } from "react";
+import { countHierarchyNodes, countLeafNodes, getProductDirectWorkItems } from "../../../lib/hierarchyTree";
+import { getHierarchyNodeKindLabel } from "../../../lib/hierarchyLabels";
 import type { Capability, CapabilityTree, Module, ModuleTree, Product, ProductTree, WorkItem } from "../../../lib/types";
 import {
   PRODUCT_DELIVERY_ID,
@@ -6,7 +8,6 @@ import {
   buildProductOverviewToc,
   buildScopedWorkItemTree,
   buildWorkItemMetrics,
-  countCapabilities,
   getCapabilitySectionId,
   getModuleSectionId,
   getWorkItemPresentation,
@@ -17,24 +18,38 @@ import {
 
 type TocGroup = {
   item: { id: string; title: string; level: number };
-  children: { id: string; title: string; level: number }[];
+  children: TocNode[];
+};
+
+type TocNode = {
+  item: { id: string; title: string; level: number };
+  children: TocNode[];
 };
 
 const styles: Record<string, React.CSSProperties> = {
   layout: { display: "flex", gap: 24, alignItems: "flex-start" },
   layoutCollapsed: { display: "block" },
   article: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 18 },
-  aside: { width: 268, flexShrink: 0, position: "sticky" as const, top: 12, display: "flex", flexDirection: "column", gap: 14, height: "calc(100vh - 24px)", minHeight: 0 },
+  aside: { width: 292, flexShrink: 0, position: "sticky" as const, top: 12, display: "flex", flexDirection: "column", gap: 14, height: "calc(100vh - 24px)", minHeight: 0 },
   asideCollapsed: { display: "none" },
-  panel: { borderRadius: 18, border: "1px solid #2a3340", backgroundColor: "#141b24", padding: 16, boxShadow: "0 18px 40px rgba(0,0,0,0.22)" },
+  panel: { borderRadius: 18, border: "1px solid #2a3340", backgroundColor: "#141b24", padding: 18, boxShadow: "0 18px 40px rgba(0,0,0,0.22)" },
   panelScrollable: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column" as const },
   panelTitle: { fontSize: 11, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" as const, color: "#8fb8ff", marginBottom: 10 },
-  tocWrap: { overflowY: "auto" as const, paddingRight: 4, display: "flex", flexDirection: "column", gap: 6, flex: 1, minHeight: 0 },
-  tocList: { display: "flex", flexDirection: "column", gap: 4 },
-  tocLink: { display: "block", padding: "7px 10px", borderRadius: 10, color: "#c8d5e8", textDecoration: "none", fontSize: 13, lineHeight: 1.45 },
-  tocGroup: { borderRadius: 12, border: "1px solid #233041", backgroundColor: "#111821", overflow: "hidden" },
-  tocSummary: { listStyle: "none" as const, cursor: "pointer", padding: "8px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, color: "#d7e3f3", fontSize: 13, fontWeight: 700 },
-  tocChildren: { display: "flex", flexDirection: "column", gap: 3, padding: "0 6px 8px" },
+  tocWrap: { overflowY: "auto" as const, paddingRight: 4, display: "flex", flexDirection: "column", gap: 8, flex: 1, minHeight: 0 },
+  tocLink: { display: "block", padding: "9px 12px", borderRadius: 12, color: "#d7e3f3", textDecoration: "none", fontSize: 13, fontWeight: 700, lineHeight: 1.45, backgroundColor: "#111821", border: "1px solid #233041" },
+  tocGroup: { borderRadius: 14, border: "1px solid #233041", backgroundColor: "#111821", overflow: "hidden" },
+  tocSummary: { listStyle: "none" as const, cursor: "pointer", padding: "10px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, color: "#d7e3f3", fontSize: 13, fontWeight: 800 },
+  tocSummaryText: { minWidth: 0, lineHeight: 1.4 },
+  tocSummaryCount: { display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 24, height: 24, padding: "0 8px", borderRadius: 999, backgroundColor: "#162233", border: "1px solid #30455f", color: "#bcd3f1", fontSize: 11, fontWeight: 800, flexShrink: 0 },
+  tocChildren: { display: "flex", flexDirection: "column", gap: 8, padding: "0 12px 12px" },
+  tocChildrenRail: { display: "flex", flexDirection: "column", gap: 6, paddingLeft: 10, borderLeft: "1px solid #2a3c51" },
+  tocOverviewLink: { display: "block", padding: "6px 10px", borderRadius: 10, color: "#a9bad0", textDecoration: "none", fontSize: 12, lineHeight: 1.45, backgroundColor: "#131d29", border: "1px solid #223041" },
+  tocNode: { display: "flex", flexDirection: "column", gap: 6 },
+  tocNodeLink: { display: "grid", gridTemplateColumns: "auto 1fr", alignItems: "start", gap: 10, padding: "5px 10px", borderRadius: 10, color: "#d4e1f3", textDecoration: "none", lineHeight: 1.45 },
+  tocNodeChildren: { display: "flex", flexDirection: "column", gap: 6, marginLeft: 12, paddingLeft: 12, borderLeft: "1px solid #253549" },
+  tocNodeIndex: { minWidth: 38, color: "#88a8d8", fontSize: 11, fontWeight: 800, letterSpacing: "0.02em", paddingTop: 1 },
+  tocNodeTextPrimary: { fontSize: 13, fontWeight: 700, color: "#dce7f8" },
+  tocNodeTextSecondary: { fontSize: 12.5, fontWeight: 600, color: "#bfcfe5" },
   legendRow: { display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: "#a8b5c8" },
   legendDot: { width: 10, height: 10, borderRadius: 999 },
   hero: {
@@ -83,14 +98,15 @@ const styles: Record<string, React.CSSProperties> = {
   chapterSubtitle: { fontSize: 13, color: "#a5b0c0", lineHeight: 1.65, marginTop: 8 },
   summaryPill: { display: "inline-flex", alignItems: "center", borderRadius: 999, padding: "5px 9px", fontSize: 11, fontWeight: 700, backgroundColor: "#1b2431", border: "1px solid #324256", color: "#c8d5e8" },
   statePill: { display: "inline-flex", alignItems: "center", borderRadius: 999, padding: "5px 9px", fontSize: 11, fontWeight: 800, border: "1px solid currentColor", backgroundColor: "rgba(255,255,255,0.04)" },
-  detailsBody: { padding: "0 18px 18px", display: "flex", flexDirection: "column", gap: 14 },
+  detailsBody: { padding: "0 18px 18px", display: "flex", flexDirection: "column", gap: 16 },
   noteGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 },
   noteCard: { borderRadius: 14, border: "1px solid #263142", backgroundColor: "#111821", padding: 14 },
   noteHeading: { fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" as const, color: "#95a7c0", marginBottom: 8 },
   noteText: { fontSize: 13, color: "#d6deea", lineHeight: 1.65, whiteSpace: "pre-wrap" as const },
   metaRow: { display: "flex", gap: 8, flexWrap: "wrap" as const },
   metaPill: { fontSize: 11, padding: "4px 8px", borderRadius: 999, backgroundColor: "#1a2737", color: "#bed3ee" },
-  nested: { marginLeft: 18, paddingLeft: 18, borderLeft: "1px solid #253141", display: "flex", flexDirection: "column", gap: 14 },
+  pathText: { fontSize: 12, color: "#9fb0c5", lineHeight: 1.6, marginTop: 6 },
+  nested: { marginLeft: 10, paddingLeft: 22, borderLeft: "2px solid #2b3f57", display: "flex", flexDirection: "column", gap: 16 },
   workItemList: { display: "flex", flexDirection: "column", gap: 10 },
   workItemCard: { borderRadius: 15, border: "1px solid #334152", padding: 14, cursor: "pointer", backgroundColor: "#101721" },
   workItemHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 },
@@ -124,11 +140,16 @@ export function ProductOverviewDocument({
   const allWorkItems = useMemo(() => sortWorkItems(workItems ?? []), [workItems]);
   const metrics = useMemo(() => buildWorkItemMetrics(allWorkItems), [allWorkItems]);
   const productLevelWorkItems = useMemo(
-    () => buildScopedWorkItemTree(allWorkItems.filter((workItem) => !workItem.module_id && !workItem.capability_id)),
+    () => buildScopedWorkItemTree(getProductDirectWorkItems(allWorkItems)),
     [allWorkItems],
   );
-  const moduleCount = tree?.modules.length ?? 0;
-  const capabilityCount = useMemo(() => countCapabilities(tree?.modules ?? []), [tree]);
+  const rootSectionCount = tree?.roots.length ?? 0;
+  const totalNodeCount = useMemo(() => (tree ? countHierarchyNodes(tree.roots) : 0), [tree]);
+  const leafNodeCount = useMemo(() => (tree ? countLeafNodes(tree.roots) : 0), [tree]);
+  const activeWorkItemCount = useMemo(
+    () => allWorkItems.filter((workItem) => workItem.status !== "done" && workItem.status !== "cancelled").length,
+    [allWorkItems],
+  );
   const tocItems = useMemo(
     () => buildProductOverviewToc(tree, productLevelWorkItems.length > 0),
     [productLevelWorkItems.length, tree],
@@ -152,7 +173,7 @@ export function ProductOverviewDocument({
             <div style={{ minWidth: 0 }}>
               <h2 style={styles.title}>{product.name}</h2>
               <p style={styles.subtitle}>
-                Reader mode for the product: modules as chapters, capabilities as sections, and work items as delivery callouts.
+                Reader mode for the product: semantic root sections, nested nodes, and delivery work aligned to the same structural tree.
               </p>
             </div>
             <button style={styles.button} onClick={onEditProduct}>Edit Product</button>
@@ -173,11 +194,11 @@ export function ProductOverviewDocument({
           </div>
 
           <div style={styles.metricGrid}>
-            <MetricCard label="Modules" value={moduleCount} />
-            <MetricCard label="Capabilities" value={capabilityCount} />
+            <MetricCard label="Root Sections" value={rootSectionCount} />
+            <MetricCard label="Total Nodes" value={totalNodeCount} />
+            <MetricCard label="Leaf Nodes" value={leafNodeCount} />
+            <MetricCard label="Active Work Items" value={activeWorkItemCount} />
             <MetricCard label="Done" value={metrics.done} />
-            <MetricCard label="WIP" value={metrics.wip} />
-            <MetricCard label="TBD" value={metrics.tbd} />
             <MetricCard label="Blocked" value={metrics.blocked} />
           </div>
         </section>
@@ -239,9 +260,9 @@ export function ProductOverviewDocument({
           <section style={styles.section}>
             <div style={styles.sectionHeader}>
               <div style={styles.eyebrow}>Product</div>
-              <h3 style={styles.sectionHeading}>No Modules Yet</h3>
+              <h3 style={styles.sectionHeading}>No Root Sections Yet</h3>
               <p style={styles.sectionSubtitle}>
-                Create the first module to turn the product into a navigable system map.
+                Create the first semantic root section to turn the product into a navigable system map.
               </p>
             </div>
           </section>
@@ -251,6 +272,7 @@ export function ProductOverviewDocument({
           (tree?.modules ?? []).map((moduleTree, index) => (
             <ModuleChapter
               key={moduleTree.module.id}
+              productName={product.name}
               moduleTree={moduleTree}
               chapterNumber={index + 1}
               allWorkItems={allWorkItems}
@@ -278,22 +300,18 @@ export function ProductOverviewDocument({
               ) : (
                 <details key={group.item.id} open style={styles.tocGroup}>
                   <summary style={styles.tocSummary}>
-                    <span>{group.item.title}</span>
-                    <span>{group.children.length}</span>
+                    <span style={styles.tocSummaryText}>{group.item.title}</span>
+                    <span style={styles.tocSummaryCount}>{countTocNodes(group.children)}</span>
                   </summary>
                   <div style={styles.tocChildren}>
-                    <a href={`#${group.item.id}`} style={styles.tocLink}>
+                    <a href={`#${group.item.id}`} style={styles.tocOverviewLink}>
                       Section overview
                     </a>
-                    {group.children.map((item) => (
-                      <a
-                        key={item.id}
-                        href={`#${item.id}`}
-                        style={{ ...styles.tocLink, paddingLeft: 10 + Math.min(item.level, 3) * 14 }}
-                      >
-                        {item.title}
-                      </a>
-                    ))}
+                    <div style={styles.tocChildrenRail}>
+                      {group.children.map((node) => (
+                        <TocNodeLink key={node.item.id} node={node} depth={1} />
+                      ))}
+                    </div>
                   </div>
                 </details>
               )
@@ -314,20 +332,70 @@ export function ProductOverviewDocument({
 
 function groupTocItems(items: { id: string; title: string; level: number }[]): TocGroup[] {
   const groups: TocGroup[] = [];
+  let currentGroup: TocGroup | undefined;
+  const stack: TocNode[] = [];
 
   items.forEach((item) => {
     if (item.level === 0) {
-      groups.push({ item, children: [] });
+      currentGroup = { item, children: [] };
+      groups.push(currentGroup);
+      stack.length = 0;
       return;
     }
 
-    const currentGroup = groups[groups.length - 1];
-    if (currentGroup) {
-      currentGroup.children.push(item);
+    if (!currentGroup) {
+      return;
     }
+
+    const node: TocNode = { item, children: [] };
+    while (stack.length > 0 && stack[stack.length - 1].item.level >= item.level) {
+      stack.pop();
+    }
+
+    if (stack.length === 0) {
+      currentGroup.children.push(node);
+    } else {
+      stack[stack.length - 1].children.push(node);
+    }
+
+    stack.push(node);
   });
 
   return groups;
+}
+
+function TocNodeLink({ node, depth }: { node: TocNode; depth: number }) {
+  const { indexLabel, textLabel } = splitTocLabel(node.item.title);
+  const textStyle = depth === 1 ? styles.tocNodeTextPrimary : styles.tocNodeTextSecondary;
+
+  return (
+    <div style={styles.tocNode}>
+      <a href={`#${node.item.id}`} style={styles.tocNodeLink}>
+        <span style={styles.tocNodeIndex}>{indexLabel}</span>
+        <span style={textStyle}>{textLabel}</span>
+      </a>
+      {node.children.length > 0 ? (
+        <div style={styles.tocNodeChildren}>
+          {node.children.map((child) => (
+            <TocNodeLink key={child.item.id} node={child} depth={depth + 1} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function splitTocLabel(title: string) {
+  const match = title.match(/^(\d+(?:\.\d+)*)\.\s+(.*)$/);
+  if (!match) {
+    return { indexLabel: "", textLabel: title };
+  }
+
+  return { indexLabel: match[1], textLabel: match[2] };
+}
+
+function countTocNodes(nodes: TocNode[]): number {
+  return nodes.reduce((total, node) => total + 1 + countTocNodes(node.children), 0);
 }
 
 function MetricCard({ label, value }: { label: string; value: number }) {
@@ -349,6 +417,7 @@ function LegendRow({ label, color }: { label: string; color: string }) {
 }
 
 function ModuleChapter({
+  productName,
   moduleTree,
   chapterNumber,
   allWorkItems,
@@ -356,6 +425,7 @@ function ModuleChapter({
   onEditCapability,
   onOpenWorkItem,
 }: {
+  productName: string;
   moduleTree: ModuleTree;
   chapterNumber: number;
   allWorkItems: WorkItem[];
@@ -364,6 +434,7 @@ function ModuleChapter({
   onOpenWorkItem: (workItem: WorkItem) => void;
 }) {
   const [isOpen, setIsOpen] = useState(true);
+  const rootLabel = getHierarchyNodeKindLabel(moduleTree.module.node_kind);
   const moduleWorkItems = buildScopedWorkItemTree(
     allWorkItems.filter((workItem) => workItem.module_id === moduleTree.module.id && !workItem.capability_id),
   );
@@ -374,29 +445,60 @@ function ModuleChapter({
       <details open={isOpen} onToggle={(event) => setIsOpen(event.currentTarget.open)}>
         <summary style={styles.summary}>
           <div style={styles.summaryLeft}>
-            <div style={styles.chapterLabel}>Module {chapterNumber}</div>
+            <div style={styles.chapterLabel}>{rootLabel} {chapterNumber}</div>
             <h3 style={styles.chapterTitle}>{moduleTree.module.name}</h3>
             <div style={styles.chapterSubtitle}>
-              {moduleTree.module.description || moduleTree.module.purpose || "Document this module so the product architecture stays readable."}
+              {moduleTree.module.description || moduleTree.module.purpose || `Document this ${rootLabel.toLowerCase()} so the product architecture stays readable.`}
             </div>
+            <div style={styles.pathText}>{productName} / {moduleTree.module.name}</div>
           </div>
           <div style={styles.summaryRight}>
-            <span style={styles.summaryPill}>
-              {moduleTree.features.length} {moduleTree.features.length === 1 ? "capability" : "capabilities"}
-            </span>
+            <span style={styles.summaryPill}>{moduleTree.features.length} {moduleTree.features.length === 1 ? "child node" : "child nodes"}</span>
             <MetricPills metrics={metrics} />
           </div>
         </summary>
 
         <div style={styles.detailsBody}>
           <div style={{ display: "flex", justifyContent: "flex-end" }}>
-            <button style={styles.subtleButton} onClick={() => onEditModule(moduleTree.module)}>Edit Module</button>
+            <button style={styles.subtleButton} onClick={() => onEditModule(moduleTree.module)}>Edit {rootLabel}</button>
           </div>
 
-          {moduleTree.module.purpose ? (
-            <div style={styles.noteCard}>
-              <div style={styles.noteHeading}>Purpose</div>
-              <div style={styles.noteText}>{moduleTree.module.purpose}</div>
+          {moduleTree.module.purpose
+            || moduleTree.module.explanation
+            || moduleTree.module.examples
+            || moduleTree.module.implementation_notes
+            || moduleTree.module.test_guidance ? (
+            <div style={styles.noteGrid}>
+              {moduleTree.module.purpose ? (
+                <div style={styles.noteCard}>
+                  <div style={styles.noteHeading}>Purpose</div>
+                  <div style={styles.noteText}>{moduleTree.module.purpose}</div>
+                </div>
+              ) : null}
+              {moduleTree.module.explanation ? (
+                <div style={styles.noteCard}>
+                  <div style={styles.noteHeading}>Explanation</div>
+                  <div style={styles.noteText}>{moduleTree.module.explanation}</div>
+                </div>
+              ) : null}
+              {moduleTree.module.examples ? (
+                <div style={styles.noteCard}>
+                  <div style={styles.noteHeading}>Examples</div>
+                  <div style={styles.noteText}>{moduleTree.module.examples}</div>
+                </div>
+              ) : null}
+              {moduleTree.module.implementation_notes ? (
+                <div style={styles.noteCard}>
+                  <div style={styles.noteHeading}>Implementation Notes</div>
+                  <div style={styles.noteText}>{moduleTree.module.implementation_notes}</div>
+                </div>
+              ) : null}
+              {moduleTree.module.test_guidance ? (
+                <div style={styles.noteCard}>
+                  <div style={styles.noteHeading}>Test Guidance</div>
+                  <div style={styles.noteText}>{moduleTree.module.test_guidance}</div>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -411,6 +513,7 @@ function ModuleChapter({
             moduleTree.features.map((capabilityTree, index) => (
               <CapabilityChapter
                 key={capabilityTree.capability.id}
+                path={[productName, moduleTree.module.name]}
                 capabilityTree={capabilityTree}
                 numbering={`${chapterNumber}.${index + 1}`}
                 allWorkItems={allWorkItems}
@@ -428,12 +531,14 @@ function ModuleChapter({
 }
 
 function CapabilityChapter({
+  path,
   capabilityTree,
   numbering,
   allWorkItems,
   onEditCapability,
   onOpenWorkItem,
 }: {
+  path: string[];
   capabilityTree: CapabilityTree;
   numbering: string;
   allWorkItems: WorkItem[];
@@ -441,7 +546,7 @@ function CapabilityChapter({
   onOpenWorkItem: (workItem: WorkItem) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const capabilityType = capabilityTree.capability.level === 0 ? "Capability" : "Outcome";
+  const capabilityType = getHierarchyNodeKindLabel(capabilityTree.capability.node_kind);
   const directWorkItems = useMemo(
     () => buildScopedWorkItemTree(allWorkItems.filter((workItem) => workItem.capability_id === capabilityTree.capability.id)),
     [allWorkItems, capabilityTree.capability.id],
@@ -458,6 +563,7 @@ function CapabilityChapter({
             <div style={styles.chapterSubtitle}>
               {capabilityTree.capability.description || `Document what this ${capabilityType.toLowerCase()} is responsible for.`}
             </div>
+            <div style={styles.pathText}>{[...path, capabilityTree.capability.name].join(" / ")}</div>
           </div>
           <div style={styles.summaryRight}>
             <span style={styles.summaryPill}>{capabilityTree.capability.status.replace(/_/g, " ")}</span>
@@ -473,12 +579,29 @@ function CapabilityChapter({
             </button>
           </div>
 
-          {capabilityTree.capability.acceptance_criteria || capabilityTree.capability.technical_notes ? (
+          {capabilityTree.capability.acceptance_criteria
+            || capabilityTree.capability.technical_notes
+            || capabilityTree.capability.explanation
+            || capabilityTree.capability.examples
+            || capabilityTree.capability.implementation_notes
+            || capabilityTree.capability.test_guidance ? (
             <div style={styles.noteGrid}>
               {capabilityTree.capability.acceptance_criteria ? (
                 <div style={styles.noteCard}>
                   <div style={styles.noteHeading}>Acceptance Criteria</div>
                   <div style={styles.noteText}>{capabilityTree.capability.acceptance_criteria}</div>
+                </div>
+              ) : null}
+              {capabilityTree.capability.explanation ? (
+                <div style={styles.noteCard}>
+                  <div style={styles.noteHeading}>Explanation</div>
+                  <div style={styles.noteText}>{capabilityTree.capability.explanation}</div>
+                </div>
+              ) : null}
+              {capabilityTree.capability.examples ? (
+                <div style={styles.noteCard}>
+                  <div style={styles.noteHeading}>Examples</div>
+                  <div style={styles.noteText}>{capabilityTree.capability.examples}</div>
                 </div>
               ) : null}
               {capabilityTree.capability.technical_notes ? (
@@ -487,9 +610,21 @@ function CapabilityChapter({
                   <div style={styles.noteText}>{capabilityTree.capability.technical_notes}</div>
                 </div>
               ) : null}
+              {capabilityTree.capability.implementation_notes ? (
+                <div style={styles.noteCard}>
+                  <div style={styles.noteHeading}>Implementation Notes</div>
+                  <div style={styles.noteText}>{capabilityTree.capability.implementation_notes}</div>
+                </div>
+              ) : null}
+              {capabilityTree.capability.test_guidance ? (
+                <div style={styles.noteCard}>
+                  <div style={styles.noteHeading}>Test Guidance</div>
+                  <div style={styles.noteText}>{capabilityTree.capability.test_guidance}</div>
+                </div>
+              ) : null}
             </div>
           ) : (
-            <div style={styles.empty}>No acceptance criteria or technical notes recorded yet.</div>
+            <div style={styles.empty}>No chapter guidance recorded yet.</div>
           )}
 
           <div style={styles.metaRow}>
@@ -512,6 +647,7 @@ function CapabilityChapter({
               {capabilityTree.children.map((child, index) => (
                 <CapabilityChapter
                   key={child.capability.id}
+                  path={[...path, capabilityTree.capability.name]}
                   capabilityTree={child}
                   numbering={`${numbering}.${index + 1}`}
                   allWorkItems={allWorkItems}

@@ -39,15 +39,25 @@ const AUTO_START_AFTER_WORK_ITEM_APPROVAL_KEY: &str =
 #[serde(rename_all = "camelCase")]
 pub struct ToolDefinition {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     pub description: String,
     pub input_schema: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_schema: Option<Value>,
 }
 
 pub fn definitions() -> Vec<ToolDefinition> {
+    let mut definitions = legacy_tool_definitions();
+    definitions.extend(first_class_tool_definitions());
+    definitions
+}
+
+fn legacy_tool_definitions() -> Vec<ToolDefinition> {
     vec![
         action_tool(
             "aruvi_catalog",
-            "Manage products, modules, capabilities, and product trees for planning.",
+            "Manage products, modules, capabilities, and capability rollouts (child capabilities) for planning.",
             &[
                 "create_product",
                 "get_product",
@@ -65,12 +75,14 @@ pub fn definitions() -> Vec<ToolDefinition> {
                 "update_capability",
                 "delete_capability",
                 "reorder_capabilities",
+                "apply_capability_template",
+                "convert_capability_kind",
                 "get_product_tree",
             ],
         ),
         action_tool(
             "aruvi_work_items",
-            "Manage work items and their hierarchy for execution planning.",
+            "Manage work items and their hierarchy for execution planning. Work items attach directly to capability_id, including capability rollout nodes.",
             &[
                 "create_work_item",
                 "get_work_item",
@@ -232,7 +244,695 @@ pub fn definitions() -> Vec<ToolDefinition> {
     ]
 }
 
+fn first_class_tool_definitions() -> Vec<ToolDefinition> {
+    vec![
+        first_class_tool(
+            "catalog.products.list",
+            "List Products",
+            "List visible products in the Aruvi catalog.",
+            empty_object_schema(),
+        ),
+        first_class_tool(
+            "catalog.products.get",
+            "Get Product",
+            "Get a single product by id.",
+            object_schema(vec![("id", string_property("The product id."))], &["id"]),
+        ),
+        first_class_tool(
+            "catalog.products.create",
+            "Create Product",
+            "Create a new product.",
+            object_schema(
+                vec![
+                    ("name", string_property("The product name.")),
+                    ("description", string_property("Short product description.")),
+                    ("vision", string_property("Longer product vision statement.")),
+                    ("goals", string_array_property("Ordered list of product goals.")),
+                    ("tags", string_array_property("Optional product tags.")),
+                ],
+                &["name"],
+            ),
+        ),
+        first_class_tool(
+            "catalog.products.update",
+            "Update Product",
+            "Update mutable fields on an existing product.",
+            object_schema(
+                vec![
+                    ("id", string_property("The product id.")),
+                    ("name", string_property("Updated product name.")),
+                    ("description", string_property("Updated product description.")),
+                    ("vision", string_property("Updated product vision.")),
+                    ("goals", string_array_property("Updated list of product goals.")),
+                    ("tags", string_array_property("Updated product tags.")),
+                ],
+                &["id"],
+            ),
+        ),
+        first_class_tool(
+            "catalog.products.archive",
+            "Archive Product",
+            "Archive a product.",
+            object_schema(vec![("id", string_property("The product id."))], &["id"]),
+        ),
+        first_class_tool(
+            "catalog.products.get_tree",
+            "Get Product Tree",
+            "Get the full semantic product tree for a product.",
+            object_schema(
+                vec![("productId", string_property("The product id."))],
+                &["productId"],
+            ),
+        ),
+        first_class_tool(
+            "catalog.modules.list",
+            "List Modules",
+            "List root sections for a product.",
+            object_schema(
+                vec![("productId", string_property("The product id."))],
+                &["productId"],
+            ),
+        ),
+        first_class_tool(
+            "catalog.modules.create",
+            "Create Module",
+            "Create a new root section for a product. Root node kinds are limited to area, domain, or system. Discover detailed constraints via aruvi://catalog/node-kind-constraints.",
+            object_schema(
+                vec![
+                    ("productId", string_property("The product id.")),
+                    ("name", string_property("The root section name.")),
+                    ("description", string_property("Short section description.")),
+                    ("purpose", string_property("Section purpose or summary.")),
+                    ("explanation", string_property("Long-form chapter explanation.")),
+                    ("examples", string_property("Worked examples or concrete scenarios.")),
+                    (
+                        "implementationNotes",
+                        string_property("Implementation-oriented notes for the section."),
+                    ),
+                    (
+                        "testGuidance",
+                        string_property("Test guidance or validation notes for the section."),
+                    ),
+                    (
+                        "nodeKind",
+                        enum_property(
+                            "The semantic root node kind. Only root kinds are allowed.",
+                            &["area", "domain", "system"],
+                        ),
+                    ),
+                ],
+                &["productId", "name"],
+            ),
+        ),
+        first_class_tool(
+            "catalog.modules.update",
+            "Update Module",
+            "Update an existing root section. Root node kinds are limited to area, domain, or system. Discover detailed constraints via aruvi://catalog/node-kind-constraints.",
+            object_schema(
+                vec![
+                    ("id", string_property("The module id.")),
+                    ("name", string_property("Updated root section name.")),
+                    ("description", string_property("Updated description.")),
+                    ("purpose", string_property("Updated purpose.")),
+                    ("explanation", string_property("Updated chapter explanation.")),
+                    ("examples", string_property("Updated worked examples.")),
+                    (
+                        "implementationNotes",
+                        string_property("Updated implementation-oriented notes."),
+                    ),
+                    (
+                        "testGuidance",
+                        string_property("Updated test guidance."),
+                    ),
+                    (
+                        "nodeKind",
+                        enum_property(
+                            "Updated semantic root node kind. Only root kinds are allowed.",
+                            &["area", "domain", "system"],
+                        ),
+                    ),
+                ],
+                &["id"],
+            ),
+        ),
+        first_class_tool(
+            "catalog.modules.delete",
+            "Delete Module",
+            "Delete a root section.",
+            object_schema(vec![("id", string_property("The module id."))], &["id"]),
+        ),
+        first_class_tool(
+            "catalog.modules.reorder",
+            "Reorder Modules",
+            "Reorder root sections within a product.",
+            object_schema(
+                vec![
+                    ("productId", string_property("The product id.")),
+                    (
+                        "orderedIds",
+                        string_array_property("Root section ids in the desired order."),
+                    ),
+                ],
+                &["productId", "orderedIds"],
+            ),
+        ),
+        first_class_tool(
+            "catalog.capabilities.list",
+            "List Capabilities",
+            "List semantic child nodes for a module.",
+            object_schema(
+                vec![("moduleId", string_property("The module id."))],
+                &["moduleId"],
+            ),
+        ),
+        first_class_tool(
+            "catalog.capabilities.create",
+            "Create Capability",
+            "Create a semantic child node within a module or capability. Allowed node kinds depend on the parent node kind. Rollout and reference are leaves. Discover detailed constraints via aruvi://catalog/node-kind-constraints.",
+            object_schema(
+                vec![
+                    ("moduleId", string_property("The module id.")),
+                    ("parentCapabilityId", string_property("Optional parent capability id.")),
+                    ("name", string_property("The child node name.")),
+                    ("description", string_property("Short node description.")),
+                    (
+                        "acceptanceCriteria",
+                        string_property("Acceptance criteria for the node."),
+                    ),
+                    ("explanation", string_property("Long-form explanation for the node.")),
+                    ("examples", string_property("Worked examples for the node.")),
+                    (
+                        "priority",
+                        enum_property(
+                            "Priority level.",
+                            &["critical", "high", "medium", "low"],
+                        ),
+                    ),
+                    (
+                        "risk",
+                        enum_property("Risk level.", &["high", "medium", "low"]),
+                    ),
+                    (
+                        "technicalNotes",
+                        string_property("Technical notes for the node."),
+                    ),
+                    (
+                        "implementationNotes",
+                        string_property("Implementation plan or engineering notes."),
+                    ),
+                    (
+                        "testGuidance",
+                        string_property("Test strategy or verification notes."),
+                    ),
+                    (
+                        "nodeKind",
+                        enum_property(
+                            "Semantic node kind.",
+                            &[
+                                "area",
+                                "domain",
+                                "subdomain",
+                                "system",
+                                "subsystem",
+                                "feature_set",
+                                "capability",
+                                "rollout",
+                                "reference",
+                            ],
+                        ),
+                    ),
+                ],
+                &["moduleId", "name"],
+            ),
+        ),
+        first_class_tool(
+            "catalog.capabilities.update",
+            "Update Capability",
+            "Update a semantic child node. Allowed node kinds depend on the parent node kind. Rollout and reference are leaves. Discover detailed constraints via aruvi://catalog/node-kind-constraints.",
+            object_schema(
+                vec![
+                    ("id", string_property("The capability id.")),
+                    ("name", string_property("Updated node name.")),
+                    ("description", string_property("Updated description.")),
+                    (
+                        "acceptanceCriteria",
+                        string_property("Updated acceptance criteria."),
+                    ),
+                    ("explanation", string_property("Updated long-form explanation.")),
+                    ("examples", string_property("Updated worked examples.")),
+                    (
+                        "priority",
+                        enum_property(
+                            "Updated priority level.",
+                            &["critical", "high", "medium", "low"],
+                        ),
+                    ),
+                    (
+                        "risk",
+                        enum_property("Updated risk level.", &["high", "medium", "low"]),
+                    ),
+                    (
+                        "technicalNotes",
+                        string_property("Updated technical notes."),
+                    ),
+                    (
+                        "implementationNotes",
+                        string_property("Updated implementation plan or engineering notes."),
+                    ),
+                    (
+                        "testGuidance",
+                        string_property("Updated test strategy or verification notes."),
+                    ),
+                    (
+                        "nodeKind",
+                        enum_property(
+                            "Updated semantic node kind.",
+                            &[
+                                "area",
+                                "domain",
+                                "subdomain",
+                                "system",
+                                "subsystem",
+                                "feature_set",
+                                "capability",
+                                "rollout",
+                                "reference",
+                            ],
+                        ),
+                    ),
+                ],
+                &["id"],
+            ),
+        ),
+        first_class_tool(
+            "catalog.capabilities.delete",
+            "Delete Capability",
+            "Delete a semantic child node.",
+            object_schema(vec![("id", string_property("The capability id."))], &["id"]),
+        ),
+        first_class_tool(
+            "catalog.capabilities.reorder",
+            "Reorder Capabilities",
+            "Reorder semantic child nodes under a module or capability.",
+            object_schema(
+                vec![
+                    ("moduleId", string_property("The module id.")),
+                    ("parentCapabilityId", string_property("Optional parent capability id.")),
+                    (
+                        "orderedIds",
+                        string_array_property("Child capability ids in the desired order."),
+                    ),
+                ],
+                &["moduleId", "orderedIds"],
+            ),
+        ),
+        first_class_tool(
+            "catalog.capabilities.apply_template",
+            "Apply Capability Template",
+            "Create a supported book-shaped subtree under a module or capability. Use this for topics such as operator chapters with definition, examples, implementation, and tests.",
+            object_schema(
+                vec![
+                    ("moduleId", string_property("The module id.")),
+                    ("parentCapabilityId", string_property("Optional parent capability id.")),
+                    (
+                        "templateKind",
+                        enum_property(
+                            "Template kind to apply.",
+                            &["operator_chapter", "technical_topic_book"],
+                        ),
+                    ),
+                    ("name", string_property("Topic name for the generated subtree.")),
+                    ("description", string_property("Optional chapter description.")),
+                    ("explanation", string_property("Long-form explanation content.")),
+                    ("examples", string_property("Worked examples content.")),
+                    (
+                        "implementationNotes",
+                        string_property("Implementation guidance for the generated subtree."),
+                    ),
+                    (
+                        "testGuidance",
+                        string_property("Test guidance for the generated subtree."),
+                    ),
+                    (
+                        "priority",
+                        enum_property(
+                            "Priority level applied to generated nodes and work items.",
+                            &["critical", "high", "medium", "low"],
+                        ),
+                    ),
+                    (
+                        "risk",
+                        enum_property("Risk level.", &["high", "medium", "low"]),
+                    ),
+                ],
+                &["moduleId", "templateKind", "name"],
+            ),
+        ),
+        first_class_tool(
+            "catalog.capabilities.convert_kind",
+            "Convert Capability Kind",
+            "Safely convert a semantic node between rollout, reference, feature_set, capability, or other supported child kinds. Use childStrategy=reparent_to_parent when converting a structural node into a leaf while preserving child chapters.",
+            object_schema(
+                vec![
+                    ("id", string_property("The capability id.")),
+                    (
+                        "nodeKind",
+                        enum_property(
+                            "Target semantic node kind.",
+                            &[
+                                "area",
+                                "domain",
+                                "subdomain",
+                                "system",
+                                "subsystem",
+                                "feature_set",
+                                "capability",
+                                "rollout",
+                                "reference",
+                            ],
+                        ),
+                    ),
+                    (
+                        "childStrategy",
+                        enum_property(
+                            "How to handle existing structural children during conversion.",
+                            &["reject", "reparent_to_parent"],
+                        ),
+                    ),
+                ],
+                &["id", "nodeKind"],
+            ),
+        ),
+        first_class_tool(
+            "work_items.list",
+            "List Work Items",
+            "List work items filtered by product, scope, or status.",
+            object_schema(
+                vec![
+                    ("productId", string_property("Optional product id.")),
+                    ("moduleId", string_property("Optional module id.")),
+                    ("capabilityId", string_property("Optional capability id.")),
+                    ("sourceNodeId", string_property("Optional source node id.")),
+                    (
+                        "sourceNodeType",
+                        enum_property(
+                            "Optional source node type.",
+                            &["module", "capability"],
+                        ),
+                    ),
+                    ("status", string_property("Optional work item status filter.")),
+                ],
+                &[],
+            ),
+        ),
+        first_class_tool(
+            "work_items.get",
+            "Get Work Item",
+            "Get a work item by id.",
+            object_schema(vec![("id", string_property("The work item id."))], &["id"]),
+        ),
+        first_class_tool(
+            "work_items.create",
+            "Create Work Item",
+            "Create a work item attached to a product and optional source scope.",
+            object_schema(
+                vec![
+                    ("productId", string_property("The product id.")),
+                    ("moduleId", string_property("Optional module id.")),
+                    ("capabilityId", string_property("Optional capability id.")),
+                    ("sourceNodeId", string_property("Optional source node id.")),
+                    (
+                        "sourceNodeType",
+                        enum_property(
+                            "Optional source node type.",
+                            &["module", "capability"],
+                        ),
+                    ),
+                    ("parentWorkItemId", string_property("Optional parent work item id.")),
+                    ("title", string_property("The work item title.")),
+                    ("problemStatement", string_property("Problem statement.")),
+                    ("description", string_property("Short work item description.")),
+                    (
+                        "acceptanceCriteria",
+                        string_property("Acceptance criteria for the work item."),
+                    ),
+                    ("constraints", string_property("Execution constraints.")),
+                    (
+                        "workItemType",
+                        enum_property(
+                            "Work item type.",
+                            &[
+                                "feature",
+                                "setup",
+                                "bug",
+                                "refactor",
+                                "test",
+                                "review",
+                                "security_fix",
+                                "performance_improvement",
+                            ],
+                        ),
+                    ),
+                    (
+                        "priority",
+                        enum_property(
+                            "Priority level.",
+                            &["critical", "high", "medium", "low"],
+                        ),
+                    ),
+                    (
+                        "complexity",
+                        enum_property(
+                            "Complexity level.",
+                            &["trivial", "low", "medium", "high", "very_high"],
+                        ),
+                    ),
+                ],
+                &["productId", "title"],
+            ),
+        ),
+        first_class_tool(
+            "work_items.update",
+            "Update Work Item",
+            "Update mutable fields on a work item.",
+            object_schema(
+                vec![
+                    ("id", string_property("The work item id.")),
+                    ("title", string_property("Updated title.")),
+                    ("description", string_property("Updated description.")),
+                    ("status", string_property("Updated status.")),
+                    ("problemStatement", string_property("Updated problem statement.")),
+                    (
+                        "acceptanceCriteria",
+                        string_property("Updated acceptance criteria."),
+                    ),
+                    ("constraints", string_property("Updated constraints.")),
+                ],
+                &["id"],
+            ),
+        ),
+        first_class_tool(
+            "work_items.delete",
+            "Delete Work Item",
+            "Delete a work item.",
+            object_schema(vec![("id", string_property("The work item id."))], &["id"]),
+        ),
+        first_class_tool(
+            "work_items.list_children",
+            "List Child Work Items",
+            "List direct child work items for a parent work item.",
+            object_schema(
+                vec![("workItemId", string_property("The parent work item id."))],
+                &["workItemId"],
+            ),
+        ),
+        first_class_tool(
+            "work_items.reorder",
+            "Reorder Work Items",
+            "Reorder work items by supplying the desired ordered ids.",
+            object_schema(
+                vec![(
+                    "orderedIds",
+                    string_array_property("Work item ids in the desired order."),
+                )],
+                &["orderedIds"],
+            ),
+        ),
+        first_class_tool(
+            "work_items.summarize_by_product",
+            "Summarize Work Items By Product",
+            "Summarize work item counts grouped by product.",
+            empty_object_schema(),
+        ),
+        first_class_tool(
+            "repositories.list",
+            "List Repositories",
+            "List registered repositories.",
+            empty_object_schema(),
+        ),
+        first_class_tool(
+            "repositories.register",
+            "Register Repository",
+            "Register a repository with Aruvi.",
+            object_schema(
+                vec![
+                    ("name", string_property("Repository display name.")),
+                    ("localPath", string_property("Absolute local repository path.")),
+                    ("remoteUrl", string_property("Optional remote url.")),
+                    ("defaultBranch", string_property("Default branch name.")),
+                ],
+                &["name", "localPath"],
+            ),
+        ),
+        first_class_tool(
+            "repositories.delete",
+            "Delete Repository",
+            "Delete a registered repository.",
+            object_schema(vec![("id", string_property("The repository id."))], &["id"]),
+        ),
+        first_class_tool(
+            "repositories.attachments.create",
+            "Attach Repository",
+            "Attach a repository to a product or module scope.",
+            object_schema(
+                vec![
+                    (
+                        "scopeType",
+                        enum_property("Attachment scope type.", &["product", "module"]),
+                    ),
+                    ("scopeId", string_property("Scope id to attach to.")),
+                    ("repositoryId", string_property("The repository id.")),
+                    ("isDefault", boolean_property("Whether the attachment is the default.")),
+                ],
+                &["scopeType", "scopeId", "repositoryId"],
+            ),
+        ),
+        first_class_tool(
+            "repositories.resolution.for_work_item",
+            "Resolve Repository For Work Item",
+            "Resolve the repository associated with a work item.",
+            object_schema(
+                vec![("workItemId", string_property("The work item id."))],
+                &["workItemId"],
+            ),
+        ),
+        first_class_tool(
+            "repositories.resolution.for_scope",
+            "Resolve Repository For Scope",
+            "Resolve the repository associated with a product or module scope.",
+            object_schema(
+                vec![
+                    ("productId", string_property("Optional product id.")),
+                    ("moduleId", string_property("Optional module id.")),
+                ],
+                &[],
+            ),
+        ),
+        first_class_tool(
+            "repositories.workspaces.create_for_scope",
+            "Create Local Workspace",
+            "Create a local workspace for a product, module, or work item scope.",
+            object_schema(
+                vec![
+                    ("productId", string_property("Optional product id.")),
+                    ("moduleId", string_property("Optional module id.")),
+                    ("workItemId", string_property("Optional work item id.")),
+                    ("preferredPath", string_property("Optional preferred workspace path.")),
+                ],
+                &[],
+            ),
+        ),
+        first_class_tool(
+            "repositories.trees.list",
+            "List Repository Tree",
+            "List the file tree for a repository.",
+            object_schema(
+                vec![
+                    ("repositoryId", string_property("The repository id.")),
+                    ("includeHidden", boolean_property("Whether to include hidden files.")),
+                    ("maxDepth", integer_property("Optional maximum traversal depth.")),
+                ],
+                &["repositoryId"],
+            ),
+        ),
+        first_class_tool(
+            "repositories.files.read",
+            "Read Repository File",
+            "Read a file from a repository.",
+            object_schema(
+                vec![
+                    ("repositoryId", string_property("The repository id.")),
+                    ("relativePath", string_property("Repository-relative file path.")),
+                ],
+                &["repositoryId", "relativePath"],
+            ),
+        ),
+        first_class_tool(
+            "repositories.files.write",
+            "Write Repository File",
+            "Write a file in a repository.",
+            object_schema(
+                vec![
+                    ("repositoryId", string_property("The repository id.")),
+                    ("relativePath", string_property("Repository-relative file path.")),
+                    ("content", string_property("New file content.")),
+                ],
+                &["repositoryId", "relativePath", "content"],
+            ),
+        ),
+        first_class_tool(
+            "repositories.files.get_sha256",
+            "Get Repository File SHA256",
+            "Get the SHA256 of a repository file.",
+            object_schema(
+                vec![
+                    ("repositoryId", string_property("The repository id.")),
+                    ("relativePath", string_property("Repository-relative file path.")),
+                ],
+                &["repositoryId", "relativePath"],
+            ),
+        ),
+        first_class_tool(
+            "repositories.files.apply_patch",
+            "Apply Repository Patch",
+            "Apply a patch to a repository file.",
+            object_schema(
+                vec![
+                    ("repositoryId", string_property("The repository id.")),
+                    ("relativePath", string_property("Repository-relative file path.")),
+                    ("patch", string_property("Unified patch text to apply.")),
+                    (
+                        "baseSha256",
+                        string_property("Optional expected base SHA256 for optimistic locking."),
+                    ),
+                ],
+                &["repositoryId", "relativePath", "patch"],
+            ),
+        ),
+    ]
+}
+
 pub async fn dispatch_tool(
+    state: &AppState,
+    tool_name: &str,
+    payload: Value,
+) -> Result<Value, AppError> {
+    if is_legacy_tool_name(tool_name) {
+        return dispatch_namespace_tool(state, tool_name, payload).await;
+    }
+
+    if let Some((namespace_tool, adapted_payload)) =
+        translate_first_class_tool(tool_name, payload)?
+    {
+        return dispatch_namespace_tool(state, namespace_tool, adapted_payload).await;
+    }
+
+    Err(AppError::Validation(format!(
+        "Unknown MCP tool: {tool_name}"
+    )))
+}
+
+async fn dispatch_namespace_tool(
     state: &AppState,
     tool_name: &str,
     payload: Value,
@@ -250,14 +950,109 @@ pub async fn dispatch_tool(
         "aruvi_channels" => handle_channels(state, payload).await,
         "aruvi_speech" => handle_speech(state, payload).await,
         _ => Err(AppError::Validation(format!(
-            "Unknown MCP tool: {tool_name}"
+            "Unknown MCP namespace tool: {tool_name}"
         ))),
     }
+}
+
+fn is_legacy_tool_name(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        "aruvi_catalog"
+            | "aruvi_work_items"
+            | "aruvi_repositories"
+            | "aruvi_planner"
+            | "aruvi_workflows"
+            | "aruvi_checkpoints"
+            | "aruvi_agents"
+            | "aruvi_models"
+            | "aruvi_settings"
+            | "aruvi_channels"
+            | "aruvi_speech"
+    )
+}
+
+fn translate_first_class_tool(
+    tool_name: &str,
+    payload: Value,
+) -> Result<Option<(&'static str, Value)>, AppError> {
+    let (namespace_tool, action) = match tool_name {
+        "catalog.products.list" => ("aruvi_catalog", "list_products"),
+        "catalog.products.get" => ("aruvi_catalog", "get_product"),
+        "catalog.products.create" => ("aruvi_catalog", "create_product"),
+        "catalog.products.update" => ("aruvi_catalog", "update_product"),
+        "catalog.products.archive" => ("aruvi_catalog", "archive_product"),
+        "catalog.products.get_tree" => ("aruvi_catalog", "get_product_tree"),
+        "catalog.modules.list" => ("aruvi_catalog", "list_modules"),
+        "catalog.modules.create" => ("aruvi_catalog", "create_module"),
+        "catalog.modules.update" => ("aruvi_catalog", "update_module"),
+        "catalog.modules.delete" => ("aruvi_catalog", "delete_module"),
+        "catalog.modules.reorder" => ("aruvi_catalog", "reorder_modules"),
+        "catalog.capabilities.list" => ("aruvi_catalog", "list_capabilities"),
+        "catalog.capabilities.create" => ("aruvi_catalog", "create_capability"),
+        "catalog.capabilities.update" => ("aruvi_catalog", "update_capability"),
+        "catalog.capabilities.delete" => ("aruvi_catalog", "delete_capability"),
+        "catalog.capabilities.reorder" => ("aruvi_catalog", "reorder_capabilities"),
+        "catalog.capabilities.apply_template" => ("aruvi_catalog", "apply_capability_template"),
+        "catalog.capabilities.convert_kind" => ("aruvi_catalog", "convert_capability_kind"),
+        "work_items.list" => ("aruvi_work_items", "list_work_items"),
+        "work_items.get" => ("aruvi_work_items", "get_work_item"),
+        "work_items.create" => ("aruvi_work_items", "create_work_item"),
+        "work_items.update" => ("aruvi_work_items", "update_work_item"),
+        "work_items.delete" => ("aruvi_work_items", "delete_work_item"),
+        "work_items.list_children" => ("aruvi_work_items", "get_sub_work_items"),
+        "work_items.reorder" => ("aruvi_work_items", "reorder_work_items"),
+        "work_items.summarize_by_product" => {
+            ("aruvi_work_items", "summarize_work_items_by_product")
+        }
+        "repositories.list" => ("aruvi_repositories", "list_repositories"),
+        "repositories.register" => ("aruvi_repositories", "register_repository"),
+        "repositories.delete" => ("aruvi_repositories", "delete_repository"),
+        "repositories.attachments.create" => ("aruvi_repositories", "attach_repository"),
+        "repositories.resolution.for_work_item" => {
+            ("aruvi_repositories", "resolve_repository_for_work_item")
+        }
+        "repositories.resolution.for_scope" => {
+            ("aruvi_repositories", "resolve_repository_for_scope")
+        }
+        "repositories.workspaces.create_for_scope" => {
+            ("aruvi_repositories", "create_local_workspace")
+        }
+        "repositories.trees.list" => ("aruvi_repositories", "list_repository_tree"),
+        "repositories.files.read" => ("aruvi_repositories", "read_repository_file"),
+        "repositories.files.write" => ("aruvi_repositories", "write_repository_file"),
+        "repositories.files.get_sha256" => {
+            ("aruvi_repositories", "get_repository_file_sha256")
+        }
+        "repositories.files.apply_patch" => {
+            ("aruvi_repositories", "apply_repository_patch")
+        }
+        _ => return Ok(None),
+    };
+
+    let arguments = match payload {
+        Value::Object(map) => Value::Object(map),
+        Value::Null => Value::Object(Map::new()),
+        _ => {
+            return Err(AppError::Validation(format!(
+                "{tool_name} arguments must be a JSON object"
+            )))
+        }
+    };
+
+    Ok(Some((
+        namespace_tool,
+        json!({
+            "action": action,
+            "arguments": arguments
+        }),
+    )))
 }
 
 fn action_tool(name: &str, description: &str, actions: &[&str]) -> ToolDefinition {
     ToolDefinition {
         name: name.to_string(),
+        title: None,
         description: description.to_string(),
         input_schema: json!({
             "type": "object",
@@ -275,7 +1070,82 @@ fn action_tool(name: &str, description: &str, actions: &[&str]) -> ToolDefinitio
             "required": ["action"],
             "additionalProperties": false
         }),
+        output_schema: None,
     }
+}
+
+fn first_class_tool(name: &str, title: &str, description: &str, input_schema: Value) -> ToolDefinition {
+    ToolDefinition {
+        name: name.to_string(),
+        title: Some(title.to_string()),
+        description: description.to_string(),
+        input_schema,
+        output_schema: None,
+    }
+}
+
+fn empty_object_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+    })
+}
+
+fn object_schema(properties: Vec<(&str, Value)>, required: &[&str]) -> Value {
+    let mut property_map = Map::new();
+    for (name, schema) in properties {
+        property_map.insert(name.to_string(), schema);
+    }
+
+    let mut schema = Map::new();
+    schema.insert("type".to_string(), json!("object"));
+    schema.insert("properties".to_string(), Value::Object(property_map));
+    schema.insert("additionalProperties".to_string(), json!(false));
+    if !required.is_empty() {
+        schema.insert("required".to_string(), json!(required));
+    }
+
+    Value::Object(schema)
+}
+
+fn string_property(description: &str) -> Value {
+    json!({
+        "type": "string",
+        "description": description
+    })
+}
+
+fn string_array_property(description: &str) -> Value {
+    json!({
+        "type": "array",
+        "description": description,
+        "items": {
+            "type": "string"
+        }
+    })
+}
+
+fn boolean_property(description: &str) -> Value {
+    json!({
+        "type": "boolean",
+        "description": description
+    })
+}
+
+fn integer_property(description: &str) -> Value {
+    json!({
+        "type": "integer",
+        "description": description
+    })
+}
+
+fn enum_property(description: &str, values: &[&str]) -> Value {
+    json!({
+        "type": "string",
+        "description": description,
+        "enum": values
+    })
 }
 
 struct ToolAction {
@@ -612,6 +1482,12 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
                 &name,
                 &args.string_or_default(&["description"], "")?,
                 &args.string_or_default(&["purpose"], "")?,
+                args.optional_string(&["node_kind", "nodeKind"])?.as_deref(),
+                &args.string_or_default(&["explanation"], "")?,
+                &args.string_or_default(&["examples"], "")?,
+                &args
+                    .string_or_default(&["implementation_notes", "implementationNotes"], "")?,
+                &args.string_or_default(&["test_guidance", "testGuidance"], "")?,
             )
             .await?;
             action_result("create_module", module)
@@ -631,6 +1507,13 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
                 args.optional_string(&["name"])?.as_deref(),
                 args.optional_string(&["description"])?.as_deref(),
                 args.optional_string(&["purpose"])?.as_deref(),
+                args.optional_string(&["node_kind", "nodeKind"])?.as_deref(),
+                args.optional_string(&["explanation"])?.as_deref(),
+                args.optional_string(&["examples"])?.as_deref(),
+                args.optional_string(&["implementation_notes", "implementationNotes"])?
+                    .as_deref(),
+                args.optional_string(&["test_guidance", "testGuidance"])?
+                    .as_deref(),
             )
             .await?;
             action_result("update_module", module)
@@ -662,6 +1545,12 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
                 &args.string_or_default(&["priority"], "medium")?,
                 &args.string_or_default(&["risk"], "medium")?,
                 &args.string_or_default(&["technical_notes", "technicalNotes"], "")?,
+                args.optional_string(&["node_kind", "nodeKind"])?.as_deref(),
+                &args.string_or_default(&["explanation"], "")?,
+                &args.string_or_default(&["examples"], "")?,
+                &args
+                    .string_or_default(&["implementation_notes", "implementationNotes"], "")?,
+                &args.string_or_default(&["test_guidance", "testGuidance"], "")?,
             )
             .await?;
             action_result("create_capability", capability)
@@ -686,6 +1575,13 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
                 args.optional_string(&["risk"])?.as_deref(),
                 args.optional_string(&["technical_notes", "technicalNotes"])?
                     .as_deref(),
+                args.optional_string(&["node_kind", "nodeKind"])?.as_deref(),
+                args.optional_string(&["explanation"])?.as_deref(),
+                args.optional_string(&["examples"])?.as_deref(),
+                args.optional_string(&["implementation_notes", "implementationNotes"])?
+                    .as_deref(),
+                args.optional_string(&["test_guidance", "testGuidance"])?
+                    .as_deref(),
             )
             .await?;
             action_result("update_capability", capability)
@@ -709,6 +1605,37 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
             )
             .await?;
             Ok(action_ok("reorder_capabilities"))
+        }
+        "apply_capability_template" => {
+            let result = product_service::apply_semantic_template(
+                &state.db,
+                &args.required_string(&["module_id", "moduleId"], "module_id")?,
+                args.optional_string(&["parent_capability_id", "parentCapabilityId"])?
+                    .as_deref(),
+                &args.required_string(&["template_kind", "templateKind"], "template_kind")?,
+                &args.required_string(&["name"], "name")?,
+                &args.string_or_default(&["description"], "")?,
+                args.optional_string(&["priority"])?.as_deref(),
+                args.optional_string(&["risk"])?.as_deref(),
+                &args.string_or_default(&["explanation"], "")?,
+                &args.string_or_default(&["examples"], "")?,
+                &args
+                    .string_or_default(&["implementation_notes", "implementationNotes"], "")?,
+                &args.string_or_default(&["test_guidance", "testGuidance"], "")?,
+            )
+            .await?;
+            action_result("apply_capability_template", result)
+        }
+        "convert_capability_kind" => {
+            let result = product_service::convert_capability_kind(
+                &state.db,
+                &args.required_string(&["id"], "id")?,
+                &args.required_string(&["node_kind", "nodeKind"], "node_kind")?,
+                args.optional_string(&["child_strategy", "childStrategy"])?
+                    .as_deref(),
+            )
+            .await?;
+            action_result("convert_capability_kind", result)
         }
         "get_product_tree" => {
             let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
@@ -737,6 +1664,10 @@ async fn handle_work_items(state: &AppState, payload: Value) -> Result<Value, Ap
                 &product_id,
                 args.optional_string(&["module_id", "moduleId"])?.as_deref(),
                 args.optional_string(&["capability_id", "capabilityId"])?
+                    .as_deref(),
+                args.optional_string(&["source_node_id", "sourceNodeId"])?
+                    .as_deref(),
+                args.optional_string(&["source_node_type", "sourceNodeType"])?
                     .as_deref(),
                 args.optional_string(&["parent_work_item_id", "parentWorkItemId"])?
                     .as_deref(),
@@ -767,6 +1698,10 @@ async fn handle_work_items(state: &AppState, payload: Value) -> Result<Value, Ap
                     .as_deref(),
                 args.optional_string(&["module_id", "moduleId"])?.as_deref(),
                 args.optional_string(&["capability_id", "capabilityId"])?
+                    .as_deref(),
+                args.optional_string(&["source_node_id", "sourceNodeId"])?
+                    .as_deref(),
+                args.optional_string(&["source_node_type", "sourceNodeType"])?
                     .as_deref(),
                 args.optional_string(&["status"])?.as_deref(),
             )
@@ -2095,4 +3030,106 @@ fn slugify(value: &str) -> String {
         }
     }
     output.trim_matches('-').to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn definitions_include_first_class_tools_after_legacy_tools() {
+        let definitions = definitions();
+        let legacy_index = definitions
+            .iter()
+            .position(|tool| tool.name == "aruvi_catalog")
+            .expect("legacy aruvi_catalog tool");
+        let first_class_index = definitions
+            .iter()
+            .position(|tool| tool.name == "catalog.products.get_tree")
+            .expect("catalog.products.get_tree");
+        let first_class_tool = &definitions[first_class_index];
+
+        assert!(legacy_index < first_class_index);
+        assert_eq!(first_class_tool.title.as_deref(), Some("Get Product Tree"));
+        assert_eq!(
+            first_class_tool
+                .input_schema
+                .get("additionalProperties")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn discovery_exposes_node_kind_constraints_in_catalog_tool_schemas() {
+        let definitions = definitions();
+        let module_create_tool = definitions
+            .iter()
+            .find(|tool| tool.name == "catalog.modules.create")
+            .expect("catalog.modules.create");
+        let capability_create_tool = definitions
+            .iter()
+            .find(|tool| tool.name == "catalog.capabilities.create")
+            .expect("catalog.capabilities.create");
+
+        let root_kind_enum = module_create_tool
+            .input_schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .and_then(|properties| properties.get("nodeKind"))
+            .and_then(Value::as_object)
+            .and_then(|node_kind| node_kind.get("enum"))
+            .and_then(Value::as_array)
+            .expect("module nodeKind enum");
+
+        assert_eq!(
+            root_kind_enum,
+            &vec![json!("area"), json!("domain"), json!("system")]
+        );
+        assert!(
+            module_create_tool
+                .description
+                .contains("aruvi://catalog/node-kind-constraints")
+        );
+        assert!(
+            capability_create_tool
+                .description
+                .contains("Rollout and reference are leaves")
+        );
+    }
+
+    #[test]
+    fn translate_first_class_tool_wraps_action_payload_for_legacy_handlers() {
+        let translated = translate_first_class_tool(
+            "catalog.products.get_tree",
+            json!({
+                "productId": "product-123"
+            }),
+        )
+        .expect("translation should succeed")
+        .expect("known first-class tool");
+
+        assert_eq!(translated.0, "aruvi_catalog");
+        assert_eq!(
+            translated.1,
+            json!({
+                "action": "get_product_tree",
+                "arguments": {
+                    "productId": "product-123"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn translate_first_class_tool_rejects_non_object_arguments() {
+        let error = translate_first_class_tool("work_items.list", json!("bad payload"))
+            .expect_err("translation should fail");
+
+        assert!(matches!(error, AppError::Validation(_)));
+        assert_eq!(
+            error.to_string(),
+            "Validation error: work_items.list arguments must be a JSON object"
+        );
+    }
 }

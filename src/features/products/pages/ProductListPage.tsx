@@ -19,10 +19,31 @@ import {
   updateModule,
   updateProduct,
 } from "../../../lib/tauri";
+import {
+  countDescendantNodes,
+  countHierarchyNodes,
+  countLeafNodes,
+  findHierarchyNode,
+  findHierarchyNodePath,
+  getDirectChildNodes,
+  getDirectWorkItemsForNode,
+  getHierarchyNodeSectionId,
+  getProductDirectWorkItems,
+  getSubtreeWorkItemsForNode,
+  isDirectProductWorkItem,
+} from "../../../lib/hierarchyTree";
+import {
+  getAllowedChildNodeKinds,
+  getDefaultChildNodeKind,
+  getHierarchyChildLabel,
+  getHierarchyNodeKindLabel,
+  ROOT_NODE_KINDS,
+  supportsHierarchyChildren,
+} from "../../../lib/hierarchyLabels";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
 import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
-import type { CapabilityNode, CapabilityTree, ModuleTree, ProductTree, Repository, WorkItem } from "../../../lib/types";
+import type { CapabilityNode, CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ModuleTree, ProductTree, Repository, WorkItem } from "../../../lib/types";
 
 const styles: Record<string, React.CSSProperties> = {
   page: { display: "flex", flexDirection: "column", height: "100%", gap: 12 },
@@ -64,9 +85,13 @@ const styles: Record<string, React.CSSProperties> = {
   childWrap: { marginLeft: 16 },
   inlineMeta: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 },
   badge: { fontSize: 11, padding: "3px 8px", borderRadius: 999, backgroundColor: "#163d2f", color: "#59d6b2" },
+  badgeMuted: { fontSize: 11, padding: "3px 8px", borderRadius: 999, backgroundColor: "#2a3140", color: "#a9c4f5" },
+  badgeKind: { fontSize: 11, padding: "3px 8px", borderRadius: 999, backgroundColor: "#223147", color: "#8fc8ff", border: "1px solid #38506f" },
   taskRow: { border: "1px solid #32353d", borderRadius: 10, padding: 10, backgroundColor: "#26292f", marginBottom: 8, cursor: "pointer" },
   taskTitle: { fontSize: 12, fontWeight: 700, color: "#f3f3f3" },
   taskMeta: { fontSize: 11, color: "#8f96a3", marginTop: 4 },
+  metricHelp: { fontSize: 11, color: "#8f96a3", marginTop: 6 },
+  chipRow: { display: "flex", gap: 8, flexWrap: "wrap" as const, marginTop: 10 },
   empty: { textAlign: "center" as const, color: "#666", padding: 32, fontSize: 14 },
   dropTarget: { outline: "1px dashed #0e639c", outlineOffset: 2 },
   dragHandle: { fontSize: 13, color: "#8f96a3", cursor: "grab", userSelect: "none" as const, padding: "2px 4px" },
@@ -95,10 +120,13 @@ export function ProductListPage() {
     activeProductId,
     activeModuleId,
     activeCapabilityId,
+    activeNodeId,
+    activeNodeType,
     activeWorkspacePath,
     setActiveProduct,
     setActiveModule,
     setActiveCapability,
+    setActiveHierarchyNode,
     setActiveWorkItem,
   } = useWorkspaceStore();
   const {
@@ -109,7 +137,9 @@ export function ProductListPage() {
     closeProductDialog,
     openProductDialog,
     closeModuleDialog,
+    openModuleDialog,
     closeCapabilityDialog,
+    openCapabilityDialog,
     setProductWorkspaceTab,
     setActiveView,
   } = useUIStore();
@@ -117,10 +147,10 @@ export function ProductListPage() {
   const [showWorkItemForm, setShowWorkItemForm] = useState(false);
   const [productForm, setProductForm] = useState({ name: "", description: "", vision: "", goals: "", tags: "" });
   const [productDraft, setProductDraft] = useState({ name: "", description: "", vision: "", goals: "", tags: "" });
-  const [moduleForm, setModuleForm] = useState({ name: "", description: "", purpose: "" });
-  const [moduleDraft, setModuleDraft] = useState({ name: "", description: "", purpose: "" });
-  const [capabilityForm, setCapabilityForm] = useState({ name: "", description: "", acceptanceCriteria: "", technicalNotes: "" });
-  const [capabilityDraft, setCapabilityDraft] = useState({ name: "", description: "", acceptanceCriteria: "", technicalNotes: "" });
+  const [moduleForm, setModuleForm] = useState<{ name: string; description: string; purpose: string; nodeKind: HierarchyNodeKind }>({ name: "", description: "", purpose: "", nodeKind: "area" });
+  const [moduleDraft, setModuleDraft] = useState<{ name: string; description: string; purpose: string; nodeKind: HierarchyNodeKind }>({ name: "", description: "", purpose: "", nodeKind: "area" });
+  const [capabilityForm, setCapabilityForm] = useState<{ name: string; description: string; acceptanceCriteria: string; technicalNotes: string; nodeKind: HierarchyNodeKind }>({ name: "", description: "", acceptanceCriteria: "", technicalNotes: "", nodeKind: "capability" });
+  const [capabilityDraft, setCapabilityDraft] = useState<{ name: string; description: string; acceptanceCriteria: string; technicalNotes: string; nodeKind: HierarchyNodeKind }>({ name: "", description: "", acceptanceCriteria: "", technicalNotes: "", nodeKind: "capability" });
   const [workItemForm, setWorkItemForm] = useState({ title: "", description: "", problemStatement: "", acceptanceCriteria: "", constraints: "" });
   const [structureViewMode, setStructureViewMode] = useState<"children" | "work_items">("children");
   const [formError, setFormError] = useState<string | null>(null);
@@ -132,69 +162,67 @@ export function ProductListPage() {
   const [capabilityOrderMap, setFeatureOrderMap] = useState<Record<string, string[]>>({});
 
   const { data: products, isLoading } = useQuery({ queryKey: ["products"], queryFn: listProducts });
-  const selectedProductId = activeProductId ?? products?.[0]?.id ?? null;
+  const visibleActiveProductId = products?.some((product) => product.id === activeProductId)
+    ? activeProductId
+    : null;
+  const selectedProductId = visibleActiveProductId ?? products?.[0]?.id ?? null;
   const selectedProduct = useMemo(
     () => products?.find((product) => product.id === selectedProductId) ?? null,
     [products, selectedProductId],
   );
 
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+    if (activeProductId !== selectedProductId) {
+      setActiveProduct(selectedProductId);
+    }
+  }, [activeProductId, isLoading, selectedProductId, setActiveProduct]);
+
   const { data: tree } = useQuery({
     queryKey: ["productTree", selectedProductId],
     queryFn: () => getProductTree(selectedProductId!),
-    enabled: !!selectedProductId,
+    enabled: !!selectedProduct,
+  });
+
+  const { data: productWorkItems } = useQuery({
+    queryKey: ["productAllTasks", selectedProductId],
+    queryFn: () => listWorkItems({ productId: selectedProductId ?? undefined }),
+    enabled: !!selectedProduct,
   });
 
   const { data: scopedTasks } = useQuery({
-    queryKey: ["productTasks", selectedProductId, activeModuleId, activeCapabilityId],
+    queryKey: ["productTasks", selectedProductId, activeNodeId, activeNodeType],
     queryFn: () =>
       listWorkItems({
         productId: selectedProductId ?? undefined,
-        moduleId: activeCapabilityId ? undefined : activeModuleId ?? undefined,
-        capabilityId: activeCapabilityId ?? undefined,
+        sourceNodeId: activeNodeId ?? undefined,
+        sourceNodeType: activeNodeType ?? undefined,
       }),
-    enabled: !!selectedProductId,
+    enabled: !!selectedProduct,
   });
 
   const { data: resolvedWorkspace } = useQuery<Repository | null>({
     queryKey: ["productScopeRepo", selectedProductId, activeModuleId],
     queryFn: () => resolveRepositoryForScope({ productId: selectedProductId, moduleId: activeModuleId }),
-    enabled: !!selectedProductId,
+    enabled: !!selectedProduct,
   });
   const effectiveWorkspacePath = resolvedWorkspace?.local_path ?? activeWorkspacePath ?? null;
+
+  const allProductTasks = useMemo(() => {
+    if (!selectedProductId) {
+      return [];
+    }
+    return (productWorkItems ?? []).filter((workItem) => workItem.product_id === selectedProductId);
+  }, [productWorkItems, selectedProductId]);
 
   const filteredScopedTasks = useMemo(() => {
     if (!selectedProductId) {
       return [];
     }
-    const moduleIds = new Set((tree?.modules ?? []).map((moduleTree) => moduleTree.module.id));
-    const capabilityIds = new Set<string>();
-    const collectCapabilityIds = (capabilities: CapabilityTree[]) => {
-      capabilities.forEach((capabilityTree) => {
-        capabilityIds.add(capabilityTree.capability.id);
-        collectCapabilityIds(capabilityTree.children);
-      });
-    };
-    (tree?.modules ?? []).forEach((moduleTree) => collectCapabilityIds(moduleTree.features));
-
-    return (scopedTasks ?? []).filter((workItem) => {
-      if (workItem.product_id !== selectedProductId) {
-        return false;
-      }
-      if (activeCapabilityId) {
-        return workItem.capability_id === activeCapabilityId;
-      }
-      if (activeModuleId) {
-        return workItem.module_id === activeModuleId;
-      }
-      if (workItem.capability_id) {
-        return capabilityIds.has(workItem.capability_id);
-      }
-      if (workItem.module_id) {
-        return moduleIds.has(workItem.module_id);
-      }
-      return true;
-    });
-  }, [activeCapabilityId, activeModuleId, scopedTasks, selectedProductId, tree]);
+    return (scopedTasks ?? []).filter((workItem) => workItem.product_id === selectedProductId);
+  }, [scopedTasks, selectedProductId]);
 
   const openWorkspaceInIde = () => {
     if (resolvedWorkspace) {
@@ -213,12 +241,6 @@ export function ProductListPage() {
       setActiveProduct(products[0].id);
     }
   }, [activeProductId, products, setActiveProduct]);
-
-  useEffect(() => {
-    if (productWorkspaceTab === "overview") {
-      setProductWorkspaceTab("dashboard");
-    }
-  }, [productWorkspaceTab, setProductWorkspaceTab]);
 
   useEffect(() => {
     setActiveWorkItem(null);
@@ -272,10 +294,19 @@ export function ProductListPage() {
     () => tree?.modules.find((moduleTree) => moduleTree.module.id === activeModuleId) ?? null,
     [tree, activeModuleId],
   );
+  const selectedCapabilityParentKind = useMemo(() => {
+    if (!selectedCapability) {
+      return selectedModule?.node_kind ?? null;
+    }
+    if (!selectedCapability.parent_capability_id) {
+      return selectedModule?.node_kind ?? null;
+    }
+    return findCapabilityTree(tree?.modules ?? [], selectedCapability.parent_capability_id)?.capability.node_kind ?? null;
+  }, [selectedCapability, selectedModule, tree]);
 
   useEffect(() => {
     if (moduleDialogMode === "create") {
-      setModuleForm({ name: "", description: "", purpose: "" });
+      setModuleForm({ name: "", description: "", purpose: "", nodeKind: "area" });
       return;
     }
     if (moduleDialogMode === "edit" && selectedModule) {
@@ -283,13 +314,20 @@ export function ProductListPage() {
         name: selectedModule.name,
         description: selectedModule.description,
         purpose: selectedModule.purpose,
+        nodeKind: selectedModule.node_kind,
       });
     }
   }, [moduleDialogMode, selectedModule]);
 
   useEffect(() => {
     if (capabilityDialogMode === "create") {
-      setCapabilityForm({ name: "", description: "", acceptanceCriteria: "", technicalNotes: "" });
+      setCapabilityForm({
+        name: "",
+        description: "",
+        acceptanceCriteria: "",
+        technicalNotes: "",
+        nodeKind: getDefaultChildNodeKind(selectedCapability?.node_kind ?? selectedModule?.node_kind),
+      });
       setFormError(null);
       return;
     }
@@ -299,9 +337,10 @@ export function ProductListPage() {
         description: selectedCapability.description,
         acceptanceCriteria: selectedCapability.acceptance_criteria,
         technicalNotes: selectedCapability.technical_notes,
+        nodeKind: selectedCapability.node_kind,
       });
     }
-  }, [capabilityDialogMode, selectedCapability]);
+  }, [capabilityDialogMode, selectedCapability, selectedModule]);
 
   useEffect(() => {
     if (showWorkItemForm) {
@@ -319,7 +358,8 @@ export function ProductListPage() {
 
   const invalidateTasks = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["productTasks", selectedProductId, activeModuleId, activeCapabilityId] }),
+      queryClient.invalidateQueries({ queryKey: ["productAllTasks", selectedProductId] }),
+      queryClient.invalidateQueries({ queryKey: ["productTasks", selectedProductId, activeNodeId, activeNodeType] }),
       queryClient.invalidateQueries({ queryKey: ["workItems"] }),
       queryClient.invalidateQueries({ queryKey: ["sidebarWorkItems", selectedProductId] }),
     ]);
@@ -357,7 +397,7 @@ export function ProductListPage() {
     mutationFn: () => createModule({ productId: selectedProductId!, ...moduleForm }),
     onSuccess: async (createdModule) => {
       await invalidateHierarchy();
-      setModuleForm({ name: "", description: "", purpose: "" });
+      setModuleForm({ name: "", description: "", purpose: "", nodeKind: "area" });
       setProductWorkspaceTab("structure");
       setActiveModule(createdModule.id);
       closeModuleDialog();
@@ -372,6 +412,7 @@ export function ProductListPage() {
         name: moduleDraft.name,
         description: moduleDraft.description,
         purpose: moduleDraft.purpose,
+        nodeKind: moduleDraft.nodeKind,
       }),
     onSuccess: async (updatedModule) => {
       await invalidateHierarchy();
@@ -392,10 +433,17 @@ export function ProductListPage() {
         priority: "medium",
         risk: "low",
         technicalNotes: capabilityForm.technicalNotes,
+        nodeKind: capabilityForm.nodeKind,
       }),
     onSuccess: async (createdCapability) => {
       await invalidateHierarchy();
-      setCapabilityForm({ name: "", description: "", acceptanceCriteria: "", technicalNotes: "" });
+      setCapabilityForm({
+        name: "",
+        description: "",
+        acceptanceCriteria: "",
+        technicalNotes: "",
+        nodeKind: getDefaultChildNodeKind(selectedCapability?.node_kind ?? selectedModule?.node_kind),
+      });
       setProductWorkspaceTab("structure");
       setActiveCapability(createdCapability.id);
       closeCapabilityDialog();
@@ -411,6 +459,7 @@ export function ProductListPage() {
         description: capabilityDraft.description,
         acceptanceCriteria: capabilityDraft.acceptanceCriteria,
         technicalNotes: capabilityDraft.technicalNotes,
+        nodeKind: capabilityDraft.nodeKind,
       }),
     onSuccess: async (updatedCapability) => {
       await invalidateHierarchy();
@@ -426,6 +475,8 @@ export function ProductListPage() {
         productId: selectedProductId!,
         moduleId: activeModuleId ?? selectedCapability?.module_id ?? undefined,
         capabilityId: activeCapabilityId ?? undefined,
+        sourceNodeId: activeNodeId ?? undefined,
+        sourceNodeType: activeNodeType ?? undefined,
         title: workItemForm.title,
         description: workItemForm.description,
         problemStatement: workItemForm.problemStatement,
@@ -436,7 +487,10 @@ export function ProductListPage() {
         complexity: "medium",
       }),
     onSuccess: async (createdWorkItem) => {
-      queryClient.setQueryData<WorkItem[] | undefined>(["productTasks", selectedProductId, activeModuleId, activeCapabilityId], (current) =>
+      queryClient.setQueryData<WorkItem[] | undefined>(["productTasks", selectedProductId, activeNodeId, activeNodeType], (current) =>
+        current ? [...current, createdWorkItem] : [createdWorkItem],
+      );
+      queryClient.setQueryData<WorkItem[] | undefined>(["productAllTasks", selectedProductId], (current) =>
         current ? [...current, createdWorkItem] : [createdWorkItem],
       );
       queryClient.setQueryData<WorkItem[] | undefined>(["sidebarWorkItems", selectedProductId], (current) =>
@@ -446,7 +500,7 @@ export function ProductListPage() {
       await invalidateTasks();
       setWorkItemForm({ title: "", description: "", problemStatement: "", acceptanceCriteria: "", constraints: "" });
       setShowWorkItemForm(false);
-      setProductWorkspaceTab("work-items");
+      setProductWorkspaceTab("delivery");
     },
     onError: (error) => setFormError(String(error)),
   });
@@ -498,102 +552,180 @@ export function ProductListPage() {
   });
 
   const capabilityCount = tree ? countCapabilities(tree.modules) : 0;
-  const activeWorkItemCount = filteredScopedTasks.filter((workItem) => workItem.status !== "done" && workItem.status !== "cancelled").length;
-  const completedWorkItemCount = filteredScopedTasks.filter((workItem) => workItem.status === "done").length;
+  const totalNodeCount = tree ? countHierarchyNodes(tree.roots) : 0;
+  const leafNodeCount = tree ? countLeafNodes(tree.roots) : 0;
+  const activeWorkItemCount = allProductTasks.filter((workItem) => workItem.status !== "done" && workItem.status !== "cancelled").length;
+  const completedWorkItemCount = allProductTasks.filter((workItem) => workItem.status === "done").length;
+  const selectedHierarchyNode = useMemo(
+    () => (tree ? findHierarchyNode(tree.roots, activeNodeId, activeNodeType) : null),
+    [tree, activeNodeId, activeNodeType],
+  );
+  const selectedHierarchyPath = useMemo(
+    () => (tree ? findHierarchyNodePath(tree.roots, activeNodeId, activeNodeType) : []),
+    [tree, activeNodeId, activeNodeType],
+  );
+  const selectedNodeKind = selectedHierarchyNode?.node_kind ?? selectedCapability?.node_kind ?? selectedModule?.node_kind ?? null;
+  const selectedNodeTitle = selectedHierarchyNode?.name ?? selectedProduct?.name ?? "Product";
+  const selectedNodeSummary = selectedHierarchyNode?.summary
+    || selectedHierarchyNode?.description
+    || selectedProduct?.description
+    || "Add a durable description so the selected node reads like a documented section instead of a blank planning shell.";
+  const selectedScopePath = selectedProduct
+    ? [selectedProduct.name, ...selectedHierarchyPath.map((node) => node.name)]
+    : [];
+  const selectedNodeEntityLabel = selectedCapability
+    ? getHierarchyNodeKindLabel(selectedCapability.node_kind)
+    : selectedModule
+      ? getHierarchyNodeKindLabel(selectedModule.node_kind)
+      : "Product";
+  const selectedAllowedChildKinds = selectedHierarchyNode ? selectedHierarchyNode.allowed_child_kinds : ROOT_NODE_KINDS;
+  const selectedChildNodeKinds = selectedHierarchyNode ? selectedAllowedChildKinds : [];
+  const canCreateChildCapability = selectedChildNodeKinds.length > 0;
+  const nextCapabilityEntityLabel = selectedChildNodeKinds.length > 0
+    ? getHierarchyNodeKindLabel(getDefaultChildNodeKind(selectedNodeKind))
+    : "Child Node";
+  const selectedDirectChildren = useMemo(
+    () => getDirectChildNodes(tree, selectedHierarchyNode),
+    [tree, selectedHierarchyNode],
+  );
+  const selectedDirectWorkItems = useMemo(
+    () => (selectedHierarchyNode
+      ? getDirectWorkItemsForNode(selectedHierarchyNode, allProductTasks)
+      : getProductDirectWorkItems(allProductTasks)),
+    [allProductTasks, selectedHierarchyNode],
+  );
+  const selectedSubtreeWorkItems = useMemo(
+    () => (selectedHierarchyNode
+      ? getSubtreeWorkItemsForNode(selectedHierarchyNode, allProductTasks)
+      : allProductTasks),
+    [allProductTasks, selectedHierarchyNode],
+  );
+  const selectedMetricCards = selectedHierarchyNode
+    ? [
+        { label: "Direct Children", value: selectedDirectChildren.length, help: `${selectedDirectChildren.length} immediate child ${selectedDirectChildren.length === 1 ? "node" : "nodes"}` },
+        { label: "Subtree Nodes", value: countDescendantNodes(selectedHierarchyNode) + 1, help: "Selected node plus all nested descendants" },
+        { label: "Direct Work Items", value: selectedDirectWorkItems.length, help: "Attached directly to this node" },
+        { label: "Total Work Items", value: selectedSubtreeWorkItems.length, help: "Across this node and its descendants" },
+      ]
+    : [
+        { label: "Root Sections", value: tree?.roots.length ?? 0, help: "Top-level structural sections in the product tree" },
+        { label: "Total Nodes", value: totalNodeCount, help: "All structural nodes in the product" },
+        { label: "Leaf Nodes", value: leafNodeCount, help: "Nodes without structural children" },
+        { label: "Active Work Items", value: activeWorkItemCount, help: "Open delivery work across the product" },
+      ];
+  const editableCapabilityNodeKinds = useMemo(() => {
+    if (!selectedCapability) {
+      return [] as HierarchyNodeKind[];
+    }
+    const allowedKinds = getAllowedChildNodeKinds(selectedCapabilityParentKind);
+    return allowedKinds.includes(selectedCapability.node_kind)
+      ? allowedKinds
+      : [selectedCapability.node_kind, ...allowedKinds];
+  }, [selectedCapability, selectedCapabilityParentKind]);
   const orderedModules = useMemo(() => {
     if (!tree) {
       return [];
     }
     return orderItemsByIds(tree.modules, moduleOrderIds, (moduleTree) => moduleTree.module.id);
   }, [tree, moduleOrderIds]);
-  const selectedCapabilityEntityLabel = selectedCapability ? getHierarchyLabelForCapability(selectedCapability.level) : "Capability";
   const structureRows = useMemo(() => {
     if (!tree) {
       return [];
     }
-    if (selectedCapabilityTree) {
-      return selectedCapabilityTree.children.map((child) => ({
-        id: child.capability.id,
-        name: child.capability.name,
-        subtitle: child.capability.description || "Outcome",
-        type: "outcome",
-        status: child.capability.status.replace(/_/g, " "),
-        metric: `${child.children.length} children`,
-        onSelect: () => {
-          setActiveModule(child.capability.module_id);
-          setActiveCapability(child.capability.id);
-        },
-        onEdit: () => {
-          setActiveModule(child.capability.module_id);
-          setActiveCapability(child.capability.id);
-          setCapabilityDraft({
-            name: child.capability.name,
-            description: child.capability.description,
-            acceptanceCriteria: child.capability.acceptance_criteria,
-            technicalNotes: child.capability.technical_notes,
-          });
-          useUIStore.getState().openCapabilityDialog("edit");
-        },
-      }));
-    }
-    if (selectedModuleTree) {
-      return getOrderedCapabilityTrees(
-        selectedModuleTree.features,
-        capabilityOrderMap[getCapabilityOrderKey(selectedModuleTree.module.id, null)],
-      ).map((capabilityTree) => ({
-        id: capabilityTree.capability.id,
-        name: capabilityTree.capability.name,
-        subtitle: capabilityTree.capability.description || "Capability",
-        type: "capability",
-        status: capabilityTree.capability.status.replace(/_/g, " "),
-        metric: `${capabilityTree.children.length} children`,
-        onSelect: () => {
-          setActiveModule(capabilityTree.capability.module_id);
-          setActiveCapability(capabilityTree.capability.id);
-        },
-        onEdit: () => {
-          setActiveModule(capabilityTree.capability.module_id);
-          setActiveCapability(capabilityTree.capability.id);
-          setCapabilityDraft({
-            name: capabilityTree.capability.name,
-            description: capabilityTree.capability.description,
-            acceptanceCriteria: capabilityTree.capability.acceptance_criteria,
-            technicalNotes: capabilityTree.capability.technical_notes,
-          });
-          useUIStore.getState().openCapabilityDialog("edit");
-        },
-      }));
-    }
-    return orderedModules.map((moduleTree) => ({
-      id: moduleTree.module.id,
-      name: moduleTree.module.name,
-      subtitle: moduleTree.module.description || moduleTree.module.purpose || "Module",
-      type: "module",
-      status: "active",
-        metric: `${moduleTree.features.length} capabilities`,
+    return selectedDirectChildren.map((node) => ({
+      id: node.id,
+      name: node.name,
+      subtitle: node.summary || node.description || getHierarchyNodeKindLabel(node.node_kind),
+      type: getHierarchyNodeKindLabel(node.node_kind, { lowercase: true }),
+      directChildren: node.children.length,
+      directWorkItems: getDirectWorkItemsForNode(node, allProductTasks).length,
+      totalWorkItems: getSubtreeWorkItemsForNode(node, allProductTasks).length,
       onSelect: () => {
-        setActiveModule(moduleTree.module.id);
-        setActiveCapability(null);
+        setActiveHierarchyNode({
+          nodeId: node.id,
+          nodeType: node.node_type,
+          moduleId: node.module_id,
+          capabilityId: node.capability_id,
+        });
       },
       onEdit: () => {
-        setActiveModule(moduleTree.module.id);
-        setActiveCapability(null);
-        setModuleDraft({
-          name: moduleTree.module.name,
-          description: moduleTree.module.description,
-          purpose: moduleTree.module.purpose,
+        setActiveHierarchyNode({
+          nodeId: node.id,
+          nodeType: node.node_type,
+          moduleId: node.module_id,
+          capabilityId: node.capability_id,
         });
-        useUIStore.getState().openModuleDialog("edit");
+        if (node.node_type === "module") {
+          const moduleMatch = tree.modules.find((moduleTree) => moduleTree.module.id === node.id)?.module;
+          if (!moduleMatch) {
+            return;
+          }
+          setModuleDraft({
+            name: moduleMatch.name,
+            description: moduleMatch.description,
+            purpose: moduleMatch.purpose,
+            nodeKind: moduleMatch.node_kind,
+          });
+          useUIStore.getState().openModuleDialog("edit");
+          return;
+        }
+        const capabilityMatch = findCapabilityTree(tree.modules, node.id)?.capability;
+        if (!capabilityMatch) {
+          return;
+        }
+        setCapabilityDraft({
+          name: capabilityMatch.name,
+          description: capabilityMatch.description,
+          acceptanceCriteria: capabilityMatch.acceptance_criteria,
+          technicalNotes: capabilityMatch.technical_notes,
+          nodeKind: capabilityMatch.node_kind,
+        });
+        useUIStore.getState().openCapabilityDialog("edit");
       },
     }));
-  }, [tree, selectedCapabilityTree, selectedModuleTree, orderedModules, capabilityOrderMap, setActiveModule, setActiveCapability]);
+  }, [allProductTasks, selectedDirectChildren, setActiveHierarchyNode, tree]);
+
+  const openSelectedSectionInBook = () => {
+    if (!selectedProductId) {
+      return;
+    }
+    setActiveProduct(selectedProductId);
+    setActiveView("product-overview");
+    navigate(`/product-overview#${getHierarchyNodeSectionId(selectedHierarchyNode)}`);
+  };
+
+  const editSelectedScope = () => {
+    if (!selectedProduct) {
+      return;
+    }
+    if (!selectedHierarchyNode) {
+      openProductDialog("edit");
+      return;
+    }
+    if (selectedHierarchyNode.node_type === "module") {
+      openModuleDialog("edit");
+      return;
+    }
+    openCapabilityDialog("edit");
+  };
+
+  const openCreateInSelectedScope = () => {
+    if (!selectedHierarchyNode) {
+      useUIStore.getState().openModuleDialog("create");
+      return;
+    }
+    if (!canCreateChildCapability) {
+      return;
+    }
+    useUIStore.getState().openCapabilityDialog("create");
+  };
 
   return (
     <div style={styles.page}>
       <div style={styles.header}>
         <div style={styles.titleBlock}>
           <h1 style={styles.title}>Product Workspace</h1>
-          <div style={styles.subtitle}>Dashboard keeps orientation tight. Structure edits hierarchy. Work items capture scoped delivery work.</div>
+          <div style={styles.subtitle}>Book reads the product as documentation. Structure edits the semantic tree. Delivery keeps work attached to the current node.</div>
         </div>
       </div>
 
@@ -603,29 +735,32 @@ export function ProductListPage() {
             {selectedProduct ? (
               <>
                 <div style={styles.tabBar}>
-                  <button style={productWorkspaceTab === "dashboard" ? styles.tabActive : styles.tab} onClick={() => setProductWorkspaceTab("dashboard")}>Dashboard</button>
+                  <button style={productWorkspaceTab === "book" ? styles.tabActive : styles.tab} onClick={() => setProductWorkspaceTab("book")}>Book</button>
                   <button style={productWorkspaceTab === "structure" ? styles.tabActive : styles.tab} onClick={() => setProductWorkspaceTab("structure")}>Structure</button>
-                  <button style={productWorkspaceTab === "work-items" ? styles.tabActive : styles.tab} onClick={() => setProductWorkspaceTab("work-items")}>Work Items</button>
+                  <button style={productWorkspaceTab === "delivery" ? styles.tabActive : styles.tab} onClick={() => setProductWorkspaceTab("delivery")}>Delivery</button>
                 </div>
 
                 <div style={styles.hero}>
                   <div style={styles.heroCard}>
                     <ScopeBreadcrumb
-                      label="Current Scope"
+                      label="Selected Path"
                       productName={selectedProduct.name}
-                      moduleName={selectedModule?.name}
-                      capabilityName={selectedCapability?.name}
+                      path={selectedScopePath}
                     />
-                    <div style={styles.heroName}>{selectedProduct.name}</div>
-                    <div style={styles.heroDesc}>{selectedProduct.description || "Shape the product here, then keep work items attached to the right module or capability."}</div>
+                    <div style={styles.heroName}>{selectedNodeTitle}</div>
+                    <div style={styles.heroDesc}>{selectedNodeSummary}</div>
                     <div style={styles.inlineMeta}>
-                      <span style={styles.badge}>{selectedProduct.status}</span>
-                      {selectedProduct.tags.map((tag) => (
-                        <span key={tag} style={{ ...styles.badge, backgroundColor: "#2a3140", color: "#89b4ff" }}>{tag}</span>
+                      <span style={styles.badgeKind}>{selectedHierarchyNode ? getHierarchyNodeKindLabel(selectedHierarchyNode.node_kind) : "Product"}</span>
+                      {!selectedHierarchyNode ? <span style={styles.badge}>{selectedProduct.status}</span> : null}
+                      {!selectedHierarchyNode && selectedProduct.tags.map((tag) => (
+                        <span key={tag} style={styles.badgeMuted}>{tag}</span>
                       ))}
                     </div>
                     <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                      <button style={styles.ghostBtn} onClick={() => openProductDialog("edit")}>Edit Product</button>
+                      <button style={styles.ghostBtn} onClick={editSelectedScope}>
+                        {selectedHierarchyNode ? `Edit ${selectedNodeEntityLabel}` : "Edit Product"}
+                      </button>
+                      <button style={styles.ghostBtn} onClick={openSelectedSectionInBook}>Read This Section</button>
                       {effectiveWorkspacePath ? (
                         <>
                           <button style={styles.ghostBtn} onClick={openWorkspaceInIde}>Open Workspace</button>
@@ -640,77 +775,68 @@ export function ProductListPage() {
                           {createWorkspaceMutation.isPending ? "Creating Workspace..." : "Create Workspace"}
                         </button>
                       )}
-                      <button style={styles.btnDanger} onClick={() => archiveMutation.mutate(selectedProduct.id)}>Archive</button>
+                      {!selectedHierarchyNode ? <button style={styles.btnDanger} onClick={() => archiveMutation.mutate(selectedProduct.id)}>Archive</button> : null}
                     </div>
                     {workspaceActionMsg && <div style={{ ...styles.contextText, color: "#4ec9b0", marginTop: 10 }}>{workspaceActionMsg}</div>}
                     {workspaceActionError && <div style={{ ...styles.errorText, marginTop: 10, marginBottom: 0 }}>{workspaceActionError}</div>}
                   </div>
                   <div style={styles.metricGrid}>
-                    <div style={styles.metricCard}><div style={styles.metricLabel}>Modules</div><div style={styles.metricValue}>{tree?.modules.length ?? 0}</div></div>
-                    <div style={styles.metricCard}><div style={styles.metricLabel}>Capabilities</div><div style={styles.metricValue}>{capabilityCount}</div></div>
-                    <div style={styles.metricCard}><div style={styles.metricLabel}>Active Work Items</div><div style={styles.metricValue}>{activeWorkItemCount}</div></div>
-                    <div style={styles.metricCard}><div style={styles.metricLabel}>Done</div><div style={styles.metricValue}>{completedWorkItemCount}</div></div>
+                    {selectedMetricCards.map((metric) => (
+                      <div key={metric.label} style={styles.metricCard}>
+                        <div style={styles.metricLabel}>{metric.label}</div>
+                        <div style={styles.metricValue}>{metric.value}</div>
+                        <div style={styles.metricHelp}>{metric.help}</div>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
-                {productWorkspaceTab === "dashboard" && (
+                {productWorkspaceTab === "book" && (
                   <>
                     <div style={styles.section}>
-                    <div style={styles.sectionTitle}>Selected Scope</div>
+                      <div style={styles.sectionTitle}>Book View</div>
                       <div style={styles.contextCard}>
-                        <div style={styles.contextLabel}>Workspace</div>
-                        <div style={styles.contextTitle}>{resolvedWorkspace ? "Workspace ready" : "Workspace not set up yet"}</div>
-                        <div style={styles.contextText}>
-                          {resolvedWorkspace
-                            ? `Attached workspace: ${resolvedWorkspace.name}. Version history is enabled and the IDE can load files for this scope.`
-                            : "Create a workspace here to let agents and the IDE work against real files for this product or module."}
+                        <div style={styles.contextLabel}>Section Summary</div>
+                        <div style={styles.contextTitle}>{selectedNodeTitle}</div>
+                        <div style={styles.contextText}>{selectedNodeSummary}</div>
+                        <div style={styles.chipRow}>
+                          <span style={styles.badgeKind}>{selectedHierarchyNode ? getHierarchyNodeKindLabel(selectedHierarchyNode.node_kind) : "Product"}</span>
+                          <span style={styles.badgeMuted}>{selectedDirectChildren.length} direct {selectedDirectChildren.length === 1 ? "child" : "children"}</span>
+                          <span style={styles.badgeMuted}>{selectedDirectWorkItems.length} direct work items</span>
+                          <span style={styles.badgeMuted}>{selectedSubtreeWorkItems.length} total work items</span>
                         </div>
+                      </div>
+                      <div style={styles.contextCard}>
+                        <div style={styles.contextLabel}>Allowed Child Kinds</div>
+                        <div style={styles.contextTitle}>
+                          {selectedAllowedChildKinds.length > 0 ? "This section can grow structurally." : "This section is a structural leaf."}
+                        </div>
+                        <div style={styles.contextText}>
+                          {selectedAllowedChildKinds.length > 0
+                            ? selectedAllowedChildKinds.map((nodeKind) => getHierarchyNodeKindLabel(nodeKind)).join(", ")
+                            : "No deeper structural children are allowed here."}
+                        </div>
+                      </div>
+                      <div style={styles.contextCard}>
+                        <div style={styles.contextLabel}>Book Alignment</div>
+                        <div style={styles.contextText}>The current path, ordering, and node labels are used as the section spine for the reader/exported book.</div>
                         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                          {effectiveWorkspacePath ? (
-                            <>
-                              <button style={styles.ghostBtn} onClick={openWorkspaceInIde}>Open in IDE</button>
-                              <button style={styles.ghostBtn} onClick={() => revealInFinder(effectiveWorkspacePath).catch((error) => setWorkspaceActionError(String(error)))}>Reveal in Finder</button>
-                            </>
-                          ) : (
-                            <button
-                              style={styles.btn}
-                              onClick={() => createWorkspaceMutation.mutate()}
-                              disabled={createWorkspaceMutation.isPending}
-                            >
-                              {createWorkspaceMutation.isPending ? "Creating Workspace..." : "Create Workspace"}
-                            </button>
-                          )}
+                          <button style={styles.ghostBtn} onClick={openSelectedSectionInBook}>Open In Book</button>
+                          <button style={styles.ghostBtn} onClick={() => setProductWorkspaceTab("structure")}>Inspect Structure</button>
                         </div>
-                      </div>
-                      <div style={styles.contextCard}>
-                        <div style={styles.contextLabel}>Working In</div>
-                        <div style={styles.contextTitle}>{selectedCapability?.name ?? selectedModule?.name ?? selectedProduct.name}</div>
-                        <div style={styles.contextText}>
-                          {selectedCapability
-                            ? selectedCapability.level === 0
-                              ? "This view is scoped to a capability. Work item intake and backlog stay pinned to this slice."
-                              : "This view is scoped to an outcome. Work item intake and backlog stay pinned to this slice."
-                            : selectedModule
-                              ? "This view is scoped to a module. Use it to balance work across related capabilities."
-                              : "This view is scoped to the product. Use it to orient before drilling into structure or delivery."}
-                        </div>
-                      </div>
-                      <div style={styles.contextCard}>
-                        <div style={styles.contextLabel}>Product Vision</div>
-                        <div style={styles.contextText}>{selectedProduct.vision || "Add a stronger product vision so the hierarchy stays anchored to intent."}</div>
                       </div>
                     </div>
                     <div style={styles.section}>
-                      <div style={styles.sectionTitle}>Scoped Work Items</div>
-                      {filteredScopedTasks.length > 0 ? (
-                        filteredScopedTasks.slice(0, 8).map((workItem: WorkItem) => (
+                      <div style={styles.sectionTitle}>Direct Delivery Notes</div>
+                      {selectedDirectWorkItems.length > 0 ? (
+                        selectedDirectWorkItems.slice(0, 8).map((workItem: WorkItem) => (
                           <div key={workItem.id} style={styles.taskRow} onClick={() => setActiveWorkItem(workItem.id)}>
                             <div style={styles.taskTitle}>{workItem.title}</div>
                             <div style={styles.taskMeta}>{workItem.status.replace(/_/g, " ")} · {workItem.priority}</div>
                           </div>
                         ))
                       ) : (
-                        <div style={styles.empty}>No work items in the current scope yet.</div>
+                        <div style={styles.empty}>No direct work items are attached to this section yet.</div>
                       )}
                     </div>
                   </>
@@ -731,27 +857,37 @@ export function ProductListPage() {
                           style={structureViewMode === "work_items" ? styles.tabActive : styles.tab}
                           onClick={() => setStructureViewMode("work_items")}
                         >
-                          Work Items
+                          Direct Work Items
                         </button>
-                        <button style={styles.ghostBtn} onClick={() => useUIStore.getState().openCapabilityDialog("create")} disabled={!activeModuleId}>+ {selectedCapability ? "Outcome" : "Capability"}</button>
+                        <button
+                          style={styles.ghostBtn}
+                          onClick={openCreateInSelectedScope}
+                          disabled={!selectedHierarchyNode && !selectedProductId ? true : selectedHierarchyNode ? !canCreateChildCapability : false}
+                        >
+                          {selectedHierarchyNode ? `+ ${nextCapabilityEntityLabel}` : "+ Root Section"}
+                        </button>
                         <button style={styles.ghostBtn} onClick={() => setShowWorkItemForm(true)}>+ Work Item</button>
-                        <button style={styles.ghostBtn} onClick={() => useUIStore.getState().openModuleDialog("create")}>+ Module</button>
+                        {!selectedHierarchyNode ? null : <button style={styles.ghostBtn} onClick={() => useUIStore.getState().openModuleDialog("create")}>+ Root Section</button>}
                       </div>
                     </div>
 
                     <div style={styles.contextCard}>
                       <div style={styles.contextLabel}>Selected Node</div>
-                      <div style={styles.contextTitle}>{selectedCapability?.name ?? selectedModule?.name ?? selectedProduct.name}</div>
+                      <div style={styles.contextTitle}>{selectedNodeTitle}</div>
                       <div style={styles.contextText}>
                         {structureViewMode === "work_items"
-                          ? "Work items attached to the selected node are listed below."
-                          : selectedCapability
-                            ? selectedCapability.level === 0
-                              ? "Outcomes for the selected capability are listed below."
-                              : "Any remaining child rows are listed below, but new hierarchy creation stops at outcomes."
-                            : selectedModule
-                              ? "Capabilities for the selected module are listed below."
-                              : "Modules for the selected product are listed below."}
+                          ? "Direct work items attached to the selected node are listed below."
+                          : selectedHierarchyNode
+                            ? supportsHierarchyChildren(selectedHierarchyNode.node_kind)
+                              ? `${getHierarchyChildLabel(selectedHierarchyNode.node_kind, { plural: true })} for the selected ${getHierarchyNodeKindLabel(selectedHierarchyNode.node_kind, { lowercase: true })} are listed below.`
+                              : `This ${getHierarchyNodeKindLabel(selectedHierarchyNode.node_kind, { lowercase: true })} cannot contain deeper structural children.`
+                            : "Root sections for the selected product are listed below."}
+                      </div>
+                      <div style={styles.chipRow}>
+                        <span style={styles.badgeKind}>{selectedHierarchyNode ? getHierarchyNodeKindLabel(selectedHierarchyNode.node_kind) : "Product"}</span>
+                        {selectedAllowedChildKinds.map((nodeKind) => (
+                          <span key={nodeKind} style={styles.badgeMuted}>{getHierarchyNodeKindLabel(nodeKind)}</span>
+                        ))}
                       </div>
                     </div>
 
@@ -760,9 +896,9 @@ export function ProductListPage() {
                       <div style={styles.table}>
                         <div style={styles.tableHeader}>
                           <div>Name</div>
-                          <div>Type</div>
-                          <div>Status</div>
-                          <div>Children</div>
+                          <div>Kind</div>
+                          <div>Direct</div>
+                          <div>Aggregate</div>
                         </div>
                         {structureRows.map((row) => (
                           <div
@@ -775,9 +911,9 @@ export function ProductListPage() {
                               <div style={styles.rowSecondary}>{row.subtitle}</div>
                             </div>
                             <div style={styles.rowCell}>{row.type}</div>
-                            <div style={styles.rowCell}>{row.status}</div>
+                            <div style={styles.rowCell}>{row.directChildren} children · {row.directWorkItems} work items</div>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                              <span style={styles.rowCell}>{row.metric}</span>
+                              <span style={styles.rowCell}>{row.totalWorkItems} total work items</span>
                               <button
                                 style={styles.ghostBtn}
                                 onClick={(e) => {
@@ -793,10 +929,14 @@ export function ProductListPage() {
                       </div>
                     ) : (
                       <div style={styles.empty}>
-                        {selectedCapability ? "No child outcomes yet." : selectedModule ? "No capabilities yet in this module." : "No modules yet. Start with the first module and build from there."}
+                        {selectedHierarchyNode
+                          ? supportsHierarchyChildren(selectedHierarchyNode.node_kind)
+                            ? `No ${getHierarchyChildLabel(selectedHierarchyNode.node_kind, { plural: true, lowercase: true })} yet.`
+                            : `${getHierarchyNodeKindLabel(selectedHierarchyNode.node_kind)} nodes cannot contain deeper hierarchy.`
+                          : "No root sections yet. Start with the first section and build from there."}
                       </div>
                       )
-                    ) : filteredScopedTasks.length > 0 ? (
+                    ) : selectedDirectWorkItems.length > 0 ? (
                       <div style={styles.table}>
                         <div style={styles.tableHeader}>
                           <div>Name</div>
@@ -804,7 +944,7 @@ export function ProductListPage() {
                           <div>Status</div>
                           <div>Priority</div>
                         </div>
-                        {filteredScopedTasks.map((item: WorkItem) => (
+                        {selectedDirectWorkItems.map((item: WorkItem) => (
                           <div key={item.id} style={styles.tableRow} onClick={() => setActiveWorkItem(item.id)}>
                             <div>
                               <div style={styles.rowPrimary}>{item.title}</div>
@@ -822,19 +962,24 @@ export function ProductListPage() {
                   </div>
                 )}
 
-                {productWorkspaceTab === "work-items" && (
+                {productWorkspaceTab === "delivery" && (
                   <div style={styles.section}>
                     <div style={styles.sectionTitle}>
-                      <span>Work Item Intake</span>
+                      <span>Delivery</span>
                       <button style={styles.ghostBtn} onClick={() => setShowWorkItemForm(true)}>+ Work Item Here</button>
                     </div>
                     <div style={styles.contextCard}>
-                      <div style={styles.contextLabel}>Work Item Scope</div>
-                      <div style={styles.contextTitle}>{selectedCapability?.name ?? selectedModule?.name ?? selectedProduct.name}</div>
-                      <div style={styles.contextText}>New work items will be created directly in this scope so delivery stays attached to the right part of the hierarchy.</div>
+                      <div style={styles.contextLabel}>Owner Scope</div>
+                      <div style={styles.contextTitle}>{selectedNodeTitle}</div>
+                      <div style={styles.contextText}>New work items created here stay attached directly to the current node so ownership remains structurally meaningful.</div>
+                      <div style={styles.chipRow}>
+                        <span style={styles.badgeKind}>{selectedHierarchyNode ? getHierarchyNodeKindLabel(selectedHierarchyNode.node_kind) : "Product"}</span>
+                        <span style={styles.badgeMuted}>{selectedDirectWorkItems.length} direct work items</span>
+                        <span style={styles.badgeMuted}>{selectedSubtreeWorkItems.length} total in subtree</span>
+                      </div>
                     </div>
-                    {filteredScopedTasks.length > 0 ? (
-                      filteredScopedTasks.map((workItem: WorkItem) => (
+                    {selectedDirectWorkItems.length > 0 ? (
+                      selectedDirectWorkItems.map((workItem: WorkItem) => (
                         <div key={workItem.id} style={styles.taskRow} onClick={() => setActiveWorkItem(workItem.id)}>
                           <div style={styles.taskTitle}>{workItem.title}</div>
                           <div style={styles.taskMeta}>{workItem.status.replace(/_/g, " ")} · {workItem.priority}</div>
@@ -914,10 +1059,21 @@ export function ProductListPage() {
       )}
 
       {moduleDialogMode !== "closed" && (
-        <ModalShell title={moduleDialogMode === "create" ? "Create Module" : `Edit Module: ${selectedModule?.name ?? ""}`} onClose={closeModuleDialog}>
+        <ModalShell
+          title={moduleDialogMode === "create"
+            ? `Create ${getHierarchyNodeKindLabel(moduleForm.nodeKind)}`
+            : `Edit ${selectedModule ? getHierarchyNodeKindLabel(selectedModule.node_kind) : "Root Section"}: ${selectedModule?.name ?? ""}`}
+          onClose={closeModuleDialog}
+        >
           {moduleDialogMode === "create" ? (
             <>
-              <label style={styles.label}>Module Name</label>
+              <label style={styles.label}>Root Kind</label>
+              <select style={styles.input} value={moduleForm.nodeKind} onChange={(e) => setModuleForm({ ...moduleForm, nodeKind: e.target.value as HierarchyNodeKind })}>
+                {ROOT_NODE_KINDS.map((nodeKind) => (
+                  <option key={nodeKind} value={nodeKind}>{getHierarchyNodeKindLabel(nodeKind)}</option>
+                ))}
+              </select>
+              <label style={styles.label}>{getHierarchyNodeKindLabel(moduleForm.nodeKind)} Name</label>
               <input style={styles.input} value={moduleForm.name} onChange={(e) => setModuleForm({ ...moduleForm, name: e.target.value })} />
               <label style={styles.label}>Description</label>
               <textarea style={styles.textarea} value={moduleForm.description} onChange={(e) => setModuleForm({ ...moduleForm, description: e.target.value })} />
@@ -926,7 +1082,13 @@ export function ProductListPage() {
             </>
           ) : (
             <>
-              <label style={styles.label}>Name</label>
+              <label style={styles.label}>Root Kind</label>
+              <select style={styles.input} value={moduleDraft.nodeKind} onChange={(e) => setModuleDraft({ ...moduleDraft, nodeKind: e.target.value as HierarchyNodeKind })}>
+                {ROOT_NODE_KINDS.map((nodeKind) => (
+                  <option key={nodeKind} value={nodeKind}>{getHierarchyNodeKindLabel(nodeKind)}</option>
+                ))}
+              </select>
+              <label style={styles.label}>{getHierarchyNodeKindLabel(moduleDraft.nodeKind)} Name</label>
               <input style={styles.input} value={moduleDraft.name} onChange={(e) => setModuleDraft({ ...moduleDraft, name: e.target.value })} />
               <label style={styles.label}>Description</label>
               <textarea style={styles.textarea} value={moduleDraft.description} onChange={(e) => setModuleDraft({ ...moduleDraft, description: e.target.value })} />
@@ -943,22 +1105,41 @@ export function ProductListPage() {
               disabled={!(moduleDialogMode === "create" ? moduleForm.name : moduleDraft.name) || !selectedProductId}
             >
               {moduleDialogMode === "create"
-                ? createModuleMutation.isPending ? "Saving..." : "Create Module"
-                : updateModuleMutation.isPending ? "Saving..." : "Save Module"}
+                ? createModuleMutation.isPending ? "Saving..." : `Create ${getHierarchyNodeKindLabel(moduleForm.nodeKind)}`
+                : updateModuleMutation.isPending ? "Saving..." : `Save ${getHierarchyNodeKindLabel(moduleDraft.nodeKind)}`}
             </button>
           </div>
         </ModalShell>
       )}
 
       {capabilityDialogMode !== "closed" && (
-        <ModalShell title={capabilityDialogMode === "create" ? `Create ${selectedCapabilityEntityLabel}` : `Edit ${selectedCapabilityEntityLabel}: ${selectedCapability?.name ?? ""}`} onClose={closeCapabilityDialog}>
+        <ModalShell
+          title={capabilityDialogMode === "create"
+            ? `Create ${getHierarchyNodeKindLabel(capabilityForm.nodeKind)}`
+            : `Edit ${selectedCapability ? getHierarchyNodeKindLabel(selectedCapability.node_kind) : "Node"}: ${selectedCapability?.name ?? ""}`}
+          onClose={closeCapabilityDialog}
+        >
           {capabilityDialogMode === "create" ? (
             <>
-              <label style={styles.label}>Parent Module</label>
+              <label style={styles.label}>Parent Root</label>
               <input style={styles.input} value={selectedModule?.name ?? ""} readOnly />
-              <label style={styles.label}>Parent {selectedCapability ? "Outcome" : "Capability"} (optional)</label>
-              <input style={styles.input} value={selectedCapability?.name ?? ""} readOnly placeholder={`Create top-level ${selectedCapability ? "outcome" : "capability"} if empty`} />
-              <label style={styles.label}>{selectedCapabilityEntityLabel} Name</label>
+              <label style={styles.label}>Parent Node</label>
+              <input
+                style={styles.input}
+                value={selectedCapability?.name ?? ""}
+                readOnly
+                placeholder={`Create a top-level child under ${selectedModule?.name ?? "the selected root"}`}
+              />
+              <label style={styles.label}>Node Kind</label>
+              <select style={styles.input} value={capabilityForm.nodeKind} onChange={(e) => setCapabilityForm({ ...capabilityForm, nodeKind: e.target.value as HierarchyNodeKind })}>
+                {getAllowedChildNodeKinds(selectedCapability?.node_kind ?? selectedModule?.node_kind).map((nodeKind) => (
+                  <option key={nodeKind} value={nodeKind}>{getHierarchyNodeKindLabel(nodeKind)}</option>
+                ))}
+              </select>
+              <div style={styles.contextText}>
+                Allowed child kinds: {getAllowedChildNodeKinds(selectedCapability?.node_kind ?? selectedModule?.node_kind).map((nodeKind) => getHierarchyNodeKindLabel(nodeKind)).join(", ")}.
+              </div>
+              <label style={styles.label}>{getHierarchyNodeKindLabel(capabilityForm.nodeKind)} Name</label>
               <input style={styles.input} value={capabilityForm.name} onChange={(e) => setCapabilityForm({ ...capabilityForm, name: e.target.value })} />
               <label style={styles.label}>Description</label>
               <textarea style={styles.textarea} value={capabilityForm.description} onChange={(e) => setCapabilityForm({ ...capabilityForm, description: e.target.value })} />
@@ -969,6 +1150,12 @@ export function ProductListPage() {
             </>
           ) : (
             <>
+              <label style={styles.label}>Node Kind</label>
+              <select style={styles.input} value={capabilityDraft.nodeKind} onChange={(e) => setCapabilityDraft((current) => ({ ...current, nodeKind: e.target.value as HierarchyNodeKind }))}>
+                {editableCapabilityNodeKinds.map((nodeKind) => (
+                  <option key={nodeKind} value={nodeKind}>{getHierarchyNodeKindLabel(nodeKind)}</option>
+                ))}
+              </select>
               <label style={styles.label}>Name</label>
               <input style={styles.input} value={capabilityDraft.name} onChange={(e) => setCapabilityDraft((current) => ({ ...current, name: e.target.value }))} />
               <label style={styles.label}>Description</label>
@@ -988,8 +1175,8 @@ export function ProductListPage() {
               disabled={!(capabilityDialogMode === "create" ? capabilityForm.name : capabilityDraft.name) || !activeModuleId}
             >
               {capabilityDialogMode === "create"
-                ? createCapabilityMutation.isPending ? "Saving..." : `Create ${selectedCapabilityEntityLabel}`
-                : updateCapabilityMutation.isPending ? "Saving..." : `Save ${selectedCapabilityEntityLabel}`}
+                ? createCapabilityMutation.isPending ? "Saving..." : `Create ${getHierarchyNodeKindLabel(capabilityForm.nodeKind)}`
+                : updateCapabilityMutation.isPending ? "Saving..." : `Save ${selectedCapability ? getHierarchyNodeKindLabel(selectedCapability.node_kind) : "Node"}`}
             </button>
           </div>
         </ModalShell>
@@ -1121,10 +1308,6 @@ function findCapabilityTree(modules: ModuleTree[], capabilityId: string | null):
   }
 
   return null;
-}
-
-function getHierarchyLabelForCapability(level: number) {
-  return level === 0 ? "Capability" : "Outcome";
 }
 
 function searchCapabilityTree(capabilityTree: CapabilityTree, capabilityId: string | null): CapabilityTree | null {

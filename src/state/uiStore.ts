@@ -10,7 +10,7 @@ interface UIState {
   moduleDialogMode: "closed" | "create" | "edit";
   capabilityDialogMode: "closed" | "create" | "edit";
   workItemCreateDialogOpen: boolean;
-  productWorkspaceTab: "dashboard" | "overview" | "structure" | "work-items";
+  productWorkspaceTab: "book" | "structure" | "delivery";
   workItemWorkspaceTab: "backlog" | "detail" | "review";
   expandedModules: Record<string, boolean>;
   expandedCapabilities: Record<string, boolean>;
@@ -29,7 +29,7 @@ interface UIState {
   closeCapabilityDialog: () => void;
   openWorkItemCreateDialog: () => void;
   closeWorkItemCreateDialog: () => void;
-  setProductWorkspaceTab: (tab: "dashboard" | "overview" | "structure" | "work-items") => void;
+  setProductWorkspaceTab: (tab: "book" | "structure" | "delivery") => void;
   setWorkItemWorkspaceTab: (tab: "backlog" | "detail" | "review") => void;
   toggleModuleExpanded: (id: string) => void;
   toggleCapabilityExpanded: (id: string) => void;
@@ -51,7 +51,7 @@ export const useUIStore = create<UIState>()(
       moduleDialogMode: "closed",
       capabilityDialogMode: "closed",
       workItemCreateDialogOpen: false,
-      productWorkspaceTab: "dashboard",
+      productWorkspaceTab: "book",
       workItemWorkspaceTab: "backlog",
       expandedModules: {},
       expandedCapabilities: {},
@@ -83,6 +83,21 @@ export const useUIStore = create<UIState>()(
     {
       name: "aruvi-ui",
       storage: createJSONStorage(() => localStorage),
+      migrate: (persistedState) => {
+        const state = persistedState as Partial<UIState> & { productWorkspaceTab?: string };
+        const rawTab = state.productWorkspaceTab as string | undefined;
+        const nextTab = rawTab === "dashboard"
+          ? "book"
+          : rawTab === "work-items"
+            ? "delivery"
+            : rawTab === "overview"
+              ? "book"
+              : rawTab;
+        return {
+          ...state,
+          productWorkspaceTab: nextTab,
+        } as UIState;
+      },
       partialize: (state) => ({
         leftSidebarVisible: state.leftSidebarVisible,
         rightSidebarVisible: state.rightSidebarVisible,

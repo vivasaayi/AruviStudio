@@ -1,12 +1,26 @@
 import React, { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { exportProductOverviewHtml, getProductTree, listProducts, listWorkItems, revealInFinder } from "../../../lib/tauri";
+import {
+  exportProductOverviewEpub,
+  exportProductOverviewHtml,
+  exportProductOverviewPdf,
+  getProductTree,
+  listProducts,
+  listWorkItems,
+  revealInFinder,
+} from "../../../lib/tauri";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
 import { ProductOverviewDocument } from "../components/ProductOverviewDocument";
 import type { Capability, Module, Product, ProductTree, WorkItem } from "../../../lib/types";
-import { buildProductOverviewBookHtml, buildProductOverviewHtml } from "../lib/productOverview";
+import {
+  BOOK_EXPORT_TRIM_PRESETS,
+  buildProductOverviewBookBundle,
+  getBookExportTrimPreset,
+  type BookExportTrimPresetId,
+} from "../lib/bookExport";
+import { buildProductOverviewHtml } from "../lib/productOverview";
 
 const styles: Record<string, React.CSSProperties> = {
   page: { display: "flex", flexDirection: "column", gap: 18, minHeight: "100%", maxWidth: 1440, margin: "0 auto", width: "100%" },
@@ -40,32 +54,55 @@ export function ProductOverviewPage() {
   const [exportPath, setExportPath] = React.useState<string | null>(null);
   const [exportError, setExportError] = React.useState<string | null>(null);
   const [isExporting, setIsExporting] = React.useState(false);
+  const [bookTrimPresetId, setBookTrimPresetId] = React.useState<BookExportTrimPresetId>(BOOK_EXPORT_TRIM_PRESETS[0].id);
 
   const { data: products = [], isLoading: productsLoading } = useQuery<Product[]>({
     queryKey: ["products"],
     queryFn: listProducts,
   });
 
-  const selectedProductId = activeProductId ?? products[0]?.id ?? null;
+  const visibleActiveProductId = products.some((product) => product.id === activeProductId)
+    ? activeProductId
+    : null;
+  const selectedProductId = visibleActiveProductId ?? products[0]?.id ?? null;
   const selectedProduct = products.find((product) => product.id === selectedProductId) ?? null;
 
   useEffect(() => {
-    if (!activeProductId && products[0]?.id) {
-      setActiveProduct(products[0].id);
+    if (productsLoading) {
+      return;
     }
-  }, [activeProductId, products, setActiveProduct]);
+    if (activeProductId !== selectedProductId) {
+      setActiveProduct(selectedProductId);
+    }
+  }, [activeProductId, productsLoading, selectedProductId, setActiveProduct]);
 
   const { data: tree, isLoading: treeLoading } = useQuery({
     queryKey: ["productOverviewTree", selectedProductId],
     queryFn: () => getProductTree(selectedProductId!),
-    enabled: !!selectedProductId,
+    enabled: !!selectedProduct,
   });
 
   const { data: workItems = [], isLoading: workItemsLoading } = useQuery<WorkItem[]>({
     queryKey: ["productOverviewPageWorkItems", selectedProductId],
     queryFn: () => listWorkItems({ productId: selectedProductId ?? undefined }),
-    enabled: !!selectedProductId,
+    enabled: !!selectedProduct,
   });
+
+  useEffect(() => {
+    if (treeLoading || workItemsLoading) {
+      return;
+    }
+    if (typeof window === "undefined") {
+      return;
+    }
+    const hash = window.location.hash.replace(/^#/, "");
+    if (!hash) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      document.getElementById(hash)?.scrollIntoView({ block: "start" });
+    });
+  }, [selectedProductId, treeLoading, workItemsLoading, tree, workItems.length]);
 
   const goToProductWorkspace = () => {
     setActiveView("products");
@@ -74,10 +111,6 @@ export function ProductOverviewPage() {
 
   const exportHtml = async () => {
     await runExport("overview", buildProductOverviewHtml);
-  };
-
-  const exportBookHtml = async () => {
-    await runExport("book", buildProductOverviewBookHtml);
   };
 
   const runExport = async (
@@ -100,6 +133,67 @@ export function ProductOverviewPage() {
         fileName: `${slugify(selectedProduct.name)}-${variant}.html`,
         html,
       });
+      setExportPath(path);
+    } catch (error) {
+      setExportPath(null);
+      setExportError(String(error));
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const runBookArtifactExport = async (format: "html" | "pdf" | "epub") => {
+    if (!selectedProduct) {
+      return;
+    }
+
+    const trimPreset = getBookExportTrimPreset(bookTrimPresetId);
+
+    try {
+      setIsExporting(true);
+      setExportError(null);
+      const bundle = buildProductOverviewBookBundle(
+        {
+          product: selectedProduct,
+          tree,
+          workItems,
+        },
+        {
+          trimPreset,
+          renderMode: format === "html" ? "web" : format === "pdf" ? "print" : "epub",
+        },
+      );
+
+      let path: string;
+      if (format === "html") {
+        path = await exportProductOverviewHtml({
+          fileName: `${slugify(selectedProduct.name)}-book.html`,
+          html: bundle.html,
+        });
+      } else if (format === "pdf") {
+        path = await exportProductOverviewPdf({
+          fileName: `${slugify(selectedProduct.name)}-book.pdf`,
+          html: bundle.html,
+          pageWidth: trimPreset.pageWidth,
+          pageHeight: trimPreset.pageHeight,
+          marginTop: trimPreset.marginTop,
+          marginRight: trimPreset.marginRight,
+          marginBottom: trimPreset.marginBottom,
+          marginLeft: trimPreset.marginLeft,
+          headerTitle: selectedProduct.name,
+          headerRight: trimPreset.label,
+        });
+      } else {
+        path = await exportProductOverviewEpub({
+          fileName: `${slugify(selectedProduct.name)}-book.epub`,
+          title: selectedProduct.name,
+          html: bundle.html,
+          tocItems: bundle.tocItems,
+          author: "Aruvi Studio",
+          language: "en",
+        });
+      }
+
       setExportPath(path);
     } catch (error) {
       setExportPath(null);
@@ -192,7 +286,23 @@ export function ProductOverviewPage() {
             ))}
           </select>
           <div style={styles.helper}>
-            This route is product-wide. Export writes the file to `~/Documents/AruviStudio/exports/`.
+            This route is product-wide. Export writes HTML, EPUB, and print-ready PDF files to `~/Documents/AruviStudio/exports/`.
+          </div>
+          <div style={{ ...styles.controlLabel, marginTop: 14 }}>Book Trim Preset</div>
+          <select
+            style={styles.select}
+            value={bookTrimPresetId}
+            onChange={(event) => setBookTrimPresetId(event.target.value as BookExportTrimPresetId)}
+            disabled={isExporting}
+          >
+            {BOOK_EXPORT_TRIM_PRESETS.map((preset) => (
+              <option key={preset.id} value={preset.id}>
+                {preset.label}
+              </option>
+            ))}
+          </select>
+          <div style={styles.helper}>
+            {getBookExportTrimPreset(bookTrimPresetId).description}
           </div>
           <div style={styles.actionRow}>
             <button
@@ -204,10 +314,24 @@ export function ProductOverviewPage() {
             </button>
             <button
               style={styles.ghostBtn}
-              onClick={exportBookHtml}
+              onClick={() => runBookArtifactExport("html")}
               disabled={!selectedProduct || treeLoading || workItemsLoading || isExporting}
             >
               Export Book HTML
+            </button>
+            <button
+              style={styles.ghostBtn}
+              onClick={() => runBookArtifactExport("epub")}
+              disabled={!selectedProduct || treeLoading || workItemsLoading || isExporting}
+            >
+              Export EPUB
+            </button>
+            <button
+              style={styles.ghostBtn}
+              onClick={() => runBookArtifactExport("pdf")}
+              disabled={!selectedProduct || treeLoading || workItemsLoading || isExporting}
+            >
+              Export Book PDF
             </button>
             {exportPath ? (
               <button style={styles.ghostBtn} onClick={() => revealInFinder(exportPath)}>

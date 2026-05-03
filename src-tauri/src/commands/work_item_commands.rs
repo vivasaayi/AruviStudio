@@ -25,6 +25,10 @@ pub async fn create_work_item(
     moduleId: Option<String>,
     capability_id: Option<String>,
     capabilityId: Option<String>,
+    source_node_id: Option<String>,
+    sourceNodeId: Option<String>,
+    source_node_type: Option<String>,
+    sourceNodeType: Option<String>,
     parent_work_item_id: Option<String>,
     parentWorkItemId: Option<String>,
     title: String,
@@ -42,6 +46,8 @@ pub async fn create_work_item(
     let product_id = resolve_required(product_id, productId, "product id")?;
     let module_id = module_id.or(moduleId);
     let capability_id = capability_id.or(capabilityId);
+    let source_node_id = source_node_id.or(sourceNodeId);
+    let source_node_type = source_node_type.or(sourceNodeType);
     let parent_work_item_id = parent_work_item_id.or(parentWorkItemId);
     let problem_statement = if problem_statement.trim().is_empty() {
         problemStatement.unwrap_or_default()
@@ -58,7 +64,7 @@ pub async fn create_work_item(
     } else {
         work_item_type
     };
-    info!(product_id = %product_id, module_id = ?module_id, capability_id = ?capability_id, parent_work_item_id = ?parent_work_item_id, title = %title, "create_work_item requested");
+    info!(product_id = %product_id, module_id = ?module_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, parent_work_item_id = ?parent_work_item_id, title = %title, "create_work_item requested");
     let id = uuid::Uuid::new_v4().to_string();
     let result = work_item_repo::create_work_item(
         &state.db,
@@ -66,6 +72,8 @@ pub async fn create_work_item(
         &product_id,
         module_id.as_deref(),
         capability_id.as_deref(),
+        source_node_id.as_deref(),
+        source_node_type.as_deref(),
         parent_work_item_id.as_deref(),
         &title,
         &problem_statement,
@@ -82,7 +90,7 @@ pub async fn create_work_item(
             info!(work_item_id = %work_item.id, product_id = ?work_item.product_id, "create_work_item succeeded")
         }
         Err(err) => {
-            error!(work_item_id = %id, product_id = %product_id, module_id = ?module_id, capability_id = ?capability_id, parent_work_item_id = ?parent_work_item_id, error = %err, "create_work_item failed")
+            error!(work_item_id = %id, product_id = %product_id, module_id = ?module_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, parent_work_item_id = ?parent_work_item_id, error = %err, "create_work_item failed")
         }
     }
     result
@@ -99,19 +107,23 @@ pub async fn list_work_items(
     product_id: Option<String>,
     module_id: Option<String>,
     capability_id: Option<String>,
+    source_node_id: Option<String>,
+    source_node_type: Option<String>,
     status: Option<String>,
 ) -> Result<Vec<WorkItem>, AppError> {
-    debug!(product_id = ?product_id, module_id = ?module_id, capability_id = ?capability_id, status = ?status, "list_work_items requested");
+    debug!(product_id = ?product_id, module_id = ?module_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, status = ?status, "list_work_items requested");
     let result = work_item_repo::list_work_items(
         &state.db,
         product_id.as_deref(),
         module_id.as_deref(),
         capability_id.as_deref(),
+        source_node_id.as_deref(),
+        source_node_type.as_deref(),
         status.as_deref(),
     )
     .await;
     if let Err(err) = &result {
-        error!(product_id = ?product_id, module_id = ?module_id, capability_id = ?capability_id, status = ?status, error = %err, "list_work_items failed");
+        error!(product_id = ?product_id, module_id = ?module_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, status = ?status, error = %err, "list_work_items failed");
     }
     result
 }

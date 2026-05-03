@@ -1,0 +1,9 @@
+ALTER TABLE modules ADD COLUMN explanation TEXT NOT NULL DEFAULT '';
+ALTER TABLE modules ADD COLUMN examples TEXT NOT NULL DEFAULT '';
+ALTER TABLE modules ADD COLUMN implementation_notes TEXT NOT NULL DEFAULT '';
+ALTER TABLE modules ADD COLUMN test_guidance TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE capabilities ADD COLUMN explanation TEXT NOT NULL DEFAULT '';
+ALTER TABLE capabilities ADD COLUMN examples TEXT NOT NULL DEFAULT '';
+ALTER TABLE capabilities ADD COLUMN implementation_notes TEXT NOT NULL DEFAULT '';
+ALTER TABLE capabilities ADD COLUMN test_guidance TEXT NOT NULL DEFAULT '';

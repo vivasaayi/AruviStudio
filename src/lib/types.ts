@@ -1,5 +1,18 @@
 // Domain types matching Rust backend
 
+export type HierarchyNodeKind =
+  | "area"
+  | "domain"
+  | "subdomain"
+  | "system"
+  | "subsystem"
+  | "feature_set"
+  | "capability"
+  | "rollout"
+  | "reference";
+
+export type HierarchyNodeType = "module" | "capability";
+
 export interface Product {
   id: string;
   name: string;
@@ -15,9 +28,14 @@ export interface Product {
 export interface Module {
   id: string;
   product_id: string;
+  node_kind: HierarchyNodeKind;
   name: string;
   description: string;
   purpose: string;
+  explanation: string;
+  examples: string;
+  implementation_notes: string;
+  test_guidance: string;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -28,14 +46,19 @@ export interface Capability {
   module_id: string;
   parent_capability_id: string | null;
   level: number;
+  node_kind: HierarchyNodeKind;
   sort_order: number;
   name: string;
   description: string;
   acceptance_criteria: string;
+  explanation: string;
+  examples: string;
   priority: "critical" | "high" | "medium" | "low";
   risk: "high" | "medium" | "low";
   status: "draft" | "in_progress" | "done" | "archived";
   technical_notes: string;
+  implementation_notes: string;
+  test_guidance: string;
   created_at: string;
   updated_at: string;
 }
@@ -45,6 +68,8 @@ export interface WorkItem {
   product_id: string;
   module_id: string | null;
   capability_id: string | null;
+  source_node_id: string | null;
+  source_node_type: HierarchyNodeType | null;
   parent_work_item_id: string | null;
   title: string;
   problem_statement: string;
@@ -307,6 +332,7 @@ export interface Finding {
 export interface ProductTree {
   product: Product;
   modules: ModuleTree[];
+  roots: HierarchyTreeNode[];
 }
 
 export interface ModuleTree {
@@ -317,6 +343,23 @@ export interface ModuleTree {
 export interface CapabilityTree {
   capability: Capability;
   children: CapabilityTree[];
+}
+
+export interface HierarchyTreeNode {
+  id: string;
+  node_type: HierarchyNodeType;
+  node_kind: HierarchyNodeKind;
+  module_id: string;
+  capability_id: string | null;
+  parent_node_id: string | null;
+  parent_node_type: HierarchyNodeType | null;
+  depth: number;
+  name: string;
+  description: string;
+  summary: string;
+  path: string[];
+  allowed_child_kinds: HierarchyNodeKind[];
+  children: HierarchyTreeNode[];
 }
 
 export interface MigrationStatus {
@@ -366,8 +409,11 @@ export interface McpBridgeStatus {
   env_overrides_settings: boolean;
   guidance: string;
 }
-export type Outcome = Capability;
+export type CapabilityRollout = Capability;
+export type Outcome = CapabilityRollout;
 export type CapabilityNode = Capability;
+export type SemanticTemplateKind = "operator_chapter" | "technical_topic_book";
+export type ChildReparentStrategy = "reject" | "reparent_to_parent";
 
 export interface ChatMessagePayload {
   role: "system" | "user" | "assistant";
@@ -390,6 +436,9 @@ export interface PlannerTarget {
 export interface PlannerAction {
   type: string;
   target?: PlannerTarget;
+  templateKind?: SemanticTemplateKind;
+  nodeKind?: HierarchyNodeKind;
+  childStrategy?: ChildReparentStrategy;
   name?: string;
   title?: string;
   description?: string;
@@ -397,7 +446,11 @@ export interface PlannerAction {
   goals?: string[];
   tags?: string[];
   acceptanceCriteria?: string;
+  explanation?: string;
+  examples?: string;
   technicalNotes?: string;
+  implementationNotes?: string;
+  testGuidance?: string;
   problemStatement?: string;
   constraints?: string;
   workItemType?: string;
@@ -426,6 +479,22 @@ export interface PlannerTreeNode {
   confidence?: string | null;
   evidence?: string[];
   children: PlannerTreeNode[];
+}
+
+export interface SemanticTemplateApplicationResult {
+  template_kind: SemanticTemplateKind;
+  parent_node_id: string;
+  parent_node_type: HierarchyNodeType;
+  topic_node: Capability;
+  created_nodes: Capability[];
+  created_work_items: WorkItem[];
+}
+
+export interface NodeKindConversionResult {
+  capability: Capability;
+  previous_node_kind: HierarchyNodeKind;
+  child_strategy: ChildReparentStrategy | null;
+  reparented_children: Capability[];
 }
 
 export interface PlannerTraceEvent {

@@ -1,4 +1,8 @@
 use crate::error::AppError;
+use crate::domain::product::{
+    HierarchyNodeType, NodeKindConversionResult, SemanticTemplateApplicationResult,
+    SemanticTemplateKind,
+};
 use crate::persistence::{product_repo, settings_repo, work_item_repo};
 use sqlx::SqlitePool;
 use tracing::info;
@@ -47,6 +51,218 @@ pub async fn initialize_example_catalog(pool: &SqlitePool) -> Result<(), AppErro
     Ok(())
 }
 
+pub async fn apply_semantic_template(
+    pool: &SqlitePool,
+    module_id: &str,
+    parent_capability_id: Option<&str>,
+    template_kind: &str,
+    name: &str,
+    description: &str,
+    priority: Option<&str>,
+    risk: Option<&str>,
+    explanation: &str,
+    examples: &str,
+    implementation_notes: &str,
+    test_guidance: &str,
+) -> Result<SemanticTemplateApplicationResult, AppError> {
+    let template_kind = SemanticTemplateKind::parse(template_kind).ok_or_else(|| {
+        AppError::Validation(
+            "Unsupported template_kind. Use operator_chapter or technical_topic_book."
+                .to_string(),
+        )
+    })?;
+    let trimmed_name = name.trim();
+    if trimmed_name.is_empty() {
+        return Err(AppError::Validation(
+            "Template topic name cannot be empty.".to_string(),
+        ));
+    }
+
+    let priority = priority.unwrap_or("medium");
+    let risk = risk.unwrap_or("medium");
+    let chapter_description = if description.trim().is_empty() {
+        format!("{trimmed_name} book section.")
+    } else {
+        description.trim().to_string()
+    };
+    let topic_node = product_repo::create_capability(
+        pool,
+        &uuid::Uuid::new_v4().to_string(),
+        module_id,
+        parent_capability_id,
+        trimmed_name,
+        &chapter_description,
+        &format!(
+            "{} has definition, examples, implementation guidance, and test guidance captured.",
+            trimmed_name
+        ),
+        priority,
+        risk,
+        "Template-generated semantic chapter root.",
+        Some("capability"),
+        "",
+        "",
+        "",
+        "",
+    )
+    .await?;
+
+    let (definition_label, examples_label, implementation_label, tests_label) = match template_kind {
+        SemanticTemplateKind::OperatorChapter => (
+            format!("{trimmed_name} Definition"),
+            format!("{trimmed_name} Examples"),
+            format!("{trimmed_name} Implementation"),
+            format!("{trimmed_name} Tests"),
+        ),
+        SemanticTemplateKind::TechnicalTopicBook => (
+            format!("{trimmed_name} Overview"),
+            format!("{trimmed_name} Examples"),
+            format!("{trimmed_name} Implementation"),
+            format!("{trimmed_name} Tests"),
+        ),
+    };
+
+    let definition_node = product_repo::create_capability(
+        pool,
+        &uuid::Uuid::new_v4().to_string(),
+        module_id,
+        Some(&topic_node.id),
+        &definition_label,
+        &format!("Explain what {trimmed_name} is and when it should be used."),
+        "",
+        priority,
+        risk,
+        "Reference chapter for explanation and conceptual boundaries.",
+        Some("reference"),
+        explanation,
+        "",
+        "",
+        "",
+    )
+    .await?;
+    let examples_node = product_repo::create_capability(
+        pool,
+        &uuid::Uuid::new_v4().to_string(),
+        module_id,
+        Some(&topic_node.id),
+        &examples_label,
+        &format!("Capture worked examples and expected behaviors for {trimmed_name}."),
+        "",
+        priority,
+        risk,
+        "Reference chapter for examples and concrete edge cases.",
+        Some("reference"),
+        "",
+        examples,
+        "",
+        "",
+    )
+    .await?;
+    let implementation_node = product_repo::create_capability(
+        pool,
+        &uuid::Uuid::new_v4().to_string(),
+        module_id,
+        Some(&topic_node.id),
+        &implementation_label,
+        &format!("Describe how {trimmed_name} should be implemented."),
+        "",
+        priority,
+        risk,
+        "Execution rollout for implementation tasks.",
+        Some("rollout"),
+        "",
+        "",
+        implementation_notes,
+        "",
+    )
+    .await?;
+    let tests_node = product_repo::create_capability(
+        pool,
+        &uuid::Uuid::new_v4().to_string(),
+        module_id,
+        Some(&topic_node.id),
+        &tests_label,
+        &format!("Describe how {trimmed_name} should be validated."),
+        "",
+        priority,
+        risk,
+        "Execution rollout for tests and verification work.",
+        Some("rollout"),
+        "",
+        "",
+        "",
+        test_guidance,
+    )
+    .await?;
+
+    let implementation_work_item = work_item_repo::create_work_item(
+        pool,
+        &uuid::Uuid::new_v4().to_string(),
+        &resolve_product_id_for_module(pool, module_id).await?,
+        Some(module_id),
+        Some(&implementation_node.id),
+        Some(&implementation_node.id),
+        Some("capability"),
+        None,
+        &format!("Implement {trimmed_name}"),
+        &format!("{trimmed_name} needs implementation aligned to the authored chapter structure."),
+        implementation_notes,
+        &format!(
+            "{trimmed_name} is implemented and matches the documented behavior, examples, and edge cases."
+        ),
+        "Preserve the authored semantic structure and keep behavior deterministic.",
+        "feature",
+        priority,
+        "medium",
+    )
+    .await?;
+    let test_work_item = work_item_repo::create_work_item(
+        pool,
+        &uuid::Uuid::new_v4().to_string(),
+        &resolve_product_id_for_module(pool, module_id).await?,
+        Some(module_id),
+        Some(&tests_node.id),
+        Some(&tests_node.id),
+        Some("capability"),
+        None,
+        &format!("Write {trimmed_name} test cases"),
+        &format!("{trimmed_name} needs verification that matches the documented examples and risks."),
+        test_guidance,
+        &format!(
+            "Coverage validates happy paths, edge cases, and regressions for {trimmed_name}."
+        ),
+        "Keep tests aligned with the authored examples and implementation notes.",
+        "test",
+        priority,
+        "medium",
+    )
+    .await?;
+
+    Ok(SemanticTemplateApplicationResult {
+        template_kind,
+        parent_node_id: parent_capability_id
+            .map(ToString::to_string)
+            .unwrap_or_else(|| module_id.to_string()),
+        parent_node_type: if parent_capability_id.is_some() {
+            HierarchyNodeType::Capability
+        } else {
+            HierarchyNodeType::Module
+        },
+        topic_node,
+        created_nodes: vec![definition_node, examples_node, implementation_node, tests_node],
+        created_work_items: vec![implementation_work_item, test_work_item],
+    })
+}
+
+pub async fn convert_capability_kind(
+    pool: &SqlitePool,
+    capability_id: &str,
+    node_kind: &str,
+    child_strategy: Option<&str>,
+) -> Result<NodeKindConversionResult, AppError> {
+    product_repo::convert_capability_node_kind(pool, capability_id, node_kind, child_strategy).await
+}
+
 async fn seed_example_product(
     pool: &SqlitePool,
     product: &ExampleProductSpec,
@@ -75,6 +291,11 @@ async fn seed_example_product(
             module.name,
             module.description,
             module.purpose,
+            None,
+            "",
+            "",
+            "",
+            "",
         )
         .await?;
     }
@@ -86,6 +307,8 @@ async fn seed_example_product(
             &bootstrap_work_item_id,
             product.id,
             Some(module.id),
+            None,
+            None,
             None,
             None,
             "Initialize local repository and test scaffold",
@@ -132,6 +355,11 @@ async fn seed_example_capability(
             capability.priority,
             capability.risk,
             capability.technical_notes,
+            None,
+            "",
+            "",
+            "",
+            "",
         )
         .await?;
     }
@@ -157,12 +385,17 @@ async fn seed_example_capability(
                 ),
                 capability.priority,
                 capability.risk,
-                &format!(
-                    "Outcome belongs to the {} example product seed and should be delivered incrementally.",
-                    product.name
-                ),
-            )
-            .await?;
+                    &format!(
+                        "Outcome belongs to the {} example product seed and should be delivered incrementally.",
+                        product.name
+                    ),
+                    None,
+                    "",
+                    "",
+                    "",
+                    "",
+                )
+                .await?;
         }
 
         if !record_exists(pool, "work_items", &work_item_id).await? {
@@ -172,6 +405,8 @@ async fn seed_example_capability(
                 product.id,
                 Some(module.id),
                 Some(&outcome_id),
+                None,
+                None,
                 None,
                 &format!("Ship {}", outcome_name),
                 &format!(
@@ -193,6 +428,14 @@ async fn seed_example_capability(
     }
 
     Ok(())
+}
+
+async fn resolve_product_id_for_module(pool: &SqlitePool, module_id: &str) -> Result<String, AppError> {
+    sqlx::query_scalar("SELECT product_id FROM modules WHERE id=?")
+        .bind(module_id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Module {module_id} not found")))
 }
 
 async fn record_exists(pool: &SqlitePool, table: &str, id: &str) -> Result<bool, AppError> {

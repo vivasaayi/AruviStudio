@@ -37,6 +37,8 @@ import {
   startWorkItemWorkflow,
   updateWorkItem,
 } from "../../../lib/tauri";
+import { findHierarchyNode } from "../../../lib/hierarchyTree";
+import { getHierarchyNodeKindLabel } from "../../../lib/hierarchyLabels";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
 import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
@@ -57,6 +59,7 @@ import type {
   WorkflowStageHistory,
   WorkflowStagePolicy,
   Product,
+  HierarchyTreeNode,
 } from "../../../lib/types";
 
 const styles: Record<string, React.CSSProperties> = {
@@ -82,6 +85,10 @@ const styles: Record<string, React.CSSProperties> = {
   taskMain: { display: "flex", flexDirection: "column", gap: 4, minWidth: 0 },
   taskTitle: { fontSize: 13, fontWeight: 700, color: "#f3f3f3", margin: 0, whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" },
   taskMeta: { fontSize: 11, color: "#8f96a3", display: "flex", gap: 8, flexWrap: "wrap" },
+  ownerRow: { display: "flex", gap: 8, flexWrap: "wrap" as const, alignItems: "center" },
+  ownerBadge: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, border: "1px solid #36506f", backgroundColor: "#1a2736", color: "#8fc8ff" },
+  ownerBadgeRoot: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, border: "1px solid #5a5034", backgroundColor: "#2a2619", color: "#e7c77a" },
+  ownerPath: { fontSize: 11, color: "#aeb8c8", whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" },
   badge: { fontSize: 11, padding: "2px 8px", borderRadius: 10, display: "inline-block" },
   badgeRow: { display: "flex", gap: 8, flexWrap: "wrap" as const, alignItems: "center" },
   taskStatusLine: { fontSize: 12, color: "#cfd6e4", display: "flex", flexDirection: "column", gap: 4, minWidth: 0 },
@@ -280,7 +287,16 @@ function getWorkItemExecutionSteps(workItem: WorkItem, workspaceName?: string | 
 
 export function WorkItemListPage() {
   const queryClient = useQueryClient();
-  const { activeProductId, activeModuleId, activeCapabilityId, activeWorkItemId, setActiveWorkItem } = useWorkspaceStore();
+  const {
+    activeProductId,
+    activeModuleId,
+    activeCapabilityId,
+    activeNodeId,
+    activeNodeType,
+    activeWorkItemId,
+    setActiveProduct,
+    setActiveWorkItem,
+  } = useWorkspaceStore();
   const { workItemWorkspaceTab, setWorkItemWorkspaceTab, workItemCreateDialogOpen, openWorkItemCreateDialog, closeWorkItemCreateDialog, setActiveView } = useUIStore();
 
   const [statusFilter, setStatusFilter] = useState("");
@@ -317,59 +333,45 @@ export function WorkItemListPage() {
     constraints: "",
   });
 
-  const { data: workItems, isLoading } = useQuery({
-    queryKey: ["workItems", activeProductId, activeModuleId, activeCapabilityId, statusFilter],
-    queryFn: () =>
-      listWorkItems({
-        productId: activeProductId ?? undefined,
-        moduleId: activeCapabilityId ? undefined : activeModuleId ?? undefined,
-        capabilityId: activeCapabilityId ?? undefined,
-        status: statusFilter || undefined,
-      }),
-  });
-  const { data: products } = useQuery({
+  const { data: products, isLoading: productsLoading } = useQuery({
     queryKey: ["products"],
     queryFn: () => listProducts(),
   });
+  const selectedProductId = (products ?? []).some((product) => product.id === activeProductId)
+    ? activeProductId
+    : ((products ?? [])[0]?.id ?? null);
+
+  useEffect(() => {
+    if (productsLoading) {
+      return;
+    }
+    if (activeProductId !== selectedProductId) {
+      setActiveProduct(selectedProductId);
+    }
+  }, [activeProductId, productsLoading, selectedProductId, setActiveProduct]);
+
+  const { data: workItems, isLoading } = useQuery({
+    queryKey: ["workItems", selectedProductId, activeNodeId, activeNodeType, statusFilter],
+    queryFn: () =>
+      listWorkItems({
+        productId: selectedProductId ?? undefined,
+        sourceNodeId: activeNodeId ?? undefined,
+        sourceNodeType: activeNodeType ?? undefined,
+        status: statusFilter || undefined,
+      }),
+    enabled: !!selectedProductId,
+  });
   const { data: activeProductTree } = useQuery({
-    queryKey: ["workItemProductTree", activeProductId],
-    queryFn: () => getProductTree(activeProductId!),
-    enabled: !!activeProductId,
+    queryKey: ["workItemProductTree", selectedProductId],
+    queryFn: () => getProductTree(selectedProductId!),
+    enabled: !!selectedProductId,
   });
   const filteredWorkItems = useMemo(() => {
-    if (!activeProductId) {
+    if (!selectedProductId) {
       return [];
     }
-    const modules = activeProductTree?.modules ?? [];
-    const moduleIds = new Set(modules.map((moduleTree) => moduleTree.module.id));
-    const capabilityIds = new Set<string>();
-    const collectCapabilityIds = (capabilityTrees: typeof modules[number]["features"]) => {
-      capabilityTrees.forEach((capabilityTree) => {
-        capabilityIds.add(capabilityTree.capability.id);
-        collectCapabilityIds(capabilityTree.children);
-      });
-    };
-    modules.forEach((moduleTree) => collectCapabilityIds(moduleTree.features));
-
-    return (workItems ?? []).filter((workItem) => {
-      if (workItem.product_id !== activeProductId) {
-        return false;
-      }
-      if (activeCapabilityId) {
-        return workItem.capability_id === activeCapabilityId;
-      }
-      if (activeModuleId) {
-        return workItem.module_id === activeModuleId;
-      }
-      if (workItem.capability_id) {
-        return capabilityIds.has(workItem.capability_id);
-      }
-      if (workItem.module_id) {
-        return moduleIds.has(workItem.module_id);
-      }
-      return true;
-    });
-  }, [activeCapabilityId, activeModuleId, activeProductId, activeProductTree, workItems]);
+    return (workItems ?? []).filter((workItem) => workItem.product_id === selectedProductId);
+  }, [selectedProductId, workItems]);
 
   const selectedWorkItemId = useMemo(() => {
     const activeIdInScope = activeWorkItemId && filteredWorkItems.some((workItem) => workItem.id === activeWorkItemId)
@@ -586,7 +588,7 @@ export function WorkItemListPage() {
 
   const invalidateTasks = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["workItems", activeProductId, activeModuleId, activeCapabilityId, statusFilter] }),
+      queryClient.invalidateQueries({ queryKey: ["workItems", activeProductId, activeNodeId, activeNodeType, statusFilter] }),
       queryClient.invalidateQueries({ queryKey: ["sidebarWorkItems", activeProductId] }),
       queryClient.invalidateQueries({ queryKey: ["productWorkItemSummaries"] }),
       queryClient.invalidateQueries({ queryKey: ["workItem", selectedWorkItemId] }),
@@ -595,7 +597,7 @@ export function WorkItemListPage() {
       queryClient.invalidateQueries({ queryKey: ["agentRunsForWorkflow", workflowRunId] }),
       queryClient.invalidateQueries({ queryKey: ["artifacts", selectedWorkItemId] }),
       queryClient.invalidateQueries({ queryKey: ["findings", selectedWorkItemId] }),
-      queryClient.refetchQueries({ queryKey: ["workItems", activeProductId, activeModuleId, activeCapabilityId, statusFilter], type: "active" }),
+      queryClient.refetchQueries({ queryKey: ["workItems", activeProductId, activeNodeId, activeNodeType, statusFilter], type: "active" }),
       queryClient.refetchQueries({ queryKey: ["sidebarWorkItems", activeProductId], type: "active" }),
     ]);
   };
@@ -606,6 +608,8 @@ export function WorkItemListPage() {
         productId: activeProductId || "",
         moduleId: activeModuleId ?? undefined,
         capabilityId: activeCapabilityId ?? undefined,
+        sourceNodeId: activeNodeId ?? undefined,
+        sourceNodeType: activeNodeType ?? undefined,
         title: createForm.title,
         problemStatement: createForm.problemStatement,
         description: createForm.description,
@@ -616,7 +620,7 @@ export function WorkItemListPage() {
         complexity: createForm.complexity,
       }),
     onSuccess: async (createdWorkItem) => {
-      queryClient.setQueryData<WorkItem[] | undefined>(["workItems", activeProductId, activeModuleId, activeCapabilityId, statusFilter], (current) =>
+      queryClient.setQueryData<WorkItem[] | undefined>(["workItems", activeProductId, activeNodeId, activeNodeType, statusFilter], (current) =>
         current ? [...current, createdWorkItem] : [createdWorkItem],
       );
       queryClient.setQueryData<WorkItem[] | undefined>(["sidebarWorkItems", activeProductId], (current) =>
@@ -874,6 +878,47 @@ export function WorkItemListPage() {
     }
     return parts.length > 0 ? parts.join(" / ") : "None selected";
   }, [activeCapability?.name, activeModule?.name, activeProduct?.name]);
+  const workItemOwnerMap = useMemo(() => {
+    const map = new Map<string, { badge: string; path: string; isRoot: boolean }>();
+    if (!activeProduct) {
+      return map;
+    }
+
+    const roots = activeProductTree?.roots ?? [];
+    filteredWorkItems.forEach((workItem) => {
+      const ownerNode = findHierarchyNode(
+        roots,
+        workItem.source_node_id ?? workItem.capability_id ?? workItem.module_id,
+        workItem.source_node_type ?? (workItem.capability_id ? "capability" : workItem.module_id ? "module" : null),
+      );
+
+      if (ownerNode) {
+        map.set(workItem.id, {
+          badge: getHierarchyNodeKindLabel(ownerNode.node_kind),
+          path: [activeProduct.name, ...ownerNode.path].join(" / "),
+          isRoot: false,
+        });
+        return;
+      }
+
+      if (workItem.module_id || workItem.capability_id || workItem.source_node_id) {
+        map.set(workItem.id, {
+          badge: "Unknown Owner",
+          path: activeProduct.name,
+          isRoot: false,
+        });
+        return;
+      }
+
+      map.set(workItem.id, {
+        badge: "Product",
+        path: activeProduct.name,
+        isRoot: true,
+      });
+    });
+
+    return map;
+  }, [activeProduct, activeProductTree?.roots, filteredWorkItems]);
   const orderedWorkItems = useMemo(() => orderWorkItemsByIds(filteredWorkItems, workItemOrderIds), [filteredWorkItems, workItemOrderIds]);
   const selectedBacklogItems = useMemo(
     () => orderedWorkItems.filter((workItem) => selectedBacklogItemIds.includes(workItem.id)),
@@ -1202,6 +1247,7 @@ export function WorkItemListPage() {
                     (() => {
                       const latestRun = latestWorkflowRunByWorkItemId.get(workItem.id) ?? null;
                       const runtimeStatus = describeWorkItemRuntime(workItem, latestRun);
+                      const owner = workItemOwnerMap.get(workItem.id);
 
                       return (
                         <div
@@ -1246,6 +1292,14 @@ export function WorkItemListPage() {
                                 />
                                 <div style={styles.taskTitle}>{workItem.title}</div>
                               </div>
+                              {owner ? (
+                                <div style={styles.ownerRow}>
+                                  <span style={owner.isRoot ? styles.ownerBadgeRoot : styles.ownerBadge}>
+                                    Owner: {owner.badge}
+                                  </span>
+                                  <span style={styles.ownerPath}>{owner.path}</span>
+                                </div>
+                              ) : null}
                               <div style={styles.taskMeta}>
                                 <span>{formatWorkItemTypeLabel(workItem.work_item_type)}</span>
                                 <span>{workItem.priority}</span>
@@ -1852,7 +1906,15 @@ export function WorkItemListPage() {
           <div style={styles.detailCard}>
             <div style={styles.detailLabel}>Creation Scope</div>
             <div style={styles.detailValue}>
-              {activeCapabilityId ? "Current outcome" : activeModuleId ? "Current module" : activeProductId ? "Current product" : "No product selected"}
+              {activeCapability
+                ? `Current ${getHierarchyNodeKindLabel(activeCapability.node_kind, { lowercase: true })}`
+                : activeCapabilityId
+                  ? "Current node"
+                  : activeModuleId
+                    ? "Current root section"
+                    : activeProductId
+                      ? "Current product"
+                      : "No product selected"}
             </div>
           </div>
           <label style={styles.detailLabel}>Title</label>
