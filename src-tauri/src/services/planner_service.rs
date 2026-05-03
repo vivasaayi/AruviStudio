@@ -5,6 +5,7 @@ use crate::persistence::{
     approval_repo, model_repo, planner_repo, product_repo, repository_repo, settings_repo,
     work_item_repo, workflow_repo,
 };
+use crate::planning_doctrine;
 use crate::providers::gateway::ModelGateway;
 use crate::providers::openai_compatible::OpenAiCompatibleProvider;
 use crate::providers::types::{ChatMessage, CompletionRequest};
@@ -372,8 +373,8 @@ async fn append_conversation(
     Ok(())
 }
 
-fn planner_system_prompt() -> &'static str {
-    r#"You are an AI planning lead for a product-management desktop app.
+fn planner_system_prompt() -> String {
+    let base_prompt = r#"You are an AI planning lead for a product-management desktop app.
 You can inspect the workspace with tools before proposing changes.
 You are editing a draft planning tree, not writing directly to the persisted database.
 Return exactly one JSON object each turn.
@@ -425,7 +426,12 @@ approve_work_item, reject_work_item, approve_work_item_plan, reject_work_item_pl
 start_workflow, workflow_action, report_status, report_tree.
 - Use product/module/capability/work item names in target fields, never IDs.
 - assistant_response should sound like a planning lead: mention what already exists, what changed in the draft, and what should be refined next.
-- Use selected node context if supplied."#
+- Use selected node context if supplied."#;
+
+    format!(
+        "{base_prompt}\n\n{}",
+        planning_doctrine::planner_model_context()
+    )
 }
 
 fn repository_analysis_prompt() -> &'static str {
@@ -1327,7 +1333,7 @@ async fn run_tool_loop(
 ) -> Result<PlannerPlan, AppError> {
     let mut messages = vec![ChatMessage {
         role: "system".to_string(),
-        content: planner_system_prompt().to_string(),
+        content: planner_system_prompt(),
     }];
 
     let history = conversation

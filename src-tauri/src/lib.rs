@@ -6,6 +6,7 @@ mod execution;
 mod mcp;
 mod observability;
 mod persistence;
+mod planning_doctrine;
 mod providers;
 mod secrets;
 mod services;
