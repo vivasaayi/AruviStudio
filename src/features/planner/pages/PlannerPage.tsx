@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   addPlannerDraftChild,
   approveWorkItem,
@@ -1659,6 +1660,8 @@ async function executePlannerPlan(plan: PlannerPlan, context: ResolverContext): 
 
 export function PlannerPage() {
   const queryClient = useQueryClient();
+  const location = useLocation();
+  const navigate = useNavigate();
   const { activeProductId, activeModuleId, activeCapabilityId, activeWorkItemId } = useWorkspaceStore();
   const [plannerView, setPlannerView] = useState<"conversation" | "draft" | "trace">("conversation");
   const [providerId, setProviderId] = useState("");
@@ -1706,6 +1709,7 @@ export function PlannerPage() {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const consumedRoutePromptRef = useRef<string | null>(null);
 
   const { data: products = [] } = useQuery({ queryKey: ["products"], queryFn: listProducts });
   const { data: providers = [] } = useQuery({ queryKey: ["plannerProviders"], queryFn: listProviders });
@@ -2047,6 +2051,19 @@ export function PlannerPage() {
   useEffect(() => {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight });
   }, [messages]);
+
+  useEffect(() => {
+    const state = location.state as { plannerPrompt?: string; plannerView?: "conversation" | "draft" | "trace" } | null;
+    const prompt = state?.plannerPrompt?.trim();
+    if (!prompt || consumedRoutePromptRef.current === prompt) {
+      return;
+    }
+    consumedRoutePromptRef.current = prompt;
+    setDraft(prompt);
+    setPlannerView(state?.plannerView ?? "conversation");
+    composerRef.current?.focus();
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.pathname, location.state, navigate]);
 
   useEffect(() => {
     if (draftTreeNodes.length === 0 && plannerView === "draft") {
