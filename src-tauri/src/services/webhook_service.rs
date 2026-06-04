@@ -1,5 +1,5 @@
 use crate::mcp;
-use crate::persistence::{model_repo, settings_repo};
+use crate::persistence::{model_repo, product_repo, settings_repo};
 use crate::services::channel_service::{
     handle_inbound_message, resolve_twilio_config, ChannelInboundMessage,
 };
@@ -7,6 +7,7 @@ use crate::services::planner_service::{
     clear_planner_pending, confirm_planner_plan, create_planner_session, submit_planner_turn,
     submit_planner_voice_turn, update_planner_session,
 };
+use crate::services::product_service::HIDE_EXAMPLE_PRODUCTS_KEY;
 use crate::services::speech_service::{
     transcribe_audio_with_provider, SpeechToTextRequest, SpeechToTextResponse,
 };
@@ -195,6 +196,44 @@ async fn mobile_healthcheck(
         "service": "aruvi-mobile-api",
     }))
     .into_response()
+}
+
+async fn mobile_list_products(
+    State(state): State<WebhookState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await {
+        return response;
+    }
+    let hide_examples =
+        match settings_repo::get_bool_setting(&state.app_state.db, HIDE_EXAMPLE_PRODUCTS_KEY, true)
+            .await
+        {
+            Ok(value) => value,
+            Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+        };
+    let mut products = match product_repo::list_products(&state.app_state.db).await {
+        Ok(products) => products,
+        Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    };
+    if hide_examples {
+        products.retain(|product| !product.is_example_product());
+    }
+    Json(products).into_response()
+}
+
+async fn mobile_get_product_tree(
+    State(state): State<WebhookState>,
+    headers: HeaderMap,
+    Path(product_id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await {
+        return response;
+    }
+    match product_repo::get_product_tree(&state.app_state.db, &product_id).await {
+        Ok(tree) => Json(tree).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
 }
 
 async fn mobile_create_planner_session(
@@ -1015,6 +1054,11 @@ pub async fn start_webhook_server(app_state: AppState) {
                 .delete(mcp_http_delete),
         )
         .route("/api/mobile/health", get(mobile_healthcheck))
+        .route("/api/mobile/products", get(mobile_list_products))
+        .route(
+            "/api/mobile/products/:product_id/tree",
+            get(mobile_get_product_tree),
+        )
         .route(
             "/api/mobile/planner/sessions",
             post(mobile_create_planner_session),
@@ -1070,21 +1114,21 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Aruvi Remote</title>
+  <title>Aruvi Studio Mobile</title>
   <style>
     :root {
       color-scheme: dark;
-      --bg: #101317;
-      --panel: #181d23;
-      --panel-2: #121820;
-      --border: #2f3946;
-      --text: #f4f8ff;
-      --muted: #9aa7b8;
-      --accent: #0e639c;
-      --accent-2: #1b4f72;
-      --danger: #6c2020;
-      --ok: #56c7a9;
-      --warn: #f2b66d;
+      --bg: #101214;
+      --surface: #171b20;
+      --surface-2: #20262d;
+      --surface-3: #12171d;
+      --border: #343d46;
+      --text: #f4f6f8;
+      --muted: #a5b0bb;
+      --blue: #2274a5;
+      --green: #2f9d7e;
+      --amber: #c9872b;
+      --red: #8c3434;
     }
 
     * {
@@ -1116,18 +1160,18 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
       border-radius: 8px;
       padding: 0 14px;
       color: #fff;
-      background: var(--accent);
-      font-weight: 700;
+      background: var(--blue);
+      font-weight: 750;
     }
 
     button.secondary {
-      background: #263241;
-      color: #eef4ff;
-      border: 1px solid #394657;
+      background: #29313a;
+      color: #f0f4f8;
+      border: 1px solid #46515d;
     }
 
     button.danger {
-      background: var(--danger);
+      background: var(--red);
     }
 
     button:disabled {
@@ -1139,33 +1183,33 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
       width: 100%;
       border: 1px solid var(--border);
       border-radius: 8px;
-      background: #0e1319;
+      background: #0e1216;
       color: var(--text);
       padding: 11px 12px;
     }
 
     textarea {
-      min-height: 100px;
+      min-height: 104px;
       resize: vertical;
     }
 
     .shell {
       min-height: 100vh;
       display: grid;
-      grid-template-rows: auto 1fr;
+      grid-template-rows: auto auto 1fr;
     }
 
     .topbar {
       position: sticky;
       top: 0;
-      z-index: 2;
+      z-index: 3;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      padding: 14px max(16px, env(safe-area-inset-left)) 12px max(16px, env(safe-area-inset-left));
+      padding: 14px max(16px, env(safe-area-inset-left)) 12px max(16px, env(safe-area-inset-right));
       border-bottom: 1px solid var(--border);
-      background: rgba(16, 19, 23, 0.96);
+      background: rgba(16, 18, 20, 0.96);
       backdrop-filter: blur(16px);
     }
 
@@ -1179,27 +1223,92 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
       line-height: 1.2;
     }
 
-    .status {
-      margin-top: 4px;
+    .status,
+    .meta,
+    .empty,
+    .error,
+    .tree-meta,
+    .tree-summary {
       color: var(--muted);
       font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .status {
+      margin-top: 4px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
 
+    .ok {
+      color: #68d8b5;
+    }
+
+    .warn {
+      color: #f2bd6b;
+    }
+
+    .error {
+      color: #ff9e9e;
+    }
+
+    .tabbar {
+      position: sticky;
+      top: 62px;
+      z-index: 2;
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding: 8px max(16px, env(safe-area-inset-left));
+      border-bottom: 1px solid var(--border);
+      background: rgba(16, 18, 20, 0.94);
+      scrollbar-width: none;
+    }
+
+    .tabbar::-webkit-scrollbar {
+      display: none;
+    }
+
+    .tab-button {
+      flex: 0 0 auto;
+      min-height: 38px;
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid transparent;
+      padding: 0 12px;
+    }
+
+    .tab-button.active {
+      background: #22313c;
+      color: #ffffff;
+      border-color: #3e5365;
+    }
+
     .main {
-      display: grid;
-      grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
-      gap: 14px;
-      padding: 14px max(16px, env(safe-area-inset-right)) 18px max(16px, env(safe-area-inset-left));
+      padding: 14px max(16px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
       min-height: 0;
+    }
+
+    .tab-panel {
+      display: none;
+    }
+
+    .tab-panel.active {
+      display: block;
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
+      gap: 14px;
+      align-items: start;
     }
 
     .panel {
       border: 1px solid var(--border);
       border-radius: 8px;
-      background: var(--panel);
+      background: var(--surface);
       min-height: 0;
       overflow: hidden;
     }
@@ -1211,14 +1320,14 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
       gap: 12px;
       padding: 12px 14px;
       border-bottom: 1px solid var(--border);
-      background: var(--panel-2);
+      background: var(--surface-2);
     }
 
     .panel-title {
       font-size: 13px;
       font-weight: 800;
       text-transform: uppercase;
-      color: #cbd5e3;
+      color: #d5dde5;
     }
 
     .panel-body {
@@ -1246,22 +1355,35 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
 
     .bubble.user {
       align-self: flex-end;
-      background: var(--accent);
+      background: #1d6f99;
     }
 
     .bubble.assistant {
       align-self: flex-start;
-      background: #28313d;
+      background: #2a323a;
+    }
+
+    .composer,
+    .settings,
+    .stack,
+    .tree,
+    .product-list,
+    .tool-list {
+      display: grid;
+      gap: 10px;
     }
 
     .composer {
-      display: grid;
-      gap: 10px;
       margin-top: 12px;
     }
 
-    .button-row,
-    .field-grid {
+    .side-stack {
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+
+    .button-row {
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
@@ -1271,56 +1393,7 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
     .field-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      margin-bottom: 12px;
-    }
-
-    .tree {
-      display: grid;
       gap: 8px;
-    }
-
-    .tree-node {
-      border: 1px solid #344253;
-      border-radius: 8px;
-      padding: 10px;
-      background: #111923;
-    }
-
-    .tree-node.selected {
-      border-color: #42a5db;
-      background: #173650;
-    }
-
-    .tree-title {
-      font-weight: 800;
-      line-height: 1.35;
-    }
-
-    .tree-meta,
-    .tree-summary,
-    .empty,
-    .error {
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.45;
-      margin-top: 5px;
-    }
-
-    .error {
-      color: #ff9b9b;
-    }
-
-    .ok {
-      color: var(--ok);
-    }
-
-    .warn {
-      color: var(--warn);
-    }
-
-    .settings {
-      display: grid;
-      gap: 10px;
     }
 
     .label {
@@ -1331,10 +1404,67 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
       font-weight: 700;
     }
 
-    .side-stack {
+    .tree-node,
+    .product-card,
+    .tool-card,
+    .metric {
+      border: 1px solid #394653;
+      border-radius: 8px;
+      padding: 10px;
+      background: var(--surface-3);
+      text-align: left;
+      color: var(--text);
+    }
+
+    button.tree-node,
+    button.product-card {
+      min-height: auto;
+      width: 100%;
+    }
+
+    .tree-node.selected,
+    .product-card.selected {
+      border-color: #55a7d4;
+      background: #183548;
+    }
+
+    .tree-title,
+    .product-title,
+    .tool-title {
+      font-weight: 800;
+      line-height: 1.35;
+    }
+
+    .tree-meta,
+    .tree-summary,
+    .product-summary,
+    .tool-meta,
+    .empty {
+      margin-top: 5px;
+    }
+
+    .product-summary,
+    .tool-meta {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .metrics {
       display: grid;
-      gap: 14px;
-      align-content: start;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .metric-value {
+      font-size: 20px;
+      font-weight: 850;
+    }
+
+    .metric-label {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
     }
 
     @media (max-width: 820px) {
@@ -1342,17 +1472,22 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
         align-items: flex-start;
       }
 
-      .main {
+      .tabbar {
+        top: 63px;
+      }
+
+      .split {
         grid-template-columns: 1fr;
       }
 
-      .field-grid {
+      .field-grid,
+      .metrics {
         grid-template-columns: 1fr;
       }
 
       .conversation {
         min-height: 36vh;
-        max-height: 48vh;
+        max-height: 50vh;
       }
 
       .bubble {
@@ -1366,92 +1501,213 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
     <div class="shell">
       <header class="topbar">
         <div class="brand">
-          <h1>Aruvi Remote</h1>
+          <h1>Aruvi Studio</h1>
           <div class="status" id="status">Disconnected</div>
         </div>
         <button class="secondary" id="healthButton" type="button">Check</button>
       </header>
 
+      <nav class="tabbar" aria-label="Aruvi mobile sections">
+        <button class="tab-button active" data-tab="planner" type="button">Planner</button>
+        <button class="tab-button" data-tab="products" type="button">Products</button>
+        <button class="tab-button" data-tab="chat" type="button">Chat</button>
+        <button class="tab-button" data-tab="voice" type="button">Voice</button>
+        <button class="tab-button" data-tab="activity" type="button">Activity</button>
+      </nav>
+
       <main class="main">
-        <section class="panel">
-          <div class="panel-header">
-            <div class="panel-title">Planner</div>
-            <div class="status" id="sessionStatus">No session</div>
-          </div>
-          <div class="panel-body">
-            <div class="conversation" id="conversation"></div>
-            <div class="composer">
-              <textarea id="composer" placeholder="Tell the planner what to change"></textarea>
-              <div class="button-row">
-                <button id="sendButton" type="button">Send</button>
-                <button class="secondary" id="confirmButton" type="button">Confirm</button>
-                <button class="danger" id="clearButton" type="button">Clear</button>
+        <section class="tab-panel active" id="tab-planner">
+          <div class="split">
+            <section class="panel">
+              <div class="panel-header">
+                <div class="panel-title">Planner</div>
+                <div class="status" id="sessionStatus">No session</div>
               </div>
-            </div>
+              <div class="panel-body">
+                <div class="conversation" id="conversation"></div>
+                <div class="composer">
+                  <textarea id="composer" placeholder="Tell the planner what to change"></textarea>
+                  <div class="button-row">
+                    <button id="sendButton" type="button">Send</button>
+                    <button class="secondary" id="confirmButton" type="button">Confirm</button>
+                    <button class="danger" id="clearButton" type="button">Clear</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <aside class="side-stack">
+              <section class="panel">
+                <div class="panel-header">
+                  <div class="panel-title">Connection</div>
+                </div>
+                <div class="panel-body settings">
+                  <label>
+                    <span class="label">Token</span>
+                    <input id="tokenInput" type="password" autocomplete="current-password" placeholder="mobile.api_token" />
+                  </label>
+                  <div class="field-grid">
+                    <label>
+                      <span class="label">Provider</span>
+                      <input id="providerInput" placeholder="optional" />
+                    </label>
+                    <label>
+                      <span class="label">Model</span>
+                      <input id="modelInput" placeholder="optional" />
+                    </label>
+                  </div>
+                  <div class="button-row">
+                    <button id="saveButton" type="button">Save</button>
+                    <button class="secondary" id="copyLinkButton" type="button">Copy Setup Link</button>
+                    <button class="secondary" id="newSessionButton" type="button">New Session</button>
+                  </div>
+                  <div class="empty" id="connectionMeta"></div>
+                </div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-header">
+                  <div class="panel-title">Draft Tree</div>
+                </div>
+                <div class="panel-body">
+                  <div class="tree" id="draftTree"></div>
+                </div>
+              </section>
+            </aside>
           </div>
         </section>
 
-        <aside class="side-stack">
-          <section class="panel">
-            <div class="panel-header">
-              <div class="panel-title">Connection</div>
-            </div>
-            <div class="panel-body settings">
-              <label>
-                <span class="label">Token</span>
-                <input id="tokenInput" type="password" autocomplete="current-password" placeholder="mobile.api_token" />
-              </label>
-              <div class="field-grid">
-                <label>
-                  <span class="label">Provider</span>
-                  <input id="providerInput" placeholder="optional" />
-                </label>
-                <label>
-                  <span class="label">Model</span>
-                  <input id="modelInput" placeholder="optional" />
-                </label>
+        <section class="tab-panel" id="tab-products">
+          <div class="split">
+            <section class="panel">
+              <div class="panel-header">
+                <div class="panel-title">Products</div>
+                <button class="secondary" id="refreshProductsButton" type="button">Refresh</button>
               </div>
-              <div class="button-row">
-                <button id="saveButton" type="button">Save</button>
-                <button class="secondary" id="newSessionButton" type="button">New Session</button>
+              <div class="panel-body">
+                <div class="product-list" id="productList"></div>
               </div>
-              <div class="empty" id="connectionMeta"></div>
-            </div>
-          </section>
+            </section>
 
+            <section class="panel">
+              <div class="panel-header">
+                <div class="panel-title">Product Overview</div>
+                <div class="status" id="productStatus">No product</div>
+              </div>
+              <div class="panel-body stack">
+                <div class="metrics" id="productMetrics"></div>
+                <div class="tree" id="productTree"></div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="tab-panel" id="tab-chat">
           <section class="panel">
             <div class="panel-header">
-              <div class="panel-title">Draft Tree</div>
+              <div class="panel-title">Chat</div>
+              <div class="status" id="chatSessionStatus">No session</div>
             </div>
             <div class="panel-body">
-              <div class="tree" id="draftTree"></div>
+              <div class="conversation" id="chatConversation"></div>
+              <div class="composer">
+                <textarea id="chatComposer" placeholder="Ask Aruvi"></textarea>
+                <div class="button-row">
+                  <button id="chatSendButton" type="button">Send</button>
+                </div>
+              </div>
             </div>
           </section>
-        </aside>
+        </section>
+
+        <section class="tab-panel" id="tab-voice">
+          <section class="panel">
+            <div class="panel-header">
+              <div class="panel-title">Voice</div>
+              <div class="status" id="voiceSessionStatus">No session</div>
+            </div>
+            <div class="panel-body">
+              <div class="conversation" id="voiceConversation"></div>
+              <div class="composer">
+                <textarea id="voiceComposer" placeholder="Voice transcript"></textarea>
+                <div class="button-row">
+                  <button id="voiceSendButton" type="button">Submit</button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <section class="tab-panel" id="tab-activity">
+          <div class="split">
+            <section class="panel">
+              <div class="panel-header">
+                <div class="panel-title">Bridge</div>
+              </div>
+              <div class="panel-body stack">
+                <div class="metric">
+                  <div class="metric-value" id="bridgeState">Offline</div>
+                  <div class="metric-label" id="bridgeUrl">Not checked</div>
+                </div>
+                <div class="tool-list" id="healthDetails"></div>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <div class="panel-title">File MCP Tools</div>
+              </div>
+              <div class="panel-body">
+                <div class="tool-list" id="mcpToolList"></div>
+              </div>
+            </section>
+          </div>
+        </section>
       </main>
     </div>
   </div>
 
   <script>
     const storageKeys = {
+      activeTab: "aruvi.remote.active_tab",
       token: "aruvi.remote.token",
       provider: "aruvi.remote.provider",
       model: "aruvi.remote.model",
+      locale: "aruvi.remote.locale",
       session: "aruvi.remote.session",
-      selectedNode: "aruvi.remote.selected_node"
+      selectedNode: "aruvi.remote.selected_node",
+      selectedProduct: "aruvi.remote.selected_product"
     };
 
+    const mcpFileTools = [
+      ["repositories.list", "List registered repositories"],
+      ["repositories.trees.list", "List repository files"],
+      ["repositories.files.read", "Read a repository file"],
+      ["repositories.files.write", "Write a repository file"],
+      ["repositories.files.get_sha256", "Get current file hash"],
+      ["repositories.files.apply_patch", "Apply a unified patch"],
+      ["repositories.workspaces.create_for_scope", "Create local workspace"]
+    ];
+
     const state = {
+      activeTab: localStorage.getItem(storageKeys.activeTab) || "planner",
       sessionId: localStorage.getItem(storageKeys.session) || "",
       selectedNodeId: localStorage.getItem(storageKeys.selectedNode) || "",
+      selectedProductId: localStorage.getItem(storageKeys.selectedProduct) || "",
       draftTreeNodes: [],
+      products: [],
+      productTree: null,
       busy: false
     };
 
     const el = {
       status: document.getElementById("status"),
-      sessionStatus: document.getElementById("sessionStatus"),
       healthButton: document.getElementById("healthButton"),
+      tabs: Array.from(document.querySelectorAll(".tab-button")),
+      panels: Array.from(document.querySelectorAll(".tab-panel")),
+      sessionStatus: document.getElementById("sessionStatus"),
+      chatSessionStatus: document.getElementById("chatSessionStatus"),
+      voiceSessionStatus: document.getElementById("voiceSessionStatus"),
       conversation: document.getElementById("conversation"),
       composer: document.getElementById("composer"),
       sendButton: document.getElementById("sendButton"),
@@ -1461,16 +1717,61 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
       providerInput: document.getElementById("providerInput"),
       modelInput: document.getElementById("modelInput"),
       saveButton: document.getElementById("saveButton"),
+      copyLinkButton: document.getElementById("copyLinkButton"),
       newSessionButton: document.getElementById("newSessionButton"),
       connectionMeta: document.getElementById("connectionMeta"),
-      draftTree: document.getElementById("draftTree")
+      draftTree: document.getElementById("draftTree"),
+      refreshProductsButton: document.getElementById("refreshProductsButton"),
+      productList: document.getElementById("productList"),
+      productStatus: document.getElementById("productStatus"),
+      productMetrics: document.getElementById("productMetrics"),
+      productTree: document.getElementById("productTree"),
+      chatConversation: document.getElementById("chatConversation"),
+      chatComposer: document.getElementById("chatComposer"),
+      chatSendButton: document.getElementById("chatSendButton"),
+      voiceConversation: document.getElementById("voiceConversation"),
+      voiceComposer: document.getElementById("voiceComposer"),
+      voiceSendButton: document.getElementById("voiceSendButton"),
+      bridgeState: document.getElementById("bridgeState"),
+      bridgeUrl: document.getElementById("bridgeUrl"),
+      healthDetails: document.getElementById("healthDetails"),
+      mcpToolList: document.getElementById("mcpToolList")
     };
 
     function normalizeBaseUrl() {
       return window.location.origin;
     }
 
+    function importSettingsFromQuery() {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get("token");
+      const provider = params.get("providerId") || params.get("provider_id");
+      const model = params.get("modelName") || params.get("model_name");
+      const locale = params.get("locale");
+      let imported = false;
+      if (token) {
+        localStorage.setItem(storageKeys.token, token);
+        imported = true;
+      }
+      if (provider !== null) {
+        localStorage.setItem(storageKeys.provider, provider);
+        imported = true;
+      }
+      if (model !== null) {
+        localStorage.setItem(storageKeys.model, model);
+        imported = true;
+      }
+      if (locale !== null) {
+        localStorage.setItem(storageKeys.locale, locale);
+        imported = true;
+      }
+      if (imported && window.history.replaceState) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    }
+
     function loadSettings() {
+      importSettingsFromQuery();
       el.tokenInput.value = localStorage.getItem(storageKeys.token) || "";
       el.providerInput.value = localStorage.getItem(storageKeys.provider) || "";
       el.modelInput.value = localStorage.getItem(storageKeys.model) || "";
@@ -1492,16 +1793,38 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
 
     function setBusy(nextBusy) {
       state.busy = nextBusy;
-      el.sendButton.disabled = nextBusy;
+      [
+        el.sendButton,
+        el.chatSendButton,
+        el.voiceSendButton,
+        el.refreshProductsButton,
+        el.newSessionButton,
+        el.healthButton,
+        el.saveButton,
+        el.copyLinkButton
+      ].forEach((button) => {
+        button.disabled = nextBusy;
+      });
       el.confirmButton.disabled = nextBusy || !state.sessionId;
       el.clearButton.disabled = nextBusy || !state.sessionId;
-      el.newSessionButton.disabled = nextBusy;
-      el.healthButton.disabled = nextBusy;
     }
 
     function updateSessionStatus() {
-      el.sessionStatus.textContent = state.sessionId ? state.sessionId.slice(0, 8) : "No session";
+      const label = state.sessionId ? state.sessionId.slice(0, 8) : "No session";
+      el.sessionStatus.textContent = label;
+      el.chatSessionStatus.textContent = label;
+      el.voiceSessionStatus.textContent = label;
       setBusy(state.busy);
+    }
+
+    function switchTab(tabId) {
+      state.activeTab = tabId;
+      localStorage.setItem(storageKeys.activeTab, tabId);
+      el.tabs.forEach((button) => button.classList.toggle("active", button.dataset.tab === tabId));
+      el.panels.forEach((panel) => panel.classList.toggle("active", panel.id === "tab-" + tabId));
+      if (tabId === "products" && !state.products.length) {
+        void loadProducts();
+      }
     }
 
     async function request(path, options = {}) {
@@ -1524,12 +1847,12 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
       return response.json();
     }
 
-    function appendMessage(role, content) {
+    function appendMessage(target, role, content) {
       const bubble = document.createElement("div");
       bubble.className = "bubble " + role;
       bubble.textContent = content;
-      el.conversation.appendChild(bubble);
-      el.conversation.scrollTop = el.conversation.scrollHeight;
+      target.appendChild(bubble);
+      target.scrollTop = target.scrollHeight;
     }
 
     function renderDraftTree() {
@@ -1579,7 +1902,7 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
       state.draftTreeNodes.forEach((node) => renderNode(node, 0));
     }
 
-    function applyPlannerResponse(response) {
+    function applyPlannerResponse(response, target) {
       state.sessionId = response.session_id || state.sessionId;
       localStorage.setItem(storageKeys.session, state.sessionId);
       state.selectedNodeId = response.selected_draft_node_id || state.selectedNodeId || "";
@@ -1592,7 +1915,7 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
         ...(response.execution_lines || []),
         ...(response.execution_errors && response.execution_errors.length ? ["Errors: " + response.execution_errors.join(" | ")] : [])
       ].filter(Boolean);
-      appendMessage("assistant", lines.join("\n"));
+      appendMessage(target || el.conversation, "assistant", lines.join("\n"));
       renderDraftTree();
       updateSessionStatus();
     }
@@ -1619,36 +1942,80 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
         setBusy(true);
         const health = await request("/api/mobile/health");
         setStatus(health.status === "ok" ? "Connected" : "Health: " + health.status, "ok");
+        el.bridgeState.textContent = health.status === "ok" ? "Online" : health.status;
+        el.bridgeState.className = "metric-value ok";
+        el.bridgeUrl.textContent = normalizeBaseUrl();
+        renderHealthDetails(health);
       } catch (error) {
         setStatus(error.message || String(error), "error");
+        el.bridgeState.textContent = "Offline";
+        el.bridgeState.className = "metric-value error";
+        renderHealthDetails({ error: error.message || String(error) });
       } finally {
         setBusy(false);
       }
     }
 
-    async function sendTurn() {
-      const prompt = el.composer.value.trim();
+    function renderHealthDetails(payload) {
+      el.healthDetails.innerHTML = "";
+      Object.entries(payload).forEach(([key, value]) => {
+        const card = document.createElement("div");
+        card.className = "tool-card";
+        const title = document.createElement("div");
+        title.className = "tool-title";
+        title.textContent = key;
+        const meta = document.createElement("div");
+        meta.className = "tool-meta";
+        meta.textContent = typeof value === "string" ? value : JSON.stringify(value);
+        card.appendChild(title);
+        card.appendChild(meta);
+        el.healthDetails.appendChild(card);
+      });
+    }
+
+    async function submitPrompt(mode) {
+      const config = {
+        planner: {
+          box: el.composer,
+          target: el.conversation,
+          endpoint: "turn",
+          status: "Planning..."
+        },
+        chat: {
+          box: el.chatComposer,
+          target: el.chatConversation,
+          endpoint: "turn",
+          status: "Thinking..."
+        },
+        voice: {
+          box: el.voiceComposer,
+          target: el.voiceConversation,
+          endpoint: "voice-turn",
+          status: "Submitting..."
+        }
+      }[mode];
+      const prompt = config.box.value.trim();
       if (!prompt) {
         return;
       }
       saveSettings();
-      appendMessage("user", prompt);
-      el.composer.value = "";
+      appendMessage(config.target, "user", prompt);
+      config.box.value = "";
       try {
         setBusy(true);
-        setStatus("Planning...", "warn");
+        setStatus(config.status, "warn");
         const sessionId = await ensureSession();
-        const response = await request("/api/mobile/planner/sessions/" + encodeURIComponent(sessionId) + "/turn", {
+        const response = await request("/api/mobile/planner/sessions/" + encodeURIComponent(sessionId) + "/" + config.endpoint, {
           method: "POST",
           body: {
             user_input: prompt,
             selected_draft_node_id: state.selectedNodeId || null
           }
         });
-        applyPlannerResponse(response);
+        applyPlannerResponse(response, config.target);
         setStatus("Connected", "ok");
       } catch (error) {
-        appendMessage("assistant", "Error: " + (error.message || String(error)));
+        appendMessage(config.target, "assistant", "Error: " + (error.message || String(error)));
         setStatus(error.message || String(error), "error");
       } finally {
         setBusy(false);
@@ -1665,7 +2032,7 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
         const response = await request("/api/mobile/planner/sessions/" + encodeURIComponent(state.sessionId) + "/confirm", {
           method: "POST"
         });
-        applyPlannerResponse(response);
+        applyPlannerResponse(response, el.conversation);
         if (!response.draft_tree_nodes) {
           state.draftTreeNodes = [];
           state.selectedNodeId = "";
@@ -1674,7 +2041,7 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
         }
         setStatus("Connected", "ok");
       } catch (error) {
-        appendMessage("assistant", "Error: " + (error.message || String(error)));
+        appendMessage(el.conversation, "assistant", "Error: " + (error.message || String(error)));
         setStatus(error.message || String(error), "error");
       } finally {
         setBusy(false);
@@ -1709,26 +2076,212 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
       localStorage.removeItem(storageKeys.session);
       localStorage.removeItem(storageKeys.selectedNode);
       el.conversation.innerHTML = "";
+      el.chatConversation.innerHTML = "";
+      el.voiceConversation.innerHTML = "";
       renderDraftTree();
       updateSessionStatus();
       setStatus("New session", "ok");
     }
 
+    function makeSetupLink() {
+      const params = new URLSearchParams();
+      params.set("baseUrl", normalizeBaseUrl());
+      const token = el.tokenInput.value.trim();
+      if (token) params.set("token", token);
+      const provider = el.providerInput.value.trim();
+      if (provider) params.set("providerId", provider);
+      const model = el.modelInput.value.trim();
+      if (model) params.set("modelName", model);
+      return "aruvi-planner-mobile://connect?" + params.toString();
+    }
+
+    async function copySetupLink() {
+      saveSettings();
+      const link = makeSetupLink();
+      try {
+        await navigator.clipboard.writeText(link);
+        setStatus("Setup link copied", "ok");
+      } catch {
+        el.connectionMeta.textContent = link;
+        setStatus("Setup link ready", "ok");
+      }
+    }
+
+    async function loadProducts() {
+      try {
+        setBusy(true);
+        setStatus("Loading products...", "warn");
+        state.products = await request("/api/mobile/products");
+        renderProducts();
+        if (state.selectedProductId && state.products.some((product) => product.id === state.selectedProductId)) {
+          await loadProductTree(state.selectedProductId);
+        } else if (state.products[0]) {
+          await loadProductTree(state.products[0].id);
+        }
+        setStatus("Connected", "ok");
+      } catch (error) {
+        setStatus(error.message || String(error), "error");
+        renderProducts(error.message || String(error));
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    function renderProducts(errorMessage) {
+      el.productList.innerHTML = "";
+      if (errorMessage) {
+        const error = document.createElement("div");
+        error.className = "error";
+        error.textContent = errorMessage;
+        el.productList.appendChild(error);
+        return;
+      }
+      if (!state.products.length) {
+        const empty = document.createElement("div");
+        empty.className = "empty";
+        empty.textContent = "No products.";
+        el.productList.appendChild(empty);
+        return;
+      }
+      state.products.forEach((product) => {
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "product-card" + (product.id === state.selectedProductId ? " selected" : "");
+        card.onclick = () => {
+          void loadProductTree(product.id);
+        };
+        const title = document.createElement("div");
+        title.className = "product-title";
+        title.textContent = product.name;
+        const summary = document.createElement("div");
+        summary.className = "product-summary";
+        summary.textContent = product.description || product.status || product.id;
+        card.appendChild(title);
+        card.appendChild(summary);
+        el.productList.appendChild(card);
+      });
+    }
+
+    async function loadProductTree(productId) {
+      state.selectedProductId = productId;
+      localStorage.setItem(storageKeys.selectedProduct, productId);
+      renderProducts();
+      el.productStatus.textContent = "Loading";
+      state.productTree = await request("/api/mobile/products/" + encodeURIComponent(productId) + "/tree");
+      renderProductTree();
+    }
+
+    function renderMetric(value, label) {
+      const metric = document.createElement("div");
+      metric.className = "metric";
+      const valueEl = document.createElement("div");
+      valueEl.className = "metric-value";
+      valueEl.textContent = String(value);
+      const labelEl = document.createElement("div");
+      labelEl.className = "metric-label";
+      labelEl.textContent = label;
+      metric.appendChild(valueEl);
+      metric.appendChild(labelEl);
+      return metric;
+    }
+
+    function renderProductTree() {
+      el.productMetrics.innerHTML = "";
+      el.productTree.innerHTML = "";
+      const tree = state.productTree;
+      if (!tree) {
+        el.productStatus.textContent = "No product";
+        return;
+      }
+      const modules = tree.modules || [];
+      const roots = tree.roots || [];
+      const nodeCount = countNodes(roots);
+      el.productStatus.textContent = tree.product ? tree.product.name : "Loaded";
+      el.productMetrics.appendChild(renderMetric(modules.length, "Modules"));
+      el.productMetrics.appendChild(renderMetric(nodeCount, "Nodes"));
+      el.productMetrics.appendChild(renderMetric(tree.product && tree.product.status ? tree.product.status : "active", "Status"));
+
+      if (!roots.length) {
+        const empty = document.createElement("div");
+        empty.className = "empty";
+        empty.textContent = "No tree nodes.";
+        el.productTree.appendChild(empty);
+        return;
+      }
+      roots.forEach((node) => renderProductTreeNode(node, 0));
+    }
+
+    function countNodes(nodes) {
+      return (nodes || []).reduce((total, node) => total + 1 + countNodes(node.children || []), 0);
+    }
+
+    function renderProductTreeNode(node, depth) {
+      const card = document.createElement("div");
+      card.className = "tree-node";
+      card.style.marginLeft = Math.min(depth * 12, 36) + "px";
+      const title = document.createElement("div");
+      title.className = "tree-title";
+      title.textContent = node.name || "Untitled";
+      const meta = document.createElement("div");
+      meta.className = "tree-meta";
+      meta.textContent = [node.node_kind, node.node_type].filter(Boolean).join(" / ");
+      card.appendChild(title);
+      card.appendChild(meta);
+      if (node.summary || node.description) {
+        const summary = document.createElement("div");
+        summary.className = "tree-summary";
+        summary.textContent = node.summary || node.description;
+        card.appendChild(summary);
+      }
+      el.productTree.appendChild(card);
+      (node.children || []).forEach((child) => renderProductTreeNode(child, depth + 1));
+    }
+
+    function renderMcpTools() {
+      el.mcpToolList.innerHTML = "";
+      mcpFileTools.forEach(([name, description]) => {
+        const card = document.createElement("div");
+        card.className = "tool-card";
+        const title = document.createElement("div");
+        title.className = "tool-title";
+        title.textContent = name;
+        const meta = document.createElement("div");
+        meta.className = "tool-meta";
+        meta.textContent = description;
+        card.appendChild(title);
+        card.appendChild(meta);
+        el.mcpToolList.appendChild(card);
+      });
+    }
+
+    el.tabs.forEach((button) => {
+      button.addEventListener("click", () => switchTab(button.dataset.tab));
+    });
     el.saveButton.addEventListener("click", saveSettings);
+    el.copyLinkButton.addEventListener("click", copySetupLink);
     el.healthButton.addEventListener("click", checkHealth);
-    el.sendButton.addEventListener("click", sendTurn);
+    el.sendButton.addEventListener("click", () => submitPrompt("planner"));
+    el.chatSendButton.addEventListener("click", () => submitPrompt("chat"));
+    el.voiceSendButton.addEventListener("click", () => submitPrompt("voice"));
     el.confirmButton.addEventListener("click", confirmDraft);
     el.clearButton.addEventListener("click", clearDraft);
     el.newSessionButton.addEventListener("click", newSession);
-    el.composer.addEventListener("keydown", (event) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-        event.preventDefault();
-        sendTurn();
-      }
+    el.refreshProductsButton.addEventListener("click", loadProducts);
+    [el.composer, el.chatComposer, el.voiceComposer].forEach((box) => {
+      box.addEventListener("keydown", (event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+          event.preventDefault();
+          if (box === el.composer) submitPrompt("planner");
+          if (box === el.chatComposer) submitPrompt("chat");
+          if (box === el.voiceComposer) submitPrompt("voice");
+        }
+      });
     });
 
     loadSettings();
     renderDraftTree();
+    renderMcpTools();
+    switchTab(state.activeTab);
     setBusy(false);
   </script>
 </body>

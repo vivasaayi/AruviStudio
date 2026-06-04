@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Pressable,
   SafeAreaView,
   StyleSheet,
@@ -19,6 +20,34 @@ const STORAGE_KEYS = {
   modelName: "aruvi.mobile.model_name",
   locale: "aruvi.mobile.locale",
 };
+
+type ConnectionValues = {
+  baseUrl?: string;
+  token?: string;
+  providerId?: string;
+  modelName?: string;
+  locale?: string;
+};
+
+function parseConnectionUrl(url: string): ConnectionValues | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "aruvi-planner-mobile:") {
+      return null;
+    }
+    const params = parsed.searchParams;
+    const values: ConnectionValues = {
+      baseUrl: params.get("baseUrl") || params.get("base_url") || undefined,
+      token: params.get("token") || undefined,
+      providerId: params.get("providerId") || params.get("provider_id") || undefined,
+      modelName: params.get("modelName") || params.get("model_name") || undefined,
+      locale: params.get("locale") || undefined,
+    };
+    return Object.values(values).some(Boolean) ? values : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function App() {
   const [baseUrl, setBaseUrl] = useState("http://100.66.32.111:8787");
@@ -59,8 +88,37 @@ export default function App() {
     `;
   }, [locale, modelName, providerId, token]);
 
+  const applyConnectionValues = async (values: ConnectionValues) => {
+    const next = {
+      baseUrl: values.baseUrl?.trim(),
+      token: values.token?.trim(),
+      providerId: values.providerId?.trim(),
+      modelName: values.modelName?.trim(),
+      locale: values.locale?.trim(),
+    };
+    if (next.baseUrl) setBaseUrl(next.baseUrl);
+    if (next.token) setToken(next.token);
+    if (next.providerId !== undefined) setProviderId(next.providerId);
+    if (next.modelName !== undefined) setModelName(next.modelName);
+    if (next.locale) setLocale(next.locale);
+    await Promise.all([
+      next.baseUrl ? SecureStore.setItemAsync(STORAGE_KEYS.baseUrl, next.baseUrl) : Promise.resolve(),
+      next.token ? SecureStore.setItemAsync(STORAGE_KEYS.token, next.token) : Promise.resolve(),
+      next.providerId !== undefined
+        ? SecureStore.setItemAsync(STORAGE_KEYS.providerId, next.providerId)
+        : Promise.resolve(),
+      next.modelName !== undefined
+        ? SecureStore.setItemAsync(STORAGE_KEYS.modelName, next.modelName)
+        : Promise.resolve(),
+      next.locale ? SecureStore.setItemAsync(STORAGE_KEYS.locale, next.locale) : Promise.resolve(),
+    ]);
+    setWebReloadKey((current) => current + 1);
+  };
+
   useEffect(() => {
-    void (async () => {
+    let disposed = false;
+
+    const loadSavedConnection = async () => {
       const [savedBaseUrl, savedToken, savedProviderId, savedModelName, savedLocale] = await Promise.all([
         SecureStore.getItemAsync(STORAGE_KEYS.baseUrl),
         SecureStore.getItemAsync(STORAGE_KEYS.token),
@@ -68,12 +126,33 @@ export default function App() {
         SecureStore.getItemAsync(STORAGE_KEYS.modelName),
         SecureStore.getItemAsync(STORAGE_KEYS.locale),
       ]);
+      if (disposed) return;
       if (savedBaseUrl) setBaseUrl(savedBaseUrl);
       if (savedToken) setToken(savedToken);
       if (savedProviderId) setProviderId(savedProviderId);
       if (savedModelName) setModelName(savedModelName);
       if (savedLocale) setLocale(savedLocale);
-    })();
+
+      const initialUrl = await Linking.getInitialURL();
+      if (disposed || !initialUrl) return;
+      const connectionValues = parseConnectionUrl(initialUrl);
+      if (connectionValues) {
+        await applyConnectionValues(connectionValues);
+      }
+    };
+
+    const subscription = Linking.addEventListener("url", ({ url }) => {
+      const connectionValues = parseConnectionUrl(url);
+      if (connectionValues) {
+        void applyConnectionValues(connectionValues);
+      }
+    });
+
+    void loadSavedConnection();
+    return () => {
+      disposed = true;
+      subscription.remove();
+    };
   }, []);
 
   const saveConnection = async () => {
