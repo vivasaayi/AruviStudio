@@ -1,5 +1,9 @@
 use crate::mcp;
 use crate::persistence::{model_repo, product_repo, settings_repo};
+use crate::providers::gateway::ModelGateway;
+use crate::providers::openai_compatible::OpenAiCompatibleProvider;
+use crate::providers::types::{ChatMessage, CompletionRequest, CompletionResponse};
+use crate::secrets;
 use crate::services::channel_service::{
     handle_inbound_message, resolve_twilio_config, ChannelInboundMessage,
 };
@@ -123,6 +127,15 @@ struct MobilePlannerUpdateRequest {
 struct MobilePlannerTurnRequest {
     user_input: String,
     selected_draft_node_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MobileChatCompletionRequest {
+    provider_id: Option<String>,
+    model_name: Option<String>,
+    messages: Vec<ChatMessage>,
+    temperature: Option<f64>,
+    max_tokens: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -366,6 +379,57 @@ async fn mobile_clear_planner_turn(
     }
 }
 
+async fn mobile_chat_completion(
+    State(state): State<WebhookState>,
+    headers: HeaderMap,
+    Json(body): Json<MobileChatCompletionRequest>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await {
+        return response;
+    }
+    let messages = body
+        .messages
+        .into_iter()
+        .filter(|message| !message.content.trim().is_empty())
+        .collect::<Vec<_>>();
+    if messages.is_empty() {
+        return (StatusCode::BAD_REQUEST, "At least one chat message is required.").into_response();
+    }
+
+    let provider_id = match resolve_mobile_chat_provider_id(&state.app_state, body.provider_id).await
+    {
+        Ok(provider_id) => provider_id,
+        Err(error) => return (StatusCode::BAD_REQUEST, error).into_response(),
+    };
+    let model_name =
+        match resolve_mobile_chat_model_name(&state.app_state, &provider_id, body.model_name).await {
+            Ok(model_name) => model_name,
+            Err(error) => return (StatusCode::BAD_REQUEST, error).into_response(),
+        };
+    let provider = match model_repo::get_provider(&state.app_state.db, &provider_id).await {
+        Ok(provider) if provider.enabled => provider,
+        Ok(_) => return (StatusCode::BAD_REQUEST, "Selected provider is disabled.").into_response(),
+        Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    };
+    let api_key = match secrets::resolve_provider_secret(&provider) {
+        Ok(api_key) => api_key,
+        Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    };
+    let gateway = OpenAiCompatibleProvider::new(provider.base_url, api_key);
+    match gateway
+        .run_completion(CompletionRequest {
+            model: model_name,
+            messages,
+            temperature: body.temperature,
+            max_tokens: body.max_tokens.or(Some(4096)),
+        })
+        .await
+    {
+        Ok(response) => Json::<CompletionResponse>(response).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
+}
+
 async fn mobile_transcribe_audio(
     State(state): State<WebhookState>,
     headers: HeaderMap,
@@ -542,6 +606,39 @@ async fn resolve_mobile_speech_defaults(
             .await
             .map_err(|error| error.to_string())?);
     Ok((provider_id, model_name, locale))
+}
+
+async fn resolve_mobile_chat_provider_id(
+    state: &AppState,
+    requested_provider_id: Option<String>,
+) -> Result<String, String> {
+    if let Some(provider_id) = requested_provider_id.filter(|value| !value.trim().is_empty()) {
+        return Ok(provider_id);
+    }
+    model_repo::list_providers(&state.db)
+        .await
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|provider| provider.enabled)
+        .map(|provider| provider.id)
+        .ok_or_else(|| "No enabled model provider is configured.".to_string())
+}
+
+async fn resolve_mobile_chat_model_name(
+    state: &AppState,
+    provider_id: &str,
+    requested_model_name: Option<String>,
+) -> Result<String, String> {
+    if let Some(model_name) = requested_model_name.filter(|value| !value.trim().is_empty()) {
+        return Ok(model_name);
+    }
+    model_repo::list_model_definitions(&state.db)
+        .await
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|model| model.enabled && model.provider_id == provider_id)
+        .map(|model| model.name)
+        .ok_or_else(|| "No enabled model is configured for the selected provider.".to_string())
 }
 
 fn parse_bind_host(value: Option<String>) -> Option<String> {
@@ -1082,6 +1179,10 @@ pub async fn start_webhook_server(app_state: AppState) {
         .route(
             "/api/mobile/planner/sessions/:session_id/clear",
             post(mobile_clear_planner_turn),
+        )
+        .route(
+            "/api/mobile/chat/completions",
+            post(mobile_chat_completion),
         )
         .route(
             "/api/mobile/speech/transcribe",
@@ -1631,8 +1732,11 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
               <div class="composer">
                 <textarea id="voiceComposer" placeholder="Voice transcript"></textarea>
                 <div class="button-row">
+                  <button id="voiceRecordButton" type="button">Record</button>
                   <button id="voiceSendButton" type="button">Submit</button>
+                  <button class="secondary" id="voiceSpeakToggle" type="button">Speak On</button>
                 </div>
+                <div class="empty" id="voiceMeta">Record sends WAV audio to the desktop speech settings, then speaks the reply on this device when supported.</div>
               </div>
             </div>
           </section>
@@ -1697,6 +1801,10 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
       draftTreeNodes: [],
       products: [],
       productTree: null,
+      chatMessages: [],
+      voiceMessages: [],
+      voiceRecording: null,
+      voiceRepliesEnabled: true,
       busy: false
     };
 
@@ -1731,7 +1839,10 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
       chatSendButton: document.getElementById("chatSendButton"),
       voiceConversation: document.getElementById("voiceConversation"),
       voiceComposer: document.getElementById("voiceComposer"),
+      voiceRecordButton: document.getElementById("voiceRecordButton"),
       voiceSendButton: document.getElementById("voiceSendButton"),
+      voiceSpeakToggle: document.getElementById("voiceSpeakToggle"),
+      voiceMeta: document.getElementById("voiceMeta"),
       bridgeState: document.getElementById("bridgeState"),
       bridgeUrl: document.getElementById("bridgeUrl"),
       healthDetails: document.getElementById("healthDetails"),
@@ -1796,7 +1907,9 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
       [
         el.sendButton,
         el.chatSendButton,
+        el.voiceRecordButton,
         el.voiceSendButton,
+        el.voiceSpeakToggle,
         el.refreshProductsButton,
         el.newSessionButton,
         el.healthButton,
@@ -1805,6 +1918,9 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
       ].forEach((button) => {
         button.disabled = nextBusy;
       });
+      if (state.voiceRecording) {
+        el.voiceRecordButton.disabled = false;
+      }
       el.confirmButton.disabled = nextBusy || !state.sessionId;
       el.clearButton.disabled = nextBusy || !state.sessionId;
     }
@@ -1853,6 +1969,149 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
       bubble.textContent = content;
       target.appendChild(bubble);
       target.scrollTop = target.scrollHeight;
+    }
+
+    function speakOnDevice(text) {
+      if (!state.voiceRepliesEnabled || !text || !("speechSynthesis" in window)) {
+        return;
+      }
+      try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = localStorage.getItem(storageKeys.locale) || "en-US";
+        window.speechSynthesis.speak(utterance);
+      } catch {}
+    }
+
+    function setVoiceMeta(message) {
+      el.voiceMeta.textContent = message;
+    }
+
+    function flattenFloat32(chunks) {
+      const length = chunks.reduce((total, chunk) => total + chunk.length, 0);
+      const output = new Float32Array(length);
+      let offset = 0;
+      chunks.forEach((chunk) => {
+        output.set(chunk, offset);
+        offset += chunk.length;
+      });
+      return output;
+    }
+
+    function encodeWav(samples, sampleRate) {
+      const buffer = new ArrayBuffer(44 + samples.length * 2);
+      const view = new DataView(buffer);
+      const writeString = (offset, value) => {
+        for (let i = 0; i < value.length; i += 1) {
+          view.setUint8(offset + i, value.charCodeAt(i));
+        }
+      };
+      writeString(0, "RIFF");
+      view.setUint32(4, 36 + samples.length * 2, true);
+      writeString(8, "WAVE");
+      writeString(12, "fmt ");
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeString(36, "data");
+      view.setUint32(40, samples.length * 2, true);
+      let offset = 44;
+      for (let i = 0; i < samples.length; i += 1) {
+        const sample = Math.max(-1, Math.min(1, samples[i]));
+        view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+        offset += 2;
+      }
+      return new Blob([view], { type: "audio/wav" });
+    }
+
+    function blobToBase64(blob) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const value = String(reader.result || "");
+          resolve(value.includes(",") ? value.split(",")[1] : value);
+        };
+        reader.onerror = () => reject(reader.error || new Error("Failed to read audio"));
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    async function transcribeVoiceBlob(blob) {
+      const audio_bytes_base64 = await blobToBase64(blob);
+      const response = await request("/api/mobile/speech/transcribe", {
+        method: "POST",
+        body: {
+          audio_bytes_base64,
+          mime_type: blob.type || "audio/wav",
+          locale: localStorage.getItem(storageKeys.locale) || undefined
+        }
+      });
+      return (response.transcript || "").trim();
+    }
+
+    async function startVoiceRecording() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Microphone capture is not available in this WebView.");
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+      const audioContext = new AudioContextCtor();
+      const source = audioContext.createMediaStreamSource(stream);
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      const chunks = [];
+      processor.onaudioprocess = (event) => {
+        chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+        const output = event.outputBuffer.getChannelData(0);
+        output.fill(0);
+      };
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+      state.voiceRecording = { stream, audioContext, source, processor, chunks, sampleRate: audioContext.sampleRate };
+      el.voiceRecordButton.textContent = "Stop";
+      setVoiceMeta("Listening...");
+      setBusy(false);
+    }
+
+    async function stopVoiceRecording() {
+      const recording = state.voiceRecording;
+      if (!recording) {
+        return;
+      }
+      state.voiceRecording = null;
+      el.voiceRecordButton.textContent = "Record";
+      recording.processor.disconnect();
+      recording.source.disconnect();
+      recording.stream.getTracks().forEach((track) => track.stop());
+      await recording.audioContext.close().catch(() => undefined);
+      const wav = encodeWav(flattenFloat32(recording.chunks), recording.sampleRate);
+      setVoiceMeta("Transcribing...");
+      const transcript = await transcribeVoiceBlob(wav);
+      if (!transcript) {
+        setVoiceMeta("No speech detected.");
+        return;
+      }
+      el.voiceComposer.value = transcript;
+      setVoiceMeta("Transcript ready.");
+      await submitPrompt("voice");
+    }
+
+    async function toggleVoiceRecording() {
+      try {
+        if (state.voiceRecording) {
+          await stopVoiceRecording();
+        } else {
+          await startVoiceRecording();
+        }
+      } catch (error) {
+        state.voiceRecording = null;
+        el.voiceRecordButton.textContent = "Record";
+        setVoiceMeta(error.message || String(error));
+        setStatus(error.message || String(error), "error");
+      }
     }
 
     function renderDraftTree() {
@@ -2004,6 +2263,39 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
       try {
         setBusy(true);
         setStatus(config.status, "warn");
+        if (mode === "chat" || mode === "voice") {
+          const historyKey = mode === "voice" ? "voiceMessages" : "chatMessages";
+          const userMessage = { role: "user", content: prompt };
+          const messages = [
+            {
+              role: "system",
+              content: mode === "voice"
+                ? "You are Aruvi Studio's mobile voice assistant. Reply conversationally in one or two short sentences for spoken playback."
+                : "You are Aruvi Studio's mobile assistant. Keep replies concise and useful for a phone screen."
+            },
+            ...state[historyKey],
+            userMessage
+          ];
+          const response = await request("/api/mobile/chat/completions", {
+            method: "POST",
+            body: {
+              provider_id: el.providerInput.value.trim() || undefined,
+              model_name: el.modelInput.value.trim() || undefined,
+              messages,
+              temperature: 0.7,
+              max_tokens: 4096
+            }
+          });
+          const assistantMessage = { role: "assistant", content: (response.content || "").trim() };
+          state[historyKey] = [...state[historyKey], userMessage, assistantMessage].slice(-20);
+          appendMessage(config.target, "assistant", assistantMessage.content || "(empty response)");
+          if (mode === "voice") {
+            speakOnDevice(assistantMessage.content);
+            setVoiceMeta("Reply ready.");
+          }
+          setStatus("Connected", "ok");
+          return;
+        }
         const sessionId = await ensureSession();
         const response = await request("/api/mobile/planner/sessions/" + encodeURIComponent(sessionId) + "/" + config.endpoint, {
           method: "POST",
@@ -2078,6 +2370,8 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
       el.conversation.innerHTML = "";
       el.chatConversation.innerHTML = "";
       el.voiceConversation.innerHTML = "";
+      state.chatMessages = [];
+      state.voiceMessages = [];
       renderDraftTree();
       updateSessionStatus();
       setStatus("New session", "ok");
@@ -2262,7 +2556,13 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
     el.healthButton.addEventListener("click", checkHealth);
     el.sendButton.addEventListener("click", () => submitPrompt("planner"));
     el.chatSendButton.addEventListener("click", () => submitPrompt("chat"));
+    el.voiceRecordButton.addEventListener("click", () => toggleVoiceRecording());
     el.voiceSendButton.addEventListener("click", () => submitPrompt("voice"));
+    el.voiceSpeakToggle.addEventListener("click", () => {
+      state.voiceRepliesEnabled = !state.voiceRepliesEnabled;
+      el.voiceSpeakToggle.textContent = state.voiceRepliesEnabled ? "Speak On" : "Speak Off";
+      setVoiceMeta(state.voiceRepliesEnabled ? "Voice replies enabled." : "Voice replies disabled.");
+    });
     el.confirmButton.addEventListener("click", confirmDraft);
     el.clearButton.addEventListener("click", clearDraft);
     el.newSessionButton.addEventListener("click", newSession);

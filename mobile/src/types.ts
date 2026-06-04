@@ -41,3 +41,14 @@ export type PlannerTurnResponse = {
 export type SpeechToTextResponse = {
   transcript: string;
 };
+
+export type ChatMessagePayload = {
+  role: "system" | "user" | "assistant";
+  content: string;
+};
+
+export type ChatCompletionResponse = {
+  content: string;
+  token_count_input: number | null;
+  token_count_output: number | null;
+};

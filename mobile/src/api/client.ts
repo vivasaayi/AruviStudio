@@ -1,4 +1,10 @@
-import type { PlannerSessionInfo, PlannerTurnResponse, SpeechToTextResponse } from "../types";
+import type {
+  ChatCompletionResponse,
+  ChatMessagePayload,
+  PlannerSessionInfo,
+  PlannerTurnResponse,
+  SpeechToTextResponse,
+} from "../types";
 
 type RequestOptions = {
   method?: "GET" | "POST";
@@ -72,6 +78,19 @@ export class PlannerMobileClient {
   clearPlannerDraft(sessionId: string) {
     return this.request<PlannerSessionInfo>(`/api/mobile/planner/sessions/${sessionId}/clear`, {
       method: "POST",
+    });
+  }
+
+  runChatCompletion(body: {
+    provider_id?: string;
+    model_name?: string;
+    messages: ChatMessagePayload[];
+    temperature?: number;
+    max_tokens?: number;
+  }) {
+    return this.request<ChatCompletionResponse>("/api/mobile/chat/completions", {
+      method: "POST",
+      body,
     });
   }
 
