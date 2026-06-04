@@ -179,6 +179,10 @@ async fn healthcheck() -> impl IntoResponse {
     "ok"
 }
 
+async fn remote_app() -> impl IntoResponse {
+    Html(REMOTE_APP_HTML)
+}
+
 async fn mobile_healthcheck(
     State(state): State<WebhookState>,
     headers: HeaderMap,
@@ -1002,6 +1006,8 @@ pub async fn start_webhook_server(app_state: AppState) {
 
     let router = Router::new()
         .route("/health", get(healthcheck))
+        .route("/remote", get(remote_app))
+        .route("/remote/*path", get(remote_app))
         .route(
             "/api/mcp",
             get(mcp_http_get)
@@ -1058,3 +1064,672 @@ pub async fn start_webhook_server(app_state: AppState) {
         error!(error = %error, "webhook server failed");
     }
 }
+
+const REMOTE_APP_HTML: &str = r##"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Aruvi Remote</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #101317;
+      --panel: #181d23;
+      --panel-2: #121820;
+      --border: #2f3946;
+      --text: #f4f8ff;
+      --muted: #9aa7b8;
+      --accent: #0e639c;
+      --accent-2: #1b4f72;
+      --danger: #6c2020;
+      --ok: #56c7a9;
+      --warn: #f2b66d;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body,
+    #app {
+      min-height: 100%;
+      margin: 0;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    button,
+    input,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      min-height: 42px;
+      border: 0;
+      border-radius: 8px;
+      padding: 0 14px;
+      color: #fff;
+      background: var(--accent);
+      font-weight: 700;
+    }
+
+    button.secondary {
+      background: #263241;
+      color: #eef4ff;
+      border: 1px solid #394657;
+    }
+
+    button.danger {
+      background: var(--danger);
+    }
+
+    button:disabled {
+      opacity: 0.55;
+    }
+
+    input,
+    textarea {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #0e1319;
+      color: var(--text);
+      padding: 11px 12px;
+    }
+
+    textarea {
+      min-height: 100px;
+      resize: vertical;
+    }
+
+    .shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px max(16px, env(safe-area-inset-left)) 12px max(16px, env(safe-area-inset-left));
+      border-bottom: 1px solid var(--border);
+      background: rgba(16, 19, 23, 0.96);
+      backdrop-filter: blur(16px);
+    }
+
+    .brand {
+      min-width: 0;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.2;
+    }
+
+    .status {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .main {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+      gap: 14px;
+      padding: 14px max(16px, env(safe-area-inset-right)) 18px max(16px, env(safe-area-inset-left));
+      min-height: 0;
+    }
+
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel);
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel-2);
+    }
+
+    .panel-title {
+      font-size: 13px;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: #cbd5e3;
+    }
+
+    .panel-body {
+      padding: 14px;
+    }
+
+    .conversation {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 42vh;
+      max-height: 58vh;
+      overflow: auto;
+      padding-right: 2px;
+    }
+
+    .bubble {
+      max-width: 86%;
+      padding: 11px 12px;
+      border-radius: 8px;
+      white-space: pre-wrap;
+      line-height: 1.45;
+      font-size: 14px;
+    }
+
+    .bubble.user {
+      align-self: flex-end;
+      background: var(--accent);
+    }
+
+    .bubble.assistant {
+      align-self: flex-start;
+      background: #28313d;
+    }
+
+    .composer {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .button-row,
+    .field-grid {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-bottom: 12px;
+    }
+
+    .tree {
+      display: grid;
+      gap: 8px;
+    }
+
+    .tree-node {
+      border: 1px solid #344253;
+      border-radius: 8px;
+      padding: 10px;
+      background: #111923;
+    }
+
+    .tree-node.selected {
+      border-color: #42a5db;
+      background: #173650;
+    }
+
+    .tree-title {
+      font-weight: 800;
+      line-height: 1.35;
+    }
+
+    .tree-meta,
+    .tree-summary,
+    .empty,
+    .error {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      margin-top: 5px;
+    }
+
+    .error {
+      color: #ff9b9b;
+    }
+
+    .ok {
+      color: var(--ok);
+    }
+
+    .warn {
+      color: var(--warn);
+    }
+
+    .settings {
+      display: grid;
+      gap: 10px;
+    }
+
+    .label {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .side-stack {
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+
+    @media (max-width: 820px) {
+      .topbar {
+        align-items: flex-start;
+      }
+
+      .main {
+        grid-template-columns: 1fr;
+      }
+
+      .field-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .conversation {
+        min-height: 36vh;
+        max-height: 48vh;
+      }
+
+      .bubble {
+        max-width: 94%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <h1>Aruvi Remote</h1>
+          <div class="status" id="status">Disconnected</div>
+        </div>
+        <button class="secondary" id="healthButton" type="button">Check</button>
+      </header>
+
+      <main class="main">
+        <section class="panel">
+          <div class="panel-header">
+            <div class="panel-title">Planner</div>
+            <div class="status" id="sessionStatus">No session</div>
+          </div>
+          <div class="panel-body">
+            <div class="conversation" id="conversation"></div>
+            <div class="composer">
+              <textarea id="composer" placeholder="Tell the planner what to change"></textarea>
+              <div class="button-row">
+                <button id="sendButton" type="button">Send</button>
+                <button class="secondary" id="confirmButton" type="button">Confirm</button>
+                <button class="danger" id="clearButton" type="button">Clear</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="side-stack">
+          <section class="panel">
+            <div class="panel-header">
+              <div class="panel-title">Connection</div>
+            </div>
+            <div class="panel-body settings">
+              <label>
+                <span class="label">Token</span>
+                <input id="tokenInput" type="password" autocomplete="current-password" placeholder="mobile.api_token" />
+              </label>
+              <div class="field-grid">
+                <label>
+                  <span class="label">Provider</span>
+                  <input id="providerInput" placeholder="optional" />
+                </label>
+                <label>
+                  <span class="label">Model</span>
+                  <input id="modelInput" placeholder="optional" />
+                </label>
+              </div>
+              <div class="button-row">
+                <button id="saveButton" type="button">Save</button>
+                <button class="secondary" id="newSessionButton" type="button">New Session</button>
+              </div>
+              <div class="empty" id="connectionMeta"></div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div class="panel-title">Draft Tree</div>
+            </div>
+            <div class="panel-body">
+              <div class="tree" id="draftTree"></div>
+            </div>
+          </section>
+        </aside>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const storageKeys = {
+      token: "aruvi.remote.token",
+      provider: "aruvi.remote.provider",
+      model: "aruvi.remote.model",
+      session: "aruvi.remote.session",
+      selectedNode: "aruvi.remote.selected_node"
+    };
+
+    const state = {
+      sessionId: localStorage.getItem(storageKeys.session) || "",
+      selectedNodeId: localStorage.getItem(storageKeys.selectedNode) || "",
+      draftTreeNodes: [],
+      busy: false
+    };
+
+    const el = {
+      status: document.getElementById("status"),
+      sessionStatus: document.getElementById("sessionStatus"),
+      healthButton: document.getElementById("healthButton"),
+      conversation: document.getElementById("conversation"),
+      composer: document.getElementById("composer"),
+      sendButton: document.getElementById("sendButton"),
+      confirmButton: document.getElementById("confirmButton"),
+      clearButton: document.getElementById("clearButton"),
+      tokenInput: document.getElementById("tokenInput"),
+      providerInput: document.getElementById("providerInput"),
+      modelInput: document.getElementById("modelInput"),
+      saveButton: document.getElementById("saveButton"),
+      newSessionButton: document.getElementById("newSessionButton"),
+      connectionMeta: document.getElementById("connectionMeta"),
+      draftTree: document.getElementById("draftTree")
+    };
+
+    function normalizeBaseUrl() {
+      return window.location.origin;
+    }
+
+    function loadSettings() {
+      el.tokenInput.value = localStorage.getItem(storageKeys.token) || "";
+      el.providerInput.value = localStorage.getItem(storageKeys.provider) || "";
+      el.modelInput.value = localStorage.getItem(storageKeys.model) || "";
+      el.connectionMeta.textContent = normalizeBaseUrl();
+      updateSessionStatus();
+    }
+
+    function saveSettings() {
+      localStorage.setItem(storageKeys.token, el.tokenInput.value.trim());
+      localStorage.setItem(storageKeys.provider, el.providerInput.value.trim());
+      localStorage.setItem(storageKeys.model, el.modelInput.value.trim());
+      setStatus("Saved", "ok");
+    }
+
+    function setStatus(message, kind) {
+      el.status.textContent = message;
+      el.status.className = "status" + (kind ? " " + kind : "");
+    }
+
+    function setBusy(nextBusy) {
+      state.busy = nextBusy;
+      el.sendButton.disabled = nextBusy;
+      el.confirmButton.disabled = nextBusy || !state.sessionId;
+      el.clearButton.disabled = nextBusy || !state.sessionId;
+      el.newSessionButton.disabled = nextBusy;
+      el.healthButton.disabled = nextBusy;
+    }
+
+    function updateSessionStatus() {
+      el.sessionStatus.textContent = state.sessionId ? state.sessionId.slice(0, 8) : "No session";
+      setBusy(state.busy);
+    }
+
+    async function request(path, options = {}) {
+      const token = el.tokenInput.value.trim() || localStorage.getItem(storageKeys.token) || "";
+      if (!token) {
+        throw new Error("mobile.api_token is required");
+      }
+      const response = await fetch(path, {
+        method: options.method || "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + token
+        },
+        body: options.body === undefined ? undefined : JSON.stringify(options.body)
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || "Request failed with status " + response.status);
+      }
+      return response.json();
+    }
+
+    function appendMessage(role, content) {
+      const bubble = document.createElement("div");
+      bubble.className = "bubble " + role;
+      bubble.textContent = content;
+      el.conversation.appendChild(bubble);
+      el.conversation.scrollTop = el.conversation.scrollHeight;
+    }
+
+    function renderDraftTree() {
+      el.draftTree.innerHTML = "";
+      if (!state.draftTreeNodes.length) {
+        const empty = document.createElement("div");
+        empty.className = "empty";
+        empty.textContent = "No draft is staged.";
+        el.draftTree.appendChild(empty);
+        return;
+      }
+
+      function renderNode(node, depth) {
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "tree-node" + (node.id === state.selectedNodeId ? " selected" : "");
+        card.style.marginLeft = Math.min(depth * 12, 36) + "px";
+        card.onclick = () => {
+          state.selectedNodeId = node.id;
+          localStorage.setItem(storageKeys.selectedNode, state.selectedNodeId);
+          renderDraftTree();
+        };
+
+        const title = document.createElement("div");
+        title.className = "tree-title";
+        title.textContent = node.label || "Untitled";
+        card.appendChild(title);
+
+        if (node.meta || node.node_type) {
+          const meta = document.createElement("div");
+          meta.className = "tree-meta";
+          meta.textContent = node.meta || node.node_type;
+          card.appendChild(meta);
+        }
+
+        if (node.summary) {
+          const summary = document.createElement("div");
+          summary.className = "tree-summary";
+          summary.textContent = node.summary;
+          card.appendChild(summary);
+        }
+
+        el.draftTree.appendChild(card);
+        (node.children || []).forEach((child) => renderNode(child, depth + 1));
+      }
+
+      state.draftTreeNodes.forEach((node) => renderNode(node, 0));
+    }
+
+    function applyPlannerResponse(response) {
+      state.sessionId = response.session_id || state.sessionId;
+      localStorage.setItem(storageKeys.session, state.sessionId);
+      state.selectedNodeId = response.selected_draft_node_id || state.selectedNodeId || "";
+      if (state.selectedNodeId) {
+        localStorage.setItem(storageKeys.selectedNode, state.selectedNodeId);
+      }
+      state.draftTreeNodes = response.draft_tree_nodes || [];
+      const lines = [
+        response.assistant_message,
+        ...(response.execution_lines || []),
+        ...(response.execution_errors && response.execution_errors.length ? ["Errors: " + response.execution_errors.join(" | ")] : [])
+      ].filter(Boolean);
+      appendMessage("assistant", lines.join("\n"));
+      renderDraftTree();
+      updateSessionStatus();
+    }
+
+    async function ensureSession() {
+      if (state.sessionId) {
+        return state.sessionId;
+      }
+      const session = await request("/api/mobile/planner/sessions", {
+        method: "POST",
+        body: {
+          provider_id: el.providerInput.value.trim() || undefined,
+          model_name: el.modelInput.value.trim() || undefined
+        }
+      });
+      state.sessionId = session.session_id;
+      localStorage.setItem(storageKeys.session, state.sessionId);
+      updateSessionStatus();
+      return state.sessionId;
+    }
+
+    async function checkHealth() {
+      try {
+        setBusy(true);
+        const health = await request("/api/mobile/health");
+        setStatus(health.status === "ok" ? "Connected" : "Health: " + health.status, "ok");
+      } catch (error) {
+        setStatus(error.message || String(error), "error");
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function sendTurn() {
+      const prompt = el.composer.value.trim();
+      if (!prompt) {
+        return;
+      }
+      saveSettings();
+      appendMessage("user", prompt);
+      el.composer.value = "";
+      try {
+        setBusy(true);
+        setStatus("Planning...", "warn");
+        const sessionId = await ensureSession();
+        const response = await request("/api/mobile/planner/sessions/" + encodeURIComponent(sessionId) + "/turn", {
+          method: "POST",
+          body: {
+            user_input: prompt,
+            selected_draft_node_id: state.selectedNodeId || null
+          }
+        });
+        applyPlannerResponse(response);
+        setStatus("Connected", "ok");
+      } catch (error) {
+        appendMessage("assistant", "Error: " + (error.message || String(error)));
+        setStatus(error.message || String(error), "error");
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function confirmDraft() {
+      if (!state.sessionId) {
+        return;
+      }
+      try {
+        setBusy(true);
+        setStatus("Confirming...", "warn");
+        const response = await request("/api/mobile/planner/sessions/" + encodeURIComponent(state.sessionId) + "/confirm", {
+          method: "POST"
+        });
+        applyPlannerResponse(response);
+        if (!response.draft_tree_nodes) {
+          state.draftTreeNodes = [];
+          state.selectedNodeId = "";
+          localStorage.removeItem(storageKeys.selectedNode);
+          renderDraftTree();
+        }
+        setStatus("Connected", "ok");
+      } catch (error) {
+        appendMessage("assistant", "Error: " + (error.message || String(error)));
+        setStatus(error.message || String(error), "error");
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function clearDraft() {
+      if (!state.sessionId) {
+        return;
+      }
+      try {
+        setBusy(true);
+        await request("/api/mobile/planner/sessions/" + encodeURIComponent(state.sessionId) + "/clear", {
+          method: "POST"
+        });
+        state.draftTreeNodes = [];
+        state.selectedNodeId = "";
+        localStorage.removeItem(storageKeys.selectedNode);
+        renderDraftTree();
+        setStatus("Cleared", "ok");
+      } catch (error) {
+        setStatus(error.message || String(error), "error");
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    function newSession() {
+      state.sessionId = "";
+      state.selectedNodeId = "";
+      state.draftTreeNodes = [];
+      localStorage.removeItem(storageKeys.session);
+      localStorage.removeItem(storageKeys.selectedNode);
+      el.conversation.innerHTML = "";
+      renderDraftTree();
+      updateSessionStatus();
+      setStatus("New session", "ok");
+    }
+
+    el.saveButton.addEventListener("click", saveSettings);
+    el.healthButton.addEventListener("click", checkHealth);
+    el.sendButton.addEventListener("click", sendTurn);
+    el.confirmButton.addEventListener("click", confirmDraft);
+    el.clearButton.addEventListener("click", clearDraft);
+    el.newSessionButton.addEventListener("click", newSession);
+    el.composer.addEventListener("keydown", (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        event.preventDefault();
+        sendTurn();
+      }
+    });
+
+    loadSettings();
+    renderDraftTree();
+    setBusy(false);
+  </script>
+</body>
+</html>"##;

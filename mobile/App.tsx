@@ -4,19 +4,13 @@ import {
   Alert,
   Pressable,
   SafeAreaView,
-  ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   View,
 } from "react-native";
-import { Audio } from "expo-av";
-import * as FileSystem from "expo-file-system";
 import * as SecureStore from "expo-secure-store";
-import * as Speech from "expo-speech";
-import { PlannerMobileClient } from "./src/api/client";
-import type { PlannerTreeNode, PlannerTurnResponse } from "./src/types";
+import { WebView } from "react-native-webview";
 
 const STORAGE_KEYS = {
   baseUrl: "aruvi.mobile.base_url",
@@ -26,78 +20,44 @@ const STORAGE_KEYS = {
   locale: "aruvi.mobile.locale",
 };
 
-type PlannerMessage = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-};
-
-function makeId() {
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function DraftTree({
-  nodes,
-  selectedNodeId,
-  onSelect,
-  depth = 0,
-}: {
-  nodes: PlannerTreeNode[];
-  selectedNodeId: string | null;
-  onSelect: (nodeId: string) => void;
-  depth?: number;
-}) {
-  return (
-    <View style={styles.treeGroup}>
-      {nodes.map((node) => {
-        const selected = node.id === selectedNodeId;
-        return (
-          <View key={node.id}>
-            <Pressable
-              style={[styles.treeNode, selected ? styles.treeNodeSelected : null, { marginLeft: depth * 12 }]}
-              onPress={() => onSelect(node.id)}
-            >
-              <Text style={styles.treeNodeTitle}>{node.label}</Text>
-              {node.meta ? <Text style={styles.treeNodeMeta}>{node.meta}</Text> : null}
-              {node.summary ? <Text style={styles.treeNodeSummary}>{node.summary}</Text> : null}
-            </Pressable>
-            {node.children.length > 0 ? (
-              <DraftTree
-                nodes={node.children}
-                selectedNodeId={selectedNodeId}
-                onSelect={onSelect}
-                depth={depth + 1}
-              />
-            ) : null}
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
 export default function App() {
-  const [baseUrl, setBaseUrl] = useState("http://127.0.0.1:8787");
+  const [baseUrl, setBaseUrl] = useState("http://100.66.32.111:8787");
   const [token, setToken] = useState("");
   const [providerId, setProviderId] = useState("");
   const [modelName, setModelName] = useState("");
   const [locale, setLocale] = useState("en-US");
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [composer, setComposer] = useState("");
-  const [selectedDraftNodeId, setSelectedDraftNodeId] = useState<string | null>(null);
-  const [draftTreeNodes, setDraftTreeNodes] = useState<PlannerTreeNode[]>([]);
-  const [messages, setMessages] = useState<PlannerMessage[]>([
-    {
-      id: makeId(),
-      role: "assistant",
-      content: "Connect to your desktop planner bridge, then talk to the same staged planner session from iPhone.",
-    },
-  ]);
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
-  const [isBusy, setIsBusy] = useState(false);
-  const [autoSpeak, setAutoSpeak] = useState(false);
+  const [webReloadKey, setWebReloadKey] = useState(0);
+  const [isSaving, setIsSaving] = useState(false);
 
-  const client = useMemo(() => new PlannerMobileClient(baseUrl.trim(), token.trim()), [baseUrl, token]);
+  const remoteUrl = useMemo(() => {
+    const trimmed = baseUrl.trim().replace(/\/+$/, "");
+    return trimmed ? `${trimmed}/remote` : "about:blank";
+  }, [baseUrl]);
+
+  const remoteBootstrapScript = useMemo(() => {
+    const payload = {
+      token: token.trim(),
+      provider: providerId.trim(),
+      model: modelName.trim(),
+      locale: locale.trim(),
+    };
+    return `
+      (function () {
+        try {
+          var config = ${JSON.stringify(payload)};
+          if (config.token) window.localStorage.setItem("aruvi.remote.token", config.token);
+          else window.localStorage.removeItem("aruvi.remote.token");
+          if (config.provider) window.localStorage.setItem("aruvi.remote.provider", config.provider);
+          else window.localStorage.removeItem("aruvi.remote.provider");
+          if (config.model) window.localStorage.setItem("aruvi.remote.model", config.model);
+          else window.localStorage.removeItem("aruvi.remote.model");
+          if (config.locale) window.localStorage.setItem("aruvi.remote.locale", config.locale);
+          else window.localStorage.removeItem("aruvi.remote.locale");
+        } catch (error) {}
+      })();
+      true;
+    `;
+  }, [locale, modelName, providerId, token]);
 
   useEffect(() => {
     void (async () => {
@@ -116,237 +76,109 @@ export default function App() {
     })();
   }, []);
 
-  const appendAssistantReply = (response: PlannerTurnResponse) => {
-    const content = [
-      response.assistant_message,
-      ...response.execution_lines,
-      ...(response.execution_errors.length > 0 ? [`Errors: ${response.execution_errors.join(" | ")}`] : []),
-    ]
-      .filter(Boolean)
-      .join("\n");
-    setMessages((current) => [...current, { id: makeId(), role: "assistant", content }]);
-    setDraftTreeNodes(response.draft_tree_nodes ?? []);
-    setSelectedDraftNodeId(response.selected_draft_node_id ?? null);
-    if (autoSpeak && content.trim()) {
-      Speech.stop();
-      Speech.speak(content, { language: locale });
-    }
-  };
-
   const saveConnection = async () => {
-    await Promise.all([
-      SecureStore.setItemAsync(STORAGE_KEYS.baseUrl, baseUrl.trim()),
-      SecureStore.setItemAsync(STORAGE_KEYS.token, token.trim()),
-      SecureStore.setItemAsync(STORAGE_KEYS.providerId, providerId.trim()),
-      SecureStore.setItemAsync(STORAGE_KEYS.modelName, modelName.trim()),
-      SecureStore.setItemAsync(STORAGE_KEYS.locale, locale.trim()),
-    ]);
-    Alert.alert("Saved", "Planner mobile connection settings are stored on this device.");
-  };
-
-  const ensureSession = async () => {
-    if (sessionId) {
-      return sessionId;
-    }
-    const session = await client.createPlannerSession({
-      provider_id: providerId.trim() || undefined,
-      model_name: modelName.trim() || undefined,
-    });
-    setSessionId(session.session_id);
-    return session.session_id;
-  };
-
-  const sendTurn = async () => {
-    if (!composer.trim()) {
-      return;
-    }
     try {
-      setIsBusy(true);
-      const nextSessionId = await ensureSession();
-      const prompt = composer.trim();
-      setComposer("");
-      setMessages((current) => [...current, { id: makeId(), role: "user", content: prompt }]);
-      const response = await client.submitPlannerTurn(nextSessionId, {
-        user_input: prompt,
-        selected_draft_node_id: selectedDraftNodeId,
-      });
-      appendAssistantReply(response);
+      setIsSaving(true);
+      await Promise.all([
+        SecureStore.setItemAsync(STORAGE_KEYS.baseUrl, baseUrl.trim()),
+        SecureStore.setItemAsync(STORAGE_KEYS.token, token.trim()),
+        SecureStore.setItemAsync(STORAGE_KEYS.providerId, providerId.trim()),
+        SecureStore.setItemAsync(STORAGE_KEYS.modelName, modelName.trim()),
+        SecureStore.setItemAsync(STORAGE_KEYS.locale, locale.trim()),
+      ]);
+      setWebReloadKey((current) => current + 1);
     } catch (error) {
-      Alert.alert("Planner error", error instanceof Error ? error.message : String(error));
+      Alert.alert("Save failed", error instanceof Error ? error.message : String(error));
     } finally {
-      setIsBusy(false);
-    }
-  };
-
-  const confirmDraft = async () => {
-    if (!sessionId) {
-      return;
-    }
-    try {
-      setIsBusy(true);
-      const response = await client.confirmPlannerDraft(sessionId);
-      appendAssistantReply(response);
-      if (!response.draft_tree_nodes) {
-        setDraftTreeNodes([]);
-        setSelectedDraftNodeId(null);
-      }
-    } catch (error) {
-      Alert.alert("Commit failed", error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsBusy(false);
-    }
-  };
-
-  const clearDraft = async () => {
-    if (!sessionId) {
-      return;
-    }
-    try {
-      setIsBusy(true);
-      await client.clearPlannerDraft(sessionId);
-      setDraftTreeNodes([]);
-      setSelectedDraftNodeId(null);
-    } catch (error) {
-      Alert.alert("Clear failed", error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsBusy(false);
-    }
-  };
-
-  const startRecording = async () => {
-    try {
-      const permission = await Audio.requestPermissionsAsync();
-      if (permission.status !== "granted") {
-        Alert.alert("Microphone required", "Allow microphone access to use voice planning.");
-        return;
-      }
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-      const nextRecording = new Audio.Recording();
-      await nextRecording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      await nextRecording.startAsync();
-      setRecording(nextRecording);
-    } catch (error) {
-      Alert.alert("Voice failed", error instanceof Error ? error.message : String(error));
-    }
-  };
-
-  const stopRecording = async () => {
-    if (!recording) {
-      return;
-    }
-    try {
-      setIsBusy(true);
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      setRecording(null);
-      if (!uri) {
-        return;
-      }
-      const audioBase64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      const transcription = await client.transcribeSpeech({
-        provider_id: providerId.trim() || undefined,
-        model_name: modelName.trim() || undefined,
-        audio_bytes_base64: audioBase64,
-        mime_type: "audio/m4a",
-        locale,
-      });
-      const transcript = transcription.transcript.trim();
-      if (!transcript) {
-        return;
-      }
-      const nextSessionId = await ensureSession();
-      setMessages((current) => [...current, { id: makeId(), role: "user", content: transcript }]);
-      const response = await client.submitPlannerVoiceTurn(nextSessionId, {
-        user_input: transcript,
-        selected_draft_node_id: selectedDraftNodeId,
-      });
-      appendAssistantReply(response);
-    } catch (error) {
-      Alert.alert("Transcription failed", error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsBusy(false);
+      setIsSaving(false);
     }
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>Aruvi Planner Mobile</Text>
-        <Text style={styles.subtitle}>
-          Securely connect to the desktop planner bridge, stage draft structure, and keep iterating from iPhone against the same planner and speech APIs.
-        </Text>
-
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Connection</Text>
-          <TextInput style={styles.input} value={baseUrl} onChangeText={setBaseUrl} placeholder="http://desktop-ip:8787" placeholderTextColor="#7d8898" />
-          <TextInput style={styles.input} value={token} onChangeText={setToken} placeholder="mobile api token" placeholderTextColor="#7d8898" secureTextEntry />
-          <TextInput style={styles.input} value={providerId} onChangeText={setProviderId} placeholder="optional planner provider id" placeholderTextColor="#7d8898" />
-          <TextInput style={styles.input} value={modelName} onChangeText={setModelName} placeholder="optional planner model name" placeholderTextColor="#7d8898" />
-          <TextInput style={styles.input} value={locale} onChangeText={setLocale} placeholder="en-US" placeholderTextColor="#7d8898" />
-          <Pressable style={styles.primaryButton} onPress={() => void saveConnection()}>
-            <Text style={styles.primaryButtonText}>Save Connection</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.card}>
-          <View style={styles.row}>
-            <Text style={styles.sectionTitle}>Planner</Text>
-            <View style={styles.switchRow}>
-              <Text style={styles.helper}>Voice replies</Text>
-              <Switch value={autoSpeak} onValueChange={setAutoSpeak} />
+      <View style={styles.shell}>
+        <View style={styles.header}>
+          <View style={styles.titleRow}>
+            <View style={styles.titleBlock}>
+              <Text style={styles.title}>Aruvi Remote</Text>
+              <Text style={styles.url} numberOfLines={1}>{remoteUrl}</Text>
             </View>
-          </View>
-          <View style={styles.row}>
-            <Pressable style={styles.secondaryButton} onPress={() => void startRecording()} disabled={Boolean(recording) || isBusy}>
-              <Text style={styles.secondaryButtonText}>{recording ? "Recording..." : "Start Voice"}</Text>
-            </Pressable>
-            <Pressable style={styles.secondaryButton} onPress={() => void stopRecording()} disabled={!recording || isBusy}>
-              <Text style={styles.secondaryButtonText}>Stop Voice</Text>
-            </Pressable>
-            <Pressable style={styles.secondaryButton} onPress={() => void confirmDraft()} disabled={!sessionId || draftTreeNodes.length === 0 || isBusy}>
-              <Text style={styles.secondaryButtonText}>Commit</Text>
-            </Pressable>
-            <Pressable style={styles.dangerButton} onPress={() => void clearDraft()} disabled={!sessionId || isBusy}>
-              <Text style={styles.secondaryButtonText}>Clear</Text>
+            <Pressable style={styles.button} onPress={() => setWebReloadKey((current) => current + 1)}>
+              <Text style={styles.buttonText}>Reload</Text>
             </Pressable>
           </View>
+
           <TextInput
-            style={styles.textarea}
-            value={composer}
-            onChangeText={setComposer}
-            multiline
-            placeholder="Describe what to plan, or tap Start Voice and speak."
+            style={styles.input}
+            value={baseUrl}
+            onChangeText={setBaseUrl}
+            placeholder="http://mac-tailnet-ip:8787"
             placeholderTextColor="#7d8898"
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
           />
-          <Pressable style={styles.primaryButton} onPress={() => void sendTurn()} disabled={isBusy}>
-            <Text style={styles.primaryButtonText}>{isBusy ? "Working..." : "Send To Planner"}</Text>
-          </Pressable>
-          {isBusy ? <ActivityIndicator color="#7bc8ff" style={styles.spinner} /> : null}
+          <TextInput
+            style={styles.input}
+            value={token}
+            onChangeText={setToken}
+            placeholder="mobile.api_token"
+            placeholderTextColor="#7d8898"
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          <View style={styles.optionalGrid}>
+            <TextInput
+              style={styles.input}
+              value={providerId}
+              onChangeText={setProviderId}
+              placeholder="provider id"
+              placeholderTextColor="#7d8898"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <TextInput
+              style={styles.input}
+              value={modelName}
+              onChangeText={setModelName}
+              placeholder="model"
+              placeholderTextColor="#7d8898"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+
+          <View style={styles.actionRow}>
+            <Pressable style={styles.primaryButton} onPress={() => void saveConnection()} disabled={isSaving}>
+              <Text style={styles.primaryButtonText}>{isSaving ? "Saving..." : "Save + Load"}</Text>
+            </Pressable>
+          </View>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Conversation</Text>
-          {messages.map((message) => (
-            <View key={message.id} style={message.role === "user" ? styles.userBubble : styles.assistantBubble}>
-              <Text style={styles.bubbleText}>{message.content}</Text>
+        <WebView
+          key={`${remoteUrl}-${webReloadKey}`}
+          source={{ uri: remoteUrl }}
+          style={styles.webView}
+          injectedJavaScriptBeforeContentLoaded={remoteBootstrapScript}
+          javaScriptEnabled
+          domStorageEnabled
+          allowsInlineMediaPlayback
+          startInLoadingState
+          renderLoading={() => (
+            <View style={styles.loading}>
+              <ActivityIndicator color="#7bc8ff" />
             </View>
-          ))}
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Draft Tree</Text>
-          {draftTreeNodes.length > 0 ? (
-            <DraftTree nodes={draftTreeNodes} selectedNodeId={selectedDraftNodeId} onSelect={setSelectedDraftNodeId} />
-          ) : (
-            <Text style={styles.helper}>No staged draft yet. Ask the planner to design or revise the product structure first.</Text>
           )}
-        </View>
-      </ScrollView>
+          renderError={(_, __, description) => (
+            <View style={styles.errorPanel}>
+              <Text style={styles.errorTitle}>Remote UI unavailable</Text>
+              <Text style={styles.errorText}>{description}</Text>
+            </View>
+          )}
+        />
+      </View>
     </SafeAreaView>
   );
 }
@@ -356,73 +188,70 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#111317",
   },
-  container: {
-    padding: 18,
-    gap: 16,
+  shell: {
+    flex: 1,
+    backgroundColor: "#111317",
   },
-  title: {
-    color: "#f4f8ff",
-    fontSize: 28,
-    fontWeight: "800",
+  header: {
+    borderBottomWidth: 1,
+    borderBottomColor: "#2f3642",
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 12,
+    gap: 8,
+    backgroundColor: "#151922",
   },
-  subtitle: {
-    color: "#a8b2c4",
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  card: {
-    backgroundColor: "#181c22",
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "#2f3642",
-    padding: 14,
-    gap: 12,
-  },
-  sectionTitle: {
-    color: "#f4f8ff",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  helper: {
-    color: "#9aa8bd",
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  row: {
+  titleRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    gap: 10,
-    flexWrap: "wrap",
+    gap: 12,
   },
-  switchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+  titleBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  title: {
+    color: "#f4f8ff",
+    fontSize: 24,
+    fontWeight: "800",
+  },
+  url: {
+    color: "#9aa8bd",
+    fontSize: 12,
+    marginTop: 2,
   },
   input: {
     backgroundColor: "#12161c",
     borderColor: "#364152",
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     color: "#f4f8ff",
   },
-  textarea: {
-    backgroundColor: "#12161c",
-    borderColor: "#364152",
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    minHeight: 100,
-    color: "#f4f8ff",
-    textAlignVertical: "top",
+  optionalGrid: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  actionRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  button: {
+    backgroundColor: "#223040",
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  buttonText: {
+    color: "#edf3ff",
+    fontWeight: "700",
   },
   primaryButton: {
+    flex: 1,
     backgroundColor: "#0e639c",
-    borderRadius: 12,
+    borderRadius: 8,
     paddingVertical: 12,
     alignItems: "center",
   },
@@ -431,71 +260,37 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 15,
   },
-  secondaryButton: {
-    backgroundColor: "#223040",
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
+  webView: {
+    flex: 1,
+    backgroundColor: "#101317",
   },
-  secondaryButtonText: {
-    color: "#edf3ff",
+  loading: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#101317",
+  },
+  errorPanel: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 18,
+    gap: 10,
+    backgroundColor: "#111317",
+  },
+  errorTitle: {
+    color: "#f4f8ff",
+    fontSize: 16,
     fontWeight: "700",
   },
-  dangerButton: {
-    backgroundColor: "#6c2020",
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-  },
-  spinner: {
-    marginTop: 8,
-  },
-  userBubble: {
-    alignSelf: "flex-end",
-    backgroundColor: "#0e639c",
-    borderRadius: 14,
-    padding: 12,
-    maxWidth: "88%",
-  },
-  assistantBubble: {
-    alignSelf: "flex-start",
-    backgroundColor: "#27303c",
-    borderRadius: 14,
-    padding: 12,
-    maxWidth: "92%",
-  },
-  bubbleText: {
-    color: "#f4f8ff",
-    lineHeight: 20,
-  },
-  treeGroup: {
-    gap: 8,
-  },
-  treeNode: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#364152",
-    backgroundColor: "#111821",
-    padding: 10,
-    gap: 4,
-  },
-  treeNodeSelected: {
-    borderColor: "#0e639c",
-    backgroundColor: "#173450",
-  },
-  treeNodeTitle: {
-    color: "#f4f8ff",
-    fontWeight: "700",
-    fontSize: 14,
-  },
-  treeNodeMeta: {
+  errorText: {
     color: "#9aa8bd",
-    fontSize: 11,
-    textTransform: "uppercase",
-  },
-  treeNodeSummary: {
-    color: "#c4d1e4",
-    fontSize: 12,
+    fontSize: 13,
     lineHeight: 18,
+    textAlign: "center",
   },
 });
