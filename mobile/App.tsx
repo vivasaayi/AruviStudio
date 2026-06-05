@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   Linking,
   Platform,
   Pressable,
@@ -29,13 +30,17 @@ import { WebView } from "react-native-webview";
 import { initWhisper, type WhisperContext } from "whisper.rn";
 import { PlannerMobileClient } from "./src/api/client";
 
-type ActiveTab = "planner" | "products" | "chat" | "voice" | "models" | "activity";
+type ActiveTab = "planner" | "products" | "voice" | "models" | "activity";
 type SpeechRuntime = "backend" | "local";
+type VoiceMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+};
 
 const TABS: Array<{ id: ActiveTab; label: string }> = [
   { id: "planner", label: "Planner" },
   { id: "products", label: "Products" },
-  { id: "chat", label: "Chat" },
   { id: "voice", label: "Voice" },
   { id: "models", label: "Models" },
   { id: "activity", label: "Activity" },
@@ -285,6 +290,10 @@ function recordingMimeType(uri: string) {
   return "audio/mp4";
 }
 
+function createId(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.round(Math.random() * 100000)}`;
+}
+
 export default function App() {
   const webViewRef = useRef<WebView>(null);
   const whisperContextRef = useRef<{ modelId: string; uri: string; context: WhisperContext } | null>(null);
@@ -308,6 +317,15 @@ export default function App() {
   const [isVoiceBusy, setIsVoiceBusy] = useState(false);
   const [nativeVoiceStatus, setNativeVoiceStatus] = useState("Ready");
   const [lastVoiceTranscript, setLastVoiceTranscript] = useState("");
+  const [voiceDraft, setVoiceDraft] = useState("");
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [voiceMessages, setVoiceMessages] = useState<VoiceMessage[]>([
+    {
+      id: "assistant-welcome",
+      role: "assistant",
+      content: "Ready when you are. Tap the mic and speak naturally.",
+    },
+  ]);
 
   const remoteUrl = useMemo(() => {
     const trimmed = baseUrl.trim().replace(/\/+$/, "");
@@ -347,6 +365,22 @@ export default function App() {
       const currentContext = whisperContextRef.current;
       whisperContextRef.current = null;
       void currentContext?.context.release();
+    };
+  }, []);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSubscription = Keyboard.addListener(showEvent, (event) => {
+      setKeyboardHeight(event.endCoordinates.height);
+    });
+    const hideSubscription = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
     };
   }, []);
 
@@ -410,6 +444,9 @@ export default function App() {
       if (savedLocale) setLocale(savedLocale);
       if (TABS.some((tab) => tab.id === savedActiveTab)) {
         setActiveTab(savedActiveTab as ActiveTab);
+      } else if (savedActiveTab === "chat") {
+        setActiveTab("voice");
+        void SecureStore.setItemAsync(STORAGE_KEYS.activeTab, "voice");
       }
       if (savedSpeechRuntime === "backend" || savedSpeechRuntime === "local") {
         setSpeechRuntime(savedSpeechRuntime);
@@ -497,10 +534,62 @@ export default function App() {
     );
   };
 
-  const sendTranscriptToRemoteVoiceChat = (transcript: string) => {
-    setActiveTab("voice");
-    void SecureStore.setItemAsync(STORAGE_KEYS.activeTab, "voice");
-    webViewRef.current?.injectJavaScript(buildRemoteVoiceSubmitScript(transcript));
+  const submitVoicePrompt = async (prompt: string) => {
+    const trimmed = prompt.trim();
+    if (!trimmed) return;
+    if (!token.trim()) {
+      Alert.alert("Setup required", "Save a mobile API token before using voice chat.");
+      return;
+    }
+
+    const userMessage: VoiceMessage = {
+      id: createId("voice-user"),
+      role: "user",
+      content: trimmed,
+    };
+    const history = voiceMessages
+      .filter((message) => message.id !== "assistant-welcome")
+      .slice(-18);
+    setVoiceMessages((current) => [...current.filter((message) => message.id !== "assistant-welcome"), userMessage]);
+    setVoiceDraft("");
+    setNativeVoiceStatus("Thinking...");
+    setIsVoiceBusy(true);
+
+    try {
+      const response = await mobileClient.runChatCompletion({
+        provider_id: providerId.trim() || undefined,
+        model_name: modelName.trim() || undefined,
+        messages: [
+          {
+            role: "system",
+            content: "You are Aruvi Studio's mobile voice assistant. Reply conversationally in one or two short sentences for spoken playback.",
+          },
+          ...history.map((message) => ({
+            role: message.role,
+            content: message.content,
+          })),
+          {
+            role: "user",
+            content: trimmed,
+          },
+        ],
+        temperature: 0.7,
+        max_tokens: 4096,
+      });
+      const assistantMessage: VoiceMessage = {
+        id: createId("voice-assistant"),
+        role: "assistant",
+        content: response.content.trim() || "(empty response)",
+      };
+      setVoiceMessages((current) => [...current, assistantMessage].slice(-24));
+      setNativeVoiceStatus("Reply ready");
+    } catch (error) {
+      const message = describeError(error);
+      setNativeVoiceStatus(message);
+      Alert.alert("Voice failed", message);
+    } finally {
+      setIsVoiceBusy(false);
+    }
   };
 
   const persistInstalledWhisperModels = async (nextModels: Record<string, InstalledWhisperModel>) => {
@@ -698,9 +787,9 @@ export default function App() {
         return;
       }
       setLastVoiceTranscript(transcript);
+      setVoiceDraft(transcript);
       setNativeVoiceStatus("Sending...");
-      sendTranscriptToRemoteVoiceChat(transcript);
-      setNativeVoiceStatus("Sent");
+      await submitVoicePrompt(transcript);
     } catch (error) {
       const message = describeError(error);
       setNativeVoiceStatus(message);
@@ -752,6 +841,108 @@ export default function App() {
   const speechRuntimeDescription = canUseLocalSpeech
     ? `Using ${WHISPER_MODELS.find((model) => model.id === activeLocalWhisperModel?.id)?.label ?? "Whisper"} on this phone for speech-to-text.`
     : "Using the configured backend speech-to-text provider.";
+  const speechRuntimeLabel = canUseLocalSpeech
+    ? `On-device ${WHISPER_MODELS.find((model) => model.id === activeLocalWhisperModel?.id)?.label ?? "Whisper"}`
+    : "Backend STT";
+  const isVoiceKeyboardOpen = activeTab === "voice" && keyboardHeight > 0;
+
+  const renderVoiceScreen = () => (
+    <View style={styles.voiceScreen}>
+      <View style={styles.voiceTopBand}>
+        <View style={styles.voiceTopCopy}>
+          <Text style={styles.voiceTitle}>Voice</Text>
+          <Text style={styles.voiceSubtitle} numberOfLines={1}>{nativeVoiceStatus}</Text>
+        </View>
+        <Pressable style={styles.runtimeChip} onPress={() => switchTab("models")}>
+          <Text style={styles.runtimeChipText} numberOfLines={1}>{speechRuntimeLabel}</Text>
+        </Pressable>
+      </View>
+
+      <ScrollView
+        style={styles.voiceConversation}
+        contentContainerStyle={styles.voiceConversationContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        {voiceMessages.map((message) => (
+          <View
+            key={message.id}
+            style={[
+              styles.voiceBubble,
+              message.role === "user" ? styles.voiceBubbleUser : styles.voiceBubbleAssistant,
+            ]}
+          >
+            <Text
+              style={[
+                styles.voiceBubbleText,
+                message.role === "user" ? styles.voiceBubbleTextUser : styles.voiceBubbleTextAssistant,
+              ]}
+            >
+              {message.content}
+            </Text>
+          </View>
+        ))}
+      </ScrollView>
+
+      <View
+        style={[
+          styles.voiceComposerPanel,
+          isVoiceKeyboardOpen && { marginBottom: keyboardHeight + 8 },
+        ]}
+      >
+        <View style={styles.voiceComposerHeader}>
+          <Text style={styles.voiceComposerLabel} numberOfLines={1}>
+            {recorderState.isRecording ? "Listening" : isVoiceBusy ? nativeVoiceStatus : "Voice transcript"}
+          </Text>
+          <Text style={styles.voiceComposerStatus} numberOfLines={1}>
+            {token.trim() ? speechRuntimeLabel : "Setup required"}
+          </Text>
+        </View>
+        <TextInput
+          style={styles.voiceComposerInput}
+          value={voiceDraft}
+          onChangeText={setVoiceDraft}
+          placeholder="Speak or type a message"
+          placeholderTextColor="#7f8a9c"
+          multiline
+          textAlignVertical="top"
+        />
+        <View style={styles.voiceComposerActions}>
+          <Pressable
+            style={[styles.voiceClearButton, (!voiceDraft.trim() || isVoiceBusy || recorderState.isRecording) && styles.buttonDisabled]}
+            onPress={() => setVoiceDraft("")}
+            disabled={!voiceDraft.trim() || isVoiceBusy || recorderState.isRecording}
+          >
+            <Text style={styles.voiceClearButtonText}>Clear</Text>
+          </Pressable>
+          <View style={styles.voiceComposerSpacer} />
+          <Pressable
+            style={[
+              styles.voiceMicButton,
+              recorderState.isRecording && styles.voiceMicButtonRecording,
+              nativeVoiceButtonDisabled && !recorderState.isRecording && styles.buttonDisabled,
+            ]}
+            onPress={() => void toggleNativeVoiceRecording()}
+            disabled={nativeVoiceButtonDisabled && !recorderState.isRecording}
+          >
+            <Text style={styles.voiceMicButtonText}>{recorderState.isRecording ? "Stop" : "Mic"}</Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.voiceSendButton,
+              (!voiceDraft.trim() || isVoiceBusy || recorderState.isRecording) && styles.buttonDisabled,
+            ]}
+            onPress={() => void submitVoicePrompt(voiceDraft)}
+            disabled={!voiceDraft.trim() || isVoiceBusy || recorderState.isRecording}
+          >
+            <Text style={styles.voiceSendButtonText}>↑</Text>
+          </Pressable>
+        </View>
+        <Text style={styles.voiceControlHint} numberOfLines={1}>
+          {token.trim() ? speechRuntimeDescription : "Save setup first."}
+        </Text>
+      </View>
+    </View>
+  );
 
   const renderModelManager = () => (
     <ScrollView style={styles.modelPage} contentContainerStyle={styles.modelPageContent}>
@@ -869,18 +1060,24 @@ export default function App() {
           <View style={styles.titleRow}>
             <View style={styles.titleBlock}>
               <Text style={styles.title}>Aruvi Studio</Text>
-              <Text style={styles.url} numberOfLines={1}>{remoteUrl}</Text>
+              <View style={styles.connectionRow}>
+                <View style={[styles.connectionDot, token.trim() ? styles.connectionDotReady : styles.connectionDotMissing]} />
+                <Text style={styles.connectionText} numberOfLines={1}>
+                  {token.trim() ? "Connected" : "Setup required"}
+                </Text>
+              </View>
             </View>
-            <Pressable style={styles.button} onPress={() => setIsSetupOpen((current) => !current)}>
+            <Pressable style={styles.headerButton} onPress={() => setIsSetupOpen((current) => !current)}>
               <Text style={styles.buttonText}>Setup</Text>
             </Pressable>
-            <Pressable style={styles.button} onPress={() => setWebReloadKey((current) => current + 1)}>
+            <Pressable style={styles.headerButton} onPress={() => setWebReloadKey((current) => current + 1)}>
               <Text style={styles.buttonText}>Refresh</Text>
             </Pressable>
           </View>
 
           {shouldShowSetup ? (
             <View style={styles.setupPanel}>
+              <Text style={styles.setupCaption} numberOfLines={1}>{remoteUrl}</Text>
               <TextInput
                 style={styles.input}
                 value={baseUrl}
@@ -931,77 +1128,54 @@ export default function App() {
         </View>
 
         <View style={styles.content}>
-          {activeTab === "models" ? (
+          {activeTab === "voice" ? (
+            renderVoiceScreen()
+          ) : activeTab === "models" ? (
             renderModelManager()
           ) : (
-            <>
-              {activeTab === "voice" ? (
-                <View style={styles.nativeVoiceBar}>
-                  <Pressable
-                    style={[
-                      styles.voiceButton,
-                      recorderState.isRecording && styles.voiceButtonRecording,
-                      nativeVoiceButtonDisabled && !recorderState.isRecording && styles.buttonDisabled,
-                    ]}
-                    onPress={() => void toggleNativeVoiceRecording()}
-                    disabled={nativeVoiceButtonDisabled && !recorderState.isRecording}
-                  >
-                    <Text style={styles.voiceButtonText}>{nativeVoiceButtonLabel}</Text>
-                  </Pressable>
-                  <View style={styles.voiceStatusBlock}>
-                    <Text style={styles.voiceStatus}>{nativeVoiceStatus}</Text>
-                    {lastVoiceTranscript ? (
-                      <Text style={styles.voiceTranscript} numberOfLines={1}>{lastVoiceTranscript}</Text>
-                    ) : (
-                      <Text style={styles.voiceTranscript} numberOfLines={1}>
-                        {token.trim() ? speechRuntimeDescription : "Save setup first."}
-                      </Text>
-                    )}
-                  </View>
+            <WebView
+              ref={webViewRef}
+              key={`${remoteUrl}-${webReloadKey}`}
+              source={{ uri: remoteUrl }}
+              style={styles.webView}
+              injectedJavaScriptBeforeContentLoaded={remoteBootstrapScript}
+              onLoadEnd={() => webViewRef.current?.injectJavaScript(remoteBootstrapScript)}
+              javaScriptEnabled
+              domStorageEnabled
+              allowsInlineMediaPlayback
+              mediaCapturePermissionGrantType="grantIfSameHostElsePrompt"
+              startInLoadingState
+              renderLoading={() => (
+                <View style={styles.loading}>
+                  <ActivityIndicator color="#7bc8ff" />
                 </View>
-              ) : null}
-              <WebView
-                ref={webViewRef}
-                key={`${remoteUrl}-${webReloadKey}`}
-                source={{ uri: remoteUrl }}
-                style={styles.webView}
-                injectedJavaScriptBeforeContentLoaded={remoteBootstrapScript}
-                onLoadEnd={() => webViewRef.current?.injectJavaScript(remoteBootstrapScript)}
-                javaScriptEnabled
-                domStorageEnabled
-                allowsInlineMediaPlayback
-                mediaCapturePermissionGrantType="grantIfSameHostElsePrompt"
-                startInLoadingState
-                renderLoading={() => (
-                  <View style={styles.loading}>
-                    <ActivityIndicator color="#7bc8ff" />
-                  </View>
-                )}
-                renderError={(_, __, description) => (
-                  <View style={styles.errorPanel}>
-                    <Text style={styles.errorTitle}>Remote UI unavailable</Text>
-                    <Text style={styles.errorText}>{description}</Text>
-                  </View>
-                )}
-              />
-            </>
+              )}
+              renderError={(_, __, description) => (
+                <View style={styles.errorPanel}>
+                  <Text style={styles.errorTitle}>Remote UI unavailable</Text>
+                  <Text style={styles.errorText}>{description}</Text>
+                </View>
+              )}
+            />
           )}
         </View>
 
-        <View style={styles.bottomTabs}>
-          {TABS.map((tab) => (
-            <Pressable
-              key={tab.id}
-              style={[styles.tabItem, activeTab === tab.id && styles.tabItemActive]}
-              onPress={() => switchTab(tab.id)}
-            >
-              <View style={[styles.tabIndicator, activeTab === tab.id && styles.tabIndicatorActive]} />
-              <Text style={[styles.tabText, activeTab === tab.id && styles.tabTextActive]} numberOfLines={1}>
-                {tab.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+        {!isVoiceKeyboardOpen ? (
+          <View style={styles.bottomTabs}>
+            {TABS.map((tab) => (
+              <Pressable
+                key={tab.id}
+                style={[styles.tabItem, activeTab === tab.id && styles.tabItemActive]}
+                onPress={() => switchTab(tab.id)}
+              >
+                <View style={[styles.tabIndicator, activeTab === tab.id && styles.tabIndicatorActive]} />
+                <Text style={[styles.tabText, activeTab === tab.id && styles.tabTextActive]} numberOfLines={1}>
+                  {tab.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
       </View>
     </SafeAreaView>
   );
@@ -1010,31 +1184,214 @@ export default function App() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#111317",
+    backgroundColor: "#0d1015",
   },
   shell: {
     flex: 1,
-    backgroundColor: "#111317",
+    backgroundColor: "#0d1015",
   },
   header: {
     borderBottomWidth: 1,
-    borderBottomColor: "#2f3642",
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 12,
+    borderBottomColor: "#242b35",
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 10,
     gap: 8,
-    backgroundColor: "#151922",
+    backgroundColor: "#10151d",
   },
   content: {
     flex: 1,
-    backgroundColor: "#101317",
+    backgroundColor: "#0d1015",
+  },
+  voiceScreen: {
+    flex: 1,
+    backgroundColor: "#0d1015",
+  },
+  voiceTopBand: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 10,
+  },
+  voiceTopCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  voiceTitle: {
+    color: "#f4f8ff",
+    fontSize: 22,
+    fontWeight: "900",
+  },
+  voiceSubtitle: {
+    color: "#9ba8ba",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  runtimeChip: {
+    maxWidth: 190,
+    minHeight: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#2f8fc8",
+    backgroundColor: "#10293a",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  runtimeChipText: {
+    color: "#b9e4ff",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  voiceConversation: {
+    flex: 1,
+  },
+  voiceConversationContent: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 12,
+    gap: 12,
+  },
+  voiceBubble: {
+    maxWidth: "86%",
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  voiceBubbleAssistant: {
+    alignSelf: "flex-start",
+    backgroundColor: "#202733",
+    borderTopLeftRadius: 3,
+  },
+  voiceBubbleUser: {
+    alignSelf: "flex-end",
+    backgroundColor: "#0e639c",
+    borderTopRightRadius: 3,
+  },
+  voiceBubbleText: {
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  voiceBubbleTextAssistant: {
+    color: "#eef4fb",
+  },
+  voiceBubbleTextUser: {
+    color: "#ffffff",
+  },
+  voiceComposerPanel: {
+    marginHorizontal: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#2f3948",
+    borderRadius: 24,
+    backgroundColor: "#111820",
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 10,
+    gap: 8,
+  },
+  voiceComposerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    paddingHorizontal: 4,
+  },
+  voiceComposerLabel: {
+    flex: 1,
+    color: "#e8eef7",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  voiceComposerStatus: {
+    maxWidth: 178,
+    color: "#8fa0b6",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  voiceComposerInput: {
+    minHeight: 50,
+    maxHeight: 112,
+    color: "#f4f8ff",
+    fontSize: 16,
+    lineHeight: 22,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  voiceComposerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 42,
+  },
+  voiceClearButton: {
+    minWidth: 68,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: "#344052",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#151c26",
+    paddingHorizontal: 12,
+  },
+  voiceClearButtonText: {
+    color: "#c5d0df",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  voiceComposerSpacer: {
+    flex: 1,
+  },
+  voiceMicButton: {
+    minWidth: 58,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#1a2330",
+    borderWidth: 1,
+    borderColor: "#39485c",
+  },
+  voiceMicButtonRecording: {
+    backgroundColor: "#b33939",
+    borderColor: "#d65f5f",
+  },
+  voiceMicButtonText: {
+    color: "#eaf2fb",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  voiceSendButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#ffffff",
+  },
+  voiceSendButtonText: {
+    color: "#0d1015",
+    fontSize: 25,
+    lineHeight: 28,
+    fontWeight: "900",
+  },
+  voiceControlHint: {
+    paddingHorizontal: 4,
+    color: "#9ba8ba",
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "700",
   },
   modelPage: {
     flex: 1,
-    backgroundColor: "#101317",
+    backgroundColor: "#0d1015",
   },
   modelPageContent: {
-    padding: 14,
+    padding: 16,
     gap: 12,
   },
   modelHeader: {
@@ -1042,8 +1399,8 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     color: "#f4f8ff",
-    fontSize: 18,
-    fontWeight: "800",
+    fontSize: 22,
+    fontWeight: "900",
   },
   sectionText: {
     color: "#a8b3c4",
@@ -1052,9 +1409,9 @@ const styles = StyleSheet.create({
   },
   runtimePanel: {
     borderWidth: 1,
-    borderColor: "#354253",
+    borderColor: "#2c3542",
     borderRadius: 8,
-    backgroundColor: "#161b22",
+    backgroundColor: "#111820",
     padding: 12,
     gap: 10,
   },
@@ -1091,9 +1448,9 @@ const styles = StyleSheet.create({
   },
   modelStatusPanel: {
     borderWidth: 1,
-    borderColor: "#354253",
+    borderColor: "#2c3542",
     borderRadius: 8,
-    backgroundColor: "#151922",
+    backgroundColor: "#111820",
     padding: 12,
     gap: 10,
   },
@@ -1130,9 +1487,9 @@ const styles = StyleSheet.create({
   },
   modelCard: {
     borderWidth: 1,
-    borderColor: "#354253",
+    borderColor: "#2c3542",
     borderRadius: 8,
-    backgroundColor: "#161b22",
+    backgroundColor: "#111820",
     padding: 12,
     gap: 10,
   },
@@ -1277,24 +1634,51 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
   },
   titleBlock: {
     flex: 1,
     minWidth: 0,
+    gap: 4,
   },
   title: {
     color: "#f4f8ff",
-    fontSize: 24,
-    fontWeight: "800",
+    fontSize: 23,
+    fontWeight: "900",
   },
   url: {
     color: "#9aa8bd",
     fontSize: 12,
     marginTop: 2,
   },
+  connectionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  connectionDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  connectionDotReady: {
+    backgroundColor: "#49c27c",
+  },
+  connectionDotMissing: {
+    backgroundColor: "#d99b35",
+  },
+  connectionText: {
+    color: "#96a4b8",
+    fontSize: 12,
+    fontWeight: "800",
+  },
   setupPanel: {
     gap: 8,
+  },
+  setupCaption: {
+    color: "#8390a3",
+    fontSize: 11,
+    fontWeight: "700",
   },
   input: {
     backgroundColor: "#12161c",
@@ -1323,9 +1707,16 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 14,
   },
+  headerButton: {
+    minHeight: 40,
+    borderRadius: 8,
+    justifyContent: "center",
+    backgroundColor: "#1d2a38",
+    paddingHorizontal: 13,
+  },
   buttonText: {
     color: "#edf3ff",
-    fontWeight: "700",
+    fontWeight: "900",
   },
   primaryButton: {
     flex: 1,
@@ -1346,37 +1737,37 @@ const styles = StyleSheet.create({
   bottomTabs: {
     flexDirection: "row",
     borderTopWidth: 1,
-    borderTopColor: "#2f3642",
-    backgroundColor: "#151922",
-    paddingHorizontal: 8,
+    borderTopColor: "#242b35",
+    backgroundColor: "#10151d",
+    paddingHorizontal: 6,
     paddingTop: 8,
     paddingBottom: 8,
-    gap: 6,
+    gap: 4,
   },
   tabItem: {
     flex: 1,
-    minHeight: 48,
+    minHeight: 50,
     borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
-    gap: 5,
+    gap: 4,
   },
   tabItemActive: {
-    backgroundColor: "#223040",
+    backgroundColor: "#1d2a38",
   },
   tabIndicator: {
-    width: 18,
+    width: 20,
     height: 3,
     borderRadius: 2,
     backgroundColor: "transparent",
   },
   tabIndicatorActive: {
-    backgroundColor: "#7bc8ff",
+    backgroundColor: "#69c7ff",
   },
   tabText: {
-    color: "#9aa8bd",
-    fontSize: 12,
-    fontWeight: "700",
+    color: "#94a1b4",
+    fontSize: 11,
+    fontWeight: "900",
   },
   tabTextActive: {
     color: "#f4f8ff",
