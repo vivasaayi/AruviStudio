@@ -3,23 +3,41 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
+  Platform,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  TurboModuleRegistry,
   View,
 } from "react-native";
+import {
+  AudioModule,
+  AudioQuality,
+  IOSOutputFormat,
+  RecordingPresets,
+  setAudioModeAsync,
+  type RecordingOptions,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from "expo-audio";
+import * as FileSystem from "expo-file-system";
 import * as SecureStore from "expo-secure-store";
 import { WebView } from "react-native-webview";
+import { initWhisper, type WhisperContext } from "whisper.rn";
+import { PlannerMobileClient } from "./src/api/client";
 
-type ActiveTab = "planner" | "products" | "chat" | "voice" | "activity";
+type ActiveTab = "planner" | "products" | "chat" | "voice" | "models" | "activity";
+type SpeechRuntime = "backend" | "local";
 
 const TABS: Array<{ id: ActiveTab; label: string }> = [
   { id: "planner", label: "Planner" },
   { id: "products", label: "Products" },
   { id: "chat", label: "Chat" },
   { id: "voice", label: "Voice" },
+  { id: "models", label: "Models" },
   { id: "activity", label: "Activity" },
 ];
 
@@ -30,7 +48,135 @@ const STORAGE_KEYS = {
   modelName: "aruvi.mobile.model_name",
   locale: "aruvi.mobile.locale",
   activeTab: "aruvi.mobile.active_tab",
+  speechRuntime: "aruvi.mobile.speech_runtime",
+  selectedWhisperModelId: "aruvi.mobile.selected_whisper_model_id",
+  installedWhisperModels: "aruvi.mobile.installed_whisper_models",
 };
+
+type WhisperModelOption = {
+  id: string;
+  label: string;
+  fileName: string;
+  sizeLabel: string;
+  description: string;
+  url: string;
+};
+
+type InstalledWhisperModel = {
+  id: string;
+  uri: string;
+  fileName: string;
+  installedAt: string;
+  sizeBytes?: number;
+};
+
+const WHISPER_MODELS: WhisperModelOption[] = [
+  {
+    id: "tiny-en-q5_1",
+    label: "Whisper tiny.en Q5",
+    fileName: "ggml-tiny.en-q5_1.bin",
+    sizeLabel: "31 MB",
+    description: "Fastest install and best first test for phone voice chat.",
+    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en-q5_1.bin",
+  },
+  {
+    id: "tiny-en",
+    label: "Whisper tiny.en",
+    fileName: "ggml-tiny.en.bin",
+    sizeLabel: "75 MB",
+    description: "Small English model with better quality than the quantized tiny file.",
+    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin",
+  },
+  {
+    id: "base-en-q5_1",
+    label: "Whisper base.en Q5",
+    fileName: "ggml-base.en-q5_1.bin",
+    sizeLabel: "57 MB",
+    description: "Better accuracy while staying reasonable for mobile storage.",
+    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin",
+  },
+];
+
+const VOICE_RECORDING_OPTIONS: RecordingOptions = Platform.OS === "ios"
+  ? {
+      extension: ".wav",
+      sampleRate: 16000,
+      numberOfChannels: 1,
+      bitRate: 256000,
+      android: RecordingPresets.HIGH_QUALITY.android,
+      ios: {
+        extension: ".wav",
+        outputFormat: IOSOutputFormat.LINEARPCM,
+        audioQuality: AudioQuality.MAX,
+        sampleRate: 16000,
+        linearPCMBitDepth: 16,
+        linearPCMIsBigEndian: false,
+        linearPCMIsFloat: false,
+      },
+      web: {
+        mimeType: "audio/wav",
+      },
+    }
+  : RecordingPresets.HIGH_QUALITY;
+
+function formatBytes(bytes?: number) {
+  if (!bytes || bytes <= 0) return "";
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${Math.round(bytes / (1024 * 1024))} MB`;
+}
+
+function parseInstalledWhisperModels(raw: string | null): Record<string, InstalledWhisperModel> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, InstalledWhisperModel>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function normalizeWhisperLanguage(locale: string) {
+  const normalized = locale.trim().toLowerCase();
+  if (!normalized) return "auto";
+  return normalized.split(/[-_]/)[0] || "auto";
+}
+
+function whisperModelDirectory() {
+  if (!FileSystem.documentDirectory) {
+    throw new Error("App document storage is unavailable on this device.");
+  }
+  return `${FileSystem.documentDirectory}models/whisper/`;
+}
+
+function describeError(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  if (error && typeof error === "object") {
+    const errorRecord = error as Record<string, unknown>;
+    const directMessage = errorRecord.message ?? errorRecord.error ?? errorRecord.description ?? errorRecord.reason;
+    if (typeof directMessage === "string" && directMessage.trim()) {
+      return directMessage;
+    }
+    try {
+      return JSON.stringify(errorRecord);
+    } catch {
+      return Object.prototype.toString.call(error);
+    }
+  }
+  return String(error);
+}
+
+function assertWhisperNativeModuleAvailable() {
+  if (!TurboModuleRegistry.get("RNWhisper")) {
+    throw new Error(
+      "On-device Whisper is not available in this app build. Rebuild and reinstall the Expo dev app after installing whisper.rn.",
+    );
+  }
+}
 
 type ConnectionValues = {
   baseUrl?: string;
@@ -109,22 +255,77 @@ function buildRemoteScript(payload: {
   `;
 }
 
+function buildRemoteVoiceSubmitScript(transcript: string) {
+  return `
+    (function () {
+      try {
+        var transcript = ${JSON.stringify(transcript)};
+        var voiceTab = document.querySelector('.tab-button[data-tab="voice"]');
+        if (voiceTab) voiceTab.click();
+        var composer = document.getElementById("voiceComposer");
+        if (composer) {
+          composer.value = transcript;
+          composer.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        var sendButton = document.getElementById("voiceSendButton");
+        if (sendButton) sendButton.click();
+      } catch (error) {}
+    })();
+    true;
+  `;
+}
+
+function recordingMimeType(uri: string) {
+  const normalized = uri.toLowerCase();
+  if (normalized.endsWith(".m4a")) return "audio/mp4";
+  if (normalized.endsWith(".3gp")) return "audio/3gpp";
+  if (normalized.endsWith(".caf")) return "audio/x-caf";
+  if (normalized.endsWith(".webm")) return "audio/webm";
+  if (normalized.endsWith(".wav")) return "audio/wav";
+  return "audio/mp4";
+}
+
 export default function App() {
   const webViewRef = useRef<WebView>(null);
+  const whisperContextRef = useRef<{ modelId: string; uri: string; context: WhisperContext } | null>(null);
+  const audioRecorder = useAudioRecorder(VOICE_RECORDING_OPTIONS);
+  const recorderState = useAudioRecorderState(audioRecorder, 250);
   const [baseUrl, setBaseUrl] = useState("http://100.66.32.111:8787");
   const [token, setToken] = useState("");
   const [providerId, setProviderId] = useState("");
   const [modelName, setModelName] = useState("");
   const [locale, setLocale] = useState("en-US");
   const [activeTab, setActiveTab] = useState<ActiveTab>("planner");
+  const [speechRuntime, setSpeechRuntime] = useState<SpeechRuntime>("backend");
+  const [selectedWhisperModelId, setSelectedWhisperModelId] = useState(WHISPER_MODELS[0].id);
+  const [installedWhisperModels, setInstalledWhisperModels] = useState<Record<string, InstalledWhisperModel>>({});
+  const [modelInstallStatus, setModelInstallStatus] = useState("No on-device model installed yet.");
+  const [modelInstallProgress, setModelInstallProgress] = useState<number | null>(null);
+  const [modelInstallBusyId, setModelInstallBusyId] = useState<string | null>(null);
   const [isSetupOpen, setIsSetupOpen] = useState(false);
   const [webReloadKey, setWebReloadKey] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
+  const [isVoiceBusy, setIsVoiceBusy] = useState(false);
+  const [nativeVoiceStatus, setNativeVoiceStatus] = useState("Ready");
+  const [lastVoiceTranscript, setLastVoiceTranscript] = useState("");
 
   const remoteUrl = useMemo(() => {
     const trimmed = baseUrl.trim().replace(/\/+$/, "");
     return trimmed ? `${trimmed}/remote` : "about:blank";
   }, [baseUrl]);
+
+  const mobileClient = useMemo(() => {
+    return new PlannerMobileClient(baseUrl.trim(), token.trim());
+  }, [baseUrl, token]);
+
+  const selectedWhisperModel = useMemo(() => {
+    return WHISPER_MODELS.find((model) => model.id === selectedWhisperModelId) ?? WHISPER_MODELS[0];
+  }, [selectedWhisperModelId]);
+
+  const installedSelectedWhisperModel = installedWhisperModels[selectedWhisperModel.id];
+  const firstInstalledWhisperModel = Object.values(installedWhisperModels)[0];
+  const activeLocalWhisperModel = installedSelectedWhisperModel ?? firstInstalledWhisperModel;
+  const canUseLocalSpeech = speechRuntime === "local" && Boolean(activeLocalWhisperModel?.uri);
 
   const remoteBootstrapScript = useMemo(() => {
     return buildRemoteScript({
@@ -135,6 +336,19 @@ export default function App() {
       activeTab,
     });
   }, [activeTab, locale, modelName, providerId, token]);
+
+  useEffect(() => {
+    void setAudioModeAsync({
+      allowsRecording: true,
+      playsInSilentMode: true,
+    });
+
+    return () => {
+      const currentContext = whisperContextRef.current;
+      whisperContextRef.current = null;
+      void currentContext?.context.release();
+    };
+  }, []);
 
   const applyConnectionValues = async (values: ConnectionValues) => {
     const next = {
@@ -167,13 +381,26 @@ export default function App() {
     let disposed = false;
 
     const loadSavedConnection = async () => {
-      const [savedBaseUrl, savedToken, savedProviderId, savedModelName, savedLocale, savedActiveTab] = await Promise.all([
+      const [
+        savedBaseUrl,
+        savedToken,
+        savedProviderId,
+        savedModelName,
+        savedLocale,
+        savedActiveTab,
+        savedSpeechRuntime,
+        savedSelectedWhisperModelId,
+        savedInstalledWhisperModels,
+      ] = await Promise.all([
         SecureStore.getItemAsync(STORAGE_KEYS.baseUrl),
         SecureStore.getItemAsync(STORAGE_KEYS.token),
         SecureStore.getItemAsync(STORAGE_KEYS.providerId),
         SecureStore.getItemAsync(STORAGE_KEYS.modelName),
         SecureStore.getItemAsync(STORAGE_KEYS.locale),
         SecureStore.getItemAsync(STORAGE_KEYS.activeTab),
+        SecureStore.getItemAsync(STORAGE_KEYS.speechRuntime),
+        SecureStore.getItemAsync(STORAGE_KEYS.selectedWhisperModelId),
+        SecureStore.getItemAsync(STORAGE_KEYS.installedWhisperModels),
       ]);
       if (disposed) return;
       if (savedBaseUrl) setBaseUrl(savedBaseUrl);
@@ -184,6 +411,36 @@ export default function App() {
       if (TABS.some((tab) => tab.id === savedActiveTab)) {
         setActiveTab(savedActiveTab as ActiveTab);
       }
+      if (savedSpeechRuntime === "backend" || savedSpeechRuntime === "local") {
+        setSpeechRuntime(savedSpeechRuntime);
+      }
+      if (
+        typeof savedSelectedWhisperModelId === "string"
+        && WHISPER_MODELS.some((model) => model.id === savedSelectedWhisperModelId)
+      ) {
+        setSelectedWhisperModelId(savedSelectedWhisperModelId);
+      }
+
+      const parsedInstalledModels = parseInstalledWhisperModels(savedInstalledWhisperModels);
+      const verifiedInstalledModels: Record<string, InstalledWhisperModel> = {};
+      await Promise.all(
+        Object.values(parsedInstalledModels).map(async (model) => {
+          const info = await FileSystem.getInfoAsync(model.uri);
+          if (info.exists) {
+            verifiedInstalledModels[model.id] = {
+              ...model,
+              sizeBytes: "size" in info ? info.size : model.sizeBytes,
+            };
+          }
+        }),
+      );
+      if (disposed) return;
+      setInstalledWhisperModels(verifiedInstalledModels);
+      setModelInstallStatus(
+        Object.keys(verifiedInstalledModels).length
+          ? "On-device Whisper model is available."
+          : "No on-device model installed yet.",
+      );
 
       const initialUrl = await Linking.getInitialURL();
       if (disposed || !initialUrl) return;
@@ -220,7 +477,7 @@ export default function App() {
       setWebReloadKey((current) => current + 1);
       setIsSetupOpen(false);
     } catch (error) {
-      Alert.alert("Save failed", error instanceof Error ? error.message : String(error));
+      Alert.alert("Save failed", describeError(error));
     } finally {
       setIsSaving(false);
     }
@@ -240,7 +497,370 @@ export default function App() {
     );
   };
 
+  const sendTranscriptToRemoteVoiceChat = (transcript: string) => {
+    setActiveTab("voice");
+    void SecureStore.setItemAsync(STORAGE_KEYS.activeTab, "voice");
+    webViewRef.current?.injectJavaScript(buildRemoteVoiceSubmitScript(transcript));
+  };
+
+  const persistInstalledWhisperModels = async (nextModels: Record<string, InstalledWhisperModel>) => {
+    setInstalledWhisperModels(nextModels);
+    await SecureStore.setItemAsync(STORAGE_KEYS.installedWhisperModels, JSON.stringify(nextModels));
+  };
+
+  const selectWhisperModel = async (modelId: string) => {
+    setSelectedWhisperModelId(modelId);
+    await SecureStore.setItemAsync(STORAGE_KEYS.selectedWhisperModelId, modelId);
+  };
+
+  const selectSpeechRuntime = async (nextRuntime: SpeechRuntime) => {
+    if (nextRuntime === "local" && !activeLocalWhisperModel?.uri) {
+      Alert.alert("Install model first", "Download the selected Whisper model before using on-device voice chat.");
+      return;
+    }
+    if (nextRuntime === "local" && activeLocalWhisperModel && selectedWhisperModel.id !== activeLocalWhisperModel.id) {
+      await selectWhisperModel(activeLocalWhisperModel.id);
+    }
+    setSpeechRuntime(nextRuntime);
+    await SecureStore.setItemAsync(STORAGE_KEYS.speechRuntime, nextRuntime);
+    setNativeVoiceStatus(nextRuntime === "local" ? "Ready for on-device transcription" : "Ready");
+  };
+
+  const installWhisperModel = async (model: WhisperModelOption) => {
+    try {
+      setModelInstallBusyId(model.id);
+      setModelInstallProgress(0);
+      setModelInstallStatus(`Preparing ${model.label}...`);
+      const directory = whisperModelDirectory();
+      await FileSystem.makeDirectoryAsync(directory, { intermediates: true });
+      const destinationUri = `${directory}${model.fileName}`;
+      const existingInfo = await FileSystem.getInfoAsync(destinationUri);
+
+      if (existingInfo.exists) {
+        const nextModels = {
+          ...installedWhisperModels,
+          [model.id]: {
+            id: model.id,
+            uri: destinationUri,
+            fileName: model.fileName,
+            installedAt: new Date().toISOString(),
+            sizeBytes: "size" in existingInfo ? existingInfo.size : undefined,
+          },
+        };
+        await persistInstalledWhisperModels(nextModels);
+        await selectWhisperModel(model.id);
+        setSpeechRuntime("local");
+        await SecureStore.setItemAsync(STORAGE_KEYS.speechRuntime, "local");
+        setModelInstallProgress(100);
+        setModelInstallStatus(`${model.label} installed and selected for voice chat.`);
+        return;
+      }
+
+      const download = FileSystem.createDownloadResumable(
+        model.url,
+        destinationUri,
+        {},
+        ({ totalBytesWritten, totalBytesExpectedToWrite }) => {
+          if (totalBytesExpectedToWrite > 0) {
+            setModelInstallProgress(Math.round((totalBytesWritten / totalBytesExpectedToWrite) * 100));
+          }
+        },
+      );
+      const result = await download.downloadAsync();
+      if (!result?.uri) {
+        throw new Error("Model download did not produce a local file.");
+      }
+      const downloadedInfo = await FileSystem.getInfoAsync(result.uri);
+      const nextModels = {
+        ...installedWhisperModels,
+        [model.id]: {
+          id: model.id,
+          uri: result.uri,
+          fileName: model.fileName,
+          installedAt: new Date().toISOString(),
+          sizeBytes: downloadedInfo.exists && "size" in downloadedInfo ? downloadedInfo.size : undefined,
+        },
+      };
+      await persistInstalledWhisperModels(nextModels);
+      await selectWhisperModel(model.id);
+      setSpeechRuntime("local");
+      await SecureStore.setItemAsync(STORAGE_KEYS.speechRuntime, "local");
+      setModelInstallProgress(100);
+      setModelInstallStatus(`${model.label} installed and selected for voice chat.`);
+    } catch (error) {
+      const message = describeError(error);
+      setModelInstallStatus(message);
+      Alert.alert("Model install failed", message);
+    } finally {
+      setModelInstallBusyId(null);
+    }
+  };
+
+  const removeWhisperModel = async (model: WhisperModelOption) => {
+    try {
+      const installedModel = installedWhisperModels[model.id];
+      if (installedModel?.uri) {
+        const info = await FileSystem.getInfoAsync(installedModel.uri);
+        if (info.exists) {
+          await FileSystem.deleteAsync(installedModel.uri, { idempotent: true });
+        }
+      }
+      const nextModels = { ...installedWhisperModels };
+      delete nextModels[model.id];
+      await persistInstalledWhisperModels(nextModels);
+      if (speechRuntime === "local" && selectedWhisperModel.id === model.id) {
+        await selectSpeechRuntime("backend");
+      }
+      const currentContext = whisperContextRef.current;
+      if (currentContext?.modelId === model.id) {
+        whisperContextRef.current = null;
+        await currentContext.context.release();
+      }
+      setModelInstallProgress(null);
+      setModelInstallStatus(`${model.label} removed.`);
+    } catch (error) {
+      const message = describeError(error);
+      setModelInstallStatus(message);
+      Alert.alert("Remove failed", message);
+    }
+  };
+
+  const getWhisperContext = async (modelId: string, modelUri: string) => {
+    const currentContext = whisperContextRef.current;
+    if (currentContext?.modelId === modelId && currentContext.uri === modelUri) {
+      return currentContext.context;
+    }
+    if (currentContext) {
+      await currentContext.context.release();
+    }
+    setNativeVoiceStatus("Loading local Whisper model...");
+    assertWhisperNativeModuleAvailable();
+    const context = await initWhisper({
+      filePath: modelUri,
+      useGpu: true,
+      useCoreMLIos: false,
+    });
+    whisperContextRef.current = { modelId, uri: modelUri, context };
+    return context;
+  };
+
+  const transcribeWithLocalWhisper = async (audioUri: string) => {
+    const installedModel = activeLocalWhisperModel;
+    if (!installedModel?.uri) {
+      throw new Error("Install the selected Whisper model before using on-device transcription.");
+    }
+    const context = await getWhisperContext(installedModel.id, installedModel.uri);
+    setNativeVoiceStatus("Transcribing on device...");
+    const { promise } = context.transcribe(audioUri, {
+      language: normalizeWhisperLanguage(locale),
+      maxThreads: 4,
+      onProgress: (progress: number) => setNativeVoiceStatus(`Transcribing on device ${Math.round(progress)}%`),
+    });
+    const result = await promise;
+    return result.result.trim();
+  };
+
+  const transcribeWithBackend = async (uri: string) => {
+    const audioBytesBase64 = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    const response = await mobileClient.transcribeSpeech({
+      provider_id: providerId.trim() || undefined,
+      model_name: modelName.trim() || undefined,
+      audio_bytes_base64: audioBytesBase64,
+      mime_type: recordingMimeType(uri),
+      locale: locale.trim() || undefined,
+    });
+    return response.transcript.trim();
+  };
+
+  const transcribeNativeRecording = async (uri: string) => {
+    if (speechRuntime === "local") {
+      return await transcribeWithLocalWhisper(uri);
+    }
+    return await transcribeWithBackend(uri);
+  };
+
+  const stopNativeVoiceRecording = async () => {
+    try {
+      setIsVoiceBusy(true);
+      setNativeVoiceStatus("Stopping...");
+      await audioRecorder.stop();
+      const recordingUri = audioRecorder.uri ?? audioRecorder.getStatus().url;
+      if (!recordingUri) {
+        throw new Error("Recording did not produce an audio file.");
+      }
+      setNativeVoiceStatus("Transcribing...");
+      const transcript = await transcribeNativeRecording(recordingUri);
+      if (!transcript) {
+        setLastVoiceTranscript("");
+        setNativeVoiceStatus("No speech detected");
+        return;
+      }
+      setLastVoiceTranscript(transcript);
+      setNativeVoiceStatus("Sending...");
+      sendTranscriptToRemoteVoiceChat(transcript);
+      setNativeVoiceStatus("Sent");
+    } catch (error) {
+      const message = describeError(error);
+      setNativeVoiceStatus(message);
+      Alert.alert("Voice failed", message);
+    } finally {
+      setIsVoiceBusy(false);
+    }
+  };
+
+  const startNativeVoiceRecording = async () => {
+    if (!token.trim()) {
+      Alert.alert("Setup required", "Save a mobile API token before using voice chat.");
+      return;
+    }
+    try {
+      setIsVoiceBusy(true);
+      const permission = await AudioModule.requestRecordingPermissionsAsync();
+      if (!permission.granted) {
+        throw new Error("Microphone permission was denied.");
+      }
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+      });
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
+      setLastVoiceTranscript("");
+      setNativeVoiceStatus("Listening...");
+    } catch (error) {
+      const message = describeError(error);
+      setNativeVoiceStatus(message);
+      Alert.alert("Voice failed", message);
+    } finally {
+      setIsVoiceBusy(false);
+    }
+  };
+
+  const toggleNativeVoiceRecording = async () => {
+    if (recorderState.isRecording) {
+      await stopNativeVoiceRecording();
+    } else {
+      await startNativeVoiceRecording();
+    }
+  };
+
   const shouldShowSetup = isSetupOpen || !token.trim();
+  const nativeVoiceButtonDisabled = isVoiceBusy || !token.trim();
+  const nativeVoiceButtonLabel = recorderState.isRecording ? "Stop" : isVoiceBusy ? "Working..." : "Record";
+  const speechRuntimeDescription = canUseLocalSpeech
+    ? `Using ${WHISPER_MODELS.find((model) => model.id === activeLocalWhisperModel?.id)?.label ?? "Whisper"} on this phone for speech-to-text.`
+    : "Using the configured backend speech-to-text provider.";
+
+  const renderModelManager = () => (
+    <ScrollView style={styles.modelPage} contentContainerStyle={styles.modelPageContent}>
+      <View style={styles.modelHeader}>
+        <Text style={styles.sectionTitle}>Speech Model</Text>
+        <Text style={styles.sectionText}>
+          Install a Whisper model on this phone for private speech-to-text. Chat replies still use the configured Aruvi
+          remote model.
+        </Text>
+      </View>
+
+      <View style={styles.runtimePanel}>
+        <Text style={styles.panelLabel}>Voice chat transcription</Text>
+        <View style={styles.segmentedControl}>
+          <Pressable
+            style={[styles.segmentButton, speechRuntime === "backend" && styles.segmentButtonActive]}
+            onPress={() => void selectSpeechRuntime("backend")}
+          >
+            <Text style={[styles.segmentButtonText, speechRuntime === "backend" && styles.segmentButtonTextActive]}>
+              Backend
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.segmentButton,
+              speechRuntime === "local" && styles.segmentButtonActive,
+              !installedSelectedWhisperModel && styles.buttonDisabled,
+            ]}
+            onPress={() => void selectSpeechRuntime("local")}
+          >
+            <Text style={[styles.segmentButtonText, speechRuntime === "local" && styles.segmentButtonTextActive]}>
+              On device
+            </Text>
+          </Pressable>
+        </View>
+        <Text style={styles.modelStatusText}>{speechRuntimeDescription}</Text>
+      </View>
+
+      <View style={styles.modelStatusPanel}>
+        <View style={styles.modelStatusRow}>
+          <Text style={styles.modelStatusText}>{modelInstallStatus}</Text>
+          {modelInstallProgress !== null ? (
+            <Text style={styles.progressText}>{modelInstallProgress}%</Text>
+          ) : null}
+        </View>
+        {modelInstallProgress !== null ? (
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${Math.min(100, Math.max(0, modelInstallProgress))}%` }]} />
+          </View>
+        ) : null}
+      </View>
+
+      <View style={styles.modelList}>
+        {WHISPER_MODELS.map((model) => {
+          const installedModel = installedWhisperModels[model.id];
+          const isSelected = selectedWhisperModel.id === model.id;
+          const isBusy = modelInstallBusyId === model.id;
+          return (
+            <Pressable
+              key={model.id}
+              style={[styles.modelCard, isSelected && styles.modelCardSelected]}
+              onPress={() => void selectWhisperModel(model.id)}
+            >
+              <View style={styles.modelCardHeader}>
+                <View style={styles.modelTitleBlock}>
+                  <Text style={styles.modelTitle}>{model.label}</Text>
+                  <Text style={styles.modelMeta}>
+                    {model.sizeLabel}
+                    {installedModel?.sizeBytes ? ` installed ${formatBytes(installedModel.sizeBytes)}` : ""}
+                  </Text>
+                </View>
+                <Text style={[styles.installBadge, installedModel && styles.installBadgeActive]}>
+                  {installedModel ? "Installed" : "Not installed"}
+                </Text>
+              </View>
+              <Text style={styles.modelDescription}>{model.description}</Text>
+              <View style={styles.modelActions}>
+                <Pressable
+                  style={[styles.smallButton, isSelected && styles.smallButtonActive]}
+                  onPress={() => void selectWhisperModel(model.id)}
+                >
+                  <Text style={[styles.smallButtonText, isSelected && styles.smallButtonTextActive]}>
+                    {isSelected ? "Selected" : "Select"}
+                  </Text>
+                </Pressable>
+                {installedModel ? (
+                  <Pressable style={styles.smallButton} onPress={() => void removeWhisperModel(model)}>
+                    <Text style={styles.smallButtonText}>Remove</Text>
+                  </Pressable>
+                ) : (
+                  <Pressable
+                    style={[styles.smallButton, styles.smallButtonPrimary, isBusy && styles.buttonDisabled]}
+                    onPress={() => void installWhisperModel(model)}
+                    disabled={Boolean(modelInstallBusyId)}
+                  >
+                    <Text style={styles.smallButtonPrimaryText}>{isBusy ? "Installing" : "Install"}</Text>
+                  </Pressable>
+                )}
+              </View>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <Pressable style={styles.sourceButton} onPress={() => void Linking.openURL(selectedWhisperModel.url)}>
+        <Text style={styles.sourceButtonText}>Open selected model source</Text>
+      </Pressable>
+    </ScrollView>
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -311,30 +931,61 @@ export default function App() {
         </View>
 
         <View style={styles.content}>
-          <WebView
-            ref={webViewRef}
-            key={`${remoteUrl}-${webReloadKey}`}
-            source={{ uri: remoteUrl }}
-            style={styles.webView}
-            injectedJavaScriptBeforeContentLoaded={remoteBootstrapScript}
-            onLoadEnd={() => webViewRef.current?.injectJavaScript(remoteBootstrapScript)}
-            javaScriptEnabled
-            domStorageEnabled
-            allowsInlineMediaPlayback
-            mediaCapturePermissionGrantType="grantIfSameHostElsePrompt"
-            startInLoadingState
-            renderLoading={() => (
-              <View style={styles.loading}>
-                <ActivityIndicator color="#7bc8ff" />
-              </View>
-            )}
-            renderError={(_, __, description) => (
-              <View style={styles.errorPanel}>
-                <Text style={styles.errorTitle}>Remote UI unavailable</Text>
-                <Text style={styles.errorText}>{description}</Text>
-              </View>
-            )}
-          />
+          {activeTab === "models" ? (
+            renderModelManager()
+          ) : (
+            <>
+              {activeTab === "voice" ? (
+                <View style={styles.nativeVoiceBar}>
+                  <Pressable
+                    style={[
+                      styles.voiceButton,
+                      recorderState.isRecording && styles.voiceButtonRecording,
+                      nativeVoiceButtonDisabled && !recorderState.isRecording && styles.buttonDisabled,
+                    ]}
+                    onPress={() => void toggleNativeVoiceRecording()}
+                    disabled={nativeVoiceButtonDisabled && !recorderState.isRecording}
+                  >
+                    <Text style={styles.voiceButtonText}>{nativeVoiceButtonLabel}</Text>
+                  </Pressable>
+                  <View style={styles.voiceStatusBlock}>
+                    <Text style={styles.voiceStatus}>{nativeVoiceStatus}</Text>
+                    {lastVoiceTranscript ? (
+                      <Text style={styles.voiceTranscript} numberOfLines={1}>{lastVoiceTranscript}</Text>
+                    ) : (
+                      <Text style={styles.voiceTranscript} numberOfLines={1}>
+                        {token.trim() ? speechRuntimeDescription : "Save setup first."}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+              ) : null}
+              <WebView
+                ref={webViewRef}
+                key={`${remoteUrl}-${webReloadKey}`}
+                source={{ uri: remoteUrl }}
+                style={styles.webView}
+                injectedJavaScriptBeforeContentLoaded={remoteBootstrapScript}
+                onLoadEnd={() => webViewRef.current?.injectJavaScript(remoteBootstrapScript)}
+                javaScriptEnabled
+                domStorageEnabled
+                allowsInlineMediaPlayback
+                mediaCapturePermissionGrantType="grantIfSameHostElsePrompt"
+                startInLoadingState
+                renderLoading={() => (
+                  <View style={styles.loading}>
+                    <ActivityIndicator color="#7bc8ff" />
+                  </View>
+                )}
+                renderError={(_, __, description) => (
+                  <View style={styles.errorPanel}>
+                    <Text style={styles.errorTitle}>Remote UI unavailable</Text>
+                    <Text style={styles.errorText}>{description}</Text>
+                  </View>
+                )}
+              />
+            </>
+          )}
         </View>
 
         <View style={styles.bottomTabs}>
@@ -377,6 +1028,250 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     backgroundColor: "#101317",
+  },
+  modelPage: {
+    flex: 1,
+    backgroundColor: "#101317",
+  },
+  modelPageContent: {
+    padding: 14,
+    gap: 12,
+  },
+  modelHeader: {
+    gap: 6,
+  },
+  sectionTitle: {
+    color: "#f4f8ff",
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  sectionText: {
+    color: "#a8b3c4",
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  runtimePanel: {
+    borderWidth: 1,
+    borderColor: "#354253",
+    borderRadius: 8,
+    backgroundColor: "#161b22",
+    padding: 12,
+    gap: 10,
+  },
+  panelLabel: {
+    color: "#e7edf7",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  segmentedControl: {
+    flexDirection: "row",
+    borderWidth: 1,
+    borderColor: "#354253",
+    borderRadius: 8,
+    overflow: "hidden",
+    minHeight: 42,
+  },
+  segmentButton: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#12161c",
+    paddingHorizontal: 8,
+  },
+  segmentButtonActive: {
+    backgroundColor: "#0e639c",
+  },
+  segmentButtonText: {
+    color: "#a8b3c4",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  segmentButtonTextActive: {
+    color: "#ffffff",
+  },
+  modelStatusPanel: {
+    borderWidth: 1,
+    borderColor: "#354253",
+    borderRadius: 8,
+    backgroundColor: "#151922",
+    padding: 12,
+    gap: 10,
+  },
+  modelStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  modelStatusText: {
+    flex: 1,
+    color: "#a8b3c4",
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  progressText: {
+    color: "#f4f8ff",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  progressTrack: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#252d38",
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#56b6c2",
+  },
+  modelList: {
+    gap: 10,
+  },
+  modelCard: {
+    borderWidth: 1,
+    borderColor: "#354253",
+    borderRadius: 8,
+    backgroundColor: "#161b22",
+    padding: 12,
+    gap: 10,
+  },
+  modelCardSelected: {
+    borderColor: "#7bc8ff",
+  },
+  modelCardHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  modelTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  modelTitle: {
+    color: "#f4f8ff",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  modelMeta: {
+    color: "#90a0b8",
+    fontSize: 12,
+  },
+  installBadge: {
+    color: "#9aa8bd",
+    borderWidth: 1,
+    borderColor: "#425066",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    fontSize: 11,
+    fontWeight: "800",
+    overflow: "hidden",
+  },
+  installBadgeActive: {
+    color: "#dafbe1",
+    borderColor: "#3b7f55",
+    backgroundColor: "#193323",
+  },
+  modelDescription: {
+    color: "#a8b3c4",
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  modelActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  smallButton: {
+    minHeight: 38,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#425066",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    backgroundColor: "#18202a",
+  },
+  smallButtonActive: {
+    borderColor: "#7bc8ff",
+    backgroundColor: "#203348",
+  },
+  smallButtonPrimary: {
+    backgroundColor: "#0e639c",
+    borderColor: "#0e639c",
+  },
+  smallButtonText: {
+    color: "#d9e4f2",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  smallButtonTextActive: {
+    color: "#ffffff",
+  },
+  smallButtonPrimaryText: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  sourceButton: {
+    minHeight: 42,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#425066",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#151922",
+  },
+  sourceButtonText: {
+    color: "#d9e4f2",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  nativeVoiceBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#2f3642",
+    backgroundColor: "#151922",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  voiceButton: {
+    minWidth: 86,
+    minHeight: 42,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#0e639c",
+    paddingHorizontal: 14,
+  },
+  voiceButtonRecording: {
+    backgroundColor: "#b33939",
+  },
+  buttonDisabled: {
+    opacity: 0.55,
+  },
+  voiceButtonText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  voiceStatusBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  voiceStatus: {
+    color: "#f4f8ff",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  voiceTranscript: {
+    color: "#9aa8bd",
+    fontSize: 12,
   },
   titleRow: {
     flexDirection: "row",
