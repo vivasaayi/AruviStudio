@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Keyboard,
   Linking,
   Platform,
@@ -31,13 +32,18 @@ import * as SecureStore from "expo-secure-store";
 import { WebView } from "react-native-webview";
 import { initWhisper, type WhisperContext } from "whisper.rn";
 import { PlannerMobileClient } from "./src/api/client";
+import type { HierarchyTreeNode, Product, ProductTree } from "./src/types";
 
 type ActiveTab = "planner" | "products" | "voice" | "models" | "activity";
+type ProductExploreTab = "map" | "work" | "search" | "overview";
+type ConnectionStatus = "unchecked" | "checking" | "connected" | "offline";
 type VoiceMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
 };
+type VoicePromptSource = "typed" | "recording";
+type ChatCompletionBody = Parameters<PlannerMobileClient["runChatCompletion"]>[0];
 
 const TABS: Array<{ id: ActiveTab; label: string }> = [
   { id: "planner", label: "Planner" },
@@ -285,6 +291,87 @@ function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.round(Math.random() * 100000)}`;
 }
 
+function normalizeBaseUrlForDisplay(value: string) {
+  return value.trim().replace(/\/+$/, "");
+}
+
+function isLoopbackHost(hostname: string) {
+  return ["localhost", "127.0.0.1", "::1"].includes(hostname.toLowerCase());
+}
+
+function getLoopbackFallbackBaseUrl(value: string) {
+  try {
+    const parsed = new URL(normalizeBaseUrlForDisplay(value));
+    if (isLoopbackHost(parsed.hostname)) return null;
+    parsed.hostname = "127.0.0.1";
+    return normalizeBaseUrlForDisplay(parsed.toString());
+  } catch {
+    return null;
+  }
+}
+
+function isNetworkRequestFailure(error: unknown) {
+  return describeError(error).toLowerCase().includes("network request failed");
+}
+
+type FlatProductNode = {
+  node: HierarchyTreeNode;
+  pathLabel: string;
+};
+
+function formatNodeKind(value?: string | null) {
+  return String(value ?? "node").replace(/_/g, " ");
+}
+
+function getNodeSummary(node: HierarchyTreeNode) {
+  return node.summary || node.description || "No summary yet.";
+}
+
+function countTreeNodes(nodes: HierarchyTreeNode[]): number {
+  return nodes.reduce((total, node) => total + 1 + countTreeNodes(node.children ?? []), 0);
+}
+
+function countLeafNodes(nodes: HierarchyTreeNode[]): number {
+  return nodes.reduce((total, node) => {
+    const children = node.children ?? [];
+    if (!children.length) return total + 1;
+    return total + countLeafNodes(children);
+  }, 0);
+}
+
+function flattenProductNodes(nodes: HierarchyTreeNode[], parentPath: string[] = []): FlatProductNode[] {
+  return nodes.flatMap((node) => {
+    const path = [...parentPath, node.name];
+    return [
+      {
+        node,
+        pathLabel: path.join(" / "),
+      },
+      ...flattenProductNodes(node.children ?? [], path),
+    ];
+  });
+}
+
+function findProductNode(nodes: HierarchyTreeNode[], nodeId: string | null): HierarchyTreeNode | null {
+  if (!nodeId) return null;
+  for (const node of nodes) {
+    if (node.id === nodeId) return node;
+    const childMatch = findProductNode(node.children ?? [], nodeId);
+    if (childMatch) return childMatch;
+  }
+  return null;
+}
+
+function findProductNodePath(nodes: HierarchyTreeNode[], nodeId: string | null): HierarchyTreeNode[] {
+  if (!nodeId) return [];
+  for (const node of nodes) {
+    if (node.id === nodeId) return [node];
+    const childPath = findProductNodePath(node.children ?? [], nodeId);
+    if (childPath.length) return [node, ...childPath];
+  }
+  return [];
+}
+
 export default function App() {
   const webViewRef = useRef<WebView>(null);
   const whisperContextRef = useRef<{ modelId: string; uri: string; context: WhisperContext } | null>(null);
@@ -304,6 +391,8 @@ export default function App() {
   const [modelInstallBusyId, setModelInstallBusyId] = useState<string | null>(null);
   const [isSetupOpen, setIsSetupOpen] = useState(false);
   const [webReloadKey, setWebReloadKey] = useState(0);
+  const [connectionCheckKey, setConnectionCheckKey] = useState(0);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("unchecked");
   const [isSaving, setIsSaving] = useState(false);
   const [isVoiceBusy, setIsVoiceBusy] = useState(false);
   const [nativeVoiceStatus, setNativeVoiceStatus] = useState("Ready");
@@ -317,15 +406,68 @@ export default function App() {
       content: "Ready when you are. Tap the mic and speak naturally.",
     },
   ]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [productTree, setProductTree] = useState<ProductTree | null>(null);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [selectedProductNodeId, setSelectedProductNodeId] = useState<string | null>(null);
+  const [productExploreTab, setProductExploreTab] = useState<ProductExploreTab>("map");
+  const [productSearchQuery, setProductSearchQuery] = useState("");
+  const [isProductLoading, setIsProductLoading] = useState(false);
+  const [productError, setProductError] = useState<string | null>(null);
 
   const remoteUrl = useMemo(() => {
-    const trimmed = baseUrl.trim().replace(/\/+$/, "");
+    const trimmed = normalizeBaseUrlForDisplay(baseUrl);
     return trimmed ? `${trimmed}/remote` : "about:blank";
   }, [baseUrl]);
 
   const mobileClient = useMemo(() => {
     return new PlannerMobileClient(baseUrl.trim(), token.trim());
   }, [baseUrl, token]);
+
+  const selectedProduct = useMemo(() => {
+    return products.find((product) => product.id === selectedProductId) ?? productTree?.product ?? products[0] ?? null;
+  }, [productTree?.product, products, selectedProductId]);
+
+  const selectedProductNode = useMemo(() => {
+    return findProductNode(productTree?.roots ?? [], selectedProductNodeId);
+  }, [productTree?.roots, selectedProductNodeId]);
+
+  const selectedProductNodePath = useMemo(() => {
+    return findProductNodePath(productTree?.roots ?? [], selectedProductNodeId);
+  }, [productTree?.roots, selectedProductNodeId]);
+
+  const productFlatNodes = useMemo(() => {
+    return flattenProductNodes(productTree?.roots ?? []);
+  }, [productTree?.roots]);
+
+  const productStats = useMemo(() => {
+    const roots = productTree?.roots ?? [];
+    return {
+      modules: productTree?.modules.length ?? 0,
+      rootSections: roots.length,
+      totalNodes: countTreeNodes(roots),
+      leafNodes: countLeafNodes(roots),
+    };
+  }, [productTree?.modules.length, productTree?.roots]);
+
+  const visibleProductChildren = selectedProductNode?.children ?? productTree?.roots ?? [];
+
+  const filteredProductNodes = useMemo(() => {
+    const query = productSearchQuery.trim().toLowerCase();
+    if (!query) return productFlatNodes;
+    return productFlatNodes.filter(({ node, pathLabel }) => {
+      return [
+        node.name,
+        node.summary,
+        node.description,
+        node.node_kind,
+        node.node_type,
+        pathLabel,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query));
+    });
+  }, [productFlatNodes, productSearchQuery]);
 
   const selectedWhisperModel = useMemo(() => {
     return WHISPER_MODELS.find((model) => model.id === selectedWhisperModelId) ?? WHISPER_MODELS[0];
@@ -375,6 +517,47 @@ export default function App() {
       hideSubscription.remove();
     };
   }, []);
+
+  useEffect(() => {
+    let disposed = false;
+
+    const checkConnection = async () => {
+      if (!token.trim() || !baseUrl.trim()) {
+        setConnectionStatus("unchecked");
+        return;
+      }
+      setConnectionStatus("checking");
+      try {
+        await mobileClient.health();
+        if (!disposed) {
+          setConnectionStatus("connected");
+        }
+      } catch (error) {
+        const fallbackBaseUrl = getLoopbackFallbackBaseUrl(baseUrl);
+        if (isNetworkRequestFailure(error) && fallbackBaseUrl) {
+          try {
+            await new PlannerMobileClient(fallbackBaseUrl, token.trim()).health();
+            if (!disposed) {
+              setBaseUrl(fallbackBaseUrl);
+              await SecureStore.setItemAsync(STORAGE_KEYS.baseUrl, fallbackBaseUrl);
+              setConnectionStatus("connected");
+            }
+            return;
+          } catch {
+            // Keep the original configured URL visible when loopback cannot reach the backend either.
+          }
+        }
+        if (!disposed) {
+          setConnectionStatus("offline");
+        }
+      }
+    };
+
+    void checkConnection();
+    return () => {
+      disposed = true;
+    };
+  }, [baseUrl, connectionCheckKey, mobileClient, token]);
 
   const applyConnectionValues = async (values: ConnectionValues) => {
     const next = {
@@ -512,6 +695,49 @@ export default function App() {
     }
   };
 
+  const loadProductTree = async (productId: string) => {
+    const tree = await mobileClient.getProductTree(productId);
+    setProductTree(tree);
+    setSelectedProductId(productId);
+    setSelectedProductNodeId(null);
+  };
+
+  const loadProducts = async (preferredProductId?: string | null) => {
+    if (!token.trim()) {
+      setProductError("Save a mobile API token before loading products.");
+      return;
+    }
+    try {
+      setIsProductLoading(true);
+      setProductError(null);
+      const loadedProducts = await mobileClient.listProducts();
+      setProducts(loadedProducts);
+      const nextProductId =
+        preferredProductId && loadedProducts.some((product) => product.id === preferredProductId)
+          ? preferredProductId
+          : selectedProductId && loadedProducts.some((product) => product.id === selectedProductId)
+            ? selectedProductId
+            : loadedProducts[0]?.id ?? null;
+      if (nextProductId) {
+        await loadProductTree(nextProductId);
+      } else {
+        setProductTree(null);
+        setSelectedProductId(null);
+        setSelectedProductNodeId(null);
+      }
+    } catch (error) {
+      setProductError(describeError(error));
+    } finally {
+      setIsProductLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === "products" && token.trim() && !products.length && !isProductLoading) {
+      void loadProducts(selectedProductId);
+    }
+  }, [activeTab, isProductLoading, products.length, selectedProductId, token]);
+
   const switchTab = (nextTab: ActiveTab) => {
     setActiveTab(nextTab);
     void SecureStore.setItemAsync(STORAGE_KEYS.activeTab, nextTab);
@@ -549,11 +775,36 @@ export default function App() {
     });
   };
 
-  const submitVoicePrompt = async (prompt: string) => {
+  const runChatCompletionWithFallback = async (body: ChatCompletionBody) => {
+    try {
+      const response = await mobileClient.runChatCompletion(body);
+      setConnectionStatus("connected");
+      return response;
+    } catch (error) {
+      const fallbackBaseUrl = getLoopbackFallbackBaseUrl(baseUrl);
+      if (isNetworkRequestFailure(error) && fallbackBaseUrl) {
+        try {
+          const response = await new PlannerMobileClient(fallbackBaseUrl, token.trim()).runChatCompletion(body);
+          setBaseUrl(fallbackBaseUrl);
+          await SecureStore.setItemAsync(STORAGE_KEYS.baseUrl, fallbackBaseUrl);
+          setConnectionStatus("connected");
+          setWebReloadKey((current) => current + 1);
+          return response;
+        } catch {
+          throw new Error(
+            `Cannot reach Aruvi at ${normalizeBaseUrlForDisplay(baseUrl)} or ${fallbackBaseUrl}. Check Settings base URL and that the desktop bridge is running.`,
+          );
+        }
+      }
+      throw error;
+    }
+  };
+
+  const submitVoicePrompt = async (prompt: string, source: VoicePromptSource = "typed") => {
     const trimmed = prompt.trim();
     if (!trimmed) return;
     if (!token.trim()) {
-      Alert.alert("Setup required", "Save a mobile API token before using voice chat.");
+      Alert.alert("Setup required", "Save a mobile API token before using chat.");
       return;
     }
 
@@ -567,11 +818,11 @@ export default function App() {
       .slice(-18);
     setVoiceMessages((current) => [...current.filter((message) => message.id !== "assistant-welcome"), userMessage]);
     setVoiceDraft("");
-    setNativeVoiceStatus("Thinking...");
+    setNativeVoiceStatus(source === "recording" ? "Sending voice prompt..." : "Thinking...");
     setIsVoiceBusy(true);
 
     try {
-      const response = await mobileClient.runChatCompletion({
+      const response = await runChatCompletionWithFallback({
         provider_id: providerId.trim() || undefined,
         model_name: modelName.trim() || undefined,
         messages: [
@@ -605,8 +856,9 @@ export default function App() {
       }
     } catch (error) {
       const message = describeError(error);
-      setNativeVoiceStatus(message);
-      Alert.alert("Voice failed", message);
+      const title = source === "recording" ? "Voice failed" : "Chat failed";
+      setNativeVoiceStatus(`${title}: ${message}`);
+      Alert.alert(title, message);
     } finally {
       setIsVoiceBusy(false);
     }
@@ -772,7 +1024,7 @@ export default function App() {
       setLastVoiceTranscript(transcript);
       setVoiceDraft(transcript);
       setNativeVoiceStatus("Sending...");
-      await submitVoicePrompt(transcript);
+      await submitVoicePrompt(transcript, "recording");
     } catch (error) {
       const message = describeError(error);
       setNativeVoiceStatus(message);
@@ -825,14 +1077,267 @@ export default function App() {
   };
 
   const shouldShowSetup = isSetupOpen || !token.trim();
-  const nativeVoiceButtonDisabled = isVoiceBusy || !token.trim() || !canUseLocalSpeech;
+  const nativeVoiceButtonDisabled = isVoiceBusy || !token.trim();
   const speechModelDescription = canUseLocalSpeech
     ? `Using ${WHISPER_MODELS.find((model) => model.id === activeLocalWhisperModel?.id)?.label ?? "Whisper"} on this phone for speech-to-text.`
-    : "Install a Whisper model to enable on-device speech-to-text.";
+    : "Type a message, or install Whisper to use the mic.";
   const speechModelLabel = canUseLocalSpeech
     ? `On-device ${WHISPER_MODELS.find((model) => model.id === activeLocalWhisperModel?.id)?.label ?? "Whisper"}`
     : "Install Whisper";
+  const voiceComposerStatus = token.trim()
+    ? canUseLocalSpeech
+      ? speechModelLabel
+      : "Text chat ready"
+    : "Setup required";
+  const connectionText = !token.trim()
+    ? "Setup required"
+    : connectionStatus === "connected"
+      ? "Connected"
+      : connectionStatus === "checking"
+        ? "Checking..."
+        : connectionStatus === "offline"
+          ? "Backend offline"
+          : "Not checked";
   const isVoiceKeyboardOpen = activeTab === "voice" && keyboardHeight > 0;
+
+  const renderProductModeButton = (mode: ProductExploreTab, label: string) => (
+    <Pressable
+      key={mode}
+      style={[styles.productModeButton, productExploreTab === mode && styles.productModeButtonActive]}
+      onPress={() => setProductExploreTab(mode)}
+    >
+      <Text style={[styles.productModeText, productExploreTab === mode && styles.productModeTextActive]}>{label}</Text>
+    </Pressable>
+  );
+
+  const renderProductNodeRow = (node: HierarchyTreeNode, pathLabel?: string) => {
+    const childCount = node.children?.length ?? 0;
+    return (
+      <Pressable
+        key={node.id}
+        style={styles.productNodeRow}
+        onPress={() => {
+          setSelectedProductNodeId(node.id);
+          setProductExploreTab("map");
+        }}
+      >
+        <View style={styles.productNodeMain}>
+          <View style={styles.productNodeTitleRow}>
+            <Text style={styles.productNodeTitle} numberOfLines={2}>{node.name}</Text>
+            <Text style={styles.productNodeChevron}>{childCount ? "Open" : "View"}</Text>
+          </View>
+          {pathLabel ? <Text style={styles.productNodePath} numberOfLines={1}>{pathLabel}</Text> : null}
+          <Text style={styles.productNodeSummary} numberOfLines={3}>{getNodeSummary(node)}</Text>
+          <View style={styles.productNodeMetaRow}>
+            <Text style={styles.productKindBadge}>{formatNodeKind(node.node_kind)}</Text>
+            <Text style={styles.productNodeMeta}>{formatNodeKind(node.node_type)}</Text>
+            <Text style={styles.productNodeMeta}>
+              {childCount === 1 ? "1 child" : `${childCount} children`}
+            </Text>
+          </View>
+        </View>
+      </Pressable>
+    );
+  };
+
+  const renderProductExplorer = () => {
+    const currentContextTitle = selectedProductNode?.name ?? selectedProduct?.name ?? "Products";
+    const currentContextSummary = selectedProductNode
+      ? getNodeSummary(selectedProductNode)
+      : selectedProduct?.description || "Select a product to inspect its structure.";
+    const pathNodes = selectedProductNodePath;
+    const productMeta = [
+      `${productStats.rootSections} roots`,
+      `${productStats.totalNodes} nodes`,
+      `${productStats.leafNodes} leaves`,
+      productTree?.product.status ?? null,
+    ].filter(Boolean).join(" · ");
+
+    if (productError && !productTree) {
+      return (
+        <View style={styles.productEmptyScreen}>
+          <Text style={styles.productEmptyTitle}>Products unavailable</Text>
+          <Text style={styles.productEmptyText}>{productError}</Text>
+          <Pressable style={styles.productPrimaryAction} onPress={() => void loadProducts(selectedProductId)}>
+            <Text style={styles.productPrimaryActionText}>Retry</Text>
+          </Pressable>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.productScreen}>
+        <View style={styles.productHeader}>
+          <View style={styles.productHeaderTop}>
+            <View style={styles.productHeaderCopy}>
+              <Text style={styles.productEyebrow}>Product</Text>
+              <Text style={styles.productHeaderTitle} numberOfLines={1}>{selectedProduct?.name ?? "No product"}</Text>
+              <Text style={styles.productHeaderSummary} numberOfLines={1}>
+                {productTree ? productMeta : "Load a product to browse its semantic map."}
+              </Text>
+            </View>
+            <Pressable
+              style={[styles.productRefreshButton, isProductLoading && styles.buttonDisabled]}
+              onPress={() => void loadProducts(selectedProductId)}
+              disabled={isProductLoading}
+            >
+              <Text style={styles.productRefreshText}>{isProductLoading ? "Loading" : "Refresh"}</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.productPickerRow}>
+            {products.map((product) => (
+              <Pressable
+                key={product.id}
+                style={[styles.productPickerChip, product.id === selectedProduct?.id && styles.productPickerChipActive]}
+                onPress={() => void loadProducts(product.id)}
+              >
+                <Text
+                  style={[styles.productPickerText, product.id === selectedProduct?.id && styles.productPickerTextActive]}
+                  numberOfLines={1}
+                >
+                  {product.name}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+
+          <View style={styles.productModeRow}>
+            {renderProductModeButton("map", "Map")}
+            {renderProductModeButton("work", "Work")}
+            {renderProductModeButton("search", "Search")}
+            {renderProductModeButton("overview", "Overview")}
+          </View>
+        </View>
+
+        {productExploreTab === "map" ? (
+          <FlatList
+            data={visibleProductChildren}
+            keyExtractor={(node) => node.id}
+            contentContainerStyle={styles.productListContent}
+            ListHeaderComponent={(
+              selectedProductNode ? (
+                <View style={styles.productContextPanel}>
+                  <View style={styles.productBreadcrumbRow}>
+                    {pathNodes.length ? (
+                      <Pressable style={styles.productBackButton} onPress={() => setSelectedProductNodeId(pathNodes[pathNodes.length - 2]?.id ?? null)}>
+                        <Text style={styles.productBackText}>Back</Text>
+                      </Pressable>
+                    ) : null}
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.productBreadcrumbScroller}>
+                      <Pressable onPress={() => setSelectedProductNodeId(null)}>
+                        <Text style={styles.productBreadcrumb}>{selectedProduct?.name ?? "Product"}</Text>
+                      </Pressable>
+                      {pathNodes.map((node) => (
+                        <Pressable key={node.id} onPress={() => setSelectedProductNodeId(node.id)}>
+                          <Text style={[styles.productBreadcrumb, node.id === selectedProductNodeId && styles.productBreadcrumbActive]}>
+                            / {node.name}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  </View>
+                  <Text style={styles.productContextTitle} numberOfLines={2}>{currentContextTitle}</Text>
+                  <Text style={styles.productContextSummary} numberOfLines={3}>{currentContextSummary}</Text>
+                  <View style={styles.productNodeMetaRow}>
+                    <Text style={styles.productKindBadge}>{formatNodeKind(selectedProductNode.node_kind)}</Text>
+                    <Text style={styles.productNodeMeta}>
+                      {visibleProductChildren.length === 1 ? "1 child" : `${visibleProductChildren.length} children`}
+                    </Text>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.productRootHeader}>
+                  <Text style={styles.productRootTitle}>Root sections</Text>
+                  <Text style={styles.productRootMeta}>
+                    {visibleProductChildren.length === 1 ? "1 top-level section" : `${visibleProductChildren.length} top-level sections`}
+                  </Text>
+                </View>
+              )
+            )}
+            renderItem={({ item }) => renderProductNodeRow(item)}
+            ListEmptyComponent={(
+              <View style={styles.productEmptyBlock}>
+                <Text style={styles.productEmptyTitle}>No children here</Text>
+                <Text style={styles.productEmptyText}>This node is a leaf. Use Search to jump elsewhere in the product map.</Text>
+              </View>
+            )}
+          />
+        ) : productExploreTab === "search" ? (
+          <View style={styles.productSearchScreen}>
+            <TextInput
+              style={styles.productSearchInput}
+              value={productSearchQuery}
+              onChangeText={setProductSearchQuery}
+              placeholder="Search nodes, kinds, summaries"
+              placeholderTextColor="#7d8898"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <FlatList
+              data={filteredProductNodes}
+              keyExtractor={(item) => item.node.id}
+              contentContainerStyle={styles.productListContent}
+              renderItem={({ item }) => renderProductNodeRow(item.node, item.pathLabel)}
+              ListHeaderComponent={(
+                <Text style={styles.productSearchCount}>
+                  {filteredProductNodes.length} {filteredProductNodes.length === 1 ? "match" : "matches"}
+                </Text>
+              )}
+              ListEmptyComponent={(
+                <View style={styles.productEmptyBlock}>
+                  <Text style={styles.productEmptyTitle}>No matches</Text>
+                  <Text style={styles.productEmptyText}>Try a module, capability, node kind, or technical term.</Text>
+                </View>
+              )}
+            />
+          </View>
+        ) : productExploreTab === "overview" ? (
+          <ScrollView style={styles.productOverviewScreen} contentContainerStyle={styles.productListContent}>
+            <View style={styles.productOverviewCard}>
+              <Text style={styles.productOverviewTitle}>{selectedProduct?.name ?? "Product"}</Text>
+              <Text style={styles.productOverviewText}>{selectedProduct?.description || "No description."}</Text>
+            </View>
+            <View style={styles.productOverviewGrid}>
+              <View style={styles.productOverviewMetric}>
+                <Text style={styles.productStatValue}>{productStats.modules}</Text>
+                <Text style={styles.productStatLabel}>Modules</Text>
+              </View>
+              <View style={styles.productOverviewMetric}>
+                <Text style={styles.productStatValue}>{productStats.rootSections}</Text>
+                <Text style={styles.productStatLabel}>Root sections</Text>
+              </View>
+              <View style={styles.productOverviewMetric}>
+                <Text style={styles.productStatValue}>{productStats.totalNodes}</Text>
+                <Text style={styles.productStatLabel}>All nodes</Text>
+              </View>
+              <View style={styles.productOverviewMetric}>
+                <Text style={styles.productStatValue}>{productStats.leafNodes}</Text>
+                <Text style={styles.productStatLabel}>Leaf nodes</Text>
+              </View>
+            </View>
+            {selectedProduct?.tags?.length ? (
+              <View style={styles.productOverviewCard}>
+                <Text style={styles.productOverviewTitle}>Tags</Text>
+                <View style={styles.productTagRow}>
+                  {selectedProduct.tags.map((tag) => (
+                    <Text key={tag} style={styles.productKindBadge}>{tag}</Text>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+          </ScrollView>
+        ) : (
+          <View style={styles.productEmptyScreen}>
+            <Text style={styles.productEmptyTitle}>Work view coming next</Text>
+            <Text style={styles.productEmptyText}>
+              The native product map is now separated from the desktop WebView. Next we should add a mobile work-item endpoint and show active delivery work by selected node.
+            </Text>
+          </View>
+        )}
+      </View>
+    );
+  };
 
   const renderVoiceScreen = () => (
     <View style={styles.voiceScreen}>
@@ -882,7 +1387,7 @@ export default function App() {
             {recorderState.isRecording ? "Listening" : isVoiceBusy ? nativeVoiceStatus : "Voice transcript"}
           </Text>
           <Text style={styles.voiceComposerStatus} numberOfLines={1}>
-            {token.trim() ? speechModelLabel : "Setup required"}
+            {voiceComposerStatus}
           </Text>
         </View>
         <TextInput
@@ -912,14 +1417,16 @@ export default function App() {
             onPress={() => void toggleNativeVoiceRecording()}
             disabled={nativeVoiceButtonDisabled && !recorderState.isRecording}
           >
-            <Text style={styles.voiceMicButtonText}>{recorderState.isRecording ? "Stop" : "Mic"}</Text>
+            <Text style={styles.voiceMicButtonText}>
+              {recorderState.isRecording ? "Stop" : canUseLocalSpeech ? "Mic" : "Install"}
+            </Text>
           </Pressable>
           <Pressable
             style={[
               styles.voiceSendButton,
               (!voiceDraft.trim() || isVoiceBusy || recorderState.isRecording) && styles.buttonDisabled,
             ]}
-            onPress={() => void submitVoicePrompt(voiceDraft)}
+            onPress={() => void submitVoicePrompt(voiceDraft, "typed")}
             disabled={!voiceDraft.trim() || isVoiceBusy || recorderState.isRecording}
           >
             <Text style={styles.voiceSendButtonText}>↑</Text>
@@ -1026,16 +1533,27 @@ export default function App() {
             <View style={styles.titleBlock}>
               <Text style={styles.title}>Aruvi Studio</Text>
               <View style={styles.connectionRow}>
-                <View style={[styles.connectionDot, token.trim() ? styles.connectionDotReady : styles.connectionDotMissing]} />
+                <View
+                  style={[
+                    styles.connectionDot,
+                    connectionStatus === "connected" ? styles.connectionDotReady : styles.connectionDotMissing,
+                  ]}
+                />
                 <Text style={styles.connectionText} numberOfLines={1}>
-                  {token.trim() ? "Connected" : "Setup required"}
+                  {connectionText}
                 </Text>
               </View>
             </View>
             <Pressable style={styles.headerButton} onPress={() => setIsSetupOpen((current) => !current)}>
               <Text style={styles.buttonText}>Settings</Text>
             </Pressable>
-            <Pressable style={styles.headerButton} onPress={() => setWebReloadKey((current) => current + 1)}>
+            <Pressable
+              style={styles.headerButton}
+              onPress={() => {
+                setWebReloadKey((current) => current + 1);
+                setConnectionCheckKey((current) => current + 1);
+              }}
+            >
               <Text style={styles.buttonText}>Refresh</Text>
             </Pressable>
           </View>
@@ -1110,6 +1628,8 @@ export default function App() {
             renderVoiceScreen()
           ) : activeTab === "models" ? (
             renderModelManager()
+          ) : activeTab === "products" ? (
+            renderProductExplorer()
           ) : (
             <WebView
               ref={webViewRef}
@@ -1180,6 +1700,385 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     backgroundColor: "#0d1015",
+  },
+  productScreen: {
+    flex: 1,
+    backgroundColor: "#0d1015",
+  },
+  productHeader: {
+    borderBottomWidth: 1,
+    borderBottomColor: "#242b35",
+    backgroundColor: "#10151d",
+    paddingHorizontal: 14,
+    paddingTop: 8,
+    paddingBottom: 9,
+    gap: 7,
+  },
+  productHeaderTop: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  productHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  productEyebrow: {
+    color: "#8390a3",
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+  },
+  productHeaderTitle: {
+    color: "#f4f8ff",
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  productHeaderSummary: {
+    color: "#9da8b8",
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "700",
+  },
+  productRefreshButton: {
+    minHeight: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#36465a",
+    backgroundColor: "#1a2532",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  productRefreshText: {
+    color: "#eaf2fb",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  productPickerRow: {
+    gap: 7,
+    paddingRight: 6,
+  },
+  productPickerChip: {
+    maxWidth: 220,
+    minHeight: 30,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#2d3847",
+    backgroundColor: "#121820",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  productPickerChipActive: {
+    borderColor: "#4aa3d8",
+    backgroundColor: "#123149",
+  },
+  productPickerText: {
+    color: "#9ca8ba",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  productPickerTextActive: {
+    color: "#eef8ff",
+  },
+  productStatsRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  productStat: {
+    flex: 1,
+    minHeight: 58,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#2f3948",
+    backgroundColor: "#121820",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  productStatValue: {
+    color: "#f4f8ff",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  productStatLabel: {
+    color: "#8f9caf",
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    marginTop: 3,
+  },
+  productModeRow: {
+    flexDirection: "row",
+    gap: 6,
+    minHeight: 34,
+  },
+  productModeButton: {
+    flex: 1,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#2f3948",
+    backgroundColor: "#121820",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  productModeButtonActive: {
+    borderColor: "#2f8fc8",
+    backgroundColor: "#123149",
+  },
+  productModeText: {
+    color: "#9ca8ba",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  productModeTextActive: {
+    color: "#eef8ff",
+  },
+  productListContent: {
+    padding: 12,
+    gap: 9,
+  },
+  productRootHeader: {
+    minHeight: 38,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  productRootTitle: {
+    color: "#f4f8ff",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  productRootMeta: {
+    color: "#8f9caf",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  productContextPanel: {
+    borderWidth: 1,
+    borderColor: "#2f3948",
+    borderRadius: 8,
+    backgroundColor: "#111820",
+    padding: 12,
+    gap: 8,
+  },
+  productBreadcrumbRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 30,
+  },
+  productBackButton: {
+    minHeight: 30,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#36465a",
+    backgroundColor: "#172231",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  productBackText: {
+    color: "#eaf2fb",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  productBreadcrumbScroller: {
+    alignItems: "center",
+    gap: 6,
+  },
+  productBreadcrumb: {
+    color: "#8895a8",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  productBreadcrumbActive: {
+    color: "#b9e4ff",
+  },
+  productContextTitle: {
+    color: "#f4f8ff",
+    fontSize: 20,
+    lineHeight: 25,
+    fontWeight: "900",
+  },
+  productContextSummary: {
+    color: "#a4afbf",
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "700",
+  },
+  productNodeRow: {
+    borderWidth: 1,
+    borderColor: "#2f3948",
+    borderRadius: 8,
+    backgroundColor: "#111820",
+    padding: 12,
+  },
+  productNodeMain: {
+    gap: 8,
+  },
+  productNodeTitleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  productNodeTitle: {
+    flex: 1,
+    color: "#f4f8ff",
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: "900",
+  },
+  productNodeChevron: {
+    color: "#92cff5",
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    marginTop: 3,
+  },
+  productNodePath: {
+    color: "#748296",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  productNodeSummary: {
+    color: "#a6b0c0",
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "700",
+  },
+  productNodeMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 7,
+  },
+  productKindBadge: {
+    overflow: "hidden",
+    borderRadius: 8,
+    backgroundColor: "#203149",
+    color: "#b9d4f2",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  productNodeMeta: {
+    color: "#8e9bad",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  productSearchScreen: {
+    flex: 1,
+    backgroundColor: "#0d1015",
+  },
+  productSearchInput: {
+    marginHorizontal: 14,
+    marginTop: 14,
+    marginBottom: 4,
+    minHeight: 42,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#354253",
+    backgroundColor: "#121820",
+    color: "#f4f8ff",
+    paddingHorizontal: 12,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  productSearchCount: {
+    color: "#8f9caf",
+    fontSize: 12,
+    fontWeight: "900",
+    marginBottom: 2,
+  },
+  productOverviewScreen: {
+    flex: 1,
+    backgroundColor: "#0d1015",
+  },
+  productOverviewCard: {
+    borderWidth: 1,
+    borderColor: "#2f3948",
+    borderRadius: 8,
+    backgroundColor: "#111820",
+    padding: 12,
+    gap: 8,
+  },
+  productOverviewTitle: {
+    color: "#f4f8ff",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  productOverviewText: {
+    color: "#a6b0c0",
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "700",
+  },
+  productOverviewGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  productOverviewMetric: {
+    width: "48%",
+    minHeight: 72,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#2f3948",
+    backgroundColor: "#111820",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  productTagRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  productEmptyScreen: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#0d1015",
+    padding: 22,
+    gap: 12,
+  },
+  productEmptyBlock: {
+    borderWidth: 1,
+    borderColor: "#2f3948",
+    borderRadius: 8,
+    backgroundColor: "#111820",
+    padding: 14,
+    gap: 6,
+  },
+  productEmptyTitle: {
+    color: "#f4f8ff",
+    fontSize: 16,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  productEmptyText: {
+    color: "#9ca8ba",
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  productPrimaryAction: {
+    minHeight: 42,
+    borderRadius: 8,
+    backgroundColor: "#0e639c",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
+  productPrimaryActionText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "900",
   },
   voiceScreen: {
     flex: 1,

@@ -3,6 +3,8 @@ import type {
   ChatMessagePayload,
   PlannerSessionInfo,
   PlannerTurnResponse,
+  Product,
+  ProductTree,
 } from "../types";
 
 type RequestOptions = {
@@ -38,6 +40,14 @@ export class PlannerMobileClient {
 
   health() {
     return this.request<{ status: string }>("/api/mobile/health");
+  }
+
+  listProducts() {
+    return this.request<Product[]>("/api/mobile/products");
+  }
+
+  getProductTree(productId: string) {
+    return this.request<ProductTree>(`/api/mobile/products/${encodeURIComponent(productId)}/tree`);
   }
 
   createPlannerSession(body?: { provider_id?: string; model_name?: string }) {
