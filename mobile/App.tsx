@@ -5,6 +5,7 @@ import {
   FlatList,
   Keyboard,
   Linking,
+  Modal,
   Platform,
   Pressable,
   SafeAreaView,
@@ -414,6 +415,7 @@ export default function App() {
   const [productSearchQuery, setProductSearchQuery] = useState("");
   const [isProductLoading, setIsProductLoading] = useState(false);
   const [productError, setProductError] = useState<string | null>(null);
+  const [isProductPickerOpen, setIsProductPickerOpen] = useState(false);
 
   const remoteUrl = useMemo(() => {
     const trimmed = normalizeBaseUrlForDisplay(baseUrl);
@@ -1152,6 +1154,9 @@ export default function App() {
       `${productStats.leafNodes} leaves`,
       productTree?.product.status ?? null,
     ].filter(Boolean).join(" · ");
+    const parentPathLabel = pathNodes.length > 1
+      ? pathNodes.slice(0, -1).map((node) => node.name).join(" / ")
+      : selectedProduct?.name ?? "Product";
 
     if (productError && !productTree) {
       return (
@@ -1170,37 +1175,19 @@ export default function App() {
         <View style={styles.productHeader}>
           <View style={styles.productHeaderTop}>
             <View style={styles.productHeaderCopy}>
-              <Text style={styles.productEyebrow}>Product</Text>
               <Text style={styles.productHeaderTitle} numberOfLines={1}>{selectedProduct?.name ?? "No product"}</Text>
               <Text style={styles.productHeaderSummary} numberOfLines={1}>
                 {productTree ? productMeta : "Load a product to browse its semantic map."}
               </Text>
             </View>
             <Pressable
-              style={[styles.productRefreshButton, isProductLoading && styles.buttonDisabled]}
-              onPress={() => void loadProducts(selectedProductId)}
-              disabled={isProductLoading}
+              style={styles.productChangeButton}
+              onPress={() => setIsProductPickerOpen(true)}
+              disabled={!products.length}
             >
-              <Text style={styles.productRefreshText}>{isProductLoading ? "Loading" : "Refresh"}</Text>
+              <Text style={styles.productChangeText}>Change</Text>
             </Pressable>
           </View>
-
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.productPickerRow}>
-            {products.map((product) => (
-              <Pressable
-                key={product.id}
-                style={[styles.productPickerChip, product.id === selectedProduct?.id && styles.productPickerChipActive]}
-                onPress={() => void loadProducts(product.id)}
-              >
-                <Text
-                  style={[styles.productPickerText, product.id === selectedProduct?.id && styles.productPickerTextActive]}
-                  numberOfLines={1}
-                >
-                  {product.name}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
 
           <View style={styles.productModeRow}>
             {renderProductModeButton("map", "Map")}
@@ -1219,23 +1206,12 @@ export default function App() {
               selectedProductNode ? (
                 <View style={styles.productContextPanel}>
                   <View style={styles.productBreadcrumbRow}>
-                    {pathNodes.length ? (
-                      <Pressable style={styles.productBackButton} onPress={() => setSelectedProductNodeId(pathNodes[pathNodes.length - 2]?.id ?? null)}>
-                        <Text style={styles.productBackText}>Back</Text>
-                      </Pressable>
-                    ) : null}
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.productBreadcrumbScroller}>
-                      <Pressable onPress={() => setSelectedProductNodeId(null)}>
-                        <Text style={styles.productBreadcrumb}>{selectedProduct?.name ?? "Product"}</Text>
-                      </Pressable>
-                      {pathNodes.map((node) => (
-                        <Pressable key={node.id} onPress={() => setSelectedProductNodeId(node.id)}>
-                          <Text style={[styles.productBreadcrumb, node.id === selectedProductNodeId && styles.productBreadcrumbActive]}>
-                            / {node.name}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </ScrollView>
+                    <Pressable style={styles.productBackButton} onPress={() => setSelectedProductNodeId(pathNodes[pathNodes.length - 2]?.id ?? null)}>
+                      <Text style={styles.productBackText}>Back</Text>
+                    </Pressable>
+                    <Text style={styles.productPathLine} numberOfLines={1} ellipsizeMode="middle">
+                      {parentPathLabel}
+                    </Text>
                   </View>
                   <Text style={styles.productContextTitle} numberOfLines={2}>{currentContextTitle}</Text>
                   <Text style={styles.productContextSummary} numberOfLines={3}>{currentContextSummary}</Text>
@@ -1335,6 +1311,51 @@ export default function App() {
             </Text>
           </View>
         )}
+        <Modal
+          visible={isProductPickerOpen}
+          animationType="slide"
+          transparent
+          onRequestClose={() => setIsProductPickerOpen(false)}
+        >
+          <View style={styles.productModalOverlay}>
+            <View style={styles.productModal}>
+              <View style={styles.productModalHeader}>
+                <View style={styles.productModalTitleBlock}>
+                  <Text style={styles.productModalTitle}>Choose Product</Text>
+                  <Text style={styles.productModalMeta}>{products.length} available</Text>
+                </View>
+                <Pressable style={styles.productModalClose} onPress={() => setIsProductPickerOpen(false)}>
+                  <Text style={styles.productModalCloseText}>Close</Text>
+                </Pressable>
+              </View>
+              <FlatList
+                data={products}
+                keyExtractor={(product) => product.id}
+                contentContainerStyle={styles.productModalList}
+                renderItem={({ item }) => (
+                  <Pressable
+                    style={[
+                      styles.productModalRow,
+                      item.id === selectedProduct?.id && styles.productModalRowActive,
+                    ]}
+                    onPress={() => {
+                      setIsProductPickerOpen(false);
+                      void loadProducts(item.id);
+                    }}
+                  >
+                    <View style={styles.productModalRowCopy}>
+                      <Text style={styles.productModalRowTitle} numberOfLines={1}>{item.name}</Text>
+                      <Text style={styles.productModalRowSummary} numberOfLines={2}>
+                        {item.description || item.status}
+                      </Text>
+                    </View>
+                    <Text style={styles.productModalRowStatus}>{item.status}</Text>
+                  </Pressable>
+                )}
+              />
+            </View>
+          </View>
+        </Modal>
       </View>
     );
   };
@@ -1550,7 +1571,11 @@ export default function App() {
             <Pressable
               style={styles.headerButton}
               onPress={() => {
-                setWebReloadKey((current) => current + 1);
+                if (activeTab === "products") {
+                  void loadProducts(selectedProductId);
+                } else {
+                  setWebReloadKey((current) => current + 1);
+                }
                 setConnectionCheckKey((current) => current + 1);
               }}
             >
@@ -1691,10 +1716,10 @@ const styles = StyleSheet.create({
   header: {
     borderBottomWidth: 1,
     borderBottomColor: "#242b35",
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 10,
-    gap: 8,
+    paddingHorizontal: 14,
+    paddingTop: 6,
+    paddingBottom: 7,
+    gap: 6,
     backgroundColor: "#10151d",
   },
   content: {
@@ -1710,9 +1735,9 @@ const styles = StyleSheet.create({
     borderBottomColor: "#242b35",
     backgroundColor: "#10151d",
     paddingHorizontal: 14,
-    paddingTop: 8,
-    paddingBottom: 9,
-    gap: 7,
+    paddingTop: 7,
+    paddingBottom: 8,
+    gap: 6,
   },
   productHeaderTop: {
     flexDirection: "row",
@@ -1734,7 +1759,7 @@ const styles = StyleSheet.create({
   },
   productHeaderTitle: {
     color: "#f4f8ff",
-    fontSize: 20,
+    fontSize: 19,
     fontWeight: "900",
   },
   productHeaderSummary: {
@@ -1742,6 +1767,21 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 15,
     fontWeight: "700",
+  },
+  productChangeButton: {
+    minHeight: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#3c82ad",
+    backgroundColor: "#102a3d",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 11,
+  },
+  productChangeText: {
+    color: "#d4efff",
+    fontSize: 12,
+    fontWeight: "900",
   },
   productRefreshButton: {
     minHeight: 34,
@@ -1764,7 +1804,7 @@ const styles = StyleSheet.create({
   },
   productPickerChip: {
     maxWidth: 220,
-    minHeight: 30,
+    minHeight: 28,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: "#2d3847",
@@ -1783,6 +1823,101 @@ const styles = StyleSheet.create({
   },
   productPickerTextActive: {
     color: "#eef8ff",
+  },
+  productModalOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.58)",
+  },
+  productModal: {
+    maxHeight: "72%",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    borderWidth: 1,
+    borderColor: "#2f3948",
+    backgroundColor: "#10151d",
+    paddingTop: 14,
+  },
+  productModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#242b35",
+  },
+  productModalTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  productModalTitle: {
+    color: "#f4f8ff",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  productModalMeta: {
+    color: "#8f9caf",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  productModalClose: {
+    minHeight: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#384657",
+    backgroundColor: "#172231",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  productModalCloseText: {
+    color: "#eaf2fb",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  productModalList: {
+    padding: 12,
+    gap: 8,
+  },
+  productModalRow: {
+    minHeight: 76,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#2f3948",
+    backgroundColor: "#111820",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 12,
+  },
+  productModalRowActive: {
+    borderColor: "#4aa3d8",
+    backgroundColor: "#123149",
+  },
+  productModalRowCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  productModalRowTitle: {
+    color: "#f4f8ff",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  productModalRowSummary: {
+    color: "#98a5b7",
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "700",
+  },
+  productModalRowStatus: {
+    color: "#9fcaf0",
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase",
   },
   productStatsRow: {
     flexDirection: "row",
@@ -1813,7 +1948,7 @@ const styles = StyleSheet.create({
   productModeRow: {
     flexDirection: "row",
     gap: 6,
-    minHeight: 34,
+    minHeight: 32,
   },
   productModeButton: {
     flex: 1,
@@ -1862,17 +1997,17 @@ const styles = StyleSheet.create({
     borderColor: "#2f3948",
     borderRadius: 8,
     backgroundColor: "#111820",
-    padding: 12,
-    gap: 8,
+    padding: 11,
+    gap: 7,
   },
   productBreadcrumbRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    minHeight: 30,
+    minHeight: 28,
   },
   productBackButton: {
-    minHeight: 30,
+    minHeight: 28,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: "#36465a",
@@ -1885,28 +2020,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "900",
   },
-  productBreadcrumbScroller: {
-    alignItems: "center",
-    gap: 6,
-  },
-  productBreadcrumb: {
+  productPathLine: {
+    flex: 1,
     color: "#8895a8",
     fontSize: 12,
     fontWeight: "800",
   },
-  productBreadcrumbActive: {
-    color: "#b9e4ff",
-  },
   productContextTitle: {
     color: "#f4f8ff",
-    fontSize: 20,
-    lineHeight: 25,
+    fontSize: 19,
+    lineHeight: 23,
     fontWeight: "900",
   },
   productContextSummary: {
     color: "#a4afbf",
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 12,
+    lineHeight: 17,
     fontWeight: "700",
   },
   productNodeRow: {
@@ -2511,16 +2640,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
   },
   titleBlock: {
     flex: 1,
     minWidth: 0,
-    gap: 4,
+    gap: 2,
   },
   title: {
     color: "#f4f8ff",
-    fontSize: 23,
+    fontSize: 21,
     fontWeight: "900",
   },
   url: {
@@ -2546,7 +2675,7 @@ const styles = StyleSheet.create({
   },
   connectionText: {
     color: "#96a4b8",
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "800",
   },
   setupPanel: {
@@ -2613,15 +2742,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   headerButton: {
-    minHeight: 40,
+    minHeight: 36,
     borderRadius: 8,
     justifyContent: "center",
     backgroundColor: "#1d2a38",
-    paddingHorizontal: 13,
+    paddingHorizontal: 12,
   },
   buttonText: {
     color: "#edf3ff",
     fontWeight: "900",
+    fontSize: 13,
   },
   primaryButton: {
     flex: 1,
