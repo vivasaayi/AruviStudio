@@ -15,6 +15,7 @@
     "expo-audio": "~0.4.9",
     "expo-file-system": "~18.1.11",
     "expo-secure-store": "~14.2.0",
+    "expo-speech": "~13.1.7",
     "react": "19.0.0",
     "react-native": "0.79.0",
     "react-native-webview": "^13.13.5",

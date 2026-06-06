@@ -9,6 +9,7 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TurboModuleRegistry,
@@ -25,13 +26,13 @@ import {
   useAudioRecorderState,
 } from "expo-audio";
 import * as FileSystem from "expo-file-system";
+import * as Speech from "expo-speech";
 import * as SecureStore from "expo-secure-store";
 import { WebView } from "react-native-webview";
 import { initWhisper, type WhisperContext } from "whisper.rn";
 import { PlannerMobileClient } from "./src/api/client";
 
 type ActiveTab = "planner" | "products" | "voice" | "models" | "activity";
-type SpeechRuntime = "backend" | "local";
 type VoiceMessage = {
   id: string;
   role: "user" | "assistant";
@@ -53,7 +54,7 @@ const STORAGE_KEYS = {
   modelName: "aruvi.mobile.model_name",
   locale: "aruvi.mobile.locale",
   activeTab: "aruvi.mobile.active_tab",
-  speechRuntime: "aruvi.mobile.speech_runtime",
+  readReplies: "aruvi.mobile.read_replies",
   selectedWhisperModelId: "aruvi.mobile.selected_whisper_model_id",
   installedWhisperModels: "aruvi.mobile.installed_whisper_models",
 };
@@ -280,16 +281,6 @@ function buildRemoteVoiceSubmitScript(transcript: string) {
   `;
 }
 
-function recordingMimeType(uri: string) {
-  const normalized = uri.toLowerCase();
-  if (normalized.endsWith(".m4a")) return "audio/mp4";
-  if (normalized.endsWith(".3gp")) return "audio/3gpp";
-  if (normalized.endsWith(".caf")) return "audio/x-caf";
-  if (normalized.endsWith(".webm")) return "audio/webm";
-  if (normalized.endsWith(".wav")) return "audio/wav";
-  return "audio/mp4";
-}
-
 function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.round(Math.random() * 100000)}`;
 }
@@ -305,7 +296,7 @@ export default function App() {
   const [modelName, setModelName] = useState("");
   const [locale, setLocale] = useState("en-US");
   const [activeTab, setActiveTab] = useState<ActiveTab>("planner");
-  const [speechRuntime, setSpeechRuntime] = useState<SpeechRuntime>("backend");
+  const [readReplies, setReadReplies] = useState(true);
   const [selectedWhisperModelId, setSelectedWhisperModelId] = useState(WHISPER_MODELS[0].id);
   const [installedWhisperModels, setInstalledWhisperModels] = useState<Record<string, InstalledWhisperModel>>({});
   const [modelInstallStatus, setModelInstallStatus] = useState("No on-device model installed yet.");
@@ -343,7 +334,7 @@ export default function App() {
   const installedSelectedWhisperModel = installedWhisperModels[selectedWhisperModel.id];
   const firstInstalledWhisperModel = Object.values(installedWhisperModels)[0];
   const activeLocalWhisperModel = installedSelectedWhisperModel ?? firstInstalledWhisperModel;
-  const canUseLocalSpeech = speechRuntime === "local" && Boolean(activeLocalWhisperModel?.uri);
+  const canUseLocalSpeech = Boolean(activeLocalWhisperModel?.uri);
 
   const remoteBootstrapScript = useMemo(() => {
     return buildRemoteScript({
@@ -365,6 +356,7 @@ export default function App() {
       const currentContext = whisperContextRef.current;
       whisperContextRef.current = null;
       void currentContext?.context.release();
+      void Speech.stop();
     };
   }, []);
 
@@ -422,7 +414,7 @@ export default function App() {
         savedModelName,
         savedLocale,
         savedActiveTab,
-        savedSpeechRuntime,
+        savedReadReplies,
         savedSelectedWhisperModelId,
         savedInstalledWhisperModels,
       ] = await Promise.all([
@@ -432,7 +424,7 @@ export default function App() {
         SecureStore.getItemAsync(STORAGE_KEYS.modelName),
         SecureStore.getItemAsync(STORAGE_KEYS.locale),
         SecureStore.getItemAsync(STORAGE_KEYS.activeTab),
-        SecureStore.getItemAsync(STORAGE_KEYS.speechRuntime),
+        SecureStore.getItemAsync(STORAGE_KEYS.readReplies),
         SecureStore.getItemAsync(STORAGE_KEYS.selectedWhisperModelId),
         SecureStore.getItemAsync(STORAGE_KEYS.installedWhisperModels),
       ]);
@@ -448,8 +440,8 @@ export default function App() {
         setActiveTab("voice");
         void SecureStore.setItemAsync(STORAGE_KEYS.activeTab, "voice");
       }
-      if (savedSpeechRuntime === "backend" || savedSpeechRuntime === "local") {
-        setSpeechRuntime(savedSpeechRuntime);
+      if (savedReadReplies === "true" || savedReadReplies === "false") {
+        setReadReplies(savedReadReplies === "true");
       }
       if (
         typeof savedSelectedWhisperModelId === "string"
@@ -534,6 +526,29 @@ export default function App() {
     );
   };
 
+  const setReadRepliesPreference = async (nextValue: boolean) => {
+    setReadReplies(nextValue);
+    await SecureStore.setItemAsync(STORAGE_KEYS.readReplies, nextValue ? "true" : "false");
+    if (!nextValue) {
+      void Speech.stop();
+      setNativeVoiceStatus("Reply reading off");
+    }
+  };
+
+  const speakAssistantReply = (text: string) => {
+    if (!readReplies || !text.trim()) return;
+    const language = normalizeWhisperLanguage(locale);
+    void Speech.stop();
+    setNativeVoiceStatus("Reading reply...");
+    Speech.speak(text, {
+      language: language === "auto" ? undefined : language,
+      rate: 0.95,
+      onDone: () => setNativeVoiceStatus("Reply ready"),
+      onStopped: () => setNativeVoiceStatus("Reply ready"),
+      onError: () => setNativeVoiceStatus("Reply ready"),
+    });
+  };
+
   const submitVoicePrompt = async (prompt: string) => {
     const trimmed = prompt.trim();
     if (!trimmed) return;
@@ -576,13 +591,18 @@ export default function App() {
         temperature: 0.7,
         max_tokens: 4096,
       });
+      const assistantText = response.content.trim() || "(empty response)";
       const assistantMessage: VoiceMessage = {
         id: createId("voice-assistant"),
         role: "assistant",
-        content: response.content.trim() || "(empty response)",
+        content: assistantText,
       };
       setVoiceMessages((current) => [...current, assistantMessage].slice(-24));
-      setNativeVoiceStatus("Reply ready");
+      if (readReplies) {
+        speakAssistantReply(assistantText);
+      } else {
+        setNativeVoiceStatus("Reply ready");
+      }
     } catch (error) {
       const message = describeError(error);
       setNativeVoiceStatus(message);
@@ -600,19 +620,6 @@ export default function App() {
   const selectWhisperModel = async (modelId: string) => {
     setSelectedWhisperModelId(modelId);
     await SecureStore.setItemAsync(STORAGE_KEYS.selectedWhisperModelId, modelId);
-  };
-
-  const selectSpeechRuntime = async (nextRuntime: SpeechRuntime) => {
-    if (nextRuntime === "local" && !activeLocalWhisperModel?.uri) {
-      Alert.alert("Install model first", "Download the selected Whisper model before using on-device voice chat.");
-      return;
-    }
-    if (nextRuntime === "local" && activeLocalWhisperModel && selectedWhisperModel.id !== activeLocalWhisperModel.id) {
-      await selectWhisperModel(activeLocalWhisperModel.id);
-    }
-    setSpeechRuntime(nextRuntime);
-    await SecureStore.setItemAsync(STORAGE_KEYS.speechRuntime, nextRuntime);
-    setNativeVoiceStatus(nextRuntime === "local" ? "Ready for on-device transcription" : "Ready");
   };
 
   const installWhisperModel = async (model: WhisperModelOption) => {
@@ -638,8 +645,6 @@ export default function App() {
         };
         await persistInstalledWhisperModels(nextModels);
         await selectWhisperModel(model.id);
-        setSpeechRuntime("local");
-        await SecureStore.setItemAsync(STORAGE_KEYS.speechRuntime, "local");
         setModelInstallProgress(100);
         setModelInstallStatus(`${model.label} installed and selected for voice chat.`);
         return;
@@ -672,8 +677,6 @@ export default function App() {
       };
       await persistInstalledWhisperModels(nextModels);
       await selectWhisperModel(model.id);
-      setSpeechRuntime("local");
-      await SecureStore.setItemAsync(STORAGE_KEYS.speechRuntime, "local");
       setModelInstallProgress(100);
       setModelInstallStatus(`${model.label} installed and selected for voice chat.`);
     } catch (error) {
@@ -697,9 +700,6 @@ export default function App() {
       const nextModels = { ...installedWhisperModels };
       delete nextModels[model.id];
       await persistInstalledWhisperModels(nextModels);
-      if (speechRuntime === "local" && selectedWhisperModel.id === model.id) {
-        await selectSpeechRuntime("backend");
-      }
       const currentContext = whisperContextRef.current;
       if (currentContext?.modelId === model.id) {
         whisperContextRef.current = null;
@@ -749,25 +749,8 @@ export default function App() {
     return result.result.trim();
   };
 
-  const transcribeWithBackend = async (uri: string) => {
-    const audioBytesBase64 = await FileSystem.readAsStringAsync(uri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    const response = await mobileClient.transcribeSpeech({
-      provider_id: providerId.trim() || undefined,
-      model_name: modelName.trim() || undefined,
-      audio_bytes_base64: audioBytesBase64,
-      mime_type: recordingMimeType(uri),
-      locale: locale.trim() || undefined,
-    });
-    return response.transcript.trim();
-  };
-
   const transcribeNativeRecording = async (uri: string) => {
-    if (speechRuntime === "local") {
-      return await transcribeWithLocalWhisper(uri);
-    }
-    return await transcribeWithBackend(uri);
+    return await transcribeWithLocalWhisper(uri);
   };
 
   const stopNativeVoiceRecording = async () => {
@@ -804,8 +787,14 @@ export default function App() {
       Alert.alert("Setup required", "Save a mobile API token before using voice chat.");
       return;
     }
+    if (!canUseLocalSpeech) {
+      Alert.alert("Install model first", "Install an on-device Whisper model before using voice recording.");
+      switchTab("models");
+      return;
+    }
     try {
       setIsVoiceBusy(true);
+      void Speech.stop();
       const permission = await AudioModule.requestRecordingPermissionsAsync();
       if (!permission.granted) {
         throw new Error("Microphone permission was denied.");
@@ -836,14 +825,13 @@ export default function App() {
   };
 
   const shouldShowSetup = isSetupOpen || !token.trim();
-  const nativeVoiceButtonDisabled = isVoiceBusy || !token.trim();
-  const nativeVoiceButtonLabel = recorderState.isRecording ? "Stop" : isVoiceBusy ? "Working..." : "Record";
-  const speechRuntimeDescription = canUseLocalSpeech
+  const nativeVoiceButtonDisabled = isVoiceBusy || !token.trim() || !canUseLocalSpeech;
+  const speechModelDescription = canUseLocalSpeech
     ? `Using ${WHISPER_MODELS.find((model) => model.id === activeLocalWhisperModel?.id)?.label ?? "Whisper"} on this phone for speech-to-text.`
-    : "Using the configured backend speech-to-text provider.";
-  const speechRuntimeLabel = canUseLocalSpeech
+    : "Install a Whisper model to enable on-device speech-to-text.";
+  const speechModelLabel = canUseLocalSpeech
     ? `On-device ${WHISPER_MODELS.find((model) => model.id === activeLocalWhisperModel?.id)?.label ?? "Whisper"}`
-    : "Backend STT";
+    : "Install Whisper";
   const isVoiceKeyboardOpen = activeTab === "voice" && keyboardHeight > 0;
 
   const renderVoiceScreen = () => (
@@ -854,7 +842,7 @@ export default function App() {
           <Text style={styles.voiceSubtitle} numberOfLines={1}>{nativeVoiceStatus}</Text>
         </View>
         <Pressable style={styles.runtimeChip} onPress={() => switchTab("models")}>
-          <Text style={styles.runtimeChipText} numberOfLines={1}>{speechRuntimeLabel}</Text>
+          <Text style={styles.runtimeChipText} numberOfLines={1}>{speechModelLabel}</Text>
         </Pressable>
       </View>
 
@@ -894,7 +882,7 @@ export default function App() {
             {recorderState.isRecording ? "Listening" : isVoiceBusy ? nativeVoiceStatus : "Voice transcript"}
           </Text>
           <Text style={styles.voiceComposerStatus} numberOfLines={1}>
-            {token.trim() ? speechRuntimeLabel : "Setup required"}
+            {token.trim() ? speechModelLabel : "Setup required"}
           </Text>
         </View>
         <TextInput
@@ -938,7 +926,7 @@ export default function App() {
           </Pressable>
         </View>
         <Text style={styles.voiceControlHint} numberOfLines={1}>
-          {token.trim() ? speechRuntimeDescription : "Save setup first."}
+          {token.trim() ? speechModelDescription : "Save setup first."}
         </Text>
       </View>
     </View>
@@ -949,36 +937,13 @@ export default function App() {
       <View style={styles.modelHeader}>
         <Text style={styles.sectionTitle}>Speech Model</Text>
         <Text style={styles.sectionText}>
-          Install a Whisper model on this phone for private speech-to-text. Chat replies still use the configured Aruvi
-          remote model.
+          Install a Whisper model on this phone for private speech-to-text. Voice recording uses the selected local model.
         </Text>
       </View>
 
       <View style={styles.runtimePanel}>
-        <Text style={styles.panelLabel}>Voice chat transcription</Text>
-        <View style={styles.segmentedControl}>
-          <Pressable
-            style={[styles.segmentButton, speechRuntime === "backend" && styles.segmentButtonActive]}
-            onPress={() => void selectSpeechRuntime("backend")}
-          >
-            <Text style={[styles.segmentButtonText, speechRuntime === "backend" && styles.segmentButtonTextActive]}>
-              Backend
-            </Text>
-          </Pressable>
-          <Pressable
-            style={[
-              styles.segmentButton,
-              speechRuntime === "local" && styles.segmentButtonActive,
-              !installedSelectedWhisperModel && styles.buttonDisabled,
-            ]}
-            onPress={() => void selectSpeechRuntime("local")}
-          >
-            <Text style={[styles.segmentButtonText, speechRuntime === "local" && styles.segmentButtonTextActive]}>
-              On device
-            </Text>
-          </Pressable>
-        </View>
-        <Text style={styles.modelStatusText}>{speechRuntimeDescription}</Text>
+        <Text style={styles.panelLabel}>On-device transcription</Text>
+        <Text style={styles.modelStatusText}>{speechModelDescription}</Text>
       </View>
 
       <View style={styles.modelStatusPanel}>
@@ -1068,7 +1033,7 @@ export default function App() {
               </View>
             </View>
             <Pressable style={styles.headerButton} onPress={() => setIsSetupOpen((current) => !current)}>
-              <Text style={styles.buttonText}>Setup</Text>
+              <Text style={styles.buttonText}>Settings</Text>
             </Pressable>
             <Pressable style={styles.headerButton} onPress={() => setWebReloadKey((current) => current + 1)}>
               <Text style={styles.buttonText}>Refresh</Text>
@@ -1116,6 +1081,19 @@ export default function App() {
                   placeholderTextColor="#7d8898"
                   autoCapitalize="none"
                   autoCorrect={false}
+                />
+              </View>
+              <View style={styles.settingsRow}>
+                <View style={styles.settingsCopy}>
+                  <Text style={styles.settingsLabel}>Read replies</Text>
+                  <Text style={styles.settingsDescription}>Speak assistant replies after each voice message.</Text>
+                </View>
+                <Switch
+                  value={readReplies}
+                  onValueChange={(nextValue) => void setReadRepliesPreference(nextValue)}
+                  trackColor={{ false: "#2a3442", true: "#1d6f9d" }}
+                  thumbColor={readReplies ? "#f4f8ff" : "#8b98aa"}
+                  ios_backgroundColor="#2a3442"
                 />
               </View>
               <View style={styles.actionRow}>
@@ -1678,6 +1656,34 @@ const styles = StyleSheet.create({
   setupCaption: {
     color: "#8390a3",
     fontSize: 11,
+    fontWeight: "700",
+  },
+  settingsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    borderWidth: 1,
+    borderColor: "#2f3948",
+    borderRadius: 8,
+    backgroundColor: "#121820",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  settingsCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  settingsLabel: {
+    color: "#f4f8ff",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  settingsDescription: {
+    color: "#95a3b7",
+    fontSize: 11,
+    lineHeight: 15,
     fontWeight: "700",
   },
   input: {

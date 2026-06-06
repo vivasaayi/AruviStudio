@@ -3,7 +3,6 @@ import type {
   ChatMessagePayload,
   PlannerSessionInfo,
   PlannerTurnResponse,
-  SpeechToTextResponse,
 } from "../types";
 
 type RequestOptions = {
@@ -94,16 +93,4 @@ export class PlannerMobileClient {
     });
   }
 
-  transcribeSpeech(body: {
-    provider_id?: string;
-    model_name?: string;
-    audio_bytes_base64: string;
-    mime_type: string;
-    locale?: string;
-  }) {
-    return this.request<SpeechToTextResponse>("/api/mobile/speech/transcribe", {
-      method: "POST",
-      body,
-    });
-  }
 }

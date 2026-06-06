@@ -63,6 +63,8 @@ PODS:
     - Yoga
   - ExpoSecureStore (14.2.4):
     - ExpoModulesCore
+  - ExpoSpeech (13.1.7):
+    - ExpoModulesCore
   - fast_float (6.1.4)
   - FBLazyVector (0.79.0)
   - fmt (11.0.2)
@@ -1779,6 +1781,7 @@ DEPENDENCIES:
   - ExpoFileSystem (from `../node_modules/expo-file-system/ios`)
   - ExpoModulesCore (from `../node_modules/expo-modules-core`)
   - ExpoSecureStore (from `../node_modules/expo-secure-store/ios`)
+  - ExpoSpeech (from `../node_modules/expo-speech/ios`)
   - fast_float (from `../node_modules/react-native/third-party-podspecs/fast_float.podspec`)
   - FBLazyVector (from `../node_modules/react-native/Libraries/FBLazyVector`)
   - fmt (from `../node_modules/react-native/third-party-podspecs/fmt.podspec`)
@@ -1875,6 +1878,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-modules-core"
   ExpoSecureStore:
     :path: "../node_modules/expo-secure-store/ios"
+  ExpoSpeech:
+    :path: "../node_modules/expo-speech/ios"
   fast_float:
     :podspec: "../node_modules/react-native/third-party-podspecs/fast_float.podspec"
   FBLazyVector:
@@ -2027,6 +2032,7 @@ SPEC CHECKSUMS:
   ExpoFileSystem: 7f92f7be2f5c5ed40a7c9efc8fa30821181d9d63
   ExpoModulesCore: 00a1b5c73248465bd0b93f59f8538c4573dac579
   ExpoSecureStore: 3f1b632d6d40bcc62b4983ef9199cd079592a50a
+  ExpoSpeech: 9b3bdf552e69c8015c246dc52b5ad5fcdbec878e
   fast_float: 06eeec4fe712a76acc9376682e4808b05ce978b6
   FBLazyVector: 758fbc1be5fb7ce700b23160033d82e574c2b6b7
   fmt: a40bb5bd0294ea969aaaba240a927bd33d878cdd

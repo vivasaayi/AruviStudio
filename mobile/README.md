@@ -1,23 +1,23 @@
 # Aruvi Planner Mobile
 
-This is a lightweight iPhone companion scaffold for the desktop planner.
+This is a lightweight iPhone companion scaffold for Aruvi Studio.
 
-It talks to the same Rust planner and speech APIs exposed by the desktop app:
+It talks to the Rust planner and chat APIs exposed by the desktop app:
 
 - `POST /api/mobile/planner/sessions`
 - `POST /api/mobile/planner/sessions/:session_id`
 - `POST /api/mobile/planner/sessions/:session_id/turn`
 - `POST /api/mobile/planner/sessions/:session_id/confirm`
 - `POST /api/mobile/planner/sessions/:session_id/clear`
-- `POST /api/mobile/speech/transcribe`
+- `POST /api/mobile/chat/completions`
+
+Speech-to-text runs on the phone with an installed Whisper model.
 
 ## Desktop setup
 
 1. In desktop Settings, configure:
-   - `speech.transcription_provider_id`
-   - `speech.transcription_model_name`
-   - `speech.locale`
    - `mobile.api_token`
+   - the provider/model used for chat replies
 2. Start the desktop app with a reachable bind address if the phone is on the same LAN:
    - `ARUVI_WEBHOOK_HOST=0.0.0.0`
    - optional `ARUVI_WEBHOOK_PORT=8787`
@@ -32,7 +32,7 @@ npm install
 npm run ios
 ```
 
-The app stores the base URL, bearer token, provider id, model name, and locale in secure storage on the device.
+The app stores the base URL, bearer token, provider id, model name, locale, and reply read-aloud preference in secure storage on the device.
 
 ## App Store release
 
@@ -76,7 +76,8 @@ Current blockers before a real App Store submission:
 - send text planning turns
 - render the staged draft tree
 - select draft nodes before sending follow-up turns
-- record voice on iPhone and send audio to the desktop speech transcription endpoint
+- record voice on iPhone and transcribe it locally with the selected Whisper model
+- read assistant replies aloud when enabled in Settings
 - commit or clear the staged draft
 
 ## Current boundary

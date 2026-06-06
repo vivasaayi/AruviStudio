@@ -38,10 +38,6 @@ export type PlannerTurnResponse = {
   execution_errors: string[];
 };
 
-export type SpeechToTextResponse = {
-  transcript: string;
-};
-
 export type ChatMessagePayload = {
   role: "system" | "user" | "assistant";
   content: string;
