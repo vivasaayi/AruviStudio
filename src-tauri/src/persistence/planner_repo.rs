@@ -34,6 +34,38 @@ pub struct PlannerChannelBindingRecord {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct MobilePlannerChatSessionRecord {
+    pub id: String,
+    pub provider_id: Option<String>,
+    pub model_name: Option<String>,
+    pub active_product_id: Option<String>,
+    pub active_product_name: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct MobilePlannerChatMessageRecord {
+    pub id: String,
+    pub session_id: String,
+    pub role: String,
+    pub content: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct MobilePlannerChatToolTraceRecord {
+    pub id: String,
+    pub session_id: String,
+    pub step: i64,
+    pub tool_name: String,
+    pub arguments_json: String,
+    pub result_json: Option<String>,
+    pub error: Option<String>,
+    pub created_at: String,
+}
+
 pub async fn create_session(
     pool: &SqlitePool,
     id: &str,
@@ -50,6 +82,166 @@ pub async fn create_session(
     .bind(model_name)
     .fetch_one(pool)
     .await
+    .map_err(|error| error.into())
+}
+
+pub async fn create_mobile_planner_chat_session(
+    pool: &SqlitePool,
+    id: &str,
+    provider_id: Option<&str>,
+    model_name: Option<&str>,
+    active_product_id: Option<&str>,
+    active_product_name: Option<&str>,
+) -> Result<MobilePlannerChatSessionRecord, AppError> {
+    sqlx::query_as::<_, MobilePlannerChatSessionRecord>(
+        "INSERT INTO mobile_planner_chat_sessions (
+            id, provider_id, model_name, active_product_id, active_product_name
+         )
+         VALUES (?, ?, ?, ?, ?)
+         RETURNING id, provider_id, model_name, active_product_id, active_product_name, created_at, updated_at",
+    )
+    .bind(id)
+    .bind(provider_id)
+    .bind(model_name)
+    .bind(active_product_id)
+    .bind(active_product_name)
+    .fetch_one(pool)
+    .await
+    .map_err(|error| error.into())
+}
+
+pub async fn get_mobile_planner_chat_session(
+    pool: &SqlitePool,
+    id: &str,
+) -> Result<MobilePlannerChatSessionRecord, AppError> {
+    sqlx::query_as::<_, MobilePlannerChatSessionRecord>(
+        "SELECT id, provider_id, model_name, active_product_id, active_product_name, created_at, updated_at
+         FROM mobile_planner_chat_sessions
+         WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("Mobile planner chat session {} not found", id)))
+}
+
+pub async fn update_mobile_planner_chat_session(
+    pool: &SqlitePool,
+    id: &str,
+    provider_id: Option<&str>,
+    model_name: Option<&str>,
+    active_product_id: Option<&str>,
+    active_product_name: Option<&str>,
+) -> Result<MobilePlannerChatSessionRecord, AppError> {
+    sqlx::query_as::<_, MobilePlannerChatSessionRecord>(
+        "UPDATE mobile_planner_chat_sessions
+         SET provider_id = ?, model_name = ?, active_product_id = ?, active_product_name = ?, updated_at = datetime('now')
+         WHERE id = ?
+         RETURNING id, provider_id, model_name, active_product_id, active_product_name, created_at, updated_at",
+    )
+    .bind(provider_id)
+    .bind(model_name)
+    .bind(active_product_id)
+    .bind(active_product_name)
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .map_err(|error| error.into())
+}
+
+pub async fn append_mobile_planner_chat_message(
+    pool: &SqlitePool,
+    id: &str,
+    session_id: &str,
+    role: &str,
+    content: &str,
+) -> Result<MobilePlannerChatMessageRecord, AppError> {
+    sqlx::query_as::<_, MobilePlannerChatMessageRecord>(
+        "INSERT INTO mobile_planner_chat_messages (id, session_id, role, content)
+         VALUES (?, ?, ?, ?)
+         RETURNING id, session_id, role, content, created_at",
+    )
+    .bind(id)
+    .bind(session_id)
+    .bind(role)
+    .bind(content)
+    .fetch_one(pool)
+    .await
+    .map_err(|error| error.into())
+}
+
+pub async fn list_mobile_planner_chat_messages(
+    pool: &SqlitePool,
+    session_id: &str,
+    limit: i64,
+) -> Result<Vec<MobilePlannerChatMessageRecord>, AppError> {
+    sqlx::query_as::<_, MobilePlannerChatMessageRecord>(
+        "SELECT id, session_id, role, content, created_at
+         FROM mobile_planner_chat_messages
+         WHERE session_id = ?
+         ORDER BY rowid DESC
+         LIMIT ?",
+    )
+    .bind(session_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .map(|mut rows| {
+        rows.reverse();
+        rows
+    })
+    .map_err(|error| error.into())
+}
+
+pub async fn append_mobile_planner_chat_tool_trace(
+    pool: &SqlitePool,
+    id: &str,
+    session_id: &str,
+    step: i64,
+    tool_name: &str,
+    arguments_json: &str,
+    result_json: Option<&str>,
+    error: Option<&str>,
+) -> Result<MobilePlannerChatToolTraceRecord, AppError> {
+    sqlx::query_as::<_, MobilePlannerChatToolTraceRecord>(
+        "INSERT INTO mobile_planner_chat_tool_traces (
+            id, session_id, step, tool_name, arguments_json, result_json, error
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         RETURNING id, session_id, step, tool_name, arguments_json, result_json, error, created_at",
+    )
+    .bind(id)
+    .bind(session_id)
+    .bind(step)
+    .bind(tool_name)
+    .bind(arguments_json)
+    .bind(result_json)
+    .bind(error)
+    .fetch_one(pool)
+    .await
+    .map_err(|error| error.into())
+}
+
+pub async fn list_mobile_planner_chat_tool_traces(
+    pool: &SqlitePool,
+    session_id: &str,
+    limit: i64,
+) -> Result<Vec<MobilePlannerChatToolTraceRecord>, AppError> {
+    sqlx::query_as::<_, MobilePlannerChatToolTraceRecord>(
+        "SELECT id, session_id, step, tool_name, arguments_json, result_json, error, created_at
+         FROM mobile_planner_chat_tool_traces
+         WHERE session_id = ?
+         ORDER BY rowid DESC
+         LIMIT ?",
+    )
+    .bind(session_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .map(|mut rows| {
+        rows.reverse();
+        rows
+    })
     .map_err(|error| error.into())
 }
 

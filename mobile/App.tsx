@@ -33,18 +33,21 @@ import * as SecureStore from "expo-secure-store";
 import { WebView } from "react-native-webview";
 import { initWhisper, type WhisperContext } from "whisper.rn";
 import { PlannerMobileClient } from "./src/api/client";
-import type { HierarchyTreeNode, Product, ProductTree } from "./src/types";
+import type { HierarchyTreeNode, MobilePlannerToolTraceEntry, Product, ProductTree } from "./src/types";
 
 type ActiveTab = "planner" | "products" | "voice" | "models" | "activity";
 type ProductExploreTab = "map" | "work" | "search" | "overview";
 type ConnectionStatus = "unchecked" | "checking" | "connected" | "offline";
+type VoiceMode = "assistant" | "planner";
 type VoiceMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  toolTrace?: MobilePlannerToolTraceEntry[];
 };
 type VoicePromptSource = "typed" | "recording";
 type ChatCompletionBody = Parameters<PlannerMobileClient["runChatCompletion"]>[0];
+type PlannerChatTurnBody = Parameters<PlannerMobileClient["submitMobilePlannerChatTurn"]>[1];
 
 const TABS: Array<{ id: ActiveTab; label: string }> = [
   { id: "planner", label: "Planner" },
@@ -61,6 +64,7 @@ const STORAGE_KEYS = {
   modelName: "aruvi.mobile.model_name",
   locale: "aruvi.mobile.locale",
   activeTab: "aruvi.mobile.active_tab",
+  voiceMode: "aruvi.mobile.voice_mode",
   readReplies: "aruvi.mobile.read_replies",
   selectedWhisperModelId: "aruvi.mobile.selected_whisper_model_id",
   installedWhisperModels: "aruvi.mobile.installed_whisper_models",
@@ -181,6 +185,22 @@ function describeError(error: unknown) {
     }
   }
   return String(error);
+}
+
+function compactJson(value: unknown, maxLength = 220) {
+  if (value === null || value === undefined) return "";
+  let rendered = "";
+  try {
+    rendered = typeof value === "string" ? value : JSON.stringify(value);
+  } catch {
+    rendered = String(value);
+  }
+  return rendered.length > maxLength ? `${rendered.slice(0, maxLength - 1)}...` : rendered;
+}
+
+function formatPlannerToolTrace(entry: MobilePlannerToolTraceEntry) {
+  const action = entry.tool_name.split(".").slice(-2).join(".");
+  return `${entry.step}. ${action}${entry.error ? " failed" : " completed"}`;
 }
 
 function assertWhisperNativeModuleAvailable() {
@@ -384,6 +404,9 @@ export default function App() {
   const [modelName, setModelName] = useState("");
   const [locale, setLocale] = useState("en-US");
   const [activeTab, setActiveTab] = useState<ActiveTab>("planner");
+  const [voiceMode, setVoiceMode] = useState<VoiceMode>("assistant");
+  const [plannerChatSessionId, setPlannerChatSessionId] = useState<string | null>(null);
+  const [plannerContextProductName, setPlannerContextProductName] = useState<string | null>(null);
   const [readReplies, setReadReplies] = useState(true);
   const [selectedWhisperModelId, setSelectedWhisperModelId] = useState(WHISPER_MODELS[0].id);
   const [installedWhisperModels, setInstalledWhisperModels] = useState<Record<string, InstalledWhisperModel>>({});
@@ -399,6 +422,11 @@ export default function App() {
   const [nativeVoiceStatus, setNativeVoiceStatus] = useState("Ready");
   const [lastVoiceTranscript, setLastVoiceTranscript] = useState("");
   const [voiceDraft, setVoiceDraft] = useState("");
+  const [productPlannerDraft, setProductPlannerDraft] = useState("");
+  const [productPlannerStatus, setProductPlannerStatus] = useState("Planner ready");
+  const [productPlannerReply, setProductPlannerReply] = useState("");
+  const [productPlannerTrace, setProductPlannerTrace] = useState<MobilePlannerToolTraceEntry[]>([]);
+  const [productPlannerRecording, setProductPlannerRecording] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [voiceMessages, setVoiceMessages] = useState<VoiceMessage[]>([
     {
@@ -599,6 +627,7 @@ export default function App() {
         savedModelName,
         savedLocale,
         savedActiveTab,
+        savedVoiceMode,
         savedReadReplies,
         savedSelectedWhisperModelId,
         savedInstalledWhisperModels,
@@ -609,6 +638,7 @@ export default function App() {
         SecureStore.getItemAsync(STORAGE_KEYS.modelName),
         SecureStore.getItemAsync(STORAGE_KEYS.locale),
         SecureStore.getItemAsync(STORAGE_KEYS.activeTab),
+        SecureStore.getItemAsync(STORAGE_KEYS.voiceMode),
         SecureStore.getItemAsync(STORAGE_KEYS.readReplies),
         SecureStore.getItemAsync(STORAGE_KEYS.selectedWhisperModelId),
         SecureStore.getItemAsync(STORAGE_KEYS.installedWhisperModels),
@@ -624,6 +654,9 @@ export default function App() {
       } else if (savedActiveTab === "chat") {
         setActiveTab("voice");
         void SecureStore.setItemAsync(STORAGE_KEYS.activeTab, "voice");
+      }
+      if (savedVoiceMode === "assistant" || savedVoiceMode === "planner") {
+        setVoiceMode(savedVoiceMode);
       }
       if (savedReadReplies === "true" || savedReadReplies === "false") {
         setReadReplies(savedReadReplies === "true");
@@ -754,6 +787,12 @@ export default function App() {
     );
   };
 
+  const switchVoiceMode = (nextMode: VoiceMode) => {
+    setVoiceMode(nextMode);
+    void SecureStore.setItemAsync(STORAGE_KEYS.voiceMode, nextMode);
+    setNativeVoiceStatus(nextMode === "planner" ? "Planner chat ready" : "Ready");
+  };
+
   const setReadRepliesPreference = async (nextValue: boolean) => {
     setReadReplies(nextValue);
     await SecureStore.setItemAsync(STORAGE_KEYS.readReplies, nextValue ? "true" : "false");
@@ -802,6 +841,216 @@ export default function App() {
     }
   };
 
+  const createPlannerChatSessionWithFallback = async () => {
+    const body = {
+      provider_id: providerId.trim() || undefined,
+      model_name: modelName.trim() || undefined,
+      product_id: selectedProductId ?? undefined,
+    };
+    try {
+      const response = await mobileClient.createMobilePlannerChatSession(body);
+      setConnectionStatus("connected");
+      setPlannerContextProductName(response.product_name ?? null);
+      return response;
+    } catch (error) {
+      const fallbackBaseUrl = getLoopbackFallbackBaseUrl(baseUrl);
+      if (isNetworkRequestFailure(error) && fallbackBaseUrl) {
+        try {
+          const response = await new PlannerMobileClient(fallbackBaseUrl, token.trim()).createMobilePlannerChatSession(body);
+          setBaseUrl(fallbackBaseUrl);
+          await SecureStore.setItemAsync(STORAGE_KEYS.baseUrl, fallbackBaseUrl);
+          setConnectionStatus("connected");
+          setPlannerContextProductName(response.product_name ?? null);
+          setWebReloadKey((current) => current + 1);
+          return response;
+        } catch {
+          throw new Error(
+            `Cannot reach Aruvi at ${normalizeBaseUrlForDisplay(baseUrl)} or ${fallbackBaseUrl}. Check Settings base URL and that the desktop bridge is running.`,
+          );
+        }
+      }
+      throw error;
+    }
+  };
+
+  const runPlannerChatWithFallback = async (sessionId: string, body: PlannerChatTurnBody) => {
+    try {
+      const response = await mobileClient.submitMobilePlannerChatTurn(sessionId, body);
+      setConnectionStatus("connected");
+      setPlannerContextProductName(response.product_name ?? null);
+      return response;
+    } catch (error) {
+      const fallbackBaseUrl = getLoopbackFallbackBaseUrl(baseUrl);
+      if (isNetworkRequestFailure(error) && fallbackBaseUrl) {
+        try {
+          const response = await new PlannerMobileClient(fallbackBaseUrl, token.trim()).submitMobilePlannerChatTurn(sessionId, body);
+          setBaseUrl(fallbackBaseUrl);
+          await SecureStore.setItemAsync(STORAGE_KEYS.baseUrl, fallbackBaseUrl);
+          setConnectionStatus("connected");
+          setPlannerContextProductName(response.product_name ?? null);
+          setWebReloadKey((current) => current + 1);
+          return response;
+        } catch {
+          throw new Error(
+            `Cannot reach Aruvi at ${normalizeBaseUrlForDisplay(baseUrl)} or ${fallbackBaseUrl}. Check Settings base URL and that the desktop bridge is running.`,
+          );
+        }
+      }
+      throw error;
+    }
+  };
+
+  const submitPlannerPrompt = async (trimmed: string) => {
+    const activeSessionId = plannerChatSessionId ?? (await createPlannerChatSessionWithFallback()).session_id;
+    if (!plannerChatSessionId) {
+      setPlannerChatSessionId(activeSessionId);
+    }
+    const response = await runPlannerChatWithFallback(activeSessionId, {
+      provider_id: providerId.trim() || undefined,
+      model_name: modelName.trim() || undefined,
+      product_id: selectedProductId ?? undefined,
+      messages: [
+        {
+          role: "user",
+          content: trimmed,
+        },
+      ],
+      max_tool_steps: 4,
+    });
+    const assistantText = response.assistant_message.trim() || "(empty planner response)";
+    return {
+      content: assistantText,
+      toolTrace: response.tool_trace,
+    };
+  };
+
+  const buildProductPlannerPrompt = (instruction: string) => {
+    const pathLabel = selectedProductNodePath.map((node) => node.name).join(" / ");
+    const contextLines = [
+      "Current mobile Products screen context:",
+      selectedProduct ? `Product: ${selectedProduct.name} (${selectedProduct.id})` : "Product: none selected",
+      selectedProductNode
+        ? `Selected node: ${selectedProductNode.name} (${selectedProductNode.id})`
+        : "Selected node: product root",
+      selectedProductNode ? `Node type: ${selectedProductNode.node_type}` : null,
+      selectedProductNode ? `Node kind: ${selectedProductNode.node_kind}` : null,
+      selectedProductNode?.module_id ? `Module id: ${selectedProductNode.module_id}` : null,
+      selectedProductNode?.capability_id ? `Capability id: ${selectedProductNode.capability_id}` : null,
+      pathLabel ? `Path: ${pathLabel}` : null,
+      selectedProductNode ? `Node summary: ${getNodeSummary(selectedProductNode)}` : null,
+      "",
+      "User instruction:",
+      instruction,
+      "",
+      "Use the selected node as the working context. If the user asks to add children, sub-items, revise, split, or expand, call the appropriate MCP catalog/work item tools against this product/node. After changes, summarize exactly what changed.",
+    ].filter((line): line is string => Boolean(line));
+    return contextLines.join("\n");
+  };
+
+  const submitProductPlannerPrompt = async (instruction: string, source: VoicePromptSource = "typed") => {
+    const trimmed = instruction.trim();
+    if (!trimmed) return;
+    if (!token.trim()) {
+      Alert.alert("Setup required", "Save a mobile API token before using the planner.");
+      return;
+    }
+    try {
+      setVoiceMode("planner");
+      setProductPlannerStatus(source === "recording" ? "Processing voice instruction..." : "Planning...");
+      setIsVoiceBusy(true);
+      const prompt = buildProductPlannerPrompt(trimmed);
+      const nodeIdToRestore = selectedProductNodeId;
+      const result = await submitPlannerPrompt(prompt);
+      setProductPlannerReply(result.content);
+      setProductPlannerTrace(result.toolTrace ?? []);
+      setProductPlannerDraft("");
+      setProductPlannerStatus("Ready for follow-up");
+      if (readReplies) {
+        speakAssistantReply(result.content);
+      }
+      if (selectedProductId) {
+        await loadProducts(selectedProductId);
+        setSelectedProductNodeId(nodeIdToRestore);
+      }
+    } catch (error) {
+      const message = describeError(error);
+      setProductPlannerStatus(message);
+      Alert.alert("Planner failed", message);
+    } finally {
+      setIsVoiceBusy(false);
+    }
+  };
+
+  const startProductPlannerRecording = async () => {
+    if (!token.trim()) {
+      Alert.alert("Setup required", "Save a mobile API token before using the planner mic.");
+      return;
+    }
+    if (!canUseLocalSpeech) {
+      Alert.alert("Install model first", "Install an on-device Whisper model before using voice recording.");
+      switchTab("models");
+      return;
+    }
+    try {
+      setIsVoiceBusy(true);
+      setProductPlannerRecording(true);
+      void Speech.stop();
+      const permission = await AudioModule.requestRecordingPermissionsAsync();
+      if (!permission.granted) {
+        throw new Error("Microphone permission was denied.");
+      }
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+      });
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
+      setProductPlannerStatus("Listening...");
+    } catch (error) {
+      const message = describeError(error);
+      setProductPlannerRecording(false);
+      setProductPlannerStatus(message);
+      Alert.alert("Planner voice failed", message);
+    } finally {
+      setIsVoiceBusy(false);
+    }
+  };
+
+  const stopProductPlannerRecording = async () => {
+    try {
+      setIsVoiceBusy(true);
+      setProductPlannerStatus("Stopping...");
+      await audioRecorder.stop();
+      const recordingUri = audioRecorder.uri ?? audioRecorder.getStatus().url;
+      if (!recordingUri) {
+        throw new Error("Recording did not produce an audio file.");
+      }
+      setProductPlannerStatus("Transcribing...");
+      const transcript = await transcribeNativeRecording(recordingUri);
+      setProductPlannerDraft(transcript);
+      if (!transcript.trim()) {
+        setProductPlannerStatus("No speech detected");
+        return;
+      }
+      setProductPlannerStatus("Transcript ready");
+    } catch (error) {
+      const message = describeError(error);
+      setProductPlannerStatus(message);
+      Alert.alert("Planner voice failed", message);
+    } finally {
+      setProductPlannerRecording(false);
+      setIsVoiceBusy(false);
+    }
+  };
+
+  const toggleProductPlannerRecording = async () => {
+    if (productPlannerRecording || recorderState.isRecording) {
+      await stopProductPlannerRecording();
+    } else {
+      await startProductPlannerRecording();
+    }
+  };
+
   const submitVoicePrompt = async (prompt: string, source: VoicePromptSource = "typed") => {
     const trimmed = prompt.trim();
     if (!trimmed) return;
@@ -820,35 +1069,47 @@ export default function App() {
       .slice(-18);
     setVoiceMessages((current) => [...current.filter((message) => message.id !== "assistant-welcome"), userMessage]);
     setVoiceDraft("");
-    setNativeVoiceStatus(source === "recording" ? "Sending voice prompt..." : "Thinking...");
+    setNativeVoiceStatus(
+      voiceMode === "planner"
+        ? "Planning with MCP..."
+        : source === "recording"
+          ? "Sending voice prompt..."
+          : "Thinking...",
+    );
     setIsVoiceBusy(true);
 
     try {
-      const response = await runChatCompletionWithFallback({
-        provider_id: providerId.trim() || undefined,
-        model_name: modelName.trim() || undefined,
-        messages: [
-          {
-            role: "system",
-            content: "You are Aruvi Studio's mobile voice assistant. Reply conversationally in one or two short sentences for spoken playback.",
-          },
-          ...history.map((message) => ({
-            role: message.role,
-            content: message.content,
-          })),
-          {
-            role: "user",
-            content: trimmed,
-          },
-        ],
-        temperature: 0.7,
-        max_tokens: 4096,
-      });
-      const assistantText = response.content.trim() || "(empty response)";
+      const assistantResult = voiceMode === "planner"
+        ? await submitPlannerPrompt(trimmed)
+        : await runChatCompletionWithFallback({
+            provider_id: providerId.trim() || undefined,
+            model_name: modelName.trim() || undefined,
+            messages: [
+              {
+                role: "system",
+                content: "You are Aruvi Studio's mobile voice assistant. Reply conversationally in one or two short sentences for spoken playback.",
+              },
+              ...history.map((message) => ({
+                role: message.role,
+                content: message.content,
+              })),
+              {
+                role: "user",
+                content: trimmed,
+              },
+            ],
+            temperature: 0.7,
+            max_tokens: 4096,
+          }).then((response) => ({
+            content: response.content.trim() || "(empty response)",
+            toolTrace: undefined,
+          }));
+      const assistantText = assistantResult.content;
       const assistantMessage: VoiceMessage = {
         id: createId("voice-assistant"),
         role: "assistant",
         content: assistantText,
+        toolTrace: assistantResult.toolTrace,
       };
       setVoiceMessages((current) => [...current, assistantMessage].slice(-24));
       if (readReplies) {
@@ -1086,6 +1347,8 @@ export default function App() {
   const speechModelLabel = canUseLocalSpeech
     ? `On-device ${WHISPER_MODELS.find((model) => model.id === activeLocalWhisperModel?.id)?.label ?? "Whisper"}`
     : "Install Whisper";
+  const plannerRuntimeLabel = modelName.trim() || providerId.trim() || "Planner model";
+  const plannerContextLabel = plannerContextProductName ? `Context: ${plannerContextProductName}` : "Context: not selected";
   const voiceComposerStatus = token.trim()
     ? canUseLocalSpeech
       ? speechModelLabel
@@ -1139,6 +1402,71 @@ export default function App() {
           </View>
         </View>
       </Pressable>
+    );
+  };
+
+  const renderProductPlannerProcessor = () => {
+    const isRecordingHere = productPlannerRecording || recorderState.isRecording;
+    const disabled = isVoiceBusy && !isRecordingHere;
+    return (
+      <View style={styles.productPlannerPanel}>
+        <View style={styles.productPlannerHeader}>
+          <View style={styles.productPlannerCopy}>
+            <Text style={styles.productPlannerTitle}>Planner</Text>
+            <Text style={styles.productPlannerStatus} numberOfLines={1}>{productPlannerStatus}</Text>
+          </View>
+          {productPlannerReply.trim() ? (
+            <Pressable style={styles.productPlannerIconButton} onPress={() => speakAssistantReply(productPlannerReply)}>
+              <Text style={styles.productPlannerIconText}>Speak</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        <TextInput
+          style={styles.productPlannerInput}
+          value={productPlannerDraft}
+          onChangeText={setProductPlannerDraft}
+          placeholder={productPlannerReply.trim() ? "Ask a follow-up or revise what it just did" : "Say what to add, revise, split, or plan here"}
+          placeholderTextColor="#7f8a9c"
+          multiline
+          textAlignVertical="top"
+        />
+        <View style={styles.productPlannerActions}>
+          <Pressable
+            style={[
+              styles.productPlannerAction,
+              isRecordingHere && styles.productPlannerActionRecording,
+              disabled && styles.buttonDisabled,
+            ]}
+            onPress={() => void toggleProductPlannerRecording()}
+            disabled={disabled}
+          >
+            <Text style={styles.productPlannerActionText}>{isRecordingHere ? "Stop" : "Mic"}</Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.productPlannerAction,
+              styles.productPlannerActionPrimary,
+              (!productPlannerDraft.trim() || isVoiceBusy || isRecordingHere) && styles.buttonDisabled,
+            ]}
+            onPress={() => void submitProductPlannerPrompt(productPlannerDraft, "typed")}
+            disabled={!productPlannerDraft.trim() || isVoiceBusy || isRecordingHere}
+          >
+            <Text style={styles.productPlannerPrimaryText}>Send</Text>
+          </Pressable>
+        </View>
+        {productPlannerReply.trim() ? (
+          <Text style={styles.productPlannerReply} numberOfLines={7}>{productPlannerReply}</Text>
+        ) : null}
+        {productPlannerTrace.length ? (
+          <View style={styles.productPlannerTraceList}>
+            {productPlannerTrace.slice(-3).map((entry) => (
+              <Text key={`${entry.step}-${entry.tool_name}`} style={styles.productPlannerTraceItem} numberOfLines={1}>
+                {formatPlannerToolTrace(entry)}
+              </Text>
+            ))}
+          </View>
+        ) : null}
+      </View>
     );
   };
 
@@ -1221,6 +1549,7 @@ export default function App() {
                       {visibleProductChildren.length === 1 ? "1 child" : `${visibleProductChildren.length} children`}
                     </Text>
                   </View>
+                  {renderProductPlannerProcessor()}
                 </View>
               ) : (
                 <View style={styles.productRootHeader}>
@@ -1364,11 +1693,29 @@ export default function App() {
     <View style={styles.voiceScreen}>
       <View style={styles.voiceTopBand}>
         <View style={styles.voiceTopCopy}>
-          <Text style={styles.voiceTitle}>Voice</Text>
-          <Text style={styles.voiceSubtitle} numberOfLines={1}>{nativeVoiceStatus}</Text>
+          <Text style={styles.voiceTitle}>{voiceMode === "planner" ? "Planner Chat" : "Voice"}</Text>
+          <Text style={styles.voiceSubtitle} numberOfLines={1}>
+            {voiceMode === "planner" ? `${nativeVoiceStatus} · ${plannerContextLabel}` : nativeVoiceStatus}
+          </Text>
         </View>
         <Pressable style={styles.runtimeChip} onPress={() => switchTab("models")}>
-          <Text style={styles.runtimeChipText} numberOfLines={1}>{speechModelLabel}</Text>
+          <Text style={styles.runtimeChipText} numberOfLines={1}>
+            {voiceMode === "planner" ? plannerRuntimeLabel : speechModelLabel}
+          </Text>
+        </Pressable>
+      </View>
+      <View style={styles.voiceModeRow}>
+        <Pressable
+          style={[styles.voiceModeButton, voiceMode === "assistant" && styles.voiceModeButtonActive]}
+          onPress={() => switchVoiceMode("assistant")}
+        >
+          <Text style={[styles.voiceModeText, voiceMode === "assistant" && styles.voiceModeTextActive]}>Assistant</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.voiceModeButton, voiceMode === "planner" && styles.voiceModeButtonActive]}
+          onPress={() => switchVoiceMode("planner")}
+        >
+          <Text style={[styles.voiceModeText, voiceMode === "planner" && styles.voiceModeTextActive]}>Planner</Text>
         </Pressable>
       </View>
 
@@ -1393,6 +1740,23 @@ export default function App() {
             >
               {message.content}
             </Text>
+            {message.toolTrace?.length ? (
+              <View style={styles.plannerTraceList}>
+                {message.toolTrace.map((entry) => (
+                  <View key={`${message.id}-${entry.step}-${entry.tool_name}`} style={styles.plannerTraceCard}>
+                    <View style={styles.plannerTraceHeader}>
+                      <Text style={styles.plannerTraceTitle} numberOfLines={1}>{formatPlannerToolTrace(entry)}</Text>
+                      <Text style={[styles.plannerTraceStatus, entry.error && styles.plannerTraceStatusError]}>
+                        {entry.error ? "Error" : "OK"}
+                      </Text>
+                    </View>
+                    <Text style={styles.plannerTraceMeta} numberOfLines={2}>
+                      {entry.error ? entry.error : compactJson(entry.arguments)}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
           </View>
         ))}
       </ScrollView>
@@ -1415,7 +1779,7 @@ export default function App() {
           style={styles.voiceComposerInput}
           value={voiceDraft}
           onChangeText={setVoiceDraft}
-          placeholder="Speak or type a message"
+          placeholder={voiceMode === "planner" ? "Ask the planner to inspect or update the product" : "Speak or type a message"}
           placeholderTextColor="#7f8a9c"
           multiline
           textAlignVertical="top"
@@ -1454,7 +1818,11 @@ export default function App() {
           </Pressable>
         </View>
         <Text style={styles.voiceControlHint} numberOfLines={1}>
-          {token.trim() ? speechModelDescription : "Save setup first."}
+          {token.trim()
+            ? voiceMode === "planner"
+              ? "Planner mode uses backend MCP tools and your selected model."
+              : speechModelDescription
+            : "Save setup first."}
         </Text>
       </View>
     </View>
@@ -2038,6 +2406,110 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     fontWeight: "700",
   },
+  productPlannerPanel: {
+    borderWidth: 1,
+    borderColor: "#334154",
+    borderRadius: 8,
+    backgroundColor: "#0e141c",
+    padding: 10,
+    gap: 8,
+  },
+  productPlannerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  productPlannerCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  productPlannerTitle: {
+    color: "#f4f8ff",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  productPlannerStatus: {
+    color: "#8f9caf",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  productPlannerIconButton: {
+    minHeight: 30,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#384657",
+    backgroundColor: "#172231",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  productPlannerIconText: {
+    color: "#eaf2fb",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  productPlannerInput: {
+    minHeight: 46,
+    maxHeight: 90,
+    borderWidth: 1,
+    borderColor: "#2f3948",
+    borderRadius: 8,
+    backgroundColor: "#111820",
+    color: "#f4f8ff",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  productPlannerActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  productPlannerAction: {
+    flex: 1,
+    minHeight: 36,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#39485c",
+    backgroundColor: "#1a2330",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  productPlannerActionRecording: {
+    borderColor: "#d65f5f",
+    backgroundColor: "#8d3030",
+  },
+  productPlannerActionPrimary: {
+    borderColor: "#2f8fc8",
+    backgroundColor: "#123149",
+  },
+  productPlannerActionText: {
+    color: "#eaf2fb",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  productPlannerPrimaryText: {
+    color: "#eef8ff",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  productPlannerReply: {
+    color: "#b9c6d8",
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "700",
+  },
+  productPlannerTraceList: {
+    gap: 4,
+  },
+  productPlannerTraceItem: {
+    color: "#85c9f5",
+    fontSize: 10,
+    fontWeight: "900",
+  },
   productNodeRow: {
     borderWidth: 1,
     borderColor: "#2f3948",
@@ -2252,6 +2724,34 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "900",
   },
+  voiceModeRow: {
+    flexDirection: "row",
+    gap: 7,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  voiceModeButton: {
+    flex: 1,
+    minHeight: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#2f3948",
+    backgroundColor: "#121820",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  voiceModeButtonActive: {
+    borderColor: "#2f8fc8",
+    backgroundColor: "#123149",
+  },
+  voiceModeText: {
+    color: "#9ca8ba",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  voiceModeTextActive: {
+    color: "#eef8ff",
+  },
   voiceConversation: {
     flex: 1,
   },
@@ -2286,6 +2786,45 @@ const styles = StyleSheet.create({
   },
   voiceBubbleTextUser: {
     color: "#ffffff",
+  },
+  plannerTraceList: {
+    gap: 7,
+    marginTop: 10,
+  },
+  plannerTraceCard: {
+    borderWidth: 1,
+    borderColor: "#354457",
+    borderRadius: 8,
+    backgroundColor: "#151c26",
+    padding: 9,
+    gap: 5,
+  },
+  plannerTraceHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  plannerTraceTitle: {
+    flex: 1,
+    color: "#d9eaff",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  plannerTraceStatus: {
+    color: "#76dbac",
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  plannerTraceStatusError: {
+    color: "#ff9c9c",
+  },
+  plannerTraceMeta: {
+    color: "#9aa8bd",
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: "700",
   },
   voiceComposerPanel: {
     marginHorizontal: 12,

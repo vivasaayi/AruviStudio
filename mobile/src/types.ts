@@ -144,3 +144,32 @@ export type ChatCompletionResponse = {
   token_count_input: number | null;
   token_count_output: number | null;
 };
+
+export type MobilePlannerChatSession = {
+  session_id: string;
+  provider_id: string;
+  model_name: string;
+  product_id: string | null;
+  product_name: string | null;
+};
+
+export type MobilePlannerToolTraceEntry = {
+  step: number;
+  tool_name: string;
+  arguments: Record<string, unknown> | unknown;
+  result: Record<string, unknown> | unknown | null;
+  error: string | null;
+};
+
+export type MobilePlannerChatTurnResponse = {
+  session_id: string;
+  status: "final" | "tool_limit_final" | string;
+  assistant_message: string;
+  provider_id: string;
+  model_name: string;
+  product_id: string | null;
+  product_name: string | null;
+  tool_trace: MobilePlannerToolTraceEntry[];
+  token_count_input: number | null;
+  token_count_output: number | null;
+};

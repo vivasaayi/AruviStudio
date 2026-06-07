@@ -1,6 +1,8 @@
 import type {
   ChatCompletionResponse,
   ChatMessagePayload,
+  MobilePlannerChatSession,
+  MobilePlannerChatTurnResponse,
   PlannerSessionInfo,
   PlannerTurnResponse,
   Product,
@@ -101,6 +103,32 @@ export class PlannerMobileClient {
       method: "POST",
       body,
     });
+  }
+
+  createMobilePlannerChatSession(body?: { provider_id?: string; model_name?: string; product_id?: string | null }) {
+    return this.request<MobilePlannerChatSession>("/api/mobile/planner-chat/sessions", {
+      method: "POST",
+      body,
+    });
+  }
+
+  submitMobilePlannerChatTurn(
+    sessionId: string,
+    body: {
+      provider_id?: string;
+      model_name?: string;
+      product_id?: string | null;
+      messages: ChatMessagePayload[];
+      max_tool_steps?: number;
+    },
+  ) {
+    return this.request<MobilePlannerChatTurnResponse>(
+      `/api/mobile/planner-chat/sessions/${encodeURIComponent(sessionId)}/turn`,
+      {
+        method: "POST",
+        body,
+      },
+    );
   }
 
 }
