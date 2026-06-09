@@ -172,6 +172,39 @@ pub async fn update_work_item(
 }
 
 #[tauri::command]
+pub async fn assign_work_item_workspace(
+    state: State<'_, AppState>,
+    id: String,
+    repository_id: Option<String>,
+    branch_name: Option<String>,
+) -> Result<WorkItem, AppError> {
+    info!(work_item_id = %id, repository_id = ?repository_id, "assign_work_item_workspace requested");
+    let repository_id = repository_id
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let branch_name = branch_name
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    if let Some(repository_id) = repository_id.as_deref() {
+        crate::persistence::repository_repo::get_repository(&state.db, repository_id).await?;
+    }
+
+    let result = work_item_repo::assign_work_item_workspace(
+        &state.db,
+        &id,
+        repository_id.as_deref(),
+        branch_name.as_deref(),
+    )
+    .await;
+    match &result {
+        Ok(_) => info!(work_item_id = %id, "assign_work_item_workspace succeeded"),
+        Err(err) => error!(work_item_id = %id, error = %err, "assign_work_item_workspace failed"),
+    }
+    result
+}
+
+#[tauri::command]
 pub async fn delete_work_item(state: State<'_, AppState>, id: String) -> Result<(), AppError> {
     info!(work_item_id = %id, "delete_work_item requested");
     let result = work_item_repo::delete_work_item(&state.db, &id).await;

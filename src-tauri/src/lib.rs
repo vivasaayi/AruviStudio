@@ -62,6 +62,7 @@ pub fn run() {
             commands::work_item_commands::list_work_items,
             commands::work_item_commands::summarize_work_items_by_product,
             commands::work_item_commands::update_work_item,
+            commands::work_item_commands::assign_work_item_workspace,
             commands::work_item_commands::delete_work_item,
             commands::work_item_commands::get_sub_work_items,
             commands::work_item_commands::reorder_work_items,

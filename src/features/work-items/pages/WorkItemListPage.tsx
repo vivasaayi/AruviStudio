@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  assignWorkItemWorkspace,
   approveWorkItem,
   approveWorkItemPlan,
   approveWorkItemTestReview,
@@ -24,6 +25,7 @@ import {
   listModelDefinitions,
   listProducts,
   listProviders,
+  listRepositories,
   listTeamAssignments,
   listTeamMemberships,
   listWorkflowStagePolicies,
@@ -60,6 +62,7 @@ import type {
   WorkflowStagePolicy,
   Product,
   HierarchyTreeNode,
+  Repository,
 } from "../../../lib/types";
 
 const styles: Record<string, React.CSSProperties> = {
@@ -172,6 +175,17 @@ type WorkflowDagLane = {
   height: number;
   nodeIds: string[];
 };
+
+type WorkspaceBranchMode = "default" | "work_item" | "custom";
+
+function workItemBranchName(title: string): string {
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+  return `work/${slug || "work-item"}`;
+}
 
 const WORKFLOW_DAG_NODES: WorkflowDagNode[] = [
   { id: "draft", label: "Draft", x: 90, y: 120, actualStageIds: ["draft"] },
@@ -307,6 +321,10 @@ export function WorkItemListPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionInfo, setActionInfo] = useState<string | null>(null);
+  const [isEditingWorkspace, setIsEditingWorkspace] = useState(false);
+  const [workspaceRepositoryId, setWorkspaceRepositoryId] = useState("");
+  const [workspaceBranchMode, setWorkspaceBranchMode] = useState<WorkspaceBranchMode>("default");
+  const [workspaceBranchName, setWorkspaceBranchName] = useState("");
   const [activeWorkflowRunId, setActiveWorkflowRunId] = useState<string | null>(null);
   const [selectedArtifactStage, setSelectedArtifactStage] = useState<string | null>(null);
   const [artifactModalArtifact, setArtifactModalArtifact] = useState<Artifact | null>(null);
@@ -366,6 +384,7 @@ export function WorkItemListPage() {
     queryFn: () => getProductTree(selectedProductId!),
     enabled: !!selectedProductId,
   });
+  const { data: repositories = [] } = useQuery({ queryKey: ["repositories"], queryFn: listRepositories });
   const filteredWorkItems = useMemo(() => {
     if (!selectedProductId) {
       return [];
@@ -399,7 +418,7 @@ export function WorkItemListPage() {
     enabled: !!selectedWorkItemId,
     refetchInterval: 4000,
   });
-  const { data: resolvedRepository } = useQuery({
+  const { data: resolvedRepositoryFromQuery } = useQuery({
     queryKey: ["resolvedRepositoryForWorkItem", selectedWorkItemId],
     queryFn: () => resolveRepositoryForWorkItem(selectedWorkItemId!),
     enabled: !!selectedWorkItemId,
@@ -836,10 +855,110 @@ export function WorkItemListPage() {
     onError: (error) => setActionError(String(error)),
   });
 
+  const selectedWorkspaceRepository = repositories.find((repository: Repository) => repository.id === workspaceRepositoryId) ?? null;
+
+  const resolveWorkspaceBranchName = () => {
+    if (workspaceBranchMode === "default") {
+      return selectedWorkspaceRepository?.default_branch ?? "";
+    }
+    if (workspaceBranchMode === "work_item") {
+      return selectedWorkItemSummary ? workItemBranchName(selectedWorkItemSummary.title) : "";
+    }
+    return workspaceBranchName.trim();
+  };
+
+  const openWorkspaceEditor = () => {
+    const currentRepositoryId =
+      resolvedRepository?.id ??
+      selectedWorkItemSummary?.repo_override_id ??
+      selectedWorkItemSummary?.active_repo_id ??
+      repositories[0]?.id ??
+      "";
+    const currentRepository = repositories.find((repository: Repository) => repository.id === currentRepositoryId) ?? null;
+    const currentBranch = selectedWorkItemSummary?.branch_name ?? currentRepository?.default_branch ?? "";
+    setWorkspaceRepositoryId(currentRepositoryId);
+    setWorkspaceBranchName(currentBranch);
+    setWorkspaceBranchMode(currentRepository && currentBranch === currentRepository.default_branch ? "default" : "custom");
+    setActionError(null);
+    setIsEditingWorkspace(true);
+  };
+
+  const assignWorkspaceMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedWorkItemSummary) {
+        throw new Error("No work item selected.");
+      }
+      if (!workspaceRepositoryId) {
+        throw new Error("Select a workspace.");
+      }
+      const branchName = resolveWorkspaceBranchName();
+      if (!branchName) {
+        throw new Error("Branch name is required.");
+      }
+      return assignWorkItemWorkspace({
+        id: selectedWorkItemSummary.id,
+        repositoryId: workspaceRepositoryId,
+        branchName,
+      });
+    },
+    onSuccess: async (updatedWorkItem) => {
+      setActionError(null);
+      setActionInfo("Workspace and branch updated for this work item.");
+      setIsEditingWorkspace(false);
+      queryClient.setQueryData(["workItem", selectedWorkItemId], updatedWorkItem);
+      const updatedRepositoryId = updatedWorkItem.repo_override_id ?? updatedWorkItem.active_repo_id;
+      const updatedRepository = repositories.find((repository: Repository) => repository.id === updatedRepositoryId) ?? null;
+      if (updatedRepository) {
+        queryClient.setQueryData(["resolvedRepositoryForWorkItem", selectedWorkItemId], updatedRepository);
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["workItem", selectedWorkItemId] }),
+        queryClient.invalidateQueries({ queryKey: ["workItems"] }),
+        queryClient.invalidateQueries({ queryKey: ["resolvedRepositoryForWorkItem", selectedWorkItemId] }),
+        queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] }),
+      ]);
+    },
+    onError: (error) => setActionError(String(error)),
+  });
+
+  const clearWorkspaceOverrideMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedWorkItemSummary) {
+        throw new Error("No work item selected.");
+      }
+      return assignWorkItemWorkspace({
+        id: selectedWorkItemSummary.id,
+        repositoryId: null,
+        branchName: null,
+      });
+    },
+    onSuccess: async (updatedWorkItem) => {
+      setActionError(null);
+      setActionInfo("Work item workspace override cleared. Scope defaults will be used.");
+      setIsEditingWorkspace(false);
+      queryClient.setQueryData(["workItem", selectedWorkItemId], updatedWorkItem);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["workItem", selectedWorkItemId] }),
+        queryClient.invalidateQueries({ queryKey: ["workItems"] }),
+        queryClient.invalidateQueries({ queryKey: ["resolvedRepositoryForWorkItem", selectedWorkItemId] }),
+        queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] }),
+      ]);
+    },
+    onError: (error) => setActionError(String(error)),
+  });
+
   const selectedWorkItemSummary = useMemo(
     () => selectedWorkItem ?? filteredWorkItems.find((workItem) => workItem.id === selectedWorkItemId) ?? null,
     [filteredWorkItems, selectedWorkItem, selectedWorkItemId],
   );
+  const repositoryFromWorkItem = useMemo(() => {
+    const repositoryId = selectedWorkItemSummary?.repo_override_id ?? selectedWorkItemSummary?.active_repo_id;
+    if (!repositoryId) {
+      return null;
+    }
+    return repositories.find((repository: Repository) => repository.id === repositoryId) ?? null;
+  }, [repositories, selectedWorkItemSummary?.active_repo_id, selectedWorkItemSummary?.repo_override_id]);
+  const resolvedRepository = resolvedRepositoryFromQuery ?? repositoryFromWorkItem ?? null;
   const activeProduct = useMemo(
     () => (products ?? []).find((product: Product) => product.id === activeProductId) ?? null,
     [activeProductId, products],
@@ -1065,6 +1184,7 @@ export function WorkItemListPage() {
       blockers.push("No workspace is attached to this work item scope. Create a local workspace before starting delivery stages.");
     } else {
       checks.push(`Workspace resolved: ${resolvedRepository.name}.`);
+      checks.push(`Branch resolved: ${selectedWorkItemSummary.branch_name || resolvedRepository.default_branch}.`);
       if (!resolvedRepository.remote_url) {
         warnings.push("Workspace has no remote configured. Local-only delivery is fine, but push stages will remain local until a remote is added.");
       }
@@ -1178,6 +1298,88 @@ export function WorkItemListPage() {
     providers,
     resolvedRepository,
   ]);
+
+  const renderWorkspaceAssignmentPanel = () => {
+    const currentBranch = selectedWorkItemSummary?.branch_name || resolvedRepository?.default_branch || "not set";
+    const branchPreview = resolveWorkspaceBranchName();
+    return (
+      <div style={{ marginTop: 12 }}>
+        {!isEditingWorkspace ? (
+          <div style={styles.taskActions}>
+            <button style={styles.ghostBtn} onClick={openWorkspaceEditor}>
+              Change Workspace
+            </button>
+            {selectedWorkItemSummary?.repo_override_id && (
+              <button
+                style={styles.ghostBtn}
+                onClick={() => clearWorkspaceOverrideMutation.mutate()}
+                disabled={clearWorkspaceOverrideMutation.isPending}
+              >
+                {clearWorkspaceOverrideMutation.isPending ? "Clearing..." : "Use Scope Default"}
+              </button>
+            )}
+          </div>
+        ) : (
+          <div style={styles.infoCard}>
+            <div style={styles.detailLabel}>Workspace</div>
+            <select
+              style={styles.filterSelect}
+              value={workspaceRepositoryId}
+              onChange={(event) => {
+                const nextRepository = repositories.find((repository: Repository) => repository.id === event.target.value) ?? null;
+                setWorkspaceRepositoryId(event.target.value);
+                if (workspaceBranchMode === "default") {
+                  setWorkspaceBranchName(nextRepository?.default_branch ?? "");
+                }
+              }}
+            >
+              <option value="">Select workspace</option>
+              {repositories.map((repository: Repository) => (
+                <option key={repository.id} value={repository.id}>
+                  {repository.name} - {repository.local_path}
+                </option>
+              ))}
+            </select>
+
+            <div style={styles.detailLabel}>Branch Option</div>
+            <select
+              style={styles.filterSelect}
+              value={workspaceBranchMode}
+              onChange={(event) => setWorkspaceBranchMode(event.target.value as WorkspaceBranchMode)}
+            >
+              <option value="default">Use workspace default branch</option>
+              <option value="work_item">Create/use work item branch</option>
+              <option value="custom">Use custom branch</option>
+            </select>
+
+            {workspaceBranchMode === "custom" && (
+              <input
+                style={styles.input}
+                value={workspaceBranchName}
+                onChange={(event) => setWorkspaceBranchName(event.target.value)}
+                placeholder="feature/my-work-item"
+              />
+            )}
+
+            <div style={styles.smallText}>Current branch: {currentBranch}</div>
+            <div style={styles.smallText}>Next branch: {branchPreview || "Select a workspace or branch option"}</div>
+            <div style={{ ...styles.taskActions, justifyContent: "flex-start", marginTop: 10 }}>
+              <button
+                style={styles.btn}
+                onClick={() => assignWorkspaceMutation.mutate()}
+                disabled={assignWorkspaceMutation.isPending || !workspaceRepositoryId || !branchPreview}
+              >
+                {assignWorkspaceMutation.isPending ? "Saving..." : "Save Workspace"}
+              </button>
+              <button style={styles.ghostBtn} onClick={() => setIsEditingWorkspace(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div style={styles.page}>
@@ -1450,7 +1652,12 @@ export function WorkItemListPage() {
                           ? `Remote configured: ${resolvedRepository.remote_url}`
                           : "Remote: not configured"}
                       </div>
+                      <div style={styles.smallText}>Branch: {selectedWorkItemSummary.branch_name || resolvedRepository.default_branch}</div>
+                      <div style={styles.smallText}>
+                        Source: {selectedWorkItemSummary.repo_override_id ? "work item override" : "scope default"}
+                      </div>
                       <div style={styles.smallText}>Version history: enabled</div>
+                      {renderWorkspaceAssignmentPanel()}
                     </>
                   ) : (
                     <>
@@ -1469,6 +1676,7 @@ export function WorkItemListPage() {
                           {createWorkspaceMutation.isPending ? "Creating Workspace..." : "Create Workspace"}
                         </button>
                       </div>
+                      {renderWorkspaceAssignmentPanel()}
                     </>
                   )}
                 </div>
@@ -1515,12 +1723,17 @@ export function WorkItemListPage() {
                   <>
                     <div style={styles.detailValue}>{resolvedRepository.name}</div>
                     <div style={styles.smallText}>{resolvedRepository.local_path}</div>
-                      <div style={styles.smallText}>
-                        {resolvedRepository.remote_url
-                          ? `Remote configured: ${resolvedRepository.remote_url}`
-                          : "Remote: not configured"}
+                    <div style={styles.smallText}>
+                      {resolvedRepository.remote_url
+                        ? `Remote configured: ${resolvedRepository.remote_url}`
+                        : "Remote: not configured"}
+                    </div>
+                    <div style={styles.smallText}>Branch: {selectedWorkItemSummary?.branch_name || resolvedRepository.default_branch}</div>
+                    <div style={styles.smallText}>
+                      Source: {selectedWorkItemSummary?.repo_override_id ? "work item override" : "scope default"}
                     </div>
                     <div style={styles.smallText}>Version history: enabled</div>
+                    {renderWorkspaceAssignmentPanel()}
                   </>
                 ) : (
                   <>
@@ -1539,6 +1752,7 @@ export function WorkItemListPage() {
                         {createWorkspaceMutation.isPending ? "Creating Workspace..." : "Create Workspace"}
                       </button>
                     </div>
+                    {renderWorkspaceAssignmentPanel()}
                   </>
                 )}
               </div>

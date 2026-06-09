@@ -297,6 +297,38 @@ pub async fn update_work_item(
     get_work_item(pool, id).await
 }
 
+pub async fn assign_work_item_workspace(
+    pool: &SqlitePool,
+    id: &str,
+    repository_id: Option<&str>,
+    branch_name: Option<&str>,
+) -> Result<WorkItem, AppError> {
+    debug!(work_item_id = %id, repository_id = ?repository_id, branch_name = ?branch_name, "persist assign_work_item_workspace");
+    if let Some(repository_id) = repository_id {
+        sqlx::query(
+            "UPDATE work_items
+             SET repo_override_id=?, active_repo_id=?, branch_name=?, updated_at=datetime('now')
+             WHERE id=?",
+        )
+        .bind(repository_id)
+        .bind(repository_id)
+        .bind(branch_name)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    } else {
+        sqlx::query(
+            "UPDATE work_items
+             SET repo_override_id=NULL, active_repo_id=NULL, branch_name=NULL, updated_at=datetime('now')
+             WHERE id=?",
+        )
+        .bind(id)
+        .execute(pool)
+        .await?;
+    }
+    get_work_item(pool, id).await
+}
+
 pub async fn delete_work_item(pool: &SqlitePool, id: &str) -> Result<(), AppError> {
     debug!(work_item_id = %id, "persist delete_work_item");
     sqlx::query("DELETE FROM work_items WHERE id=?")

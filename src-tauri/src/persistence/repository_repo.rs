@@ -76,9 +76,17 @@ pub async fn resolve_repository_for_work_item(
     pool: &SqlitePool,
     work_item_id: &str,
 ) -> Result<Option<Repository>, AppError> {
-    // Priority: work item override -> module attachment -> product attachment
+    // Priority: explicit work item override -> active work item repo -> module attachment -> product attachment
     let work_item = crate::persistence::work_item_repo::get_work_item(pool, work_item_id).await?;
     if let Some(ref repo_id) = work_item.repo_override_id {
+        let repo = sqlx::query_as::<_, Repository>("SELECT id,name,local_path,remote_url,default_branch,auth_profile,created_at,updated_at FROM repositories WHERE id=?")
+            .bind(repo_id)
+            .fetch_optional(pool).await?;
+        if repo.is_some() {
+            return Ok(repo);
+        }
+    }
+    if let Some(ref repo_id) = work_item.active_repo_id {
         let repo = sqlx::query_as::<_, Repository>("SELECT id,name,local_path,remote_url,default_branch,auth_profile,created_at,updated_at FROM repositories WHERE id=?")
             .bind(repo_id)
             .fetch_optional(pool).await?;

@@ -363,6 +363,14 @@ export const updateWorkItem = (data: {
     acceptance_criteria: data.acceptanceCriteria,
     constraints: data.constraints,
   });
+export const assignWorkItemWorkspace = (data: { id: string; repositoryId: string | null; branchName: string | null }) =>
+  invoke<WorkItem>("assign_work_item_workspace", {
+    id: data.id,
+    repository_id: data.repositoryId,
+    branch_name: data.branchName,
+    repositoryId: data.repositoryId,
+    branchName: data.branchName,
+  });
 export const deleteWorkItem = (id: string) => invoke("delete_work_item", { id });
 export const getSubWorkItems = (workItemId: string) => invoke<WorkItem[]>("get_sub_work_items", { work_item_id: workItemId });
 export const reorderWorkItems = (orderedIds: string[]) => invoke("reorder_work_items", { ordered_ids: orderedIds });
