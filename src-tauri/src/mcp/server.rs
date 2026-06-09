@@ -383,10 +383,7 @@ mod tests {
             .and_then(Value::as_array)
             .expect("resources array");
         assert!(resources.iter().any(|resource| {
-            resource
-                .get("uri")
-                .and_then(Value::as_str)
-                == Some("aruvi://guides/product-philosophy")
+            resource.get("uri").and_then(Value::as_str) == Some("aruvi://guides/product-philosophy")
         }));
     }
 
@@ -422,7 +419,8 @@ mod tests {
         )
         .expect_err("resources/read should fail");
         assert_eq!(
-            error.get("error")
+            error
+                .get("error")
                 .and_then(|value| value.get("code"))
                 .and_then(Value::as_i64),
             Some(-32002)

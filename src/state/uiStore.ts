@@ -16,7 +16,7 @@ interface UIState {
   expandedCapabilities: Record<string, boolean>;
   showHierarchyWorkItems: boolean;
   productPickerCollapsed: boolean;
-  activeView: "products" | "product-overview" | "work-items" | "planner" | "chat" | "voice-chat" | "ide" | "repositories" | "agents" | "models" | "settings";
+  activeView: "products" | "product-overview" | "work-items" | "planner" | "chat" | "voice-chat" | "calls" | "ide" | "repositories" | "agents" | "models" | "settings";
   toggleLeftSidebar: () => void;
   toggleRightSidebar: () => void;
   toggleBottomPanel: () => void;

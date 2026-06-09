@@ -1,7 +1,8 @@
 use crate::domain::agent::AgentRun;
+use crate::domain::model::ModelCall;
 use crate::domain::workflow::{UserAction, WorkflowRun, WorkflowStageHistory};
 use crate::error::AppError;
-use crate::persistence::{agent_repo, workflow_repo};
+use crate::persistence::{agent_repo, model_call_repo, workflow_repo};
 use crate::state::AppState;
 use tauri::State;
 
@@ -126,6 +127,19 @@ pub async fn list_agent_runs_for_workflow(
         .or(workflowRunId)
         .ok_or_else(|| AppError::Validation("missing workflow run id".to_string()))?;
     agent_repo::list_agent_runs_for_workflow(&state.db, &workflow_run_id).await
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn list_agent_model_calls_for_workflow(
+    state: State<'_, AppState>,
+    workflow_run_id: Option<String>,
+    workflowRunId: Option<String>,
+) -> Result<Vec<ModelCall>, AppError> {
+    let workflow_run_id = workflow_run_id
+        .or(workflowRunId)
+        .ok_or_else(|| AppError::Validation("missing workflow run id".to_string()))?;
+    model_call_repo::list_model_calls_for_workflow(&state.db, &workflow_run_id).await
 }
 
 #[tauri::command]

@@ -52,6 +52,7 @@ export function ChatPage() {
   const [error, setError] = useState<string | null>(null);
   const audioCaptureRef = useRef<ActiveAudioCapture | null>(null);
   const latestAssistantRef = useRef("");
+  const sessionIdRef = useRef(crypto.randomUUID());
 
   const { data: providers = [] } = useQuery({ queryKey: ["providers"], queryFn: listProviders });
   const { data: models = [] } = useQuery({ queryKey: ["model-definitions"], queryFn: listModelDefinitions });
@@ -179,6 +180,9 @@ export function ChatPage() {
         ],
         temperature: Number.isFinite(Number(temperature)) ? Number(temperature) : 0.7,
         maxTokens: Number.isFinite(Number(maxTokens)) ? Number(maxTokens) : 2048,
+        sourceKind: "desktop_chat",
+        sourceId: sessionIdRef.current,
+        sourceLabel: "Desktop Chat",
       });
 
       // Safety timeout to avoid permanent pending state if stream never closes.
@@ -194,6 +198,11 @@ export function ChatPage() {
       cleanup();
       setIsSending(false);
     }
+  };
+
+  const clearChat = () => {
+    setMessages([]);
+    sessionIdRef.current = crypto.randomUUID();
   };
 
   const toggleListening = async () => {
@@ -338,7 +347,7 @@ export function ChatPage() {
           <button style={styles.btn} onClick={() => void send()} disabled={isSending} data-testid="chat-send">
             {isSending ? "Sending..." : "Send"}
           </button>
-          <button style={styles.btnGhost} onClick={() => setMessages([])} disabled={isSending} data-testid="chat-clear">
+          <button style={styles.btnGhost} onClick={clearChat} disabled={isSending} data-testid="chat-clear">
             Clear
           </button>
         </div>

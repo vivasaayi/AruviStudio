@@ -1,8 +1,8 @@
-use crate::error::AppError;
 use crate::domain::product::{
     HierarchyNodeType, NodeKindConversionResult, SemanticTemplateApplicationResult,
     SemanticTemplateKind,
 };
+use crate::error::AppError;
 use crate::persistence::{product_repo, settings_repo, work_item_repo};
 use sqlx::SqlitePool;
 use tracing::info;
@@ -67,8 +67,7 @@ pub async fn apply_semantic_template(
 ) -> Result<SemanticTemplateApplicationResult, AppError> {
     let template_kind = SemanticTemplateKind::parse(template_kind).ok_or_else(|| {
         AppError::Validation(
-            "Unsupported template_kind. Use operator_chapter or technical_topic_book."
-                .to_string(),
+            "Unsupported template_kind. Use operator_chapter or technical_topic_book.".to_string(),
         )
     })?;
     let trimmed_name = name.trim();
@@ -107,7 +106,8 @@ pub async fn apply_semantic_template(
     )
     .await?;
 
-    let (definition_label, examples_label, implementation_label, tests_label) = match template_kind {
+    let (definition_label, examples_label, implementation_label, tests_label) = match template_kind
+    {
         SemanticTemplateKind::OperatorChapter => (
             format!("{trimmed_name} Definition"),
             format!("{trimmed_name} Examples"),
@@ -226,11 +226,11 @@ pub async fn apply_semantic_template(
         Some("capability"),
         None,
         &format!("Write {trimmed_name} test cases"),
-        &format!("{trimmed_name} needs verification that matches the documented examples and risks."),
-        test_guidance,
         &format!(
-            "Coverage validates happy paths, edge cases, and regressions for {trimmed_name}."
+            "{trimmed_name} needs verification that matches the documented examples and risks."
         ),
+        test_guidance,
+        &format!("Coverage validates happy paths, edge cases, and regressions for {trimmed_name}."),
         "Keep tests aligned with the authored examples and implementation notes.",
         "test",
         priority,
@@ -249,7 +249,12 @@ pub async fn apply_semantic_template(
             HierarchyNodeType::Module
         },
         topic_node,
-        created_nodes: vec![definition_node, examples_node, implementation_node, tests_node],
+        created_nodes: vec![
+            definition_node,
+            examples_node,
+            implementation_node,
+            tests_node,
+        ],
         created_work_items: vec![implementation_work_item, test_work_item],
     })
 }
@@ -430,7 +435,10 @@ async fn seed_example_capability(
     Ok(())
 }
 
-async fn resolve_product_id_for_module(pool: &SqlitePool, module_id: &str) -> Result<String, AppError> {
+async fn resolve_product_id_for_module(
+    pool: &SqlitePool,
+    module_id: &str,
+) -> Result<String, AppError> {
     sqlx::query_scalar("SELECT product_id FROM modules WHERE id=?")
         .bind(module_id)
         .fetch_optional(pool)

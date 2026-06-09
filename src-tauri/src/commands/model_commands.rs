@@ -1,6 +1,6 @@
-use crate::domain::model::{ModelDefinition, ModelProvider, ProviderType};
+use crate::domain::model::{ModelCall, ModelDefinition, ModelProvider, ProviderType};
 use crate::error::AppError;
-use crate::persistence::model_repo;
+use crate::persistence::{model_call_repo, model_repo};
 use crate::providers::gateway::ModelGateway;
 use crate::providers::openai_compatible::OpenAiCompatibleProvider;
 use crate::providers::types::{ChatMessage, CompletionRequest, CompletionResponse};
@@ -9,6 +9,8 @@ use crate::services::speech_service::resolve_local_runtime_model_path;
 use crate::state::AppState;
 use futures_util::StreamExt;
 use serde::Serialize;
+use sqlx::SqlitePool;
+use std::time::Instant;
 use tauri::{AppHandle, Emitter, State};
 use tokio::io::AsyncWriteExt;
 use tracing::warn;
@@ -28,6 +30,77 @@ struct ChatStreamDoneEvent {
 struct ChatStreamErrorEvent {
     stream_id: String,
     error: String,
+}
+
+fn char_count_i64(content: &str) -> i64 {
+    i64::try_from(content.chars().count()).unwrap_or(i64::MAX)
+}
+
+fn message_char_count(messages: &[ChatMessage]) -> i64 {
+    messages
+        .iter()
+        .map(|message| char_count_i64(&message.content))
+        .sum()
+}
+
+fn elapsed_ms(started: Instant) -> i64 {
+    i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX)
+}
+
+async fn record_model_command_call(
+    db: &SqlitePool,
+    source_kind: &str,
+    source_id: Option<&str>,
+    source_label: &str,
+    provider: &ModelProvider,
+    model_name: &str,
+    messages: &[ChatMessage],
+    max_tokens: Option<i64>,
+    temperature: Option<f64>,
+    response_chars: i64,
+    token_count_input: Option<i64>,
+    token_count_output: Option<i64>,
+    duration_ms: i64,
+    status: &str,
+    error_message: Option<&str>,
+) -> Result<(), AppError> {
+    let call_index = model_call_repo::next_model_call_index(db, source_kind, source_id).await?;
+    let call_id = uuid::Uuid::new_v4().to_string();
+    model_call_repo::create_model_call(
+        db,
+        model_call_repo::CreateModelCallParams {
+            id: &call_id,
+            source_kind,
+            source_id,
+            source_label,
+            workflow_run_id: None,
+            agent_run_id: None,
+            work_item_id: None,
+            product_id: None,
+            session_id: source_id,
+            agent_id: None,
+            stage: None,
+            provider_id: &provider.id,
+            provider_name: &provider.name,
+            provider_type: provider.provider_type.as_str(),
+            provider_base_url: &provider.base_url,
+            model_id: None,
+            model_name,
+            call_index,
+            request_message_count: i64::try_from(messages.len()).unwrap_or(i64::MAX),
+            prompt_chars: message_char_count(messages),
+            response_chars,
+            max_tokens,
+            temperature,
+            token_count_input,
+            token_count_output,
+            duration_ms: Some(duration_ms),
+            status,
+            error_message,
+        },
+    )
+    .await?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -374,19 +447,87 @@ pub async fn run_model_chat_completion(
     messages: Vec<ChatMessage>,
     temperature: Option<f64>,
     max_tokens: Option<i64>,
+    source_kind: Option<String>,
+    source_id: Option<String>,
+    source_label: Option<String>,
 ) -> Result<CompletionResponse, AppError> {
     let provider = model_repo::get_provider(&state.db, &provider_id).await?;
     let api_key = secrets::resolve_provider_secret(&provider)?;
-    let gateway = OpenAiCompatibleProvider::new(provider.base_url, api_key);
-
-    gateway
+    let gateway = OpenAiCompatibleProvider::new(provider.base_url.clone(), api_key);
+    let source_kind = source_kind.unwrap_or_else(|| "desktop_model_completion".to_string());
+    let source_label = source_label.unwrap_or_else(|| "Desktop model completion".to_string());
+    let started = Instant::now();
+    let response = match gateway
         .run_completion(CompletionRequest {
-            model,
-            messages,
+            model: model.clone(),
+            messages: messages.clone(),
             temperature,
             max_tokens,
         })
         .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            let error_message = error.to_string();
+            if let Err(record_error) = record_model_command_call(
+                &state.db,
+                &source_kind,
+                source_id.as_deref(),
+                &source_label,
+                &provider,
+                &model,
+                &messages,
+                max_tokens,
+                temperature,
+                0,
+                None,
+                None,
+                elapsed_ms(started),
+                "failed",
+                Some(&error_message),
+            )
+            .await
+            {
+                warn!(error = %record_error, "Failed to record model completion telemetry");
+            }
+            return Err(error);
+        }
+    };
+    if let Err(record_error) = record_model_command_call(
+        &state.db,
+        &source_kind,
+        source_id.as_deref(),
+        &source_label,
+        &provider,
+        &model,
+        &messages,
+        max_tokens,
+        temperature,
+        char_count_i64(&response.content),
+        response.token_count_input,
+        response.token_count_output,
+        elapsed_ms(started),
+        "completed",
+        None,
+    )
+    .await
+    {
+        warn!(error = %record_error, "Failed to record model completion telemetry");
+    }
+    Ok(response)
+}
+
+#[tauri::command]
+pub async fn list_model_calls(
+    state: State<'_, AppState>,
+    limit: Option<i64>,
+) -> Result<Vec<ModelCall>, AppError> {
+    model_call_repo::list_model_calls(&state.db, limit.unwrap_or(200)).await
+}
+
+#[tauri::command]
+pub async fn get_model_call(state: State<'_, AppState>, id: String) -> Result<ModelCall, AppError> {
+    model_call_repo::get_model_call(&state.db, &id).await
 }
 
 #[tauri::command]
@@ -398,14 +539,24 @@ pub async fn start_model_chat_stream(
     messages: Vec<ChatMessage>,
     temperature: Option<f64>,
     max_tokens: Option<i64>,
+    source_kind: Option<String>,
+    source_id: Option<String>,
+    source_label: Option<String>,
 ) -> Result<String, AppError> {
     let provider = model_repo::get_provider(&state.db, &provider_id).await?;
     let api_key = secrets::resolve_provider_secret(&provider)?;
     let stream_id = uuid::Uuid::new_v4().to_string();
 
-    let base_url = provider.base_url;
+    let db = state.db.clone();
+    let source_kind = source_kind.unwrap_or_else(|| "desktop_stream".to_string());
+    let telemetry_source_id = source_id.unwrap_or_else(|| stream_id.clone());
+    let source_label = source_label.unwrap_or_else(|| "Desktop stream".to_string());
+    let base_url = provider.base_url.clone();
     let stream_id_for_task = stream_id.clone();
+    let telemetry_source_id_for_task = telemetry_source_id.clone();
     tokio::spawn(async move {
+        let started = Instant::now();
+        let mut response_chars = 0_i64;
         let client = reqwest::Client::new();
         let url = endpoint_url(&base_url, "/chat/completions");
         let body = serde_json::json!({
@@ -427,11 +578,33 @@ pub async fn start_model_chat_stream(
         let response = match req.send().await {
             Ok(response) => response,
             Err(error) => {
+                let error_text = format!("Request failed: {}", error);
+                if let Err(record_error) = record_model_command_call(
+                    &db,
+                    &source_kind,
+                    Some(&telemetry_source_id_for_task),
+                    &source_label,
+                    &provider,
+                    &model,
+                    &messages,
+                    max_tokens,
+                    temperature,
+                    response_chars,
+                    None,
+                    None,
+                    elapsed_ms(started),
+                    "failed",
+                    Some(&error_text),
+                )
+                .await
+                {
+                    warn!(error = %record_error, "Failed to record stream telemetry");
+                }
                 let _ = app.emit(
                     "chat_stream_error",
                     ChatStreamErrorEvent {
                         stream_id: stream_id_for_task.clone(),
-                        error: format!("Request failed: {}", error),
+                        error: error_text,
                     },
                 );
                 return;
@@ -441,11 +614,33 @@ pub async fn start_model_chat_stream(
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
+            let error_text = format!("API error {}: {}", status, text);
+            if let Err(record_error) = record_model_command_call(
+                &db,
+                &source_kind,
+                Some(&telemetry_source_id_for_task),
+                &source_label,
+                &provider,
+                &model,
+                &messages,
+                max_tokens,
+                temperature,
+                response_chars,
+                None,
+                None,
+                elapsed_ms(started),
+                "failed",
+                Some(&error_text),
+            )
+            .await
+            {
+                warn!(error = %record_error, "Failed to record stream telemetry");
+            }
             let _ = app.emit(
                 "chat_stream_error",
                 ChatStreamErrorEvent {
                     stream_id: stream_id_for_task.clone(),
-                    error: format!("API error {}: {}", status, text),
+                    error: error_text,
                 },
             );
             return;
@@ -458,11 +653,33 @@ pub async fn start_model_chat_stream(
             let chunk = match chunk_result {
                 Ok(chunk) => chunk,
                 Err(error) => {
+                    let error_text = format!("Stream read failed: {}", error);
+                    if let Err(record_error) = record_model_command_call(
+                        &db,
+                        &source_kind,
+                        Some(&telemetry_source_id_for_task),
+                        &source_label,
+                        &provider,
+                        &model,
+                        &messages,
+                        max_tokens,
+                        temperature,
+                        response_chars,
+                        None,
+                        None,
+                        elapsed_ms(started),
+                        "failed",
+                        Some(&error_text),
+                    )
+                    .await
+                    {
+                        warn!(error = %record_error, "Failed to record stream telemetry");
+                    }
                     let _ = app.emit(
                         "chat_stream_error",
                         ChatStreamErrorEvent {
                             stream_id: stream_id_for_task.clone(),
-                            error: format!("Stream read failed: {}", error),
+                            error: error_text,
                         },
                     );
                     return;
@@ -479,6 +696,27 @@ pub async fn start_model_chat_stream(
                 }
                 let payload = trimmed.trim_start_matches("data:").trim();
                 if payload == "[DONE]" {
+                    if let Err(record_error) = record_model_command_call(
+                        &db,
+                        &source_kind,
+                        Some(&telemetry_source_id_for_task),
+                        &source_label,
+                        &provider,
+                        &model,
+                        &messages,
+                        max_tokens,
+                        temperature,
+                        response_chars,
+                        None,
+                        None,
+                        elapsed_ms(started),
+                        "completed",
+                        None,
+                    )
+                    .await
+                    {
+                        warn!(error = %record_error, "Failed to record stream telemetry");
+                    }
                     let _ = app.emit(
                         "chat_stream_done",
                         ChatStreamDoneEvent {
@@ -492,6 +730,7 @@ pub async fn start_model_chat_stream(
                     Ok(value) => {
                         if let Some(delta) = value["choices"][0]["delta"]["content"].as_str() {
                             if !delta.is_empty() {
+                                response_chars += char_count_i64(delta);
                                 let _ = app.emit(
                                     "chat_stream_chunk",
                                     ChatStreamChunkEvent {
@@ -512,9 +751,30 @@ pub async fn start_model_chat_stream(
         let _ = app.emit(
             "chat_stream_done",
             ChatStreamDoneEvent {
-                stream_id: stream_id_for_task,
+                stream_id: stream_id_for_task.clone(),
             },
         );
+        if let Err(record_error) = record_model_command_call(
+            &db,
+            &source_kind,
+            Some(&telemetry_source_id_for_task),
+            &source_label,
+            &provider,
+            &model,
+            &messages,
+            max_tokens,
+            temperature,
+            response_chars,
+            None,
+            None,
+            elapsed_ms(started),
+            "completed",
+            None,
+        )
+        .await
+        {
+            warn!(error = %record_error, "Failed to record stream telemetry");
+        }
     });
 
     Ok(stream_id)

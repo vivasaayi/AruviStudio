@@ -4,7 +4,9 @@ use crate::domain::work_item::WorkItem;
 use crate::domain::workflow::WorkflowRun;
 use crate::error::AppError;
 use crate::execution::workspace::WorkItemWorkspace;
-use crate::persistence::{agent_repo, artifact_repo, model_repo, work_item_repo, workflow_repo};
+use crate::persistence::{
+    agent_repo, artifact_repo, model_call_repo, model_repo, work_item_repo, workflow_repo,
+};
 use crate::providers::types::{ChatMessage, CompletionRequest};
 use crate::services::model_service;
 use crate::services::repo_service;
@@ -18,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 #[cfg(test)]
 use std::sync::{Mutex as StdMutex, OnceLock};
+use std::time::Instant;
 use tracing::{debug, error, info, warn};
 use uuid;
 use walkdir::WalkDir;
@@ -51,6 +54,10 @@ struct AgentExecutionBoundaries {
     blocked_paths: Option<Vec<String>>,
     keep_workspace: Option<bool>,
     max_tool_steps: Option<usize>,
+}
+
+struct AgentModelOutput {
+    content: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -177,7 +184,57 @@ impl AgentService {
     }
 
     fn max_tool_steps(boundaries: &AgentExecutionBoundaries) -> usize {
-        boundaries.max_tool_steps.unwrap_or(24).clamp(2, 64)
+        boundaries.max_tool_steps.unwrap_or(8).clamp(2, 24)
+    }
+
+    fn ignored_repository_dir(name: &str) -> bool {
+        matches!(
+            name,
+            ".git"
+                | "node_modules"
+                | "target"
+                | "dist"
+                | "build"
+                | ".next"
+                | ".turbo"
+                | ".idea"
+                | ".vscode"
+                | ".vite"
+                | "coverage"
+                | "test-results"
+        )
+    }
+
+    fn path_has_ignored_repository_component(path: &str) -> bool {
+        path.split('/').any(Self::ignored_repository_dir)
+    }
+
+    fn truncate_for_model_context(value: &str, max_chars: usize) -> String {
+        let mut output = value.chars().take(max_chars).collect::<String>();
+        if value.chars().count() > max_chars {
+            output.push_str("\n...[truncated for model context]...");
+        }
+        output
+    }
+
+    fn compact_tool_observation(
+        step: usize,
+        tool: &str,
+        reason: Option<String>,
+        kind: &str,
+        rendered: &str,
+    ) -> String {
+        format!(
+            "{kind} step={} tool={} reason={} result={}",
+            step,
+            tool,
+            reason.unwrap_or_default(),
+            Self::truncate_for_model_context(rendered, 4_000)
+        )
+    }
+
+    fn compact_trace_payload(rendered: &str) -> String {
+        Self::truncate_for_model_context(rendered, 20_000)
     }
 
     fn should_keep_workspace(boundaries: &AgentExecutionBoundaries) -> bool {
@@ -186,6 +243,14 @@ impl AgentService {
 
     fn char_count(content: &str) -> usize {
         content.chars().count()
+    }
+
+    fn char_count_i64(content: &str) -> i64 {
+        i64::try_from(Self::char_count(content)).unwrap_or(i64::MAX)
+    }
+
+    fn elapsed_ms(started: Instant) -> i64 {
+        i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX)
     }
 
     fn substring_by_char_range(content: &str, offset_chars: usize, length_chars: usize) -> String {
@@ -256,6 +321,9 @@ impl AgentService {
         let Some(normalized) = Self::normalize_relative_path(path) else {
             return false;
         };
+        if Self::path_has_ignored_repository_component(&normalized) {
+            return false;
+        }
         if let Some(blocked_paths) = &boundaries.blocked_paths {
             if blocked_paths
                 .iter()
@@ -363,7 +431,7 @@ impl AgentService {
                 .await
             {
                 Ok(output) => {
-                    self.process_agent_output(&agent_run, &output, stage_name)
+                    self.process_agent_output(&agent_run, &output.content, stage_name)
                         .await
                 }
                 Err(error) => Err(error),
@@ -679,20 +747,6 @@ impl AgentService {
         let mut stack = vec![repo_root.to_path_buf()];
         let mut files: Vec<String> = Vec::new();
         let mut scanned = 0usize;
-        let skip_dirs: HashSet<&str> = [
-            ".git",
-            "node_modules",
-            "target",
-            "dist",
-            "build",
-            ".next",
-            ".turbo",
-            ".idea",
-            ".vscode",
-        ]
-        .into_iter()
-        .collect();
-
         while let Some(dir) = stack.pop() {
             let entries = match std::fs::read_dir(&dir) {
                 Ok(read_dir) => read_dir,
@@ -702,7 +756,7 @@ impl AgentService {
                 let path = entry.path();
                 let file_name = entry.file_name().to_string_lossy().to_string();
                 if path.is_dir() {
-                    if skip_dirs.contains(file_name.as_str()) {
+                    if Self::ignored_repository_dir(file_name.as_str()) {
                         continue;
                     }
                     stack.push(path);
@@ -1184,7 +1238,7 @@ impl AgentService {
         model_def: &ModelDefinition,
         prompt: &str,
         max_tokens: i64,
-    ) -> Result<String, AppError> {
+    ) -> Result<AgentModelOutput, AppError> {
         #[cfg(test)]
         if let Some(queue_map) = TEST_MODEL_OUTPUTS.get() {
             let mut guard = queue_map
@@ -1216,7 +1270,7 @@ impl AgentService {
                     model_name = %model_def.name,
                     "Using queued test model response"
                 );
-                return Ok(next);
+                return Ok(AgentModelOutput { content: next });
             }
         }
 
@@ -1244,10 +1298,119 @@ impl AgentService {
         };
 
         // Execute the completion
-        let response = gateway.run_completion(request).await?;
-        info!(agent_run_id = %agent_run.id, response_length = response.content.len(), "Successfully executed agent run");
+        let source_kind = "workflow_agent";
+        let source_label = format!("{} / {}", agent_run.stage, agent_run.agent_id);
+        let call_index =
+            model_call_repo::next_model_call_index(&self.db, source_kind, Some(&agent_run.id))
+                .await?;
+        let prompt_chars = Self::char_count_i64(prompt);
+        let call_started = Instant::now();
+        let response = match gateway.run_completion(request).await {
+            Ok(response) => response,
+            Err(err) => {
+                let duration_ms = Self::elapsed_ms(call_started);
+                let error_message = err.to_string();
+                let call_id = uuid::Uuid::new_v4().to_string();
+                if let Err(record_err) = model_call_repo::create_model_call(
+                    &self.db,
+                    model_call_repo::CreateModelCallParams {
+                        id: &call_id,
+                        source_kind,
+                        source_id: Some(&agent_run.id),
+                        source_label: &source_label,
+                        workflow_run_id: Some(&agent_run.workflow_run_id),
+                        agent_run_id: Some(&agent_run.id),
+                        work_item_id: None,
+                        product_id: None,
+                        session_id: None,
+                        agent_id: Some(&agent_run.agent_id),
+                        stage: Some(&agent_run.stage),
+                        provider_id: &provider.id,
+                        provider_name: &provider.name,
+                        provider_type: provider.provider_type.as_str(),
+                        provider_base_url: &provider.base_url,
+                        model_id: Some(&model_def.id),
+                        model_name: &model_def.name,
+                        call_index,
+                        request_message_count: 1,
+                        prompt_chars,
+                        response_chars: 0,
+                        max_tokens: Some(max_tokens),
+                        temperature: Some(0.7),
+                        token_count_input: None,
+                        token_count_output: None,
+                        duration_ms: Some(duration_ms),
+                        status: "failed",
+                        error_message: Some(&error_message),
+                    },
+                )
+                .await
+                {
+                    warn!(
+                        agent_run_id = %agent_run.id,
+                        record_error = %record_err,
+                        model_error = %error_message,
+                        "Failed to record failed model call telemetry"
+                    );
+                }
+                return Err(err);
+            }
+        };
+        let duration_ms = Self::elapsed_ms(call_started);
+        let response_chars = Self::char_count_i64(&response.content);
+        let call_id = uuid::Uuid::new_v4().to_string();
+        model_call_repo::create_model_call(
+            &self.db,
+            model_call_repo::CreateModelCallParams {
+                id: &call_id,
+                source_kind,
+                source_id: Some(&agent_run.id),
+                source_label: &source_label,
+                workflow_run_id: Some(&agent_run.workflow_run_id),
+                agent_run_id: Some(&agent_run.id),
+                work_item_id: None,
+                product_id: None,
+                session_id: None,
+                agent_id: Some(&agent_run.agent_id),
+                stage: Some(&agent_run.stage),
+                provider_id: &provider.id,
+                provider_name: &provider.name,
+                provider_type: provider.provider_type.as_str(),
+                provider_base_url: &provider.base_url,
+                model_id: Some(&model_def.id),
+                model_name: &model_def.name,
+                call_index,
+                request_message_count: 1,
+                prompt_chars,
+                response_chars,
+                max_tokens: Some(max_tokens),
+                temperature: Some(0.7),
+                token_count_input: response.token_count_input,
+                token_count_output: response.token_count_output,
+                duration_ms: Some(duration_ms),
+                status: "completed",
+                error_message: None,
+            },
+        )
+        .await?;
+        agent_repo::add_agent_run_token_usage(
+            &self.db,
+            &agent_run.id,
+            response.token_count_input,
+            response.token_count_output,
+        )
+        .await?;
+        info!(
+            agent_run_id = %agent_run.id,
+            response_length = response.content.len(),
+            token_count_input = ?response.token_count_input,
+            token_count_output = ?response.token_count_output,
+            "Successfully executed agent run"
+        );
 
-        Ok(response.content)
+        Ok(AgentModelOutput {
+            content: response.content,
+        })
     }
 
     async fn execute_coding_with_tools(
@@ -1266,7 +1429,8 @@ impl AgentService {
             warn!(agent_run_id = %agent_run.id, work_item_id = %work_item.id, "No active repository found for coding tool loop; returning model output only");
             return self
                 .execute_agent_run(agent_run, model_def, base_prompt, response_token_budget)
-                .await;
+                .await
+                .map(|output| output.content);
         };
         let repo = crate::persistence::repository_repo::get_repository(&self.db, repo_id).await?;
         let workspace = WorkItemWorkspace::create(
@@ -1316,11 +1480,12 @@ impl AgentService {
             );
             let model_output = self
                 .execute_agent_run(agent_run, model_def, &step_prompt, response_token_budget)
-                .await?;
+                .await?
+                .content;
             trace.push(ToolLoopTraceEntry {
                 step,
                 kind: "model_output".to_string(),
-                payload: model_output.clone(),
+                payload: Self::compact_trace_payload(&model_output),
             });
             Self::write_tool_trace_snapshot(&trace_path, &trace).await?;
 
@@ -1344,17 +1509,17 @@ impl AgentService {
                         Ok(result) => {
                             let rendered = serde_json::to_string_pretty(&result)
                                 .unwrap_or_else(|_| "{}".to_string());
-                            tool_observations.push(format!(
-                                "tool_result step={} tool={} reason={} result={}",
+                            tool_observations.push(Self::compact_tool_observation(
                                 step,
-                                tool,
-                                reason.unwrap_or_default(),
-                                rendered
+                                &tool,
+                                reason,
+                                "tool_result",
+                                &rendered,
                             ));
                             trace.push(ToolLoopTraceEntry {
                                 step,
                                 kind: "tool_result".to_string(),
-                                payload: rendered,
+                                payload: Self::compact_trace_payload(&rendered),
                             });
                             Self::write_tool_trace_snapshot(&trace_path, &trace).await?;
                         }
@@ -1370,7 +1535,7 @@ impl AgentService {
                             trace.push(ToolLoopTraceEntry {
                                 step,
                                 kind: "tool_error".to_string(),
-                                payload: rendered,
+                                payload: Self::compact_trace_payload(&rendered),
                             });
                             Self::write_tool_trace_snapshot(&trace_path, &trace).await?;
                         }
@@ -1631,7 +1796,8 @@ impl AgentService {
                 &prompt,
                 response_token_budget.min(1024),
             )
-            .await?;
+            .await?
+            .content;
         match Self::parse_tool_loop_response(&model_output) {
             Some(ToolLoopResponse::Final { summary, result }) => {
                 Ok(Some(summary.or(result).unwrap_or_else(|| {
@@ -2044,6 +2210,13 @@ impl AgentService {
         for entry in WalkDir::new(&root)
             .max_depth(max_depth + 1)
             .into_iter()
+            .filter_entry(|entry| {
+                entry.depth() == 0
+                    || !entry
+                        .file_name()
+                        .to_str()
+                        .is_some_and(Self::ignored_repository_dir)
+            })
             .filter_map(Result::ok)
         {
             if entries.len() >= 350 {
@@ -2056,6 +2229,9 @@ impl AgentService {
                 Ok(value) => value.to_string_lossy().replace('\\', "/"),
                 Err(_) => continue,
             };
+            if Self::path_has_ignored_repository_component(&rel) {
+                continue;
+            }
             if !Self::is_repo_relative_path_allowed(&rel, boundaries) {
                 continue;
             }
@@ -2084,6 +2260,13 @@ impl AgentService {
         for entry in WalkDir::new(&workspace.repo_path)
             .max_depth(8)
             .into_iter()
+            .filter_entry(|entry| {
+                entry.depth() == 0
+                    || !entry
+                        .file_name()
+                        .to_str()
+                        .is_some_and(Self::ignored_repository_dir)
+            })
             .filter_map(Result::ok)
         {
             if results.len() >= max_results {
@@ -2096,6 +2279,9 @@ impl AgentService {
                 Ok(value) => value.to_string_lossy().replace('\\', "/"),
                 Err(_) => continue,
             };
+            if Self::path_has_ignored_repository_component(&rel) {
+                continue;
+            }
             if !Self::is_repo_relative_path_allowed(&rel, boundaries)
                 || !Self::is_text_source_file(&rel)
             {
@@ -2195,6 +2381,14 @@ impl AgentService {
         )
         .await?;
         debug!(agent_run_id = %agent_run.id, artifact_id = %output_artifact_id, "Created output artifact");
+
+        agent_repo::update_agent_run_snapshot_paths(
+            &self.db,
+            &agent_run.id,
+            &prompt_path.to_string_lossy(),
+            &output_path.to_string_lossy(),
+        )
+        .await?;
 
         info!(agent_run_id = %agent_run.id, "Successfully stored agent output as artifacts");
         Ok(())
@@ -2459,6 +2653,40 @@ mod tests {
         let oversized = "x".repeat(401);
         let result = AgentService::ensure_write_limit(&oversized, &boundaries);
         assert!(result.is_err(), "expected write limit validation to fail");
+    }
+
+    #[test]
+    fn generated_repository_paths_are_not_allowed() {
+        let boundaries = AgentExecutionBoundaries::default();
+        assert!(!AgentService::is_repo_relative_path_allowed(
+            "node_modules/react/index.js",
+            &boundaries
+        ));
+        assert!(!AgentService::is_repo_relative_path_allowed(
+            "dist/assets/app.js",
+            &boundaries
+        ));
+        assert!(AgentService::is_repo_relative_path_allowed(
+            "src/features/chat/pages/ChatPage.tsx",
+            &boundaries
+        ));
+    }
+
+    #[test]
+    fn tool_observations_are_capped_for_model_context() {
+        let rendered = "x".repeat(10_000);
+        let observation = AgentService::compact_tool_observation(
+            3,
+            "repo.search",
+            Some("find usages".to_string()),
+            "tool_result",
+            &rendered,
+        );
+        assert!(
+            observation.len() < 4_300,
+            "observation should be capped before it is reused in prompts"
+        );
+        assert!(observation.contains("truncated for model context"));
     }
 
     fn make_temp_dir(name: &str) -> PathBuf {

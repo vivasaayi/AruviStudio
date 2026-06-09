@@ -301,6 +301,38 @@ export interface AgentRun {
   created_at: string;
 }
 
+export interface ModelCall {
+  id: string;
+  source_kind: string;
+  source_id: string | null;
+  source_label: string;
+  workflow_run_id: string | null;
+  agent_run_id: string | null;
+  work_item_id: string | null;
+  product_id: string | null;
+  session_id: string | null;
+  agent_id: string | null;
+  stage: string | null;
+  provider_id: string;
+  provider_name: string;
+  provider_type: string;
+  provider_base_url: string;
+  model_id: string | null;
+  model_name: string;
+  call_index: number;
+  request_message_count: number;
+  prompt_chars: number;
+  response_chars: number;
+  max_tokens: number | null;
+  temperature: number | null;
+  token_count_input: number | null;
+  token_count_output: number | null;
+  duration_ms: number | null;
+  status: "completed" | "failed";
+  error_message: string | null;
+  created_at: string;
+}
+
 export interface Artifact {
   id: string;
   work_item_id: string;

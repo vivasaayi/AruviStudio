@@ -7,7 +7,7 @@ pub async fn create_workflow_run(
     id: &str,
     work_item_id: &str,
 ) -> Result<WorkflowRun, AppError> {
-    sqlx::query_as::<_, WorkflowRun>("INSERT INTO workflow_runs (id,work_item_id,workflow_version,status,current_stage,retry_count,max_retries,started_at,updated_at) VALUES (?,?,?,'running','draft',?,?,'now','now') RETURNING id,work_item_id,workflow_version,status,current_stage,assigned_team_id,coordinator_agent_id,pending_stage_name,retry_count,max_retries,error_message,started_at,ended_at,updated_at")
+    sqlx::query_as::<_, WorkflowRun>("INSERT INTO workflow_runs (id,work_item_id,workflow_version,status,current_stage,retry_count,max_retries,started_at,updated_at) VALUES (?,?,?,'running','draft',?,?,datetime('now'),datetime('now')) RETURNING id,work_item_id,workflow_version,status,current_stage,assigned_team_id,coordinator_agent_id,pending_stage_name,retry_count,max_retries,error_message,started_at,ended_at,updated_at")
         .bind(id).bind(work_item_id).bind("v1").bind(0).bind(3)
         .fetch_one(pool).await.map_err(|e| e.into())
 }

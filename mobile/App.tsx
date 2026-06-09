@@ -33,9 +33,9 @@ import * as SecureStore from "expo-secure-store";
 import { WebView } from "react-native-webview";
 import { initWhisper, type WhisperContext } from "whisper.rn";
 import { PlannerMobileClient } from "./src/api/client";
-import type { HierarchyTreeNode, MobilePlannerToolTraceEntry, Product, ProductTree } from "./src/types";
+import type { HierarchyTreeNode, MobilePlannerToolTraceEntry, ModelCall, Product, ProductTree } from "./src/types";
 
-type ActiveTab = "planner" | "products" | "voice" | "models" | "activity";
+type ActiveTab = "planner" | "products" | "voice" | "models" | "calls" | "activity";
 type ProductExploreTab = "map" | "work" | "search" | "overview";
 type ConnectionStatus = "unchecked" | "checking" | "connected" | "offline";
 type VoiceMode = "assistant" | "planner";
@@ -54,6 +54,7 @@ const TABS: Array<{ id: ActiveTab; label: string }> = [
   { id: "products", label: "Products" },
   { id: "voice", label: "Voice" },
   { id: "models", label: "Models" },
+  { id: "calls", label: "Calls" },
   { id: "activity", label: "Activity" },
 ];
 
@@ -140,6 +141,112 @@ function formatBytes(bytes?: number) {
   if (!bytes || bytes <= 0) return "";
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${Math.round(bytes / (1024 * 1024))} MB`;
+}
+
+function formatInteger(value?: number | null) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "n/a";
+  return new Intl.NumberFormat().format(value);
+}
+
+function formatDurationMs(value?: number | null) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "n/a";
+  if (value < 1000) return `${Math.max(0, Math.round(value))}ms`;
+  const totalSeconds = Math.round(value / 1000);
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+}
+
+function formatSourceKind(value: string) {
+  return value
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+type ModelCallSessionSummary = {
+  key: string;
+  label: string;
+  sessionId: string | null;
+  sourceId: string | null;
+  status: string;
+  calls: ModelCall[];
+  callCount: number;
+  endedAt: string;
+  providerLine: string;
+  modelLine: string;
+  tokenCountInput: number | null;
+  tokenCountOutput: number | null;
+  durationMs: number | null;
+};
+
+function modelCallSourceLabel(call: ModelCall) {
+  return call.source_label || formatSourceKind(call.source_kind);
+}
+
+function modelCallSessionKey(call: ModelCall) {
+  if (call.session_id) return `session:${call.session_id}`;
+  if (call.workflow_run_id) return `workflow:${call.workflow_run_id}`;
+  if (call.agent_run_id) return `agent-run:${call.agent_run_id}`;
+  if (call.source_id) return `source:${call.source_kind}:${call.source_id}`;
+  return `call:${call.id}`;
+}
+
+function finiteTotal(values: Array<number | null | undefined>) {
+  let total = 0;
+  let hasValue = false;
+  values.forEach((value) => {
+    if (value !== null && value !== undefined && Number.isFinite(value)) {
+      total += value;
+      hasValue = true;
+    }
+  });
+  return hasValue ? total : null;
+}
+
+function sessionStatus(calls: ModelCall[]) {
+  if (calls.some((call) => call.status === "failed")) return "failed";
+  if (calls.every((call) => call.status === "completed")) return "completed";
+  return calls[0]?.status ?? "unknown";
+}
+
+function buildModelCallSessions(calls: ModelCall[]): ModelCallSessionSummary[] {
+  const grouped = new Map<string, ModelCall[]>();
+  calls.forEach((call) => {
+    const key = modelCallSessionKey(call);
+    grouped.set(key, [...(grouped.get(key) ?? []), call]);
+  });
+
+  return Array.from(grouped.entries())
+    .map(([key, groupedCalls]) => {
+      const orderedCalls = [...groupedCalls].sort(
+        (a, b) => a.call_index - b.call_index || a.created_at.localeCompare(b.created_at),
+      );
+      const latestCall = orderedCalls.reduce((latest, call) => (
+        call.created_at > latest.created_at ? call : latest
+      ), orderedCalls[0]);
+      const providers = Array.from(
+        new Set(orderedCalls.map((call) => call.provider_name || call.provider_id).filter(Boolean)),
+      );
+      const models = Array.from(new Set(orderedCalls.map((call) => call.model_name).filter(Boolean)));
+      return {
+        key,
+        label: modelCallSourceLabel(latestCall),
+        sessionId: latestCall.session_id,
+        sourceId: latestCall.source_id,
+        status: sessionStatus(orderedCalls),
+        calls: orderedCalls,
+        callCount: orderedCalls.length,
+        endedAt: latestCall.created_at,
+        providerLine: providers.length > 1 ? `${providers.length} providers` : providers[0] ?? "n/a",
+        modelLine: models.length > 1 ? `${models.length} models` : models[0] ?? "n/a",
+        tokenCountInput: finiteTotal(orderedCalls.map((call) => call.token_count_input)),
+        tokenCountOutput: finiteTotal(orderedCalls.map((call) => call.token_count_output)),
+        durationMs: finiteTotal(orderedCalls.map((call) => call.duration_ms)),
+      };
+    })
+    .sort((a, b) => b.endedAt.localeCompare(a.endedAt));
 }
 
 function parseInstalledWhisperModels(raw: string | null): Record<string, InstalledWhisperModel> {
@@ -444,6 +551,11 @@ export default function App() {
   const [isProductLoading, setIsProductLoading] = useState(false);
   const [productError, setProductError] = useState<string | null>(null);
   const [isProductPickerOpen, setIsProductPickerOpen] = useState(false);
+  const [modelCalls, setModelCalls] = useState<ModelCall[]>([]);
+  const [selectedModelCallSessionKey, setSelectedModelCallSessionKey] = useState<string | null>(null);
+  const [selectedModelCall, setSelectedModelCall] = useState<ModelCall | null>(null);
+  const [isModelCallsLoading, setIsModelCallsLoading] = useState(false);
+  const [modelCallsError, setModelCallsError] = useState<string | null>(null);
 
   const remoteUrl = useMemo(() => {
     const trimmed = normalizeBaseUrlForDisplay(baseUrl);
@@ -767,11 +879,48 @@ export default function App() {
     }
   };
 
+  const loadModelCalls = async () => {
+    if (!token.trim()) {
+      setModelCallsError("Save a mobile API token before loading calls.");
+      return;
+    }
+    try {
+      setIsModelCallsLoading(true);
+      setModelCallsError(null);
+      const calls = await mobileClient.listModelCalls(100);
+      const sessions = buildModelCallSessions(calls);
+      setModelCalls(calls);
+      setSelectedModelCallSessionKey((current) => {
+        const nextSessionKey = current && sessions.some((session) => session.key === current)
+          ? current
+          : sessions[0]?.key ?? null;
+        const nextSession = sessions.find((session) => session.key === nextSessionKey) ?? null;
+        setSelectedModelCall((selectedCall) => {
+          if (!nextSession) return null;
+          return nextSession.calls.find((call) => call.id === selectedCall?.id)
+            ?? nextSession.calls[nextSession.calls.length - 1]
+            ?? null;
+        });
+        return nextSessionKey;
+      });
+    } catch (error) {
+      setModelCallsError(describeError(error));
+    } finally {
+      setIsModelCallsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === "products" && token.trim() && !products.length && !isProductLoading) {
       void loadProducts(selectedProductId);
     }
   }, [activeTab, isProductLoading, products.length, selectedProductId, token]);
+
+  useEffect(() => {
+    if (activeTab === "calls" && token.trim() && !modelCalls.length && !isModelCallsLoading) {
+      void loadModelCalls();
+    }
+  }, [activeTab, isModelCallsLoading, modelCalls.length, token]);
 
   const switchTab = (nextTab: ActiveTab) => {
     setActiveTab(nextTab);
@@ -1828,6 +1977,154 @@ export default function App() {
     </View>
   );
 
+  const renderCallsScreen = () => {
+    const callSessions = buildModelCallSessions(modelCalls);
+    const selectedSession = callSessions.find((session) => session.key === selectedModelCallSessionKey)
+      ?? callSessions[0]
+      ?? null;
+    const selected = selectedSession?.calls.find((call) => call.id === selectedModelCall?.id)
+      ?? selectedSession?.calls[selectedSession.calls.length - 1]
+      ?? null;
+    const selectedDetails = selected
+      ? [
+          ["Source", selected.source_label || formatSourceKind(selected.source_kind)],
+          ["Status", selected.status],
+          ["Provider", selected.provider_name || selected.provider_id],
+          ["Model", selected.model_name],
+          ["Input Tokens", formatInteger(selected.token_count_input)],
+          ["Output Tokens", formatInteger(selected.token_count_output)],
+          ["Prompt Chars", formatInteger(selected.prompt_chars)],
+          ["Response Chars", formatInteger(selected.response_chars)],
+          ["Messages", formatInteger(selected.request_message_count)],
+          ["Duration", formatDurationMs(selected.duration_ms)],
+          ["Max Tokens", formatInteger(selected.max_tokens)],
+          ["Temperature", selected.temperature === null ? "n/a" : String(selected.temperature)],
+          ["Created", selected.created_at],
+          ["Workflow", selected.workflow_run_id ?? "n/a"],
+          ["Agent Run", selected.agent_run_id ?? "n/a"],
+          ["Session", selected.session_id ?? "n/a"],
+          ["Product", selected.product_id ?? "n/a"],
+        ]
+      : [];
+    const selectCallSession = (session: ModelCallSessionSummary) => {
+      setSelectedModelCallSessionKey(session.key);
+      setSelectedModelCall(session.calls[session.calls.length - 1] ?? null);
+    };
+
+    return (
+      <View style={styles.callsScreen}>
+        <View style={styles.callsHeader}>
+          <View>
+            <Text style={styles.callsTitle}>Calls</Text>
+            <Text style={styles.callsSubtitle}>
+              {modelCalls.length ? `${callSessions.length} sessions · ${modelCalls.length} calls` : "No calls loaded"}
+            </Text>
+          </View>
+          <Pressable
+            style={[styles.callsRefreshButton, isModelCallsLoading && styles.buttonDisabled]}
+            onPress={() => void loadModelCalls()}
+            disabled={isModelCallsLoading}
+          >
+            <Text style={styles.callsRefreshText}>{isModelCallsLoading ? "Loading" : "Refresh"}</Text>
+          </Pressable>
+        </View>
+        {modelCallsError ? <Text style={styles.callsError}>{modelCallsError}</Text> : null}
+        <ScrollView style={styles.callsBody} contentContainerStyle={styles.callsBodyContent}>
+          {callSessions.length ? (
+            callSessions.map((session) => {
+              const isSelected = selectedSession?.key === session.key;
+              return (
+                <Pressable
+                  key={session.key}
+                  style={[styles.callRow, isSelected && styles.callRowActive]}
+                  onPress={() => selectCallSession(session)}
+                >
+                  <View style={styles.callRowTop}>
+                    <Text style={styles.callSource} numberOfLines={1}>
+                      {session.label}
+                    </Text>
+                    <Text style={[styles.callStatus, session.status === "failed" && styles.callStatusFailed]}>
+                      {session.status}
+                    </Text>
+                  </View>
+                  <Text style={styles.callMeta} numberOfLines={1}>
+                    {session.callCount} calls · {session.providerLine} / {session.modelLine}
+                  </Text>
+                  <Text style={styles.callMeta} numberOfLines={1}>
+                    input {formatInteger(session.tokenCountInput)} · output {formatInteger(session.tokenCountOutput)} · {formatDurationMs(session.durationMs)}
+                  </Text>
+                  <Text style={styles.callTime} numberOfLines={1}>{session.endedAt}</Text>
+                </Pressable>
+              );
+            })
+          ) : (
+            <View style={styles.callsEmpty}>
+              <Text style={styles.callsEmptyTitle}>No calls yet</Text>
+              <Text style={styles.callsEmptyText}>Run a planner, chat, voice, or workflow request, then refresh.</Text>
+            </View>
+          )}
+          {selectedSession && selected ? (
+            <View style={styles.callDetailPanel}>
+              <Text style={styles.callDetailTitle}>Session Details</Text>
+              <Text style={styles.callDetailValue} numberOfLines={2}>
+                {selectedSession.sessionId ?? selectedSession.sourceId ?? selectedSession.key}
+              </Text>
+              <View style={styles.callSessionStats}>
+                <View style={styles.callSessionStat}>
+                  <Text style={styles.callSessionStatValue}>{formatInteger(selectedSession.callCount)}</Text>
+                  <Text style={styles.callSessionStatLabel}>Calls</Text>
+                </View>
+                <View style={styles.callSessionStat}>
+                  <Text style={styles.callSessionStatValue}>{formatInteger(selectedSession.tokenCountInput)}</Text>
+                  <Text style={styles.callSessionStatLabel}>Input</Text>
+                </View>
+                <View style={styles.callSessionStat}>
+                  <Text style={styles.callSessionStatValue}>{formatInteger(selectedSession.tokenCountOutput)}</Text>
+                  <Text style={styles.callSessionStatLabel}>Output</Text>
+                </View>
+              </View>
+              <Text style={styles.callSessionCallsTitle}>Calls in session</Text>
+              {selectedSession.calls.map((call) => {
+                const isSelectedCall = selected.id === call.id;
+                return (
+                  <Pressable
+                    key={call.id}
+                    style={[styles.callChildRow, isSelectedCall && styles.callChildRowActive]}
+                    onPress={() => setSelectedModelCall(call)}
+                  >
+                    <View style={styles.callRowTop}>
+                      <Text style={styles.callSource}>Call #{formatInteger(call.call_index)}</Text>
+                      <Text style={[styles.callStatus, call.status === "failed" && styles.callStatusFailed]}>
+                        {call.status}
+                      </Text>
+                    </View>
+                    <Text style={styles.callMeta} numberOfLines={1}>
+                      input {formatInteger(call.token_count_input)} · output {formatInteger(call.token_count_output)} · {formatDurationMs(call.duration_ms)}
+                    </Text>
+                    <Text style={styles.callTime} numberOfLines={1}>{call.created_at}</Text>
+                  </Pressable>
+                );
+              })}
+              <Text style={styles.callSessionCallsTitle}>Selected call details</Text>
+              {selectedDetails.map(([label, value]) => (
+                <View key={label} style={styles.callDetailRow}>
+                  <Text style={styles.callDetailLabel}>{label}</Text>
+                  <Text style={styles.callDetailValue}>{value}</Text>
+                </View>
+              ))}
+              {selected.error_message ? (
+                <View style={styles.callErrorPanel}>
+                  <Text style={styles.callDetailLabel}>Error</Text>
+                  <Text style={styles.callErrorText}>{selected.error_message}</Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+        </ScrollView>
+      </View>
+    );
+  };
+
   const renderModelManager = () => (
     <ScrollView style={styles.modelPage} contentContainerStyle={styles.modelPageContent}>
       <View style={styles.modelHeader}>
@@ -2021,6 +2318,8 @@ export default function App() {
             renderVoiceScreen()
           ) : activeTab === "models" ? (
             renderModelManager()
+          ) : activeTab === "calls" ? (
+            renderCallsScreen()
           ) : activeTab === "products" ? (
             renderProductExplorer()
           ) : (
@@ -2930,6 +3229,206 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 15,
     fontWeight: "700",
+  },
+  callsScreen: {
+    flex: 1,
+    backgroundColor: "#0d1015",
+  },
+  callsHeader: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#222a35",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+  },
+  callsTitle: {
+    color: "#f4f8ff",
+    fontSize: 22,
+    fontWeight: "900",
+  },
+  callsSubtitle: {
+    color: "#8e9aad",
+    fontSize: 12,
+    marginTop: 3,
+    fontWeight: "700",
+  },
+  callsRefreshButton: {
+    borderWidth: 1,
+    borderColor: "#38506a",
+    backgroundColor: "#132235",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  callsRefreshText: {
+    color: "#dcecff",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  callsError: {
+    color: "#ff9b9b",
+    fontSize: 12,
+    fontWeight: "700",
+    paddingHorizontal: 16,
+    paddingTop: 10,
+  },
+  callsBody: {
+    flex: 1,
+  },
+  callsBodyContent: {
+    padding: 12,
+    gap: 10,
+  },
+  callRow: {
+    borderWidth: 1,
+    borderColor: "#2a333f",
+    backgroundColor: "#121820",
+    borderRadius: 8,
+    padding: 12,
+    gap: 5,
+  },
+  callRowActive: {
+    borderColor: "#4c9fda",
+    backgroundColor: "#142437",
+  },
+  callRowTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  callSource: {
+    flex: 1,
+    color: "#edf5ff",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  callStatus: {
+    color: "#6ee7bd",
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  callStatusFailed: {
+    color: "#ff9b9b",
+  },
+  callMeta: {
+    color: "#a7b3c4",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  callTime: {
+    color: "#6f7d90",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  callsEmpty: {
+    borderWidth: 1,
+    borderColor: "#2a333f",
+    backgroundColor: "#121820",
+    borderRadius: 8,
+    padding: 16,
+    gap: 6,
+  },
+  callsEmptyTitle: {
+    color: "#f4f8ff",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  callsEmptyText: {
+    color: "#96a3b5",
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  callDetailPanel: {
+    borderWidth: 1,
+    borderColor: "#334052",
+    backgroundColor: "#101721",
+    borderRadius: 8,
+    padding: 12,
+    gap: 8,
+  },
+  callDetailTitle: {
+    color: "#f4f8ff",
+    fontSize: 15,
+    fontWeight: "900",
+    marginBottom: 2,
+  },
+  callSessionStats: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  callSessionStat: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "#263240",
+    backgroundColor: "#121a25",
+    borderRadius: 8,
+    padding: 9,
+  },
+  callSessionStatValue: {
+    color: "#f4f8ff",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  callSessionStatLabel: {
+    color: "#7f8da1",
+    fontSize: 9,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    marginTop: 3,
+  },
+  callSessionCallsTitle: {
+    color: "#f4f8ff",
+    fontSize: 13,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+  callChildRow: {
+    borderWidth: 1,
+    borderColor: "#273241",
+    backgroundColor: "#111820",
+    borderRadius: 8,
+    padding: 10,
+    gap: 4,
+  },
+  callChildRowActive: {
+    borderColor: "#4c9fda",
+    backgroundColor: "#142437",
+  },
+  callDetailRow: {
+    borderTopWidth: 1,
+    borderTopColor: "#222b36",
+    paddingTop: 7,
+    gap: 3,
+  },
+  callDetailLabel: {
+    color: "#7f8da1",
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  callDetailValue: {
+    color: "#dce5f1",
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "700",
+  },
+  callErrorPanel: {
+    borderWidth: 1,
+    borderColor: "#56323a",
+    backgroundColor: "#24161b",
+    borderRadius: 8,
+    padding: 10,
+    gap: 5,
+  },
+  callErrorText: {
+    color: "#ffb4b4",
+    fontSize: 12,
+    lineHeight: 17,
   },
   modelPage: {
     flex: 1,

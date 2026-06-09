@@ -232,10 +232,8 @@ pub async fn export_product_overview_epub(
         fs::remove_file(&destination)?;
     }
 
-    let temp_root = std::env::temp_dir().join(format!(
-        "aruvi-epub-export-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let temp_root =
+        std::env::temp_dir().join(format!("aruvi-epub-export-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&temp_root)?;
 
     let result = export_epub_archive(
@@ -276,10 +274,7 @@ pub async fn export_product_overview_pdf(
     let safe_name = sanitize_export_file_name_with_extension(&file_name, "product-book", "pdf");
     let destination = export_dir.join(safe_name);
 
-    let temp_root = std::env::temp_dir().join(format!(
-        "aruvi-pdf-export-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let temp_root = std::env::temp_dir().join(format!("aruvi-pdf-export-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&temp_root)?;
     let source_path = temp_root.join("book.html");
     fs::write(&source_path, html)?;
@@ -803,7 +798,8 @@ fn build_epub_nav_nodes(
 }
 
 fn render_epub_nav_nodes(nodes: &[EpubNavNode], depth: usize) -> String {
-    nodes.iter()
+    nodes
+        .iter()
         .map(|node| {
             let indent = "  ".repeat(depth);
             let children = if node.children.is_empty() {

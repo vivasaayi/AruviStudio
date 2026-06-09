@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import Editor from "@monaco-editor/react";
@@ -130,6 +130,7 @@ export function IDEPage() {
   const [contextBudgetChars, setContextBudgetChars] = useState("12000");
   const [patchProposal, setPatchProposal] = useState<CopilotPatchProposal | null>(null);
   const [isApplyingProposal, setIsApplyingProposal] = useState(false);
+  const copilotSessionIdRef = useRef(crypto.randomUUID());
 
   const { data: repositories = [] } = useQuery({
     queryKey: ["repositories"],
@@ -490,6 +491,9 @@ Rules:
         ],
         temperature: Number.isFinite(Number(copilotTemp)) ? Number(copilotTemp) : 0.2,
         maxTokens: Number.isFinite(Number(copilotMaxTokens)) ? Number(copilotMaxTokens) : 4096,
+        sourceKind: "desktop_ide",
+        sourceId: copilotSessionIdRef.current,
+        sourceLabel: "Desktop IDE",
       });
 
       window.setTimeout(() => {
@@ -695,6 +699,7 @@ Rules:
                 setCopilotMessages([]);
                 setPatchProposal(null);
                 setCopilotError(null);
+                copilotSessionIdRef.current = crypto.randomUUID();
               }}
               disabled={isCopilotSending}
             >

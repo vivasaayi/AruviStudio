@@ -4,3 +4,4 @@ dist
 reports
 test-results
 playwright-report
+.playwright-mcp

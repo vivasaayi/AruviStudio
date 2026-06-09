@@ -27,6 +27,7 @@ const navItems = [
   { key: "models", label: "Models" },
   { key: "chat", label: "Chat" },
   { key: "voice-chat", label: "Voice Chat" },
+  { key: "calls", label: "Calls" },
   { key: "settings", label: "Settings" },
 ] as const;
 
@@ -49,6 +50,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     currentView !== "ide"
     && currentView !== "chat"
     && currentView !== "voice-chat"
+    && currentView !== "calls"
     && currentView !== "product-overview";
   const showLeftSidebar = leftSidebarVisible && supportsHierarchyRail;
 

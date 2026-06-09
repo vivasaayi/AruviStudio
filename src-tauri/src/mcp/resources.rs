@@ -103,41 +103,27 @@ mod tests {
     #[test]
     fn definitions_include_requested_doctrine_resources() {
         let resources = definitions();
-        assert!(
-            resources
-                .iter()
-                .any(|resource| resource.uri == "aruvi://guides/product-philosophy")
-        );
-        assert!(
-            resources
-                .iter()
-                .any(|resource| resource.uri == "aruvi://guides/semantic-tree-rules")
-        );
-        assert!(
-            resources
-                .iter()
-                .any(|resource| resource.uri == "aruvi://guides/technical-depth-rubric")
-        );
-        assert!(
-            resources
-                .iter()
-                .any(|resource| resource.uri == "aruvi://guides/book-grade-structure-decision")
-        );
-        assert!(
-            resources
-                .iter()
-                .any(|resource| resource.uri == "aruvi://catalog/node-kind-constraints")
-        );
-        assert!(
-            resources
-                .iter()
-                .any(|resource| resource.uri == "aruvi://examples/deep-calculator-product")
-        );
-        assert!(
-            resources
-                .iter()
-                .any(|resource| resource.uri == "aruvi://examples/kubernetes-dashboard-product")
-        );
+        assert!(resources
+            .iter()
+            .any(|resource| resource.uri == "aruvi://guides/product-philosophy"));
+        assert!(resources
+            .iter()
+            .any(|resource| resource.uri == "aruvi://guides/semantic-tree-rules"));
+        assert!(resources
+            .iter()
+            .any(|resource| resource.uri == "aruvi://guides/technical-depth-rubric"));
+        assert!(resources
+            .iter()
+            .any(|resource| resource.uri == "aruvi://guides/book-grade-structure-decision"));
+        assert!(resources
+            .iter()
+            .any(|resource| resource.uri == "aruvi://catalog/node-kind-constraints"));
+        assert!(resources
+            .iter()
+            .any(|resource| resource.uri == "aruvi://examples/deep-calculator-product"));
+        assert!(resources
+            .iter()
+            .any(|resource| resource.uri == "aruvi://examples/kubernetes-dashboard-product"));
     }
 
     #[test]
@@ -157,8 +143,7 @@ mod tests {
 
     #[test]
     fn read_returns_json_for_node_kind_constraints_resource() {
-        let content =
-            read("aruvi://catalog/node-kind-constraints").expect("node-kind constraints");
+        let content = read("aruvi://catalog/node-kind-constraints").expect("node-kind constraints");
         assert_eq!(content.mime_type.as_deref(), Some(JSON_RESOURCE_MIME_TYPE));
         assert!(content.text.contains("\"nodeKind\": \"rollout\""));
         assert!(content.text.contains("\"canHaveChildren\": false"));

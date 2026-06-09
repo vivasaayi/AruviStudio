@@ -19,6 +19,7 @@ import {
   listWorkItemFindings,
   listWorkItems,
   listAgentDefinitions,
+  listAgentModelCallsForWorkflow,
   listAgentRunsForWorkflow,
   listAgentModelBindings,
   listAgentTeams,
@@ -47,6 +48,7 @@ import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
 import type {
   AgentDefinition,
   AgentModelBinding,
+  ModelCall,
   AgentRun,
   AgentTeam,
   AgentTeamMembership,
@@ -257,6 +259,90 @@ function parseSqliteUtcTimestamp(value?: string | null): number | null {
 function getArtifactFileName(artifact: Artifact): string {
   const segments = artifact.storage_path.split(/[\\/]/).filter(Boolean);
   return segments[segments.length - 1] ?? artifact.artifact_type;
+}
+
+type ModelUsageSummary = {
+  source: "per_call" | "agent_run" | "none";
+  callCount: number;
+  failedCallCount: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  promptChars: number;
+  responseChars: number;
+  durationMs: number | null;
+  providerLabels: string[];
+};
+
+function formatInteger(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "n/a";
+  return new Intl.NumberFormat().format(value);
+}
+
+function formatDurationMs(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "n/a";
+  if (value < 1000) return `${Math.max(0, Math.round(value))}ms`;
+  const totalSeconds = Math.round(value / 1000);
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+}
+
+function sumKnown(values: Array<number | null | undefined>): number | null {
+  let total = 0;
+  let hasValue = false;
+  for (const value of values) {
+    if (value === null || value === undefined || !Number.isFinite(value)) continue;
+    total += value;
+    hasValue = true;
+  }
+  return hasValue ? total : null;
+}
+
+function summarizeModelUsage(calls: ModelCall[], runs: AgentRun[]): ModelUsageSummary {
+  if (calls.length > 0) {
+    const providerLabels = Array.from(
+      new Set(calls.map((call) => `${call.provider_name || call.provider_id} / ${call.model_name}`).filter(Boolean)),
+    );
+    return {
+      source: "per_call",
+      callCount: calls.length,
+      failedCallCount: calls.filter((call) => call.status === "failed").length,
+      inputTokens: sumKnown(calls.map((call) => call.token_count_input)),
+      outputTokens: sumKnown(calls.map((call) => call.token_count_output)),
+      promptChars: calls.reduce((total, call) => total + call.prompt_chars, 0),
+      responseChars: calls.reduce((total, call) => total + call.response_chars, 0),
+      durationMs: sumKnown(calls.map((call) => call.duration_ms)),
+      providerLabels,
+    };
+  }
+
+  const inputTokens = sumKnown(runs.map((run) => run.token_count_input));
+  const outputTokens = sumKnown(runs.map((run) => run.token_count_output));
+  if (inputTokens !== null || outputTokens !== null) {
+    return {
+      source: "agent_run",
+      callCount: 0,
+      failedCallCount: 0,
+      inputTokens,
+      outputTokens,
+      promptChars: 0,
+      responseChars: 0,
+      durationMs: sumKnown(runs.map((run) => run.duration_ms)),
+      providerLabels: [],
+    };
+  }
+
+  return {
+    source: "none",
+    callCount: 0,
+    failedCallCount: 0,
+    inputTokens: null,
+    outputTokens: null,
+    promptChars: 0,
+    responseChars: 0,
+    durationMs: null,
+    providerLabels: [],
+  };
 }
 
 function formatWorkItemTypeLabel(workItemType: WorkItem["work_item_type"]): string {
@@ -479,6 +565,12 @@ export function WorkItemListPage() {
     enabled: !!workflowRunId,
     refetchInterval: 4000,
   });
+  const { data: agentModelCalls } = useQuery({
+    queryKey: ["agentModelCallsForWorkflow", workflowRunId],
+    queryFn: () => listAgentModelCallsForWorkflow(workflowRunId!),
+    enabled: !!workflowRunId,
+    refetchInterval: 4000,
+  });
 
   useEffect(() => {
     if (selectedWorkItemId !== activeWorkItemId) {
@@ -604,6 +696,23 @@ export function WorkItemListPage() {
     }
     return map;
   }, [stageArtifactsForFocusedStage]);
+  const modelCallsByAgentRunId = useMemo(() => {
+    const map = new Map<string, ModelCall[]>();
+    for (const call of agentModelCalls ?? []) {
+      if (!call.agent_run_id) continue;
+      const list = map.get(call.agent_run_id) ?? [];
+      list.push(call);
+      map.set(call.agent_run_id, list);
+    }
+    for (const calls of map.values()) {
+      calls.sort((a, b) => a.call_index - b.call_index || a.created_at.localeCompare(b.created_at));
+    }
+    return map;
+  }, [agentModelCalls]);
+  const workflowModelUsage = useMemo(
+    () => summarizeModelUsage(agentModelCalls ?? [], agentRuns ?? []),
+    [agentModelCalls, agentRuns],
+  );
 
   const invalidateTasks = async () => {
     await Promise.all([
@@ -614,6 +723,7 @@ export function WorkItemListPage() {
       queryClient.invalidateQueries({ queryKey: ["latestWorkflowRun", selectedWorkItemId] }),
       queryClient.invalidateQueries({ queryKey: ["workflowHistory", workflowRunId] }),
       queryClient.invalidateQueries({ queryKey: ["agentRunsForWorkflow", workflowRunId] }),
+      queryClient.invalidateQueries({ queryKey: ["agentModelCallsForWorkflow", workflowRunId] }),
       queryClient.invalidateQueries({ queryKey: ["artifacts", selectedWorkItemId] }),
       queryClient.invalidateQueries({ queryKey: ["findings", selectedWorkItemId] }),
       queryClient.refetchQueries({ queryKey: ["workItems", activeProductId, activeNodeId, activeNodeType, statusFilter], type: "active" }),
@@ -1803,6 +1913,31 @@ export function WorkItemListPage() {
                         </button>
                       </div>
                     )}
+                    <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid #32353d" }}>
+                      <div style={styles.detailLabel}>Cost Visibility</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                        <span style={styles.smallText}>Calls: {formatInteger(workflowModelUsage.callCount)}</span>
+                        <span style={styles.smallText}>Failed: {formatInteger(workflowModelUsage.failedCallCount)}</span>
+                        <span style={styles.smallText}>Input tokens: {formatInteger(workflowModelUsage.inputTokens)}</span>
+                        <span style={styles.smallText}>Output tokens: {formatInteger(workflowModelUsage.outputTokens)}</span>
+                        <span style={styles.smallText}>Prompt chars: {formatInteger(workflowModelUsage.promptChars)}</span>
+                        <span style={styles.smallText}>Response chars: {formatInteger(workflowModelUsage.responseChars)}</span>
+                        <span style={styles.smallText}>Model time: {formatDurationMs(workflowModelUsage.durationMs)}</span>
+                      </div>
+                      {workflowModelUsage.providerLabels.length > 0 && (
+                        <div style={styles.smallText}>
+                          Providers: {workflowModelUsage.providerLabels.slice(0, 3).join(", ")}
+                          {workflowModelUsage.providerLabels.length > 3 ? ` +${workflowModelUsage.providerLabels.length - 3} more` : ""}
+                        </div>
+                      )}
+                      <div style={styles.smallText}>
+                        {workflowModelUsage.source === "per_call"
+                          ? "Source: per-call telemetry. Dollar estimate is hidden until provider pricing is configured."
+                          : workflowModelUsage.source === "agent_run"
+                            ? "Source: legacy agent-run token totals. Per-call telemetry starts with new model calls."
+                            : "No token or call telemetry has been recorded for this workflow yet."}
+                      </div>
+                    </div>
                     <div style={{ marginTop: 12 }}>
                       <div style={styles.detailLabel}>Stage Artifacts</div>
                       <div style={styles.dagLegend}>
@@ -1936,6 +2071,9 @@ export function WorkItemListPage() {
                               const runArtifacts = (artifactsByAgentRunId.get(run.id) ?? []).sort((a, b) =>
                                 a.created_at.localeCompare(b.created_at),
                               );
+                              const runCalls = modelCallsByAgentRunId.get(run.id) ?? [];
+                              const runUsage = summarizeModelUsage(runCalls, [run]);
+                              const visibleRunCalls = runCalls.slice(-8);
                               return (
                                 <div key={run.id} style={styles.listItem}>
                                   <div style={styles.taskTitle}>{run.status} · {run.agent_id}</div>
@@ -1946,6 +2084,35 @@ export function WorkItemListPage() {
                                   <div style={styles.smallText}>
                                     Started: {run.started_at}{run.ended_at ? ` · Ended: ${run.ended_at}` : ""}
                                   </div>
+                                  <div style={styles.smallText}>
+                                    Usage: calls {formatInteger(runUsage.callCount)} · failed {formatInteger(runUsage.failedCallCount)} · input {formatInteger(runUsage.inputTokens)} · output {formatInteger(runUsage.outputTokens)} · model time {formatDurationMs(runUsage.durationMs)}
+                                  </div>
+                                  {runUsage.source === "agent_run" && (
+                                    <div style={styles.smallText}>Per-call rows were not recorded for this older run; showing aggregate run tokens.</div>
+                                  )}
+                                  {visibleRunCalls.length > 0 && (
+                                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #2d3139" }}>
+                                      <div style={styles.detailLabel}>Model Calls</div>
+                                      <div style={styles.list}>
+                                        {visibleRunCalls.map((call) => (
+                                          <div key={call.id} style={{ borderLeft: "2px solid #36506f", paddingLeft: 8 }}>
+                                            <div style={styles.smallText}>
+                                              #{call.call_index} · {call.status} · {call.provider_name || call.provider_id} / {call.model_name}
+                                            </div>
+                                            <div style={styles.smallText}>
+                                              Input {formatInteger(call.token_count_input)} · Output {formatInteger(call.token_count_output)} · Prompt {formatInteger(call.prompt_chars)} chars · Response {formatInteger(call.response_chars)} chars · Max {formatInteger(call.max_tokens)} · {formatDurationMs(call.duration_ms)}
+                                            </div>
+                                            {call.error_message && <div style={styles.warning}>{call.error_message}</div>}
+                                          </div>
+                                        ))}
+                                      </div>
+                                      {runCalls.length > visibleRunCalls.length && (
+                                        <div style={styles.smallText}>
+                                          Showing latest {visibleRunCalls.length} of {runCalls.length} model calls.
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
                                   {run.error_message && <div style={styles.warning}>{run.error_message}</div>}
                                   <div style={{ ...styles.detailLabel, marginTop: 8 }}>Input / Output / Attachments</div>
                                   {runArtifacts.length > 0 ? (

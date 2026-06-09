@@ -194,6 +194,7 @@ export function VoiceChatPage() {
   const sessionActiveRef = useRef(false);
   const isLoopingRef = useRef(false);
   const speakQueueRef = useRef(Promise.resolve());
+  const sessionIdRef = useRef(crypto.randomUUID());
 
   const { data: providers = [] } = useQuery<ModelProvider[]>({
     queryKey: ["voiceChatProviders"],
@@ -370,6 +371,9 @@ export function VoiceChatPage() {
           ],
           temperature: 0.5,
           maxTokens: 512,
+          sourceKind: "desktop_voice_chat",
+          sourceId: sessionIdRef.current,
+          sourceLabel: "Desktop Voice Chat",
         });
       } catch (streamError) {
         cleanup();
@@ -486,6 +490,9 @@ export function VoiceChatPage() {
 
   const startSession = () => {
     setError(null);
+    if (messagesRef.current.length === 0) {
+      sessionIdRef.current = crypto.randomUUID();
+    }
     setSessionActive(true);
     setStatus("Voice session started. I'll listen, answer, and continue automatically.");
   };
@@ -504,6 +511,12 @@ export function VoiceChatPage() {
     }
     setDraft("");
     await handleTranscript(content);
+  };
+
+  const clearTranscript = () => {
+    setMessages([]);
+    messagesRef.current = [];
+    sessionIdRef.current = crypto.randomUUID();
   };
 
   return (
@@ -601,7 +614,7 @@ export function VoiceChatPage() {
             <button style={styles.btnGhost} onClick={() => void sendTypedMessage()} disabled={isSending || !draft.trim()}>
               Send Text
             </button>
-            <button style={styles.btnGhost} onClick={() => setMessages([])} disabled={isListening || isTranscribing || isSending || isSpeaking}>
+            <button style={styles.btnGhost} onClick={clearTranscript} disabled={isListening || isTranscribing || isSending || isSpeaking}>
               Clear Transcript
             </button>
           </div>
@@ -610,4 +623,3 @@ export function VoiceChatPage() {
     </div>
   );
 }
-

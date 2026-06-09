@@ -100,6 +100,7 @@ pub fn run() {
             commands::workflow_commands::handle_workflow_user_action,
             commands::workflow_commands::advance_workflow,
             commands::workflow_commands::list_agent_runs_for_workflow,
+            commands::workflow_commands::list_agent_model_calls_for_workflow,
             commands::workflow_commands::mark_workflow_run_failed,
             commands::workflow_commands::restart_workflow_run,
             // Agent commands
@@ -146,6 +147,8 @@ pub fn run() {
             commands::model_commands::register_local_runtime_model_command,
             commands::model_commands::install_managed_local_model_command,
             commands::model_commands::run_model_chat_completion,
+            commands::model_commands::list_model_calls,
+            commands::model_commands::get_model_call,
             commands::model_commands::start_model_chat_stream,
             // Planner commands
             commands::planner_commands::create_planner_session_command,

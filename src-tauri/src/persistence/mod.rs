@@ -3,6 +3,7 @@ pub mod approval_repo;
 pub mod artifact_repo;
 pub mod db;
 pub mod finding_repo;
+pub mod model_call_repo;
 pub mod model_repo;
 pub mod observability_repo;
 pub mod planner_repo;

@@ -3,6 +3,7 @@ import type {
   ChatMessagePayload,
   MobilePlannerChatSession,
   MobilePlannerChatTurnResponse,
+  ModelCall,
   PlannerSessionInfo,
   PlannerTurnResponse,
   Product,
@@ -42,6 +43,14 @@ export class PlannerMobileClient {
 
   health() {
     return this.request<{ status: string }>("/api/mobile/health");
+  }
+
+  listModelCalls(limit = 100) {
+    return this.request<ModelCall[]>(`/api/mobile/model-calls?limit=${encodeURIComponent(String(limit))}`);
+  }
+
+  getModelCall(id: string) {
+    return this.request<ModelCall>(`/api/mobile/model-calls/${encodeURIComponent(id)}`);
   }
 
   listProducts() {

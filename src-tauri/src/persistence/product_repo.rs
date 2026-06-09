@@ -244,11 +244,13 @@ pub async fn create_module(
 }
 
 pub async fn list_modules(pool: &SqlitePool, product_id: &str) -> Result<Vec<Module>, AppError> {
-    sqlx::query_as::<_, Module>(
-        &format!("SELECT {MODULE_SELECT_COLUMNS} FROM modules WHERE product_id=? ORDER BY sort_order"),
-    )
-        .bind(product_id)
-        .fetch_all(pool).await.map_err(|e| e.into())
+    sqlx::query_as::<_, Module>(&format!(
+        "SELECT {MODULE_SELECT_COLUMNS} FROM modules WHERE product_id=? ORDER BY sort_order"
+    ))
+    .bind(product_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.into())
 }
 
 pub async fn update_module(
@@ -267,8 +269,10 @@ pub async fn update_module(
     let existing = sqlx::query_as::<_, Module>(&format!(
         "SELECT {MODULE_SELECT_COLUMNS} FROM modules WHERE id=?"
     ))
-        .bind(id)
-        .fetch_optional(pool).await?.ok_or_else(|| AppError::NotFound(format!("Module {id} not found")))?;
+    .bind(id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("Module {id} not found")))?;
     let name = name.unwrap_or(&existing.name);
     let description = description.unwrap_or(&existing.description);
     let purpose = purpose.unwrap_or(&existing.purpose);
@@ -287,8 +291,10 @@ pub async fn update_module(
     sqlx::query_as::<_, Module>(&format!(
         "SELECT {MODULE_SELECT_COLUMNS} FROM modules WHERE id=?"
     ))
-        .bind(id)
-        .fetch_one(pool).await.map_err(|e| e.into())
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| e.into())
 }
 
 pub async fn delete_module(pool: &SqlitePool, id: &str) -> Result<(), AppError> {
@@ -498,7 +504,8 @@ pub async fn convert_capability_node_kind(
     .fetch_all(pool)
     .await?;
 
-    let reparented_children = if !direct_children.is_empty() && !next_node_kind.can_have_children() {
+    let reparented_children = if !direct_children.is_empty() && !next_node_kind.can_have_children()
+    {
         if strategy != ChildReparentStrategy::ReparentToParent {
             return Err(AppError::Validation(format!(
                 "{} cannot contain structural children. Re-run with child_strategy=reparent_to_parent to preserve descendants.",

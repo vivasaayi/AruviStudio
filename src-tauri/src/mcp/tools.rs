@@ -5,12 +5,13 @@ use crate::domain::model::{ModelDefinition, ProviderType};
 use crate::domain::workflow::UserAction;
 use crate::error::AppError;
 use crate::persistence::{
-    agent_repo, approval_repo, artifact_repo, finding_repo, model_repo, observability_repo,
-    product_repo, repository_repo, settings_repo, work_item_repo, workflow_repo,
+    agent_repo, approval_repo, artifact_repo, finding_repo, model_call_repo, model_repo,
+    observability_repo, product_repo, repository_repo, settings_repo, work_item_repo,
+    workflow_repo,
 };
 use crate::providers::gateway::ModelGateway;
 use crate::providers::openai_compatible::OpenAiCompatibleProvider;
-use crate::providers::types::CompletionRequest;
+use crate::providers::types::{ChatMessage, CompletionRequest};
 use crate::secrets;
 use crate::services::channel_service::{self, PlannerContactRequest};
 use crate::services::planner_service::{
@@ -30,10 +31,26 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use sqlx::Row;
+use std::time::Instant;
 use tracing::error;
 
 const AUTO_START_AFTER_WORK_ITEM_APPROVAL_KEY: &str =
     "workflow.auto_start_after_work_item_approval";
+
+fn char_count_i64(content: &str) -> i64 {
+    i64::try_from(content.chars().count()).unwrap_or(i64::MAX)
+}
+
+fn message_char_count(messages: &[ChatMessage]) -> i64 {
+    messages
+        .iter()
+        .map(|message| char_count_i64(&message.content))
+        .sum()
+}
+
+fn elapsed_ms(started: Instant) -> i64 {
+    i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX)
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -921,8 +938,7 @@ pub async fn dispatch_tool(
         return dispatch_namespace_tool(state, tool_name, payload).await;
     }
 
-    if let Some((namespace_tool, adapted_payload)) =
-        translate_first_class_tool(tool_name, payload)?
+    if let Some((namespace_tool, adapted_payload)) = translate_first_class_tool(tool_name, payload)?
     {
         return dispatch_namespace_tool(state, namespace_tool, adapted_payload).await;
     }
@@ -1021,12 +1037,8 @@ fn translate_first_class_tool(
         "repositories.trees.list" => ("aruvi_repositories", "list_repository_tree"),
         "repositories.files.read" => ("aruvi_repositories", "read_repository_file"),
         "repositories.files.write" => ("aruvi_repositories", "write_repository_file"),
-        "repositories.files.get_sha256" => {
-            ("aruvi_repositories", "get_repository_file_sha256")
-        }
-        "repositories.files.apply_patch" => {
-            ("aruvi_repositories", "apply_repository_patch")
-        }
+        "repositories.files.get_sha256" => ("aruvi_repositories", "get_repository_file_sha256"),
+        "repositories.files.apply_patch" => ("aruvi_repositories", "apply_repository_patch"),
         _ => return Ok(None),
     };
 
@@ -1074,7 +1086,12 @@ fn action_tool(name: &str, description: &str, actions: &[&str]) -> ToolDefinitio
     }
 }
 
-fn first_class_tool(name: &str, title: &str, description: &str, input_schema: Value) -> ToolDefinition {
+fn first_class_tool(
+    name: &str,
+    title: &str,
+    description: &str,
+    input_schema: Value,
+) -> ToolDefinition {
     ToolDefinition {
         name: name.to_string(),
         title: Some(title.to_string()),
@@ -1485,8 +1502,7 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
                 args.optional_string(&["node_kind", "nodeKind"])?.as_deref(),
                 &args.string_or_default(&["explanation"], "")?,
                 &args.string_or_default(&["examples"], "")?,
-                &args
-                    .string_or_default(&["implementation_notes", "implementationNotes"], "")?,
+                &args.string_or_default(&["implementation_notes", "implementationNotes"], "")?,
                 &args.string_or_default(&["test_guidance", "testGuidance"], "")?,
             )
             .await?;
@@ -1548,8 +1564,7 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
                 args.optional_string(&["node_kind", "nodeKind"])?.as_deref(),
                 &args.string_or_default(&["explanation"], "")?,
                 &args.string_or_default(&["examples"], "")?,
-                &args
-                    .string_or_default(&["implementation_notes", "implementationNotes"], "")?,
+                &args.string_or_default(&["implementation_notes", "implementationNotes"], "")?,
                 &args.string_or_default(&["test_guidance", "testGuidance"], "")?,
             )
             .await?;
@@ -1619,8 +1634,7 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
                 args.optional_string(&["risk"])?.as_deref(),
                 &args.string_or_default(&["explanation"], "")?,
                 &args.string_or_default(&["examples"], "")?,
-                &args
-                    .string_or_default(&["implementation_notes", "implementationNotes"], "")?,
+                &args.string_or_default(&["implementation_notes", "implementationNotes"], "")?,
                 &args.string_or_default(&["test_guidance", "testGuidance"], "")?,
             )
             .await?;
@@ -2757,14 +2771,107 @@ async fn handle_models(state: &AppState, payload: Value) -> Result<Value, AppErr
             let provider = model_repo::get_provider(&state.db, &provider_id).await?;
             let api_key = secrets::resolve_provider_secret(&provider)?;
             let gateway = OpenAiCompatibleProvider::new(provider.base_url.clone(), api_key);
-            let response = gateway
+            let model = args.required_string(&["model"], "model")?;
+            let messages =
+                args.required_deserialize::<Vec<ChatMessage>>(&["messages"], "messages")?;
+            let temperature = args.optional_f64(&["temperature"])?;
+            let max_tokens = args.optional_i64(&["max_tokens", "maxTokens"])?;
+            let started = Instant::now();
+            let response = match gateway
                 .run_completion(CompletionRequest {
-                    model: args.required_string(&["model"], "model")?,
-                    messages: args.required_deserialize(&["messages"], "messages")?,
-                    temperature: args.optional_f64(&["temperature"])?,
-                    max_tokens: args.optional_i64(&["max_tokens", "maxTokens"])?,
+                    model: model.clone(),
+                    messages: messages.clone(),
+                    temperature,
+                    max_tokens,
                 })
-                .await?;
+                .await
+            {
+                Ok(response) => response,
+                Err(error) => {
+                    let error_message = error.to_string();
+                    let call_index = model_call_repo::next_model_call_index(
+                        &state.db,
+                        "mcp_model_completion",
+                        None,
+                    )
+                    .await?;
+                    let call_id = uuid::Uuid::new_v4().to_string();
+                    model_call_repo::create_model_call(
+                        &state.db,
+                        model_call_repo::CreateModelCallParams {
+                            id: &call_id,
+                            source_kind: "mcp_model_completion",
+                            source_id: None,
+                            source_label: "MCP Model Completion",
+                            workflow_run_id: None,
+                            agent_run_id: None,
+                            work_item_id: None,
+                            product_id: None,
+                            session_id: None,
+                            agent_id: None,
+                            stage: None,
+                            provider_id: &provider.id,
+                            provider_name: &provider.name,
+                            provider_type: provider.provider_type.as_str(),
+                            provider_base_url: &provider.base_url,
+                            model_id: None,
+                            model_name: &model,
+                            call_index,
+                            request_message_count: i64::try_from(messages.len())
+                                .unwrap_or(i64::MAX),
+                            prompt_chars: message_char_count(&messages),
+                            response_chars: 0,
+                            max_tokens,
+                            temperature,
+                            token_count_input: None,
+                            token_count_output: None,
+                            duration_ms: Some(elapsed_ms(started)),
+                            status: "failed",
+                            error_message: Some(&error_message),
+                        },
+                    )
+                    .await?;
+                    return Err(error);
+                }
+            };
+            let call_index =
+                model_call_repo::next_model_call_index(&state.db, "mcp_model_completion", None)
+                    .await?;
+            let call_id = uuid::Uuid::new_v4().to_string();
+            model_call_repo::create_model_call(
+                &state.db,
+                model_call_repo::CreateModelCallParams {
+                    id: &call_id,
+                    source_kind: "mcp_model_completion",
+                    source_id: None,
+                    source_label: "MCP Model Completion",
+                    workflow_run_id: None,
+                    agent_run_id: None,
+                    work_item_id: None,
+                    product_id: None,
+                    session_id: None,
+                    agent_id: None,
+                    stage: None,
+                    provider_id: &provider.id,
+                    provider_name: &provider.name,
+                    provider_type: provider.provider_type.as_str(),
+                    provider_base_url: &provider.base_url,
+                    model_id: None,
+                    model_name: &model,
+                    call_index,
+                    request_message_count: i64::try_from(messages.len()).unwrap_or(i64::MAX),
+                    prompt_chars: message_char_count(&messages),
+                    response_chars: char_count_i64(&response.content),
+                    max_tokens,
+                    temperature,
+                    token_count_input: response.token_count_input,
+                    token_count_output: response.token_count_output,
+                    duration_ms: Some(elapsed_ms(started)),
+                    status: "completed",
+                    error_message: None,
+                },
+            )
+            .await?;
             action_result("run_model_chat_completion", response)
         }
         other => Err(AppError::Validation(format!(
@@ -3086,16 +3193,12 @@ mod tests {
             root_kind_enum,
             &vec![json!("area"), json!("domain"), json!("system")]
         );
-        assert!(
-            module_create_tool
-                .description
-                .contains("aruvi://catalog/node-kind-constraints")
-        );
-        assert!(
-            capability_create_tool
-                .description
-                .contains("Rollout and reference are leaves")
-        );
+        assert!(module_create_tool
+            .description
+            .contains("aruvi://catalog/node-kind-constraints"));
+        assert!(capability_create_tool
+            .description
+            .contains("Rollout and reference are leaves"));
     }
 
     #[test]

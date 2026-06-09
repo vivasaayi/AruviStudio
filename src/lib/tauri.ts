@@ -20,6 +20,7 @@ import type {
   AgentSkillLink,
   TeamSkillLink,
   WorkflowStagePolicy,
+  ModelCall,
   AgentRun,
   WorkflowRun,
   WorkflowStageHistory,
@@ -669,6 +670,9 @@ export const runModelChatCompletion = (data: {
   messages: ChatMessagePayload[];
   temperature?: number;
   maxTokens?: number;
+  sourceKind?: string;
+  sourceId?: string;
+  sourceLabel?: string;
 }) =>
   invoke<ChatCompletionResponse>("run_model_chat_completion", {
     providerId: data.providerId,
@@ -678,6 +682,9 @@ export const runModelChatCompletion = (data: {
     temperature: data.temperature ?? null,
     maxTokens: data.maxTokens ?? null,
     max_tokens: data.maxTokens ?? null,
+    source_kind: data.sourceKind ?? null,
+    source_id: data.sourceId ?? null,
+    source_label: data.sourceLabel ?? null,
   });
 export const startModelChatStream = (data: {
   providerId: string;
@@ -685,6 +692,9 @@ export const startModelChatStream = (data: {
   messages: ChatMessagePayload[];
   temperature?: number;
   maxTokens?: number;
+  sourceKind?: string;
+  sourceId?: string;
+  sourceLabel?: string;
 }) =>
   invoke<string>("start_model_chat_stream", {
     providerId: data.providerId,
@@ -694,7 +704,12 @@ export const startModelChatStream = (data: {
     temperature: data.temperature ?? null,
     maxTokens: data.maxTokens ?? null,
     max_tokens: data.maxTokens ?? null,
+    source_kind: data.sourceKind ?? null,
+    source_id: data.sourceId ?? null,
+    source_label: data.sourceLabel ?? null,
   });
+export const listModelCalls = (limit = 200) => invoke<ModelCall[]>("list_model_calls", { limit });
+export const getModelCall = (id: string) => invoke<ModelCall>("get_model_call", { id });
 
 // Agent commands
 export const listAgentDefinitions = () => invoke<AgentDefinition[]>("list_agent_definitions");
@@ -868,6 +883,11 @@ export const handleWorkflowUserAction = (data: {
   });
 export const listAgentRunsForWorkflow = (workflowRunId: string) =>
   invoke<AgentRun[]>("list_agent_runs_for_workflow", {
+    workflowRunId,
+    workflow_run_id: workflowRunId,
+  });
+export const listAgentModelCallsForWorkflow = (workflowRunId: string) =>
+  invoke<ModelCall[]>("list_agent_model_calls_for_workflow", {
     workflowRunId,
     workflow_run_id: workflowRunId,
   });

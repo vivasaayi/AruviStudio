@@ -1,5 +1,5 @@
 use crate::mcp;
-use crate::persistence::{model_repo, planner_repo, product_repo, settings_repo};
+use crate::persistence::{model_call_repo, model_repo, planner_repo, product_repo, settings_repo};
 use crate::providers::gateway::ModelGateway;
 use crate::providers::openai_compatible::OpenAiCompatibleProvider;
 use crate::providers::types::{ChatMessage, CompletionRequest, CompletionResponse};
@@ -31,6 +31,7 @@ use serde_json::{json, Value};
 use sha1::Sha1;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr, UdpSocket};
+use std::time::Instant;
 use tracing::{error, info};
 
 const MOBILE_API_TOKEN_KEY: &str = "mobile.api_token";
@@ -40,6 +41,85 @@ pub const MOBILE_BIND_PORT_KEY: &str = "mobile.bind_port";
 const SPEECH_PROVIDER_KEY: &str = "speech.transcription_provider_id";
 const SPEECH_MODEL_KEY: &str = "speech.transcription_model_name";
 const SPEECH_LOCALE_KEY: &str = "speech.locale";
+
+fn char_count_i64(content: &str) -> i64 {
+    i64::try_from(content.chars().count()).unwrap_or(i64::MAX)
+}
+
+fn message_char_count(messages: &[ChatMessage]) -> i64 {
+    messages
+        .iter()
+        .map(|message| char_count_i64(&message.content))
+        .sum()
+}
+
+fn elapsed_ms(started: Instant) -> i64 {
+    i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX)
+}
+
+struct WebhookModelCallContext<'a> {
+    source_kind: &'a str,
+    source_id: Option<&'a str>,
+    source_label: &'a str,
+    session_id: Option<&'a str>,
+    product_id: Option<&'a str>,
+}
+
+async fn record_webhook_model_call(
+    state: &AppState,
+    context: WebhookModelCallContext<'_>,
+    provider: &crate::domain::model::ModelProvider,
+    model_name: &str,
+    messages: &[ChatMessage],
+    max_tokens: Option<i64>,
+    temperature: Option<f64>,
+    response_chars: i64,
+    token_count_input: Option<i64>,
+    token_count_output: Option<i64>,
+    duration_ms: i64,
+    status: &str,
+    error_message: Option<&str>,
+) -> Result<(), crate::error::AppError> {
+    let call_index =
+        model_call_repo::next_model_call_index(&state.db, context.source_kind, context.source_id)
+            .await?;
+    let call_id = uuid::Uuid::new_v4().to_string();
+    model_call_repo::create_model_call(
+        &state.db,
+        model_call_repo::CreateModelCallParams {
+            id: &call_id,
+            source_kind: context.source_kind,
+            source_id: context.source_id,
+            source_label: context.source_label,
+            workflow_run_id: None,
+            agent_run_id: None,
+            work_item_id: None,
+            product_id: context.product_id,
+            session_id: context.session_id,
+            agent_id: None,
+            stage: None,
+            provider_id: &provider.id,
+            provider_name: &provider.name,
+            provider_type: provider.provider_type.as_str(),
+            provider_base_url: &provider.base_url,
+            model_id: None,
+            model_name,
+            call_index,
+            request_message_count: i64::try_from(messages.len()).unwrap_or(i64::MAX),
+            prompt_chars: message_char_count(messages),
+            response_chars,
+            max_tokens,
+            temperature,
+            token_count_input,
+            token_count_output,
+            duration_ms: Some(duration_ms),
+            status,
+            error_message,
+        },
+    )
+    .await?;
+    Ok(())
+}
 
 #[derive(Clone)]
 pub struct WebhookState {
@@ -115,6 +195,11 @@ struct TwilioVoiceForm {
 struct MobilePlannerSessionRequest {
     provider_id: Option<String>,
     model_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelCallListQuery {
+    limit: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -257,6 +342,34 @@ async fn mobile_healthcheck(
         "service": "aruvi-mobile-api",
     }))
     .into_response()
+}
+
+async fn mobile_list_model_calls(
+    State(state): State<WebhookState>,
+    headers: HeaderMap,
+    Query(query): Query<ModelCallListQuery>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await {
+        return response;
+    }
+    match model_call_repo::list_model_calls(&state.app_state.db, query.limit.unwrap_or(100)).await {
+        Ok(calls) => Json(calls).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
+}
+
+async fn mobile_get_model_call(
+    State(state): State<WebhookState>,
+    headers: HeaderMap,
+    Path(call_id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await {
+        return response;
+    }
+    match model_call_repo::get_model_call(&state.app_state.db, &call_id).await {
+        Ok(call) => Json(call).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
 }
 
 async fn mobile_list_products(
@@ -470,18 +583,76 @@ async fn mobile_chat_completion(
         Ok(api_key) => api_key,
         Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
     };
-    let gateway = OpenAiCompatibleProvider::new(provider.base_url, api_key);
+    let gateway = OpenAiCompatibleProvider::new(provider.base_url.clone(), api_key);
+    let max_tokens = body.max_tokens.or(Some(4096));
+    let temperature = body.temperature;
+    let started = Instant::now();
     match gateway
         .run_completion(CompletionRequest {
-            model: model_name,
-            messages,
-            temperature: body.temperature,
-            max_tokens: body.max_tokens.or(Some(4096)),
+            model: model_name.clone(),
+            messages: messages.clone(),
+            temperature,
+            max_tokens,
         })
         .await
     {
-        Ok(response) => Json::<CompletionResponse>(response).into_response(),
-        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+        Ok(response) => {
+            if let Err(record_error) = record_webhook_model_call(
+                &state.app_state,
+                WebhookModelCallContext {
+                    source_kind: "mobile_chat",
+                    source_id: None,
+                    source_label: "Mobile Chat",
+                    session_id: None,
+                    product_id: None,
+                },
+                &provider,
+                &model_name,
+                &messages,
+                max_tokens,
+                temperature,
+                char_count_i64(&response.content),
+                response.token_count_input,
+                response.token_count_output,
+                elapsed_ms(started),
+                "completed",
+                None,
+            )
+            .await
+            {
+                error!(error = %record_error, "Failed to record mobile chat telemetry");
+            }
+            Json::<CompletionResponse>(response).into_response()
+        }
+        Err(error) => {
+            let error_message = error.to_string();
+            if let Err(record_error) = record_webhook_model_call(
+                &state.app_state,
+                WebhookModelCallContext {
+                    source_kind: "mobile_chat",
+                    source_id: None,
+                    source_label: "Mobile Chat",
+                    session_id: None,
+                    product_id: None,
+                },
+                &provider,
+                &model_name,
+                &messages,
+                max_tokens,
+                temperature,
+                0,
+                None,
+                None,
+                elapsed_ms(started),
+                "failed",
+                Some(&error_message),
+            )
+            .await
+            {
+                error!(error = %record_error, "Failed to record failed mobile chat telemetry");
+            }
+            (StatusCode::BAD_REQUEST, error_message).into_response()
+        }
     }
 }
 
@@ -636,10 +807,11 @@ async fn mobile_submit_planner_chat_turn(
     {
         return (StatusCode::BAD_REQUEST, error.to_string()).into_response();
     }
-    let gateway = OpenAiCompatibleProvider::new(provider.base_url, api_key);
+    let gateway = OpenAiCompatibleProvider::new(provider.base_url.clone(), api_key);
     match run_mobile_planner_chat_turn(
         &state.app_state,
         &gateway,
+        &provider,
         session_id,
         provider_id,
         model_name,
@@ -657,6 +829,7 @@ async fn mobile_submit_planner_chat_turn(
 async fn run_mobile_planner_chat_turn(
     state: &AppState,
     gateway: &OpenAiCompatibleProvider,
+    provider: &crate::domain::model::ModelProvider,
     session_id: String,
     provider_id: String,
     model_name: String,
@@ -713,15 +886,74 @@ async fn run_mobile_planner_chat_turn(
     let mut token_count_output = 0_i64;
 
     for step in 1..=max_tool_steps {
-        let completion = gateway
+        let max_tokens = Some(4096);
+        let temperature = Some(0.2);
+        let started = Instant::now();
+        let completion = match gateway
             .run_completion(CompletionRequest {
                 model: model_name.clone(),
                 messages: conversation.clone(),
-                temperature: Some(0.2),
-                max_tokens: Some(4096),
+                temperature,
+                max_tokens,
             })
             .await
-            .map_err(|error| error.to_string())?;
+        {
+            Ok(completion) => completion,
+            Err(error) => {
+                let error_message = error.to_string();
+                if let Err(record_error) = record_webhook_model_call(
+                    state,
+                    WebhookModelCallContext {
+                        source_kind: "mobile_planner_chat",
+                        source_id: Some(&session_id),
+                        source_label: "Mobile Planner Chat",
+                        session_id: Some(&session_id),
+                        product_id: product_id.as_deref(),
+                    },
+                    provider,
+                    &model_name,
+                    &conversation,
+                    max_tokens,
+                    temperature,
+                    0,
+                    None,
+                    None,
+                    elapsed_ms(started),
+                    "failed",
+                    Some(&error_message),
+                )
+                .await
+                {
+                    error!(error = %record_error, "Failed to record failed mobile planner telemetry");
+                }
+                return Err(error_message);
+            }
+        };
+        if let Err(record_error) = record_webhook_model_call(
+            state,
+            WebhookModelCallContext {
+                source_kind: "mobile_planner_chat",
+                source_id: Some(&session_id),
+                source_label: "Mobile Planner Chat",
+                session_id: Some(&session_id),
+                product_id: product_id.as_deref(),
+            },
+            provider,
+            &model_name,
+            &conversation,
+            max_tokens,
+            temperature,
+            char_count_i64(&completion.content),
+            completion.token_count_input,
+            completion.token_count_output,
+            elapsed_ms(started),
+            "completed",
+            None,
+        )
+        .await
+        {
+            error!(error = %record_error, "Failed to record mobile planner telemetry");
+        }
         if let Some(tokens) = completion.token_count_input {
             token_count_input += tokens;
         }
@@ -848,15 +1080,74 @@ async fn run_mobile_planner_chat_turn(
         role: "user".to_string(),
         content: "You reached the mobile planner tool-step limit. Return exactly one JSON object with type=final. In message, give a natural mobile-friendly summary of what you learned or changed, list created/updated item names when available, and invite one concise follow-up question. Do not call another tool.".to_string(),
     });
-    let completion = gateway
+    let max_tokens = Some(2048);
+    let temperature = Some(0.2);
+    let started = Instant::now();
+    let completion = match gateway
         .run_completion(CompletionRequest {
             model: model_name.clone(),
-            messages: conversation,
-            temperature: Some(0.2),
-            max_tokens: Some(2048),
+            messages: conversation.clone(),
+            temperature,
+            max_tokens,
         })
         .await
-        .map_err(|error| error.to_string())?;
+    {
+        Ok(completion) => completion,
+        Err(error) => {
+            let error_message = error.to_string();
+            if let Err(record_error) = record_webhook_model_call(
+                state,
+                WebhookModelCallContext {
+                    source_kind: "mobile_planner_chat",
+                    source_id: Some(&session_id),
+                    source_label: "Mobile Planner Chat",
+                    session_id: Some(&session_id),
+                    product_id: product_id.as_deref(),
+                },
+                provider,
+                &model_name,
+                &conversation,
+                max_tokens,
+                temperature,
+                0,
+                None,
+                None,
+                elapsed_ms(started),
+                "failed",
+                Some(&error_message),
+            )
+            .await
+            {
+                error!(error = %record_error, "Failed to record failed mobile planner telemetry");
+            }
+            return Err(error_message);
+        }
+    };
+    if let Err(record_error) = record_webhook_model_call(
+        state,
+        WebhookModelCallContext {
+            source_kind: "mobile_planner_chat",
+            source_id: Some(&session_id),
+            source_label: "Mobile Planner Chat",
+            session_id: Some(&session_id),
+            product_id: product_id.as_deref(),
+        },
+        provider,
+        &model_name,
+        &conversation,
+        max_tokens,
+        temperature,
+        char_count_i64(&completion.content),
+        completion.token_count_input,
+        completion.token_count_output,
+        elapsed_ms(started),
+        "completed",
+        None,
+    )
+    .await
+    {
+        error!(error = %record_error, "Failed to record mobile planner telemetry");
+    }
     if let Some(tokens) = completion.token_count_input {
         token_count_input += tokens;
     }
@@ -1870,6 +2161,11 @@ pub async fn start_webhook_server(app_state: AppState) {
                 .delete(mcp_http_delete),
         )
         .route("/api/mobile/health", get(mobile_healthcheck))
+        .route("/api/mobile/model-calls", get(mobile_list_model_calls))
+        .route(
+            "/api/mobile/model-calls/:call_id",
+            get(mobile_get_model_call),
+        )
         .route("/api/mobile/products", get(mobile_list_products))
         .route(
             "/api/mobile/products/:product_id/tree",
