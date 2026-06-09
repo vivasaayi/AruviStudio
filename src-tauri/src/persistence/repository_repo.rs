@@ -20,6 +20,30 @@ pub async fn list_repositories(pool: &SqlitePool) -> Result<Vec<Repository>, App
         .fetch_all(pool).await.map_err(|e| e.into())
 }
 
+pub async fn update_repository(
+    pool: &SqlitePool,
+    id: &str,
+    name: &str,
+    local_path: &str,
+    remote_url: &str,
+    default_branch: &str,
+) -> Result<Repository, AppError> {
+    sqlx::query_as::<_, Repository>(
+        "UPDATE repositories
+         SET name=?, local_path=?, remote_url=?, default_branch=?, updated_at=datetime('now')
+         WHERE id=?
+         RETURNING id,name,local_path,remote_url,default_branch,auth_profile,created_at,updated_at",
+    )
+    .bind(name)
+    .bind(local_path)
+    .bind(remote_url)
+    .bind(default_branch)
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| e.into())
+}
+
 pub async fn delete_repository(pool: &SqlitePool, id: &str) -> Result<(), AppError> {
     sqlx::query("DELETE FROM repositories WHERE id=?")
         .bind(id)

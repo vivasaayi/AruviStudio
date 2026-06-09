@@ -56,6 +56,61 @@ pub async fn register_repository(
 }
 
 #[tauri::command]
+pub async fn update_repository(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+    local_path: String,
+    remote_url: String,
+    default_branch: String,
+) -> Result<Repository, AppError> {
+    let trimmed_name = name.trim();
+    let trimmed_path = local_path.trim();
+    let trimmed_branch = default_branch.trim();
+
+    if trimmed_name.is_empty() {
+        return Err(AppError::Validation(
+            "Workspace name is required".to_string(),
+        ));
+    }
+    if trimmed_path.is_empty() {
+        return Err(AppError::Validation("Local path is required".to_string()));
+    }
+    if trimmed_branch.is_empty() {
+        return Err(AppError::Validation(
+            "Default branch is required".to_string(),
+        ));
+    }
+
+    let existing = repository_repo::get_repository(&state.db, &id).await?;
+    let repository = repository_repo::update_repository(
+        &state.db,
+        &id,
+        trimmed_name,
+        trimmed_path,
+        remote_url.trim(),
+        trimmed_branch,
+    )
+    .await?;
+
+    if existing.default_branch != repository.default_branch {
+        sqlx::query(
+            "UPDATE work_items
+             SET branch_name=?, updated_at=datetime('now')
+             WHERE active_repo_id=?
+               AND (branch_name IS NULL OR branch_name=?)",
+        )
+        .bind(&repository.default_branch)
+        .bind(&repository.id)
+        .bind(&existing.default_branch)
+        .execute(&state.db)
+        .await?;
+    }
+
+    Ok(repository)
+}
+
+#[tauri::command]
 pub async fn list_repositories(state: State<'_, AppState>) -> Result<Vec<Repository>, AppError> {
     repository_repo::list_repositories(&state.db).await
 }
