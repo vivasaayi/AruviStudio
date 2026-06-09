@@ -378,6 +378,17 @@ export const registerRepository = (data: { name: string; localPath: string; remo
     remote_url: data.remoteUrl,
     default_branch: data.defaultBranch,
   });
+export const updateRepository = (data: { id: string; name: string; localPath: string; remoteUrl: string; defaultBranch: string }) =>
+  invoke<Repository>("update_repository", {
+    id: data.id,
+    name: data.name,
+    localPath: data.localPath,
+    remoteUrl: data.remoteUrl,
+    defaultBranch: data.defaultBranch,
+    local_path: data.localPath,
+    remote_url: data.remoteUrl,
+    default_branch: data.defaultBranch,
+  });
 export const listRepositories = () => invoke<Repository[]>("list_repositories");
 export const deleteRepository = (id: string) => invoke("delete_repository", { id });
 export const browseForRepositoryPath = () => invoke<string | null>("browse_for_repository_path");

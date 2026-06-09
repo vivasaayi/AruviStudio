@@ -12,7 +12,7 @@ import {
 } from "../../../lib/tauri";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
-import { ProductOverviewDocument } from "../components/ProductOverviewDocument";
+import { ProductOverviewDocument, type ProductOverviewPlannerAction } from "../components/ProductOverviewDocument";
 import type { Capability, Module, Product, ProductTree, WorkItem } from "../../../lib/types";
 import {
   BOOK_EXPORT_TRIM_PRESETS,
@@ -249,6 +249,55 @@ export function ProductOverviewPage() {
     navigate(`/work-items/${workItem.id}`);
   };
 
+  const planFromItem = (action: ProductOverviewPlannerAction) => {
+    const product = action.product;
+    let prompt: string;
+
+    setActiveProduct(product.id);
+    setActiveWorkItem(null);
+
+    switch (action.kind) {
+      case "enhance_product":
+        prompt = `Enhance product "${product.name}". Review the current book structure, identify missing root sections, capabilities, rollouts, and work items, then stage a concrete improvement plan.`;
+        break;
+      case "add_product_child":
+        prompt = `Add a useful child section under product "${product.name}". Stage the new module/root section with its initial capabilities and starter work items.`;
+        break;
+      case "enhance_module":
+        setActiveModule(action.module.id);
+        prompt = `Enhance module "${action.module.name}" in product "${product.name}". Add or revise child capabilities, rollouts, and work items so this branch is execution-ready.`;
+        break;
+      case "add_module_child":
+        setActiveModule(action.module.id);
+        prompt = `Add child capabilities under module "${action.module.name}" in product "${product.name}". Include concise descriptions, acceptance criteria, and starter work items where helpful.`;
+        break;
+      case "enhance_capability":
+        setActiveModule(action.capability.module_id);
+        setActiveCapability(action.capability.id);
+        prompt = `Enhance ${action.capability.node_kind.replace(/_/g, " ")} "${action.capability.name}" under "${action.moduleName}" in product "${product.name}". Improve its description, acceptance criteria, technical notes, and missing child structure.`;
+        break;
+      case "add_capability_child":
+        setActiveModule(action.capability.module_id);
+        setActiveCapability(action.capability.id);
+        prompt = `Add child nodes under "${action.capability.name}" in product "${product.name}". Stage concrete rollouts or sub-capabilities with clear descriptions and acceptance criteria.`;
+        break;
+      case "add_capability_work_item":
+        setActiveModule(action.capability.module_id);
+        setActiveCapability(action.capability.id);
+        prompt = `Add implementation work items under "${action.capability.name}" in product "${product.name}". Make each work item specific, testable, and scoped to this branch.`;
+        break;
+      case "enhance_work_item":
+        setActiveModule(action.workItem.module_id ?? null);
+        setActiveCapability(action.workItem.capability_id ?? null);
+        setActiveWorkItem(action.workItem.id);
+        prompt = `Enhance work item "${action.workItem.title}" in product "${product.name}". Improve the problem statement, acceptance criteria, constraints, and split it into child work items if needed.`;
+        break;
+    }
+
+    setActiveView("planner");
+    navigate("/planner", { state: { plannerPrompt: prompt, plannerView: "conversation" } });
+  };
+
   if (!productsLoading && products.length === 0) {
     return (
       <div style={styles.page}>
@@ -358,6 +407,7 @@ export function ProductOverviewPage() {
           onEditModule={editModule}
           onEditCapability={editCapability}
           onOpenWorkItem={openWorkItem}
+          onPlanFromItem={planFromItem}
         />
       ) : (
         <div style={styles.empty}>Loading product overview…</div>

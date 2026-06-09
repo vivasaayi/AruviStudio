@@ -10,9 +10,24 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.aruvi.plannermobile",
       "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSAllowsArbitraryLoadsInWebContent": true,
+          "NSAllowsLocalNetworking": true
+        },
+        "NSLocalNetworkUsageDescription": "Connect to your private Aruvi desktop bridge on your local network or tailnet.",
         "NSMicrophoneUsageDescription": "Record voice planning prompts for the desktop planner.",
-        "NSSpeechRecognitionUsageDescription": "Use voice planning features that transcribe speech through the desktop planner bridge."
+        "NSSpeechRecognitionUsageDescription": "Use voice planning features that transcribe speech through the desktop planner bridge.",
+        "ITSAppUsesNonExemptEncryption": false
       }
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "e56985b9-d9f5-432c-b4c7-77b3eed4e09b"
+      }
+    },
+    "plugins": [
+      "expo-asset"
+    ]
   }
 }

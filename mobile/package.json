@@ -2,21 +2,24 @@
   "name": "aruvi-planner-mobile",
   "private": true,
   "version": "0.1.0",
-  "main": "App.tsx",
+  "main": "node_modules/expo/AppEntry.js",
   "scripts": {
     "start": "expo start",
-    "ios": "expo start --ios",
-    "android": "expo start --android",
+    "ios": "LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 expo run:ios",
+    "android": "expo run:android",
     "web": "expo start --web"
   },
   "dependencies": {
     "expo": "~53.0.0",
-    "expo-av": "~15.1.0",
-    "expo-file-system": "~18.1.0",
+    "expo-asset": "~11.1.7",
+    "expo-audio": "~0.4.9",
+    "expo-file-system": "~18.1.11",
     "expo-secure-store": "~14.2.0",
-    "expo-speech": "~13.1.0",
+    "expo-speech": "~13.1.7",
     "react": "19.0.0",
-    "react-native": "0.79.0"
+    "react-native": "0.79.0",
+    "react-native-webview": "^13.13.5",
+    "whisper.rn": "^0.6.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

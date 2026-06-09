@@ -65,6 +65,7 @@ const styles: Record<string, React.CSSProperties> = {
   subtitle: { fontSize: 14, color: "#d6deea", lineHeight: 1.7, margin: 0 },
   prose: { fontSize: 14, color: "#dce5f2", lineHeight: 1.75, whiteSpace: "pre-wrap" as const },
   button: { padding: "7px 12px", fontSize: 12, fontWeight: 700, backgroundColor: "#22344a", color: "#f4f8ff", border: "1px solid #406183", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
+  plannerButton: { padding: "7px 12px", fontSize: 12, fontWeight: 800, backgroundColor: "#12304a", color: "#eaf5ff", border: "1px solid #2d6fa3", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
   subtleButton: { padding: "6px 10px", fontSize: 12, fontWeight: 700, backgroundColor: "#182433", color: "#cfe0f7", border: "1px solid #31465f", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
   toggleButton: { padding: "7px 12px", fontSize: 12, fontWeight: 700, backgroundColor: "#182433", color: "#d9e7fa", border: "1px solid #35506f", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
   readerToolbar: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" as const },
@@ -99,6 +100,7 @@ const styles: Record<string, React.CSSProperties> = {
   summaryPill: { display: "inline-flex", alignItems: "center", borderRadius: 999, padding: "5px 9px", fontSize: 11, fontWeight: 700, backgroundColor: "#1b2431", border: "1px solid #324256", color: "#c8d5e8" },
   statePill: { display: "inline-flex", alignItems: "center", borderRadius: 999, padding: "5px 9px", fontSize: 11, fontWeight: 800, border: "1px solid currentColor", backgroundColor: "rgba(255,255,255,0.04)" },
   detailsBody: { padding: "0 18px 18px", display: "flex", flexDirection: "column", gap: 16 },
+  nodeActionRow: { display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" as const },
   noteGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 },
   noteCard: { borderRadius: 14, border: "1px solid #263142", backgroundColor: "#111821", padding: 14 },
   noteHeading: { fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" as const, color: "#95a7c0", marginBottom: 8 },
@@ -124,7 +126,18 @@ type ProductOverviewDocumentProps = {
   onEditModule: (module: Module) => void;
   onEditCapability: (capability: Capability) => void;
   onOpenWorkItem: (workItem: WorkItem) => void;
+  onPlanFromItem: (action: ProductOverviewPlannerAction) => void;
 };
+
+export type ProductOverviewPlannerAction =
+  | { kind: "enhance_product"; product: Product }
+  | { kind: "add_product_child"; product: Product }
+  | { kind: "enhance_module"; product: Product; module: Module }
+  | { kind: "add_module_child"; product: Product; module: Module }
+  | { kind: "enhance_capability"; product: Product; moduleName: string; capability: Capability }
+  | { kind: "add_capability_child"; product: Product; moduleName: string; capability: Capability }
+  | { kind: "add_capability_work_item"; product: Product; moduleName: string; capability: Capability }
+  | { kind: "enhance_work_item"; product: Product; workItem: WorkItem };
 
 export function ProductOverviewDocument({
   product,
@@ -135,6 +148,7 @@ export function ProductOverviewDocument({
   onEditModule,
   onEditCapability,
   onOpenWorkItem,
+  onPlanFromItem,
 }: ProductOverviewDocumentProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const allWorkItems = useMemo(() => sortWorkItems(workItems ?? []), [workItems]);
@@ -176,7 +190,11 @@ export function ProductOverviewDocument({
                 Reader mode for the product: semantic root sections, nested nodes, and delivery work aligned to the same structural tree.
               </p>
             </div>
-            <button style={styles.button} onClick={onEditProduct}>Edit Product</button>
+            <div style={styles.nodeActionRow}>
+              <button style={styles.plannerButton} onClick={() => onPlanFromItem({ kind: "enhance_product", product })}>Enhance</button>
+              <button style={styles.subtleButton} onClick={() => onPlanFromItem({ kind: "add_product_child", product })}>Add Child</button>
+              <button style={styles.button} onClick={onEditProduct}>Edit Product</button>
+            </div>
           </div>
 
           <div style={styles.prose}>
@@ -252,7 +270,7 @@ export function ProductOverviewDocument({
                 Cross-cutting work attached directly to the product instead of a specific module or capability.
               </p>
             </div>
-            <WorkItemTree nodes={productLevelWorkItems} onOpenWorkItem={onOpenWorkItem} />
+            <WorkItemTree product={product} nodes={productLevelWorkItems} onOpenWorkItem={onOpenWorkItem} onPlanFromItem={onPlanFromItem} />
           </section>
         ) : null}
 
@@ -272,6 +290,7 @@ export function ProductOverviewDocument({
           (tree?.modules ?? []).map((moduleTree, index) => (
             <ModuleChapter
               key={moduleTree.module.id}
+              product={product}
               productName={product.name}
               moduleTree={moduleTree}
               chapterNumber={index + 1}
@@ -279,6 +298,7 @@ export function ProductOverviewDocument({
               onEditModule={onEditModule}
               onEditCapability={onEditCapability}
               onOpenWorkItem={onOpenWorkItem}
+              onPlanFromItem={onPlanFromItem}
             />
           ))
         ) : null}
@@ -417,6 +437,7 @@ function LegendRow({ label, color }: { label: string; color: string }) {
 }
 
 function ModuleChapter({
+  product,
   productName,
   moduleTree,
   chapterNumber,
@@ -424,7 +445,9 @@ function ModuleChapter({
   onEditModule,
   onEditCapability,
   onOpenWorkItem,
+  onPlanFromItem,
 }: {
+  product: Product;
   productName: string;
   moduleTree: ModuleTree;
   chapterNumber: number;
@@ -432,6 +455,7 @@ function ModuleChapter({
   onEditModule: (module: Module) => void;
   onEditCapability: (capability: Capability) => void;
   onOpenWorkItem: (workItem: WorkItem) => void;
+  onPlanFromItem: (action: ProductOverviewPlannerAction) => void;
 }) {
   const [isOpen, setIsOpen] = useState(true);
   const rootLabel = getHierarchyNodeKindLabel(moduleTree.module.node_kind);
@@ -459,7 +483,9 @@ function ModuleChapter({
         </summary>
 
         <div style={styles.detailsBody}>
-          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <div style={styles.nodeActionRow}>
+            <button style={styles.plannerButton} onClick={() => onPlanFromItem({ kind: "enhance_module", product, module: moduleTree.module })}>Enhance</button>
+            <button style={styles.subtleButton} onClick={() => onPlanFromItem({ kind: "add_module_child", product, module: moduleTree.module })}>Add Child</button>
             <button style={styles.subtleButton} onClick={() => onEditModule(moduleTree.module)}>Edit {rootLabel}</button>
           </div>
 
@@ -505,7 +531,7 @@ function ModuleChapter({
           {moduleWorkItems.length > 0 ? (
             <div>
               <div style={styles.sectionTitle}>Direct Work</div>
-              <WorkItemTree nodes={moduleWorkItems} onOpenWorkItem={onOpenWorkItem} />
+              <WorkItemTree product={product} nodes={moduleWorkItems} onOpenWorkItem={onOpenWorkItem} onPlanFromItem={onPlanFromItem} />
             </div>
           ) : null}
 
@@ -513,12 +539,14 @@ function ModuleChapter({
             moduleTree.features.map((capabilityTree, index) => (
               <CapabilityChapter
                 key={capabilityTree.capability.id}
+                product={product}
                 path={[productName, moduleTree.module.name]}
                 capabilityTree={capabilityTree}
                 numbering={`${chapterNumber}.${index + 1}`}
                 allWorkItems={allWorkItems}
                 onEditCapability={onEditCapability}
                 onOpenWorkItem={onOpenWorkItem}
+                onPlanFromItem={onPlanFromItem}
               />
             ))
           ) : (
@@ -531,19 +559,23 @@ function ModuleChapter({
 }
 
 function CapabilityChapter({
+  product,
   path,
   capabilityTree,
   numbering,
   allWorkItems,
   onEditCapability,
   onOpenWorkItem,
+  onPlanFromItem,
 }: {
+  product: Product;
   path: string[];
   capabilityTree: CapabilityTree;
   numbering: string;
   allWorkItems: WorkItem[];
   onEditCapability: (capability: Capability) => void;
   onOpenWorkItem: (workItem: WorkItem) => void;
+  onPlanFromItem: (action: ProductOverviewPlannerAction) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const capabilityType = getHierarchyNodeKindLabel(capabilityTree.capability.node_kind);
@@ -573,7 +605,25 @@ function CapabilityChapter({
         </summary>
 
         <div style={styles.detailsBody}>
-          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <div style={styles.nodeActionRow}>
+            <button
+              style={styles.plannerButton}
+              onClick={() => onPlanFromItem({ kind: "enhance_capability", product, moduleName: path[1] ?? "", capability: capabilityTree.capability })}
+            >
+              Enhance
+            </button>
+            <button
+              style={styles.subtleButton}
+              onClick={() => onPlanFromItem({ kind: "add_capability_child", product, moduleName: path[1] ?? "", capability: capabilityTree.capability })}
+            >
+              Add Child
+            </button>
+            <button
+              style={styles.subtleButton}
+              onClick={() => onPlanFromItem({ kind: "add_capability_work_item", product, moduleName: path[1] ?? "", capability: capabilityTree.capability })}
+            >
+              Add Work Item
+            </button>
             <button style={styles.subtleButton} onClick={() => onEditCapability(capabilityTree.capability)}>
               Edit {capabilityType}
             </button>
@@ -636,7 +686,7 @@ function CapabilityChapter({
           {directWorkItems.length > 0 ? (
             <div>
               <div style={styles.sectionTitle}>Delivery Work</div>
-              <WorkItemTree nodes={directWorkItems} onOpenWorkItem={onOpenWorkItem} />
+              <WorkItemTree product={product} nodes={directWorkItems} onOpenWorkItem={onOpenWorkItem} onPlanFromItem={onPlanFromItem} />
             </div>
           ) : (
             <div style={styles.empty}>No work items attached to this {capabilityType.toLowerCase()} yet.</div>
@@ -647,12 +697,14 @@ function CapabilityChapter({
               {capabilityTree.children.map((child, index) => (
                 <CapabilityChapter
                   key={child.capability.id}
+                  product={product}
                   path={[...path, capabilityTree.capability.name]}
                   capabilityTree={child}
                   numbering={`${numbering}.${index + 1}`}
                   allWorkItems={allWorkItems}
                   onEditCapability={onEditCapability}
                   onOpenWorkItem={onOpenWorkItem}
+                  onPlanFromItem={onPlanFromItem}
                 />
               ))}
             </div>
@@ -664,27 +716,35 @@ function CapabilityChapter({
 }
 
 function WorkItemTree({
+  product,
   nodes,
   onOpenWorkItem,
+  onPlanFromItem,
 }: {
+  product: Product;
   nodes: WorkItemNode[];
   onOpenWorkItem: (workItem: WorkItem) => void;
+  onPlanFromItem: (action: ProductOverviewPlannerAction) => void;
 }) {
   return (
     <div style={styles.workItemList}>
       {nodes.map((node) => (
-        <WorkItemCard key={node.workItem.id} node={node} onOpenWorkItem={onOpenWorkItem} />
+        <WorkItemCard key={node.workItem.id} product={product} node={node} onOpenWorkItem={onOpenWorkItem} onPlanFromItem={onPlanFromItem} />
       ))}
     </div>
   );
 }
 
 function WorkItemCard({
+  product,
   node,
   onOpenWorkItem,
+  onPlanFromItem,
 }: {
+  product: Product;
   node: WorkItemNode;
   onOpenWorkItem: (workItem: WorkItem) => void;
+  onPlanFromItem: (action: ProductOverviewPlannerAction) => void;
 }) {
   const presentation = getWorkItemPresentation(node.workItem.status);
   const excerpt = summarizeText(node.workItem.description || node.workItem.problem_statement || node.workItem.acceptance_criteria || "No delivery notes captured yet.");
@@ -718,11 +778,20 @@ function WorkItemCard({
             {node.children.length > 0 ? <span style={styles.metaPill}>{node.children.length} sub-item{node.children.length === 1 ? "" : "s"}</span> : null}
           </div>
         </div>
+        <button
+          style={styles.subtleButton}
+          onClick={(event) => {
+            event.stopPropagation();
+            onPlanFromItem({ kind: "enhance_work_item", product, workItem: node.workItem });
+          }}
+        >
+          Enhance
+        </button>
       </div>
       <div style={styles.workItemText}>{excerpt}</div>
       {node.children.length > 0 ? (
         <div style={styles.workItemChildren}>
-          <WorkItemTree nodes={node.children} onOpenWorkItem={onOpenWorkItem} />
+          <WorkItemTree product={product} nodes={node.children} onOpenWorkItem={onOpenWorkItem} onPlanFromItem={onPlanFromItem} />
         </div>
       ) : null}
     </div>

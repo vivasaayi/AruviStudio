@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
-import { browseForRepositoryPath, deleteRepository, getProductTree, listProducts, listRepositories, registerRepository } from "../../../lib/tauri";
+import { browseForRepositoryPath, deleteRepository, getProductTree, listProducts, listRepositories, registerRepository, updateRepository } from "../../../lib/tauri";
 import type { Repository } from "../../../lib/types";
 
 const styles: Record<string, React.CSSProperties> = {
@@ -10,11 +10,13 @@ const styles: Record<string, React.CSSProperties> = {
   header: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 },
   title: { fontSize: 20, fontWeight: 600, color: "#e0e0e0" },
   btn: { padding: "6px 16px", fontSize: 13, backgroundColor: "#0e639c", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" },
+  btnSecondary: { padding: "4px 10px", fontSize: 12, backgroundColor: "#2c3139", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" },
   btnDanger: { padding: "4px 10px", fontSize: 12, backgroundColor: "#6c2020", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" },
+  btnRow: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" as const },
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16 },
   card: { backgroundColor: "#252526", borderRadius: 8, padding: 16, border: "1px solid #333" },
   cardName: { fontSize: 15, fontWeight: 600, marginBottom: 8, color: "#e0e0e0" },
-  cardPath: { fontSize: 12, color: "#569cd6", marginBottom: 4, fontFamily: "monospace" },
+  cardPath: { fontSize: 12, color: "#569cd6", marginBottom: 4, fontFamily: "monospace", overflowWrap: "anywhere" as const },
   cardRemote: { fontSize: 11, color: "#888", marginBottom: 4, wordBreak: "break-all" as const },
   cardBranch: { fontSize: 12, color: "#4ec9b0", marginBottom: 12 },
   empty: { textAlign: "center" as const, color: "#666", padding: 40, fontSize: 14 },
@@ -34,6 +36,9 @@ export function RepositoryListPage() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [form, setForm] = useState({ name: "", localPath: "", remoteUrl: "", defaultBranch: "main" });
   const [formError, setFormError] = useState<string | null>(null);
+  const [editingRepoId, setEditingRepoId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ name: "", localPath: "", remoteUrl: "", defaultBranch: "main" });
+  const [editError, setEditError] = useState<string | null>(null);
 
   const { data: repos, isLoading } = useQuery({ queryKey: ["repositories"], queryFn: listRepositories });
   const { data: products = [], isLoading: productsLoading } = useQuery({ queryKey: ["products"], queryFn: listProducts });
@@ -86,6 +91,28 @@ export function RepositoryListPage() {
     mutationFn: (id: string) => deleteRepository(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["repositories"] }),
   });
+
+  const updateMutation = useMutation({
+    mutationFn: () => updateRepository({ id: editingRepoId!, ...editForm }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["repositories"] });
+      queryClient.invalidateQueries({ queryKey: ["workItems"] });
+      setEditingRepoId(null);
+      setEditError(null);
+    },
+    onError: (error) => setEditError(String(error)),
+  });
+
+  const startEditing = (repository: Repository) => {
+    setEditingRepoId(repository.id);
+    setEditError(null);
+    setEditForm({
+      name: repository.name,
+      localPath: repository.local_path,
+      remoteUrl: repository.remote_url,
+      defaultBranch: repository.default_branch,
+    });
+  };
 
   return (
     <div style={styles.page}>
@@ -147,15 +174,58 @@ export function RepositoryListPage() {
         <div style={styles.grid}>
           {repos.map((r: Repository) => (
             <div key={r.id} style={styles.card}>
-              <div style={styles.cardName}>{r.name}</div><div style={styles.cardPath}>{r.local_path}</div>
-              <div style={styles.cardBranch}>Version history enabled</div>
-              {showAdvanced && (
+              {editingRepoId === r.id ? (
                 <>
-                  <div style={styles.cardRemote}>{r.remote_url || "No remote configured"}</div>
-                  <div style={styles.cardBranch}>Branch: {r.default_branch}</div>
+                  {editError && <div style={styles.errorText}>{editError}</div>}
+                  <label style={styles.label}>Workspace Name</label>
+                  <input style={styles.input} value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+                  <label style={styles.label}>Local Path</label>
+                  <div style={styles.inputRow}>
+                    <input style={styles.inputNoMargin} value={editForm.localPath} onChange={(e) => setEditForm({ ...editForm, localPath: e.target.value })} />
+                    <button
+                      style={styles.btn}
+                      onClick={async () => {
+                        setEditError(null);
+                        try {
+                          const selectedPath = await browseForRepositoryPath();
+                          if (selectedPath) {
+                            setEditForm((current) => ({ ...current, localPath: selectedPath }));
+                          }
+                        } catch (error) {
+                          setEditError(String(error));
+                        }
+                      }}
+                    >
+                      Browse…
+                    </button>
+                  </div>
+                  <label style={styles.label}>Remote URL</label>
+                  <input style={styles.input} value={editForm.remoteUrl} onChange={(e) => setEditForm({ ...editForm, remoteUrl: e.target.value })} placeholder="No remote configured" />
+                  <label style={styles.label}>Default Branch</label>
+                  <input style={styles.input} value={editForm.defaultBranch} onChange={(e) => setEditForm({ ...editForm, defaultBranch: e.target.value })} />
+                  <div style={styles.btnRow}>
+                    <button style={styles.btn} onClick={() => updateMutation.mutate()} disabled={!editForm.name || !editForm.localPath || !editForm.defaultBranch || updateMutation.isPending}>
+                      {updateMutation.isPending ? "Saving..." : "Save"}
+                    </button>
+                    <button style={styles.btnSecondary} onClick={() => setEditingRepoId(null)}>Cancel</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={styles.cardName}>{r.name}</div><div style={styles.cardPath}>{r.local_path}</div>
+                  <div style={styles.cardBranch}>Version history enabled</div>
+                  {showAdvanced && (
+                    <>
+                      <div style={styles.cardRemote}>{r.remote_url || "No remote configured"}</div>
+                      <div style={styles.cardBranch}>Branch: {r.default_branch}</div>
+                    </>
+                  )}
+                  <div style={styles.btnRow}>
+                    <button style={styles.btnSecondary} onClick={() => startEditing(r)}>Edit</button>
+                    <button style={styles.btnDanger} onClick={() => deleteMutation.mutate(r.id)}>Remove</button>
+                  </div>
                 </>
               )}
-              <button style={styles.btnDanger} onClick={() => deleteMutation.mutate(r.id)}>Remove</button>
             </div>
           ))}
         </div>

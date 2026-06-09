@@ -1,4 +1,13 @@
-import type { PlannerSessionInfo, PlannerTurnResponse, SpeechToTextResponse } from "../types";
+import type {
+  ChatCompletionResponse,
+  ChatMessagePayload,
+  MobilePlannerChatSession,
+  MobilePlannerChatTurnResponse,
+  PlannerSessionInfo,
+  PlannerTurnResponse,
+  Product,
+  ProductTree,
+} from "../types";
 
 type RequestOptions = {
   method?: "GET" | "POST";
@@ -33,6 +42,14 @@ export class PlannerMobileClient {
 
   health() {
     return this.request<{ status: string }>("/api/mobile/health");
+  }
+
+  listProducts() {
+    return this.request<Product[]>("/api/mobile/products");
+  }
+
+  getProductTree(productId: string) {
+    return this.request<ProductTree>(`/api/mobile/products/${encodeURIComponent(productId)}/tree`);
   }
 
   createPlannerSession(body?: { provider_id?: string; model_name?: string }) {
@@ -75,16 +92,43 @@ export class PlannerMobileClient {
     });
   }
 
-  transcribeSpeech(body: {
+  runChatCompletion(body: {
     provider_id?: string;
     model_name?: string;
-    audio_bytes_base64: string;
-    mime_type: string;
-    locale?: string;
+    messages: ChatMessagePayload[];
+    temperature?: number;
+    max_tokens?: number;
   }) {
-    return this.request<SpeechToTextResponse>("/api/mobile/speech/transcribe", {
+    return this.request<ChatCompletionResponse>("/api/mobile/chat/completions", {
       method: "POST",
       body,
     });
   }
+
+  createMobilePlannerChatSession(body?: { provider_id?: string; model_name?: string; product_id?: string | null }) {
+    return this.request<MobilePlannerChatSession>("/api/mobile/planner-chat/sessions", {
+      method: "POST",
+      body,
+    });
+  }
+
+  submitMobilePlannerChatTurn(
+    sessionId: string,
+    body: {
+      provider_id?: string;
+      model_name?: string;
+      product_id?: string | null;
+      messages: ChatMessagePayload[];
+      max_tool_steps?: number;
+    },
+  ) {
+    return this.request<MobilePlannerChatTurnResponse>(
+      `/api/mobile/planner-chat/sessions/${encodeURIComponent(sessionId)}/turn`,
+      {
+        method: "POST",
+        body,
+      },
+    );
+  }
+
 }

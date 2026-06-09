@@ -6,6 +6,7 @@ mod execution;
 mod mcp;
 mod observability;
 mod persistence;
+mod planning_doctrine;
 mod providers;
 mod secrets;
 mod services;
@@ -66,6 +67,7 @@ pub fn run() {
             commands::work_item_commands::reorder_work_items,
             // Repository commands
             commands::repository_commands::register_repository,
+            commands::repository_commands::update_repository,
             commands::repository_commands::list_repositories,
             commands::repository_commands::delete_repository,
             commands::repository_commands::attach_repository,
