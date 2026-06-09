@@ -1,6 +1,7 @@
 use crate::domain::model::ModelCall;
 use crate::error::AppError;
 use sqlx::{Row, SqlitePool};
+use std::path::{Path, PathBuf};
 
 pub struct CreateModelCallParams<'a> {
     pub id: &'a str,
@@ -24,6 +25,8 @@ pub struct CreateModelCallParams<'a> {
     pub request_message_count: i64,
     pub prompt_chars: i64,
     pub response_chars: i64,
+    pub request_snapshot_path: Option<&'a str>,
+    pub response_snapshot_path: Option<&'a str>,
     pub max_tokens: Option<i64>,
     pub temperature: Option<f64>,
     pub token_count_input: Option<i64>,
@@ -31,6 +34,49 @@ pub struct CreateModelCallParams<'a> {
     pub duration_ms: Option<i64>,
     pub status: &'a str,
     pub error_message: Option<&'a str>,
+}
+
+pub struct ModelCallSnapshotPaths {
+    pub request_snapshot_path: Option<String>,
+    pub response_snapshot_path: Option<String>,
+}
+
+pub async fn write_model_call_snapshots(
+    artifact_base_path: &Path,
+    call_id: &str,
+    request_messages_json: Option<&str>,
+    response_text: Option<&str>,
+) -> Result<ModelCallSnapshotPaths, AppError> {
+    if request_messages_json.is_none() && response_text.is_none() {
+        return Ok(ModelCallSnapshotPaths {
+            request_snapshot_path: None,
+            response_snapshot_path: None,
+        });
+    }
+
+    let snapshot_dir: PathBuf = artifact_base_path.join("model-calls").join(call_id);
+    tokio::fs::create_dir_all(&snapshot_dir).await?;
+
+    let request_snapshot_path = if let Some(request_messages_json) = request_messages_json {
+        let request_path = snapshot_dir.join("request.json");
+        tokio::fs::write(&request_path, request_messages_json).await?;
+        Some(request_path.to_string_lossy().to_string())
+    } else {
+        None
+    };
+
+    let response_snapshot_path = if let Some(response_text) = response_text {
+        let response_path = snapshot_dir.join("response.txt");
+        tokio::fs::write(&response_path, response_text).await?;
+        Some(response_path.to_string_lossy().to_string())
+    } else {
+        None
+    };
+
+    Ok(ModelCallSnapshotPaths {
+        request_snapshot_path,
+        response_snapshot_path,
+    })
 }
 
 pub async fn next_model_call_index(
@@ -77,6 +123,8 @@ pub async fn create_model_call(
             request_message_count,
             prompt_chars,
             response_chars,
+            request_snapshot_path,
+            response_snapshot_path,
             max_tokens,
             temperature,
             token_count_input,
@@ -85,7 +133,7 @@ pub async fn create_model_call(
             status,
             error_message
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING
             id,
             source_kind,
@@ -108,6 +156,8 @@ pub async fn create_model_call(
             request_message_count,
             prompt_chars,
             response_chars,
+            request_snapshot_path,
+            response_snapshot_path,
             max_tokens,
             temperature,
             token_count_input,
@@ -138,6 +188,8 @@ pub async fn create_model_call(
     .bind(params.request_message_count)
     .bind(params.prompt_chars)
     .bind(params.response_chars)
+    .bind(params.request_snapshot_path)
+    .bind(params.response_snapshot_path)
     .bind(params.max_tokens)
     .bind(params.temperature)
     .bind(params.token_count_input)
@@ -175,6 +227,8 @@ pub async fn list_model_calls(pool: &SqlitePool, limit: i64) -> Result<Vec<Model
             request_message_count,
             prompt_chars,
             response_chars,
+            request_snapshot_path,
+            response_snapshot_path,
             max_tokens,
             temperature,
             token_count_input,
@@ -217,6 +271,8 @@ pub async fn get_model_call(pool: &SqlitePool, id: &str) -> Result<ModelCall, Ap
             request_message_count,
             prompt_chars,
             response_chars,
+            request_snapshot_path,
+            response_snapshot_path,
             max_tokens,
             temperature,
             token_count_input,
@@ -261,6 +317,8 @@ pub async fn list_model_calls_for_workflow(
             request_message_count,
             prompt_chars,
             response_chars,
+            request_snapshot_path,
+            response_snapshot_path,
             max_tokens,
             temperature,
             token_count_input,

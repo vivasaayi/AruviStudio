@@ -2008,6 +2008,7 @@ async fn handle_planner(state: &AppState, payload: Value) -> Result<Value, AppEr
             analyze_repository_for_planner(
                 state.planner_service.clone(),
                 &state.db,
+                &state.artifact_base_path,
                 args.required_string(&["session_id", "sessionId"], "session_id")?,
                 args.required_string(&["repository_id", "repositoryId"], "repository_id")?,
                 args.optional_string(&["selected_draft_node_id", "selectedDraftNodeId"])?,
@@ -2796,6 +2797,14 @@ async fn handle_models(state: &AppState, payload: Value) -> Result<Value, AppErr
                     )
                     .await?;
                     let call_id = uuid::Uuid::new_v4().to_string();
+                    let request_messages_json = serde_json::to_string_pretty(&messages)?;
+                    let snapshots = model_call_repo::write_model_call_snapshots(
+                        &state.artifact_base_path,
+                        &call_id,
+                        Some(&request_messages_json),
+                        None,
+                    )
+                    .await?;
                     model_call_repo::create_model_call(
                         &state.db,
                         model_call_repo::CreateModelCallParams {
@@ -2821,6 +2830,8 @@ async fn handle_models(state: &AppState, payload: Value) -> Result<Value, AppErr
                                 .unwrap_or(i64::MAX),
                             prompt_chars: message_char_count(&messages),
                             response_chars: 0,
+                            request_snapshot_path: snapshots.request_snapshot_path.as_deref(),
+                            response_snapshot_path: snapshots.response_snapshot_path.as_deref(),
                             max_tokens,
                             temperature,
                             token_count_input: None,
@@ -2838,6 +2849,14 @@ async fn handle_models(state: &AppState, payload: Value) -> Result<Value, AppErr
                 model_call_repo::next_model_call_index(&state.db, "mcp_model_completion", None)
                     .await?;
             let call_id = uuid::Uuid::new_v4().to_string();
+            let request_messages_json = serde_json::to_string_pretty(&messages)?;
+            let snapshots = model_call_repo::write_model_call_snapshots(
+                &state.artifact_base_path,
+                &call_id,
+                Some(&request_messages_json),
+                Some(&response.content),
+            )
+            .await?;
             model_call_repo::create_model_call(
                 &state.db,
                 model_call_repo::CreateModelCallParams {
@@ -2862,6 +2881,8 @@ async fn handle_models(state: &AppState, payload: Value) -> Result<Value, AppErr
                     request_message_count: i64::try_from(messages.len()).unwrap_or(i64::MAX),
                     prompt_chars: message_char_count(&messages),
                     response_chars: char_count_i64(&response.content),
+                    request_snapshot_path: snapshots.request_snapshot_path.as_deref(),
+                    response_snapshot_path: snapshots.response_snapshot_path.as_deref(),
                     max_tokens,
                     temperature,
                     token_count_input: response.token_count_input,

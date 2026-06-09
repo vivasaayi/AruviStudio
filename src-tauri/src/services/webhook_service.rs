@@ -79,11 +79,20 @@ async fn record_webhook_model_call(
     duration_ms: i64,
     status: &str,
     error_message: Option<&str>,
+    response_text: Option<&str>,
 ) -> Result<(), crate::error::AppError> {
     let call_index =
         model_call_repo::next_model_call_index(&state.db, context.source_kind, context.source_id)
             .await?;
     let call_id = uuid::Uuid::new_v4().to_string();
+    let request_messages_json = serde_json::to_string_pretty(messages)?;
+    let snapshots = model_call_repo::write_model_call_snapshots(
+        &state.artifact_base_path,
+        &call_id,
+        Some(&request_messages_json),
+        response_text,
+    )
+    .await?;
     model_call_repo::create_model_call(
         &state.db,
         model_call_repo::CreateModelCallParams {
@@ -108,6 +117,8 @@ async fn record_webhook_model_call(
             request_message_count: i64::try_from(messages.len()).unwrap_or(i64::MAX),
             prompt_chars: message_char_count(messages),
             response_chars,
+            request_snapshot_path: snapshots.request_snapshot_path.as_deref(),
+            response_snapshot_path: snapshots.response_snapshot_path.as_deref(),
             max_tokens,
             temperature,
             token_count_input,
@@ -617,6 +628,7 @@ async fn mobile_chat_completion(
                 elapsed_ms(started),
                 "completed",
                 None,
+                Some(&response.content),
             )
             .await
             {
@@ -646,6 +658,7 @@ async fn mobile_chat_completion(
                 elapsed_ms(started),
                 "failed",
                 Some(&error_message),
+                None,
             )
             .await
             {
@@ -921,6 +934,7 @@ async fn run_mobile_planner_chat_turn(
                     elapsed_ms(started),
                     "failed",
                     Some(&error_message),
+                    None,
                 )
                 .await
                 {
@@ -949,6 +963,7 @@ async fn run_mobile_planner_chat_turn(
             elapsed_ms(started),
             "completed",
             None,
+            Some(&completion.content),
         )
         .await
         {
@@ -1115,6 +1130,7 @@ async fn run_mobile_planner_chat_turn(
                 elapsed_ms(started),
                 "failed",
                 Some(&error_message),
+                None,
             )
             .await
             {
@@ -1143,6 +1159,7 @@ async fn run_mobile_planner_chat_turn(
         elapsed_ms(started),
         "completed",
         None,
+        Some(&completion.content),
     )
     .await
     {

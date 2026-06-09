@@ -236,6 +236,7 @@ pub async fn analyze_repository_for_planner_command(
     analyze_repository_for_planner(
         state.planner_service.clone(),
         &state.db,
+        &state.artifact_base_path,
         session_id,
         repository_id,
         selected_draft_node_id.or(selectedDraftNodeId),

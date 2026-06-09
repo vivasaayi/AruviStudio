@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Mutex;
@@ -1282,6 +1283,7 @@ fn annotate_repository_analysis_plan(
 
 async fn run_completion(
     db: &SqlitePool,
+    artifact_base_path: &Path,
     provider_id: &str,
     model_name: &str,
     messages: Vec<ChatMessage>,
@@ -1305,6 +1307,7 @@ async fn run_completion(
             let error_message = error.to_string();
             if let Err(record_error) = record_planner_model_call(
                 db,
+                artifact_base_path,
                 context,
                 &provider,
                 model_name,
@@ -1317,6 +1320,7 @@ async fn run_completion(
                 elapsed_ms(started),
                 "failed",
                 Some(&error_message),
+                None,
             )
             .await
             {
@@ -1327,6 +1331,7 @@ async fn run_completion(
     };
     if let Err(record_error) = record_planner_model_call(
         db,
+        artifact_base_path,
         context,
         &provider,
         model_name,
@@ -1339,6 +1344,7 @@ async fn run_completion(
         elapsed_ms(started),
         "completed",
         None,
+        Some(&response.content),
     )
     .await
     {
@@ -1364,6 +1370,7 @@ fn elapsed_ms(started: Instant) -> i64 {
 
 async fn record_planner_model_call(
     db: &SqlitePool,
+    artifact_base_path: &Path,
     context: PlannerModelCallContext<'_>,
     provider: &crate::domain::model::ModelProvider,
     model_name: &str,
@@ -1376,10 +1383,19 @@ async fn record_planner_model_call(
     duration_ms: i64,
     status: &str,
     error_message: Option<&str>,
+    response_text: Option<&str>,
 ) -> Result<(), AppError> {
     let call_index =
         model_call_repo::next_model_call_index(db, context.source_kind, context.source_id).await?;
     let call_id = uuid::Uuid::new_v4().to_string();
+    let request_messages_json = serde_json::to_string_pretty(messages)?;
+    let snapshots = model_call_repo::write_model_call_snapshots(
+        artifact_base_path,
+        &call_id,
+        Some(&request_messages_json),
+        response_text,
+    )
+    .await?;
     model_call_repo::create_model_call(
         db,
         model_call_repo::CreateModelCallParams {
@@ -1404,6 +1420,8 @@ async fn record_planner_model_call(
             request_message_count: i64::try_from(messages.len()).unwrap_or(i64::MAX),
             prompt_chars: planner_message_char_count(messages),
             response_chars,
+            request_snapshot_path: snapshots.request_snapshot_path.as_deref(),
+            response_snapshot_path: snapshots.response_snapshot_path.as_deref(),
             max_tokens: Some(max_tokens),
             temperature: Some(temperature),
             token_count_input,
@@ -1449,6 +1467,7 @@ async fn list_work_items_tool(
 
 async fn run_tool_loop(
     db: &SqlitePool,
+    artifact_base_path: &Path,
     session_id: &str,
     provider_id: &str,
     model_name: &str,
@@ -1515,6 +1534,7 @@ async fn run_tool_loop(
     for step in 0..6 {
         let completion = run_completion(
             db,
+            artifact_base_path,
             provider_id,
             model_name,
             messages.clone(),
@@ -5528,6 +5548,7 @@ pub async fn submit_planner_turn(
     {
         match run_tool_loop(
             &state.db,
+            &state.artifact_base_path,
             &session_id,
             &provider_id,
             &model_name,
@@ -6122,6 +6143,7 @@ pub async fn delete_planner_draft_node(
 pub async fn analyze_repository_for_planner(
     planner_service: Arc<Mutex<PlannerService>>,
     db: &SqlitePool,
+    artifact_base_path: &Path,
     session_id: String,
     repository_id: String,
     selected_draft_node_id: Option<String>,
@@ -6201,6 +6223,7 @@ pub async fn analyze_repository_for_planner(
 
     let completion = run_completion(
         db,
+        artifact_base_path,
         &provider_id,
         &model_name,
         vec![

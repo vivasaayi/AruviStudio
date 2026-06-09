@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { listModelCalls } from "../../../lib/tauri";
+import { listModelCalls, readModelCallSnapshot } from "../../../lib/tauri";
 import type { ModelCall } from "../../../lib/types";
 
 type CallFilter = "all" | "desktop" | "mobile" | "workflow" | "planner" | "failed";
@@ -33,7 +33,7 @@ const styles: Record<string, React.CSSProperties> = {
   filterBar: { display: "flex", gap: 8, flexWrap: "wrap", borderBottom: "1px solid #32353d", paddingBottom: 10 },
   filter: { padding: "7px 12px", fontSize: 12, fontWeight: 700, borderRadius: 8, border: "1px solid #3b4049", backgroundColor: "#2c3139", color: "#cfd6e4", cursor: "pointer" },
   filterActive: { padding: "7px 12px", fontSize: 12, fontWeight: 700, borderRadius: 8, border: "1px solid #0e639c", backgroundColor: "#173247", color: "#ffffff", cursor: "pointer" },
-  body: { display: "grid", gridTemplateColumns: "minmax(340px, 1fr) minmax(360px, 0.9fr)", gap: 12, minHeight: 0, flex: 1 },
+  body: { display: "grid", gridTemplateColumns: "minmax(300px, 0.85fr) minmax(360px, 0.95fr) minmax(420px, 1.2fr)", gap: 12, minHeight: 0, flex: 1 },
   listPanel: { border: "1px solid #32353d", borderRadius: 8, backgroundColor: "#212327", minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" },
   panelHeader: { padding: 12, borderBottom: "1px solid #32353d", display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" },
   panelTitle: { color: "#f3f3f3", fontSize: 13, fontWeight: 800 },
@@ -46,7 +46,8 @@ const styles: Record<string, React.CSSProperties> = {
   status: { fontSize: 10, fontWeight: 800, color: "#4ec9b0", textTransform: "uppercase" },
   statusFailed: { color: "#ff9b9b" },
   small: { fontSize: 11, color: "#8f96a3", marginTop: 4, lineHeight: 1.4 },
-  sessionStats: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, marginBottom: 12 },
+  sessionSummary: { padding: 12, borderBottom: "1px solid #32353d" },
+  sessionStats: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 },
   sessionStat: { border: "1px solid #32353d", borderRadius: 8, backgroundColor: "#1b1d22", padding: 10, minWidth: 0 },
   sessionStatValue: { color: "#f4f7fb", fontSize: 14, fontWeight: 800, overflowWrap: "anywhere" },
   sessionStatLabel: { color: "#8f96a3", fontSize: 10, fontWeight: 800, textTransform: "uppercase", marginTop: 4 },
@@ -62,6 +63,12 @@ const styles: Record<string, React.CSSProperties> = {
   detailItem: { borderTop: "1px solid #32353d", paddingTop: 8, minWidth: 0 },
   label: { fontSize: 10, fontWeight: 800, textTransform: "uppercase", color: "#8f96a3", marginBottom: 4 },
   value: { fontSize: 12, color: "#e8edf7", overflowWrap: "anywhere", lineHeight: 1.45 },
+  snapshotGrid: { display: "grid", gridTemplateColumns: "1fr", gap: 10, marginTop: 12 },
+  snapshotBox: { border: "1px solid #32353d", borderRadius: 8, backgroundColor: "#171a1f", overflow: "hidden" },
+  snapshotHeader: { padding: "8px 10px", borderBottom: "1px solid #32353d", display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" },
+  snapshotTitle: { fontSize: 11, fontWeight: 800, color: "#f3f3f3" },
+  snapshotPath: { fontSize: 10, color: "#8f96a3", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  snapshotPre: { margin: 0, padding: 10, maxHeight: 260, overflow: "auto", color: "#d7deea", fontSize: 11, lineHeight: 1.45, whiteSpace: "pre-wrap", fontFamily: "JetBrains Mono, Menlo, Monaco, monospace" },
   errorBox: { marginTop: 12, border: "1px solid #5a2f35", backgroundColor: "#2b1d22", borderRadius: 8, padding: 10, color: "#ffb4b4", fontSize: 12, whiteSpace: "pre-wrap" },
   empty: { color: "#666", textAlign: "center", padding: 40, fontSize: 13 },
 };
@@ -193,6 +200,8 @@ function detailRows(call: ModelCall) {
     ["Output Tokens", formatInteger(call.token_count_output)],
     ["Prompt Chars", formatInteger(call.prompt_chars)],
     ["Response Chars", formatInteger(call.response_chars)],
+    ["Request Snapshot", call.request_snapshot_path ?? "n/a"],
+    ["Response Snapshot", call.response_snapshot_path ?? "n/a"],
     ["Max Tokens", formatInteger(call.max_tokens)],
     ["Temperature", call.temperature === null ? "n/a" : String(call.temperature)],
     ["Workflow Run", call.workflow_run_id ?? "n/a"],
@@ -226,6 +235,27 @@ export function ModelCallsPage() {
   const selectedCall = selectedSession?.calls.find((call) => call.id === selectedCallId)
     ?? selectedSession?.calls[selectedSession.calls.length - 1]
     ?? null;
+  const snapshotsQuery = useQuery({
+    queryKey: [
+      "modelCallSnapshots",
+      selectedCall?.id,
+      selectedCall?.request_snapshot_path,
+      selectedCall?.response_snapshot_path,
+    ],
+    enabled: Boolean(selectedCall?.id && (selectedCall.request_snapshot_path || selectedCall.response_snapshot_path)),
+    queryFn: async () => {
+      if (!selectedCall) return { request: null as string | null, response: null as string | null };
+      const [request, response] = await Promise.all([
+        selectedCall.request_snapshot_path
+          ? readModelCallSnapshot(selectedCall.id, "request").catch((error) => `Unable to read request snapshot: ${String(error)}`)
+          : Promise.resolve(null),
+        selectedCall.response_snapshot_path
+          ? readModelCallSnapshot(selectedCall.id, "response").catch((error) => `Unable to read response snapshot: ${String(error)}`)
+          : Promise.resolve(null),
+      ]);
+      return { request, response };
+    },
+  });
 
   const selectSession = (session: ModelCallSession) => {
     setSelectedSessionKey(session.key);
@@ -295,34 +325,41 @@ export function ModelCallsPage() {
           </div>
         </section>
 
-        <aside style={styles.detailPanel}>
-          {selectedSession && selectedCall ? (
+        <section style={styles.listPanel}>
+          <div style={styles.panelHeader}>
+            <div style={styles.panelTitle}>Calls In Session</div>
+            <div style={styles.panelMeta}>
+              {selectedSession ? `${selectedSession.callCount} calls` : "No session"}
+            </div>
+          </div>
+          {selectedSession ? (
             <>
-              <div style={styles.detailTitle}>{selectedSession.label}</div>
-              <div style={styles.detailSub}>
-                {selectedSession.sessionId ?? selectedSession.sourceId ?? selectedSession.key}
-              </div>
-              <div style={styles.sessionStats}>
-                <div style={styles.sessionStat}>
-                  <div style={styles.sessionStatValue}>{formatInteger(selectedSession.callCount)}</div>
-                  <div style={styles.sessionStatLabel}>Calls</div>
+              <div style={styles.sessionSummary}>
+                <div style={styles.detailTitle}>{selectedSession.label}</div>
+                <div style={styles.detailSub}>
+                  {selectedSession.sessionId ?? selectedSession.sourceId ?? selectedSession.key}
                 </div>
-                <div style={styles.sessionStat}>
-                  <div style={styles.sessionStatValue}>{formatInteger(selectedSession.tokenCountInput)}</div>
-                  <div style={styles.sessionStatLabel}>Input</div>
-                </div>
-                <div style={styles.sessionStat}>
-                  <div style={styles.sessionStatValue}>{formatInteger(selectedSession.tokenCountOutput)}</div>
-                  <div style={styles.sessionStatLabel}>Output</div>
-                </div>
-                <div style={styles.sessionStat}>
-                  <div style={styles.sessionStatValue}>{formatDurationMs(selectedSession.durationMs)}</div>
-                  <div style={styles.sessionStatLabel}>Duration</div>
+                <div style={styles.sessionStats}>
+                  <div style={styles.sessionStat}>
+                    <div style={styles.sessionStatValue}>{formatInteger(selectedSession.callCount)}</div>
+                    <div style={styles.sessionStatLabel}>Calls</div>
+                  </div>
+                  <div style={styles.sessionStat}>
+                    <div style={styles.sessionStatValue}>{formatDurationMs(selectedSession.durationMs)}</div>
+                    <div style={styles.sessionStatLabel}>Duration</div>
+                  </div>
+                  <div style={styles.sessionStat}>
+                    <div style={styles.sessionStatValue}>{formatInteger(selectedSession.tokenCountInput)}</div>
+                    <div style={styles.sessionStatLabel}>Input Tokens</div>
+                  </div>
+                  <div style={styles.sessionStat}>
+                    <div style={styles.sessionStatValue}>{formatInteger(selectedSession.tokenCountOutput)}</div>
+                    <div style={styles.sessionStatLabel}>Output Tokens</div>
+                  </div>
                 </div>
               </div>
 
-              <div style={styles.callsSubTitle}>Calls In Session</div>
-              <div style={styles.callList}>
+              <div style={styles.list}>
                 {selectedSession.calls.map((call) => (
                   <button
                     key={call.id}
@@ -339,13 +376,23 @@ export function ModelCallsPage() {
                       <span>{call.provider_name || call.provider_id} / {call.model_name}</span>
                       <span>input {formatInteger(call.token_count_input)}</span>
                       <span>output {formatInteger(call.token_count_output)}</span>
+                      <span>{formatInteger(call.prompt_chars)} prompt chars</span>
+                      <span>{formatInteger(call.response_chars)} response chars</span>
                       <span>{formatDurationMs(call.duration_ms)}</span>
                       <span>{call.created_at}</span>
                     </div>
                   </button>
                 ))}
               </div>
+            </>
+          ) : (
+            <div style={styles.empty}>Select a session to inspect calls.</div>
+          )}
+        </section>
 
+        <aside style={styles.detailPanel}>
+          {selectedCall ? (
+            <>
               <div style={styles.callsSubTitle}>Selected Call Details</div>
               <div style={styles.detailGrid}>
                 {detailRows(selectedCall).map(([label, value]) => (
@@ -358,9 +405,40 @@ export function ModelCallsPage() {
               {selectedCall.error_message && (
                 <div style={styles.errorBox}>{selectedCall.error_message}</div>
               )}
+
+              <div style={styles.callsSubTitle}>Input And Output Snapshots</div>
+              <div style={styles.snapshotGrid}>
+                <div style={styles.snapshotBox}>
+                  <div style={styles.snapshotHeader}>
+                    <div style={styles.snapshotTitle}>Request Messages</div>
+                    <div style={styles.snapshotPath}>{selectedCall.request_snapshot_path ?? "No request snapshot"}</div>
+                  </div>
+                  <pre style={styles.snapshotPre}>
+                    {selectedCall.request_snapshot_path
+                      ? snapshotsQuery.isFetching
+                        ? "Loading request snapshot..."
+                        : snapshotsQuery.data?.request ?? "Request snapshot not loaded."
+                      : "No request snapshot was captured for this call."}
+                  </pre>
+                </div>
+
+                <div style={styles.snapshotBox}>
+                  <div style={styles.snapshotHeader}>
+                    <div style={styles.snapshotTitle}>Response Text</div>
+                    <div style={styles.snapshotPath}>{selectedCall.response_snapshot_path ?? "No response snapshot"}</div>
+                  </div>
+                  <pre style={styles.snapshotPre}>
+                    {selectedCall.response_snapshot_path
+                      ? snapshotsQuery.isFetching
+                        ? "Loading response snapshot..."
+                        : snapshotsQuery.data?.response ?? "Response snapshot not loaded."
+                      : "No response snapshot was captured for this call."}
+                  </pre>
+                </div>
+              </div>
             </>
           ) : (
-            <div style={styles.empty}>Select a session to inspect calls.</div>
+            <div style={styles.empty}>Select a call to inspect details.</div>
           )}
         </aside>
       </div>

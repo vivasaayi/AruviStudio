@@ -1292,7 +1292,7 @@ impl AgentService {
 
         let request = CompletionRequest {
             model: model_def.name.clone(),
-            messages,
+            messages: messages.clone(),
             temperature: Some(0.7),
             max_tokens: Some(max_tokens),
         };
@@ -1311,41 +1311,54 @@ impl AgentService {
                 let duration_ms = Self::elapsed_ms(call_started);
                 let error_message = err.to_string();
                 let call_id = uuid::Uuid::new_v4().to_string();
-                if let Err(record_err) = model_call_repo::create_model_call(
-                    &self.db,
-                    model_call_repo::CreateModelCallParams {
-                        id: &call_id,
-                        source_kind,
-                        source_id: Some(&agent_run.id),
-                        source_label: &source_label,
-                        workflow_run_id: Some(&agent_run.workflow_run_id),
-                        agent_run_id: Some(&agent_run.id),
-                        work_item_id: None,
-                        product_id: None,
-                        session_id: None,
-                        agent_id: Some(&agent_run.agent_id),
-                        stage: Some(&agent_run.stage),
-                        provider_id: &provider.id,
-                        provider_name: &provider.name,
-                        provider_type: provider.provider_type.as_str(),
-                        provider_base_url: &provider.base_url,
-                        model_id: Some(&model_def.id),
-                        model_name: &model_def.name,
-                        call_index,
-                        request_message_count: 1,
-                        prompt_chars,
-                        response_chars: 0,
-                        max_tokens: Some(max_tokens),
-                        temperature: Some(0.7),
-                        token_count_input: None,
-                        token_count_output: None,
-                        duration_ms: Some(duration_ms),
-                        status: "failed",
-                        error_message: Some(&error_message),
-                    },
-                )
-                .await
-                {
+                let record_result = async {
+                    let request_messages_json = serde_json::to_string_pretty(&messages)?;
+                    let snapshots = model_call_repo::write_model_call_snapshots(
+                        &self.artifact_base_path,
+                        &call_id,
+                        Some(&request_messages_json),
+                        None,
+                    )
+                    .await?;
+                    model_call_repo::create_model_call(
+                        &self.db,
+                        model_call_repo::CreateModelCallParams {
+                            id: &call_id,
+                            source_kind,
+                            source_id: Some(&agent_run.id),
+                            source_label: &source_label,
+                            workflow_run_id: Some(&agent_run.workflow_run_id),
+                            agent_run_id: Some(&agent_run.id),
+                            work_item_id: None,
+                            product_id: None,
+                            session_id: None,
+                            agent_id: Some(&agent_run.agent_id),
+                            stage: Some(&agent_run.stage),
+                            provider_id: &provider.id,
+                            provider_name: &provider.name,
+                            provider_type: provider.provider_type.as_str(),
+                            provider_base_url: &provider.base_url,
+                            model_id: Some(&model_def.id),
+                            model_name: &model_def.name,
+                            call_index,
+                            request_message_count: 1,
+                            prompt_chars,
+                            response_chars: 0,
+                            request_snapshot_path: snapshots.request_snapshot_path.as_deref(),
+                            response_snapshot_path: snapshots.response_snapshot_path.as_deref(),
+                            max_tokens: Some(max_tokens),
+                            temperature: Some(0.7),
+                            token_count_input: None,
+                            token_count_output: None,
+                            duration_ms: Some(duration_ms),
+                            status: "failed",
+                            error_message: Some(&error_message),
+                        },
+                    )
+                    .await
+                }
+                .await;
+                if let Err(record_err) = record_result {
                     warn!(
                         agent_run_id = %agent_run.id,
                         record_error = %record_err,
@@ -1359,6 +1372,14 @@ impl AgentService {
         let duration_ms = Self::elapsed_ms(call_started);
         let response_chars = Self::char_count_i64(&response.content);
         let call_id = uuid::Uuid::new_v4().to_string();
+        let request_messages_json = serde_json::to_string_pretty(&messages)?;
+        let snapshots = model_call_repo::write_model_call_snapshots(
+            &self.artifact_base_path,
+            &call_id,
+            Some(&request_messages_json),
+            Some(&response.content),
+        )
+        .await?;
         model_call_repo::create_model_call(
             &self.db,
             model_call_repo::CreateModelCallParams {
@@ -1383,6 +1404,8 @@ impl AgentService {
                 request_message_count: 1,
                 prompt_chars,
                 response_chars,
+                request_snapshot_path: snapshots.request_snapshot_path.as_deref(),
+                response_snapshot_path: snapshots.response_snapshot_path.as_deref(),
                 max_tokens: Some(max_tokens),
                 temperature: Some(0.7),
                 token_count_input: response.token_count_input,

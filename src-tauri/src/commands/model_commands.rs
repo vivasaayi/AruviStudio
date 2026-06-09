@@ -10,6 +10,7 @@ use crate::state::AppState;
 use futures_util::StreamExt;
 use serde::Serialize;
 use sqlx::SqlitePool;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tauri::{AppHandle, Emitter, State};
 use tokio::io::AsyncWriteExt;
@@ -49,6 +50,7 @@ fn elapsed_ms(started: Instant) -> i64 {
 
 async fn record_model_command_call(
     db: &SqlitePool,
+    artifact_base_path: &Path,
     source_kind: &str,
     source_id: Option<&str>,
     source_label: &str,
@@ -63,9 +65,18 @@ async fn record_model_command_call(
     duration_ms: i64,
     status: &str,
     error_message: Option<&str>,
+    response_text: Option<&str>,
 ) -> Result<(), AppError> {
     let call_index = model_call_repo::next_model_call_index(db, source_kind, source_id).await?;
     let call_id = uuid::Uuid::new_v4().to_string();
+    let request_messages_json = serde_json::to_string_pretty(messages)?;
+    let snapshots = model_call_repo::write_model_call_snapshots(
+        artifact_base_path,
+        &call_id,
+        Some(&request_messages_json),
+        response_text,
+    )
+    .await?;
     model_call_repo::create_model_call(
         db,
         model_call_repo::CreateModelCallParams {
@@ -90,6 +101,8 @@ async fn record_model_command_call(
             request_message_count: i64::try_from(messages.len()).unwrap_or(i64::MAX),
             prompt_chars: message_char_count(messages),
             response_chars,
+            request_snapshot_path: snapshots.request_snapshot_path.as_deref(),
+            response_snapshot_path: snapshots.response_snapshot_path.as_deref(),
             max_tokens,
             temperature,
             token_count_input,
@@ -471,6 +484,7 @@ pub async fn run_model_chat_completion(
             let error_message = error.to_string();
             if let Err(record_error) = record_model_command_call(
                 &state.db,
+                &state.artifact_base_path,
                 &source_kind,
                 source_id.as_deref(),
                 &source_label,
@@ -485,6 +499,7 @@ pub async fn run_model_chat_completion(
                 elapsed_ms(started),
                 "failed",
                 Some(&error_message),
+                None,
             )
             .await
             {
@@ -495,6 +510,7 @@ pub async fn run_model_chat_completion(
     };
     if let Err(record_error) = record_model_command_call(
         &state.db,
+        &state.artifact_base_path,
         &source_kind,
         source_id.as_deref(),
         &source_label,
@@ -509,6 +525,7 @@ pub async fn run_model_chat_completion(
         elapsed_ms(started),
         "completed",
         None,
+        Some(&response.content),
     )
     .await
     {
@@ -531,6 +548,38 @@ pub async fn get_model_call(state: State<'_, AppState>, id: String) -> Result<Mo
 }
 
 #[tauri::command]
+pub async fn read_model_call_snapshot(
+    state: State<'_, AppState>,
+    id: String,
+    kind: String,
+) -> Result<String, AppError> {
+    let call = model_call_repo::get_model_call(&state.db, &id).await?;
+    let snapshot_path = match kind.as_str() {
+        "request" => call.request_snapshot_path,
+        "response" => call.response_snapshot_path,
+        _ => {
+            return Err(AppError::Validation(
+                "snapshot kind must be request or response".to_string(),
+            ))
+        }
+    }
+    .ok_or_else(|| AppError::NotFound(format!("Model call {id} has no {kind} snapshot")))?;
+
+    let requested_path = PathBuf::from(snapshot_path);
+    let canonical_path = tokio::fs::canonicalize(&requested_path).await?;
+    let canonical_artifact_base = tokio::fs::canonicalize(&state.artifact_base_path).await?;
+    if !canonical_path.starts_with(&canonical_artifact_base) {
+        return Err(AppError::Validation(
+            "Snapshot path is outside the artifact directory".to_string(),
+        ));
+    }
+
+    tokio::fs::read_to_string(canonical_path)
+        .await
+        .map_err(AppError::from)
+}
+
+#[tauri::command]
 pub async fn start_model_chat_stream(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -548,6 +597,7 @@ pub async fn start_model_chat_stream(
     let stream_id = uuid::Uuid::new_v4().to_string();
 
     let db = state.db.clone();
+    let artifact_base_path = state.artifact_base_path.clone();
     let source_kind = source_kind.unwrap_or_else(|| "desktop_stream".to_string());
     let telemetry_source_id = source_id.unwrap_or_else(|| stream_id.clone());
     let source_label = source_label.unwrap_or_else(|| "Desktop stream".to_string());
@@ -557,6 +607,7 @@ pub async fn start_model_chat_stream(
     tokio::spawn(async move {
         let started = Instant::now();
         let mut response_chars = 0_i64;
+        let mut response_text = String::new();
         let client = reqwest::Client::new();
         let url = endpoint_url(&base_url, "/chat/completions");
         let body = serde_json::json!({
@@ -581,6 +632,7 @@ pub async fn start_model_chat_stream(
                 let error_text = format!("Request failed: {}", error);
                 if let Err(record_error) = record_model_command_call(
                     &db,
+                    &artifact_base_path,
                     &source_kind,
                     Some(&telemetry_source_id_for_task),
                     &source_label,
@@ -595,6 +647,7 @@ pub async fn start_model_chat_stream(
                     elapsed_ms(started),
                     "failed",
                     Some(&error_text),
+                    None,
                 )
                 .await
                 {
@@ -617,6 +670,7 @@ pub async fn start_model_chat_stream(
             let error_text = format!("API error {}: {}", status, text);
             if let Err(record_error) = record_model_command_call(
                 &db,
+                &artifact_base_path,
                 &source_kind,
                 Some(&telemetry_source_id_for_task),
                 &source_label,
@@ -631,6 +685,7 @@ pub async fn start_model_chat_stream(
                 elapsed_ms(started),
                 "failed",
                 Some(&error_text),
+                None,
             )
             .await
             {
@@ -656,6 +711,7 @@ pub async fn start_model_chat_stream(
                     let error_text = format!("Stream read failed: {}", error);
                     if let Err(record_error) = record_model_command_call(
                         &db,
+                        &artifact_base_path,
                         &source_kind,
                         Some(&telemetry_source_id_for_task),
                         &source_label,
@@ -670,6 +726,7 @@ pub async fn start_model_chat_stream(
                         elapsed_ms(started),
                         "failed",
                         Some(&error_text),
+                        Some(&response_text),
                     )
                     .await
                     {
@@ -698,6 +755,7 @@ pub async fn start_model_chat_stream(
                 if payload == "[DONE]" {
                     if let Err(record_error) = record_model_command_call(
                         &db,
+                        &artifact_base_path,
                         &source_kind,
                         Some(&telemetry_source_id_for_task),
                         &source_label,
@@ -712,6 +770,7 @@ pub async fn start_model_chat_stream(
                         elapsed_ms(started),
                         "completed",
                         None,
+                        Some(&response_text),
                     )
                     .await
                     {
@@ -731,6 +790,7 @@ pub async fn start_model_chat_stream(
                         if let Some(delta) = value["choices"][0]["delta"]["content"].as_str() {
                             if !delta.is_empty() {
                                 response_chars += char_count_i64(delta);
+                                response_text.push_str(delta);
                                 let _ = app.emit(
                                     "chat_stream_chunk",
                                     ChatStreamChunkEvent {
@@ -756,6 +816,7 @@ pub async fn start_model_chat_stream(
         );
         if let Err(record_error) = record_model_command_call(
             &db,
+            &artifact_base_path,
             &source_kind,
             Some(&telemetry_source_id_for_task),
             &source_label,
@@ -770,6 +831,7 @@ pub async fn start_model_chat_stream(
             elapsed_ms(started),
             "completed",
             None,
+            Some(&response_text),
         )
         .await
         {

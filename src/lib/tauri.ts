@@ -710,6 +710,8 @@ export const startModelChatStream = (data: {
   });
 export const listModelCalls = (limit = 200) => invoke<ModelCall[]>("list_model_calls", { limit });
 export const getModelCall = (id: string) => invoke<ModelCall>("get_model_call", { id });
+export const readModelCallSnapshot = (id: string, kind: "request" | "response") =>
+  invoke<string>("read_model_call_snapshot", { id, kind });
 
 // Agent commands
 export const listAgentDefinitions = () => invoke<AgentDefinition[]>("list_agent_definitions");

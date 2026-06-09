@@ -71,6 +71,8 @@ pub struct ModelCall {
     pub request_message_count: i64,
     pub prompt_chars: i64,
     pub response_chars: i64,
+    pub request_snapshot_path: Option<String>,
+    pub response_snapshot_path: Option<String>,
     pub max_tokens: Option<i64>,
     pub temperature: Option<f64>,
     pub token_count_input: Option<i64>,

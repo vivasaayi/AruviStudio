@@ -323,6 +323,8 @@ export interface ModelCall {
   request_message_count: number;
   prompt_chars: number;
   response_chars: number;
+  request_snapshot_path: string | null;
+  response_snapshot_path: string | null;
   max_tokens: number | null;
   temperature: number | null;
   token_count_input: number | null;
