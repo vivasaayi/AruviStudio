@@ -4,6 +4,7 @@ pub mod artifact_service;
 pub mod audit_service;
 pub mod channel_service;
 pub mod docker_service;
+pub mod external_cli_service;
 pub mod finding_service;
 pub mod model_service;
 pub mod planner_service;

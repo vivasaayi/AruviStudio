@@ -249,6 +249,7 @@
         ),
       ],
       repositories: [],
+      externalCliRuns: [],
       plannerSessions: {},
     };
   }
@@ -1419,6 +1420,10 @@
         case "list_work_item_findings":
         case "get_sub_work_items":
           return ok([]);
+        case "list_external_cli_runs_for_work_item": {
+          const workItemId = String(getArg(args, "workItemId", "work_item_id") ?? "");
+          return ok(state.externalCliRuns.filter((run) => !workItemId || run.work_item_id === workItemId));
+        }
         case "get_latest_workflow_run_for_work_item":
         case "get_workflow_run":
         case "get_work_item":
@@ -1503,6 +1508,33 @@
         case "reject_work_item_plan":
         case "approve_work_item_test_review":
         case "start_work_item_workflow":
+          return notImplemented(command);
+        case "invoke_external_cli_for_work_item": {
+          const provider = String(getArg(args, "provider") ?? "codex");
+          const workItemId = String(getArg(args, "workItemId", "work_item_id") ?? "");
+          const run = {
+            id: nextId("external-cli-run"),
+            work_item_id: workItemId,
+            provider,
+            label: provider === "codex" ? "Codex CLI" : provider === "claude" ? "Claude Code CLI" : provider === "cursor" ? "Cursor Agent CLI" : "GitHub Copilot CLI",
+            command: provider === "copilot" ? "gh" : provider === "cursor" ? "cursor-agent" : provider,
+            args: provider === "codex" ? ["exec", "Mock work item prompt"] : provider === "copilot" ? ["copilot", "-p", "Mock work item prompt"] : ["-p", "Mock work item prompt"],
+            prompt: "Mock work item prompt",
+            cwd: "/tmp/mock-repository",
+            status: "completed",
+            exit_code: 0,
+            duration_ms: 25,
+            stdout_chars: 32,
+            stderr_chars: 0,
+            output_artifact_id: null,
+            error_message: null,
+            started_at: FIXED_TIMESTAMP,
+            ended_at: FIXED_TIMESTAMP,
+            created_at: FIXED_TIMESTAMP,
+          };
+          state.externalCliRuns.unshift(run);
+          return ok(run);
+        }
         case "handle_workflow_user_action":
         case "mark_workflow_run_failed":
         case "restart_workflow_run":

@@ -2,6 +2,7 @@ pub mod agent_repo;
 pub mod approval_repo;
 pub mod artifact_repo;
 pub mod db;
+pub mod external_cli_repo;
 pub mod finding_repo;
 pub mod model_call_repo;
 pub mod model_repo;

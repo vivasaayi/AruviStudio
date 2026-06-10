@@ -2,6 +2,7 @@ pub mod agent;
 pub mod approval;
 pub mod artifact;
 pub mod events;
+pub mod external_cli;
 pub mod finding;
 pub mod model;
 pub mod product;

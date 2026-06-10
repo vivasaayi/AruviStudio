@@ -301,6 +301,27 @@ export interface AgentRun {
   created_at: string;
 }
 
+export interface ExternalCliRun {
+  id: string;
+  work_item_id: string;
+  provider: "codex" | "claude" | "cursor" | "copilot";
+  label: string;
+  command: string;
+  args: string[];
+  prompt: string;
+  cwd: string;
+  status: "running" | "completed" | "failed" | "cancelled";
+  exit_code: number | null;
+  duration_ms: number | null;
+  stdout_chars: number;
+  stderr_chars: number;
+  output_artifact_id: string | null;
+  error_message: string | null;
+  started_at: string;
+  ended_at: string | null;
+  created_at: string;
+}
+
 export interface ModelCall {
   id: string;
   source_kind: string;

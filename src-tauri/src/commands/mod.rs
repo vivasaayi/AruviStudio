@@ -2,6 +2,7 @@ pub mod agent_commands;
 pub mod approval_commands;
 pub mod artifact_commands;
 pub mod channel_commands;
+pub mod external_cli_commands;
 pub mod finding_commands;
 pub mod model_commands;
 pub mod observability_commands;

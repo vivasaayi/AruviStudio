@@ -103,6 +103,9 @@ pub fn run() {
             commands::workflow_commands::list_agent_model_calls_for_workflow,
             commands::workflow_commands::mark_workflow_run_failed,
             commands::workflow_commands::restart_workflow_run,
+            // External CLI commands
+            commands::external_cli_commands::invoke_external_cli_for_work_item,
+            commands::external_cli_commands::list_external_cli_runs_for_work_item,
             // Agent commands
             commands::agent_commands::list_agent_definitions,
             commands::agent_commands::list_agent_model_bindings,

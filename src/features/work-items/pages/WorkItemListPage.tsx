@@ -21,6 +21,8 @@ import {
   listAgentDefinitions,
   listAgentModelCallsForWorkflow,
   listAgentRunsForWorkflow,
+  invokeExternalCliForWorkItem,
+  listExternalCliRunsForWorkItem,
   listAgentModelBindings,
   listAgentTeams,
   listModelDefinitions,
@@ -48,6 +50,7 @@ import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
 import type {
   AgentDefinition,
   AgentModelBinding,
+  ExternalCliRun,
   ModelCall,
   AgentRun,
   AgentTeam,
@@ -179,6 +182,14 @@ type WorkflowDagLane = {
 };
 
 type WorkspaceBranchMode = "default" | "work_item" | "custom";
+type ExternalCliProvider = "codex" | "claude" | "cursor" | "copilot";
+
+const EXTERNAL_CLI_PROVIDERS: Array<{ provider: ExternalCliProvider; label: string }> = [
+  { provider: "codex", label: "Codex" },
+  { provider: "claude", label: "Claude" },
+  { provider: "cursor", label: "Cursor" },
+  { provider: "copilot", label: "Copilot" },
+];
 
 function workItemBranchName(title: string): string {
   const slug = title
@@ -571,6 +582,12 @@ export function WorkItemListPage() {
     enabled: !!workflowRunId,
     refetchInterval: 4000,
   });
+  const { data: externalCliRuns } = useQuery({
+    queryKey: ["externalCliRunsForWorkItem", selectedWorkItemId],
+    queryFn: () => listExternalCliRunsForWorkItem(selectedWorkItemId!),
+    enabled: !!selectedWorkItemId,
+    refetchInterval: 4000,
+  });
 
   useEffect(() => {
     if (selectedWorkItemId !== activeWorkItemId) {
@@ -724,6 +741,7 @@ export function WorkItemListPage() {
       queryClient.invalidateQueries({ queryKey: ["workflowHistory", workflowRunId] }),
       queryClient.invalidateQueries({ queryKey: ["agentRunsForWorkflow", workflowRunId] }),
       queryClient.invalidateQueries({ queryKey: ["agentModelCallsForWorkflow", workflowRunId] }),
+      queryClient.invalidateQueries({ queryKey: ["externalCliRunsForWorkItem", selectedWorkItemId] }),
       queryClient.invalidateQueries({ queryKey: ["artifacts", selectedWorkItemId] }),
       queryClient.invalidateQueries({ queryKey: ["findings", selectedWorkItemId] }),
       queryClient.refetchQueries({ queryKey: ["workItems", activeProductId, activeNodeId, activeNodeType, statusFilter], type: "active" }),
@@ -831,6 +849,24 @@ export function WorkItemListPage() {
       setActiveWorkflowRunId(workflowRunId);
       setActionError(null);
       await invalidateTasks();
+      setWorkItemWorkspaceTab("review");
+    },
+    onError: (error) => setActionError(String(error)),
+  });
+  const externalCliMutation = useMutation({
+    mutationFn: (provider: ExternalCliProvider) => {
+      if (!selectedWorkItemId) {
+        throw new Error("No work item selected.");
+      }
+      return invokeExternalCliForWorkItem({ workItemId: selectedWorkItemId, provider });
+    },
+    onSuccess: async (run) => {
+      setActionError(null);
+      setActionInfo(`${run.label} finished with status ${run.status}.`);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["externalCliRunsForWorkItem", selectedWorkItemId] }),
+        queryClient.invalidateQueries({ queryKey: ["artifacts", selectedWorkItemId] }),
+      ]);
       setWorkItemWorkspaceTab("review");
     },
     onError: (error) => setActionError(String(error)),
@@ -1259,6 +1295,11 @@ export function WorkItemListPage() {
     () => (artifacts ?? []).slice().sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null,
     [artifacts],
   );
+  const latestExternalCliRun = useMemo(
+    () => (externalCliRuns ?? []).slice().sort((a, b) => b.started_at.localeCompare(a.started_at))[0] ?? null,
+    [externalCliRuns],
+  );
+  const externalCliProviderInFlight = externalCliMutation.isPending ? externalCliMutation.variables : null;
   const findingSeverityCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const finding of findings ?? []) {
@@ -1791,6 +1832,37 @@ export function WorkItemListPage() {
                   )}
                 </div>
 
+                <div style={styles.detailCard}>
+                  <div style={styles.detailLabel}>External CLIs</div>
+                  <div style={styles.detailValue}>
+                    Invoke an installed coding CLI against this work item and capture the prompt, command, output, exit status, and artifact.
+                  </div>
+                  {!resolvedRepository ? (
+                    <div style={{ ...styles.warning, marginTop: 10 }}>
+                      Attach a workspace before launching an external CLI.
+                    </div>
+                  ) : null}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                    {EXTERNAL_CLI_PROVIDERS.map((entry) => (
+                      <button
+                        key={entry.provider}
+                        style={styles.ghostBtn}
+                        onClick={() => externalCliMutation.mutate(entry.provider)}
+                        disabled={!resolvedRepository || externalCliMutation.isPending}
+                      >
+                        {externalCliProviderInFlight === entry.provider ? "Running..." : `Run ${entry.label}`}
+                      </button>
+                    ))}
+                  </div>
+                  {latestExternalCliRun ? (
+                    <div style={styles.smallText}>
+                      Latest: {latestExternalCliRun.label} · {latestExternalCliRun.status} · {formatDurationMs(latestExternalCliRun.duration_ms)}
+                    </div>
+                  ) : (
+                    <div style={styles.smallText}>No external CLI runs recorded yet.</div>
+                  )}
+                </div>
+
                 <>
                   <div style={styles.detailCard}>
                     <div style={styles.detailLabel}>Description</div>
@@ -2190,6 +2262,43 @@ export function WorkItemListPage() {
               )}
               </div>
               <div style={styles.detailCard}>
+                <div style={styles.detailLabel}>External CLI Runs</div>
+                {externalCliRuns && externalCliRuns.length > 0 ? (
+                  <div style={styles.list}>
+                    {externalCliRuns.map((run: ExternalCliRun) => {
+                      const outputArtifact = (artifacts ?? []).find((artifact) => artifact.id === run.output_artifact_id) ?? null;
+                      return (
+                        <div key={run.id} style={styles.listItem}>
+                          <div style={styles.taskTitle}>{run.label} · {run.status}</div>
+                          <div style={styles.smallText}>Run: {run.id}</div>
+                          <div style={styles.smallText}>Command: {formatExternalCliCommand(run)}</div>
+                          <div style={styles.smallText}>CWD: {run.cwd}</div>
+                          <div style={styles.smallText}>
+                            Started: {run.started_at}{run.ended_at ? ` · Ended: ${run.ended_at}` : ""}
+                          </div>
+                          <div style={styles.smallText}>
+                            Exit {run.exit_code ?? "n/a"} · Duration {formatDurationMs(run.duration_ms)} · stdout {formatInteger(run.stdout_chars)} chars · stderr {formatInteger(run.stderr_chars)} chars
+                          </div>
+                          {run.error_message && <div style={styles.warning}>{run.error_message}</div>}
+                          {outputArtifact ? (
+                            <button
+                              style={{ ...styles.ghostBtn, marginTop: 8 }}
+                              onClick={() => setArtifactModalArtifact(outputArtifact)}
+                            >
+                              Open captured output
+                            </button>
+                          ) : (
+                            <div style={styles.smallText}>Captured artifact pending.</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div style={styles.detailValue}>No external CLI runs yet. Launch one from the Work Item Detail tab.</div>
+                )}
+              </div>
+              <div style={styles.detailCard}>
                 <div style={styles.detailLabel}>Summary</div>
                 <div style={styles.list}>
                   <div style={styles.listItem}>
@@ -2399,6 +2508,11 @@ function orderWorkItemsByIds(workItems: WorkItem[], orderedIds: string[]) {
   }
   const rank = new Map(orderedIds.map((id, index) => [id, index]));
   return [...workItems].sort((a, b) => (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER));
+}
+
+function formatExternalCliCommand(run: ExternalCliRun): string {
+  const args = run.args.map((arg) => (arg.includes(" ") ? `"${arg.slice(0, 160)}${arg.length > 160 ? "..." : ""}"` : arg));
+  return [run.command, ...args].join(" ");
 }
 
 type RuntimeTone = "neutral" | "info" | "success" | "warning" | "danger";
