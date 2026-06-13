@@ -39,8 +39,11 @@ import {
 import {
   getAllowedChildNodeKinds,
   getDefaultChildNodeKind,
+  groupHierarchyNodeKinds,
   getHierarchyChildLabel,
+  getHierarchyNodeKindGuidance,
   getHierarchyNodeKindLabel,
+  orderHierarchyNodeKinds,
   ROOT_NODE_KINDS,
   supportsHierarchyChildren,
 } from "../../../lib/hierarchyLabels";
@@ -799,9 +802,10 @@ export function ProductListPage() {
   );
   const selectedNodeKey = activeNodeId && activeNodeType ? `${activeNodeType}:${activeNodeId}` : null;
   const outlineNodeKindOptions = useMemo(
-    () => Array.from(new Set(allTreeNodes.map((node) => node.node_kind))),
+    () => orderHierarchyNodeKinds(Array.from(new Set(allTreeNodes.map((node) => node.node_kind)))),
     [allTreeNodes],
   );
+  const outlineNodeKindGroups = useMemo(() => groupHierarchyNodeKinds(outlineNodeKindOptions), [outlineNodeKindOptions]);
   const hasOutlineFilter = outlineSearchTerm.trim().length > 0 || outlineKindFilter.length > 0;
   const filteredOutlineRoots = useMemo(() => {
     if (!tree) {
@@ -886,10 +890,18 @@ export function ProductListPage() {
       return [] as HierarchyNodeKind[];
     }
     const allowedKinds = getAllowedChildNodeKinds(selectedCapabilityParentKind);
-    return allowedKinds.includes(selectedCapability.node_kind)
+    return orderHierarchyNodeKinds(allowedKinds.includes(selectedCapability.node_kind)
       ? allowedKinds
-      : [selectedCapability.node_kind, ...allowedKinds];
+      : [selectedCapability.node_kind, ...allowedKinds]);
   }, [selectedCapability, selectedCapabilityParentKind]);
+  const selectedCapabilityAllowedKindGroups = useMemo(
+    () => groupHierarchyNodeKinds(getAllowedChildNodeKinds(selectedCapability?.node_kind ?? selectedModule?.node_kind)),
+    [selectedCapability?.node_kind, selectedModule?.node_kind],
+  );
+  const editableCapabilityNodeKindGroups = useMemo(
+    () => groupHierarchyNodeKinds(editableCapabilityNodeKinds),
+    [editableCapabilityNodeKinds],
+  );
   const orderedModules = useMemo(() => {
     if (!tree) {
       return [];
@@ -1447,8 +1459,12 @@ export function ProductListPage() {
                       onChange={(event) => setOutlineKindFilter(event.target.value as HierarchyNodeKind | "")}
                     >
                       <option value="">All node kinds</option>
-                      {outlineNodeKindOptions.map((nodeKind) => (
-                        <option key={nodeKind} value={nodeKind}>{getHierarchyNodeKindLabel(nodeKind)}</option>
+                      {outlineNodeKindGroups.map((group) => (
+                        <optgroup key={group.label} label={group.label}>
+                          {group.kinds.map((nodeKind) => (
+                            <option key={nodeKind} value={nodeKind}>{getHierarchyNodeKindLabel(nodeKind)}</option>
+                          ))}
+                        </optgroup>
                       ))}
                     </select>
                     <div style={styles.outlineToolRow}>
@@ -1892,6 +1908,7 @@ export function ProductListPage() {
                   <option key={nodeKind} value={nodeKind}>{getHierarchyNodeKindLabel(nodeKind)}</option>
                 ))}
               </select>
+              <div style={styles.contextText}>{getHierarchyNodeKindGuidance(moduleForm.nodeKind)}</div>
               <label style={styles.label}>{getHierarchyNodeKindLabel(moduleForm.nodeKind)} Name</label>
               <input style={styles.input} value={moduleForm.name} onChange={(e) => setModuleForm({ ...moduleForm, name: e.target.value })} />
               <label style={styles.label}>Description</label>
@@ -1907,6 +1924,7 @@ export function ProductListPage() {
                   <option key={nodeKind} value={nodeKind}>{getHierarchyNodeKindLabel(nodeKind)}</option>
                 ))}
               </select>
+              <div style={styles.contextText}>{getHierarchyNodeKindGuidance(moduleDraft.nodeKind)}</div>
               <label style={styles.label}>{getHierarchyNodeKindLabel(moduleDraft.nodeKind)} Name</label>
               <input style={styles.input} value={moduleDraft.name} onChange={(e) => setModuleDraft({ ...moduleDraft, name: e.target.value })} />
               <label style={styles.label}>Description</label>
@@ -1951,12 +1969,18 @@ export function ProductListPage() {
               />
               <label style={styles.label}>Node Kind</label>
               <select style={styles.input} value={capabilityForm.nodeKind} onChange={(e) => setCapabilityForm({ ...capabilityForm, nodeKind: e.target.value as HierarchyNodeKind })}>
-                {getAllowedChildNodeKinds(selectedCapability?.node_kind ?? selectedModule?.node_kind).map((nodeKind) => (
-                  <option key={nodeKind} value={nodeKind}>{getHierarchyNodeKindLabel(nodeKind)}</option>
+                {selectedCapabilityAllowedKindGroups.map((group) => (
+                  <optgroup key={group.label} label={group.label}>
+                    {group.kinds.map((nodeKind) => (
+                      <option key={nodeKind} value={nodeKind}>{getHierarchyNodeKindLabel(nodeKind)}</option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
               <div style={styles.contextText}>
-                Allowed child kinds: {getAllowedChildNodeKinds(selectedCapability?.node_kind ?? selectedModule?.node_kind).map((nodeKind) => getHierarchyNodeKindLabel(nodeKind)).join(", ")}.
+                {getHierarchyNodeKindGuidance(capabilityForm.nodeKind)}
+                {" "}
+                Allowed here: {selectedCapabilityAllowedKindGroups.flatMap((group) => group.kinds).map((nodeKind) => getHierarchyNodeKindLabel(nodeKind)).join(", ")}.
               </div>
               <label style={styles.label}>{getHierarchyNodeKindLabel(capabilityForm.nodeKind)} Name</label>
               <input style={styles.input} value={capabilityForm.name} onChange={(e) => setCapabilityForm({ ...capabilityForm, name: e.target.value })} />
@@ -1971,10 +1995,15 @@ export function ProductListPage() {
             <>
               <label style={styles.label}>Node Kind</label>
               <select style={styles.input} value={capabilityDraft.nodeKind} onChange={(e) => setCapabilityDraft((current) => ({ ...current, nodeKind: e.target.value as HierarchyNodeKind }))}>
-                {editableCapabilityNodeKinds.map((nodeKind) => (
-                  <option key={nodeKind} value={nodeKind}>{getHierarchyNodeKindLabel(nodeKind)}</option>
+                {editableCapabilityNodeKindGroups.map((group) => (
+                  <optgroup key={group.label} label={group.label}>
+                    {group.kinds.map((nodeKind) => (
+                      <option key={nodeKind} value={nodeKind}>{getHierarchyNodeKindLabel(nodeKind)}</option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
+              <div style={styles.contextText}>{getHierarchyNodeKindGuidance(capabilityDraft.nodeKind)}</div>
               <label style={styles.label}>Name</label>
               <input style={styles.input} value={capabilityDraft.name} onChange={(e) => setCapabilityDraft((current) => ({ ...current, name: e.target.value }))} />
               <label style={styles.label}>Description</label>

@@ -64,7 +64,51 @@ const NODE_KIND_LABELS: Record<HierarchyNodeKind, LabelForms> = {
   },
 };
 
+const NODE_KIND_GUIDANCE: Record<HierarchyNodeKind, string> = {
+  area: "Use for a broad product, business, user, or operational area. Areas can contain other areas, domains, systems, feature sets, capabilities, and references.",
+  domain: "Use for a subject-matter boundary or major concept space. Domain is the anchor level; use subdomains for deeper domain breakdowns.",
+  subdomain: "Use for a narrower domain slice when a domain is too broad. Subdomains can nest and can lead to systems, feature sets, capabilities, and references.",
+  system: "Use for a concrete product, app, service, physical device, platform, or major component. System is the anchor level; use subsystems for deeper component breakdowns.",
+  subsystem: "Use for a smaller component inside a system or another subsystem. Subsystems can nest before reaching feature sets or capabilities.",
+  feature_set: "Use for a grouped set of related capabilities. Feature sets are structural containers, not final delivery items.",
+  capability: "Use for something the product must be able to do. Capabilities can still contain finer capabilities, rollout slices, and references.",
+  rollout: "Use for a delivery or release slice. Rollouts are leaves and should not contain deeper structural children.",
+  reference: "Use for explanation, standards, constraints, notes, or source material. References are leaves and should not contain deeper structural children.",
+};
+
 export const ROOT_NODE_KINDS: HierarchyNodeKind[] = ["area", "domain", "system"];
+export const NODE_KIND_DISPLAY_ORDER: HierarchyNodeKind[] = [
+  "area",
+  "domain",
+  "subdomain",
+  "system",
+  "subsystem",
+  "feature_set",
+  "capability",
+  "rollout",
+  "reference",
+];
+
+export const NODE_KIND_GROUPS: Array<{ label: string; kinds: HierarchyNodeKind[] }> = [
+  { label: "Scope, domains, and systems", kinds: ["area", "domain", "subdomain", "system", "subsystem"] },
+  { label: "Product design", kinds: ["feature_set", "capability"] },
+  { label: "Delivery and reference", kinds: ["rollout", "reference"] },
+];
+
+export function orderHierarchyNodeKinds(nodeKinds: HierarchyNodeKind[]) {
+  const present = new Set(nodeKinds);
+  return NODE_KIND_DISPLAY_ORDER.filter((nodeKind) => present.has(nodeKind));
+}
+
+export function groupHierarchyNodeKinds(nodeKinds: HierarchyNodeKind[]) {
+  const present = new Set(nodeKinds);
+  return NODE_KIND_GROUPS
+    .map((group) => ({
+      ...group,
+      kinds: group.kinds.filter((nodeKind) => present.has(nodeKind)),
+    }))
+    .filter((group) => group.kinds.length > 0);
+}
 
 export function getHierarchyNodeKindLabel(
   nodeKind: HierarchyNodeKind | null | undefined,
@@ -87,6 +131,13 @@ export function supportsHierarchyChildren(nodeKind: HierarchyNodeKind | null | u
   return Boolean(nodeKind && nodeKind !== "rollout" && nodeKind !== "reference");
 }
 
+export function getHierarchyNodeKindGuidance(nodeKind: HierarchyNodeKind | null | undefined) {
+  if (!nodeKind) {
+    return "Choose the semantic role this node plays in the product model.";
+  }
+  return NODE_KIND_GUIDANCE[nodeKind];
+}
+
 export function getAllowedChildNodeKinds(parentKind: HierarchyNodeKind | null | undefined): HierarchyNodeKind[] {
   switch (parentKind) {
     case "area":
@@ -94,7 +145,7 @@ export function getAllowedChildNodeKinds(parentKind: HierarchyNodeKind | null | 
     case "domain":
       return ["subdomain", "system", "subsystem", "feature_set", "capability", "reference"];
     case "subdomain":
-      return ["subdomain", "feature_set", "capability", "reference"];
+      return ["subdomain", "system", "subsystem", "feature_set", "capability", "reference"];
     case "system":
       return ["subsystem", "feature_set", "capability", "reference"];
     case "subsystem":

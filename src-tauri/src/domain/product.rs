@@ -232,6 +232,8 @@ impl HierarchyNodeKind {
             ],
             Self::Subdomain => vec![
                 Self::Subdomain,
+                Self::System,
+                Self::Subsystem,
                 Self::FeatureSet,
                 Self::Capability,
                 Self::Reference,
