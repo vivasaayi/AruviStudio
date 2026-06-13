@@ -184,7 +184,20 @@ const borderColors: Record<string, string> = {
 };
 
 const activeTextOnSurface = new Set(["#123d5a", "#173247", "#18456a", "#1f2a35", "#1c2733", "#142437", "#172536"]);
-const strongBackgrounds = new Set(["#0e639c", "#12304a", "#2d6a3f", "#6c2020", "#7a5b16", "#7d2a2a", "#8b2d2d"]);
+const strongBackgrounds = new Set([
+  "#0e639c",
+  "#12304a",
+  "#1d4ed8",
+  "#2563eb",
+  "#15803d",
+  "#2d6a3f",
+  "#ca8a04",
+  "#dc2626",
+  "#6c2020",
+  "#7a5b16",
+  "#7d2a2a",
+  "#8b2d2d",
+]);
 
 export function applyLightThemeToProps<T extends { style?: CSSProperties } | null | undefined>(props: T): T {
   if (!props?.style || typeof props.style !== "object") {

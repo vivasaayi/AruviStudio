@@ -5,7 +5,6 @@ import type { Capability, CapabilityTree, Module, ModuleTree, Product, ProductTr
 import {
   PRODUCT_DELIVERY_ID,
   PRODUCT_OVERVIEW_TOP_ID,
-  buildProductOverviewToc,
   buildScopedWorkItemTree,
   buildWorkItemMetrics,
   getCapabilitySectionId,
@@ -16,106 +15,118 @@ import {
   type WorkItemNode,
 } from "../lib/productOverview";
 
-type TocGroup = {
-  item: { id: string; title: string; level: number };
-  children: TocNode[];
-};
-
-type TocNode = {
-  item: { id: string; title: string; level: number };
-  children: TocNode[];
-};
-
 const styles: Record<string, React.CSSProperties> = {
-  layout: { display: "flex", gap: 24, alignItems: "flex-start" },
-  layoutCollapsed: { display: "block" },
+  layout: { display: "block" },
   article: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 18 },
-  aside: { width: 292, flexShrink: 0, position: "sticky" as const, top: 12, display: "flex", flexDirection: "column", gap: 14, height: "calc(100vh - 24px)", minHeight: 0 },
-  asideCollapsed: { display: "none" },
-  panel: { borderRadius: 18, border: "1px solid #2a3340", backgroundColor: "#141b24", padding: 18, boxShadow: "0 18px 40px rgba(0,0,0,0.22)" },
-  panelScrollable: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column" as const },
-  panelTitle: { fontSize: 11, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" as const, color: "#8fb8ff", marginBottom: 10 },
-  tocWrap: { overflowY: "auto" as const, paddingRight: 4, display: "flex", flexDirection: "column", gap: 8, flex: 1, minHeight: 0 },
-  tocLink: { display: "block", padding: "9px 12px", borderRadius: 12, color: "#d7e3f3", textDecoration: "none", fontSize: 13, fontWeight: 700, lineHeight: 1.45, backgroundColor: "#111821", border: "1px solid #233041" },
-  tocGroup: { borderRadius: 14, border: "1px solid #233041", backgroundColor: "#111821", overflow: "hidden" },
-  tocSummary: { listStyle: "none" as const, cursor: "pointer", padding: "10px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, color: "#d7e3f3", fontSize: 13, fontWeight: 800 },
-  tocSummaryText: { minWidth: 0, lineHeight: 1.4 },
-  tocSummaryCount: { display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 24, height: 24, padding: "0 8px", borderRadius: 999, backgroundColor: "#162233", border: "1px solid #30455f", color: "#bcd3f1", fontSize: 11, fontWeight: 800, flexShrink: 0 },
-  tocChildren: { display: "flex", flexDirection: "column", gap: 8, padding: "0 12px 12px" },
-  tocChildrenRail: { display: "flex", flexDirection: "column", gap: 6, paddingLeft: 10, borderLeft: "1px solid #2a3c51" },
-  tocOverviewLink: { display: "block", padding: "6px 10px", borderRadius: 10, color: "#a9bad0", textDecoration: "none", fontSize: 12, lineHeight: 1.45, backgroundColor: "#131d29", border: "1px solid #223041" },
-  tocNode: { display: "flex", flexDirection: "column", gap: 6 },
-  tocNodeLink: { display: "grid", gridTemplateColumns: "auto 1fr", alignItems: "start", gap: 10, padding: "5px 10px", borderRadius: 10, color: "#d4e1f3", textDecoration: "none", lineHeight: 1.45 },
-  tocNodeChildren: { display: "flex", flexDirection: "column", gap: 6, marginLeft: 12, paddingLeft: 12, borderLeft: "1px solid #253549" },
-  tocNodeIndex: { minWidth: 38, color: "#88a8d8", fontSize: 11, fontWeight: 800, letterSpacing: "0.02em", paddingTop: 1 },
-  tocNodeTextPrimary: { fontSize: 13, fontWeight: 700, color: "#dce7f8" },
-  tocNodeTextSecondary: { fontSize: 12.5, fontWeight: 600, color: "#bfcfe5" },
-  legendRow: { display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: "#a8b5c8" },
-  legendDot: { width: 10, height: 10, borderRadius: 999 },
   hero: {
-    borderRadius: 22,
-    border: "1px solid #2d3c51",
-    background: "radial-gradient(circle at top right, rgba(102, 140, 214, 0.26), transparent 28%), linear-gradient(145deg, #1a2940 0%, #162433 52%, #111924 100%)",
-    padding: 24,
-    boxShadow: "0 24px 48px rgba(0,0,0,0.28)",
+    borderRadius: 16,
+    border: "1px solid #bfdbfe",
+    background: "linear-gradient(145deg, #eff6ff 0%, #ffffff 68%, #f8fafc 100%)",
+    padding: 18,
   },
-  eyebrow: { fontSize: 11, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase" as const, color: "#8fb8ff", marginBottom: 8 },
+  eyebrow: { fontSize: 11, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase" as const, color: "#2563eb", marginBottom: 8 },
   heroTop: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 12 },
-  title: { fontSize: 30, fontWeight: 900, color: "#f6f8fc", margin: 0, lineHeight: 1.05 },
-  subtitle: { fontSize: 14, color: "#d6deea", lineHeight: 1.7, margin: 0 },
-  prose: { fontSize: 14, color: "#dce5f2", lineHeight: 1.75, whiteSpace: "pre-wrap" as const },
-  button: { padding: "7px 12px", fontSize: 12, fontWeight: 700, backgroundColor: "#22344a", color: "#f4f8ff", border: "1px solid #406183", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
-  plannerButton: { padding: "7px 12px", fontSize: 12, fontWeight: 800, backgroundColor: "#12304a", color: "#eaf5ff", border: "1px solid #2d6fa3", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
-  subtleButton: { padding: "6px 10px", fontSize: 12, fontWeight: 700, backgroundColor: "#182433", color: "#cfe0f7", border: "1px solid #31465f", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
-  toggleButton: { padding: "7px 12px", fontSize: 12, fontWeight: 700, backgroundColor: "#182433", color: "#d9e7fa", border: "1px solid #35506f", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
-  readerToolbar: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" as const },
-  toolbarHint: { fontSize: 12, color: "#92a2b8" },
-  progressPanel: { marginTop: 18, borderRadius: 16, border: "1px solid rgba(255,255,255,0.1)", backgroundColor: "rgba(255,255,255,0.06)", padding: 14 },
-  progressRow: { display: "flex", justifyContent: "space-between", gap: 16, fontSize: 12, color: "#dce4f1" },
-  progressTrack: { width: "100%", height: 10, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.12)", overflow: "hidden", marginTop: 10 },
-  progressFill: { height: "100%", borderRadius: 999, background: "linear-gradient(90deg, #61d48c 0%, #8ff2bc 100%)" },
-  metricGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginTop: 16 },
-  metricCard: { borderRadius: 14, padding: 12, backgroundColor: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.08)" },
-  metricLabel: { fontSize: 11, fontWeight: 800, color: "#b8cae4", textTransform: "uppercase" as const, letterSpacing: "0.08em" },
-  metricValue: { fontSize: 24, fontWeight: 900, color: "#ffffff", marginTop: 4 },
-  summaryGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14 },
-  summaryCard: { borderRadius: 18, border: "1px solid #293341", backgroundColor: "#141b24", padding: 16 },
-  sectionTitle: { fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" as const, color: "#95a7c0", marginBottom: 10 },
-  summaryHeading: { fontSize: 20, fontWeight: 800, color: "#f5f7fb", margin: "0 0 8px" },
-  list: { margin: 0, paddingLeft: 18, color: "#d6deeb", display: "flex", flexDirection: "column", gap: 8, lineHeight: 1.65 },
+  title: { fontSize: 26, fontWeight: 900, color: "#0f172a", margin: 0, lineHeight: 1.05 },
+  subtitle: { fontSize: 13, color: "#475569", lineHeight: 1.5, margin: 0 },
+  prose: { fontSize: 13, color: "#334155", lineHeight: 1.55, whiteSpace: "pre-wrap" as const },
+  button: { padding: "7px 12px", fontSize: 12, fontWeight: 700, backgroundColor: "#f8fafc", color: "#1e3a8a", border: "1px solid #93c5fd", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
+  plannerButton: { padding: "7px 12px", fontSize: 12, fontWeight: 800, backgroundColor: "#2563eb", color: "#ffffff", border: "1px solid #1d4ed8", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
+  subtleButton: { padding: "6px 10px", fontSize: 12, fontWeight: 700, backgroundColor: "#eff6ff", color: "#1d4ed8", border: "1px solid #93c5fd", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
+  toggleButton: { padding: "7px 12px", fontSize: 12, fontWeight: 700, backgroundColor: "#eff6ff", color: "#1d4ed8", border: "1px solid #93c5fd", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
+  progressPanel: { marginTop: 12, borderRadius: 12, border: "1px solid #dbeafe", backgroundColor: "#ffffff", padding: 10 },
+  progressRow: { display: "flex", justifyContent: "space-between", gap: 16, fontSize: 12, color: "#475569" },
+  progressTrack: { width: "100%", height: 10, borderRadius: 999, backgroundColor: "#e2e8f0", overflow: "hidden", marginTop: 10 },
+  progressFill: { height: "100%", borderRadius: 999, background: "linear-gradient(90deg, #16a34a 0%, #22c55e 100%)" },
+  metricGrid: { display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 8, marginTop: 12 },
+  metricCard: { borderRadius: 10, padding: 10, backgroundColor: "#ffffff", border: "1px solid #dbeafe" },
+  metricLabel: { fontSize: 11, fontWeight: 800, color: "#64748b", textTransform: "uppercase" as const, letterSpacing: "0.08em" },
+  metricValue: { fontSize: 20, fontWeight: 900, color: "#0f172a", marginTop: 4 },
+  summaryGrid: { display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 },
+  summaryCard: { borderRadius: 12, border: "1px solid #d8dee8", backgroundColor: "#ffffff", padding: 12 },
+  sectionTitle: { fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" as const, color: "#64748b", marginBottom: 10 },
+  summaryHeading: { fontSize: 16, fontWeight: 800, color: "#111827", margin: "0 0 6px" },
+  list: { margin: 0, paddingLeft: 18, color: "#334155", display: "flex", flexDirection: "column", gap: 8, lineHeight: 1.65 },
   chipRow: { display: "flex", gap: 8, flexWrap: "wrap" as const },
-  chip: { fontSize: 11, padding: "4px 8px", borderRadius: 999, backgroundColor: "#1b2a3c", color: "#b9d3ff" },
-  section: { borderRadius: 18, border: "1px solid #293341", backgroundColor: "#141b24", padding: 18 },
+  chip: { fontSize: 11, padding: "4px 8px", borderRadius: 999, backgroundColor: "#eff6ff", color: "#1d4ed8" },
+  section: { borderRadius: 12, border: "1px solid #d8dee8", backgroundColor: "#ffffff", padding: 14 },
   sectionHeader: { display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 },
-  sectionHeading: { fontSize: 24, fontWeight: 900, color: "#f5f7fb", margin: 0 },
-  sectionSubtitle: { fontSize: 13, color: "#9ca9bc", lineHeight: 1.65, margin: 0 },
-  empty: { fontSize: 13, color: "#79879b", fontStyle: "italic" as const, lineHeight: 1.6 },
-  detailsShell: { borderRadius: 18, border: "1px solid #293341", backgroundColor: "#141b24", overflow: "hidden" },
-  summary: { padding: 18, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, cursor: "pointer", listStyle: "none" as const },
+  sectionHeading: { fontSize: 20, fontWeight: 900, color: "#111827", margin: 0 },
+  sectionSubtitle: { fontSize: 12, color: "#64748b", lineHeight: 1.45, margin: 0 },
+  empty: { fontSize: 13, color: "#64748b", fontStyle: "italic" as const, lineHeight: 1.6 },
+  detailsShell: { borderRadius: 12, border: "1px solid #d8dee8", backgroundColor: "#ffffff", overflow: "hidden" },
+  summary: { padding: 14, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, cursor: "pointer", listStyle: "none" as const },
   summaryLeft: { minWidth: 0 },
   summaryRight: { display: "flex", gap: 8, flexWrap: "wrap" as const, justifyContent: "flex-end" as const },
-  chapterLabel: { fontSize: 11, fontWeight: 800, color: "#8fb8ff", letterSpacing: "0.14em", textTransform: "uppercase" as const, marginBottom: 6 },
-  chapterTitle: { fontSize: 24, fontWeight: 900, color: "#f4f7fd", margin: 0, lineHeight: 1.15 },
-  chapterSubtitle: { fontSize: 13, color: "#a5b0c0", lineHeight: 1.65, marginTop: 8 },
-  summaryPill: { display: "inline-flex", alignItems: "center", borderRadius: 999, padding: "5px 9px", fontSize: 11, fontWeight: 700, backgroundColor: "#1b2431", border: "1px solid #324256", color: "#c8d5e8" },
-  statePill: { display: "inline-flex", alignItems: "center", borderRadius: 999, padding: "5px 9px", fontSize: 11, fontWeight: 800, border: "1px solid currentColor", backgroundColor: "rgba(255,255,255,0.04)" },
-  detailsBody: { padding: "0 18px 18px", display: "flex", flexDirection: "column", gap: 16 },
+  chapterLabel: { fontSize: 11, fontWeight: 800, color: "#2563eb", letterSpacing: "0.14em", textTransform: "uppercase" as const, marginBottom: 6 },
+  chapterTitle: { fontSize: 20, fontWeight: 900, color: "#111827", margin: 0, lineHeight: 1.15 },
+  chapterSubtitle: { fontSize: 12, color: "#475569", lineHeight: 1.45, marginTop: 6 },
+  summaryPill: { display: "inline-flex", alignItems: "center", borderRadius: 999, padding: "5px 9px", fontSize: 11, fontWeight: 700, backgroundColor: "#f8fafc", border: "1px solid #cbd5e1", color: "#475569" },
+  statePill: { display: "inline-flex", alignItems: "center", borderRadius: 999, padding: "5px 9px", fontSize: 11, fontWeight: 800, border: "1px solid currentColor", backgroundColor: "#f8fafc" },
+  detailsBody: { padding: "0 14px 14px", display: "flex", flexDirection: "column", gap: 12 },
   nodeActionRow: { display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" as const },
-  noteGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 },
-  noteCard: { borderRadius: 14, border: "1px solid #263142", backgroundColor: "#111821", padding: 14 },
-  noteHeading: { fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" as const, color: "#95a7c0", marginBottom: 8 },
-  noteText: { fontSize: 13, color: "#d6deea", lineHeight: 1.65, whiteSpace: "pre-wrap" as const },
+  noteGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 },
+  noteCard: { borderRadius: 10, border: "1px solid #d8dee8", backgroundColor: "#f8fafc", padding: 12 },
+  noteHeading: { fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" as const, color: "#64748b", marginBottom: 8 },
+  noteText: { fontSize: 12, color: "#334155", lineHeight: 1.5, whiteSpace: "pre-wrap" as const },
   metaRow: { display: "flex", gap: 8, flexWrap: "wrap" as const },
-  metaPill: { fontSize: 11, padding: "4px 8px", borderRadius: 999, backgroundColor: "#1a2737", color: "#bed3ee" },
-  pathText: { fontSize: 12, color: "#9fb0c5", lineHeight: 1.6, marginTop: 6 },
-  nested: { marginLeft: 10, paddingLeft: 22, borderLeft: "2px solid #2b3f57", display: "flex", flexDirection: "column", gap: 16 },
+  metaPill: { fontSize: 11, padding: "4px 8px", borderRadius: 999, backgroundColor: "#eff6ff", color: "#1d4ed8" },
+  pathText: { fontSize: 12, color: "#64748b", lineHeight: 1.6, marginTop: 6 },
+  nested: { marginLeft: 10, paddingLeft: 22, borderLeft: "2px solid #cbd5e1", display: "flex", flexDirection: "column", gap: 16 },
   workItemList: { display: "flex", flexDirection: "column", gap: 10 },
-  workItemCard: { borderRadius: 15, border: "1px solid #334152", padding: 14, cursor: "pointer", backgroundColor: "#101721" },
+  workItemCard: { borderRadius: 12, border: "1px solid #d8dee8", padding: 12, cursor: "pointer", backgroundColor: "#ffffff" },
   workItemHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 },
-  workItemTitle: { fontSize: 14, fontWeight: 800, color: "#f4f7fd", margin: 0, lineHeight: 1.35 },
-  workItemText: { fontSize: 12, color: "#c5cedb", lineHeight: 1.65, marginTop: 8 },
-  workItemChildren: { marginTop: 12, marginLeft: 14, paddingLeft: 14, borderLeft: "1px solid #293341" },
+  workItemTitle: { fontSize: 14, fontWeight: 800, color: "#111827", margin: 0, lineHeight: 1.35 },
+  workItemText: { fontSize: 12, color: "#475569", lineHeight: 1.55, marginTop: 8 },
+  workItemChildren: { marginTop: 12, marginLeft: 14, paddingLeft: 14, borderLeft: "1px solid #d8dee8" },
 };
+
+type LightWorkItemTone = {
+  accentColor: string;
+  borderColor: string;
+  backgroundColor: string;
+  badgeBackground: string;
+  badgeColor: string;
+};
+
+function getLightWorkItemTone(bucket: ReturnType<typeof getWorkItemPresentation>["bucket"]): LightWorkItemTone {
+  if (bucket === "done") {
+    return {
+      accentColor: "#16a34a",
+      borderColor: "#bbf7d0",
+      backgroundColor: "#f0fdf4",
+      badgeBackground: "#dcfce7",
+      badgeColor: "#166534",
+    };
+  }
+
+  if (bucket === "wip") {
+    return {
+      accentColor: "#ca8a04",
+      borderColor: "#fde68a",
+      backgroundColor: "#fffbeb",
+      badgeBackground: "#fef3c7",
+      badgeColor: "#854d0e",
+    };
+  }
+
+  if (bucket === "blocked") {
+    return {
+      accentColor: "#dc2626",
+      borderColor: "#fecaca",
+      backgroundColor: "#fff1f2",
+      badgeBackground: "#fee2e2",
+      badgeColor: "#991b1b",
+    };
+  }
+
+  return {
+    accentColor: "#2563eb",
+    borderColor: "#bfdbfe",
+    backgroundColor: "#eff6ff",
+    badgeBackground: "#dbeafe",
+    badgeColor: "#1e40af",
+  };
+}
 
 type ProductOverviewDocumentProps = {
   product: Product;
@@ -150,7 +161,6 @@ export function ProductOverviewDocument({
   onOpenWorkItem,
   onPlanFromItem,
 }: ProductOverviewDocumentProps) {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const allWorkItems = useMemo(() => sortWorkItems(workItems ?? []), [workItems]);
   const metrics = useMemo(() => buildWorkItemMetrics(allWorkItems), [allWorkItems]);
   const productLevelWorkItems = useMemo(
@@ -164,23 +174,10 @@ export function ProductOverviewDocument({
     () => allWorkItems.filter((workItem) => workItem.status !== "done" && workItem.status !== "cancelled").length,
     [allWorkItems],
   );
-  const tocItems = useMemo(
-    () => buildProductOverviewToc(tree, productLevelWorkItems.length > 0),
-    [productLevelWorkItems.length, tree],
-  );
-  const tocGroups = useMemo(() => groupTocItems(tocItems), [tocItems]);
 
   return (
-    <div style={sidebarCollapsed ? { ...styles.layout, ...styles.layoutCollapsed } : styles.layout}>
+    <div style={styles.layout}>
       <div style={styles.article}>
-        <div style={styles.readerToolbar}>
-          <div style={styles.toolbarHint}>
-            Reader controls
-          </div>
-          <button style={styles.toggleButton} onClick={() => setSidebarCollapsed((current) => !current)}>
-            {sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar"}
-          </button>
-        </div>
         <section id={PRODUCT_OVERVIEW_TOP_ID} style={styles.hero}>
           <div style={styles.eyebrow}>Product Overview</div>
           <div style={styles.heroTop}>
@@ -303,119 +300,8 @@ export function ProductOverviewDocument({
           ))
         ) : null}
       </div>
-
-      <aside style={sidebarCollapsed ? { ...styles.aside, ...styles.asideCollapsed } : styles.aside}>
-        <div style={{ ...styles.panel, ...styles.panelScrollable }}>
-          <div style={styles.panelTitle}>On This Page</div>
-          <div style={styles.tocWrap}>
-            {tocGroups.map((group) => (
-              group.children.length === 0 ? (
-                <a
-                  key={group.item.id}
-                  href={`#${group.item.id}`}
-                  style={styles.tocLink}
-                >
-                  {group.item.title}
-                </a>
-              ) : (
-                <details key={group.item.id} open style={styles.tocGroup}>
-                  <summary style={styles.tocSummary}>
-                    <span style={styles.tocSummaryText}>{group.item.title}</span>
-                    <span style={styles.tocSummaryCount}>{countTocNodes(group.children)}</span>
-                  </summary>
-                  <div style={styles.tocChildren}>
-                    <a href={`#${group.item.id}`} style={styles.tocOverviewLink}>
-                      Section overview
-                    </a>
-                    <div style={styles.tocChildrenRail}>
-                      {group.children.map((node) => (
-                        <TocNodeLink key={node.item.id} node={node} depth={1} />
-                      ))}
-                    </div>
-                  </div>
-                </details>
-              )
-            ))}
-          </div>
-        </div>
-        <div style={styles.panel}>
-          <div style={styles.panelTitle}>Work Status</div>
-          <LegendRow label="Done" color="#4aa37c" />
-          <LegendRow label="WIP" color="#d1a643" />
-          <LegendRow label="TBD" color="#6797d8" />
-          <LegendRow label="Blocked" color="#cb6469" />
-        </div>
-      </aside>
     </div>
   );
-}
-
-function groupTocItems(items: { id: string; title: string; level: number }[]): TocGroup[] {
-  const groups: TocGroup[] = [];
-  let currentGroup: TocGroup | undefined;
-  const stack: TocNode[] = [];
-
-  items.forEach((item) => {
-    if (item.level === 0) {
-      currentGroup = { item, children: [] };
-      groups.push(currentGroup);
-      stack.length = 0;
-      return;
-    }
-
-    if (!currentGroup) {
-      return;
-    }
-
-    const node: TocNode = { item, children: [] };
-    while (stack.length > 0 && stack[stack.length - 1].item.level >= item.level) {
-      stack.pop();
-    }
-
-    if (stack.length === 0) {
-      currentGroup.children.push(node);
-    } else {
-      stack[stack.length - 1].children.push(node);
-    }
-
-    stack.push(node);
-  });
-
-  return groups;
-}
-
-function TocNodeLink({ node, depth }: { node: TocNode; depth: number }) {
-  const { indexLabel, textLabel } = splitTocLabel(node.item.title);
-  const textStyle = depth === 1 ? styles.tocNodeTextPrimary : styles.tocNodeTextSecondary;
-
-  return (
-    <div style={styles.tocNode}>
-      <a href={`#${node.item.id}`} style={styles.tocNodeLink}>
-        <span style={styles.tocNodeIndex}>{indexLabel}</span>
-        <span style={textStyle}>{textLabel}</span>
-      </a>
-      {node.children.length > 0 ? (
-        <div style={styles.tocNodeChildren}>
-          {node.children.map((child) => (
-            <TocNodeLink key={child.item.id} node={child} depth={depth + 1} />
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function splitTocLabel(title: string) {
-  const match = title.match(/^(\d+(?:\.\d+)*)\.\s+(.*)$/);
-  if (!match) {
-    return { indexLabel: "", textLabel: title };
-  }
-
-  return { indexLabel: match[1], textLabel: match[2] };
-}
-
-function countTocNodes(nodes: TocNode[]): number {
-  return nodes.reduce((total, node) => total + 1 + countTocNodes(node.children), 0);
 }
 
 function MetricCard({ label, value }: { label: string; value: number }) {
@@ -423,15 +309,6 @@ function MetricCard({ label, value }: { label: string; value: number }) {
     <div style={styles.metricCard}>
       <div style={styles.metricLabel}>{label}</div>
       <div style={styles.metricValue}>{value}</div>
-    </div>
-  );
-}
-
-function LegendRow({ label, color }: { label: string; color: string }) {
-  return (
-    <div style={styles.legendRow}>
-      <span style={{ ...styles.legendDot, backgroundColor: color }} />
-      {label}
     </div>
   );
 }
@@ -747,15 +624,16 @@ function WorkItemCard({
   onPlanFromItem: (action: ProductOverviewPlannerAction) => void;
 }) {
   const presentation = getWorkItemPresentation(node.workItem.status);
+  const tone = getLightWorkItemTone(presentation.bucket);
   const excerpt = summarizeText(node.workItem.description || node.workItem.problem_statement || node.workItem.acceptance_criteria || "No delivery notes captured yet.");
 
   return (
     <div
       style={{
         ...styles.workItemCard,
-        borderColor: presentation.borderColor,
-        backgroundColor: presentation.backgroundColor,
-        borderLeft: `4px solid ${presentation.accentColor}`,
+        borderColor: tone.borderColor,
+        backgroundColor: tone.backgroundColor,
+        borderLeft: `4px solid ${tone.accentColor}`,
       }}
       onClick={() => onOpenWorkItem(node.workItem)}
     >
@@ -766,8 +644,8 @@ function WorkItemCard({
             <span
               style={{
                 ...styles.statePill,
-                backgroundColor: presentation.badgeBackground,
-                color: presentation.badgeColor,
+                backgroundColor: tone.badgeBackground,
+                color: tone.badgeColor,
               }}
             >
               {presentation.label}
@@ -805,10 +683,10 @@ function MetricPills({ metrics }: { metrics: WorkItemMetrics }) {
 
   return (
     <>
-      {metrics.done > 0 ? <StatusTonePill label={`${metrics.done} done`} tone="#4aa37c" /> : null}
-      {metrics.wip > 0 ? <StatusTonePill label={`${metrics.wip} WIP`} tone="#d1a643" /> : null}
-      {metrics.tbd > 0 ? <StatusTonePill label={`${metrics.tbd} TBD`} tone="#6797d8" /> : null}
-      {metrics.blocked > 0 ? <StatusTonePill label={`${metrics.blocked} blocked`} tone="#cb6469" /> : null}
+      {metrics.done > 0 ? <StatusTonePill label={`${metrics.done} done`} tone="#15803d" /> : null}
+      {metrics.wip > 0 ? <StatusTonePill label={`${metrics.wip} WIP`} tone="#a16207" /> : null}
+      {metrics.tbd > 0 ? <StatusTonePill label={`${metrics.tbd} TBD`} tone="#1d4ed8" /> : null}
+      {metrics.blocked > 0 ? <StatusTonePill label={`${metrics.blocked} blocked`} tone="#b91c1c" /> : null}
     </>
   );
 }

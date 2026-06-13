@@ -970,7 +970,7 @@ export const clearPlannerPending = (sessionId: string) =>
     session_id: sessionId,
   });
 
-export const submitPlannerTurn = (data: { sessionId: string; userInput: string; selectedDraftNodeId?: string | null }) =>
+export const submitPlannerTurn = (data: { sessionId: string; userInput: string; selectedDraftNodeId?: string | null; productId?: string | null }) =>
   invoke<PlannerTurnResponse>("submit_planner_turn_command", {
     sessionId: data.sessionId,
     session_id: data.sessionId,
@@ -978,9 +978,11 @@ export const submitPlannerTurn = (data: { sessionId: string; userInput: string; 
     user_input: data.userInput,
     selectedDraftNodeId: data.selectedDraftNodeId ?? null,
     selected_draft_node_id: data.selectedDraftNodeId ?? null,
+    productId: data.productId ?? null,
+    product_id: data.productId ?? null,
   });
 
-export const submitPlannerVoiceTurn = (data: { sessionId: string; transcript: string; selectedDraftNodeId?: string | null }) =>
+export const submitPlannerVoiceTurn = (data: { sessionId: string; transcript: string; selectedDraftNodeId?: string | null; productId?: string | null }) =>
   invoke<PlannerTurnResponse>("submit_planner_voice_turn_command", {
     sessionId: data.sessionId,
     session_id: data.sessionId,
@@ -989,6 +991,8 @@ export const submitPlannerVoiceTurn = (data: { sessionId: string; transcript: st
     user_input: data.transcript,
     selectedDraftNodeId: data.selectedDraftNodeId ?? null,
     selected_draft_node_id: data.selectedDraftNodeId ?? null,
+    productId: data.productId ?? null,
+    product_id: data.productId ?? null,
   });
 
 export const confirmPlannerPlan = (sessionId: string) =>
@@ -1043,6 +1047,7 @@ export const analyzeRepositoryForPlanner = (data: {
   sessionId: string;
   repositoryId: string;
   selectedDraftNodeId?: string | null;
+  productId?: string | null;
 }) =>
   invoke<PlannerTurnResponse>("analyze_repository_for_planner_command", {
     sessionId: data.sessionId,
@@ -1051,6 +1056,8 @@ export const analyzeRepositoryForPlanner = (data: {
     repository_id: data.repositoryId,
     selectedDraftNodeId: data.selectedDraftNodeId ?? null,
     selected_draft_node_id: data.selectedDraftNodeId ?? null,
+    productId: data.productId ?? null,
+    product_id: data.productId ?? null,
   });
 
 export const transcribeAudio = (data: {

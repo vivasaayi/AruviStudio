@@ -2,7 +2,6 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 interface UIState {
-  leftSidebarVisible: boolean;
   productDialogMode: "closed" | "create" | "edit";
   moduleDialogMode: "closed" | "create" | "edit";
   capabilityDialogMode: "closed" | "create" | "edit";
@@ -14,7 +13,6 @@ interface UIState {
   showHierarchyWorkItems: boolean;
   productPickerCollapsed: boolean;
   activeView: "products" | "product-overview" | "work-items" | "planner" | "chat" | "voice-chat" | "calls" | "ide" | "repositories" | "agents" | "models" | "settings";
-  toggleLeftSidebar: () => void;
   openProductDialog: (mode: "create" | "edit") => void;
   closeProductDialog: () => void;
   openModuleDialog: (mode: "create" | "edit") => void;
@@ -37,7 +35,6 @@ interface UIState {
 export const useUIStore = create<UIState>()(
   persist(
     (set) => ({
-      leftSidebarVisible: true,
       productDialogMode: "closed",
       moduleDialogMode: "closed",
       capabilityDialogMode: "closed",
@@ -49,7 +46,6 @@ export const useUIStore = create<UIState>()(
       showHierarchyWorkItems: false,
       productPickerCollapsed: false,
       activeView: "planner",
-      toggleLeftSidebar: () => set((s) => ({ leftSidebarVisible: !s.leftSidebarVisible })),
       openProductDialog: (mode) => set({ productDialogMode: mode, activeView: "products" }),
       closeProductDialog: () => set({ productDialogMode: "closed" }),
       openModuleDialog: (mode) => set({ moduleDialogMode: mode, activeView: "products", productWorkspaceTab: "structure" }),
@@ -87,7 +83,6 @@ export const useUIStore = create<UIState>()(
         } as UIState;
       },
       partialize: (state) => ({
-        leftSidebarVisible: state.leftSidebarVisible,
         productWorkspaceTab: state.productWorkspaceTab,
         workItemWorkspaceTab: state.workItemWorkspaceTab,
         expandedModules: state.expandedModules,

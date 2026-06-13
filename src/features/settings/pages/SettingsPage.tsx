@@ -18,7 +18,6 @@ import {
   setSetting,
 } from "../../../lib/tauri";
 import type { DatabaseHealth, McpBridgeStatus, MobileBridgeStatus, ModelDefinition, ModelProvider } from "../../../lib/types";
-import { useUIStore } from "../../../state/uiStore";
 
 const AUTO_START_AFTER_APPROVAL_KEY = "workflow.auto_start_after_work_item_approval";
 const AUTO_APPROVE_PLAN_KEY = "workflow.auto_approve_plan";
@@ -92,7 +91,6 @@ const styles: Record<string, React.CSSProperties> = {
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
-  const { leftSidebarVisible, toggleLeftSidebar } = useUIStore();
   const [dockerHost, setDockerHost] = useState("");
   const [maxRetries, setMaxRetries] = useState("3");
   const [autoStartAfterApproval, setAutoStartAfterApproval] = useState(true);
@@ -302,10 +300,6 @@ export function SettingsPage() {
   return (
     <div style={styles.page}>
       <h1 style={styles.title}>Settings</h1>
-      <div style={styles.section}>
-        <div style={styles.sectionTitle}>Layout</div>
-        <div style={styles.row}><div><div style={styles.label}>Left Sidebar</div><div style={styles.desc}>Product tree and navigation</div></div><button style={{ ...styles.toggle, backgroundColor: leftSidebarVisible ? "#0e639c" : "#444" }} onClick={toggleLeftSidebar} /></div>
-      </div>
       <div style={styles.section}>
         <div style={styles.sectionTitle}>Catalog</div>
         <div style={styles.row}>

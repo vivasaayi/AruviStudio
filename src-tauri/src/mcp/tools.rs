@@ -1946,6 +1946,7 @@ async fn handle_planner(state: &AppState, payload: Value) -> Result<Value, AppEr
                 args.required_string(&["session_id", "sessionId"], "session_id")?,
                 args.required_string(&["user_input", "userInput"], "user_input")?,
                 args.optional_string(&["selected_draft_node_id", "selectedDraftNodeId"])?,
+                args.optional_string(&["product_id", "productId"])?,
             )
             .await?,
         ),
@@ -1957,6 +1958,7 @@ async fn handle_planner(state: &AppState, payload: Value) -> Result<Value, AppEr
                 args.required_string(&["session_id", "sessionId"], "session_id")?,
                 args.required_string(&["transcript", "user_input", "userInput"], "transcript")?,
                 args.optional_string(&["selected_draft_node_id", "selectedDraftNodeId"])?,
+                args.optional_string(&["product_id", "productId"])?,
             )
             .await?,
         ),
@@ -2012,6 +2014,7 @@ async fn handle_planner(state: &AppState, payload: Value) -> Result<Value, AppEr
                 args.required_string(&["session_id", "sessionId"], "session_id")?,
                 args.required_string(&["repository_id", "repositoryId"], "repository_id")?,
                 args.optional_string(&["selected_draft_node_id", "selectedDraftNodeId"])?,
+                args.optional_string(&["product_id", "productId"])?,
             )
             .await?,
         ),

@@ -73,6 +73,8 @@ pub async fn submit_planner_turn_command(
     userInput: Option<String>,
     selected_draft_node_id: Option<String>,
     selectedDraftNodeId: Option<String>,
+    product_id: Option<String>,
+    productId: Option<String>,
 ) -> Result<PlannerTurnResponse, AppError> {
     let session_id = session_id
         .or(sessionId)
@@ -86,6 +88,7 @@ pub async fn submit_planner_turn_command(
         session_id,
         user_input,
         selected_draft_node_id.or(selectedDraftNodeId),
+        product_id.or(productId),
     )
     .await
 }
@@ -101,6 +104,8 @@ pub async fn submit_planner_voice_turn_command(
     userInput: Option<String>,
     selected_draft_node_id: Option<String>,
     selectedDraftNodeId: Option<String>,
+    product_id: Option<String>,
+    productId: Option<String>,
 ) -> Result<PlannerTurnResponse, AppError> {
     let session_id = session_id
         .or(sessionId)
@@ -115,6 +120,7 @@ pub async fn submit_planner_voice_turn_command(
         session_id,
         transcript,
         selected_draft_node_id.or(selectedDraftNodeId),
+        product_id.or(productId),
     )
     .await
 }
@@ -226,6 +232,8 @@ pub async fn analyze_repository_for_planner_command(
     repositoryId: Option<String>,
     selected_draft_node_id: Option<String>,
     selectedDraftNodeId: Option<String>,
+    product_id: Option<String>,
+    productId: Option<String>,
 ) -> Result<PlannerTurnResponse, AppError> {
     let session_id = session_id
         .or(sessionId)
@@ -240,6 +248,7 @@ pub async fn analyze_repository_for_planner_command(
         session_id,
         repository_id,
         selected_draft_node_id.or(selectedDraftNodeId),
+        product_id.or(productId),
     )
     .await
 }

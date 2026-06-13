@@ -67,10 +67,16 @@ const NODE_KIND_LABELS: Record<HierarchyNodeKind, LabelForms> = {
 export const ROOT_NODE_KINDS: HierarchyNodeKind[] = ["area", "domain", "system"];
 
 export function getHierarchyNodeKindLabel(
-  nodeKind: HierarchyNodeKind,
+  nodeKind: HierarchyNodeKind | null | undefined,
   options: { plural?: boolean; lowercase?: boolean } = {},
 ) {
-  const labels = NODE_KIND_LABELS[nodeKind];
+  const labels = nodeKind ? NODE_KIND_LABELS[nodeKind] : undefined;
+  if (!labels) {
+    if (options.lowercase) {
+      return options.plural ? "nodes" : "node";
+    }
+    return options.plural ? "Nodes" : "Node";
+  }
   if (options.lowercase) {
     return options.plural ? labels.pluralLower : labels.singularLower;
   }

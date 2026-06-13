@@ -253,6 +253,7 @@ pub async fn handle_inbound_message(
         session_id,
         message.content,
         None,
+        None,
     )
     .await
 }

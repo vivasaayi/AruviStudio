@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   addPlannerDraftChild,
@@ -7,19 +7,18 @@ import {
   approveWorkItemPlan,
   approveWorkItemTestReview,
   applySemanticTemplate,
-  archiveProduct,
   clearPlannerPending,
   confirmPlannerPlan,
   convertCapabilityKind,
   createCapability,
   createModule,
   createPlannerSession,
-  createProduct,
   createWorkItem,
   deletePlannerDraftNode,
   deleteCapability,
   deleteModule,
   deleteWorkItem,
+  exportProductOverviewHtml,
   getSetting,
   getLatestWorkflowRunForWorkItem,
   getProductTree,
@@ -35,6 +34,7 @@ import {
   registerRepository,
   analyzeRepositoryForPlanner,
   renamePlannerDraftNode,
+  revealInFinder,
   speakTextNatively,
   startWorkItemWorkflow,
   submitPlannerTurn,
@@ -63,117 +63,118 @@ const styles: Record<string, React.CSSProperties> = {
   page: { display: "flex", flexDirection: "column", gap: 8, height: "100%" },
   topGrid: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) 320px", gap: 12, minHeight: 0, flex: 1 },
   compactStack: { display: "flex", flexDirection: "column", gap: 12, minHeight: 0, flex: 1 },
-  panel: { backgroundColor: "#212327", border: "1px solid #32353d", borderRadius: 14, minHeight: 0, overflow: "hidden" },
+  panel: { backgroundColor: "#ffffff", border: "1px solid #d8dee8", borderRadius: 14, minHeight: 0, overflow: "hidden" },
   panelBody: { padding: 16, height: "100%", overflow: "auto" },
   compactPanelBody: { padding: 14, height: "100%", overflow: "auto" },
-  sectionTitle: { fontSize: 11, fontWeight: 800, letterSpacing: 0.8, textTransform: "uppercase" as const, color: "#8f96a3", marginBottom: 10 },
+  sectionTitle: { fontSize: 11, fontWeight: 800, letterSpacing: 0.8, textTransform: "uppercase" as const, color: "#64748b", marginBottom: 10 },
   sectionHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10 },
   transcript: { display: "flex", flexDirection: "column", gap: 10 },
-  bubbleUser: { alignSelf: "flex-end", maxWidth: "80%", backgroundColor: "#0e639c", color: "#fff", borderRadius: 14, padding: "12px 14px", whiteSpace: "pre-wrap" as const },
-  bubbleAssistant: { alignSelf: "flex-start", maxWidth: "84%", backgroundColor: "#2c3139", color: "#edf1f8", borderRadius: 14, padding: "12px 14px", whiteSpace: "pre-wrap" as const },
-  bubblePending: { alignSelf: "flex-end", maxWidth: "80%", backgroundColor: "#17405f", color: "#e9f4ff", borderRadius: 14, padding: "12px 14px", whiteSpace: "pre-wrap" as const, border: "1px dashed #5aa9e6", opacity: 0.95 },
-  bubbleMeta: { display: "block", marginTop: 8, fontSize: 11, color: "#a3adbb" },
-  composerWrap: { display: "flex", flexDirection: "column", gap: 10, borderTop: "1px solid #32353d", paddingTop: 12, marginTop: 12 },
-  textarea: { width: "100%", minHeight: 92, resize: "vertical" as const, padding: "12px 14px", borderRadius: 12, backgroundColor: "#181a1f", border: "1px solid #3c4048", color: "#edf1f8", fontSize: 14, boxSizing: "border-box" as const },
+  bubbleUser: { alignSelf: "flex-end", maxWidth: "80%", backgroundColor: "#2563eb", color: "#ffffff", borderRadius: 14, padding: "10px 12px", whiteSpace: "pre-wrap" as const, fontSize: 13, lineHeight: 1.45 },
+  bubbleAssistant: { alignSelf: "flex-start", maxWidth: "84%", backgroundColor: "#f8fafc", color: "#111827", border: "1px solid #e2e8f0", borderRadius: 14, padding: "10px 12px", fontSize: 13, lineHeight: 1.45 },
+  bubblePending: { alignSelf: "flex-end", maxWidth: "80%", backgroundColor: "#eff6ff", color: "#1e3a8a", borderRadius: 14, padding: "10px 12px", whiteSpace: "pre-wrap" as const, border: "1px dashed #93c5fd", opacity: 0.95, fontSize: 13, lineHeight: 1.45 },
+  messageText: { fontSize: 13, lineHeight: 1.45, color: "#111827" },
+  bubbleMeta: { display: "block", marginTop: 8, fontSize: 11, color: "#94a3b8" },
+  composerWrap: { display: "flex", flexDirection: "column", gap: 10, borderTop: "1px solid #d8dee8", paddingTop: 12, marginTop: 12 },
+  textarea: { width: "100%", minHeight: 92, resize: "vertical" as const, padding: "12px 14px", borderRadius: 12, backgroundColor: "#ffffff", border: "1px solid #cbd5e1", color: "#111827", fontSize: 14, boxSizing: "border-box" as const },
   actionRow: { display: "flex", flexWrap: "wrap" as const, gap: 10, alignItems: "center" },
-  btn: { padding: "9px 14px", fontSize: 13, backgroundColor: "#0e639c", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontWeight: 700 },
-  btnGhost: { padding: "9px 14px", fontSize: 13, backgroundColor: "#2c3139", color: "#e3e8f0", border: "1px solid #3c4048", borderRadius: 10, cursor: "pointer", fontWeight: 700 },
-  btnDanger: { padding: "9px 14px", fontSize: 13, backgroundColor: "#6c2020", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontWeight: 700 },
-  status: { fontSize: 12, color: "#9da7b5" },
-  sideCard: { border: "1px solid #32353d", borderRadius: 12, backgroundColor: "#1b1d22", padding: 12, marginBottom: 12 },
-  label: { fontSize: 12, color: "#9da7b5", display: "block", marginBottom: 6 },
-  input: { width: "100%", padding: "9px 10px", backgroundColor: "#17191d", border: "1px solid #3c4048", borderRadius: 10, color: "#edf1f8", fontSize: 13, boxSizing: "border-box" as const },
-  select: { width: "100%", padding: "9px 10px", backgroundColor: "#17191d", border: "1px solid #3c4048", borderRadius: 10, color: "#edf1f8", fontSize: 13, boxSizing: "border-box" as const },
-  helper: { fontSize: 12, color: "#8f96a3", lineHeight: 1.45 },
+  btn: { padding: "9px 14px", fontSize: 13, backgroundColor: "#2563eb", color: "#ffffff", border: "1px solid #1d4ed8", borderRadius: 10, cursor: "pointer", fontWeight: 700 },
+  btnGhost: { padding: "9px 14px", fontSize: 13, backgroundColor: "#f8fafc", color: "#1e3a8a", border: "1px solid #cbd5e1", borderRadius: 10, cursor: "pointer", fontWeight: 700 },
+  btnDanger: { padding: "9px 14px", fontSize: 13, backgroundColor: "#dc2626", color: "#ffffff", border: "1px solid #b91c1c", borderRadius: 10, cursor: "pointer", fontWeight: 700 },
+  status: { fontSize: 12, color: "#64748b" },
+  sideCard: { border: "1px solid #d8dee8", borderRadius: 12, backgroundColor: "#ffffff", padding: 12, marginBottom: 12 },
+  label: { fontSize: 12, color: "#64748b", display: "block", marginBottom: 6 },
+  input: { width: "100%", padding: "9px 10px", backgroundColor: "#ffffff", border: "1px solid #cbd5e1", borderRadius: 10, color: "#111827", fontSize: 13, boxSizing: "border-box" as const },
+  select: { width: "100%", padding: "9px 10px", backgroundColor: "#ffffff", border: "1px solid #cbd5e1", borderRadius: 10, color: "#111827", fontSize: 13, boxSizing: "border-box" as const },
+  helper: { fontSize: 12, color: "#64748b", lineHeight: 1.45 },
   chipRow: { display: "flex", flexWrap: "wrap" as const, gap: 8, marginTop: 10 },
-  chip: { padding: "5px 8px", borderRadius: 999, backgroundColor: "#223247", color: "#d7e8fb", fontSize: 11, fontWeight: 700 },
-  warning: { color: "#ffb86c", fontSize: 12, lineHeight: 1.45 },
-  error: { color: "#ff7b72", fontSize: 12, lineHeight: 1.45 },
-  success: { color: "#59d6b2", fontSize: 12, lineHeight: 1.45 },
+  chip: { padding: "5px 8px", borderRadius: 999, backgroundColor: "#e2e8f0", color: "#334155", fontSize: 11, fontWeight: 700 },
+  warning: { color: "#a16207", fontSize: 12, lineHeight: 1.45 },
+  error: { color: "#b91c1c", fontSize: 12, lineHeight: 1.45 },
+  success: { color: "#15803d", fontSize: 12, lineHeight: 1.45 },
   list: { display: "flex", flexDirection: "column", gap: 8, marginTop: 10 },
-  listItem: { borderRadius: 10, border: "1px solid #303742", backgroundColor: "#151922", padding: 10 },
-  listItemTitle: { fontSize: 12, fontWeight: 700, color: "#edf1f8", marginBottom: 4 },
-  listItemMeta: { fontSize: 12, color: "#9da7b5", whiteSpace: "pre-wrap" as const },
-  card: { border: "1px solid #3a4250", backgroundColor: "#1b2029", borderRadius: 12, padding: 12, marginTop: 10 },
-  voiceReviewCard: { border: "1px solid #375172", backgroundColor: "#142536", borderRadius: 12, padding: 12, marginBottom: 10 },
+  listItem: { borderRadius: 10, border: "1px solid #d8dee8", backgroundColor: "#f8fafc", padding: 10 },
+  listItemTitle: { fontSize: 12, fontWeight: 700, color: "#111827", marginBottom: 4 },
+  listItemMeta: { fontSize: 12, color: "#475569", whiteSpace: "pre-wrap" as const },
+  card: { border: "1px solid #d8dee8", backgroundColor: "#ffffff", borderRadius: 12, padding: 12, marginTop: 10 },
+  voiceReviewCard: { border: "1px solid #bfdbfe", backgroundColor: "#eff6ff", borderRadius: 12, padding: 12, marginBottom: 10 },
   voiceReviewHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" as const },
-  voiceReviewTitle: { fontSize: 13, fontWeight: 800, color: "#eef6ff" },
-  cardTitle: { fontSize: 13, fontWeight: 800, color: "#eef3fb", marginBottom: 8 },
+  voiceReviewTitle: { fontSize: 13, fontWeight: 800, color: "#111827" },
+  cardTitle: { fontSize: 13, fontWeight: 800, color: "#111827", marginBottom: 8 },
   cardSection: { marginTop: 10 },
-  diffRow: { display: "grid", gridTemplateColumns: "24px minmax(0, 1fr)", gap: 8, alignItems: "start", padding: "8px 0", borderTop: "1px solid #2c3440" },
-  diffSymbolAdd: { color: "#59d6b2", fontWeight: 800, fontSize: 16, lineHeight: 1.2 },
-  diffSymbolUpdate: { color: "#7db7ff", fontWeight: 800, fontSize: 16, lineHeight: 1.2 },
-  diffSymbolWarn: { color: "#ffb86c", fontWeight: 800, fontSize: 16, lineHeight: 1.2 },
-  diffPrimary: { fontSize: 13, color: "#edf1f8", fontWeight: 700 },
-  diffSecondary: { fontSize: 12, color: "#9da7b5", marginTop: 4, whiteSpace: "pre-wrap" as const },
-  treePanel: { border: "1px solid #3a4250", backgroundColor: "#161b22", borderRadius: 12, padding: 12, marginTop: 10 },
+  diffRow: { display: "grid", gridTemplateColumns: "24px minmax(0, 1fr)", gap: 8, alignItems: "start", padding: "8px 0", borderTop: "1px solid #e2e8f0" },
+  diffSymbolAdd: { color: "#15803d", fontWeight: 800, fontSize: 16, lineHeight: 1.2 },
+  diffSymbolUpdate: { color: "#1d4ed8", fontWeight: 800, fontSize: 16, lineHeight: 1.2 },
+  diffSymbolWarn: { color: "#a16207", fontWeight: 800, fontSize: 16, lineHeight: 1.2 },
+  diffPrimary: { fontSize: 13, color: "#111827", fontWeight: 700 },
+  diffSecondary: { fontSize: 12, color: "#475569", marginTop: 4, whiteSpace: "pre-wrap" as const },
+  treePanel: { border: "1px solid #d8dee8", backgroundColor: "#f8fafc", borderRadius: 12, padding: 12, marginTop: 10 },
   treeNode: { marginLeft: 0 },
-  treeSummary: { cursor: "pointer", listStyle: "none", fontSize: 13, color: "#edf1f8", fontWeight: 700, padding: "4px 0" },
-  treeChildren: { marginLeft: 18, borderLeft: "1px solid #2e3744", paddingLeft: 10 },
-  treeLeaf: { fontSize: 13, color: "#d6dce7", padding: "4px 0" },
-  treeMeta: { fontSize: 11, color: "#8f96a3", marginLeft: 6 },
-  treeButton: { width: "100%", textAlign: "left" as const, background: "transparent", border: "1px solid transparent", borderRadius: 8, color: "#edf1f8", padding: "6px 8px", cursor: "pointer", fontSize: 13, fontWeight: 700 },
-  treeButtonSelected: { border: "1px solid #0e639c", backgroundColor: "#14314a" },
+  treeSummary: { cursor: "pointer", listStyle: "none", fontSize: 13, color: "#111827", fontWeight: 700, padding: "4px 0" },
+  treeChildren: { marginLeft: 18, borderLeft: "1px solid #cbd5e1", paddingLeft: 10 },
+  treeLeaf: { fontSize: 13, color: "#334155", padding: "4px 0" },
+  treeMeta: { fontSize: 11, color: "#64748b", marginLeft: 6 },
+  treeButton: { width: "100%", textAlign: "left" as const, background: "transparent", border: "1px solid transparent", borderRadius: 8, color: "#111827", padding: "6px 8px", cursor: "pointer", fontSize: 13, fontWeight: 700 },
+  treeButtonSelected: { border: "1px solid #2563eb", backgroundColor: "#eff6ff" },
   treeExplorer: { display: "flex", flexDirection: "column", gap: 4 },
   treeToolbar: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" as const, marginBottom: 12 },
   treeToolbarSpacer: { flex: 1 },
   treeLevel: { display: "flex", flexDirection: "column", gap: 6 },
   treeRow: { display: "grid", gridTemplateColumns: "26px minmax(0, 1fr)", gap: 8, alignItems: "start" },
-  treeToggle: { width: 26, height: 26, borderRadius: 8, border: "1px solid #344050", backgroundColor: "#1a2130", color: "#dfe8f6", cursor: "pointer", fontSize: 12, fontWeight: 800, padding: 0 },
-  treeToggleGhost: { width: 26, height: 26, borderRadius: 8, border: "1px solid transparent", backgroundColor: "transparent", color: "#5f6b7e", padding: 0 },
-  treeCard: { width: "100%", textAlign: "left" as const, border: "1px solid #324054", backgroundColor: "#111821", color: "#edf1f8", borderRadius: 12, padding: "10px 12px", cursor: "pointer" },
-  treeCardSelected: { border: "1px solid #0e639c", backgroundColor: "#173450", boxShadow: "inset 0 0 0 1px rgba(14,99,156,0.18)" },
+  treeToggle: { width: 26, height: 26, borderRadius: 8, border: "1px solid #cbd5e1", backgroundColor: "#ffffff", color: "#334155", cursor: "pointer", fontSize: 12, fontWeight: 800, padding: 0 },
+  treeToggleGhost: { width: 26, height: 26, borderRadius: 8, border: "1px solid transparent", backgroundColor: "transparent", color: "#94a3b8", padding: 0 },
+  treeCard: { width: "100%", textAlign: "left" as const, border: "1px solid #d8dee8", backgroundColor: "#ffffff", color: "#111827", borderRadius: 12, padding: "10px 12px", cursor: "pointer" },
+  treeCardSelected: { border: "1px solid #2563eb", backgroundColor: "#eff6ff", boxShadow: "inset 0 0 0 1px rgba(37,99,235,0.16)" },
   treeCardHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" as const },
-  treeCardTitle: { fontSize: 14, fontWeight: 800, color: "#eef3fb" },
+  treeCardTitle: { fontSize: 14, fontWeight: 800, color: "#111827" },
   treeCardMetaRow: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" as const, marginTop: 6 },
-  treeTypeBadge: { fontSize: 11, fontWeight: 800, textTransform: "uppercase" as const, letterSpacing: 0.4, color: "#c6d8ee", backgroundColor: "#24364d", borderRadius: 999, padding: "3px 8px" },
-  treeCountBadge: { fontSize: 11, fontWeight: 700, color: "#91a0b5", backgroundColor: "#1e2632", borderRadius: 999, padding: "3px 8px" },
-  treeRowChildren: { marginLeft: 18, paddingLeft: 16, borderLeft: "1px solid #263243", display: "flex", flexDirection: "column", gap: 6 },
+  treeTypeBadge: { fontSize: 11, fontWeight: 800, textTransform: "uppercase" as const, letterSpacing: 0.4, color: "#1d4ed8", backgroundColor: "#dbeafe", borderRadius: 999, padding: "3px 8px" },
+  treeCountBadge: { fontSize: 11, fontWeight: 700, color: "#475569", backgroundColor: "#e2e8f0", borderRadius: 999, padding: "3px 8px" },
+  treeRowChildren: { marginLeft: 18, paddingLeft: 16, borderLeft: "1px solid #cbd5e1", display: "flex", flexDirection: "column", gap: 6 },
   inlineButtonRow: { display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" as const },
   viewToggleRow: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" as const },
   draftWorkspace: { display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) minmax(260px, 0.9fr)", gap: 12, flex: 1, minHeight: 0 },
   draftWorkspaceMain: { display: "flex", flexDirection: "column", minHeight: 0 },
   draftWorkspaceSide: { display: "flex", flexDirection: "column", gap: 12, minHeight: 0 },
-  draftCanvas: { border: "1px solid #3a4250", backgroundColor: "#161b22", borderRadius: 12, padding: 14, flex: 1, minHeight: 0, overflow: "auto" },
+  draftCanvas: { border: "1px solid #d8dee8", backgroundColor: "#ffffff", borderRadius: 12, padding: 14, flex: 1, minHeight: 0, overflow: "auto" },
   draftCanvasHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" as const },
-  draftCanvasTitle: { fontSize: 14, fontWeight: 800, color: "#eef3fb" },
-  emptyState: { border: "1px dashed #3a4250", borderRadius: 12, padding: 18, color: "#9da7b5", backgroundColor: "#171a20", lineHeight: 1.5 },
+  draftCanvasTitle: { fontSize: 14, fontWeight: 800, color: "#111827" },
+  emptyState: { border: "1px dashed #cbd5e1", borderRadius: 12, padding: 18, color: "#64748b", backgroundColor: "#f8fafc", lineHeight: 1.5 },
   metricGrid: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, marginTop: 10 },
-  metricCard: { borderRadius: 12, border: "1px solid #324054", backgroundColor: "#141c27", padding: 10 },
-  metricLabel: { fontSize: 11, color: "#8f96a3", textTransform: "uppercase" as const, letterSpacing: 0.5 },
-  metricValue: { marginTop: 6, fontSize: 20, fontWeight: 800, color: "#eef3fb" },
-  readinessBanner: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderRadius: 12, border: "1px solid #324054", backgroundColor: "#151d28", marginBottom: 12, flexWrap: "wrap" as const },
-  readinessScore: { fontSize: 24, fontWeight: 800, color: "#eef3fb" },
-  readinessMeta: { fontSize: 12, color: "#9da7b5" },
+  metricCard: { borderRadius: 12, border: "1px solid #d8dee8", backgroundColor: "#f8fafc", padding: 10 },
+  metricLabel: { fontSize: 11, color: "#64748b", textTransform: "uppercase" as const, letterSpacing: 0.5 },
+  metricValue: { marginTop: 6, fontSize: 20, fontWeight: 800, color: "#111827" },
+  readinessBanner: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderRadius: 12, border: "1px solid #d8dee8", backgroundColor: "#f8fafc", marginBottom: 12, flexWrap: "wrap" as const },
+  readinessScore: { fontSize: 24, fontWeight: 800, color: "#111827" },
+  readinessMeta: { fontSize: 12, color: "#64748b" },
   issueList: { display: "flex", flexDirection: "column", gap: 8, marginTop: 10 },
-  issueCard: { borderRadius: 10, border: "1px solid #374252", backgroundColor: "#121923", padding: 10 },
-  issueCardWarn: { borderRadius: 10, border: "1px solid #6b5632", backgroundColor: "#221b12", padding: 10 },
-  issueCardOk: { borderRadius: 10, border: "1px solid #2f5a4e", backgroundColor: "#12201c", padding: 10 },
-  issueTitle: { fontSize: 12, fontWeight: 800, color: "#eef3fb", marginBottom: 4 },
-  issueDetail: { fontSize: 12, color: "#9da7b5", lineHeight: 1.45 },
+  issueCard: { borderRadius: 10, border: "1px solid #d8dee8", backgroundColor: "#f8fafc", padding: 10 },
+  issueCardWarn: { borderRadius: 10, border: "1px solid #fde68a", backgroundColor: "#fffbeb", padding: 10 },
+  issueCardOk: { borderRadius: 10, border: "1px solid #bbf7d0", backgroundColor: "#f0fdf4", padding: 10 },
+  issueTitle: { fontSize: 12, fontWeight: 800, color: "#111827", marginBottom: 4 },
+  issueDetail: { fontSize: 12, color: "#475569", lineHeight: 1.45 },
   promptList: { display: "flex", flexDirection: "column", gap: 8, marginTop: 10 },
-  promptButton: { width: "100%", textAlign: "left" as const, padding: "9px 10px", borderRadius: 10, border: "1px solid #344050", backgroundColor: "#151c26", color: "#e6edf8", cursor: "pointer", fontSize: 12, lineHeight: 1.45 },
-  pathText: { fontSize: 12, color: "#aeb8c6", lineHeight: 1.4, marginTop: 8 },
-  sectionDivider: { height: 1, backgroundColor: "#313844", margin: "12px 0" },
+  promptButton: { width: "100%", textAlign: "left" as const, padding: "9px 10px", borderRadius: 10, border: "1px solid #cbd5e1", backgroundColor: "#f8fafc", color: "#1e3a8a", cursor: "pointer", fontSize: 12, lineHeight: 1.45 },
+  pathText: { fontSize: 12, color: "#64748b", lineHeight: 1.4, marginTop: 8 },
+  sectionDivider: { height: 1, backgroundColor: "#e2e8f0", margin: "12px 0" },
   fieldGroup: { display: "flex", flexDirection: "column", gap: 8, marginTop: 10 },
-  compactTextarea: { width: "100%", minHeight: 70, resize: "vertical" as const, padding: "9px 10px", borderRadius: 10, backgroundColor: "#17191d", border: "1px solid #3c4048", color: "#edf1f8", fontSize: 13, boxSizing: "border-box" as const },
-  mutedButton: { padding: "9px 14px", fontSize: 13, backgroundColor: "#1f2530", color: "#dce6f4", border: "1px solid #344050", borderRadius: 10, cursor: "pointer", fontWeight: 700 },
-  statusBanner: { border: "1px solid #334154", backgroundColor: "#18202b", borderRadius: 12, padding: "10px 12px", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" as const },
-  statusBannerStrong: { fontSize: 13, fontWeight: 800, color: "#edf1f8" },
-  statusBannerMeta: { fontSize: 12, color: "#9da7b5", lineHeight: 1.45, marginTop: 4 },
+  compactTextarea: { width: "100%", minHeight: 70, resize: "vertical" as const, padding: "9px 10px", borderRadius: 10, backgroundColor: "#ffffff", border: "1px solid #cbd5e1", color: "#111827", fontSize: 13, boxSizing: "border-box" as const },
+  mutedButton: { padding: "9px 14px", fontSize: 13, backgroundColor: "#f8fafc", color: "#1e3a8a", border: "1px solid #cbd5e1", borderRadius: 10, cursor: "pointer", fontWeight: 700 },
+  statusBanner: { border: "1px solid #d8dee8", backgroundColor: "#f8fafc", borderRadius: 12, padding: "10px 12px", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" as const },
+  statusBannerStrong: { fontSize: 13, fontWeight: 800, color: "#111827" },
+  statusBannerMeta: { fontSize: 12, color: "#475569", lineHeight: 1.45, marginTop: 4 },
   compactControlStrip: { display: "flex", gap: 8, flexWrap: "wrap" as const, alignItems: "center", marginBottom: 12 },
-  compactSummaryCard: { border: "1px solid #32353d", backgroundColor: "#1b1d22", borderRadius: 12, padding: 12 },
+  compactSummaryCard: { border: "1px solid #d8dee8", backgroundColor: "#ffffff", borderRadius: 12, padding: 12 },
   compactSummaryGrid: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 },
-  compactSummaryItem: { borderRadius: 10, backgroundColor: "#161920", border: "1px solid #313844", padding: "10px 12px" },
-  compactSummaryLabel: { fontSize: 11, color: "#8f96a3", textTransform: "uppercase" as const, letterSpacing: 0.5 },
-  compactSummaryValue: { fontSize: 13, fontWeight: 800, color: "#edf1f8", marginTop: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
-  composerScopeCard: { border: "1px solid #32353d", backgroundColor: "#1b1d22", borderRadius: 12, padding: 10 },
-  composerScopeTitle: { fontSize: 12, fontWeight: 800, color: "#e7edf7", marginBottom: 6 },
+  compactSummaryItem: { borderRadius: 10, backgroundColor: "#f8fafc", border: "1px solid #e2e8f0", padding: "10px 12px" },
+  compactSummaryLabel: { fontSize: 11, color: "#64748b", textTransform: "uppercase" as const, letterSpacing: 0.5 },
+  compactSummaryValue: { fontSize: 13, fontWeight: 800, color: "#111827", marginTop: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
+  composerScopeCard: { border: "1px solid #d8dee8", backgroundColor: "#ffffff", borderRadius: 12, padding: 10 },
+  composerScopeTitle: { fontSize: 12, fontWeight: 800, color: "#111827", marginBottom: 6 },
   modalOverlay: { position: "fixed" as const, inset: 0, backgroundColor: "rgba(5, 8, 12, 0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, zIndex: 50 },
-  modalCard: { width: "min(720px, 100%)", maxHeight: "80vh", overflow: "auto" as const, backgroundColor: "#1b1d22", border: "1px solid #32353d", borderRadius: 16, padding: 16, boxShadow: "0 18px 60px rgba(0,0,0,0.4)" },
+  modalCard: { width: "min(720px, 100%)", maxHeight: "80vh", overflow: "auto" as const, backgroundColor: "#ffffff", border: "1px solid #d8dee8", borderRadius: 16, padding: 16, boxShadow: "0 18px 60px rgba(15,23,42,0.18)" },
   modalHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 12 },
-  modalTitle: { fontSize: 18, fontWeight: 800, color: "#edf1f8" },
-  iconButton: { padding: "9px 12px", fontSize: 13, backgroundColor: "#2c3139", color: "#e3e8f0", border: "1px solid #3c4048", borderRadius: 10, cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" as const },
+  modalTitle: { fontSize: 18, fontWeight: 800, color: "#111827" },
+  iconButton: { padding: "9px 12px", fontSize: 13, backgroundColor: "#f8fafc", color: "#1e3a8a", border: "1px solid #cbd5e1", borderRadius: 10, cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" as const },
 };
 
 type PlannerMessageKind = "text" | "proposal" | "tree" | "report" | "execution" | "error";
@@ -203,19 +204,10 @@ type PlannerMessage = {
 
 type PlannerAction =
   | {
-      type: "create_product";
-      name: string;
-      description?: string;
-      vision?: string;
-      goals?: string[];
-      tags?: string[];
-    }
-  | {
       type: "update_product";
       target?: { productName?: string };
       fields: { name?: string; description?: string; vision?: string; goals?: string[]; tags?: string[] };
     }
-  | { type: "archive_product"; target?: { productName?: string } }
   | {
       type: "create_module";
       target?: { productName?: string };
@@ -397,7 +389,7 @@ type DraftEditOperation =
   | { kind: "delete"; nodeId: string };
 
 const DEFAULT_ASSISTANT_OPENING =
-  "Talk to me like a planning lead. Describe the product, capability, or rollout you want, and I’ll check what already exists, suggest any missing products, modules, capabilities, rollouts, or work items, and wait for your confirmation before adding them.";
+  "Select a product first, then describe the capability, rollout, workflow, or design change you want to explore. Planning stays inside the selected product until you switch products.";
 
 const SPEECH_PROVIDER_KEY = "speech.transcription_provider_id";
 const SPEECH_MODEL_KEY = "speech.transcription_model_name";
@@ -746,8 +738,6 @@ function summarizeAction(action: PlannerAction | Record<string, unknown> | null 
   const vision = typeof raw.vision === "string" ? raw.vision : undefined;
   const fields = raw.fields ?? undefined;
   switch (actionType) {
-    case "create_product":
-      return { symbol: "+", tone: "add", title: `Create product ${name ?? target?.productName ?? "unnamed product"}`, detail: description || vision || "New product proposal." };
     case "create_module":
       return { symbol: "+", tone: "add", title: `Create module ${name ?? target?.moduleName ?? "unnamed module"}`, detail: target?.productName ? `Product: ${target.productName}` : "Attach to selected product." };
     case "create_capability":
@@ -831,6 +821,30 @@ function TreeNodeView({ node }: { node: PlannerTreeNode }) {
   );
 }
 
+function FormattedPlannerText({ content }: { content: string }) {
+  const lines = content.split("\n");
+
+  return (
+    <div style={styles.messageText}>
+      {lines.map((line, lineIndex) => (
+        <React.Fragment key={`${line}-${lineIndex}`}>
+          {renderInlinePlannerMarkdown(line)}
+          {lineIndex < lines.length - 1 ? <br /> : null}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
+function renderInlinePlannerMarkdown(line: string) {
+  return line.split(/(\*\*[^*]+\*\*)/g).map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
+      return <strong key={`${part}-${index}`}>{part.slice(2, -2)}</strong>;
+    }
+    return <React.Fragment key={`${part}-${index}`}>{part}</React.Fragment>;
+  });
+}
+
 function PlannerComposer({
   draft,
   onDraftChange,
@@ -851,6 +865,7 @@ function PlannerComposer({
   composerRef,
   scopeChips,
   scopeHint,
+  isProductSelected,
 }: {
   draft: string;
   onDraftChange: (value: string) => void;
@@ -871,6 +886,7 @@ function PlannerComposer({
   composerRef: React.RefObject<HTMLTextAreaElement | null>;
   scopeChips: string[];
   scopeHint: string;
+  isProductSelected: boolean;
 }) {
   return (
     <div style={styles.composerWrap}>
@@ -880,7 +896,9 @@ function PlannerComposer({
         style={styles.textarea}
         value={draft}
         onChange={(event) => onDraftChange(event.target.value)}
-        placeholder="Say or type what you need. Example: Add a work item called Build voice planner under AruviStudio, then approve it and start the workflow."
+        placeholder={isProductSelected
+          ? "Describe what to design inside the selected product. Example: Add reporting capabilities and starter work items."
+          : "Select a product before planning. Create products in the Products page."}
       />
       {scopeChips.length > 0 ? (
         <div style={styles.composerScopeCard}>
@@ -898,21 +916,21 @@ function PlannerComposer({
       {draftTreeNodesLength > 0 ? (
         <div style={styles.inlineButtonRow}>
           <button style={styles.btnGhost} onClick={onOpenDraftWorkspace}>
-            Open Workspace
+            Open Review
           </button>
           <button style={styles.btnGhost} onClick={onConfirm} disabled={isPlannerBusy}>
-            Commit Draft
+            Apply Design
           </button>
           <button style={styles.btnDanger} onClick={onDismiss} disabled={isPlannerBusy}>
-            Clear Draft
+            Clear Design
           </button>
         </div>
       ) : null}
       <div style={styles.actionRow}>
-        <button data-testid="planner-send" style={styles.btn} onClick={onSend} disabled={isPlannerBusy}>
-          {isPlannerBusy ? "Working..." : "Send"}
+        <button data-testid="planner-send" style={styles.btn} onClick={onSend} disabled={isPlannerBusy || !isProductSelected}>
+          {isPlannerBusy ? "Working..." : isProductSelected ? "Send" : "Select Product"}
         </button>
-        <button style={styles.btnGhost} onClick={onToggleListening} disabled={!voiceEnabled || isTranscribing || isVoiceSubmitting || Boolean(pendingVoiceTranscript)}>
+        <button style={styles.btnGhost} onClick={onToggleListening} disabled={!isProductSelected || !voiceEnabled || isTranscribing || isVoiceSubmitting || Boolean(pendingVoiceTranscript)}>
           {isListening
             ? "Stop Recording"
             : isTranscribing
@@ -924,7 +942,7 @@ function PlannerComposer({
         {draftTreeNodesLength === 0 ? (
           <>
             <button style={styles.btnGhost} onClick={onConfirm} disabled={!pendingPlan}>
-              Confirm Proposal
+              Apply Proposal
             </button>
             <button style={styles.btnDanger} onClick={onDismiss} disabled={!pendingPlan}>
               Clear Pending
@@ -937,10 +955,12 @@ function PlannerComposer({
             : pendingVoiceTranscript
               ? "Voice transcript is ready. Review, edit, send, retry, or cancel."
               : draftTreeNodesLength > 0
-                ? "A staged draft is active. Keep refining it, then commit when ready."
+                ? "A staged design is active. Review it, export the packet, then apply when ready."
                 : pendingPlan
                   ? "A proposed plan is waiting for confirmation."
-                  : "No pending proposal."}
+                  : isProductSelected
+                    ? "No pending proposal."
+                    : "Select a product to begin planning."}
         </span>
       </div>
     </div>
@@ -1083,9 +1103,6 @@ function buildProposalTreeNodes(plan: PlannerPlan): PlannerTreeNode[] {
   for (const action of plan.actions) {
     const target = (action as { target?: { productName?: string; moduleName?: string; capabilityName?: string; workItemTitle?: string } }).target;
     switch (action.type) {
-      case "create_product":
-        ensureProduct(action.name ?? target?.productName ?? null);
-        break;
       case "create_module":
         ensureModule(target?.productName, action.name ?? target?.moduleName ?? null);
         break;
@@ -1247,7 +1264,7 @@ function buildDraftValidation(nodes: PlannerTreeNode[]): DraftValidationSummary 
       issues.push({
         tone: "warn",
         title: `${node.label} needs modules`,
-        detail: "Products should usually have at least one module before commit.",
+        detail: "Products should usually have at least one module before the design is applied.",
       });
     }
     if (nodeType === "module" && node.children.length === 0) {
@@ -1274,13 +1291,13 @@ function buildDraftValidation(nodes: PlannerTreeNode[]): DraftValidationSummary 
     issues.push({
       tone: "warn",
       title: "No staged product root",
-      detail: "The draft needs a product root before it can be committed to the catalog.",
+      detail: "The design needs a product root before it can be applied to the catalog.",
     });
   } else {
     issues.unshift({
       tone: "ok",
-      title: "Draft tree is structurally valid",
-      detail: "A product root exists and the planner can keep refining the staged hierarchy before commit.",
+      title: "Design tree is structurally valid",
+      detail: "A product root exists and the planner can keep refining the staged hierarchy before apply.",
     });
   }
 
@@ -1292,8 +1309,8 @@ function buildDraftValidation(nodes: PlannerTreeNode[]): DraftValidationSummary 
 function buildSuggestedPrompts(node: PlannerTreeNode | null): string[] {
   if (!node) {
     return [
-      "Design the full product, modules, capabilities, and starter work items in one draft.",
-      "Show me what is missing in this plan before I commit it.",
+      "Design the selected product's modules, capabilities, and starter work items in one review packet.",
+      "Show me what is missing in this design before I apply it.",
     ];
   }
   const resolvedNodeType = getPlannerNodeType(node);
@@ -1301,7 +1318,7 @@ function buildSuggestedPrompts(node: PlannerTreeNode | null): string[] {
     case "product":
       return [
         `Expand ${node.label} with missing modules and operational areas.`,
-        `What is missing under ${node.label} before I commit it?`,
+        `What is missing under ${node.label} before I apply it?`,
         `Add notification, reporting, and integration modules under ${node.label}.`,
       ];
     case "module":
@@ -1364,9 +1381,7 @@ function findRelevantPlanActions(plan: PlannerPlan | null, node: PlannerTreeNode
   return plan.actions.filter((action) => {
     const target = (action as { target?: { productName?: string; moduleName?: string; capabilityName?: string; workItemTitle?: string } }).target;
     if (nodeType === "product") {
-      return action.type === "create_product"
-        ? action.name === node.label
-        : target?.productName === node.label;
+      return target?.productName === node.label;
     }
     if (nodeType === "module") {
       return action.type === "create_module"
@@ -1389,16 +1404,6 @@ function findRelevantPlanActions(plan: PlannerPlan | null, node: PlannerTreeNode
 
 async function executePlannerAction(action: PlannerAction, context: ResolverContext): Promise<string[]> {
   switch (action.type) {
-    case "create_product": {
-      const product = await createProduct({
-        name: action.name,
-        description: action.description ?? "",
-        vision: action.vision ?? "",
-        goals: formatArrayField(action.goals),
-        tags: formatArrayField(action.tags),
-      });
-      return [`Created product "${product.name}".`];
-    }
     case "update_product": {
       const product = findProduct(context, action.target?.productName);
       const updated = await updateProduct({
@@ -1410,11 +1415,6 @@ async function executePlannerAction(action: PlannerAction, context: ResolverCont
         tags: action.fields.tags ? formatArrayField(action.fields.tags) : undefined,
       });
       return [`Updated product "${updated.name}".`];
-    }
-    case "archive_product": {
-      const product = findProduct(context, action.target?.productName);
-      await archiveProduct(product.id);
-      return [`Archived product "${product.name}".`];
     }
     case "create_module": {
       const product = findProduct(context, action.target?.productName);
@@ -1644,6 +1644,280 @@ async function executePlannerAction(action: PlannerAction, context: ResolverCont
   }
 }
 
+type DesignReviewPacketInput = {
+  title: string;
+  generatedAt: string;
+  activeProductName?: string | null;
+  currentProducts: Product[];
+  currentProductTrees: ProductTree[];
+  currentWorkItems: WorkItem[];
+  draftTreeNodes: PlannerTreeNode[];
+  plan: PlannerPlan | null;
+  validation: DraftValidationSummary;
+  selectedNode: PlannerTreeNode | null;
+  latestAssistantText?: string | null;
+};
+
+function buildDesignReviewPacketHtml(input: DesignReviewPacketInput) {
+  const actionSummaries = (input.plan?.actions ?? []).map((action) => summarizeAction(action));
+  const rootNames = input.draftTreeNodes.map((node) => node.label);
+  const featureActions = actionSummaries.filter((summary) =>
+    /create|update|apply|convert/i.test(summary.title),
+  );
+  const workActions = actionSummaries.filter((summary) =>
+    /work item|task/i.test(summary.title),
+  );
+  const riskItems = [
+    ...input.validation.issues.filter((issue) => issue.tone === "warn").map((issue) => `${issue.title}: ${issue.detail}`),
+    ...(input.plan?.clarification_question ? [`Open question: ${input.plan.clarification_question}`] : []),
+  ];
+  const changeSetJson = JSON.stringify(
+    {
+      generatedAt: input.generatedAt,
+      title: input.title,
+      selectedNode: input.selectedNode?.label ?? null,
+      draftTree: input.draftTreeNodes,
+      actions: input.plan?.actions ?? [],
+      validation: input.validation,
+    },
+    null,
+    2,
+  );
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(input.title)} - Design Review Packet</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <script>window.addEventListener("DOMContentLoaded", function () { if (window.mermaid) mermaid.initialize({ startOnLoad: true, theme: "base" }); });</script>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f8fafc;
+        --panel: #ffffff;
+        --ink: #111827;
+        --muted: #64748b;
+        --border: #d8dee8;
+        --accent: #2563eb;
+        --accent-soft: #eff6ff;
+        --ok: #15803d;
+        --warn: #a16207;
+        --danger: #b91c1c;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); line-height: 1.55; }
+      .shell { max-width: 1180px; margin: 0 auto; padding: 28px; }
+      .hero { background: linear-gradient(145deg, #eff6ff, #ffffff 64%); border: 1px solid #bfdbfe; border-radius: 16px; padding: 24px; margin-bottom: 18px; }
+      .eyebrow { color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+      h1 { margin: 8px 0 10px; font-size: 34px; line-height: 1.05; }
+      h2 { margin: 0 0 12px; font-size: 20px; }
+      h3 { margin: 16px 0 8px; font-size: 15px; }
+      p { margin: 0 0 10px; }
+      .meta { color: var(--muted); font-size: 13px; }
+      .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
+      .metric { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+      .metric-label { color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+      .metric-value { font-size: 24px; font-weight: 900; margin-top: 4px; }
+      .section { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin: 14px 0; }
+      .toc { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 16px; }
+      .toc a { color: #1e3a8a; background: #f8fafc; border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; text-decoration: none; font-weight: 700; font-size: 13px; }
+      ul { margin: 8px 0 0 20px; padding: 0; }
+      li { margin: 5px 0; }
+      .badge { display: inline-flex; border-radius: 999px; padding: 4px 8px; background: var(--accent-soft); color: #1d4ed8; font-size: 12px; font-weight: 800; margin: 2px 4px 2px 0; }
+      .diff { border-top: 1px solid #e2e8f0; padding: 10px 0; display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 10px; }
+      .symbol { font-weight: 900; color: var(--ok); }
+      .warn { color: var(--warn); }
+      .danger { color: var(--danger); }
+      .diagram { background: #ffffff; border: 1px solid var(--border); border-radius: 12px; padding: 12px; overflow: auto; }
+      pre { white-space: pre-wrap; word-break: break-word; background: #0f172a; color: #e2e8f0; border-radius: 12px; padding: 14px; overflow: auto; }
+      .approval { border-color: #bfdbfe; background: #eff6ff; }
+      @media print { body { background: white; } .shell { max-width: none; padding: 0; } .section, .hero { break-inside: avoid; } }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div class="eyebrow">Design Review Packet</div>
+        <h1>${escapeHtml(input.title)}</h1>
+        <p class="meta">Generated ${escapeHtml(input.generatedAt)}${input.activeProductName ? ` · Active product: ${escapeHtml(input.activeProductName)}` : ""}</p>
+        <div class="grid">
+          <div class="metric"><div class="metric-label">Current Products</div><div class="metric-value">${input.currentProducts.length}</div></div>
+          <div class="metric"><div class="metric-label">Draft Roots</div><div class="metric-value">${input.draftTreeNodes.length}</div></div>
+          <div class="metric"><div class="metric-label">Proposed Changes</div><div class="metric-value">${input.plan?.actions.length ?? 0}</div></div>
+          <div class="metric"><div class="metric-label">Readiness</div><div class="metric-value">${input.validation.score}</div></div>
+        </div>
+        <nav class="toc">
+          ${[
+            "Executive Summary",
+            "Current State",
+            "Proposed Architecture",
+            "Change Diff",
+            "Feature Specification",
+            "UX / Design Proposal",
+            "Implementation Plan",
+            "Risk Review",
+            "Work Breakdown",
+            "Approval Section",
+          ].map((label, index) => `<a href="#section-${index + 1}">${index + 1}. ${label}</a>`).join("")}
+        </nav>
+      </section>
+
+      ${packetSection(1, "Executive Summary", [
+        paragraph(input.latestAssistantText || input.plan?.assistant_response || "This packet captures the proposed product design before the catalog is changed."),
+        list([
+          rootNames.length > 0 ? `Primary proposed structure: ${rootNames.join(", ")}.` : "No staged structure is currently available.",
+          `The packet includes ${input.plan?.actions.length ?? 0} proposed catalog operation(s).`,
+          "No catalog changes should be applied until this packet is reviewed and approved.",
+        ]),
+      ])}
+
+      ${packetSection(2, "Current State", [
+        list([
+          `${input.currentProducts.length} product(s) exist in the current workspace.`,
+          `${input.currentProductTrees.reduce((total, tree) => total + tree.roots.length, 0)} root section(s) are loaded across current products.`,
+          `${input.currentWorkItems.length} work item(s) are currently visible to the planner.`,
+          input.activeProductName ? `Current active product context: ${input.activeProductName}.` : "No active product context was selected.",
+        ]),
+      ])}
+
+      ${packetSection(3, "Proposed Architecture", [
+        `<div class="diagram"><pre class="mermaid">${escapeHtml(buildMermaidDiagram(input.draftTreeNodes))}</pre></div>`,
+        paragraph("The architecture diagram is generated from the staged design tree. Use it to inspect hierarchy, ownership, and major boundaries before applying changes."),
+      ])}
+
+      ${packetSection(4, "Change Diff", [
+        actionSummaries.length > 0
+          ? actionSummaries.map((summary) => `<div class="diff"><div class="symbol">${escapeHtml(summary.symbol)}</div><div><strong>${escapeHtml(summary.title)}</strong>${summary.detail ? `<div class="meta">${escapeHtml(summary.detail)}</div>` : ""}</div></div>`).join("")
+          : paragraph("No structured change actions are currently available."),
+      ])}
+
+      ${packetSection(5, "Feature Specification", [
+        list([
+          ...featureActions.map((summary) => summary.title),
+          featureActions.length === 0 ? "No explicit feature additions or modifications were found in the latest plan." : "",
+        ].filter((value): value is string => Boolean(value))),
+        paragraph("Each feature should be reviewed for user value, acceptance criteria, edge cases, and whether it belongs in this product boundary."),
+      ])}
+
+      ${packetSection(6, "UX / Design Proposal", [
+        list([
+          "Identify the primary user workflows affected by this design.",
+          "Review first-screen information hierarchy, navigation, empty states, loading states, error states, success states, and conflict states.",
+          "Check whether the proposed screens are operationally useful, not just visually complete.",
+          "Confirm accessibility expectations: keyboard access, readable contrast, clear focus states, and screen-reader labels.",
+        ]),
+      ])}
+
+      ${packetSection(7, "Implementation Plan", [
+        list([
+          "Phase 1: Apply the approved product/module/capability structure.",
+          "Phase 2: Generate or refine work items with acceptance criteria and dependencies.",
+          "Phase 3: Build UI/data/API changes behind reviewable work items.",
+          "Phase 4: Validate with focused tests, walkthroughs, and user review before release.",
+        ]),
+      ])}
+
+      ${packetSection(8, "Risk Review", [
+        riskItems.length > 0
+          ? list(riskItems)
+          : list([
+              "No blocking structural risks were detected by the current validation pass.",
+              "Review assumptions manually before applying the design.",
+            ]),
+      ])}
+
+      ${packetSection(9, "Work Breakdown", [
+        workActions.length > 0
+          ? list(workActions.map((summary) => summary.title))
+          : list([
+              "Convert approved features into implementation-ready work items.",
+              "Add priorities, dependencies, complexity, and acceptance criteria before delivery.",
+            ]),
+      ])}
+
+      ${packetSection(10, "Approval Section", [
+        `<div class="section approval">`,
+        `<h3>Recommended approval options</h3>`,
+        list([
+          "Approve all proposed changes and apply them to the product catalog.",
+          "Approve selected changes only.",
+          "Request revision and regenerate this packet.",
+          "Export/share this packet for stakeholder review.",
+          "Archive this packet without applying changes.",
+        ]),
+        `<h3>Structured change set</h3>`,
+        `<pre>${escapeHtml(changeSetJson)}</pre>`,
+        `</div>`,
+      ])}
+    </main>
+  </body>
+</html>`;
+}
+
+function packetSection(index: number, title: string, body: string[]) {
+  return `<section id="section-${index}" class="section"><h2>${index}. ${escapeHtml(title)}</h2>${body.join("\n")}</section>`;
+}
+
+function paragraph(value: string) {
+  return `<p>${escapeHtml(value)}</p>`;
+}
+
+function list(items: string[]) {
+  return `<ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+}
+
+function buildMermaidDiagram(nodes: PlannerTreeNode[]) {
+  if (nodes.length === 0) {
+    return "flowchart TD\n  Empty[No staged design yet]";
+  }
+  const lines = ["flowchart TD"];
+  const seen = new Set<string>();
+
+  const walk = (node: PlannerTreeNode, parentId?: string) => {
+    const nodeId = mermaidNodeId(node.id);
+    if (!seen.has(nodeId)) {
+      lines.push(`  ${nodeId}["${escapeMermaidLabel(node.label)}"]`);
+      seen.add(nodeId);
+    }
+    if (parentId) {
+      lines.push(`  ${parentId} --> ${nodeId}`);
+    }
+    node.children.forEach((child) => walk(child, nodeId));
+  };
+
+  nodes.forEach((node) => walk(node));
+  return lines.join("\n");
+}
+
+function mermaidNodeId(value: string) {
+  const cleaned = value.replace(/[^a-zA-Z0-9_]/g, "_");
+  return /^[a-zA-Z_]/.test(cleaned) ? cleaned : `node_${cleaned}`;
+}
+
+function escapeMermaidLabel(value: string) {
+  return value.replace(/"/g, "'").replace(/\n/g, " ");
+}
+
+function escapeHtml(value: string | number | null | undefined) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function slugifyPacketName(value: string) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    || "design-review-packet";
+}
+
 async function executePlannerPlan(plan: PlannerPlan, context: ResolverContext): Promise<ExecutionResult> {
   const lines: string[] = [];
   const errors: string[] = [];
@@ -1662,7 +1936,7 @@ export function PlannerPage() {
   const queryClient = useQueryClient();
   const location = useLocation();
   const navigate = useNavigate();
-  const { activeProductId, activeModuleId, activeCapabilityId, activeWorkItemId } = useWorkspaceStore();
+  const { activeProductId, activeModuleId, activeCapabilityId, activeWorkItemId, setActiveProduct } = useWorkspaceStore();
   const [plannerView, setPlannerView] = useState<"conversation" | "draft" | "trace">("conversation");
   const [providerId, setProviderId] = useState("");
   const [modelName, setModelName] = useState("");
@@ -1686,6 +1960,9 @@ export function PlannerPage() {
   const [repositoryPathDraft, setRepositoryPathDraft] = useState("");
   const [repoAnalysisMessage, setRepoAnalysisMessage] = useState<string | null>(null);
   const [repoAnalysisError, setRepoAnalysisError] = useState<string | null>(null);
+  const [designPacketPath, setDesignPacketPath] = useState<string | null>(null);
+  const [designPacketError, setDesignPacketError] = useState<string | null>(null);
+  const [isExportingDesignPacket, setIsExportingDesignPacket] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [autoSpeak, setAutoSpeak] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -1710,25 +1987,31 @@ export function PlannerPage() {
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const consumedRoutePromptRef = useRef<string | null>(null);
+  const activePlannerProductRef = useRef<string | null>(null);
 
   const { data: products = [] } = useQuery({ queryKey: ["products"], queryFn: listProducts });
   const { data: providers = [] } = useQuery({ queryKey: ["plannerProviders"], queryFn: listProviders });
   const { data: models = [] } = useQuery({ queryKey: ["plannerModels"], queryFn: listModelDefinitions });
-  const { data: workItems = [] } = useQuery({ queryKey: ["plannerWorkItems"], queryFn: () => listWorkItems() });
   const { data: repositories = [] } = useQuery({ queryKey: ["plannerRepositories"], queryFn: listRepositories });
-
-  const treeQueries = useQueries({
-    queries: products.map((product) => ({
-      queryKey: ["plannerProductTree", product.id],
-      queryFn: () => getProductTree(product.id),
-      enabled: !!product.id,
-    })),
-  });
-
-  const productTrees = useMemo(
-    () => treeQueries.map((query) => query.data).filter((value): value is ProductTree => Boolean(value)),
-    [treeQueries],
+  const selectedProductId = useMemo(
+    () => products.some((product) => product.id === activeProductId) ? activeProductId : null,
+    [activeProductId, products],
   );
+  const selectedProduct = useMemo(
+    () => products.find((product) => product.id === selectedProductId) ?? null,
+    [products, selectedProductId],
+  );
+  const { data: selectedProductTree } = useQuery({
+    queryKey: ["plannerProductTree", selectedProductId],
+    queryFn: () => getProductTree(selectedProductId!),
+    enabled: !!selectedProductId,
+  });
+  const { data: workItems = [] } = useQuery({
+    queryKey: ["plannerWorkItems", selectedProductId],
+    queryFn: () => listWorkItems({ productId: selectedProductId ?? undefined }),
+    enabled: !!selectedProductId,
+  });
+  const productTrees = useMemo(() => selectedProductTree ? [selectedProductTree] : [], [selectedProductTree]);
   const hasTreeData = productTrees.length > 0;
   const isFocusedWorkspaceView = plannerView === "draft" || plannerView === "trace";
   const isCompactScreen = windowWidth <= 1360;
@@ -1799,10 +2082,10 @@ export function PlannerPage() {
     }
     if (draftTreeNodes.length > 0) {
       return {
-        title: `Draft active: ${draftValidation.counts.product} product, ${draftValidation.counts.module} module, ${draftValidation.counts.capability} capability, ${draftValidation.counts["work item"]} work item`,
+        title: `Design active: ${draftValidation.counts.product} product, ${draftValidation.counts.module} module, ${draftValidation.counts.capability} capability, ${draftValidation.counts["work item"]} work item`,
         detail: selectedDraftNode
           ? `Selected node: ${selectedDraftNode.label}.`
-          : "Select a node and keep refining before commit.",
+          : "Select a node and keep refining before apply.",
       };
     }
     if (pendingPlan) {
@@ -1834,9 +2117,9 @@ export function PlannerPage() {
   const composerScopeChips = useMemo(() => {
     const chips: string[] = [];
     if (selectedDraftNodeId) {
-      chips.push("draft node selected");
+      chips.push("design node selected");
     }
-    if (activeProductId) {
+    if (selectedProductId) {
       chips.push("product selected");
     }
     if (activeModuleId) {
@@ -1849,9 +2132,9 @@ export function PlannerPage() {
       chips.push("work item selected");
     }
     return chips;
-  }, [activeCapabilityId, activeModuleId, activeProductId, activeWorkItemId, selectedDraftNodeId]);
+  }, [activeCapabilityId, activeModuleId, selectedProductId, activeWorkItemId, selectedDraftNodeId]);
   const composerScopeHint =
-    "If you omit names, the planner first tries the selected draft node, then the selected workspace scope, then asks follow-up questions if it still cannot resolve the target cleanly.";
+    "If you omit names, the planner first tries the selected design node, then the selected workspace scope, then asks follow-up questions if it still cannot resolve the target cleanly.";
 
   const modelOptions = useMemo(
     () => models.filter((model) => model.provider_id === providerId && model.enabled),
@@ -1914,11 +2197,39 @@ export function PlannerPage() {
     products,
     productTrees,
     workItems,
-    activeProductId,
+    activeProductId: selectedProductId,
     activeModuleId,
     activeCapabilityId,
     activeWorkItemId,
-  }), [activeCapabilityId, activeModuleId, activeProductId, activeWorkItemId, productTrees, products, workItems]);
+  }), [activeCapabilityId, activeModuleId, selectedProductId, activeWorkItemId, productTrees, products, workItems]);
+  const activeProductName = selectedProduct?.name ?? null;
+
+  useEffect(() => {
+    if (activePlannerProductRef.current === selectedProductId) {
+      return;
+    }
+    const previousProductId = activePlannerProductRef.current;
+    activePlannerProductRef.current = selectedProductId;
+    if (previousProductId === null && !sessionId && draftTreeNodes.length === 0 && !pendingPlan) {
+      return;
+    }
+    setPendingPlan(null);
+    setDraftTreeNodes([]);
+    setSelectedDraftNodeId(null);
+    setExpandedDraftNodeIds([]);
+    setLatestTraceEvents([]);
+    setSessionId(null);
+    setPlannerView("conversation");
+    setMessages([
+      {
+        id: makeId(),
+        role: "assistant",
+        content: selectedProduct
+          ? `Planning is now scoped to ${selectedProduct.name}. Describe what you want to design or change inside this product.`
+          : "Select a product first. Create products in the Products page, then return here to design structure and work.",
+      },
+    ]);
+  }, [draftTreeNodes.length, pendingPlan, selectedProduct, selectedProductId, sessionId]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -2263,7 +2574,7 @@ export function PlannerPage() {
           id: makeId(),
           role: "assistant",
           content: output,
-          meta: "Draft updated",
+          meta: "Design updated",
           kind: "proposal",
           plan: result.plan,
           treeNodes: result.treeNodes,
@@ -2376,10 +2687,10 @@ export function PlannerPage() {
         setSelectedDraftNodeId(null);
       }
       void queryClient.invalidateQueries({ queryKey: ["products"] });
-      void queryClient.invalidateQueries({ queryKey: ["plannerWorkItems"] });
+      void queryClient.invalidateQueries({ queryKey: ["plannerWorkItems", selectedProductId] });
       void queryClient.invalidateQueries({ queryKey: ["sidebarWorkItems"] });
-      void queryClient.invalidateQueries({ queryKey: ["productTree"] });
-      void queryClient.invalidateQueries({ queryKey: ["plannerProductTree"] });
+      void queryClient.invalidateQueries({ queryKey: ["productTree", selectedProductId] });
+      void queryClient.invalidateQueries({ queryKey: ["plannerProductTree", selectedProductId] });
     }
 
     if (autoSpeak) {
@@ -2388,7 +2699,7 @@ export function PlannerPage() {
         : result.mode === "confirmation_required"
           ? `${result.plan.assistant_response}. Say confirm to apply the proposal.`
           : result.mode === "draft_updated"
-            ? `${result.plan.assistant_response}. The draft tree has been updated.`
+            ? `${result.plan.assistant_response}. The design tree has been updated.`
             : result.mode === "session_updated"
               ? result.plan.assistant_response
             : result.mode === "confirmed"
@@ -2401,6 +2712,9 @@ export function PlannerPage() {
   const processMutation = useMutation<PlannerMutationResult, Error, string>({
     mutationFn: async (input: string) => {
       const userInput = input.trim();
+      if (!selectedProductId) {
+        throw new Error("Select a product before planning.");
+      }
       let activeSessionId = sessionId;
       if (!activeSessionId) {
         const session = await createPlannerSession({
@@ -2415,6 +2729,7 @@ export function PlannerPage() {
         sessionId: activeSessionId,
         userInput,
         selectedDraftNodeId,
+        productId: selectedProductId,
       });
 
       return mapPlannerResponseToMutationResult(response, userInput);
@@ -2471,7 +2786,7 @@ export function PlannerPage() {
           });
           return mapPlannerResponseToMutationResult(
             response,
-            "Delete this node from the draft.",
+            "Delete this node from the staged design.",
           );
         }
       }
@@ -2492,10 +2807,11 @@ export function PlannerPage() {
         sessionId,
         repositoryId,
         selectedDraftNodeId,
+        productId: selectedProductId,
       });
       return mapPlannerResponseToMutationResult(
         response,
-        `Analyze repository ${repositoryId} into a draft plan.`,
+        `Analyze repository ${repositoryId} into a design packet.`,
       );
     },
     onSuccess: handlePlannerMutationSuccess,
@@ -2600,6 +2916,13 @@ export function PlannerPage() {
     if (!content || isPlannerBusy) {
       return;
     }
+    if (!selectedProductId) {
+      setMessages((current) => [
+        ...current,
+        { id: makeId(), role: "assistant", content: "Select a product before planning. Use Products to create one if needed.", meta: "Product required", kind: "error" },
+      ]);
+      return;
+    }
     setDraft("");
     await processMutation.mutateAsync(content);
   };
@@ -2613,6 +2936,10 @@ export function PlannerPage() {
 
   const submitVoiceTranscript = async (transcript: string) => {
     if (!transcript || isPlannerBusy) {
+      return;
+    }
+    if (!selectedProductId) {
+      setSpeechError("Select a product before using Planner voice input.");
       return;
     }
     setPendingVoiceTranscript(transcript);
@@ -2698,7 +3025,7 @@ export function PlannerPage() {
         errors: response.execution_errors,
       };
       const plan = pendingPlan?.plan ?? {
-        assistant_response: "Committed draft plan.",
+        assistant_response: "Applied design to catalog.",
         needs_confirmation: false,
         clarification_question: null,
         actions: [],
@@ -2711,7 +3038,7 @@ export function PlannerPage() {
         {
           id: makeId(),
           role: "assistant",
-          content: ["Committed draft plan.", ...execution.lines, ...(execution.errors.length ? [`Errors: ${execution.errors.join(" | ")}`] : [])].join("\n"),
+          content: ["Applied design to catalog.", ...execution.lines, ...(execution.errors.length ? [`Errors: ${execution.errors.join(" | ")}`] : [])].join("\n"),
           meta: "Planner execution",
           kind: treeNodes ? "tree" : "execution",
           treeNodes,
@@ -2724,10 +3051,10 @@ export function PlannerPage() {
       setSelectedDraftNodeId(null);
       setPlannerView("conversation");
       void queryClient.invalidateQueries({ queryKey: ["products"] });
-      void queryClient.invalidateQueries({ queryKey: ["plannerWorkItems"] });
+      void queryClient.invalidateQueries({ queryKey: ["plannerWorkItems", selectedProductId] });
       void queryClient.invalidateQueries({ queryKey: ["sidebarWorkItems"] });
-      void queryClient.invalidateQueries({ queryKey: ["productTree"] });
-      void queryClient.invalidateQueries({ queryKey: ["plannerProductTree"] });
+      void queryClient.invalidateQueries({ queryKey: ["productTree", selectedProductId] });
+      void queryClient.invalidateQueries({ queryKey: ["plannerProductTree", selectedProductId] });
     })().catch((error) => {
       setMessages((current) => [
         ...current,
@@ -2787,16 +3114,60 @@ export function PlannerPage() {
   };
 
   const analyzeSelectedRepository = async () => {
-    if (!selectedRepositoryId || isPlannerBusy) {
+    if (!selectedRepositoryId || !selectedProductId || isPlannerBusy) {
       return;
     }
     try {
       setRepoAnalysisError(null);
       setRepoAnalysisMessage(null);
       await repositoryAnalysisMutation.mutateAsync(selectedRepositoryId);
-      setRepoAnalysisMessage("Repository analysis staged a draft update.");
+      setRepoAnalysisMessage("Repository analysis staged a design update.");
     } catch {
       // Error state is handled by the mutation.
+    }
+  };
+
+  const exportDesignReviewPacket = async () => {
+    if (isExportingDesignPacket) {
+      return;
+    }
+    const packetRootName = draftTreeNodes[0]?.label ?? activeProductName ?? "Design Review Packet";
+    try {
+      setIsExportingDesignPacket(true);
+      setDesignPacketError(null);
+      const html = buildDesignReviewPacketHtml({
+        title: packetRootName,
+        generatedAt: new Date().toLocaleString(),
+        activeProductName,
+        currentProducts: products,
+        currentProductTrees: productTrees,
+        currentWorkItems: workItems,
+        draftTreeNodes,
+        plan: latestDraftPlan,
+        validation: draftValidation,
+        selectedNode: selectedDraftNode,
+        latestAssistantText: latestAssistantMessage?.content ?? null,
+      });
+      const path = await exportProductOverviewHtml({
+        fileName: `${slugifyPacketName(packetRootName)}-design-review-packet.html`,
+        html,
+      });
+      setDesignPacketPath(path);
+      setMessages((current) => [
+        ...current,
+        {
+          id: makeId(),
+          role: "assistant",
+          content: `Generated a design review packet for "${packetRootName}".\n${path}`,
+          meta: "Design packet exported",
+          kind: "text",
+        },
+      ]);
+    } catch (error) {
+      setDesignPacketPath(null);
+      setDesignPacketError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsExportingDesignPacket(false);
     }
   };
 
@@ -2858,12 +3229,25 @@ export function PlannerPage() {
     }
     const normalizedTranscript = normalize(spoken);
 
-    if (["view draft", "open draft", "show draft", "show draft tree", "view draft tree", "open workspace", "show workspace"].includes(normalizedTranscript)) {
+    if ([
+      "view draft",
+      "open draft",
+      "show draft",
+      "show draft tree",
+      "view draft tree",
+      "view design",
+      "open design",
+      "show design",
+      "show design tree",
+      "view design tree",
+      "open workspace",
+      "show workspace",
+    ].includes(normalizedTranscript)) {
       if (draftTreeNodes.length === 0) {
-        appendVoiceCommandFeedback(spoken, "There is no staged draft tree yet.");
+        appendVoiceCommandFeedback(spoken, "There is no staged design tree yet.");
       } else {
         setPlannerView("draft");
-        appendVoiceCommandFeedback(spoken, "Opened the draft workspace.");
+        appendVoiceCommandFeedback(spoken, "Opened the design review.");
       }
       return true;
     }
@@ -2884,16 +3268,21 @@ export function PlannerPage() {
       return true;
     }
 
+    if (!selectedProductId) {
+      appendVoiceCommandFeedback(spoken, "Select a product before planning. Create products in the Products page, then return here to design.");
+      return true;
+    }
+
     if (["expand draft", "expand the draft", "expand tree", "expand all", "open all branches"].includes(normalizedTranscript)) {
       setPlannerView("draft");
       expandAllDraftNodes();
-      appendVoiceCommandFeedback(spoken, "Expanded the staged draft tree.");
+      appendVoiceCommandFeedback(spoken, "Expanded the staged design tree.");
       return true;
     }
 
     if (["collapse draft", "collapse the draft", "collapse tree", "collapse all"].includes(normalizedTranscript)) {
       collapseAllDraftNodes();
-      appendVoiceCommandFeedback(spoken, "Collapsed the staged draft tree.");
+      appendVoiceCommandFeedback(spoken, "Collapsed the staged design tree.");
       return true;
     }
 
@@ -2903,7 +3292,7 @@ export function PlannerPage() {
       if (["draft", "tree", "all"].includes(normalize(targetText))) {
         setPlannerView("draft");
         expandAllDraftNodes();
-        appendVoiceCommandFeedback(spoken, "Expanded the staged draft tree.");
+        appendVoiceCommandFeedback(spoken, "Expanded the staged design tree.");
         return true;
       }
     }
@@ -2912,13 +3301,13 @@ export function PlannerPage() {
       const targetText = collapseMatch[2];
       if (["draft", "tree", "all"].includes(normalize(targetText))) {
         collapseAllDraftNodes();
-        appendVoiceCommandFeedback(spoken, "Collapsed the staged draft tree.");
+        appendVoiceCommandFeedback(spoken, "Collapsed the staged design tree.");
         return true;
       }
       const { explicitType, reference } = parseVoiceNodeReference(targetText);
       const targetNode = resolveVoiceNodeReference(draftTreeNodes, selectedDraftNodePath, reference, explicitType);
       if (!targetNode) {
-        appendVoiceCommandFeedback(spoken, `I could not find a draft node matching "${targetText}".`);
+        appendVoiceCommandFeedback(spoken, `I could not find a design node matching "${targetText}".`);
         return true;
       }
       setExpandedDraftNodeIds((current) => current.filter((nodeId) => nodeId !== targetNode.id));
@@ -2940,6 +3329,7 @@ export function PlannerPage() {
       sessionId: activeSessionId,
       transcript: spoken,
       selectedDraftNodeId,
+      productId: selectedProductId,
     });
     handlePlannerMutationSuccess(mapPlannerResponseToMutationResult(response, spoken));
     return true;
@@ -3002,7 +3392,7 @@ export function PlannerPage() {
         kind: "delete",
         nodeId: selectedDraftNode.id,
       });
-      setDraftEditMessage(`Removed "${deletedLabel}" from the draft.`);
+      setDraftEditMessage(`Removed "${deletedLabel}" from the design.`);
     } catch {
       // Error state is handled by the mutation.
     }
@@ -3013,7 +3403,7 @@ export function PlannerPage() {
       const proposalTreeNodes = buildProposalTreeNodes(message.plan);
       return (
         <>
-          <div>{message.content}</div>
+          <FormattedPlannerText content={message.content} />
           <div style={styles.card}>
             <div style={styles.cardTitle}>Proposed Changes</div>
             {message.plan.actions.map((action, index) => {
@@ -3054,13 +3444,22 @@ export function PlannerPage() {
               </div>
             ) : null}
             <div style={styles.inlineButtonRow}>
+              <button style={styles.btnGhost} onClick={() => void exportDesignReviewPacket()} disabled={isExportingDesignPacket}>
+                {isExportingDesignPacket ? "Generating Packet..." : "Generate Review Packet"}
+              </button>
               <button style={styles.btn} onClick={confirmPendingPlan} disabled={isPlannerBusy || (!pendingPlan && draftTreeNodes.length === 0)}>
-                {draftTreeNodes.length > 0 ? "Commit Draft" : "Confirm Proposal"}
+                {draftTreeNodes.length > 0 ? "Apply Design" : "Confirm Proposal"}
               </button>
               <button style={styles.btnGhost} onClick={dismissPendingPlan} disabled={!pendingPlan && draftTreeNodes.length === 0}>
-                {draftTreeNodes.length > 0 ? "Clear Draft" : "Dismiss"}
+                {draftTreeNodes.length > 0 ? "Clear Design" : "Dismiss"}
               </button>
             </div>
+            {designPacketPath ? (
+              <div style={{ ...styles.helper, marginTop: 8 }}>
+                Packet exported: {designPacketPath}
+              </div>
+            ) : null}
+            {designPacketError ? <div style={styles.error}>{designPacketError}</div> : null}
           </div>
         </>
       );
@@ -3069,7 +3468,7 @@ export function PlannerPage() {
     if (message.kind === "tree" && message.treeNodes) {
       return (
         <>
-          <div>{message.content}</div>
+          <FormattedPlannerText content={message.content} />
           <div style={styles.treePanel}>
             {message.treeNodes.map((node) => (
               <TreeNodeView key={node.id} node={node} />
@@ -3079,7 +3478,7 @@ export function PlannerPage() {
       );
     }
 
-    return <div>{message.content}</div>;
+    return <FormattedPlannerText content={message.content} />;
   };
 
   const renderPlannerSidebar = () => (
@@ -3093,7 +3492,7 @@ export function PlannerPage() {
         </div>
 
         <div style={styles.sideCard}>
-          <div style={styles.label}>Draft Tree</div>
+          <div style={styles.label}>Design Tree</div>
           <div style={styles.helper}>
             Build the plan here first. Select a node, then ask follow-up questions like “expand this capability” or “add work items under this module.”
           </div>
@@ -3114,15 +3513,15 @@ export function PlannerPage() {
               </div>
             </div>
           ) : (
-            <div style={styles.helper}>No staged draft yet. Ask the planner to sketch a product tree and it will appear here.</div>
+            <div style={styles.helper}>No staged design yet. Select a product, then ask the planner to design modules, capabilities, and work items inside it.</div>
           )}
         </div>
 
         {pendingPlan || draftTreeNodes.length > 0 ? (
           <div style={styles.sideCard}>
-            <div style={styles.label}>Draft Snapshot</div>
+            <div style={styles.label}>Design Snapshot</div>
             <div style={styles.helper}>
-              The planner stages structure here first. Keep refining the tree, then commit when the draft looks right.
+              The planner stages structure here first. Generate a review packet, keep refining the tree, then apply when the design looks right.
             </div>
             {pendingPlan ? (
               <div style={styles.list}>
@@ -3135,7 +3534,7 @@ export function PlannerPage() {
               </div>
             ) : (
               <div style={{ ...styles.helper, marginTop: 10 }}>
-                The current staged draft is active in the tree above. Select a node and keep iterating, or commit to persist it.
+                The current staged design is active in the tree above. Select a node and keep iterating, or apply it when approved.
               </div>
             )}
           </div>
@@ -3160,7 +3559,7 @@ export function PlannerPage() {
           <div style={{ ...(isCompactScreen ? styles.compactPanelBody : styles.panelBody), display: "flex", flexDirection: "column" }}>
             <div style={styles.sectionHeader}>
               <div style={styles.sectionTitle}>
-                {plannerView === "draft" ? "Draft Workspace" : plannerView === "trace" ? "Planner Trace" : "Conversation"}
+                {plannerView === "draft" ? "Design Review" : plannerView === "trace" ? "Planner Trace" : "Conversation"}
               </div>
               <div style={styles.viewToggleRow}>
                 <button
@@ -3169,6 +3568,25 @@ export function PlannerPage() {
                   onClick={() => setShowRepoModal(true)}
                 >
                   ⌕ Repo
+                </button>
+                <select
+                  aria-label="Planner product"
+                  style={{ ...styles.select, width: 240 }}
+                  value={selectedProductId ?? ""}
+                  onChange={(event) => {
+                    const nextProductId = event.target.value || null;
+                    setActiveProduct(nextProductId);
+                  }}
+                >
+                  <option value="">Select product</option>
+                  {products.map((product) => (
+                    <option key={product.id} value={product.id}>
+                      {product.name}
+                    </option>
+                  ))}
+                </select>
+                <button style={styles.btnGhost} onClick={() => navigate("/products")}>
+                  Create Product
                 </button>
                 <select
                   aria-label="Planner model"
@@ -3200,7 +3618,7 @@ export function PlannerPage() {
                   onClick={() => setPlannerView("draft")}
                   disabled={draftTreeNodes.length === 0}
                 >
-                  View Draft Tree
+                  View Design
                 </button>
                 <button
                   data-testid="planner-view-trace"
@@ -3232,7 +3650,7 @@ export function PlannerPage() {
                     {showCompactTools ? "Hide Tools" : "Show Tools"}
                   </button>
                   <button style={styles.btnGhost} onClick={() => setPlannerView("draft")} disabled={draftTreeNodes.length === 0}>
-                    Open Draft
+                    Open Design
                   </button>
                   <button style={styles.btnGhost} onClick={() => setPlannerView("trace")} disabled={latestTraceEvents.length === 0}>
                     Open Trace
@@ -3241,8 +3659,8 @@ export function PlannerPage() {
                 <div style={styles.compactSummaryCard}>
                   <div style={styles.compactSummaryGrid}>
                     <div style={styles.compactSummaryItem}>
-                      <div style={styles.compactSummaryLabel}>Draft</div>
-                      <div style={styles.compactSummaryValue}>{draftTreeNodes.length > 0 ? `${draftValidation.counts.module} modules staged` : "No active draft"}</div>
+                      <div style={styles.compactSummaryLabel}>Design</div>
+                      <div style={styles.compactSummaryValue}>{draftTreeNodes.length > 0 ? `${draftValidation.counts.module} modules staged` : "No active design"}</div>
                     </div>
                     <div style={styles.compactSummaryItem}>
                       <div style={styles.compactSummaryLabel}>Selection</div>
@@ -3271,7 +3689,7 @@ export function PlannerPage() {
                       <div>
                         <div style={styles.draftCanvasTitle}>Staged Plan Tree</div>
                         <div style={styles.helper}>
-                          Select a node, then refine it in natural language. The composer below will use the selected draft node as planning context.
+                          Select a node, then refine it in natural language. The composer below will use the selected design node as planning context.
                         </div>
                       </div>
                       <div style={styles.chipRow}>
@@ -3281,11 +3699,11 @@ export function PlannerPage() {
                     </div>
                     <div style={styles.readinessBanner}>
                       <div>
-                        <div style={styles.label}>Commit Readiness</div>
+                        <div style={styles.label}>Apply Readiness</div>
                         <div style={styles.readinessMeta}>
                           {draftValidation.issues.filter((issue) => issue.tone === "warn").length === 0
-                            ? "This draft is structurally solid enough to commit."
-                            : "There are still weak spots in the staged tree. Fix them before commit if you want a cleaner catalog."}
+                            ? "This design is structurally solid enough to apply."
+                            : "There are still weak spots in the staged tree. Fix them before applying if you want a cleaner catalog."}
                         </div>
                       </div>
                       <div style={styles.readinessScore}>{draftValidation.score}</div>
@@ -3335,7 +3753,7 @@ export function PlannerPage() {
                       </div>
                     ) : (
                       <div style={styles.emptyState}>
-                        No staged draft yet. Ask the planner to design a product, module tree, capabilities, or work items, then switch back here to inspect and refine the draft.
+                        No staged design yet. Ask the planner to design modules, capabilities, or work items for the selected product, then switch back here to inspect and refine it.
                       </div>
                     )}
                   </div>
@@ -3363,6 +3781,7 @@ export function PlannerPage() {
                     composerRef={composerRef}
                     scopeChips={composerScopeChips}
                     scopeHint={composerScopeHint}
+                    isProductSelected={Boolean(selectedProductId)}
                   />
                 </div>
 
@@ -3518,15 +3937,15 @@ export function PlannerPage() {
                       </>
                     ) : (
                       <div style={styles.helper}>
-                        Select a node in the tree to anchor follow-up planning turns to that part of the draft.
+                        Select a node in the tree to anchor follow-up planning turns to that part of the design.
                       </div>
                     )}
                   </div>
 
                   <div style={styles.sideCard}>
-                    <div style={styles.label}>Draft Validation</div>
+                    <div style={styles.label}>Design Validation</div>
                     <div style={styles.helper}>
-                      Structural checks for the staged tree before you commit it into the real catalog.
+                      Structural checks for the staged tree before you apply it into the real catalog.
                     </div>
                     <div style={styles.issueList}>
                       {draftValidation.issues.slice(0, 6).map((issue, index) => {
@@ -3544,25 +3963,35 @@ export function PlannerPage() {
                   </div>
 
                   <div style={styles.sideCard}>
-                    <div style={styles.label}>Draft Controls</div>
+                    <div style={styles.label}>Design Review Packet</div>
                     <div style={styles.helper}>
-                      Keep the tree staged until the structure looks right. Commit only when you want to persist it to products, modules, capabilities, and work items.
+                      Generate a reviewable HTML packet with architecture diagrams, feature changes, risks, work breakdown, and the approval-ready change set before applying anything.
                     </div>
                     <div style={styles.inlineButtonRow}>
+                      <button style={styles.btnGhost} onClick={() => void exportDesignReviewPacket()} disabled={isExportingDesignPacket}>
+                        {isExportingDesignPacket ? "Generating..." : "Generate Packet"}
+                      </button>
+                      {designPacketPath ? (
+                        <button style={styles.btnGhost} onClick={() => void revealInFinder(designPacketPath)}>
+                          Reveal Packet
+                        </button>
+                      ) : null}
                       <button data-testid="draft-commit" style={styles.btn} onClick={confirmPendingPlan} disabled={draftTreeNodes.length === 0 || isPlannerBusy}>
-                        Commit Draft
+                        Apply Design
                       </button>
                       <button style={styles.btnGhost} onClick={() => setPlannerView("conversation")}>
                         Back to Chat
                       </button>
                       <button style={styles.btnDanger} onClick={dismissPendingPlan} disabled={draftTreeNodes.length === 0}>
-                        Clear Draft
+                        Clear Design
                       </button>
                     </div>
+                    {designPacketPath ? <div style={{ ...styles.success, marginTop: 10 }}>Packet exported to {designPacketPath}</div> : null}
+                    {designPacketError ? <div style={{ ...styles.error, marginTop: 10 }}>{designPacketError}</div> : null}
                   </div>
 
                   <div style={styles.sideCard}>
-                    <div style={styles.label}>Latest Draft Ops</div>
+                    <div style={styles.label}>Latest Design Ops</div>
                     {latestDraftPlan ? (
                       <>
                         <div style={styles.helper}>{latestDraftPlan.assistant_response}</div>
@@ -3694,6 +4123,7 @@ export function PlannerPage() {
                 composerRef={composerRef}
                 scopeChips={composerScopeChips}
                 scopeHint={composerScopeHint}
+                isProductSelected={Boolean(selectedProductId)}
               />
             ) : null}
           </div>
@@ -3752,11 +4182,16 @@ export function PlannerPage() {
               <button
                 style={styles.btn}
                 onClick={() => void analyzeSelectedRepository()}
-                disabled={!selectedRepositoryId || isPlannerBusy || !providerId || !modelName}
+                disabled={!selectedRepositoryId || !selectedProductId || isPlannerBusy || !providerId || !modelName}
               >
-                Analyze Repo Into Draft
+                Analyze Repo Into Design
               </button>
             </div>
+            {!selectedProductId ? (
+              <div style={{ ...styles.helper, marginTop: 10 }}>
+                Select a product in the Planner toolbar before analyzing a repository.
+              </div>
+            ) : null}
             {!providerId || !modelName ? (
               <div style={{ ...styles.helper, marginTop: 10 }}>
                 Configure a planner model first. Repository reverse engineering depends on the selected LLM.

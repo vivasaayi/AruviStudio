@@ -7,6 +7,7 @@ import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
 import { useEditorStore } from "../../../state/editorStore";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import {
+  attachRepository,
   applyRepositoryPatch,
   browseForRepositoryPath,
   createLocalWorkspace,
@@ -44,46 +45,48 @@ interface CopilotPatchProposal {
 
 const styles: Record<string, React.CSSProperties> = {
   page: { display: "flex", flexDirection: "column", height: "100%", margin: -12 },
-  header: { padding: "10px 12px 8px", borderBottom: "1px solid #2d3138" },
-  title: { margin: 0, fontSize: 20, fontWeight: 750, color: "#f1f3f7" },
-  subtitle: { marginTop: 4, fontSize: 12, color: "#8f96a3" },
+  header: { padding: "10px 12px 12px", borderBottom: "1px solid #d9e0ea", backgroundColor: "#f8fafc" },
+  headerTop: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 10 },
+  title: { margin: 0, fontSize: 20, fontWeight: 750, color: "#111827" },
+  subtitle: { marginTop: 4, fontSize: 12, color: "#6b7280" },
+  productPicker: { minWidth: 280, display: "flex", flexDirection: "column", gap: 4 },
   workspace: { flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "280px 1fr 360px", gap: 10, padding: 10 },
-  panel: { border: "1px solid #2f343d", borderRadius: 12, backgroundColor: "#1f2329", minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" },
-  panelHeader: { padding: "10px 12px", borderBottom: "1px solid #2b3038", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  panelTitle: { fontSize: 12, fontWeight: 800, textTransform: "uppercase" as const, letterSpacing: 1, color: "#a7afbf" },
+  panel: { border: "1px solid #d9e0ea", borderRadius: 12, backgroundColor: "#ffffff", minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" },
+  panelHeader: { padding: "10px 12px", borderBottom: "1px solid #d9e0ea", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  panelTitle: { fontSize: 12, fontWeight: 800, textTransform: "uppercase" as const, letterSpacing: 1, color: "#6b7280" },
   controlRow: { display: "flex", gap: 8, alignItems: "center" },
-  select: { width: "100%", padding: "8px 10px", backgroundColor: "#121620", border: "1px solid #3a404a", color: "#edf1f8", borderRadius: 8, fontSize: 13 },
-  input: { width: "100%", padding: "8px 10px", backgroundColor: "#121620", border: "1px solid #3a404a", color: "#edf1f8", borderRadius: 8, fontSize: 13, boxSizing: "border-box" as const },
-  button: { border: "none", backgroundColor: "#0e639c", color: "#ffffff", borderRadius: 8, padding: "7px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
-  buttonGhost: { border: "1px solid #434a55", backgroundColor: "#2c3139", color: "#e5e7eb", borderRadius: 8, padding: "7px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
+  select: { width: "100%", padding: "8px 10px", backgroundColor: "#ffffff", border: "1px solid #cfd8e3", color: "#111827", borderRadius: 8, fontSize: 13 },
+  input: { width: "100%", padding: "8px 10px", backgroundColor: "#ffffff", border: "1px solid #cfd8e3", color: "#111827", borderRadius: 8, fontSize: 13, boxSizing: "border-box" as const },
+  button: { border: "none", backgroundColor: "#2563eb", color: "#ffffff", borderRadius: 8, padding: "7px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
+  buttonGhost: { border: "1px solid #cfd8e3", backgroundColor: "#f8fafc", color: "#111827", borderRadius: 8, padding: "7px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
   leftBody: { padding: 10, overflowY: "auto" as const, display: "flex", flexDirection: "column", gap: 8, minHeight: 0 },
-  treeNode: { border: "1px solid transparent", borderRadius: 8, padding: "6px 8px", cursor: "pointer", backgroundColor: "#1c2027", color: "#d2d7e0", fontSize: 12 },
-  treeNodeActive: { border: "1px solid #0e639c", borderRadius: 8, padding: "6px 8px", cursor: "pointer", backgroundColor: "#1f2a35", color: "#ffffff", fontSize: 12 },
+  treeNode: { border: "1px solid transparent", borderRadius: 8, padding: "6px 8px", cursor: "pointer", backgroundColor: "#ffffff", color: "#1f2937", fontSize: 12 },
+  treeNodeActive: { border: "1px solid #2563eb", borderRadius: 8, padding: "6px 8px", cursor: "pointer", backgroundColor: "#eff6ff", color: "#111827", fontSize: 12 },
   treeDirRow: { display: "flex", alignItems: "center", gap: 6, fontWeight: 700 },
   treeFileRow: { display: "flex", alignItems: "center", gap: 6 },
-  treeMeta: { fontSize: 10, color: "#8f96a3", marginTop: 2 },
-  treeChildren: { marginLeft: 14, marginTop: 6, display: "flex", flexDirection: "column", gap: 6, borderLeft: "1px solid #2a2f37", paddingLeft: 8 },
+  treeMeta: { fontSize: 10, color: "#6b7280", marginTop: 2 },
+  treeChildren: { marginLeft: 14, marginTop: 6, display: "flex", flexDirection: "column", gap: 6, borderLeft: "1px solid #d9e0ea", paddingLeft: 8 },
   editorPanel: { display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" },
-  editorHeader: { padding: "8px 12px", borderBottom: "1px solid #2b3038", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, backgroundColor: "#20252d" },
-  editorPath: { fontSize: 12, color: "#b9c0cf", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
-  editorBody: { flex: 1, minHeight: 0, backgroundColor: "#1e1e1e" },
-  placeholder: { height: "100%", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", color: "#7f8796", fontSize: 13, gap: 6 },
-  label: { fontSize: 11, color: "#99a1b1", fontWeight: 600 },
-  section: { padding: "10px 12px", borderBottom: "1px solid #2b3038", display: "flex", flexDirection: "column", gap: 8 },
-  chatBody: { flex: 1, minHeight: 0, overflowY: "auto" as const, padding: 10, display: "flex", flexDirection: "column", gap: 8, backgroundColor: "#1d2128" },
-  bubbleUser: { alignSelf: "flex-end", maxWidth: "85%", backgroundColor: "#0e639c", color: "#fff", borderRadius: 10, padding: "8px 10px", whiteSpace: "pre-wrap" as const, fontSize: 13 },
-  bubbleAssistant: { alignSelf: "flex-start", maxWidth: "88%", backgroundColor: "#2b313b", color: "#edf1f8", borderRadius: 10, padding: "8px 10px", whiteSpace: "pre-wrap" as const, fontSize: 13 },
-  chatComposer: { borderTop: "1px solid #2b3038", padding: 10, display: "flex", flexDirection: "column", gap: 8 },
-  textarea: { width: "100%", minHeight: 90, padding: "9px 10px", backgroundColor: "#121620", border: "1px solid #3a404a", color: "#edf1f8", borderRadius: 8, resize: "vertical" as const, fontSize: 13, boxSizing: "border-box" as const },
-  status: { fontSize: 11, color: "#9ea6b6" },
-  error: { fontSize: 12, color: "#ff7b72" },
+  editorHeader: { padding: "8px 12px", borderBottom: "1px solid #d9e0ea", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, backgroundColor: "#f8fafc" },
+  editorPath: { fontSize: 12, color: "#4b5563", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
+  editorBody: { flex: 1, minHeight: 0, backgroundColor: "#ffffff" },
+  placeholder: { height: "100%", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", color: "#6b7280", fontSize: 13, gap: 6 },
+  label: { fontSize: 11, color: "#6b7280", fontWeight: 700 },
+  section: { padding: "10px 12px", borderBottom: "1px solid #d9e0ea", display: "flex", flexDirection: "column", gap: 8 },
+  chatBody: { flex: 1, minHeight: 0, overflowY: "auto" as const, padding: 10, display: "flex", flexDirection: "column", gap: 8, backgroundColor: "#f8fafc" },
+  bubbleUser: { alignSelf: "flex-end", maxWidth: "85%", backgroundColor: "#2563eb", color: "#fff", borderRadius: 10, padding: "8px 10px", whiteSpace: "pre-wrap" as const, fontSize: 13 },
+  bubbleAssistant: { alignSelf: "flex-start", maxWidth: "88%", backgroundColor: "#ffffff", color: "#111827", border: "1px solid #d9e0ea", borderRadius: 10, padding: "8px 10px", whiteSpace: "pre-wrap" as const, fontSize: 13 },
+  chatComposer: { borderTop: "1px solid #d9e0ea", padding: 10, display: "flex", flexDirection: "column", gap: 8 },
+  textarea: { width: "100%", minHeight: 90, padding: "9px 10px", backgroundColor: "#ffffff", border: "1px solid #cfd8e3", color: "#111827", borderRadius: 8, resize: "vertical" as const, fontSize: 13, boxSizing: "border-box" as const },
+  status: { fontSize: 11, color: "#6b7280" },
+  error: { fontSize: 12, color: "#dc2626" },
   segmented: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 },
-  modeButton: { border: "1px solid #3f4550", backgroundColor: "#272c34", color: "#d7dbe3", borderRadius: 8, padding: "6px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
-  modeButtonActive: { border: "1px solid #0e639c", backgroundColor: "#18456a", color: "#ffffff", borderRadius: 8, padding: "6px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
-  patchPanel: { border: "1px solid #39404a", borderRadius: 8, padding: 8, backgroundColor: "#20252d", display: "flex", flexDirection: "column", gap: 6 },
-  patchPath: { fontSize: 12, fontWeight: 700, color: "#eef1f6" },
-  patchMeta: { fontSize: 11, color: "#9aa3b4" },
-  patchSnippet: { fontSize: 11, fontFamily: "JetBrains Mono, Menlo, Monaco, monospace", backgroundColor: "#171b22", border: "1px solid #2f3540", borderRadius: 6, padding: 6, whiteSpace: "pre-wrap" as const, maxHeight: 110, overflow: "auto" as const },
+  modeButton: { border: "1px solid #cfd8e3", backgroundColor: "#f8fafc", color: "#374151", borderRadius: 8, padding: "6px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
+  modeButtonActive: { border: "1px solid #2563eb", backgroundColor: "#dbeafe", color: "#111827", borderRadius: 8, padding: "6px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
+  patchPanel: { border: "1px solid #d9e0ea", borderRadius: 8, padding: 8, backgroundColor: "#f8fafc", display: "flex", flexDirection: "column", gap: 6 },
+  patchPath: { fontSize: 12, fontWeight: 700, color: "#111827" },
+  patchMeta: { fontSize: 11, color: "#6b7280" },
+  patchSnippet: { fontSize: 11, fontFamily: "JetBrains Mono, Menlo, Monaco, monospace", backgroundColor: "#f3f4f6", color: "#111827", border: "1px solid #d1d5db", borderRadius: 6, padding: 6, whiteSpace: "pre-wrap" as const, maxHeight: 110, overflow: "auto" as const },
 };
 
 export function IDEPage() {
@@ -102,13 +105,11 @@ export function IDEPage() {
     activeModuleId,
     activeCapabilityId,
     activeWorkItemId,
-    activeRepoId,
     setActiveProduct,
     setActiveRepo,
   } = useWorkspaceStore();
-  const activeFile = openFiles.find((entry) => entry.id === activeFileId) ?? null;
 
-  const [selectedRepoId, setSelectedRepoId] = useState<string>(activeRepoId ?? "");
+  const [selectedRepoId, setSelectedRepoId] = useState<string>("");
   const [treeFilter, setTreeFilter] = useState("");
   const deferredTreeFilter = React.useDeferredValue(treeFilter);
   const [expandedDirs, setExpandedDirs] = useState<Record<string, boolean>>({});
@@ -139,15 +140,15 @@ export function IDEPage() {
   const { data: products = [], isLoading: productsLoading } = useQuery({ queryKey: ["products"], queryFn: listProducts });
   const selectedProductId = products.some((product) => product.id === activeProductId)
     ? activeProductId
-    : (products[0]?.id ?? null);
+    : null;
   useEffect(() => {
-    if (productsLoading) {
+    if (productsLoading || activeProductId) {
       return;
     }
-    if (activeProductId !== selectedProductId) {
-      setActiveProduct(selectedProductId);
+    if (products[0]) {
+      setActiveProduct(products[0].id);
     }
-  }, [activeProductId, productsLoading, selectedProductId, setActiveProduct]);
+  }, [activeProductId, products, productsLoading, setActiveProduct]);
   const { data: activeProductTree } = useQuery({
     queryKey: ["ideProductTree", selectedProductId],
     queryFn: () => getProductTree(selectedProductId!),
@@ -176,32 +177,20 @@ export function IDEPage() {
   });
 
   useEffect(() => {
-    if (!repositories.length) {
-      if (selectedRepoId) {
-        setSelectedRepoId("");
-      }
-      return;
-    }
-    const hasCurrent = repositories.some((repo) => repo.id === selectedRepoId);
-    if (!hasCurrent) {
-      const nextId = repositories.some((repo) => repo.id === activeRepoId)
-        ? (activeRepoId as string)
-        : repositories[0].id;
-      React.startTransition(() => {
-        setSelectedRepoId(nextId);
-        setActiveRepo(nextId);
-      });
-    }
-  }, [activeRepoId, repositories, selectedRepoId, setActiveRepo]);
-
-  useEffect(() => {
     const preferredRepoId =
       workItemResolvedRepo?.id ??
       scopeResolvedRepo?.id ??
-      activeRepoId ??
       null;
 
-    if (!preferredRepoId) {
+    if (!preferredRepoId || !selectedProductId) {
+      if (selectedRepoId) {
+        React.startTransition(() => {
+          setSelectedRepoId("");
+          setActiveRepo(null);
+          setExpandedDirs({});
+          setFileError(null);
+        });
+      }
       return;
     }
 
@@ -216,7 +205,7 @@ export function IDEPage() {
       setExpandedDirs({});
       setFileError(null);
     });
-  }, [activeRepoId, repositories, scopeResolvedRepo?.id, selectedRepoId, setActiveRepo, workItemResolvedRepo?.id]);
+  }, [repositories, scopeResolvedRepo?.id, selectedProductId, selectedRepoId, setActiveRepo, workItemResolvedRepo?.id]);
 
   useEffect(() => {
     if (!copilotProviderId && providers.length > 0) {
@@ -237,8 +226,10 @@ export function IDEPage() {
 
   const filteredTree = filterTreeNodes(repositoryTree, deferredTreeFilter);
   const selectedRepository = repositories.find((repo) => repo.id === selectedRepoId) ?? null;
-  const activeFileRepositoryId = activeFile?.id.split(":")[0] ?? null;
-  const activeProduct = products.find((product) => product.id === activeProductId) ?? null;
+  const rawActiveFile = openFiles.find((entry) => entry.id === activeFileId) ?? null;
+  const activeFileRepositoryId = rawActiveFile?.id.split(":")[0] ?? null;
+  const activeFile = activeFileRepositoryId === selectedRepoId ? rawActiveFile : null;
+  const activeProduct = products.find((product) => product.id === selectedProductId) ?? null;
   const activeModule = activeProductTree?.modules.find((moduleTree) => moduleTree.module.id === activeModuleId)?.module ?? null;
   const activeCapability = React.useMemo(() => {
     if (!activeCapabilityId || !activeProductTree) {
@@ -261,6 +252,19 @@ export function IDEPage() {
     setActiveRepo(repositoryId || null);
     setExpandedDirs({});
     setFileError(null);
+  };
+
+  const handleSelectProduct = (productId: string) => {
+    setActiveProduct(productId || null);
+    setSelectedRepoId("");
+    setActiveRepo(null);
+    setExpandedDirs({});
+    setTreeFilter("");
+    setFileError(null);
+    setCopilotMessages([]);
+    setPatchProposal(null);
+    setCopilotError(null);
+    copilotSessionIdRef.current = crypto.randomUUID();
   };
 
   const toggleDirectory = (relativePath: string) => {
@@ -318,6 +322,10 @@ export function IDEPage() {
 
   const openFolder = async () => {
     setFileError(null);
+    if (!selectedProductId) {
+      setFileError("Select a product before attaching a workspace.");
+      return;
+    }
     try {
       const selectedPath = await browseForRepositoryPath();
       if (!selectedPath) {
@@ -325,6 +333,13 @@ export function IDEPage() {
       }
       const existing = repositories.find((repo) => normalizePath(repo.local_path) === normalizePath(selectedPath));
       if (existing) {
+        await attachRepository({
+          scopeType: "product",
+          scopeId: selectedProductId,
+          repositoryId: existing.id,
+          isDefault: true,
+        });
+        await queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] });
         handleSelectRepository(existing.id);
         return;
       }
@@ -334,7 +349,14 @@ export function IDEPage() {
         remoteUrl: "",
         defaultBranch: "main",
       });
+      await attachRepository({
+        scopeType: "product",
+        scopeId: selectedProductId,
+        repositoryId: created.id,
+        isDefault: true,
+      });
       await queryClient.invalidateQueries({ queryKey: ["repositories"] });
+      await queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] });
       handleSelectRepository(created.id);
     } catch (error) {
       setFileError(String(error));
@@ -343,9 +365,13 @@ export function IDEPage() {
 
   const createWorkspace = async () => {
     setFileError(null);
+    if (!selectedProductId) {
+      setFileError("Select a product before creating a workspace.");
+      return;
+    }
     try {
       const provisioned = await createLocalWorkspace({
-        productId: activeProductId,
+        productId: selectedProductId,
         moduleId: activeModuleId,
         workItemId: activeWorkItemId,
       });
@@ -561,12 +587,31 @@ Rules:
   return (
     <div style={styles.page}>
       <div style={styles.header}>
-        <h1 style={styles.title}>IDE Workspace</h1>
-        <div style={styles.subtitle}>
-          Lightweight workspace browser + code editor + Aruvi Copilot, backed by the same model stack used in automation.
+        <div style={styles.headerTop}>
+          <div>
+            <h1 style={styles.title}>IDE Workspace</h1>
+            <div style={styles.subtitle}>
+              Product-scoped workspace browser, code editor, and Aruvi Copilot.
+            </div>
+          </div>
+          <div style={styles.productPicker}>
+            <label style={styles.label}>Product</label>
+            <select
+              style={styles.select}
+              value={selectedProductId ?? ""}
+              onChange={(event) => handleSelectProduct(event.target.value)}
+            >
+              <option value="">Select product</option>
+              {products.map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
         <ScopeBreadcrumb
-          label="Current Scope"
+          label="Product Scope"
           productName={activeProduct?.name}
           moduleName={activeModule?.name}
           capabilityName={activeCapability?.name}
@@ -589,32 +634,27 @@ Rules:
                   Reveal in Finder
                 </button>
               )}
-              <button style={styles.button} onClick={() => void openFolder()}>
-                Open Folder
+              <button style={styles.button} onClick={() => void openFolder()} disabled={!selectedProductId}>
+                Attach Folder
               </button>
             </div>
           </div>
           <div style={styles.leftBody}>
-            <select style={styles.select} value={selectedRepoId} onChange={(event) => handleSelectRepository(event.target.value)}>
-              <option value="">Select workspace</option>
-              {repositories.map((repository) => (
-                <option key={repository.id} value={repository.id}>
-                  {repository.name}
-                </option>
-              ))}
-            </select>
             <input
               style={styles.input}
               value={treeFilter}
               onChange={(event) => setTreeFilter(event.target.value)}
               placeholder="Filter files..."
+              disabled={!selectedRepository}
             />
-            {!selectedRepository ? (
+            {!selectedProductId ? (
+              <div style={styles.status}>Select a product before opening an IDE workspace.</div>
+            ) : !selectedRepository ? (
               <>
                 <div style={styles.status}>
                   {workItemResolvedRepo || scopeResolvedRepo
-                    ? "Resolving workspace for the current scope..."
-                    : "No workspace is attached to the current scope yet. Create one here, or open an existing folder."}
+                    ? "Resolving workspace for the selected product..."
+                    : "No workspace is attached to this product yet. Create one here, or attach an existing folder."}
                 </div>
                 {!workItemResolvedRepo && !scopeResolvedRepo ? (
                   <button style={{ ...styles.button, alignSelf: "flex-start" }} onClick={() => void createWorkspace()}>
@@ -623,12 +663,16 @@ Rules:
                 ) : null}
               </>
             ) : (
-              <div style={styles.status}>{selectedRepository.local_path}</div>
+              <div style={styles.status}>
+                <strong>{selectedRepository.name}</strong>
+                <br />
+                {selectedRepository.local_path}
+              </div>
             )}
-            {isTreeRefreshing && <div style={styles.status}>Refreshing file tree...</div>}
-            {filteredTree.length === 0 ? (
-              <div style={styles.status}>No files to display for the current filter.</div>
-            ) : (
+            {selectedRepository && isTreeRefreshing && <div style={styles.status}>Refreshing file tree...</div>}
+            {selectedRepository && filteredTree.length === 0 ? (
+              <div style={styles.status}>No files match the current filter.</div>
+            ) : selectedRepository ? (
               filteredTree.map((node) => (
                 <TreeNode
                   key={node.relative_path}
@@ -639,6 +683,8 @@ Rules:
                   onOpenFile={(relativePath) => void openRepositoryFile(relativePath)}
                 />
               ))
+            ) : (
+              null
             )}
             {fileError && <div style={styles.error}>{fileError}</div>}
           </div>

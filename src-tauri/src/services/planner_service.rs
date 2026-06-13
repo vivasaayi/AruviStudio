@@ -1,4 +1,4 @@
-use crate::domain::product::{ChildReparentStrategy, HierarchyNodeKind, SemanticTemplateKind};
+use crate::domain::product::{ChildReparentStrategy, HierarchyNodeKind, Product, SemanticTemplateKind};
 use crate::domain::repository::{Repository, RepositoryTreeNode};
 use crate::error::AppError;
 use crate::persistence::{
@@ -387,13 +387,13 @@ async fn append_conversation(
 fn planner_system_prompt() -> String {
     let base_prompt = r#"You are an AI planning lead for a product-management desktop app.
 You can inspect the workspace with tools before proposing changes.
-You are editing a draft planning tree, not writing directly to the persisted database.
+You are editing a staged design tree, not writing directly to the persisted database.
 Return exactly one JSON object each turn.
 
 If you need more context, return:
 {
   "type": "tool_call",
-  "tool": "list_products|get_product_tree|list_work_items",
+  "tool": "get_product_tree|list_work_items",
   "arguments": {},
   "reason": "brief reason"
 }
@@ -409,16 +409,16 @@ When you are done, return:
 
 Rules:
 - Output valid JSON only. No markdown.
-- Behave conversationally. First reason about what already exists in the supplied context, then suggest what should be added, changed, or removed from the draft.
+- Behave conversationally. First reason about what already exists in the supplied context, then suggest what should be added, changed, or removed from the staged design.
 - If the user is exploring or describing a need, prefer proposing actions rather than assuming immediate execution.
 - If the user asks for a detailed plan, architecture, modules, capabilities, or work items, prefer returning a single comprehensive proposal with all relevant create_* actions in one response instead of asking to create only the top-level product first.
 - If an entity already seems to exist, do not suggest creating a duplicate unless the user explicitly asks for a separate one.
-- For draft edits, set needs_confirmation=false. Confirmation is only for committing the whole draft later.
+- For design edits, set needs_confirmation=false. Confirmation is only for applying the approved design later.
 - Only use needs_confirmation=true if you are asking for final persistence or another risky action.
 - If the request is ambiguous, set actions=[] and put the missing detail in clarification_question.
 - Use tools when the request depends on current repo state or structure instead of guessing from the prompt alone.
 - If a tool reports that a proposed entity does not exist yet, treat that as expected for proposal refinement and continue planning against the pending proposal instead of failing.
-- Do not call mutation tools. Draft edits go in final.actions.
+- Do not call mutation tools. Staged design edits go in final.actions.
 - After receiving tool results, continue reasoning and either call another tool or return type=final.
 - Prefer semantic root sections instead of shallow modules. Root sections should use module nodeKind values area, domain, or system.
 - Capability nodes should use semantic node kinds intentionally: feature_set or capability for structure, reference for explanation-only leaves, rollout for execution leaves.
@@ -426,17 +426,18 @@ Rules:
 - For book-grade technical authoring, prefer long-form fields:
   explanation, examples, implementationNotes, testGuidance.
 - Use apply_capability_template when the user wants a chapter scaffold such as definition/examples/implementation/tests.
-- Use convert_capability_kind when an existing draft node should change between rollout, reference, capability, or feature_set. If the target kind is a leaf and the node already has structural children, set childStrategy to reparent_to_parent.
+- Use convert_capability_kind when an existing staged design node should change between rollout, reference, capability, or feature_set. If the target kind is a leaf and the node already has structural children, set childStrategy to reparent_to_parent.
 - Use these action types only:
-create_product, update_product, archive_product,
+update_product,
 create_module, update_module, delete_module,
 create_capability, update_capability, delete_capability,
 apply_capability_template, convert_capability_kind,
 create_work_item, update_work_item, delete_work_item,
 approve_work_item, reject_work_item, approve_work_item_plan, reject_work_item_plan, approve_work_item_test_review,
 start_workflow, workflow_action, report_status, report_tree.
+- Use the selected product as the root. Do not create or archive products from Planner; users create products in the Products page first.
 - Use product/module/capability/work item names in target fields, never IDs.
-- assistant_response should sound like a planning lead: mention what already exists, what changed in the draft, and what should be refined next.
+- assistant_response should sound like a planning lead: mention what already exists, what changed in the staged design, and what should be refined next.
 - Use selected node context if supplied."#;
 
     format!(
@@ -449,8 +450,8 @@ fn repository_analysis_prompt() -> &'static str {
     r#"You are an AI planning lead reverse-engineering a software repository into a staged product plan.
 Return exactly one JSON object of type "final". No markdown.
 
-Your task is to inspect the provided structured repository analysis snapshot and convert it into a draft planning tree using these action types only:
-create_product, update_product,
+Your task is to inspect the provided structured repository analysis snapshot and convert it into the selected product's staged design tree using these action types only:
+update_product,
 create_module, update_module,
 create_capability, update_capability,
 create_work_item, update_work_item,
@@ -458,8 +459,8 @@ report_tree.
 
 Rules:
 - Base the structure on the provided evidence, not wishful features.
-- If there is no current draft root, create one product.
-- If a selected draft node is provided, merge into that context instead of creating a duplicate root.
+- The selected product is already created. Do not create another product.
+- If a selected design node is provided, merge into that context instead of creating a duplicate branch.
 - Prefer a semantic structure:
   - 1 product root
   - 2-6 root sections using module nodeKind values area, domain, or system when the evidence supports them
@@ -467,8 +468,8 @@ Rules:
   - 1-3 starter work items per concrete rollout or directly executable capability where implementation work is visible or obviously missing
 - Use reference for explanatory leaves, rollout for execution leaves, and keep rollout/reference as structural leaves.
 - When a topic deserves book-grade depth, add explanation, examples, implementationNotes, and testGuidance fields instead of stopping at shallow summaries.
-- Use create_* when adding inferred structure to the draft.
-- Use update_* when refining an already selected/root draft node from repository evidence.
+- Use create_* when adding inferred structure to the staged design.
+- Use update_* when refining an already selected/root design node from repository evidence.
 - Keep names concise and product-manager friendly.
 - Mention assumptions briefly in assistant_response.
 - Prioritize explicit signals from docs, manifests, routes, tests, and candidate areas.
@@ -1435,11 +1436,6 @@ async fn record_planner_model_call(
     Ok(())
 }
 
-async fn list_products_tool(db: &SqlitePool) -> Result<Value, AppError> {
-    let products = product_repo::list_products(db).await?;
-    Ok(serde_json::to_value(products)?)
-}
-
 async fn get_product_tree_tool(
     db: &SqlitePool,
     product_name: Option<&str>,
@@ -1465,6 +1461,80 @@ async fn list_work_items_tool(
     Ok(serde_json::to_value(work_items)?)
 }
 
+fn seed_draft_with_product(
+    draft_plan: Option<PlannerDraftPlan>,
+    product: &Product,
+) -> PlannerDraftPlan {
+    let mut draft_plan = draft_plan.unwrap_or(PlannerDraftPlan { nodes: vec![] });
+    let has_matching_product_root = draft_plan
+        .nodes
+        .iter()
+        .any(|node| {
+            node.node_type == "product"
+                && node.parent_id.is_none()
+                && (node.id == product.id
+                    || normalize(Some(node.name.as_str())) == normalize(Some(product.name.as_str())))
+        });
+    if has_matching_product_root {
+        return draft_plan;
+    }
+    if draft_plan
+        .nodes
+        .iter()
+        .any(|node| node.node_type == "product" && node.parent_id.is_none())
+    {
+        draft_plan.nodes.clear();
+    }
+    draft_plan.nodes.push(PlannerDraftNode {
+        id: product.id.clone(),
+        parent_id: None,
+        node_type: "product".to_string(),
+        name: product.name.clone(),
+        summary: Some(if product.description.trim().is_empty() {
+            product.vision.clone()
+        } else {
+            product.description.clone()
+        }),
+        details: json!({
+            "type": "update_product",
+            "name": product.name.clone(),
+            "description": product.description.clone(),
+            "vision": product.vision.clone(),
+            "goals": product.goals.clone(),
+            "tags": product.tags.clone(),
+            "target": {
+                "productName": product.name.clone(),
+            },
+        }),
+    });
+    draft_plan
+}
+
+fn scope_plan_to_selected_product(plan: &mut PlannerPlan, product: &Product) {
+    plan.actions.retain(|action| {
+        !matches!(
+            action.get("type").and_then(Value::as_str),
+            Some("create_product" | "archive_product")
+        )
+    });
+    for action in &mut plan.actions {
+        let Some(action_object) = action.as_object_mut() else {
+            continue;
+        };
+        let target = action_object
+            .entry("target")
+            .or_insert_with(|| json!({ "productName": product.name.clone() }));
+        if !target.is_object() {
+            *target = json!({});
+        }
+        if let Some(target_object) = target.as_object_mut() {
+            target_object
+                .entry("productName".to_string())
+                .or_insert_with(|| Value::String(product.name.clone()));
+        }
+    }
+}
+
 async fn run_tool_loop(
     db: &SqlitePool,
     artifact_base_path: &Path,
@@ -1475,6 +1545,7 @@ async fn run_tool_loop(
     pending_plan: Option<&PlannerPlan>,
     draft_plan: Option<&PlannerDraftPlan>,
     selected_draft_node_id: Option<&str>,
+    selected_product: Option<&Product>,
     user_input: &str,
     trace: &mut Vec<PlannerTraceEvent>,
 ) -> Result<PlannerPlan, AppError> {
@@ -1495,12 +1566,16 @@ async fn run_tool_loop(
         .join("\n");
 
     let user_context = format!(
-        "Recent conversation:\n{}\n\nCurrent pending proposal:\n{}\n\nCurrent draft tree:\n{}\n\nSelected draft node:\n{}\n\nLatest user request:\n{}",
+        "Recent conversation:\n{}\n\nSelected product:\n{}\n\nCurrent pending proposal:\n{}\n\nCurrent staged design tree:\n{}\n\nSelected design node:\n{}\n\nLatest user request:\n{}",
         if history.is_empty() {
             "No prior conversation."
         } else {
             &history
         },
+        selected_product
+            .map(serde_json::to_string_pretty)
+            .transpose()?
+            .unwrap_or_else(|| "No product selected. Ask the user to select or create a product before planning.".to_string()),
         pending_plan
             .map(|plan| serde_json::to_string_pretty(plan))
             .transpose()?
@@ -1508,12 +1583,12 @@ async fn run_tool_loop(
         draft_plan
             .map(|plan| serde_json::to_string_pretty(plan))
             .transpose()?
-            .unwrap_or_else(|| "No draft yet.".to_string()),
+            .unwrap_or_else(|| "No staged design yet.".to_string()),
         selected_draft_node_id
             .and_then(|node_id| draft_plan.and_then(|draft| draft.nodes.iter().find(|node| node.id == node_id)))
             .map(serde_json::to_string_pretty)
             .transpose()?
-            .unwrap_or_else(|| "No draft node selected.".to_string()),
+            .unwrap_or_else(|| "No design node selected.".to_string()),
         user_input
     );
     push_trace(
@@ -1543,7 +1618,7 @@ async fn run_tool_loop(
                 source_id: Some(session_id),
                 source_label: "Desktop Planner",
                 session_id: Some(session_id),
-                product_id: None,
+                product_id: selected_product.map(|product| product.id.as_str()),
             },
         )
         .await?;
@@ -1563,7 +1638,6 @@ async fn run_tool_loop(
                 );
                 let args = tool_call.arguments.clone().unwrap_or_else(|| json!({}));
                 let tool_result = match tool_call.tool.as_str() {
-                    "list_products" => list_products_tool(db).await,
                     "get_product_tree" => {
                         get_product_tree_tool(db, args.get("productName").and_then(Value::as_str))
                             .await
@@ -2092,7 +2166,7 @@ fn draft_node_meta(draft_plan: &PlannerDraftPlan, node: &PlannerDraftNode) -> St
         "module" => "draft module",
         "capability" => "draft capability",
         "work_item" => "draft work item",
-        _ => "draft node",
+        _ => "design node",
     }
     .to_string();
     if matches!(node.node_type.as_str(), "module" | "capability") {
@@ -2925,7 +2999,7 @@ fn add_draft_child_node(
         .iter()
         .find(|node| node.id == parent_node_id)
         .cloned()
-        .ok_or_else(|| AppError::Validation("Parent draft node was not found".to_string()))?;
+        .ok_or_else(|| AppError::Validation("Parent design node was not found".to_string()))?;
     let child_type = normalize_draft_child_type(child_type).ok_or_else(|| {
         AppError::Validation(format!("Unsupported draft child type {}", child_type))
     })?;
@@ -4123,17 +4197,44 @@ async fn commit_draft_plan(
 
     for product_node in products {
         let details = &product_node.details;
-        let product = product_repo::create_product(
-            &state.db,
-            &uuid::Uuid::new_v4().to_string(),
-            &product_node.name,
-            &product_node.summary.clone().unwrap_or_default(),
-            &string_field(details, "vision").unwrap_or_default(),
-            &format_joined(string_array_field(details, "goals")),
-            &format_joined(string_array_field(details, "tags")),
-        )
-        .await?;
-        lines.push(format!("Created product \"{}\".", product.name));
+        let product_description = product_node.summary.clone().unwrap_or_default();
+        let product_vision = string_field(details, "vision").unwrap_or_default();
+        let product_goals = format_joined(string_array_field(details, "goals"));
+        let product_tags = format_joined(string_array_field(details, "tags"));
+        let existing_product = match product_repo::get_product(&state.db, &product_node.id).await {
+            Ok(product) => Some(product),
+            Err(_) => product_repo::list_products(&state.db)
+                .await?
+                .into_iter()
+                .find(|product| {
+                    normalize(Some(product.name.as_str()))
+                        == normalize(Some(product_node.name.as_str()))
+                }),
+        };
+        let product = if let Some(existing_product) = existing_product {
+            product_repo::update_product(
+                &state.db,
+                &existing_product.id,
+                Some(&product_node.name),
+                Some(&product_description),
+                Some(&product_vision),
+                Some(&product_goals),
+                Some(&product_tags),
+            )
+            .await?
+        } else {
+            product_repo::create_product(
+                &state.db,
+                &uuid::Uuid::new_v4().to_string(),
+                &product_node.name,
+                &product_description,
+                &product_vision,
+                &product_goals,
+                &product_tags,
+            )
+            .await?
+        };
+        lines.push(format!("Applied design to product \"{}\".", product.name));
         product_ids.insert(product_node.id.clone(), product.id.clone());
 
         let mut modules = draft_plan
@@ -5074,6 +5175,7 @@ pub async fn submit_planner_voice_turn(
     session_id: String,
     transcript: String,
     selected_draft_node_id: Option<String>,
+    selected_product_id: Option<String>,
 ) -> Result<PlannerTurnResponse, AppError> {
     let spoken = transcript.trim().to_string();
     if spoken.is_empty() {
@@ -5103,7 +5205,7 @@ pub async fn submit_planner_voice_turn(
         push_trace(
             &mut trace,
             "selection",
-            "Updated selected draft node",
+            "Updated selected design node",
             format!(
                 "previous={:?}\nnext={:?}",
                 session.selected_draft_node_id, selected_draft_node_id
@@ -5137,6 +5239,12 @@ pub async fn submit_planner_voice_turn(
         "yes"
             | "confirm"
             | "go ahead"
+            | "apply"
+            | "apply design"
+            | "apply the design"
+            | "approve"
+            | "approve design"
+            | "approve the design"
             | "commit"
             | "commit draft"
             | "commit the draft"
@@ -5147,7 +5255,7 @@ pub async fn submit_planner_voice_turn(
         push_trace(
             &mut trace,
             "voice",
-            "Matched commit voice command",
+            "Matched apply-design voice command",
             spoken.clone(),
         );
         return confirm_planner_plan(planner_service, state, session_id).await;
@@ -5174,9 +5282,9 @@ pub async fn submit_planner_voice_turn(
         session.selected_draft_node_id = None;
         append_conversation(&state.db, &session_id, "user", &spoken).await?;
         let assistant_message = if had_state {
-            "Cleared the current staged planner draft.".to_string()
+            "Cleared the current staged design.".to_string()
         } else {
-            "There is no active draft to clear.".to_string()
+            "There is no active design to clear.".to_string()
         };
         append_conversation(&state.db, &session_id, "assistant", &assistant_message).await?;
         session.conversation.push(PlannerConversationEntry {
@@ -5211,10 +5319,17 @@ pub async fn submit_planner_voice_turn(
             | "show draft"
             | "show draft tree"
             | "view draft tree"
+            | "view design"
+            | "open design"
+            | "show design"
+            | "show design tree"
+            | "view design tree"
             | "open workspace"
             | "show workspace"
             | "expand draft"
             | "expand the draft"
+            | "expand design"
+            | "expand the design"
             | "expand tree"
     );
     let is_draft_selection_command = ["select ", "choose ", "highlight ", "open ", "expand "]
@@ -5222,7 +5337,7 @@ pub async fn submit_planner_voice_turn(
         .any(|prefix| normalized_transcript.starts_with(prefix));
 
     if session.draft_plan.is_none() && (is_draft_view_command || is_draft_selection_command) {
-        let assistant_message = "There is no staged draft tree yet.".to_string();
+        let assistant_message = "There is no staged design tree yet.".to_string();
         append_conversation(&state.db, &session_id, "user", &spoken).await?;
         append_conversation(&state.db, &session_id, "assistant", &assistant_message).await?;
         session.conversation.push(PlannerConversationEntry {
@@ -5260,7 +5375,7 @@ pub async fn submit_planner_voice_turn(
                     });
             let assistant_message = target
                 .map(|node| summarize_selected_draft_node(&draft_plan, node))
-                .unwrap_or_else(|| "There is no staged draft tree yet.".to_string());
+                .unwrap_or_else(|| "There is no staged design tree yet.".to_string());
             append_conversation(&state.db, &session_id, "user", &spoken).await?;
             append_conversation(&state.db, &session_id, "assistant", &assistant_message).await?;
             session.conversation.push(PlannerConversationEntry {
@@ -5297,7 +5412,7 @@ pub async fn submit_planner_voice_turn(
             push_trace(
                 &mut trace,
                 "voice",
-                "Matched draft selection voice command",
+                "Matched design selection voice command",
                 reference_text.clone(),
             );
             let (explicit_type, reference) = parse_voice_node_reference(&reference_text);
@@ -5311,7 +5426,7 @@ pub async fn submit_planner_voice_turn(
                 Ok(Some(node)) => node,
                 Ok(None) => {
                     let assistant_message = format!(
-                        "I could not find a draft node matching \"{}\".",
+                        "I could not find a design node matching \"{}\".",
                         reference_text
                     );
                     append_conversation(&state.db, &session_id, "user", &spoken).await?;
@@ -5418,6 +5533,7 @@ pub async fn submit_planner_voice_turn(
         session_id,
         spoken,
         session.selected_draft_node_id.clone(),
+        selected_product_id,
     )
     .await
 }
@@ -5428,6 +5544,7 @@ pub async fn submit_planner_turn(
     session_id: String,
     user_input: String,
     selected_draft_node_id: Option<String>,
+    selected_product_id: Option<String>,
 ) -> Result<PlannerTurnResponse, AppError> {
     let mut trace = vec![];
     let mut session = {
@@ -5460,7 +5577,7 @@ pub async fn submit_planner_turn(
         push_trace(
             &mut trace,
             "selection",
-            "Updated selected draft node",
+            "Updated selected design node",
             format!(
                 "previous={:?}\nnext={:?}",
                 session.selected_draft_node_id, selected_draft_node_id
@@ -5475,6 +5592,12 @@ pub async fn submit_planner_turn(
         )
         .await?;
     }
+
+    let selected_product = if let Some(product_id) = selected_product_id.as_deref() {
+        Some(product_repo::get_product(&state.db, product_id).await?)
+    } else {
+        None
+    };
 
     let normalized = user_input.trim().to_lowercase();
     if matches!(normalized.as_str(), "yes" | "confirm" | "go ahead") {
@@ -5515,11 +5638,11 @@ pub async fn submit_planner_turn(
                 role: "user".to_string(),
                 content: user_input.clone(),
             });
-            append_conversation(&state.db, &session_id, "assistant", "Committed draft plan.")
+            append_conversation(&state.db, &session_id, "assistant", "Applied design to catalog.")
                 .await?;
             session.conversation.push(PlannerConversationEntry {
                 role: "assistant".to_string(),
-                content: "Committed draft plan.".to_string(),
+                content: "Applied design to catalog.".to_string(),
             });
             session.pending_plan = None;
             session.draft_plan = None;
@@ -5531,7 +5654,7 @@ pub async fn submit_planner_turn(
             return Ok(PlannerTurnResponse {
                 session_id,
                 status: "execution".to_string(),
-                assistant_message: "Committed draft plan.".to_string(),
+                assistant_message: "Applied design to catalog.".to_string(),
                 pending_plan: None,
                 tree_nodes: None,
                 draft_tree_nodes: None,
@@ -5543,7 +5666,37 @@ pub async fn submit_planner_turn(
         }
     }
 
-    let plan = if let (Some(provider_id), Some(model_name)) =
+    if selected_product.is_none() && session.draft_plan.is_none() {
+        return Ok(PlannerTurnResponse {
+            session_id,
+            status: "clarification".to_string(),
+            assistant_message: "Select a product before planning. Create the product in Products first, then return to Planner.".to_string(),
+            pending_plan: session.pending_plan.clone(),
+            tree_nodes: None,
+            draft_tree_nodes: None,
+            selected_draft_node_id: session.selected_draft_node_id.clone(),
+            execution_lines: vec![],
+            execution_errors: vec![],
+            trace_events: trace,
+        });
+    }
+
+    if let Some(product) = selected_product.as_ref() {
+        let seeded_draft = seed_draft_with_product(session.draft_plan.clone(), product);
+        session.draft_plan = Some(seeded_draft);
+        if session.selected_draft_node_id.is_none() {
+            session.selected_draft_node_id = Some(product.id.clone());
+        }
+        persist_draft_state(
+            &state.db,
+            &session_id,
+            session.draft_plan.as_ref(),
+            session.selected_draft_node_id.as_deref(),
+        )
+        .await?;
+    }
+
+    let mut plan = if let (Some(provider_id), Some(model_name)) =
         (session.provider_id.clone(), session.model_name.clone())
     {
         match run_tool_loop(
@@ -5556,6 +5709,7 @@ pub async fn submit_planner_turn(
             session.pending_plan.as_ref(),
             session.draft_plan.as_ref(),
             session.selected_draft_node_id.as_deref(),
+            selected_product.as_ref(),
             &user_input,
             &mut trace,
         )
@@ -5594,6 +5748,9 @@ pub async fn submit_planner_turn(
         );
         heuristic_plan(&user_input)
     };
+    if let Some(product) = selected_product.as_ref() {
+        scope_plan_to_selected_product(&mut plan, product);
+    }
     push_trace(
         &mut trace,
         "plan",
@@ -5633,7 +5790,7 @@ pub async fn submit_planner_turn(
         push_trace(
             &mut trace,
             "draft",
-            "Applying actions to staged draft",
+            "Applying actions to staged design",
             serde_json::to_string_pretty(&plan.actions)?,
         );
         let updated_draft = match apply_actions_to_draft(
@@ -5700,7 +5857,7 @@ pub async fn submit_planner_turn(
             tree_nodes,
             draft_tree_nodes: updated_draft_tree_nodes,
             selected_draft_node_id: session.selected_draft_node_id.clone(),
-            execution_lines: vec!["Updated the draft plan.".to_string()],
+            execution_lines: vec!["Updated the design plan.".to_string()],
             execution_errors: vec![],
             trace_events: trace,
         });
@@ -5820,6 +5977,7 @@ pub async fn confirm_planner_plan(
         session_id,
         "confirm".to_string(),
         None,
+        None,
     )
     .await
 }
@@ -5848,14 +6006,14 @@ pub async fn rename_planner_draft_node(
     let mut draft_plan = session
         .draft_plan
         .clone()
-        .ok_or_else(|| AppError::Validation("No staged draft is available".to_string()))?;
+        .ok_or_else(|| AppError::Validation("No staged design is available".to_string()))?;
     let previous = find_draft_node_by_id(&draft_plan, Some(&node_id))
         .cloned()
         .ok_or_else(|| AppError::Validation("Draft node was not found".to_string()))?;
     push_trace(
         &mut trace,
         "draft",
-        "Renaming draft node",
+        "Renaming design node",
         format!(
             "node_id={}\ntype={}\nprevious_name={}\nnext_name={}",
             node_id, previous.node_type, previous.name, next_name
@@ -5960,10 +6118,10 @@ pub async fn add_planner_draft_child(
     let mut draft_plan = session
         .draft_plan
         .clone()
-        .ok_or_else(|| AppError::Validation("No staged draft is available".to_string()))?;
+        .ok_or_else(|| AppError::Validation("No staged design is available".to_string()))?;
     let parent = find_draft_node_by_id(&draft_plan, Some(&parent_node_id))
         .cloned()
-        .ok_or_else(|| AppError::Validation("Parent draft node was not found".to_string()))?;
+        .ok_or_else(|| AppError::Validation("Parent design node was not found".to_string()))?;
     push_trace(
         &mut trace,
         "draft",
@@ -6050,14 +6208,14 @@ pub async fn delete_planner_draft_node(
     let mut draft_plan = session
         .draft_plan
         .clone()
-        .ok_or_else(|| AppError::Validation("No staged draft is available".to_string()))?;
+        .ok_or_else(|| AppError::Validation("No staged design is available".to_string()))?;
     let target = find_draft_node_by_id(&draft_plan, Some(&node_id))
         .cloned()
         .ok_or_else(|| AppError::Validation("Draft node was not found".to_string()))?;
     push_trace(
         &mut trace,
         "draft",
-        "Deleting draft node",
+        "Deleting design node",
         format!(
             "node_id={}\ntype={}\nname={}",
             node_id, target.node_type, target.name
@@ -6147,6 +6305,7 @@ pub async fn analyze_repository_for_planner(
     session_id: String,
     repository_id: String,
     selected_draft_node_id: Option<String>,
+    selected_product_id: Option<String>,
 ) -> Result<PlannerTurnResponse, AppError> {
     let mut trace = vec![];
     let mut session = get_or_load_session(&planner_service, db, &session_id).await?;
@@ -6182,6 +6341,22 @@ pub async fn analyze_repository_for_planner(
     let model_name = session.model_name.clone().ok_or_else(|| {
         AppError::Validation("Configure a planner model before analyzing a repository.".to_string())
     })?;
+    let selected_product_id = selected_product_id.ok_or_else(|| {
+        AppError::Validation("Select a product before analyzing a repository.".to_string())
+    })?;
+    let selected_product = product_repo::get_product(db, &selected_product_id).await?;
+    let seeded_draft = seed_draft_with_product(session.draft_plan.clone(), &selected_product);
+    session.draft_plan = Some(seeded_draft);
+    if session.selected_draft_node_id.is_none() {
+        session.selected_draft_node_id = Some(selected_product.id.clone());
+    }
+    persist_draft_state(
+        db,
+        &session_id,
+        session.draft_plan.as_ref(),
+        session.selected_draft_node_id.as_deref(),
+    )
+    .await?;
     let repository = repository_repo::get_repository(db, &repository_id).await?;
     let repo_snapshot = build_repository_analysis_snapshot(&repository)?;
     let repo_snapshot_json = serde_json::to_string_pretty(&repo_snapshot)?;
@@ -6197,7 +6372,7 @@ pub async fn analyze_repository_for_planner(
         .as_ref()
         .map(serde_json::to_string_pretty)
         .transpose()?
-        .unwrap_or_else(|| "No draft yet.".to_string());
+        .unwrap_or_else(|| "No staged design yet.".to_string());
     let selected_context = session
         .selected_draft_node_id
         .as_deref()
@@ -6209,10 +6384,10 @@ pub async fn analyze_repository_for_planner(
         })
         .map(serde_json::to_string_pretty)
         .transpose()?
-        .unwrap_or_else(|| "No draft node selected.".to_string());
+        .unwrap_or_else(|| "No design node selected.".to_string());
     let analysis_request = format!(
-        "Current draft tree:\n{}\n\nSelected draft node:\n{}\n\nStructured repository analysis snapshot:\n{}\n\nTask:\nReverse engineer this repository into a staged planning tree. Infer the product, modules, capabilities, and starter work items from the codebase. Use the structured evidence first, and only make cautious inferences when the evidence is incomplete. Merge into the selected draft node if it exists; otherwise create a product root.",
-        draft_context, selected_context, repo_snapshot_json
+        "Selected product:\n{}\n\nCurrent staged design tree:\n{}\n\nSelected design node:\n{}\n\nStructured repository analysis snapshot:\n{}\n\nTask:\nReverse engineer this repository into the selected product's staged design tree. Infer modules, capabilities, and starter work items from the codebase. Use the structured evidence first, and only make cautious inferences when the evidence is incomplete. Merge into the selected design node if it exists; otherwise add structure under the selected product root. Do not create a new product.",
+        serde_json::to_string_pretty(&selected_product)?, draft_context, selected_context, repo_snapshot_json
     );
     push_trace(
         &mut trace,
@@ -6241,7 +6416,7 @@ pub async fn analyze_repository_for_planner(
             source_id: Some(&session_id),
             source_label: "Desktop Repository Analysis",
             session_id: Some(&session_id),
-            product_id: None,
+            product_id: Some(selected_product.id.as_str()),
         },
     )
     .await?;
@@ -6254,6 +6429,7 @@ pub async fn analyze_repository_for_planner(
 
     let mut plan = parse_final_response(&completion)?;
     annotate_repository_analysis_plan(&repo_snapshot, &mut plan);
+    scope_plan_to_selected_product(&mut plan, &selected_product);
     push_trace(
         &mut trace,
         "plan",
@@ -6300,13 +6476,13 @@ pub async fn analyze_repository_for_planner(
         db,
         &session_id,
         "user",
-        &format!("Analyze repository {} into a draft plan.", repository.name),
+        &format!("Analyze repository {} into a design packet.", repository.name),
     )
     .await?;
     append_conversation(db, &session_id, "assistant", &plan.assistant_response).await?;
     session.conversation.push(PlannerConversationEntry {
         role: "user".to_string(),
-        content: format!("Analyze repository {} into a draft plan.", repository.name),
+        content: format!("Analyze repository {} into a design packet.", repository.name),
     });
     session.conversation.push(PlannerConversationEntry {
         role: "assistant".to_string(),
@@ -6328,7 +6504,7 @@ pub async fn analyze_repository_for_planner(
             session.selected_draft_node_id.as_deref(),
         )),
         selected_draft_node_id: session.selected_draft_node_id,
-        execution_lines: vec!["Updated the draft plan from repository analysis.".to_string()],
+        execution_lines: vec!["Updated the design plan from repository analysis.".to_string()],
         execution_errors: vec![],
         trace_events: trace,
     })
@@ -6781,6 +6957,7 @@ mod tests {
             &state,
             session.session_id.clone(),
             "select module guest management".to_string(),
+            None,
             None,
         )
         .await

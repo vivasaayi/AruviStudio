@@ -395,6 +395,7 @@
       has_pending_plan: false,
       has_draft_plan: false,
       selected_draft_node_id: null,
+      selected_product_id: null,
       draftNodes: {},
       draftRootIds: [],
       pending_plan: null,
@@ -543,62 +544,65 @@
     return response;
   }
 
-  function ensureHotelDraft(session) {
-    const existing = findDraftNodeByLabel(session, "Hotel Management System", "product");
+  function ensureSelectedProductDraft(session, args) {
+    const state = getState();
+    const selectedProductId = getArg(args || {}, "productId", "product_id") ?? session.selected_product_id ?? state.products[0]?.id ?? null;
+    session.selected_product_id = selectedProductId;
+    const selectedProduct = state.products.find((product) => product.id === selectedProductId) ?? state.products[0];
+    if (!selectedProduct) {
+      throw new Error("Select a product before planning.");
+    }
+    const existing = findDraftNodeByLabel(session, selectedProduct.name, "product");
     if (existing) {
       return existing;
     }
 
-    const product = createDraftNode(session, "product", "Hotel Management System", null, {
-      description: "A comprehensive system for managing hotel operations including reservations, guest services, housekeeping, billing, and reporting.",
-      vision: "Streamline hotel operations for small to mid-sized hotels with a unified, staff-friendly operating platform.",
-      goals: [
-        "Centralize reservations and guest lifecycle management",
-        "Coordinate housekeeping and room readiness",
-        "Automate billing, folios, and operational reporting",
-      ],
-      tags: ["hospitality", "management", "operations"],
+    const product = createDraftNode(session, "product", selectedProduct.name, null, {
+      description: selectedProduct.description,
+      vision: selectedProduct.vision,
+      goals: selectedProduct.goals,
+      tags: selectedProduct.tags,
     });
 
-    const reservations = createDraftNode(session, "module", "Reservations & Booking", product.id, {
-      description: "Handles room reservations, availability calendars, booking modifications, and cancellations.",
+    const inputExperience = createDraftNode(session, "module", "Input Experience", product.id, {
+      description: "Handles expression entry, keyboard shortcuts, validation, and accessible input workflows.",
     });
-    const guestManagement = createDraftNode(session, "module", "Guest Management", product.id, {
-      description: "Manages guest profiles, check-in/out processes, service requests, and communication.",
+    const calculationHistory = createDraftNode(session, "module", "Calculation History", product.id, {
+      description: "Tracks previous calculations, labels, replay, and result comparison.",
     });
-    const roomInventory = createDraftNode(session, "module", "Room & Inventory", product.id, {
-      description: "Tracks room status, housekeeping, maintenance, and inventory of amenities.",
+    const resultsReporting = createDraftNode(session, "module", "Results Reporting", product.id, {
+      description: "Exports calculation summaries, sessions, and reviewable result reports.",
     });
-    const billing = createDraftNode(session, "module", "Billing & Payments", product.id, {
-      description: "Handles invoicing, payment processing, folio management, and financial reporting.",
-    });
-
-    const reservationBooking = createDraftNode(session, "capability", "Reservation Booking", reservations.id, {
-      description: "Allow staff to create and manage reservations with date, room, and rate selection.",
-    });
-    createDraftNode(session, "work_item", "Build Reservation Creation UI", reservationBooking.id, {
-      description: "Create a staff-facing reservation flow with date selection, room availability, and rate plan support.",
+    const expressionEngine = createDraftNode(session, "module", "Expression Engine", product.id, {
+      description: "Coordinates parsing, deterministic evaluation, and scientific operations.",
     });
 
-    const guestProfiles = createDraftNode(session, "capability", "Guest Profile Management", guestManagement.id, {
-      description: "Create, view, and update guest profiles with stay preferences and notes.",
+    const validation = createDraftNode(session, "capability", "Expression Input Validation", inputExperience.id, {
+      description: "Validate expressions inline and explain recoverable input errors.",
     });
-    createDraftNode(session, "work_item", "Implement Guest Profile CRUD", guestProfiles.id, {
-      description: "Build backend and frontend CRUD for guest profiles and preference capture.",
-    });
-
-    const roomStatus = createDraftNode(session, "capability", "Room Availability Dashboard", roomInventory.id, {
-      description: "Visualize room status and readiness across the property.",
-    });
-    createDraftNode(session, "work_item", "Develop Room Status Dashboard", roomStatus.id, {
-      description: "Implement a dashboard with occupancy, cleaning, and maintenance state.",
+    createDraftNode(session, "work_item", "Build Input Validation UI", validation.id, {
+      description: "Create validation affordances for malformed expressions and keyboard input.",
     });
 
-    const invoiceGeneration = createDraftNode(session, "capability", "Invoice Generation", billing.id, {
-      description: "Create itemized invoices for stays, taxes, and incidentals.",
+    const historyReview = createDraftNode(session, "capability", "History Review", calculationHistory.id, {
+      description: "Review, search, and replay prior calculations.",
     });
-    createDraftNode(session, "work_item", "Design Invoice Template", invoiceGeneration.id, {
-      description: "Design a printable and email-ready invoice template with line items and taxes.",
+    createDraftNode(session, "work_item", "Implement Calculation History", historyReview.id, {
+      description: "Persist recent calculations and provide a searchable history panel.",
+    });
+
+    const reportExport = createDraftNode(session, "capability", "Result Export", resultsReporting.id, {
+      description: "Export result sessions for review and sharing.",
+    });
+    createDraftNode(session, "work_item", "Build Result Export Review", reportExport.id, {
+      description: "Generate a reviewable export for calculation sessions.",
+    });
+
+    const deterministicEvaluation = createDraftNode(session, "capability", "Deterministic Evaluation", expressionEngine.id, {
+      description: "Evaluate scientific expressions consistently across sessions.",
+    });
+    createDraftNode(session, "work_item", "Verify Scientific Evaluation", deterministicEvaluation.id, {
+      description: "Add deterministic checks for scientific operator precedence and rounding.",
     });
 
     session.selected_draft_node_id = product.id;
@@ -614,7 +618,7 @@
           ? findDraftNodeById(session, findDraftNodeById(session, selectedNode.parentId)?.parentId)
           : findDraftNodeById(session, findDraftNodeById(session, findDraftNodeById(session, selectedNode?.parentId)?.parentId)?.parentId);
 
-    const resolvedProduct = productNode ?? ensureHotelDraft(session);
+    const resolvedProduct = productNode ?? ensureSelectedProductDraft(session);
     const notificationsModule = createDraftNode(session, "module", "Notifications & Messaging", resolvedProduct.id, {
       description: "Coordinates outbound email, SMS, and WhatsApp notifications across reservations and guest service workflows.",
     });
@@ -641,7 +645,7 @@
           description: preferencesCapability.data.description,
         },
       ],
-      message: "I expanded the draft with a Notifications & Messaging module, including guest preference management so you can handle email and WhatsApp communication cleanly.",
+      message: "I expanded the design with a Notifications & Messaging module, including guest preference management so you can handle email and WhatsApp communication cleanly.",
     };
   }
 
@@ -735,23 +739,16 @@
     if (args.selectedDraftNodeId !== undefined || args.selected_draft_node_id !== undefined) {
       session.selected_draft_node_id = args.selectedDraftNodeId ?? args.selected_draft_node_id ?? null;
     }
+    if (args.productId !== undefined || args.product_id !== undefined) {
+      session.selected_product_id = args.productId ?? args.product_id ?? null;
+    }
 
     const selectedNode = findDraftNodeById(session, session.selected_draft_node_id);
     const normalizedInput = userInput.toLowerCase();
 
-    if (normalizedInput.includes("hotel management")) {
-      const product = ensureHotelDraft(session);
-      const actions = [
-        {
-          type: "create_product",
-          target: { productName: product.label },
-          name: product.label,
-          description: product.data.description,
-          vision: product.data.vision,
-          goals: product.data.goals,
-          tags: product.data.tags,
-        },
-        ...product.children.map((moduleId) => {
+    if (!session.has_draft_plan && (normalizedInput.includes("design") || normalizedInput.includes("module") || normalizedInput.includes("product"))) {
+      const product = ensureSelectedProductDraft(session, args);
+      const actions = product.children.map((moduleId) => {
           const moduleNode = session.draftNodes[moduleId];
           return {
             type: "create_module",
@@ -759,49 +756,47 @@
             name: moduleNode.label,
             description: moduleNode.data.description,
           };
-        }),
-      ];
+        });
       return createPlannerResponse(
         session,
-        "I created a staged hotel management system draft with a product root, core operational modules, foundational capabilities, and initial work items. Use the draft tree to refine any branch before committing it.",
+        `I staged a design for ${product.label} with core modules, foundational capabilities, and starter work items. Use the design tree to refine any branch before applying it.`,
         actions,
-        ["Updated the draft plan."],
+        ["Updated the design plan."],
         product.id,
         [
-          { stage: "tool_call", title: "Requested tool list_products", detail: "{\n  \"tool\": \"list_products\"\n}" },
-          { stage: "tool_result", title: "Tool result list_products", detail: JSON.stringify(getState().products, null, 2) },
+          { stage: "context", title: "Selected product", detail: product.label },
         ],
       );
     }
 
     if ((normalizedInput.includes("enhance") || normalizedInput.includes("expand")) && selectedNode?.type === "module") {
       const result = enhanceSelectedModule(session, selectedNode);
-      return createPlannerResponse(session, result.message, result.actions, ["Updated the draft plan."], result.selectedNodeId);
+      return createPlannerResponse(session, result.message, result.actions, ["Updated the design plan."], result.selectedNodeId);
     }
 
     if ((normalizedInput.includes("add work items") || normalizedInput.includes("implement") || normalizedInput.includes("break this down")) && selectedNode?.type === "capability") {
       const result = enhanceSelectedCapability(session, selectedNode);
-      return createPlannerResponse(session, result.message, result.actions, ["Updated the draft plan."], result.selectedNodeId);
+      return createPlannerResponse(session, result.message, result.actions, ["Updated the design plan."], result.selectedNodeId);
     }
 
     if ((normalizedInput.includes("revise") || normalizedInput.includes("consent")) && selectedNode?.type === "work_item") {
       const result = reviseSelectedWorkItem(session, selectedNode);
-      return createPlannerResponse(session, result.message, result.actions, ["Updated the draft plan."], result.selectedNodeId);
+      return createPlannerResponse(session, result.message, result.actions, ["Updated the design plan."], result.selectedNodeId);
     }
 
     if (normalizedInput.includes("email") || normalizedInput.includes("whatsapp") || normalizedInput.includes("notification")) {
       const result = addNotificationsToProduct(session, selectedNode);
-      return createPlannerResponse(session, result.message, result.actions, ["Updated the draft plan."], result.selectedNodeId);
+      return createPlannerResponse(session, result.message, result.actions, ["Updated the design plan."], result.selectedNodeId);
     }
 
     return {
       session_id: session.session_id,
       status: "clarification",
-      assistant_message: "I need a bit more detail. Select a draft node or tell me whether you want to expand the product, a module, a capability, or a work item.",
+      assistant_message: "I need a bit more detail. Select a design node or tell me whether you want to expand the product, a module, a capability, or a work item.",
       pending_plan: {
         assistant_response: "I need a bit more detail.",
         needs_confirmation: false,
-        clarification_question: "Tell me which part of the draft you want to refine next.",
+        clarification_question: "Tell me which part of the design you want to refine next.",
         actions: [],
       },
       tree_nodes: null,
@@ -973,18 +968,18 @@
     return {
       session_id: session.session_id,
       status: "execution",
-      assistant_message: "Committed draft plan.",
+      assistant_message: "Applied design to catalog.",
       pending_plan: null,
       tree_nodes: null,
       draft_tree_nodes: [],
       selected_draft_node_id: null,
-      execution_lines: ["Committed draft plan to the catalog."],
+      execution_lines: ["Applied design to the catalog."],
       execution_errors: [],
       trace_events: [
         {
           step: 1,
           stage: "execution",
-          title: "Committed staged draft",
+          title: "Applied staged design",
           detail: "The staged product tree was persisted into products, modules, capabilities, and work items.",
         },
       ],
@@ -1010,6 +1005,12 @@
       "yes",
       "confirm",
       "go ahead",
+      "apply",
+      "apply design",
+      "apply the design",
+      "approve",
+      "approve design",
+      "approve the design",
       "commit",
       "commit draft",
       "commit the draft",
@@ -1038,8 +1039,8 @@
       return createPlannerStateResponse(
         session,
         "execution",
-        hadDraft ? "Cleared the current staged planner draft." : "There is no active draft to clear.",
-        [hadDraft ? "Cleared the current staged planner draft." : "There is no active draft to clear."],
+        hadDraft ? "Cleared the current staged design." : "There is no active design to clear.",
+        [hadDraft ? "Cleared the current staged design." : "There is no active design to clear."],
         null,
       );
     }
@@ -1073,7 +1074,7 @@
         return createPlannerStateResponse(
           session,
           "session_update",
-          `I could not find a draft node matching "${rawTarget}".`,
+          `I could not find a design node matching "${rawTarget}".`,
           [],
           session.selected_draft_node_id,
         );
@@ -1123,47 +1124,27 @@
       throw new Error(`Unknown repository: ${repositoryId}`);
     }
 
-    const productName = repository.name === "aruvi-studio"
-      ? "AruviStudio"
-      : repository.name.replace(/[-_]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-    const product = createDraftNode(session, "product", productName, null, {
-      description: `Reverse engineered planning structure for the ${repository.name} repository.`,
-      vision: "Translate the existing repository into a staged product map that can be refined before commitment.",
-      goals: [
-        "Map the current application surface area into product modules",
-        "Identify major capabilities already present in the codebase",
-        "Seed starter work items for the most visible delivery areas",
-      ],
-      tags: ["reverse_engineered", "repository_analysis"],
-    });
+    const product = ensureSelectedProductDraft(session, args);
     const plannerModule = createDraftNode(session, "module", "Interactive Planner", product.id, {
-      description: "Conversational planning, draft staging, commit flow, and trace inspection.",
+      description: "Conversational planning, design staging, approval flow, and trace inspection.",
     });
     const repoModule = createDraftNode(session, "module", "Repository Intelligence", product.id, {
       description: "Repository registration, reverse engineering, and code-aware planning expansion.",
     });
     const plannerCapability = createDraftNode(session, "capability", "Draft Tree Editing", plannerModule.id, {
-      description: "Select, rename, expand, and refine staged draft nodes before commit.",
+      description: "Select, rename, expand, and refine staged design nodes before approval.",
     });
     createDraftNode(session, "work_item", "Add repo analysis entrypoint", repoModule.id, {
       description: "Let users register a repository and stage a reverse-engineered planning tree.",
     });
-    createDraftNode(session, "work_item", "Improve draft tree ergonomics", plannerCapability.id, {
-      description: "Tighten the planner workspace so draft editing feels like a real planning surface.",
+    createDraftNode(session, "work_item", "Improve design tree ergonomics", plannerCapability.id, {
+      description: "Tighten the planner workspace so design editing feels like a real planning surface.",
     });
     session.selected_draft_node_id = product.id;
     return createPlannerResponse(
       session,
-      `I analyzed the ${repository.name} repository and staged a product tree with planner and repository-intelligence modules so you can refine it before commit.`,
+      `I analyzed the ${repository.name} repository and staged repository-informed modules under ${product.label} so you can refine them before approval.`,
       [
-        {
-          type: "create_product",
-          name: product.label,
-          description: product.data.description,
-          vision: product.data.vision,
-          goals: product.data.goals,
-          tags: product.data.tags,
-        },
         {
           type: "create_module",
           target: { productName: product.label },
@@ -1177,7 +1158,7 @@
           description: repoModule.data.description,
         },
       ],
-      ["Updated the draft plan from repository analysis."],
+      ["Updated the design plan from repository analysis."],
       product.id,
     );
   }
@@ -1223,7 +1204,7 @@
     }
     const parent = findDraftNodeById(session, parentNodeId);
     if (!parent) {
-      throw new Error("Parent draft node not found");
+      throw new Error("Parent design node not found");
     }
     if (!name) {
       throw new Error("Draft child name cannot be empty");
@@ -1486,6 +1467,10 @@
           return ok(analyzeRepositoryForPlanner(args || {}));
         case "browse_for_repository_path":
           return ok("/tmp/mock-repository");
+        case "export_product_overview_html":
+          return ok(`/tmp/aruvi-e2e/${getArg(args, "fileName", "file_name") ?? "export.html"}`);
+        case "reveal_in_finder":
+          return ok(null);
         case "delete_repository":
         case "attach_repository":
         case "create_local_workspace":

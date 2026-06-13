@@ -1,8 +1,5 @@
 import React from "react";
-import { Allotment } from "allotment";
-import "allotment/dist/style.css";
 import { useNavigate, useLocation } from "react-router-dom";
-import { LeftSidebar } from "./LeftSidebar";
 import { useUIStore } from "../../state/uiStore";
 
 const styles: Record<string, any> = {
@@ -30,7 +27,6 @@ const navItems = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const {
-    leftSidebarVisible,
     activeView,
     setActiveView,
   } = useUIStore();
@@ -38,8 +34,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const location = useLocation();
 
   const currentView = navItems.find((item) => location.pathname.startsWith(`/${item.key}`))?.key ?? activeView;
-  const supportsHierarchyRail = currentView === "work-items";
-  const showLeftSidebar = leftSidebarVisible && supportsHierarchyRail;
 
   return (
     <div style={styles.container}>
@@ -61,18 +55,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </div>
       <div style={styles.content}>
-        <Allotment>
-          {showLeftSidebar && (
-            <Allotment.Pane minSize={200} preferredSize={240}>
-              <LeftSidebar />
-            </Allotment.Pane>
-          )}
-          <Allotment.Pane>
-            <div style={{ padding: 12, overflow: "auto", height: "100%" }}>
-              {children}
-            </div>
-          </Allotment.Pane>
-        </Allotment>
+        <div style={{ padding: 12, overflow: "auto", height: "100%" }}>
+          {children}
+        </div>
       </div>
     </div>
   );

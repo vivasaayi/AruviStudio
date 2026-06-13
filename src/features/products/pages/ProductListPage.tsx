@@ -71,6 +71,11 @@ const styles: Record<string, React.CSSProperties> = {
   btnDanger: { padding: "5px 10px", fontSize: 12, backgroundColor: "#6c2020", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" },
   toolbar: { display: "grid", gridTemplateColumns: "minmax(180px, 1fr) repeat(4, minmax(120px, 170px))", gap: 10, alignItems: "end", marginBottom: 12 },
   toolbarCompact: { display: "flex", gap: 10, flexWrap: "wrap" as const, alignItems: "flex-end", marginBottom: 12 },
+  statusToolbar: { display: "grid", gridTemplateColumns: "minmax(220px, 360px) 150px 180px minmax(360px, 1fr)", gap: 10, alignItems: "end", marginBottom: 10 },
+  statusMetrics: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 },
+  statusMetric: { border: "1px solid #32353d", borderRadius: 8, backgroundColor: "#26292f", padding: "8px 10px", minHeight: 52 },
+  statusMetricValue: { fontSize: 18, fontWeight: 800, color: "#f3f3f3", lineHeight: 1.1 },
+  statusMetricHelp: { fontSize: 10, color: "#8f96a3", marginTop: 3, lineHeight: 1.3 },
   toggleRow: { display: "flex", gap: 12, flexWrap: "wrap" as const, alignItems: "center", marginBottom: 12 },
   checkboxLabel: { display: "flex", gap: 6, alignItems: "center", fontSize: 12, color: "#cfd6e4" },
   controlLabel: { fontSize: 11, color: "#8f96a3", textTransform: "uppercase" as const, fontWeight: 800, letterSpacing: "0.06em", marginBottom: 4 },
@@ -146,9 +151,9 @@ const styles: Record<string, React.CSSProperties> = {
   tableRow: { display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) 110px 90px 110px", gap: 10, padding: "12px", borderBottom: "1px solid #2d3139", alignItems: "center" },
   productTableHeader: { display: "grid", gridTemplateColumns: "minmax(220px, 1.7fr) 105px 100px 110px 105px 140px", gap: 10, padding: "10px 12px", borderBottom: "1px solid #32353d", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" as const, color: "#8f96a3" },
   productTableRow: { display: "grid", gridTemplateColumns: "minmax(220px, 1.7fr) 105px 100px 110px 105px 140px", gap: 10, padding: "12px", borderBottom: "1px solid #2d3139", alignItems: "center" },
-  statusTableHeader: { display: "grid", gridTemplateColumns: "minmax(260px, 1.7fr) 90px 110px 120px 105px 120px", gap: 10, padding: "10px 12px", borderBottom: "1px solid #32353d", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" as const, color: "#8f96a3" },
-  statusTableRow: { display: "grid", gridTemplateColumns: "minmax(260px, 1.7fr) 90px 110px 120px 105px 120px", gap: 10, padding: "12px", borderBottom: "1px solid #2d3139", alignItems: "center" },
-  progressTrack: { height: 8, borderRadius: 999, backgroundColor: "#171a20", border: "1px solid #303640", overflow: "hidden" },
+  statusTableHeader: { display: "grid", gridTemplateColumns: "minmax(260px, 1.9fr) 58px 110px 120px 115px 150px", gap: 8, padding: "8px 10px", borderBottom: "1px solid #32353d", fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" as const, color: "#8f96a3" },
+  statusTableRow: { display: "grid", gridTemplateColumns: "minmax(260px, 1.9fr) 58px 110px 120px 115px 150px", gap: 8, padding: "8px 10px", borderBottom: "1px solid #2d3139", alignItems: "center" },
+  progressTrack: { height: 6, borderRadius: 999, backgroundColor: "#171a20", border: "1px solid #303640", overflow: "hidden" },
   progressFill: { height: "100%", borderRadius: 999, backgroundColor: "#4ec9b0" },
   rowPrimary: { fontSize: 13, fontWeight: 700, color: "#f3f3f3" },
   rowSecondary: { fontSize: 12, color: "#8f96a3", marginTop: 4 },
@@ -1315,8 +1320,8 @@ export function ProductListPage() {
               </>
             ) : productPageTab === "status" ? (
               <>
-                <div style={styles.toolbarCompact}>
-                  <div style={{ minWidth: 260 }}>
+                <div style={styles.statusToolbar}>
+                  <div>
                     <div style={styles.controlLabel}>Product</div>
                     <select
                       style={styles.select}
@@ -1333,13 +1338,13 @@ export function ProductListPage() {
                       {(products ?? []).map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
                     </select>
                   </div>
-                  <div style={{ minWidth: 170 }}>
+                  <div>
                     <div style={styles.controlLabel}>Visible levels</div>
                     <select style={styles.select} value={statusDepth} onChange={(event) => setStatusDepth(Number(event.target.value))}>
                       {[1, 2, 3, 4, 5, 6].map((depth) => <option key={depth} value={depth}>{depth} {depth === 1 ? "level" : "levels"}</option>)}
                     </select>
                   </div>
-                  <div style={{ minWidth: 180 }}>
+                  <div>
                     <div style={styles.controlLabel}>Pivot</div>
                     <select style={styles.select} value={statusGroupBy} onChange={(event) => setStatusGroupBy(event.target.value as typeof statusGroupBy)}>
                       <option value="node">Tree nodes</option>
@@ -1347,30 +1352,30 @@ export function ProductListPage() {
                       <option value="work_status">Work status</option>
                     </select>
                   </div>
+                  <div style={styles.statusMetrics}>
+                    <div style={styles.statusMetric}>
+                      <div style={styles.metricLabel}>Products</div>
+                      <div style={styles.statusMetricValue}>{statusSummary.productCount}</div>
+                      <div style={styles.statusMetricHelp}>included</div>
+                    </div>
+                    <div style={styles.statusMetric}>
+                      <div style={styles.metricLabel}>Nodes</div>
+                      <div style={styles.statusMetricValue}>{statusSummary.nodeCount}</div>
+                      <div style={styles.statusMetricHelp}>{statusSummary.leafCount} leaf</div>
+                    </div>
+                    <div style={styles.statusMetric}>
+                      <div style={styles.metricLabel}>Work Items</div>
+                      <div style={styles.statusMetricValue}>{statusSummary.workItemCount}</div>
+                      <div style={styles.statusMetricHelp}>{statusSummary.activeWorkItemCount} active · {statusSummary.doneWorkItemCount} done</div>
+                    </div>
+                    <div style={styles.statusMetric}>
+                      <div style={styles.metricLabel}>Progress</div>
+                      <div style={styles.statusMetricValue}>{statusSummary.progress.percent}%</div>
+                      <div style={styles.statusMetricHelp}>{statusSummary.progress.done}/{statusSummary.progress.total}</div>
+                    </div>
+                  </div>
                 </div>
-                <div style={styles.metricGrid}>
-                  <div style={styles.metricCard}>
-                    <div style={styles.metricLabel}>Products</div>
-                    <div style={styles.metricValue}>{statusSummary.productCount}</div>
-                    <div style={styles.metricHelp}>Included in this status view</div>
-                  </div>
-                  <div style={styles.metricCard}>
-                    <div style={styles.metricLabel}>Nodes</div>
-                    <div style={styles.metricValue}>{statusSummary.nodeCount}</div>
-                    <div style={styles.metricHelp}>{statusSummary.leafCount} leaf nodes</div>
-                  </div>
-                  <div style={styles.metricCard}>
-                    <div style={styles.metricLabel}>Work Items</div>
-                    <div style={styles.metricValue}>{statusSummary.workItemCount}</div>
-                    <div style={styles.metricHelp}>{statusSummary.activeWorkItemCount} active · {statusSummary.doneWorkItemCount} done</div>
-                  </div>
-                  <div style={styles.metricCard}>
-                    <div style={styles.metricLabel}>Progress</div>
-                    <div style={styles.metricValue}>{statusSummary.progress.percent}%</div>
-                    <div style={styles.metricHelp}>{statusSummary.progress.done}/{statusSummary.progress.total} completed</div>
-                  </div>
-                </div>
-                <div style={{ ...styles.table, marginTop: 12 }}>
+                <div style={styles.table}>
                   <div style={styles.statusTableHeader}>
                     <div>{statusGroupBy === "node" ? "Scope" : "Group"}</div>
                     <div>Level</div>
@@ -1399,17 +1404,19 @@ export function ProductListPage() {
                       }}
                     >
                       <div style={{ paddingLeft: statusGroupBy === "node" ? Math.max(0, row.level - 1) * 16 : 0 }}>
-                        <div style={styles.rowPrimary}>{row.name}</div>
-                        <div style={styles.rowSecondary}>{row.subtitle}</div>
+                        <div style={{ ...styles.rowPrimary, fontSize: 12 }}>{row.name}</div>
+                        <div style={{ ...styles.rowSecondary, fontSize: 10, marginTop: 2 }}>{row.subtitle}</div>
                       </div>
                       <div style={styles.rowCell}>{row.level}</div>
                       <div style={styles.rowCell}>{row.kind}</div>
-                      <div style={styles.rowCell}>{row.nodeCount} total · {row.childCount} child</div>
-                      <div style={styles.rowCell}>{row.workItemCount} total · {row.activeWorkItemCount} active</div>
+                      <div style={styles.rowCell}>{row.nodeCount} · {row.childCount} child</div>
+                      <div style={styles.rowCell}>{row.workItemCount} · {row.activeWorkItemCount} active</div>
                       <div>
-                        <div style={styles.rowCell}>{row.progress.percent}%</div>
-                        <div style={styles.progressTrack}><div style={{ ...styles.progressFill, width: `${row.progress.percent}%` }} /></div>
-                        <div style={styles.rowSecondary}>{row.progress.done}/{row.progress.total} done</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "38px minmax(0, 1fr) 46px", gap: 6, alignItems: "center" }}>
+                          <span style={styles.rowCell}>{row.progress.percent}%</span>
+                          <div style={styles.progressTrack}><div style={{ ...styles.progressFill, width: `${row.progress.percent}%` }} /></div>
+                          <span style={{ ...styles.rowSecondary, marginTop: 0 }}>{row.progress.done}/{row.progress.total}</span>
+                        </div>
                       </div>
                     </div>
                   )) : (

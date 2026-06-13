@@ -223,6 +223,8 @@ struct MobilePlannerUpdateRequest {
 struct MobilePlannerTurnRequest {
     user_input: String,
     selected_draft_node_id: Option<String>,
+    #[serde(alias = "productId")]
+    product_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -480,6 +482,7 @@ async fn mobile_submit_planner_turn(
         session_id,
         body.user_input,
         body.selected_draft_node_id,
+        body.product_id,
     )
     .await
     {
@@ -503,6 +506,7 @@ async fn mobile_submit_planner_voice_turn(
         session_id,
         body.user_input,
         body.selected_draft_node_id,
+        body.product_id,
     )
     .await
     {

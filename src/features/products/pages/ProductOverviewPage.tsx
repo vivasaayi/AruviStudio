@@ -23,21 +23,21 @@ import {
 import { buildProductOverviewHtml } from "../lib/productOverview";
 
 const styles: Record<string, React.CSSProperties> = {
-  page: { display: "flex", flexDirection: "column", gap: 18, minHeight: "100%", maxWidth: 1440, margin: "0 auto", width: "100%" },
-  header: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 18, flexWrap: "wrap" as const },
+  page: { display: "flex", flexDirection: "column", gap: 12, minHeight: "100%", width: "100%" },
+  header: { display: "flex", flexDirection: "column", gap: 10 },
   titleBlock: { display: "flex", flexDirection: "column", gap: 6, minWidth: 0 },
-  title: { fontSize: 28, fontWeight: 900, color: "#f3f6fb", margin: 0, lineHeight: 1.05 },
-  subtitle: { fontSize: 13, color: "#9aa7bb", lineHeight: 1.65, maxWidth: 760, margin: 0 },
-  controlCard: { minWidth: 340, maxWidth: 420, width: "100%", border: "1px solid #2c3644", borderRadius: 18, backgroundColor: "#141b24", padding: 16, boxShadow: "0 18px 40px rgba(0,0,0,0.18)" },
-  controlLabel: { fontSize: 11, fontWeight: 800, color: "#8f96a3", letterSpacing: "0.08em", textTransform: "uppercase" as const, marginBottom: 8 },
-  select: { width: "100%", padding: "11px 12px", backgroundColor: "#0f151d", border: "1px solid #303b4a", borderRadius: 10, color: "#f0f4fb", fontSize: 13, boxSizing: "border-box" as const },
-  helper: { marginTop: 10, fontSize: 12, color: "#98a7bc", lineHeight: 1.55 },
-  actionRow: { display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" as const },
-  primaryBtn: { padding: "8px 12px", fontSize: 12, fontWeight: 700, backgroundColor: "#0e639c", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" },
-  ghostBtn: { padding: "8px 12px", fontSize: 12, fontWeight: 700, backgroundColor: "#1a2430", color: "#d8e2f0", border: "1px solid #314255", borderRadius: 8, cursor: "pointer" },
-  successText: { marginTop: 10, fontSize: 12, color: "#4ec9b0", lineHeight: 1.55, wordBreak: "break-all" as const },
-  errorText: { marginTop: 10, fontSize: 12, color: "#ff8e8e", lineHeight: 1.55 },
-  empty: { border: "1px solid #2c3644", borderRadius: 18, backgroundColor: "#141b24", padding: 24, color: "#9aa7bb", fontSize: 14 },
+  title: { fontSize: 22, fontWeight: 900, color: "#111827", margin: 0, lineHeight: 1.05 },
+  subtitle: { fontSize: 12, color: "#64748b", lineHeight: 1.45, margin: 0 },
+  controlCard: { display: "grid", gridTemplateColumns: "minmax(220px, 320px) minmax(220px, 300px) minmax(0, 1fr)", gap: 10, alignItems: "end", border: "1px solid #d8dee8", borderRadius: 12, backgroundColor: "#ffffff", padding: 10 },
+  controlLabel: { fontSize: 10, fontWeight: 800, color: "#64748b", letterSpacing: "0.08em", textTransform: "uppercase" as const, marginBottom: 4 },
+  select: { width: "100%", padding: "8px 10px", backgroundColor: "#ffffff", border: "1px solid #cbd5e1", borderRadius: 8, color: "#111827", fontSize: 12, boxSizing: "border-box" as const },
+  helper: { fontSize: 11, color: "#64748b", lineHeight: 1.4 },
+  actionRow: { display: "flex", gap: 8, flexWrap: "wrap" as const, justifyContent: "flex-end" as const },
+  primaryBtn: { padding: "8px 12px", fontSize: 12, fontWeight: 700, backgroundColor: "#2563eb", color: "#ffffff", border: "1px solid #1d4ed8", borderRadius: 8, cursor: "pointer" },
+  ghostBtn: { padding: "8px 12px", fontSize: 12, fontWeight: 700, backgroundColor: "#f8fafc", color: "#1e3a8a", border: "1px solid #93c5fd", borderRadius: 8, cursor: "pointer" },
+  successText: { fontSize: 11, color: "#15803d", lineHeight: 1.45, wordBreak: "break-all" as const, gridColumn: "1 / -1" },
+  errorText: { fontSize: 11, color: "#b91c1c", lineHeight: 1.45, gridColumn: "1 / -1" },
+  empty: { border: "1px solid #d8dee8", borderRadius: 14, backgroundColor: "#ffffff", padding: 20, color: "#64748b", fontSize: 14 },
 };
 
 export function ProductOverviewPage() {
@@ -321,76 +321,76 @@ export function ProductOverviewPage() {
           </p>
         </div>
         <div style={styles.controlCard}>
-          <div style={styles.controlLabel}>Product</div>
-          <select
-            style={styles.select}
-            value={selectedProductId ?? ""}
-            onChange={(event) => setActiveProduct(event.target.value || null)}
-            disabled={products.length === 0}
-          >
-            {products.map((product) => (
-              <option key={product.id} value={product.id}>
-                {product.name}
-              </option>
-            ))}
-          </select>
-          <div style={styles.helper}>
-            This route is product-wide. Export writes HTML, EPUB, and print-ready PDF files to `~/Documents/AruviStudio/exports/`.
+          <div>
+            <div style={styles.controlLabel}>Product</div>
+            <select
+              style={styles.select}
+              value={selectedProductId ?? ""}
+              onChange={(event) => setActiveProduct(event.target.value || null)}
+              disabled={products.length === 0}
+            >
+              {products.map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.name}
+                </option>
+              ))}
+            </select>
           </div>
-          <div style={{ ...styles.controlLabel, marginTop: 14 }}>Book Trim Preset</div>
-          <select
-            style={styles.select}
-            value={bookTrimPresetId}
-            onChange={(event) => setBookTrimPresetId(event.target.value as BookExportTrimPresetId)}
-            disabled={isExporting}
-          >
-            {BOOK_EXPORT_TRIM_PRESETS.map((preset) => (
-              <option key={preset.id} value={preset.id}>
-                {preset.label}
-              </option>
-            ))}
-          </select>
-          <div style={styles.helper}>
-            {getBookExportTrimPreset(bookTrimPresetId).description}
+          <div>
+            <div style={styles.controlLabel}>Book Trim Preset</div>
+            <select
+              style={styles.select}
+              value={bookTrimPresetId}
+              onChange={(event) => setBookTrimPresetId(event.target.value as BookExportTrimPresetId)}
+              disabled={isExporting}
+            >
+              {BOOK_EXPORT_TRIM_PRESETS.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
           </div>
-          <div style={styles.actionRow}>
-            <button
-              style={styles.primaryBtn}
-              onClick={exportHtml}
-              disabled={!selectedProduct || treeLoading || workItemsLoading || isExporting}
-            >
-              {isExporting ? "Exporting…" : "Export Docs HTML"}
-            </button>
-            <button
-              style={styles.ghostBtn}
-              onClick={() => runBookArtifactExport("html")}
-              disabled={!selectedProduct || treeLoading || workItemsLoading || isExporting}
-            >
-              Export Book HTML
-            </button>
-            <button
-              style={styles.ghostBtn}
-              onClick={() => runBookArtifactExport("epub")}
-              disabled={!selectedProduct || treeLoading || workItemsLoading || isExporting}
-            >
-              Export EPUB
-            </button>
-            <button
-              style={styles.ghostBtn}
-              onClick={() => runBookArtifactExport("pdf")}
-              disabled={!selectedProduct || treeLoading || workItemsLoading || isExporting}
-            >
-              Export Book PDF
-            </button>
-            {exportPath ? (
-              <button style={styles.ghostBtn} onClick={() => revealInFinder(exportPath)}>
-                Reveal Export
+          <div>
+            <div style={styles.actionRow}>
+              <button
+                style={styles.primaryBtn}
+                onClick={exportHtml}
+                disabled={!selectedProduct || treeLoading || workItemsLoading || isExporting}
+              >
+                {isExporting ? "Exporting..." : "Docs HTML"}
               </button>
-            ) : (
-              <button style={styles.ghostBtn} onClick={goToProductWorkspace}>
-                Open Products
+              <button
+                style={styles.ghostBtn}
+                onClick={() => runBookArtifactExport("html")}
+                disabled={!selectedProduct || treeLoading || workItemsLoading || isExporting}
+              >
+                Book HTML
               </button>
-            )}
+              <button
+                style={styles.ghostBtn}
+                onClick={() => runBookArtifactExport("epub")}
+                disabled={!selectedProduct || treeLoading || workItemsLoading || isExporting}
+              >
+                EPUB
+              </button>
+              <button
+                style={styles.ghostBtn}
+                onClick={() => runBookArtifactExport("pdf")}
+                disabled={!selectedProduct || treeLoading || workItemsLoading || isExporting}
+              >
+                PDF
+              </button>
+              {exportPath ? (
+                <button style={styles.ghostBtn} onClick={() => revealInFinder(exportPath)}>
+                  Reveal
+                </button>
+              ) : (
+                <button style={styles.ghostBtn} onClick={goToProductWorkspace}>
+                  Products
+                </button>
+              )}
+            </div>
           </div>
           {exportPath ? <div style={styles.successText}>Exported to {exportPath}</div> : null}
           {exportError ? <div style={styles.errorText}>Export failed: {exportError}</div> : null}
