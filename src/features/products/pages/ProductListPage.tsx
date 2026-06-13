@@ -1196,7 +1196,6 @@ export function ProductListPage() {
           <h1 style={styles.title}>Products</h1>
           <div style={styles.subtitle}>Manage the catalog, inspect product health, and open the focused product workspace from one page.</div>
         </div>
-        <button style={styles.btn} onClick={() => openProductDialog("create")}>+ Add Product</button>
       </div>
 
       <div style={styles.pageTabs}>
@@ -1210,6 +1209,9 @@ export function ProductListPage() {
           <div style={styles.panelInner}>
             {productPageTab === "list" ? (
               <>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+                  <button style={styles.btn} onClick={() => openProductDialog("create")}>+ Add Product</button>
+                </div>
                 <div style={styles.toolbar}>
                   <div>
                     <div style={styles.controlLabel}>Search</div>

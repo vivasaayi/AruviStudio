@@ -9,7 +9,6 @@ import { useUIStore } from "../../state/uiStore";
 
 const styles: Record<string, any> = {
   container: { display: "flex", flexDirection: "column", height: "100vh", backgroundColor: "#1e1e1e", color: "#d4d4d4" },
-  titleBar: { height: 28, backgroundColor: "#323233", display: "flex", alignItems: "center", paddingLeft: 80, fontSize: 12, fontWeight: 500, color: "#cccccc", userSelect: "none", WebkitAppRegion: "drag" as any },
   navBar: { height: 32, backgroundColor: "#252526", display: "flex", alignItems: "center", gap: 2, padding: "0 8px", borderBottom: "1px solid #1e1e1e" },
   navButton: { padding: "4px 10px", fontSize: 12, background: "none", border: "none", color: "#cccccc", cursor: "pointer", borderRadius: 4 },
   navButtonActive: { padding: "4px 10px", fontSize: 12, background: "#37373d", border: "none", color: "#ffffff", cursor: "pointer", borderRadius: 4 },
@@ -56,7 +55,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div style={styles.container}>
-      <div style={styles.titleBar}>AruviStudio</div>
       <div style={{ ...styles.navBar, justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
           {navItems.map((item) => (
