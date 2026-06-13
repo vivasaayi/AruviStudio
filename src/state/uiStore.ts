@@ -11,7 +11,7 @@ interface UIState {
   capabilityDialogMode: "closed" | "create" | "edit";
   workItemCreateDialogOpen: boolean;
   productWorkspaceTab: "book" | "structure" | "delivery";
-  workItemWorkspaceTab: "backlog" | "detail" | "review";
+  workItemWorkspaceTab: "backlog" | "detail" | "review" | "external_cli";
   expandedModules: Record<string, boolean>;
   expandedCapabilities: Record<string, boolean>;
   showHierarchyWorkItems: boolean;
@@ -30,7 +30,7 @@ interface UIState {
   openWorkItemCreateDialog: () => void;
   closeWorkItemCreateDialog: () => void;
   setProductWorkspaceTab: (tab: "book" | "structure" | "delivery") => void;
-  setWorkItemWorkspaceTab: (tab: "backlog" | "detail" | "review") => void;
+  setWorkItemWorkspaceTab: (tab: "backlog" | "detail" | "review" | "external_cli") => void;
   toggleModuleExpanded: (id: string) => void;
   toggleCapabilityExpanded: (id: string) => void;
   setModuleExpanded: (id: string, expanded: boolean) => void;

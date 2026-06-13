@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   archiveProduct,
   createCapability,
@@ -9,12 +9,14 @@ import {
   createProduct,
   createWorkItem,
   getProductTree,
+  getSetting,
   listProducts,
   listWorkItems,
   reorderCapabilities,
   reorderModules,
   revealInFinder,
   resolveRepositoryForScope,
+  setSetting,
   updateCapability,
   updateModule,
   updateProduct,
@@ -43,7 +45,9 @@ import {
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
 import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
-import type { CapabilityNode, CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ModuleTree, ProductTree, Repository, WorkItem } from "../../../lib/types";
+import type { CapabilityNode, CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ModuleTree, Product, ProductTree, Repository, WorkItem } from "../../../lib/types";
+
+const HIDE_EXAMPLE_PRODUCTS_KEY = "catalog.hide_example_products";
 
 const styles: Record<string, React.CSSProperties> = {
   page: { display: "flex", flexDirection: "column", height: "100%", gap: 12 },
@@ -57,9 +61,18 @@ const styles: Record<string, React.CSSProperties> = {
   tabBar: { display: "flex", gap: 8, marginBottom: 14, borderBottom: "1px solid #32353d", paddingBottom: 10 },
   tab: { padding: "7px 12px", fontSize: 12, fontWeight: 700, borderRadius: 8, border: "1px solid #3b4049", backgroundColor: "#2c3139", color: "#cfd6e4", cursor: "pointer" },
   tabActive: { padding: "7px 12px", fontSize: 12, fontWeight: 700, borderRadius: 8, border: "1px solid #0e639c", backgroundColor: "#173247", color: "#ffffff", cursor: "pointer" },
+  pageTabs: { display: "flex", gap: 8, padding: 4, border: "1px solid #32353d", borderRadius: 10, backgroundColor: "#1b1d22", flexWrap: "wrap" as const },
+  pageTab: { padding: "8px 12px", fontSize: 12, fontWeight: 800, borderRadius: 8, border: "1px solid transparent", backgroundColor: "transparent", color: "#aeb7c6", cursor: "pointer" },
+  pageTabActive: { padding: "8px 12px", fontSize: 12, fontWeight: 800, borderRadius: 8, border: "1px solid #0e639c", backgroundColor: "#173247", color: "#ffffff", cursor: "pointer" },
   btn: { padding: "7px 12px", fontSize: 12, backgroundColor: "#0e639c", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" },
   ghostBtn: { padding: "6px 10px", fontSize: 12, backgroundColor: "#2c3139", color: "#e0e0e0", border: "1px solid #3b4049", borderRadius: 8, cursor: "pointer" },
   btnDanger: { padding: "5px 10px", fontSize: 12, backgroundColor: "#6c2020", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" },
+  toolbar: { display: "grid", gridTemplateColumns: "minmax(180px, 1fr) repeat(4, minmax(120px, 170px))", gap: 10, alignItems: "end", marginBottom: 12 },
+  toolbarCompact: { display: "flex", gap: 10, flexWrap: "wrap" as const, alignItems: "flex-end", marginBottom: 12 },
+  toggleRow: { display: "flex", gap: 12, flexWrap: "wrap" as const, alignItems: "center", marginBottom: 12 },
+  checkboxLabel: { display: "flex", gap: 6, alignItems: "center", fontSize: 12, color: "#cfd6e4" },
+  controlLabel: { fontSize: 11, color: "#8f96a3", textTransform: "uppercase" as const, fontWeight: 800, letterSpacing: "0.06em", marginBottom: 4 },
+  select: { width: "100%", padding: "9px 12px", backgroundColor: "#181a1f", border: "1px solid #3c4048", borderRadius: 8, color: "#e0e0e0", fontSize: 13, boxSizing: "border-box" as const },
   hero: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) 220px", gap: 10, marginBottom: 12 },
   heroCard: { backgroundColor: "#26292f", borderRadius: 12, border: "1px solid #32353d", padding: 14 },
   heroName: { fontSize: 24, fontWeight: 800, color: "#ffffff", marginBottom: 6 },
@@ -108,6 +121,12 @@ const styles: Record<string, React.CSSProperties> = {
   table: { border: "1px solid #32353d", borderRadius: 12, overflow: "hidden", backgroundColor: "#26292f" },
   tableHeader: { display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) 110px 90px 110px", gap: 10, padding: "10px 12px", borderBottom: "1px solid #32353d", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" as const, color: "#8f96a3" },
   tableRow: { display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) 110px 90px 110px", gap: 10, padding: "12px", borderBottom: "1px solid #2d3139", alignItems: "center" },
+  productTableHeader: { display: "grid", gridTemplateColumns: "minmax(220px, 1.7fr) 105px 100px 110px 105px 140px", gap: 10, padding: "10px 12px", borderBottom: "1px solid #32353d", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" as const, color: "#8f96a3" },
+  productTableRow: { display: "grid", gridTemplateColumns: "minmax(220px, 1.7fr) 105px 100px 110px 105px 140px", gap: 10, padding: "12px", borderBottom: "1px solid #2d3139", alignItems: "center" },
+  statusTableHeader: { display: "grid", gridTemplateColumns: "minmax(260px, 1.7fr) 90px 110px 120px 105px 120px", gap: 10, padding: "10px 12px", borderBottom: "1px solid #32353d", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" as const, color: "#8f96a3" },
+  statusTableRow: { display: "grid", gridTemplateColumns: "minmax(260px, 1.7fr) 90px 110px 120px 105px 120px", gap: 10, padding: "12px", borderBottom: "1px solid #2d3139", alignItems: "center" },
+  progressTrack: { height: 8, borderRadius: 999, backgroundColor: "#171a20", border: "1px solid #303640", overflow: "hidden" },
+  progressFill: { height: "100%", borderRadius: 999, backgroundColor: "#4ec9b0" },
   rowPrimary: { fontSize: 13, fontWeight: 700, color: "#f3f3f3" },
   rowSecondary: { fontSize: 12, color: "#8f96a3", marginTop: 4 },
   rowCell: { fontSize: 12, color: "#cfd6e4" },
@@ -116,6 +135,8 @@ const styles: Record<string, React.CSSProperties> = {
 export function ProductListPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isProductDetailRoute = location.pathname.startsWith("/products/");
   const {
     activeProductId,
     activeModuleId,
@@ -160,8 +181,28 @@ export function ProductListPage() {
   const [draggedFeature, setDraggedFeature] = useState<null | { id: string; moduleId: string; parentCapabilityId?: string | null; siblingIds: string[] }>(null);
   const [moduleOrderIds, setModuleOrderIds] = useState<string[]>([]);
   const [capabilityOrderMap, setFeatureOrderMap] = useState<Record<string, string[]>>({});
+  const [productPageTab, setProductPageTab] = useState<"list" | "status" | "workspace">(() => isProductDetailRoute ? "workspace" : "list");
+  const [productSearch, setProductSearch] = useState("");
+  const [productStatusFilter, setProductStatusFilter] = useState<"all" | Product["status"]>("all");
+  const [productSourceFilter, setProductSourceFilter] = useState<"all" | "default" | "custom">("all");
+  const [productTagFilter, setProductTagFilter] = useState("all");
+  const [productSort, setProductSort] = useState<"name" | "updated" | "progress" | "work">("name");
+  const [showDefaultProductsInTable, setShowDefaultProductsInTable] = useState(true);
+  const [showCustomProductsInTable, setShowCustomProductsInTable] = useState(true);
+  const [catalogFilterMsg, setCatalogFilterMsg] = useState<string | null>(null);
+  const [catalogFilterError, setCatalogFilterError] = useState<string | null>(null);
+  const [statusProductId, setStatusProductId] = useState<string>("all");
+  const [statusDepth, setStatusDepth] = useState(1);
+  const [statusGroupBy, setStatusGroupBy] = useState<"node" | "kind" | "work_status">("node");
+  const [deleteProductCandidate, setDeleteProductCandidate] = useState<Product | null>(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
+  const [deleteConfirmArchive, setDeleteConfirmArchive] = useState(false);
 
   const { data: products, isLoading } = useQuery({ queryKey: ["products"], queryFn: listProducts });
+  const { data: hideExampleProductsSetting } = useQuery({
+    queryKey: ["setting", HIDE_EXAMPLE_PRODUCTS_KEY],
+    queryFn: () => getSetting(HIDE_EXAMPLE_PRODUCTS_KEY),
+  });
   const visibleActiveProductId = products?.some((product) => product.id === activeProductId)
     ? activeProductId
     : null;
@@ -180,6 +221,15 @@ export function ProductListPage() {
     }
   }, [activeProductId, isLoading, selectedProductId, setActiveProduct]);
 
+  useEffect(() => {
+    if (statusProductId === "all") {
+      return;
+    }
+    if (!products?.some((product) => product.id === statusProductId)) {
+      setStatusProductId("all");
+    }
+  }, [products, statusProductId]);
+
   const { data: tree } = useQuery({
     queryKey: ["productTree", selectedProductId],
     queryFn: () => getProductTree(selectedProductId!),
@@ -190,6 +240,22 @@ export function ProductListPage() {
     queryKey: ["productAllTasks", selectedProductId],
     queryFn: () => listWorkItems({ productId: selectedProductId ?? undefined }),
     enabled: !!selectedProduct,
+  });
+
+  const productTreeQueries = useQueries({
+    queries: (products ?? []).map((product) => ({
+      queryKey: ["productTree", product.id],
+      queryFn: () => getProductTree(product.id),
+      enabled: !!product.id,
+    })),
+  });
+
+  const productWorkItemQueries = useQueries({
+    queries: (products ?? []).map((product) => ({
+      queryKey: ["productAllTasks", product.id],
+      queryFn: () => listWorkItems({ productId: product.id }),
+      enabled: !!product.id,
+    })),
   });
 
   const { data: scopedTasks } = useQuery({
@@ -223,6 +289,120 @@ export function ProductListPage() {
     }
     return (scopedTasks ?? []).filter((workItem) => workItem.product_id === selectedProductId);
   }, [scopedTasks, selectedProductId]);
+
+  const productTreeById = useMemo(() => {
+    const map = new Map<string, ProductTree>();
+    (products ?? []).forEach((product, index) => {
+      const result = productTreeQueries[index]?.data;
+      if (result) {
+        map.set(product.id, result);
+      }
+    });
+    return map;
+  }, [productTreeQueries, products]);
+
+  const productTasksById = useMemo(() => {
+    const map = new Map<string, WorkItem[]>();
+    (products ?? []).forEach((product, index) => {
+      map.set(product.id, productWorkItemQueries[index]?.data ?? []);
+    });
+    return map;
+  }, [productWorkItemQueries, products]);
+
+  const allProductTags = useMemo(() => {
+    const tags = new Set<string>();
+    (products ?? []).forEach((product) => product.tags.forEach((tag) => tags.add(tag)));
+    return Array.from(tags).sort((a, b) => a.localeCompare(b));
+  }, [products]);
+
+  const includeDefaultProductsInCatalog = !parseBooleanSetting(hideExampleProductsSetting, true);
+  const productTableRows = useMemo(() => {
+    const rows = (products ?? []).map((product) => {
+      const treeForProduct = productTreeById.get(product.id);
+      const tasksForProduct = productTasksById.get(product.id) ?? [];
+      const progress = getProgressSummary(tasksForProduct);
+      return {
+        product,
+        source: isExampleProduct(product) ? "default" as const : "custom" as const,
+        rootCount: treeForProduct?.roots.length ?? 0,
+        nodeCount: treeForProduct ? countHierarchyNodes(treeForProduct.roots) : 0,
+        workItemCount: tasksForProduct.length,
+        activeWorkItemCount: tasksForProduct.filter(isActiveWorkItem).length,
+        progress,
+      };
+    });
+
+    const search = productSearch.trim().toLowerCase();
+    return rows
+      .filter((row) => {
+        if (!showDefaultProductsInTable && row.source === "default") return false;
+        if (!showCustomProductsInTable && row.source === "custom") return false;
+        if (productStatusFilter !== "all" && row.product.status !== productStatusFilter) return false;
+        if (productSourceFilter !== "all" && row.source !== productSourceFilter) return false;
+        if (productTagFilter !== "all" && !row.product.tags.includes(productTagFilter)) return false;
+        if (!search) return true;
+        return [
+          row.product.name,
+          row.product.description,
+          row.product.vision,
+          row.product.status,
+          row.source,
+          ...row.product.tags,
+        ].join(" ").toLowerCase().includes(search);
+      })
+      .sort((a, b) => {
+        switch (productSort) {
+          case "updated":
+            return Date.parse(b.product.updated_at) - Date.parse(a.product.updated_at);
+          case "progress":
+            return b.progress.percent - a.progress.percent || a.product.name.localeCompare(b.product.name);
+          case "work":
+            return b.workItemCount - a.workItemCount || a.product.name.localeCompare(b.product.name);
+          case "name":
+          default:
+            return a.product.name.localeCompare(b.product.name);
+        }
+      });
+  }, [
+    productSearch,
+    productSort,
+    productSourceFilter,
+    productStatusFilter,
+    productTagFilter,
+    productTasksById,
+    productTreeById,
+    products,
+    showCustomProductsInTable,
+    showDefaultProductsInTable,
+  ]);
+
+  const selectedStatusProduct = statusProductId === "all"
+    ? null
+    : products?.find((product) => product.id === statusProductId) ?? null;
+  const selectedStatusProducts = selectedStatusProduct ? [selectedStatusProduct] : (products ?? []);
+  const statusSummary = useMemo(
+    () => buildProductStatusSummary(selectedStatusProducts, productTreeById, productTasksById),
+    [productTasksById, productTreeById, selectedStatusProducts],
+  );
+  const statusRows = useMemo(
+    () => buildStatusRows(selectedStatusProducts, productTreeById, productTasksById, statusDepth, statusGroupBy),
+    [productTasksById, productTreeById, selectedStatusProducts, statusDepth, statusGroupBy],
+  );
+
+  const updateDefaultProductVisibility = async (includeDefaultProducts: boolean) => {
+    try {
+      setCatalogFilterMsg(null);
+      setCatalogFilterError(null);
+      await setSetting(HIDE_EXAMPLE_PRODUCTS_KEY, includeDefaultProducts ? "false" : "true");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["products"] }),
+        queryClient.invalidateQueries({ queryKey: ["setting", HIDE_EXAMPLE_PRODUCTS_KEY] }),
+      ]);
+      setCatalogFilterMsg(includeDefaultProducts ? "Default products are included." : "Default products are hidden.");
+    } catch (error) {
+      setCatalogFilterError(String(error));
+    }
+  };
 
   const openWorkspaceInIde = () => {
     if (resolvedWorkspace) {
@@ -512,7 +692,14 @@ export function ProductListPage() {
       if (selectedProductId === archivedId) {
         setActiveProduct(null);
       }
+      if (statusProductId === archivedId) {
+        setStatusProductId("all");
+      }
+      setDeleteProductCandidate(null);
+      setDeleteConfirmName("");
+      setDeleteConfirmArchive(false);
     },
+    onError: (error) => setFormError(String(error)),
   });
 
   const reorderModulesMutation = useMutation({
@@ -720,19 +907,270 @@ export function ProductListPage() {
     useUIStore.getState().openCapabilityDialog("create");
   };
 
+  const editProductFromList = (product: Product) => {
+    setActiveProduct(product.id);
+    setProductDraft({
+      name: product.name,
+      description: product.description,
+      vision: product.vision,
+      goals: product.goals.join(", "),
+      tags: product.tags.join(", "),
+    });
+    setFormError(null);
+    openProductDialog("edit");
+  };
+
+  const openProductWorkspace = (product: Product) => {
+    setActiveProduct(product.id);
+    setStatusProductId(product.id);
+    setProductPageTab("workspace");
+    navigate(`/products/${product.id}`);
+  };
+
+  const openProductStatus = (product: Product) => {
+    setActiveProduct(product.id);
+    setStatusProductId(product.id);
+    setProductPageTab("status");
+  };
+
+  const requestArchiveProduct = (product: Product) => {
+    setDeleteProductCandidate(product);
+    setDeleteConfirmName("");
+    setDeleteConfirmArchive(false);
+    setFormError(null);
+  };
+
+  const deleteConfirmationReady = !!deleteProductCandidate
+    && deleteConfirmName.trim() === deleteProductCandidate.name
+    && deleteConfirmArchive;
+
   return (
     <div style={styles.page}>
       <div style={styles.header}>
         <div style={styles.titleBlock}>
-          <h1 style={styles.title}>Product Workspace</h1>
-          <div style={styles.subtitle}>Book reads the product as documentation. Structure edits the semantic tree. Delivery keeps work attached to the current node.</div>
+          <h1 style={styles.title}>Products</h1>
+          <div style={styles.subtitle}>Manage the catalog, inspect product health, and open the focused product workspace from one page.</div>
         </div>
+        <button style={styles.btn} onClick={() => openProductDialog("create")}>+ Add Product</button>
+      </div>
+
+      <div style={styles.pageTabs}>
+        <button style={productPageTab === "list" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("list")}>Products List</button>
+        <button style={productPageTab === "status" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("status")}>Products Status</button>
+        <button style={productPageTab === "workspace" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("workspace")}>Product Workspace</button>
       </div>
 
       <div style={styles.workspace}>
         <div style={styles.panel}>
           <div style={styles.panelInner}>
-            {selectedProduct ? (
+            {productPageTab === "list" ? (
+              <>
+                <div style={styles.toolbar}>
+                  <div>
+                    <div style={styles.controlLabel}>Search</div>
+                    <input
+                      style={styles.input}
+                      value={productSearch}
+                      onChange={(event) => setProductSearch(event.target.value)}
+                      placeholder="Filter by name, tag, status, or description"
+                    />
+                  </div>
+                  <div>
+                    <div style={styles.controlLabel}>Status</div>
+                    <select style={styles.select} value={productStatusFilter} onChange={(event) => setProductStatusFilter(event.target.value as typeof productStatusFilter)}>
+                      <option value="all">All statuses</option>
+                      <option value="active">Active</option>
+                      <option value="archived">Archived</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div style={styles.controlLabel}>Source</div>
+                    <select style={styles.select} value={productSourceFilter} onChange={(event) => setProductSourceFilter(event.target.value as typeof productSourceFilter)}>
+                      <option value="all">All sources</option>
+                      <option value="custom">Custom</option>
+                      <option value="default">Default</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div style={styles.controlLabel}>Tag</div>
+                    <select style={styles.select} value={productTagFilter} onChange={(event) => setProductTagFilter(event.target.value)}>
+                      <option value="all">All tags</option>
+                      {allProductTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <div style={styles.controlLabel}>Sort</div>
+                    <select style={styles.select} value={productSort} onChange={(event) => setProductSort(event.target.value as typeof productSort)}>
+                      <option value="name">Name</option>
+                      <option value="updated">Recently updated</option>
+                      <option value="progress">Progress</option>
+                      <option value="work">Work items</option>
+                    </select>
+                  </div>
+                </div>
+                <div style={styles.toggleRow}>
+                  <label style={styles.checkboxLabel}>
+                    <input type="checkbox" checked={showCustomProductsInTable} onChange={(event) => setShowCustomProductsInTable(event.target.checked)} />
+                    Show custom products
+                  </label>
+                  <label style={styles.checkboxLabel}>
+                    <input type="checkbox" checked={showDefaultProductsInTable} onChange={(event) => setShowDefaultProductsInTable(event.target.checked)} />
+                    Show default products in table
+                  </label>
+                  <label style={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={includeDefaultProductsInCatalog}
+                      onChange={(event) => updateDefaultProductVisibility(event.target.checked)}
+                    />
+                    Include default products from catalog
+                  </label>
+                  {catalogFilterMsg && <span style={{ ...styles.contextText, color: "#4ec9b0" }}>{catalogFilterMsg}</span>}
+                  {catalogFilterError && <span style={styles.errorText}>{catalogFilterError}</span>}
+                </div>
+                <div style={styles.table}>
+                  <div style={styles.productTableHeader}>
+                    <div>Product</div>
+                    <div>Source</div>
+                    <div>Status</div>
+                    <div>Structure</div>
+                    <div>Progress</div>
+                    <div>Actions</div>
+                  </div>
+                  {productTableRows.length > 0 ? productTableRows.map((row) => (
+                    <div key={row.product.id} style={styles.productTableRow}>
+                      <div>
+                        <div style={styles.rowPrimary}>{row.product.name}</div>
+                        <div style={styles.rowSecondary}>{row.product.description || row.product.vision || "No description yet."}</div>
+                        <div style={styles.chipRow}>
+                          {row.product.tags.slice(0, 4).map((tag) => <span key={tag} style={styles.badgeMuted}>{tag}</span>)}
+                        </div>
+                      </div>
+                      <div style={styles.rowCell}>{row.source}</div>
+                      <div style={styles.rowCell}>{row.product.status}</div>
+                      <div style={styles.rowCell}>{row.rootCount} roots · {row.nodeCount} nodes</div>
+                      <div>
+                        <div style={styles.rowCell}>{row.progress.percent}%</div>
+                        <div style={styles.progressTrack}><div style={{ ...styles.progressFill, width: `${row.progress.percent}%` }} /></div>
+                        <div style={styles.rowSecondary}>{row.progress.done}/{row.progress.total} done · {row.activeWorkItemCount} active</div>
+                      </div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <button style={styles.ghostBtn} onClick={() => editProductFromList(row.product)}>Edit</button>
+                        <button style={styles.ghostBtn} onClick={() => openProductStatus(row.product)}>Status</button>
+                        <button style={styles.ghostBtn} onClick={() => openProductWorkspace(row.product)}>Workspace</button>
+                        <button style={styles.btnDanger} onClick={() => requestArchiveProduct(row.product)}>Delete</button>
+                      </div>
+                    </div>
+                  )) : (
+                    <div style={styles.empty}>{isLoading ? "Loading products..." : "No products match the current filters."}</div>
+                  )}
+                </div>
+              </>
+            ) : productPageTab === "status" ? (
+              <>
+                <div style={styles.toolbarCompact}>
+                  <div style={{ minWidth: 260 }}>
+                    <div style={styles.controlLabel}>Product</div>
+                    <select
+                      style={styles.select}
+                      value={statusProductId}
+                      onChange={(event) => {
+                        const nextProductId = event.target.value;
+                        setStatusProductId(nextProductId);
+                        if (nextProductId !== "all") {
+                          setActiveProduct(nextProductId);
+                        }
+                      }}
+                    >
+                      <option value="all">All visible products</option>
+                      {(products ?? []).map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ minWidth: 170 }}>
+                    <div style={styles.controlLabel}>Visible levels</div>
+                    <select style={styles.select} value={statusDepth} onChange={(event) => setStatusDepth(Number(event.target.value))}>
+                      {[1, 2, 3, 4, 5, 6].map((depth) => <option key={depth} value={depth}>{depth} {depth === 1 ? "level" : "levels"}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ minWidth: 180 }}>
+                    <div style={styles.controlLabel}>Pivot</div>
+                    <select style={styles.select} value={statusGroupBy} onChange={(event) => setStatusGroupBy(event.target.value as typeof statusGroupBy)}>
+                      <option value="node">Tree nodes</option>
+                      <option value="kind">Node kind</option>
+                      <option value="work_status">Work status</option>
+                    </select>
+                  </div>
+                </div>
+                <div style={styles.metricGrid}>
+                  <div style={styles.metricCard}>
+                    <div style={styles.metricLabel}>Products</div>
+                    <div style={styles.metricValue}>{statusSummary.productCount}</div>
+                    <div style={styles.metricHelp}>Included in this status view</div>
+                  </div>
+                  <div style={styles.metricCard}>
+                    <div style={styles.metricLabel}>Nodes</div>
+                    <div style={styles.metricValue}>{statusSummary.nodeCount}</div>
+                    <div style={styles.metricHelp}>{statusSummary.leafCount} leaf nodes</div>
+                  </div>
+                  <div style={styles.metricCard}>
+                    <div style={styles.metricLabel}>Work Items</div>
+                    <div style={styles.metricValue}>{statusSummary.workItemCount}</div>
+                    <div style={styles.metricHelp}>{statusSummary.activeWorkItemCount} active · {statusSummary.doneWorkItemCount} done</div>
+                  </div>
+                  <div style={styles.metricCard}>
+                    <div style={styles.metricLabel}>Progress</div>
+                    <div style={styles.metricValue}>{statusSummary.progress.percent}%</div>
+                    <div style={styles.metricHelp}>{statusSummary.progress.done}/{statusSummary.progress.total} completed</div>
+                  </div>
+                </div>
+                <div style={{ ...styles.table, marginTop: 12 }}>
+                  <div style={styles.statusTableHeader}>
+                    <div>{statusGroupBy === "node" ? "Scope" : "Group"}</div>
+                    <div>Level</div>
+                    <div>Kind</div>
+                    <div>Nodes</div>
+                    <div>Work</div>
+                    <div>Progress</div>
+                  </div>
+                  {statusRows.length > 0 ? statusRows.map((row) => (
+                    <div
+                      key={row.id}
+                      style={styles.statusTableRow}
+                      onClick={() => {
+                        if (row.productId) {
+                          setActiveProduct(row.productId);
+                        }
+                        if (row.nodeId && row.nodeType) {
+                          setActiveHierarchyNode({
+                            nodeId: row.nodeId,
+                            nodeType: row.nodeType,
+                            moduleId: row.moduleId ?? null,
+                            capabilityId: row.capabilityId ?? null,
+                          });
+                          setProductPageTab("workspace");
+                        }
+                      }}
+                    >
+                      <div style={{ paddingLeft: statusGroupBy === "node" ? Math.max(0, row.level - 1) * 16 : 0 }}>
+                        <div style={styles.rowPrimary}>{row.name}</div>
+                        <div style={styles.rowSecondary}>{row.subtitle}</div>
+                      </div>
+                      <div style={styles.rowCell}>{row.level}</div>
+                      <div style={styles.rowCell}>{row.kind}</div>
+                      <div style={styles.rowCell}>{row.nodeCount} total · {row.childCount} child</div>
+                      <div style={styles.rowCell}>{row.workItemCount} total · {row.activeWorkItemCount} active</div>
+                      <div>
+                        <div style={styles.rowCell}>{row.progress.percent}%</div>
+                        <div style={styles.progressTrack}><div style={{ ...styles.progressFill, width: `${row.progress.percent}%` }} /></div>
+                        <div style={styles.rowSecondary}>{row.progress.done}/{row.progress.total} done</div>
+                      </div>
+                    </div>
+                  )) : (
+                    <div style={styles.empty}>{isLoading ? "Loading status..." : "No status rows are available for this selection."}</div>
+                  )}
+                </div>
+              </>
+            ) : selectedProduct ? (
               <>
                 <div style={styles.tabBar}>
                   <button style={productWorkspaceTab === "book" ? styles.tabActive : styles.tab} onClick={() => setProductWorkspaceTab("book")}>Book</button>
@@ -775,7 +1213,7 @@ export function ProductListPage() {
                           {createWorkspaceMutation.isPending ? "Creating Workspace..." : "Create Workspace"}
                         </button>
                       )}
-                      {!selectedHierarchyNode ? <button style={styles.btnDanger} onClick={() => archiveMutation.mutate(selectedProduct.id)}>Archive</button> : null}
+                      {!selectedHierarchyNode ? <button style={styles.btnDanger} onClick={() => requestArchiveProduct(selectedProduct)}>Delete</button> : null}
                     </div>
                     {workspaceActionMsg && <div style={{ ...styles.contextText, color: "#4ec9b0", marginTop: 10 }}>{workspaceActionMsg}</div>}
                     {workspaceActionError && <div style={{ ...styles.errorText, marginTop: 10, marginBottom: 0 }}>{workspaceActionError}</div>}
@@ -1053,6 +1491,44 @@ export function ProductListPage() {
               {productDialogMode === "create"
                 ? createProductMutation.isPending ? "Creating..." : "Create Product"
                 : updateProductMutation.isPending ? "Saving..." : "Save Product"}
+            </button>
+          </div>
+        </ModalShell>
+      )}
+
+      {deleteProductCandidate && (
+        <ModalShell title={`Delete Product: ${deleteProductCandidate.name}`} onClose={() => setDeleteProductCandidate(null)}>
+          <div style={styles.contextCard}>
+            <div style={styles.contextLabel}>Double Confirmation</div>
+            <div style={styles.contextTitle}>This will archive the product and remove it from active product workflows.</div>
+            <div style={styles.contextText}>
+              The current backend exposes archive as the supported product removal operation. Type the product name and confirm the archive action to continue.
+            </div>
+          </div>
+          <label style={styles.label}>Type product name</label>
+          <input
+            style={styles.input}
+            value={deleteConfirmName}
+            onChange={(event) => setDeleteConfirmName(event.target.value)}
+            placeholder={deleteProductCandidate.name}
+          />
+          <label style={styles.checkboxLabel}>
+            <input
+              type="checkbox"
+              checked={deleteConfirmArchive}
+              onChange={(event) => setDeleteConfirmArchive(event.target.checked)}
+            />
+            I understand this product will be archived.
+          </label>
+          {formError && <div style={{ ...styles.errorText, marginTop: 10 }}>{formError}</div>}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+            <button style={styles.ghostBtn} onClick={() => setDeleteProductCandidate(null)}>Cancel</button>
+            <button
+              style={styles.btnDanger}
+              onClick={() => archiveMutation.mutate(deleteProductCandidate.id)}
+              disabled={!deleteConfirmationReady || archiveMutation.isPending}
+            >
+              {archiveMutation.isPending ? "Archiving..." : "Delete Product"}
             </button>
           </div>
         </ModalShell>
@@ -1394,4 +1870,242 @@ function moveIdToIndex(ids: string[], id: string, nextIndex: number): string[] {
   const [item] = nextIds.splice(currentIndex, 1);
   nextIds.splice(nextIndex, 0, item);
   return nextIds;
+}
+
+function parseBooleanSetting(value: string | null | undefined, fallback: boolean) {
+  if (value == null) return fallback;
+  switch (value.trim().toLowerCase()) {
+    case "1":
+    case "true":
+    case "yes":
+    case "on":
+      return true;
+    case "0":
+    case "false":
+    case "no":
+    case "off":
+      return false;
+    default:
+      return fallback;
+  }
+}
+
+function isExampleProduct(product: Product) {
+  return product.id.startsWith("example-") || product.tags.includes("example_product") || product.tags.includes("seeded_catalog");
+}
+
+function isActiveWorkItem(workItem: WorkItem) {
+  return workItem.status !== "done" && workItem.status !== "cancelled";
+}
+
+function getProgressSummary(workItems: WorkItem[]) {
+  const total = workItems.length;
+  const done = workItems.filter((workItem) => workItem.status === "done").length;
+  return {
+    total,
+    done,
+    percent: total > 0 ? Math.round((done / total) * 100) : 0,
+  };
+}
+
+interface ProductStatusSummary {
+  productCount: number;
+  nodeCount: number;
+  leafCount: number;
+  workItemCount: number;
+  activeWorkItemCount: number;
+  doneWorkItemCount: number;
+  progress: ReturnType<typeof getProgressSummary>;
+}
+
+interface StatusRow {
+  id: string;
+  productId: string | null;
+  nodeId?: string;
+  nodeType?: HierarchyTreeNode["node_type"];
+  moduleId?: string;
+  capabilityId?: string | null;
+  level: number;
+  name: string;
+  subtitle: string;
+  kind: string;
+  childCount: number;
+  nodeCount: number;
+  workItemCount: number;
+  activeWorkItemCount: number;
+  progress: ReturnType<typeof getProgressSummary>;
+}
+
+function buildProductStatusSummary(
+  products: Product[],
+  productTreeById: Map<string, ProductTree>,
+  productTasksById: Map<string, WorkItem[]>,
+): ProductStatusSummary {
+  const allWorkItems = products.flatMap((product) => productTasksById.get(product.id) ?? []);
+  return {
+    productCount: products.length,
+    nodeCount: products.reduce((total, product) => total + countHierarchyNodes(productTreeById.get(product.id)?.roots ?? []), 0),
+    leafCount: products.reduce((total, product) => total + countLeafNodes(productTreeById.get(product.id)?.roots ?? []), 0),
+    workItemCount: allWorkItems.length,
+    activeWorkItemCount: allWorkItems.filter(isActiveWorkItem).length,
+    doneWorkItemCount: allWorkItems.filter((workItem) => workItem.status === "done").length,
+    progress: getProgressSummary(allWorkItems),
+  };
+}
+
+function buildStatusRows(
+  products: Product[],
+  productTreeById: Map<string, ProductTree>,
+  productTasksById: Map<string, WorkItem[]>,
+  maxDepth: number,
+  groupBy: "node" | "kind" | "work_status",
+): StatusRow[] {
+  if (groupBy === "kind") {
+    return buildKindPivotRows(products, productTreeById, productTasksById, maxDepth);
+  }
+  if (groupBy === "work_status") {
+    return buildWorkStatusPivotRows(products, productTasksById);
+  }
+
+  const rows: StatusRow[] = [];
+  const includeProductRows = products.length !== 1;
+  products.forEach((product) => {
+    const tree = productTreeById.get(product.id);
+    const workItems = productTasksById.get(product.id) ?? [];
+    if (includeProductRows || !tree?.roots.length) {
+      rows.push({
+        id: `product:${product.id}`,
+        productId: product.id,
+        level: 0,
+        name: product.name,
+        subtitle: product.description || product.vision || "Product summary",
+        kind: "Product",
+        childCount: tree?.roots.length ?? 0,
+        nodeCount: tree ? countHierarchyNodes(tree.roots) : 0,
+        workItemCount: workItems.length,
+        activeWorkItemCount: workItems.filter(isActiveWorkItem).length,
+        progress: getProgressSummary(workItems),
+      });
+    }
+    if (tree) {
+      tree.roots.forEach((node) => pushNodeStatusRows(rows, product, node, workItems, maxDepth));
+    }
+  });
+  return rows;
+}
+
+function pushNodeStatusRows(
+  rows: StatusRow[],
+  product: Product,
+  node: HierarchyTreeNode,
+  workItems: WorkItem[],
+  maxDepth: number,
+) {
+  const level = node.depth + 1;
+  if (level > maxDepth) {
+    return;
+  }
+  const subtreeWorkItems = getSubtreeWorkItemsForNode(node, workItems);
+  rows.push({
+    id: `${product.id}:${node.node_type}:${node.id}`,
+    productId: product.id,
+    nodeId: node.id,
+    nodeType: node.node_type,
+    moduleId: node.module_id,
+    capabilityId: node.capability_id,
+    level,
+    name: node.name,
+    subtitle: node.path.join(" / ") || product.name,
+    kind: getHierarchyNodeKindLabel(node.node_kind),
+    childCount: node.children.length,
+    nodeCount: countDescendantNodes(node) + 1,
+    workItemCount: subtreeWorkItems.length,
+    activeWorkItemCount: subtreeWorkItems.filter(isActiveWorkItem).length,
+    progress: getProgressSummary(subtreeWorkItems),
+  });
+  node.children.forEach((child) => pushNodeStatusRows(rows, product, child, workItems, maxDepth));
+}
+
+function buildKindPivotRows(
+  products: Product[],
+  productTreeById: Map<string, ProductTree>,
+  productTasksById: Map<string, WorkItem[]>,
+  maxDepth: number,
+): StatusRow[] {
+  const groups = new Map<string, StatusRow>();
+  products.forEach((product) => {
+    const tree = productTreeById.get(product.id);
+    const workItems = productTasksById.get(product.id) ?? [];
+    (tree?.roots ?? []).forEach((node) => collectKindPivot(node, product, workItems, maxDepth, groups));
+  });
+  return Array.from(groups.values()).sort((a, b) => a.kind.localeCompare(b.kind));
+}
+
+function collectKindPivot(
+  node: HierarchyTreeNode,
+  product: Product,
+  workItems: WorkItem[],
+  maxDepth: number,
+  groups: Map<string, StatusRow>,
+) {
+  const level = node.depth + 1;
+  if (level > maxDepth) {
+    return;
+  }
+  const kind = getHierarchyNodeKindLabel(node.node_kind);
+  const directWorkItems = getDirectWorkItemsForNode(node, workItems);
+  const existing = groups.get(kind) ?? {
+    id: `kind:${kind}`,
+    productId: product.id,
+    level: 0,
+    name: kind,
+    subtitle: "Pivoted across matching node kinds",
+    kind,
+    childCount: 0,
+    nodeCount: 0,
+    workItemCount: 0,
+    activeWorkItemCount: 0,
+    progress: getProgressSummary([]),
+  };
+  const nextWorkItems = [
+    ...Array.from({ length: existing.progress.done }, (_, index) => ({ id: `done-${index}`, status: "done" } as WorkItem)),
+    ...Array.from({ length: existing.progress.total - existing.progress.done }, (_, index) => ({ id: `open-${index}`, status: "in_progress" } as WorkItem)),
+    ...directWorkItems,
+  ];
+  groups.set(kind, {
+    ...existing,
+    childCount: existing.childCount + node.children.length,
+    nodeCount: existing.nodeCount + 1,
+    workItemCount: existing.workItemCount + directWorkItems.length,
+    activeWorkItemCount: existing.activeWorkItemCount + directWorkItems.filter(isActiveWorkItem).length,
+    progress: getProgressSummary(nextWorkItems),
+  });
+  node.children.forEach((child) => collectKindPivot(child, product, workItems, maxDepth, groups));
+}
+
+function buildWorkStatusPivotRows(
+  products: Product[],
+  productTasksById: Map<string, WorkItem[]>,
+): StatusRow[] {
+  const groups = new Map<string, WorkItem[]>();
+  products.forEach((product) => {
+    (productTasksById.get(product.id) ?? []).forEach((workItem) => {
+      groups.set(workItem.status, [...(groups.get(workItem.status) ?? []), workItem]);
+    });
+  });
+  return Array.from(groups.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([status, workItems]) => ({
+      id: `work-status:${status}`,
+      productId: products.length === 1 ? products[0].id : null,
+      level: 0,
+      name: status.replace(/_/g, " "),
+      subtitle: "Pivoted across work items with this status",
+      kind: "Work Status",
+      childCount: 0,
+      nodeCount: 0,
+      workItemCount: workItems.length,
+      activeWorkItemCount: workItems.filter(isActiveWorkItem).length,
+      progress: getProgressSummary(workItems),
+    }));
 }

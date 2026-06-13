@@ -250,6 +250,7 @@
       ],
       repositories: [],
       externalCliRuns: [],
+      externalCliRunEvents: [],
       plannerSessions: {},
     };
   }
@@ -1424,6 +1425,14 @@
           const workItemId = String(getArg(args, "workItemId", "work_item_id") ?? "");
           return ok(state.externalCliRuns.filter((run) => !workItemId || run.work_item_id === workItemId));
         }
+        case "list_external_cli_run_events": {
+          const runId = String(getArg(args, "runId", "run_id") ?? "");
+          const limit = Number(getArg(args, "limit") ?? 500);
+          return ok((state.externalCliRunEvents ?? [])
+            .filter((event) => !runId || event.run_id === runId)
+            .sort((a, b) => a.sequence - b.sequence)
+            .slice(-Math.max(1, Math.min(limit, 2000))));
+        }
         case "get_latest_workflow_run_for_work_item":
         case "get_workflow_run":
         case "get_work_item":
@@ -1512,13 +1521,18 @@
         case "invoke_external_cli_for_work_item": {
           const provider = String(getArg(args, "provider") ?? "codex");
           const workItemId = String(getArg(args, "workItemId", "work_item_id") ?? "");
+          const runId = nextId("external-cli-run");
           const run = {
-            id: nextId("external-cli-run"),
+            id: runId,
             work_item_id: workItemId,
             provider,
             label: provider === "codex" ? "Codex CLI" : provider === "claude" ? "Claude Code CLI" : provider === "cursor" ? "Cursor Agent CLI" : "GitHub Copilot CLI",
-            command: provider === "copilot" ? "gh" : provider === "cursor" ? "cursor-agent" : provider,
-            args: provider === "codex" ? ["exec", "Mock work item prompt"] : provider === "copilot" ? ["copilot", "-p", "Mock work item prompt"] : ["-p", "Mock work item prompt"],
+            command: provider === "copilot" ? "copilot" : provider === "cursor" ? "cursor-agent" : provider,
+            args: provider === "codex"
+              ? ["exec", "--ignore-user-config", "--sandbox", "workspace-write", "--cd", "/tmp/mock-repository", "Mock work item prompt"]
+              : provider === "copilot"
+                ? ["--autopilot", "--no-ask-user", "--max-autopilot-continues", "10", "-s", "--allow-tool", "shell(git:*),shell(npm:*),shell(cargo:*),shell(rg:*),shell(ls:*),shell(cat:*),shell(sed:*),write", "-p", "Mock work item prompt"]
+                : ["-p", "Mock work item prompt"],
             prompt: "Mock work item prompt",
             cwd: "/tmp/mock-repository",
             status: "completed",
@@ -1526,6 +1540,7 @@
             duration_ms: 25,
             stdout_chars: 32,
             stderr_chars: 0,
+            session_log_path: `/tmp/aruvi-external-cli/${runId}/session.log`,
             output_artifact_id: null,
             error_message: null,
             started_at: FIXED_TIMESTAMP,
@@ -1533,6 +1548,35 @@
             created_at: FIXED_TIMESTAMP,
           };
           state.externalCliRuns.unshift(run);
+          state.externalCliRunEvents.push(
+            {
+              id: nextId("external-cli-event"),
+              run_id: runId,
+              work_item_id: workItemId,
+              stream: "lifecycle",
+              message: `Starting ${run.label}.`,
+              sequence: 1,
+              created_at: FIXED_TIMESTAMP,
+            },
+            {
+              id: nextId("external-cli-event"),
+              run_id: runId,
+              work_item_id: workItemId,
+              stream: "stdout",
+              message: "Mock external CLI completed.",
+              sequence: 2,
+              created_at: FIXED_TIMESTAMP,
+            },
+            {
+              id: nextId("external-cli-event"),
+              run_id: runId,
+              work_item_id: workItemId,
+              stream: "lifecycle",
+              message: "Captured output artifact.",
+              sequence: 3,
+              created_at: FIXED_TIMESTAMP,
+            },
+          );
           return ok(run);
         }
         case "handle_workflow_user_action":

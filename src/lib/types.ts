@@ -315,10 +315,21 @@ export interface ExternalCliRun {
   duration_ms: number | null;
   stdout_chars: number;
   stderr_chars: number;
+  session_log_path: string;
   output_artifact_id: string | null;
   error_message: string | null;
   started_at: string;
   ended_at: string | null;
+  created_at: string;
+}
+
+export interface ExternalCliRunEvent {
+  id: string;
+  run_id: string;
+  work_item_id: string;
+  stream: "lifecycle" | "stdout" | "stderr" | "error";
+  message: string;
+  sequence: number;
   created_at: string;
 }
 

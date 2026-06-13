@@ -51,7 +51,7 @@ test("planner supports deterministic create, refine, and commit flow", async ({ 
   await expect(page.getByText("Committed draft plan.").first()).toBeVisible();
 
   await page.getByTestId("nav-products").click();
-  await expect(page.getByRole("heading", { name: "Product Workspace" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Products" })).toBeVisible();
   await expect(page.getByText("Boutique Hotel Management System").first()).toBeVisible();
 });
 

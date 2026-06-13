@@ -3,7 +3,8 @@ import { test, expect } from "./support/test.js";
 test("product workspace supports semantic tree navigation and book deep links", async ({ page }) => {
   await page.goto("/products");
 
-  await expect(page.getByRole("heading", { name: "Product Workspace" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Products" })).toBeVisible();
+  await page.getByRole("button", { name: "Product Workspace" }).click();
   await expect(page.getByPlaceholder("Search nodes")).toBeVisible();
   await expect(page.getByRole("button", { name: /^Book$/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Structure$/ })).toBeVisible();

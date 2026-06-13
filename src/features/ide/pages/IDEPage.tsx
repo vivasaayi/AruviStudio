@@ -669,7 +669,7 @@ Rules:
                 path={activeFile.path}
                 language={activeFile.language}
                 value={activeFile.content}
-                theme="vs-dark"
+                theme="vs-light"
                 onChange={(value) => updateFileContent(activeFile.id, value ?? "")}
                 options={{
                   fontSize: 13,

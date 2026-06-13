@@ -1,4 +1,5 @@
 use crate::domain::events::DomainEvent;
+use crate::persistence::external_cli_repo;
 use crate::services::{
     agent_service, model_service, planner_service, product_service, workflow_service,
 };
@@ -33,6 +34,7 @@ impl AppState {
         // Create directories if they don't exist
         tokio::fs::create_dir_all(&artifact_base_path).await?;
         tokio::fs::create_dir_all(&workspace_base_path).await?;
+        external_cli_repo::mark_interrupted_external_cli_runs(&db).await?;
 
         // Initialize services
         let db_arc = Arc::new(db);

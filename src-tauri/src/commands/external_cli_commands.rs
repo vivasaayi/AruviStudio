@@ -1,4 +1,4 @@
-use crate::domain::external_cli::ExternalCliRun;
+use crate::domain::external_cli::{ExternalCliRun, ExternalCliRunEvent};
 use crate::error::AppError;
 use crate::persistence::external_cli_repo;
 use crate::services::external_cli_service;
@@ -36,4 +36,18 @@ pub async fn list_external_cli_runs_for_work_item(
         .or(workItemId)
         .ok_or_else(|| AppError::Validation("missing work item id".to_string()))?;
     external_cli_repo::list_external_cli_runs_for_work_item(&state.db, &work_item_id).await
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn list_external_cli_run_events(
+    state: State<'_, AppState>,
+    run_id: Option<String>,
+    runId: Option<String>,
+    limit: Option<i64>,
+) -> Result<Vec<ExternalCliRunEvent>, AppError> {
+    let run_id = run_id
+        .or(runId)
+        .ok_or_else(|| AppError::Validation("missing external CLI run id".to_string()))?;
+    external_cli_repo::list_external_cli_run_events(&state.db, &run_id, limit.unwrap_or(500)).await
 }

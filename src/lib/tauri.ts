@@ -21,6 +21,7 @@ import type {
   TeamSkillLink,
   WorkflowStagePolicy,
   ExternalCliRun,
+  ExternalCliRunEvent,
   ModelCall,
   AgentRun,
   WorkflowRun,
@@ -904,6 +905,12 @@ export const listExternalCliRunsForWorkItem = (workItemId: string) =>
   invoke<ExternalCliRun[]>("list_external_cli_runs_for_work_item", {
     workItemId,
     work_item_id: workItemId,
+  });
+export const listExternalCliRunEvents = (runId: string, limit = 500) =>
+  invoke<ExternalCliRunEvent[]>("list_external_cli_run_events", {
+    runId,
+    run_id: runId,
+    limit,
   });
 export const markWorkflowRunFailed = (workflowRunId: string, reason?: string) =>
   invoke<void>("mark_workflow_run_failed", {
