@@ -3,9 +3,6 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 interface UIState {
   leftSidebarVisible: boolean;
-  rightSidebarVisible: boolean;
-  bottomPanelVisible: boolean;
-  bottomPanelTab: "terminal" | "logs" | "tests";
   productDialogMode: "closed" | "create" | "edit";
   moduleDialogMode: "closed" | "create" | "edit";
   capabilityDialogMode: "closed" | "create" | "edit";
@@ -18,9 +15,6 @@ interface UIState {
   productPickerCollapsed: boolean;
   activeView: "products" | "product-overview" | "work-items" | "planner" | "chat" | "voice-chat" | "calls" | "ide" | "repositories" | "agents" | "models" | "settings";
   toggleLeftSidebar: () => void;
-  toggleRightSidebar: () => void;
-  toggleBottomPanel: () => void;
-  setBottomPanelTab: (tab: "terminal" | "logs" | "tests") => void;
   openProductDialog: (mode: "create" | "edit") => void;
   closeProductDialog: () => void;
   openModuleDialog: (mode: "create" | "edit") => void;
@@ -44,9 +38,6 @@ export const useUIStore = create<UIState>()(
   persist(
     (set) => ({
       leftSidebarVisible: true,
-      rightSidebarVisible: true,
-      bottomPanelVisible: false,
-      bottomPanelTab: "terminal",
       productDialogMode: "closed",
       moduleDialogMode: "closed",
       capabilityDialogMode: "closed",
@@ -59,9 +50,6 @@ export const useUIStore = create<UIState>()(
       productPickerCollapsed: false,
       activeView: "planner",
       toggleLeftSidebar: () => set((s) => ({ leftSidebarVisible: !s.leftSidebarVisible })),
-      toggleRightSidebar: () => set((s) => ({ rightSidebarVisible: !s.rightSidebarVisible })),
-      toggleBottomPanel: () => set((s) => ({ bottomPanelVisible: !s.bottomPanelVisible })),
-      setBottomPanelTab: (tab) => set({ bottomPanelTab: tab }),
       openProductDialog: (mode) => set({ productDialogMode: mode, activeView: "products" }),
       closeProductDialog: () => set({ productDialogMode: "closed" }),
       openModuleDialog: (mode) => set({ moduleDialogMode: mode, activeView: "products", productWorkspaceTab: "structure" }),
@@ -100,9 +88,6 @@ export const useUIStore = create<UIState>()(
       },
       partialize: (state) => ({
         leftSidebarVisible: state.leftSidebarVisible,
-        rightSidebarVisible: state.rightSidebarVisible,
-        bottomPanelVisible: state.bottomPanelVisible,
-        bottomPanelTab: state.bottomPanelTab,
         productWorkspaceTab: state.productWorkspaceTab,
         workItemWorkspaceTab: state.workItemWorkspaceTab,
         expandedModules: state.expandedModules,

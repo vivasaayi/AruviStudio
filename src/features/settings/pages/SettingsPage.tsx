@@ -92,7 +92,7 @@ const styles: Record<string, React.CSSProperties> = {
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
-  const { leftSidebarVisible, rightSidebarVisible, bottomPanelVisible, toggleLeftSidebar, toggleRightSidebar, toggleBottomPanel } = useUIStore();
+  const { leftSidebarVisible, toggleLeftSidebar } = useUIStore();
   const [dockerHost, setDockerHost] = useState("");
   const [maxRetries, setMaxRetries] = useState("3");
   const [autoStartAfterApproval, setAutoStartAfterApproval] = useState(true);
@@ -305,8 +305,6 @@ export function SettingsPage() {
       <div style={styles.section}>
         <div style={styles.sectionTitle}>Layout</div>
         <div style={styles.row}><div><div style={styles.label}>Left Sidebar</div><div style={styles.desc}>Product tree and navigation</div></div><button style={{ ...styles.toggle, backgroundColor: leftSidebarVisible ? "#0e639c" : "#444" }} onClick={toggleLeftSidebar} /></div>
-        <div style={styles.row}><div><div style={styles.label}>Right Sidebar</div><div style={styles.desc}>Context panel for work item details</div></div><button style={{ ...styles.toggle, backgroundColor: rightSidebarVisible ? "#0e639c" : "#444" }} onClick={toggleRightSidebar} /></div>
-        <div style={styles.row}><div><div style={styles.label}>Bottom Panel</div><div style={styles.desc}>Terminal, logs, and test results</div></div><button style={{ ...styles.toggle, backgroundColor: bottomPanelVisible ? "#0e639c" : "#444" }} onClick={toggleBottomPanel} /></div>
       </div>
       <div style={styles.section}>
         <div style={styles.sectionTitle}>Catalog</div>

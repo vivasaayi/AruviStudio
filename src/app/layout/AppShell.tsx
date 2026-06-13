@@ -3,8 +3,6 @@ import { Allotment } from "allotment";
 import "allotment/dist/style.css";
 import { useNavigate, useLocation } from "react-router-dom";
 import { LeftSidebar } from "./LeftSidebar";
-import { RightSidebar } from "./RightSidebar";
-import { BottomPanel } from "./BottomPanel";
 import { useUIStore } from "../../state/uiStore";
 
 const styles: Record<string, any> = {
@@ -33,24 +31,14 @@ const navItems = [
 export function AppShell({ children }: { children: React.ReactNode }) {
   const {
     leftSidebarVisible,
-    rightSidebarVisible,
-    bottomPanelVisible,
     activeView,
     setActiveView,
-    toggleBottomPanel,
-    toggleRightSidebar,
   } = useUIStore();
   const navigate = useNavigate();
   const location = useLocation();
 
   const currentView = navItems.find((item) => location.pathname.startsWith(`/${item.key}`))?.key ?? activeView;
   const supportsHierarchyRail = currentView === "work-items";
-  const supportsInspectorRail =
-    currentView !== "ide"
-    && currentView !== "chat"
-    && currentView !== "voice-chat"
-    && currentView !== "calls"
-    && currentView !== "product-overview";
   const showLeftSidebar = leftSidebarVisible && supportsHierarchyRail;
 
   return (
@@ -71,16 +59,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
           ))}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <button style={bottomPanelVisible ? styles.navButtonActive : styles.navButton} onClick={toggleBottomPanel}>
-            {bottomPanelVisible ? "Hide Console" : "Show Console"}
-          </button>
-          {supportsInspectorRail && (
-            <button style={rightSidebarVisible ? styles.navButtonActive : styles.navButton} onClick={toggleRightSidebar}>
-              {rightSidebarVisible ? "Hide Inspector" : "Show Inspector"}
-            </button>
-          )}
-        </div>
       </div>
       <div style={styles.content}>
         <Allotment>
@@ -90,27 +68,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </Allotment.Pane>
           )}
           <Allotment.Pane>
-            <Allotment vertical>
-              <Allotment.Pane>
-                <Allotment>
-                  <Allotment.Pane>
-                    <div style={{ padding: 12, overflow: "auto", height: "100%" }}>
-                      {children}
-                    </div>
-                  </Allotment.Pane>
-                  {supportsInspectorRail && rightSidebarVisible && (
-                    <Allotment.Pane minSize={200} preferredSize={260}>
-                      <RightSidebar />
-                    </Allotment.Pane>
-                  )}
-                </Allotment>
-              </Allotment.Pane>
-              {bottomPanelVisible && (
-                <Allotment.Pane minSize={90} preferredSize={160}>
-                  <BottomPanel />
-                </Allotment.Pane>
-              )}
-            </Allotment>
+            <div style={{ padding: 12, overflow: "auto", height: "100%" }}>
+              {children}
+            </div>
           </Allotment.Pane>
         </Allotment>
       </div>
