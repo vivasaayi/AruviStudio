@@ -45,7 +45,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const location = useLocation();
 
   const currentView = navItems.find((item) => location.pathname.startsWith(`/${item.key}`))?.key ?? activeView;
-  const supportsHierarchyRail = currentView === "products" || currentView === "work-items";
+  const supportsHierarchyRail = currentView === "work-items";
   const supportsInspectorRail =
     currentView !== "ide"
     && currentView !== "chat"

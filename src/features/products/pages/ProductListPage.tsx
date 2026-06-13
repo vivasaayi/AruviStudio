@@ -27,8 +27,10 @@ import {
   countLeafNodes,
   findHierarchyNode,
   findHierarchyNodePath,
+  flattenHierarchyNodes,
   getDirectChildNodes,
   getDirectWorkItemsForNode,
+  getHierarchyNodeKey,
   getHierarchyNodeSectionId,
   getProductDirectWorkItems,
   getSubtreeWorkItemsForNode,
@@ -73,6 +75,27 @@ const styles: Record<string, React.CSSProperties> = {
   checkboxLabel: { display: "flex", gap: 6, alignItems: "center", fontSize: 12, color: "#cfd6e4" },
   controlLabel: { fontSize: 11, color: "#8f96a3", textTransform: "uppercase" as const, fontWeight: 800, letterSpacing: "0.06em", marginBottom: 4 },
   select: { width: "100%", padding: "9px 12px", backgroundColor: "#181a1f", border: "1px solid #3c4048", borderRadius: 8, color: "#e0e0e0", fontSize: 13, boxSizing: "border-box" as const },
+  workspaceWithOutline: { display: "grid", gridTemplateColumns: "minmax(280px, 360px) minmax(0, 1fr)", gap: 12, minHeight: 0 },
+  outlinePanel: { border: "1px solid #32353d", borderRadius: 12, backgroundColor: "#1b1d22", padding: 12, minHeight: 0, overflow: "auto" },
+  outlineSummary: { border: "1px solid #32353d", borderRadius: 10, backgroundColor: "#26292f", padding: 12, marginBottom: 12 },
+  outlineTitle: { fontSize: 14, fontWeight: 800, color: "#f3f3f3", marginBottom: 4 },
+  outlineMeta: { fontSize: 11, color: "#8f96a3", lineHeight: 1.45 },
+  outlineControls: { display: "grid", gridTemplateColumns: "1fr", gap: 8, marginBottom: 10 },
+  outlineToolRow: { display: "flex", gap: 6, flexWrap: "wrap" as const },
+  outlineRecent: { border: "1px solid #32353d", borderRadius: 10, backgroundColor: "#26292f", padding: 8, marginBottom: 10 },
+  outlineRecentBtn: { width: "100%", textAlign: "left" as const, padding: "7px 8px", borderRadius: 8, border: "1px solid #3b4049", backgroundColor: "#1b1d22", color: "#d8e1ef", cursor: "pointer", fontSize: 11, marginTop: 6 },
+  outlineTree: { display: "flex", flexDirection: "column", gap: 6 },
+  outlineNode: { borderRadius: 8, border: "1px solid #303640", backgroundColor: "#26292f", color: "#ced4de", padding: "8px 10px" },
+  outlineNodeActive: { borderRadius: 8, border: "1px solid #0e639c", backgroundColor: "#1f2a35", color: "#ffffff", padding: "8px 10px" },
+  outlineNodeHeader: { display: "flex", alignItems: "flex-start", gap: 8 },
+  outlineToggle: { width: 20, height: 20, borderRadius: 6, border: "1px solid #38404d", backgroundColor: "#181a1f", color: "#cfd6e4", fontSize: 10, cursor: "pointer", flexShrink: 0 },
+  outlineNodeBody: { flex: 1, minWidth: 0, cursor: "pointer" },
+  outlineNodeTitle: { fontSize: 12, fontWeight: 700, color: "#e9eef8" },
+  outlineNodeMeta: { fontSize: 10, color: "#8f96a3", marginTop: 3, lineHeight: 1.4 },
+  outlineChildWrap: { marginLeft: 12, paddingLeft: 8, borderLeft: "1px solid #2c3139", display: "flex", flexDirection: "column", gap: 6, marginTop: 6 },
+  outlineActionRow: { display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" },
+  outlineActionBtn: { padding: "3px 6px", borderRadius: 6, border: "1px solid #3b4049", backgroundColor: "#2c3139", color: "#e0e0e0", fontSize: 10, fontWeight: 700, cursor: "pointer" },
+  outlineTask: { borderRadius: 8, border: "1px solid #2c3139", backgroundColor: "#1a1d22", color: "#d8dde6", cursor: "pointer", padding: "7px 9px" },
   hero: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) 220px", gap: 10, marginBottom: 12 },
   heroCard: { backgroundColor: "#26292f", borderRadius: 12, border: "1px solid #32353d", padding: 14 },
   heroName: { fontSize: 24, fontWeight: 800, color: "#ffffff", marginBottom: 6 },
@@ -143,6 +166,7 @@ export function ProductListPage() {
     activeCapabilityId,
     activeNodeId,
     activeNodeType,
+    activeWorkItemId,
     activeWorkspacePath,
     setActiveProduct,
     setActiveModule,
@@ -155,6 +179,9 @@ export function ProductListPage() {
     moduleDialogMode,
     capabilityDialogMode,
     productWorkspaceTab,
+    expandedModules,
+    expandedCapabilities,
+    showHierarchyWorkItems,
     closeProductDialog,
     openProductDialog,
     closeModuleDialog,
@@ -162,6 +189,11 @@ export function ProductListPage() {
     closeCapabilityDialog,
     openCapabilityDialog,
     setProductWorkspaceTab,
+    toggleModuleExpanded,
+    toggleCapabilityExpanded,
+    setModuleExpanded,
+    setCapabilityExpanded,
+    toggleHierarchyWorkItems,
     setActiveView,
   } = useUIStore();
 
@@ -197,6 +229,10 @@ export function ProductListPage() {
   const [deleteProductCandidate, setDeleteProductCandidate] = useState<Product | null>(null);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [deleteConfirmArchive, setDeleteConfirmArchive] = useState(false);
+  const [outlineSearchTerm, setOutlineSearchTerm] = useState("");
+  const [outlineKindFilter, setOutlineKindFilter] = useState<HierarchyNodeKind | "">("");
+  const [recentNodeKeys, setRecentNodeKeys] = useState<string[]>([]);
+  const outlineNodeRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
 
   const { data: products, isLoading } = useQuery({ queryKey: ["products"], queryFn: listProducts });
   const { data: hideExampleProductsSetting } = useQuery({
@@ -751,6 +787,46 @@ export function ProductListPage() {
     () => (tree ? findHierarchyNodePath(tree.roots, activeNodeId, activeNodeType) : []),
     [tree, activeNodeId, activeNodeType],
   );
+  const allTreeNodes = useMemo(() => (tree ? flattenHierarchyNodes(tree.roots) : []), [tree]);
+  const nodeLookup = useMemo(
+    () => new Map(allTreeNodes.map((node) => [getHierarchyNodeKey(node), node])),
+    [allTreeNodes],
+  );
+  const selectedNodeKey = activeNodeId && activeNodeType ? `${activeNodeType}:${activeNodeId}` : null;
+  const outlineNodeKindOptions = useMemo(
+    () => Array.from(new Set(allTreeNodes.map((node) => node.node_kind))),
+    [allTreeNodes],
+  );
+  const hasOutlineFilter = outlineSearchTerm.trim().length > 0 || outlineKindFilter.length > 0;
+  const filteredOutlineRoots = useMemo(() => {
+    if (!tree) {
+      return [];
+    }
+    if (!hasOutlineFilter) {
+      return tree.roots;
+    }
+
+    const normalizedSearch = outlineSearchTerm.trim().toLowerCase();
+    const filterNode = (node: HierarchyTreeNode): HierarchyTreeNode | null => {
+      const childMatches = node.children
+        .map(filterNode)
+        .filter(Boolean) as HierarchyTreeNode[];
+      const matchesSearch = normalizedSearch.length === 0
+        || [node.name, ...node.path, node.description, node.summary].join(" ").toLowerCase().includes(normalizedSearch);
+      const matchesKind = !outlineKindFilter || node.node_kind === outlineKindFilter;
+      if ((matchesSearch && matchesKind) || childMatches.length > 0) {
+        return {
+          ...node,
+          children: childMatches,
+        };
+      }
+      return null;
+    };
+
+    return tree.roots
+      .map(filterNode)
+      .filter(Boolean) as HierarchyTreeNode[];
+  }, [hasOutlineFilter, outlineKindFilter, outlineSearchTerm, tree]);
   const selectedNodeKind = selectedHierarchyNode?.node_kind ?? selectedCapability?.node_kind ?? selectedModule?.node_kind ?? null;
   const selectedNodeTitle = selectedHierarchyNode?.name ?? selectedProduct?.name ?? "Product";
   const selectedNodeSummary = selectedHierarchyNode?.summary
@@ -905,6 +981,175 @@ export function ProductListPage() {
       return;
     }
     useUIStore.getState().openCapabilityDialog("create");
+  };
+
+  useEffect(() => {
+    if (!selectedNodeKey) {
+      return;
+    }
+    setRecentNodeKeys((current) => [selectedNodeKey, ...current.filter((key) => key !== selectedNodeKey)].slice(0, 6));
+  }, [selectedNodeKey]);
+
+  const setOutlineNodeExpandedState = (node: HierarchyTreeNode, expanded: boolean) => {
+    if (node.node_type === "module") {
+      setModuleExpanded(node.id, expanded);
+      return;
+    }
+    setCapabilityExpanded(node.id, expanded);
+  };
+
+  const collapseOutlineNodes = () => {
+    allTreeNodes.forEach((node) => setOutlineNodeExpandedState(node, false));
+  };
+
+  const expandSelectedOutlinePath = () => {
+    selectedHierarchyPath.forEach((node) => setOutlineNodeExpandedState(node, true));
+  };
+
+  const jumpToSelectedOutlineNode = () => {
+    if (!selectedNodeKey) {
+      return;
+    }
+    expandSelectedOutlinePath();
+    requestAnimationFrame(() => {
+      outlineNodeRefs.current[selectedNodeKey]?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  };
+
+  const openOutlineNode = (node: HierarchyTreeNode) => {
+    setActiveHierarchyNode({
+      nodeId: node.id,
+      nodeType: node.node_type,
+      moduleId: node.module_id,
+      capabilityId: node.capability_id,
+    });
+    setProductWorkspaceTab("structure");
+  };
+
+  const createWorkItemForOutlineNode = (node: HierarchyTreeNode) => {
+    openOutlineNode(node);
+    setShowWorkItemForm(true);
+  };
+
+  const createChildForOutlineNode = (node: HierarchyTreeNode) => {
+    openOutlineNode(node);
+    openCapabilityDialog("create");
+  };
+
+  const editOutlineNode = (node: HierarchyTreeNode) => {
+    openOutlineNode(node);
+    if (node.node_type === "module") {
+      openModuleDialog("edit");
+      return;
+    }
+    openCapabilityDialog("edit");
+  };
+
+  const renderOutlineNode = (node: HierarchyTreeNode, depth = 0): React.ReactNode => {
+    const nodeKey = getHierarchyNodeKey(node);
+    const isActive = selectedNodeKey === nodeKey;
+    const isExpanded = hasOutlineFilter
+      ? true
+      : node.node_type === "module"
+        ? expandedModules[node.id] ?? true
+        : expandedCapabilities[node.id] ?? true;
+    const directWorkItemCount = getDirectWorkItemsForNode(node, allProductTasks).length;
+    const totalWorkItemCount = getSubtreeWorkItemsForNode(node, allProductTasks).length;
+
+    return (
+      <div key={nodeKey}>
+        <div
+          ref={(element) => {
+            outlineNodeRefs.current[nodeKey] = element;
+          }}
+          style={{
+            ...(isActive ? styles.outlineNodeActive : styles.outlineNode),
+            marginLeft: depth * 10,
+          }}
+        >
+          <div style={styles.outlineNodeHeader}>
+            {node.children.length > 0 ? (
+              <button
+                style={styles.outlineToggle}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (node.node_type === "module") {
+                    toggleModuleExpanded(node.id);
+                  } else {
+                    toggleCapabilityExpanded(node.id);
+                  }
+                }}
+              >
+                {isExpanded ? "-" : "+"}
+              </button>
+            ) : (
+              <div style={styles.outlineToggle}>.</div>
+            )}
+            <div style={styles.outlineNodeBody} onClick={() => openOutlineNode(node)}>
+              <div style={styles.outlineNodeTitle}>{node.name}</div>
+              <div style={styles.outlineNodeMeta}>
+                {getHierarchyNodeKindLabel(node.node_kind)} · {node.children.length} {node.children.length === 1 ? "child" : "children"} · {directWorkItemCount} direct · {totalWorkItemCount} total work items
+              </div>
+              {node.summary || node.description ? <div style={styles.outlineNodeMeta}>{node.summary || node.description}</div> : null}
+            </div>
+          </div>
+          <div style={styles.outlineActionRow}>
+            <button
+              style={styles.outlineActionBtn}
+              onClick={(event) => {
+                event.stopPropagation();
+                createWorkItemForOutlineNode(node);
+              }}
+            >
+              + Work Item
+            </button>
+            {supportsHierarchyChildren(node.node_kind) ? (
+              <button
+                style={styles.outlineActionBtn}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  createChildForOutlineNode(node);
+                }}
+              >
+                + Child Node
+              </button>
+            ) : null}
+            <button
+              style={styles.outlineActionBtn}
+              onClick={(event) => {
+                event.stopPropagation();
+                editOutlineNode(node);
+              }}
+            >
+              Edit
+            </button>
+          </div>
+        </div>
+        {isExpanded && node.children.length > 0 ? (
+          <div style={styles.outlineChildWrap}>
+            {node.children.map((child) => renderOutlineNode(child, depth + 1))}
+            {showHierarchyWorkItems
+              ? getDirectWorkItemsForNode(node, allProductTasks).slice(0, 6).map((workItem) => (
+                  <div
+                    key={workItem.id}
+                    style={{
+                      ...styles.outlineTask,
+                      ...(activeWorkItemId === workItem.id ? { borderColor: "#0e639c", backgroundColor: "#1c2733" } : null),
+                    }}
+                    onClick={() => {
+                      setActiveWorkItem(workItem.id);
+                      setProductWorkspaceTab("delivery");
+                    }}
+                  >
+                    <div style={styles.taskTitle}>{workItem.title}</div>
+                    <div style={styles.taskMeta}>{workItem.status.replace(/_/g, " ")}</div>
+                  </div>
+                ))
+              : null}
+          </div>
+        ) : null}
+      </div>
+    );
   };
 
   const editProductFromList = (product: Product) => {
@@ -1171,7 +1416,95 @@ export function ProductListPage() {
                 </div>
               </>
             ) : selectedProduct ? (
-              <>
+              <div style={styles.workspaceWithOutline}>
+                <div style={styles.outlinePanel}>
+                  <div style={styles.outlineSummary}>
+                    <div style={styles.controlLabel}>Outline</div>
+                    <div style={styles.outlineTitle}>{selectedProduct.name}</div>
+                    <div style={styles.outlineMeta}>
+                      {tree?.roots.length ?? 0} root sections · {totalNodeCount} nodes · {leafNodeCount} leaf nodes · {activeWorkItemCount} active work items
+                    </div>
+                  </div>
+                  <div style={styles.outlineControls}>
+                    <input
+                      style={styles.input}
+                      value={outlineSearchTerm}
+                      onChange={(event) => setOutlineSearchTerm(event.target.value)}
+                      placeholder="Search nodes"
+                    />
+                    <select
+                      style={styles.select}
+                      value={outlineKindFilter}
+                      onChange={(event) => setOutlineKindFilter(event.target.value as HierarchyNodeKind | "")}
+                    >
+                      <option value="">All node kinds</option>
+                      {outlineNodeKindOptions.map((nodeKind) => (
+                        <option key={nodeKind} value={nodeKind}>{getHierarchyNodeKindLabel(nodeKind)}</option>
+                      ))}
+                    </select>
+                    <div style={styles.outlineToolRow}>
+                      <button style={styles.ghostBtn} onClick={collapseOutlineNodes}>Collapse All</button>
+                      <button style={styles.ghostBtn} onClick={expandSelectedOutlinePath} disabled={!selectedNodeKey}>Expand Path</button>
+                      <button style={styles.ghostBtn} onClick={jumpToSelectedOutlineNode} disabled={!selectedNodeKey}>Jump To Selected</button>
+                      <button style={styles.ghostBtn} onClick={toggleHierarchyWorkItems}>
+                        {showHierarchyWorkItems ? "Hide Work Items" : "Show Work Items"}
+                      </button>
+                    </div>
+                  </div>
+                  {recentNodeKeys.length > 0 ? (
+                    <div style={styles.outlineRecent}>
+                      <div style={styles.controlLabel}>Recent Nodes</div>
+                      {recentNodeKeys
+                        .map((key) => nodeLookup.get(key))
+                        .filter((node): node is HierarchyTreeNode => Boolean(node))
+                        .map((node) => (
+                          <button
+                            key={getHierarchyNodeKey(node)}
+                            style={styles.outlineRecentBtn}
+                            onClick={() => {
+                              openOutlineNode(node);
+                              requestAnimationFrame(() => {
+                                outlineNodeRefs.current[getHierarchyNodeKey(node)]?.scrollIntoView({ block: "center", behavior: "smooth" });
+                              });
+                            }}
+                          >
+                            {node.path.join(" / ")}
+                          </button>
+                        ))}
+                    </div>
+                  ) : null}
+                  <div style={styles.outlineTree}>
+                    {filteredOutlineRoots.length > 0 ? (
+                      filteredOutlineRoots.map((node) => renderOutlineNode(node))
+                    ) : (
+                      <div style={styles.empty}>
+                        {hasOutlineFilter ? "No nodes match the current filters." : "Create root sections to begin building the hierarchy."}
+                      </div>
+                    )}
+                    {showHierarchyWorkItems && getProductDirectWorkItems(allProductTasks).length > 0 ? (
+                      <div style={styles.outlineRecent}>
+                        <div style={styles.controlLabel}>Product Work Items</div>
+                        {getProductDirectWorkItems(allProductTasks).slice(0, 6).map((workItem) => (
+                          <div
+                            key={workItem.id}
+                            style={{
+                              ...styles.outlineTask,
+                              ...(activeWorkItemId === workItem.id ? { borderColor: "#0e639c", backgroundColor: "#1c2733" } : null),
+                            }}
+                            onClick={() => {
+                              setActiveWorkItem(workItem.id);
+                              setProductWorkspaceTab("delivery");
+                            }}
+                          >
+                            <div style={styles.taskTitle}>{workItem.title}</div>
+                            <div style={styles.taskMeta}>{workItem.status.replace(/_/g, " ")}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+                <div style={{ minWidth: 0 }}>
                 <div style={styles.tabBar}>
                   <button style={productWorkspaceTab === "book" ? styles.tabActive : styles.tab} onClick={() => setProductWorkspaceTab("book")}>Book</button>
                   <button style={productWorkspaceTab === "structure" ? styles.tabActive : styles.tab} onClick={() => setProductWorkspaceTab("structure")}>Structure</button>
@@ -1428,14 +1761,15 @@ export function ProductListPage() {
                     )}
                   </div>
                 )}
-              </>
+                </div>
+              </div>
             ) : (
               <div style={styles.empty}>
                 {isLoading
                   ? "Loading products..."
                   : products && products.length > 0
-                    ? "Select a product from the left sidebar to start refining the hierarchy."
-                    : "No visible products yet. Use + New in the left product rail or disable Hide Example Products in Settings."}
+                    ? "Select a product from Products List to start refining the hierarchy."
+                    : "No visible products yet. Use Add Product or disable Hide Example Products in Settings."}
               </div>
             )}
           </div>
