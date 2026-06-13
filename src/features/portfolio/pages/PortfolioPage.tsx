@@ -3,10 +3,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createStrategyNode,
   deleteStrategyNode,
+  linkProductToStrategy,
   listProductDependencies,
   listProducts,
   listProductStrategyLinks,
   listStrategyNodes,
+  unlinkProductFromStrategy,
   updateStrategyNode,
 } from "../../../lib/tauri";
 import type { Product, ProductDependency, ProductStrategyLink, StrategyNode, StrategyNodeKind } from "../../../lib/types";
@@ -106,6 +108,7 @@ export function PortfolioPage() {
   const [deleteCandidate, setDeleteCandidate] = useState<StrategyNode | null>(null);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [deleteAcknowledge, setDeleteAcknowledge] = useState(false);
+  const [linkDraft, setLinkDraft] = useState({ productId: "", isPrimary: true });
   const [formError, setFormError] = useState<string | null>(null);
 
   const strategyTree = useMemo(() => buildStrategyTree(strategyNodes), [strategyNodes]);
@@ -123,6 +126,11 @@ export function PortfolioPage() {
   const selectedNodeProductCount = selectedStrategyNode
     ? countProductsForStrategy(findTreeNode(strategyTree, selectedStrategyNode.id), strategyLinks)
     : products.length;
+  const selectedNodeLinks = selectedStrategyNode
+    ? strategyLinks.filter((link) => link.strategy_node_id === selectedStrategyNode.id)
+    : [];
+  const selectedNodeLinkedProductIds = new Set(selectedNodeLinks.map((link) => link.product_id));
+  const linkableProducts = products.filter((product) => !selectedNodeLinkedProductIds.has(product.id));
 
   const invalidateStrategy = async () => {
     await Promise.all([
@@ -175,6 +183,32 @@ export function PortfolioPage() {
       setDeleteCandidate(null);
       setDeleteConfirmName("");
       setDeleteAcknowledge(false);
+      setFormError(null);
+      await invalidateStrategy();
+    },
+    onError: (error) => setFormError(formatError(error)),
+  });
+
+  const linkProductMutation = useMutation({
+    mutationFn: () => linkProductToStrategy({
+      productId: linkDraft.productId,
+      strategyNodeId: selectedStrategyNodeId!,
+      isPrimary: linkDraft.isPrimary,
+    }),
+    onSuccess: async () => {
+      setLinkDraft({ productId: "", isPrimary: true });
+      setFormError(null);
+      await invalidateStrategy();
+    },
+    onError: (error) => setFormError(formatError(error)),
+  });
+
+  const unlinkProductMutation = useMutation({
+    mutationFn: (productId: string) => unlinkProductFromStrategy({
+      productId,
+      strategyNodeId: selectedStrategyNodeId!,
+    }),
+    onSuccess: async () => {
       setFormError(null);
       await invalidateStrategy();
     },
@@ -396,6 +430,56 @@ export function PortfolioPage() {
                     {getChildKind(selectedStrategyNode.node_kind) ? <button style={styles.button} onClick={() => openCreateChildDialog(selectedStrategyNode)}>Add Child</button> : null}
                     <button style={styles.ghostButton} onClick={() => openEditDialog(selectedStrategyNode)}>Edit</button>
                     <button style={styles.dangerButton} onClick={() => setDeleteCandidate(selectedStrategyNode)}>Delete</button>
+                  </div>
+                  <div style={styles.section}>
+                    <div style={styles.sectionTitle}>Product Placement</div>
+                    <div style={styles.label}>Link product to this node</div>
+                    <select
+                      aria-label="Product to link"
+                      style={styles.input}
+                      value={linkDraft.productId}
+                      onChange={(event) => setLinkDraft((draft) => ({ ...draft, productId: event.target.value }))}
+                    >
+                      <option value="">Select product</option>
+                      {linkableProducts.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
+                    </select>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, color: "#374151", fontSize: 12, fontWeight: 700, marginBottom: 10 }}>
+                      <input
+                        type="checkbox"
+                        checked={linkDraft.isPrimary}
+                        onChange={(event) => setLinkDraft((draft) => ({ ...draft, isPrimary: event.target.checked }))}
+                      />
+                      Primary placement
+                    </label>
+                    <button
+                      style={styles.button}
+                      onClick={() => linkProductMutation.mutate()}
+                      disabled={!selectedStrategyNodeId || !linkDraft.productId || linkProductMutation.isPending}
+                    >
+                      {linkProductMutation.isPending ? "Linking..." : "Link Product"}
+                    </button>
+                  </div>
+                  <div style={styles.section}>
+                    <div style={styles.sectionTitle}>Linked Products</div>
+                    {selectedNodeLinks.length > 0 ? (
+                      selectedNodeLinks.map((link) => (
+                        <div key={link.id} style={{ borderTop: "1px solid #d9e0ea", paddingTop: 8, marginTop: 8 }}>
+                          <div style={styles.productTitle}>{productLabel(link.product_id)}</div>
+                          <div style={styles.badgeRow}>
+                            {link.is_primary ? <span style={styles.badge}>Primary</span> : <span style={styles.badgeMuted}>Secondary</span>}
+                            <button
+                              style={styles.dangerButton}
+                              onClick={() => unlinkProductMutation.mutate(link.product_id)}
+                              disabled={unlinkProductMutation.isPending}
+                            >
+                              Unlink
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={styles.empty}>No products are linked directly to this strategy node.</div>
+                    )}
                   </div>
                 </>
               ) : (

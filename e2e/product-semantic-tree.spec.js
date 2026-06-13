@@ -76,6 +76,11 @@ test("portfolio manage tab edits strategy hierarchy with modals and double-confi
   await page.getByRole("button", { name: "Save Node" }).click();
 
   await expect(page.getByText("Connected Devices", { exact: true }).first()).toBeVisible();
+  await page.getByLabel("Product to link").selectOption({ label: "Calculator" });
+  await page.getByRole("button", { name: "Link Product" }).click();
+  await expect(page.getByText("Linked Products", { exact: true })).toBeVisible();
+  await expect(page.getByText("Calculator", { exact: true }).first()).toBeVisible();
+
   await page.getByRole("button", { name: "Add child to Connected Devices" }).click();
   await page.getByLabel("Strategy node name").fill("Wearables");
   await page.getByRole("button", { name: "Save Node" }).click();
