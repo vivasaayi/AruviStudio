@@ -389,7 +389,7 @@ type DraftEditOperation =
   | { kind: "delete"; nodeId: string };
 
 const DEFAULT_ASSISTANT_OPENING =
-  "Select a product first, then describe the capability, rollout, workflow, or design change you want to explore. Planning stays inside the selected product until you switch products.";
+  "Select a product first, then describe the capability, capability slice, workflow, or design change you want to explore. Planning stays inside the selected product until you switch products.";
 
 const SPEECH_PROVIDER_KEY = "speech.transcription_provider_id";
 const SPEECH_MODEL_KEY = "speech.transcription_model_name";
@@ -599,7 +599,7 @@ function buildWorkItemTreeReport(context: ResolverContext, productName?: string)
         (item) => item.module_id === moduleTree.module.id && !item.capability_id,
       );
       if (moduleDirectItems.length > 0) {
-        lines.push("    direct work items");
+        lines.push("    direct delivery items");
         appendWorkItemHierarchy(lines, moduleDirectItems, null, "      ");
         moduleDirectItems.forEach((item) => includedWorkItemIds.add(item.id));
       }
@@ -626,7 +626,7 @@ function buildWorkItemTreeReport(context: ResolverContext, productName?: string)
     }
 
     if (productItems.length === 0) {
-      lines.push("  no work items");
+      lines.push("  no delivery items");
     }
     lines.push("");
   });
@@ -663,7 +663,7 @@ function buildWorkItemTreeNodes(context: ResolverContext, productName?: string):
         if (moduleDirectItems.length > 0) {
           moduleChildren.push({
             id: `${moduleTree.module.id}-direct`,
-            label: "Direct Work Items",
+            label: "Direct Delivery Items",
             children: buildWorkItemNodes(moduleDirectItems, null),
           });
           moduleDirectItems.forEach((item) => includedWorkItemIds.add(item.id));
@@ -704,7 +704,7 @@ function buildWorkItemTreeNodes(context: ResolverContext, productName?: string):
     if (moduleNodes.length === 0) {
       moduleNodes.push({
         id: `${product.id}-empty`,
-        label: "No work items",
+        label: "No delivery items",
         meta: "empty",
         children: [],
       });
@@ -739,7 +739,7 @@ function summarizeAction(action: PlannerAction | Record<string, unknown> | null 
   const fields = raw.fields ?? undefined;
   switch (actionType) {
     case "create_module":
-      return { symbol: "+", tone: "add", title: `Create module ${name ?? target?.moduleName ?? "unnamed module"}`, detail: target?.productName ? `Product: ${target.productName}` : "Attach to selected product." };
+      return { symbol: "+", tone: "add", title: `Create capability ${name ?? target?.moduleName ?? "unnamed capability"}`, detail: target?.productName ? `Product: ${target.productName}` : "Attach to selected product." };
     case "create_capability":
       return { symbol: "+", tone: "add", title: `Create capability ${name ?? target?.capabilityName ?? "unnamed capability"}`, detail: [target?.productName, target?.moduleName].filter(Boolean).join(" / ") || "Attach to selected scope." };
     case "apply_capability_template":
@@ -747,7 +747,7 @@ function summarizeAction(action: PlannerAction | Record<string, unknown> | null 
         symbol: "+",
         tone: "add",
         title: `Apply template ${String(raw.templateKind ?? "chapter")} to ${name ?? "unnamed topic"}`,
-        detail: [target?.productName, target?.moduleName, target?.capabilityName].filter(Boolean).join(" / ") || description || "Create a semantic chapter scaffold.",
+        detail: [target?.productName, target?.moduleName, target?.capabilityName].filter(Boolean).join(" / ") || description || "Create a product-design scaffold.",
       };
     case "convert_capability_kind":
       return {
@@ -757,15 +757,15 @@ function summarizeAction(action: PlannerAction | Record<string, unknown> | null 
         detail: `nodeKind=${String(raw.nodeKind ?? "unknown")} childStrategy=${String(raw.childStrategy ?? "reject")}`,
       };
     case "create_work_item":
-      return { symbol: "+", tone: "add", title: `Create work item ${title ?? target?.workItemTitle ?? "untitled work item"}`, detail: [target?.productName, target?.moduleName, target?.capabilityName].filter(Boolean).join(" / ") || description || "New work item proposal." };
+      return { symbol: "+", tone: "add", title: `Create delivery item ${title ?? target?.workItemTitle ?? "untitled delivery item"}`, detail: [target?.productName, target?.moduleName, target?.capabilityName].filter(Boolean).join(" / ") || description || "New delivery item proposal." };
     case "update_product":
       return { symbol: "~", tone: "update", title: `Update product ${target?.productName ?? ""}`.trim(), detail: JSON.stringify(fields, null, 2) };
     case "update_module":
-      return { symbol: "~", tone: "update", title: `Update module ${target?.moduleName ?? ""}`.trim(), detail: JSON.stringify(fields, null, 2) };
+      return { symbol: "~", tone: "update", title: `Update capability ${target?.moduleName ?? ""}`.trim(), detail: JSON.stringify(fields, null, 2) };
     case "update_capability":
       return { symbol: "~", tone: "update", title: `Update capability ${target?.capabilityName ?? ""}`.trim(), detail: JSON.stringify(fields, null, 2) };
     case "update_work_item":
-      return { symbol: "~", tone: "update", title: `Update work item ${target?.workItemTitle ?? ""}`.trim(), detail: JSON.stringify(fields, null, 2) };
+      return { symbol: "~", tone: "update", title: `Update delivery item ${target?.workItemTitle ?? ""}`.trim(), detail: JSON.stringify(fields, null, 2) };
     case "approve_work_item":
     case "approve_work_item_plan":
     case "approve_work_item_test_review":
@@ -897,7 +897,7 @@ function PlannerComposer({
         value={draft}
         onChange={(event) => onDraftChange(event.target.value)}
         placeholder={isProductSelected
-          ? "Describe what to design inside the selected product. Example: Add reporting capabilities and starter work items."
+          ? "Describe what to design inside the selected product. Example: Add reporting capabilities and starter delivery items."
           : "Select a product before planning. Create products in the Products page."}
       />
       {scopeChips.length > 0 ? (
@@ -1076,11 +1076,11 @@ function buildProposalTreeNodes(plan: PlannerPlan): PlannerTreeNode[] {
 
   const ensureModule = (productName?: string | null, moduleName?: string | null) => {
     const product = ensureProduct(productName);
-    const label = moduleName?.trim() || "Proposed module";
+    const label = moduleName?.trim() || "Proposed capability";
     const key = `${product.label}::${label}`;
     let node = moduleNodes.get(key);
     if (!node) {
-      node = { id: `proposal-module-${key}`, label, meta: "proposed module", node_type: "module", evidence: [], children: [] };
+      node = { id: `proposal-module-${key}`, label, meta: "proposed capability", node_type: "module", evidence: [], children: [] };
       moduleNodes.set(key, node);
       product.children.push(node);
     }
@@ -1114,8 +1114,8 @@ function buildProposalTreeNodes(plan: PlannerPlan): PlannerTreeNode[] {
         const capability = ensureCapability(target?.productName, target?.moduleName, target?.capabilityName ?? null);
         capability.children.push({
           id: `proposal-work-item-${capability.id}-${action.title ?? target?.workItemTitle ?? capability.children.length}`,
-          label: action.title ?? target?.workItemTitle ?? "Proposed work item",
-          meta: "proposed work item",
+          label: action.title ?? target?.workItemTitle ?? "Proposed delivery item",
+          meta: "proposed delivery item",
           node_type: "work_item",
           evidence: [],
           children: [],
@@ -1263,22 +1263,22 @@ function buildDraftValidation(nodes: PlannerTreeNode[]): DraftValidationSummary 
     if (nodeType === "product" && node.children.length === 0) {
       issues.push({
         tone: "warn",
-        title: `${node.label} needs modules`,
-        detail: "Products should usually have at least one module before the design is applied.",
+        title: `${node.label} needs capabilities`,
+        detail: "Products should usually have at least one top-level capability before the design is applied.",
       });
     }
     if (nodeType === "module" && node.children.length === 0) {
       issues.push({
         tone: "warn",
         title: `${node.label} is empty`,
-        detail: "Modules should contain capabilities or direct work items so the plan is actionable.",
+        detail: "Top-level capabilities should contain nested capabilities, capability slices, or delivery items so the plan is actionable.",
       });
     }
     if (nodeType === "capability" && node.children.length === 0) {
       issues.push({
         tone: "warn",
-        title: `${node.label} has no work items`,
-        detail: "Capabilities are stronger when they break down into implementation work items.",
+        title: `${node.label} has no delivery items`,
+        detail: "Capabilities are stronger when they break down into implementation-ready delivery items.",
       });
     }
 
@@ -1309,7 +1309,7 @@ function buildDraftValidation(nodes: PlannerTreeNode[]): DraftValidationSummary 
 function buildSuggestedPrompts(node: PlannerTreeNode | null): string[] {
   if (!node) {
     return [
-      "Design the selected product's modules, capabilities, and starter work items in one review packet.",
+      "Design the selected product's capabilities, capability slices, and starter delivery items in one review packet.",
       "Show me what is missing in this design before I apply it.",
     ];
   }
@@ -1317,26 +1317,26 @@ function buildSuggestedPrompts(node: PlannerTreeNode | null): string[] {
   switch (resolvedNodeType) {
     case "product":
       return [
-        `Expand ${node.label} with missing modules and operational areas.`,
+        `Expand ${node.label} with missing capabilities and operational areas.`,
         `What is missing under ${node.label} before I apply it?`,
-        `Add notification, reporting, and integration modules under ${node.label}.`,
+        `Add notification, reporting, and integration capabilities under ${node.label}.`,
       ];
     case "module":
       return [
         `Enhance ${node.label} with 3 concrete capabilities.`,
-        `Break ${node.label} into implementation-ready capabilities and work items.`,
-        `What risks or missing capability rollouts exist under ${node.label}?`,
+        `Break ${node.label} into implementation-ready capabilities and delivery items.`,
+        `What risks or missing capability slices exist under ${node.label}?`,
       ];
     case "capability":
       return [
-        `Add implementation work items under ${node.label}.`,
+        `Add implementation delivery items under ${node.label}.`,
         `Revise ${node.label} to be more concrete and execution-ready.`,
         `What acceptance criteria or technical notes are missing for ${node.label}?`,
       ];
     case "work item":
       return [
         `Revise ${node.label} to be more specific and testable.`,
-        `Split ${node.label} into smaller work items if needed.`,
+        `Split ${node.label} into smaller delivery items if needed.`,
         `Add risks, constraints, and acceptance criteria to ${node.label}.`,
       ];
     default:
@@ -1429,7 +1429,7 @@ async function executePlannerAction(action: PlannerAction, context: ResolverCont
         implementationNotes: (action as { implementationNotes?: string }).implementationNotes,
         testGuidance: (action as { testGuidance?: string }).testGuidance,
       });
-      return [`Created module "${module.name}" in "${product.name}".`];
+      return [`Created capability "${module.name}" in "${product.name}".`];
     }
     case "update_module": {
       const product = findProduct(context, action.target?.productName);
@@ -1445,13 +1445,13 @@ async function executePlannerAction(action: PlannerAction, context: ResolverCont
         implementationNotes: (action.fields as { implementationNotes?: string }).implementationNotes,
         testGuidance: (action.fields as { testGuidance?: string }).testGuidance,
       });
-      return [`Updated module "${updated.name}" in "${product.name}".`];
+      return [`Updated capability "${updated.name}" in "${product.name}".`];
     }
     case "delete_module": {
       const product = findProduct(context, action.target?.productName);
       const module = findModule(context, product, action.target?.moduleName);
       await deleteModule(module.id);
-      return [`Deleted module "${module.name}" from "${product.name}".`];
+      return [`Deleted capability "${module.name}" from "${product.name}".`];
     }
     case "create_capability": {
       const product = findProduct(context, action.target?.productName);
@@ -1549,7 +1549,7 @@ async function executePlannerAction(action: PlannerAction, context: ResolverCont
         priority: action.priority ?? "medium",
         complexity: action.complexity ?? "medium",
       });
-      return [`Created work item "${workItem.title}" in "${product.name}".`];
+      return [`Created delivery item "${workItem.title}" in "${product.name}".`];
     }
     case "update_work_item": {
       const workItem = findWorkItem(context, action.target?.workItemTitle, action.target?.productName);
@@ -1562,22 +1562,22 @@ async function executePlannerAction(action: PlannerAction, context: ResolverCont
         constraints: action.fields.constraints,
         status: action.fields.status,
       });
-      return [`Updated work item "${updated.title}".`];
+      return [`Updated delivery item "${updated.title}".`];
     }
     case "delete_work_item": {
       const workItem = findWorkItem(context, action.target?.workItemTitle, action.target?.productName);
       await deleteWorkItem(workItem.id);
-      return [`Deleted work item "${workItem.title}".`];
+      return [`Deleted delivery item "${workItem.title}".`];
     }
     case "approve_work_item": {
       const workItem = findWorkItem(context, action.target?.workItemTitle, action.target?.productName);
       await approveWorkItem(workItem.id, action.notes);
-      return [`Approved work item "${workItem.title}".`];
+      return [`Approved delivery item "${workItem.title}".`];
     }
     case "reject_work_item": {
       const workItem = findWorkItem(context, action.target?.workItemTitle, action.target?.productName);
       await rejectWorkItem(workItem.id, action.notes ?? "Rejected from interactive planner.");
-      return [`Rejected work item "${workItem.title}".`];
+      return [`Rejected delivery item "${workItem.title}".`];
     }
     case "approve_work_item_plan": {
       const workItem = findWorkItem(context, action.target?.workItemTitle, action.target?.productName);
@@ -1777,7 +1777,7 @@ function buildDesignReviewPacketHtml(input: DesignReviewPacketInput) {
         list([
           `${input.currentProducts.length} product(s) exist in the current workspace.`,
           `${input.currentProductTrees.reduce((total, tree) => total + tree.roots.length, 0)} root section(s) are loaded across current products.`,
-          `${input.currentWorkItems.length} work item(s) are currently visible to the planner.`,
+          `${input.currentWorkItems.length} delivery item(s) are currently visible to the planner.`,
           input.activeProductName ? `Current active product context: ${input.activeProductName}.` : "No active product context was selected.",
         ]),
       ])}
@@ -1812,9 +1812,9 @@ function buildDesignReviewPacketHtml(input: DesignReviewPacketInput) {
 
       ${packetSection(7, "Implementation Plan", [
         list([
-          "Phase 1: Apply the approved product/module/capability structure.",
-          "Phase 2: Generate or refine work items with acceptance criteria and dependencies.",
-          "Phase 3: Build UI/data/API changes behind reviewable work items.",
+          "Phase 1: Apply the approved product/capability/capability-slice structure.",
+          "Phase 2: Generate or refine delivery items with acceptance criteria and dependencies.",
+          "Phase 3: Build UI/data/API changes behind reviewable delivery items.",
           "Phase 4: Validate with focused tests, walkthroughs, and user review before release.",
         ]),
       ])}
@@ -1832,7 +1832,7 @@ function buildDesignReviewPacketHtml(input: DesignReviewPacketInput) {
         workActions.length > 0
           ? list(workActions.map((summary) => summary.title))
           : list([
-              "Convert approved features into implementation-ready work items.",
+              "Convert approved capabilities into implementation-ready delivery items.",
               "Add priorities, dependencies, complexity, and acceptance criteria before delivery.",
             ]),
       ])}
@@ -2082,7 +2082,7 @@ export function PlannerPage() {
     }
     if (draftTreeNodes.length > 0) {
       return {
-        title: `Design active: ${draftValidation.counts.product} product, ${draftValidation.counts.module} module, ${draftValidation.counts.capability} capability, ${draftValidation.counts["work item"]} work item`,
+        title: `Design active: ${draftValidation.counts.product} product, ${draftValidation.counts.module} top-level capability, ${draftValidation.counts.capability} capability, ${draftValidation.counts["work item"]} delivery item`,
         detail: selectedDraftNode
           ? `Selected node: ${selectedDraftNode.label}.`
           : "Select a node and keep refining before apply.",
@@ -2097,12 +2097,12 @@ export function PlannerPage() {
     if (latestAssistantMessage) {
       return {
         title: latestAssistantMessage.meta ?? "Planner ready",
-        detail: latestAssistantMessage.content.split("\n")[0] || "Describe the product, capability, or rollout you want.",
+        detail: latestAssistantMessage.content.split("\n")[0] || "Describe the product, capability, or capability slice you want.",
       };
     }
     return {
       title: "Planner ready",
-      detail: "Describe the product, capability, or rollout you want to stage.",
+      detail: "Describe the product, capability, or capability slice you want to stage.",
     };
   }, [
     draftTreeNodes.length,
@@ -2123,13 +2123,13 @@ export function PlannerPage() {
       chips.push("product selected");
     }
     if (activeModuleId) {
-      chips.push("module selected");
+      chips.push("top-level capability selected");
     }
     if (activeCapabilityId) {
       chips.push("capability selected");
     }
     if (activeWorkItemId) {
-      chips.push("work item selected");
+      chips.push("delivery item selected");
     }
     return chips;
   }, [activeCapabilityId, activeModuleId, selectedProductId, activeWorkItemId, selectedDraftNodeId]);
@@ -3425,7 +3425,7 @@ export function PlannerPage() {
             })}
             {proposalTreeNodes.length > 0 ? (
               <div style={styles.cardSection}>
-                <div style={styles.cardTitle}>Proposed Structure</div>
+                <div style={styles.cardTitle}>Proposed Design</div>
                 <div style={styles.treePanel}>
                   {proposalTreeNodes.map((node) => (
                     <TreeNodeView key={node.id} node={node} />
@@ -3435,7 +3435,7 @@ export function PlannerPage() {
             ) : null}
             {message.treeNodes && message.treeNodes.length > 0 ? (
               <div style={styles.cardSection}>
-                <div style={styles.cardTitle}>Current Structure</div>
+                <div style={styles.cardTitle}>Current Design</div>
                 <div style={styles.treePanel}>
                   {message.treeNodes.map((node) => (
                     <TreeNodeView key={node.id} node={node} />
@@ -3487,14 +3487,14 @@ export function PlannerPage() {
         <div style={styles.sectionTitle}>Planner Controls</div>
         <div style={styles.sideCard}>
           <div style={styles.helper}>
-            {hasTreeData ? "Tree rendering is active for work-item structure questions." : "Tree rendering will activate once product structure finishes loading."}
+            {hasTreeData ? "Tree rendering is active for delivery-item structure questions." : "Tree rendering will activate once product structure finishes loading."}
           </div>
         </div>
 
         <div style={styles.sideCard}>
           <div style={styles.label}>Design Tree</div>
           <div style={styles.helper}>
-            Build the plan here first. Select a node, then ask follow-up questions like “expand this capability” or “add work items under this module.”
+            Build the plan here first. Select a node, then ask follow-up questions like “expand this capability” or “add delivery items under this capability.”
           </div>
           <div style={{ height: 10 }} />
           {draftTreeNodes.length > 0 ? (
@@ -3513,7 +3513,7 @@ export function PlannerPage() {
               </div>
             </div>
           ) : (
-            <div style={styles.helper}>No staged design yet. Select a product, then ask the planner to design modules, capabilities, and work items inside it.</div>
+            <div style={styles.helper}>No staged design yet. Select a product, then ask the planner to design capabilities, capability slices, and delivery items inside it.</div>
           )}
         </div>
 
@@ -3660,7 +3660,7 @@ export function PlannerPage() {
                   <div style={styles.compactSummaryGrid}>
                     <div style={styles.compactSummaryItem}>
                       <div style={styles.compactSummaryLabel}>Design</div>
-                      <div style={styles.compactSummaryValue}>{draftTreeNodes.length > 0 ? `${draftValidation.counts.module} modules staged` : "No active design"}</div>
+                      <div style={styles.compactSummaryValue}>{draftTreeNodes.length > 0 ? `${draftValidation.counts.module} top-level capabilities staged` : "No active design"}</div>
                     </div>
                     <div style={styles.compactSummaryItem}>
                       <div style={styles.compactSummaryLabel}>Selection</div>
@@ -3687,7 +3687,7 @@ export function PlannerPage() {
                   <div style={styles.draftCanvas}>
                     <div style={styles.draftCanvasHeader}>
                       <div>
-                        <div style={styles.draftCanvasTitle}>Staged Plan Tree</div>
+                        <div style={styles.draftCanvasTitle}>Staged Design Tree</div>
                         <div style={styles.helper}>
                           Select a node, then refine it in natural language. The composer below will use the selected design node as planning context.
                         </div>
@@ -3714,7 +3714,7 @@ export function PlannerPage() {
                         <div style={styles.metricValue}>{draftValidation.counts.product}</div>
                       </div>
                       <div style={styles.metricCard}>
-                        <div style={styles.metricLabel}>Modules</div>
+                        <div style={styles.metricLabel}>Top-Level Capabilities</div>
                         <div style={styles.metricValue}>{draftValidation.counts.module}</div>
                       </div>
                       <div style={styles.metricCard}>
@@ -3722,7 +3722,7 @@ export function PlannerPage() {
                         <div style={styles.metricValue}>{draftValidation.counts.capability}</div>
                       </div>
                       <div style={styles.metricCard}>
-                        <div style={styles.metricLabel}>Work Items</div>
+                        <div style={styles.metricLabel}>Delivery Items</div>
                         <div style={styles.metricValue}>{draftValidation.counts["work item"]}</div>
                       </div>
                     </div>
@@ -3753,7 +3753,7 @@ export function PlannerPage() {
                       </div>
                     ) : (
                       <div style={styles.emptyState}>
-                        No staged design yet. Ask the planner to design modules, capabilities, or work items for the selected product, then switch back here to inspect and refine it.
+                        No staged design yet. Ask the planner to design capabilities, capability slices, or delivery items for the selected product, then switch back here to inspect and refine it.
                       </div>
                     )}
                   </div>
@@ -4140,7 +4140,7 @@ export function PlannerPage() {
               <div>
                 <div style={styles.modalTitle}>Reverse Engineer Repository</div>
                 <div style={styles.helper}>
-                  Point the planner at an existing repository and let the model infer a staged product, module, capability, and work-item tree from the codebase.
+                  Point the planner at an existing repository and let the model infer a staged product, top-level capability, capability, and delivery-item tree from the codebase.
                 </div>
               </div>
               <button style={styles.btnGhost} onClick={() => setShowRepoModal(false)}>

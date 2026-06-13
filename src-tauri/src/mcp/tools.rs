@@ -74,7 +74,7 @@ fn legacy_tool_definitions() -> Vec<ToolDefinition> {
     vec![
         action_tool(
             "aruvi_catalog",
-            "Manage products, modules, capabilities, and capability rollouts (child capabilities) for planning.",
+            "Manage products, top-level capabilities, nested capabilities, capability slices, attached references, and delivery items.",
             &[
                 "create_product",
                 "get_product",
@@ -99,7 +99,7 @@ fn legacy_tool_definitions() -> Vec<ToolDefinition> {
         ),
         action_tool(
             "aruvi_work_items",
-            "Manage work items and their hierarchy for execution planning. Work items attach directly to capability_id, including capability rollout nodes.",
+            "Manage delivery items and their hierarchy for Builder execution. Delivery items attach directly to product design scopes, including capability slices.",
             &[
                 "create_work_item",
                 "get_work_item",
@@ -333,7 +333,7 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "catalog.modules.create",
             "Create Module",
-            "Create a new root section for a product. Root node kinds are limited to area, domain, or system. Discover detailed constraints via aruvi://catalog/node-kind-constraints.",
+            "Create a top-level product capability. Storage uses module commands for top-level capabilities.",
             object_schema(
                 vec![
                     ("productId", string_property("The product id.")),
@@ -353,7 +353,7 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
                     (
                         "nodeKind",
                         enum_property(
-                            "The semantic root node kind. Only root kinds are allowed.",
+                            "Storage node kind for the top-level capability.",
                             &["area", "domain", "system"],
                         ),
                     ),
@@ -364,7 +364,7 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "catalog.modules.update",
             "Update Module",
-            "Update an existing root section. Root node kinds are limited to area, domain, or system. Discover detailed constraints via aruvi://catalog/node-kind-constraints.",
+            "Update an existing top-level product capability.",
             object_schema(
                 vec![
                     ("id", string_property("The module id.")),
@@ -384,7 +384,7 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
                     (
                         "nodeKind",
                         enum_property(
-                            "Updated semantic root node kind. Only root kinds are allowed.",
+                            "Updated storage node kind for the top-level capability.",
                             &["area", "domain", "system"],
                         ),
                     ),
@@ -416,7 +416,7 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "catalog.capabilities.list",
             "List Capabilities",
-            "List semantic child nodes for a module.",
+            "List nested capabilities and capability slices for a top-level capability.",
             object_schema(
                 vec![("moduleId", string_property("The module id."))],
                 &["moduleId"],
@@ -425,7 +425,7 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "catalog.capabilities.create",
             "Create Capability",
-            "Create a semantic child node within a module or capability. Allowed node kinds depend on the parent node kind. Rollout and reference are leaves. Discover detailed constraints via aruvi://catalog/node-kind-constraints.",
+            "Create a nested capability, capability slice, or attached reference inside a product design scope. Rollout storage means capability slice; reference storage means attached context.",
             object_schema(
                 vec![
                     ("moduleId", string_property("The module id.")),
@@ -485,7 +485,7 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "catalog.capabilities.update",
             "Update Capability",
-            "Update a semantic child node. Allowed node kinds depend on the parent node kind. Rollout and reference are leaves. Discover detailed constraints via aruvi://catalog/node-kind-constraints.",
+            "Update a nested capability, capability slice, or attached reference.",
             object_schema(
                 vec![
                     ("id", string_property("The capability id.")),
@@ -544,13 +544,13 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "catalog.capabilities.delete",
             "Delete Capability",
-            "Delete a semantic child node.",
+            "Delete a product design child node.",
             object_schema(vec![("id", string_property("The capability id."))], &["id"]),
         ),
         first_class_tool(
             "catalog.capabilities.reorder",
             "Reorder Capabilities",
-            "Reorder semantic child nodes under a module or capability.",
+            "Reorder nested capabilities or capability slices under a product design scope.",
             object_schema(
                 vec![
                     ("moduleId", string_property("The module id.")),
@@ -608,7 +608,7 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "catalog.capabilities.convert_kind",
             "Convert Capability Kind",
-            "Safely convert a semantic node between rollout, reference, feature_set, capability, or other supported child kinds. Use childStrategy=reparent_to_parent when converting a structural node into a leaf while preserving child chapters.",
+            "Safely convert a product design node between capability, capability slice (rollout storage), or attached reference (reference storage). Use childStrategy=reparent_to_parent when converting a structural node into a leaf while preserving children.",
             object_schema(
                 vec![
                     ("id", string_property("The capability id.")),
@@ -1434,6 +1434,13 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
             let vision = args.string_or_default(&["vision"], "")?;
             let goals = args.optional_string_list(&["goals"])?.unwrap_or_default();
             let tags = args.optional_string_list(&["tags"])?.unwrap_or_default();
+            let lifecycle = args.optional_string(&["lifecycle"])?;
+            let health = args.optional_string(&["health"])?;
+            let owner_label = args.optional_string(&["ownerLabel", "owner_label"])?;
+            let investment_status =
+                args.optional_string(&["investmentStatus", "investment_status"])?;
+            let roadmap = args.optional_string(&["roadmap"])?;
+            let evidence = args.optional_string(&["evidence"])?;
             let product = product_repo::create_product(
                 &state.db,
                 &uuid::Uuid::new_v4().to_string(),
@@ -1442,6 +1449,12 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
                 &vision,
                 &serde_json::to_string(&goals)?,
                 &serde_json::to_string(&tags)?,
+                lifecycle.as_deref(),
+                health.as_deref(),
+                owner_label.as_deref(),
+                investment_status.as_deref(),
+                roadmap.as_deref(),
+                evidence.as_deref(),
             )
             .await?;
             action_result("create_product", product)
@@ -1478,6 +1491,13 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
                 args.optional_string(&["vision"])?.as_deref(),
                 goals.as_deref(),
                 tags.as_deref(),
+                args.optional_string(&["lifecycle"])?.as_deref(),
+                args.optional_string(&["health"])?.as_deref(),
+                args.optional_string(&["ownerLabel", "owner_label"])?.as_deref(),
+                args.optional_string(&["investmentStatus", "investment_status"])?
+                    .as_deref(),
+                args.optional_string(&["roadmap"])?.as_deref(),
+                args.optional_string(&["evidence"])?.as_deref(),
             )
             .await?;
             action_result("update_product", product)

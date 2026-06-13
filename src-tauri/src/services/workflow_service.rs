@@ -1357,6 +1357,12 @@ mod tests {
             "vision",
             "[]",
             "[]",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
         )
         .await
         .expect("failed to create product");
@@ -1576,6 +1582,12 @@ mod tests {
             "vision",
             "[]",
             "[]",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
         )
         .await
         .expect("failed to create product");
@@ -1744,6 +1756,12 @@ mod tests {
             "vision",
             "[]",
             "[]",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
         )
         .await
         .expect("failed to create product");
@@ -1913,6 +1931,12 @@ mod tests {
             "Deliver calculator outcomes in small, validated increments.",
             "[]",
             "[\"react\",\"calculator\",\"agentic\"]",
+            Some("active"),
+            Some("healthy"),
+            Some("Builder"),
+            Some("invest"),
+            None,
+            None,
         )
         .await
         .expect("failed to create Calculator product");

@@ -72,7 +72,7 @@ test("planner can reverse engineer a registered repository into a design tree", 
   await expect(page.getByText('Registered repository "aruvi-studio".')).toBeVisible();
 
   await page.getByRole("button", { name: "Analyze Repo Into Design" }).click();
-  await expect(page.getByText("Staged Plan Tree")).toBeVisible();
+  await expect(page.getByText("Staged Design Tree")).toBeVisible();
 
   await expect(page.getByTestId("draft-node-draft-product-calculator")).toBeVisible();
   await expect(page.getByText("Interactive Planner").first()).toBeVisible();

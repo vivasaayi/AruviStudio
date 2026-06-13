@@ -22,6 +22,12 @@
       goals,
       tags,
       status: "active",
+      lifecycle: "active",
+      health: "healthy",
+      owner_label: "Founder",
+      investment_status: "invest",
+      roadmap: "Near-term roadmap focuses on capability slices and builder-ready delivery.",
+      evidence: "Seeded evidence for product-first browser tests.",
       created_at: FIXED_TIMESTAMP,
       updated_at: FIXED_TIMESTAMP,
     };
@@ -56,6 +62,10 @@
       risk: "low",
       status: "in_progress",
       technical_notes: `${name} technical notes`,
+      explanation: `${name} explanation`,
+      examples: `${name} examples`,
+      implementation_notes: `${name} implementation notes`,
+      test_guidance: `${name} test guidance`,
       created_at: FIXED_TIMESTAMP,
       updated_at: FIXED_TIMESTAMP,
     };
@@ -106,9 +116,12 @@
 
   function createState() {
     const calculatorProductId = "example-product-calculator";
+    const wifiProductId = "example-product-wifi-platform";
     const coreMathModuleId = "calc-core-math-engine";
+    const wifiModuleId = "wifi-connectivity";
     const expressionCapabilityId = "calc-expression-evaluation";
     const rolloutCapabilityId = "calc-scientific-mode-rollout";
+    const securePairingCapabilityId = "wifi-secure-pairing";
 
     return {
       nextId: 1,
@@ -154,6 +167,14 @@
           ],
           ["example_product", "seeded_catalog", "react", "calculator"],
         ),
+        createProduct(
+          wifiProductId,
+          "WiFi Platform",
+          "Shared connectivity platform used by products that need secure network sync.",
+          "Provide reliable, secure device connectivity across product lines.",
+          ["Centralize secure pairing", "Support background sync dependencies"],
+          ["example_product", "seeded_catalog", "platform", "connectivity"],
+        ),
       ],
       modules: [
         createModule(
@@ -163,6 +184,15 @@
           "Core Math Engine",
           "Semantic root section for the calculator's parsing and evaluation logic.",
           "Coordinate the parser, evaluator, and delivery work attached to the engine.",
+          0,
+        ),
+        createModule(
+          wifiModuleId,
+          wifiProductId,
+          "area",
+          "Connectivity Services",
+          "Top-level capability for pairing and sync platform behavior.",
+          "Own secure connectivity primitives for dependent products.",
           0,
         ),
       ],
@@ -184,11 +214,93 @@
           expressionCapabilityId,
           1,
           "rollout",
-          "Scientific Mode Rollout",
+          "Scientific Mode Slice",
           "Release advanced evaluation paths without losing the base calculator flow.",
-          "Scientific functions are safely introduced behind the rollout plan.",
+          "Scientific functions are safely introduced behind the capability slice plan.",
           0,
         ),
+        createCapability(
+          securePairingCapabilityId,
+          wifiModuleId,
+          null,
+          0,
+          "capability",
+          "Secure Device Pairing",
+          "Pair devices with authenticated exchange and revocation-safe trust boundaries.",
+          "Device pairing is reliable, secure, and auditable.",
+          0,
+        ),
+      ],
+      strategyNodes: [
+        {
+          id: "strategy-shared-platforms",
+          parent_node_id: null,
+          node_kind: "strategic_area",
+          name: "Shared Platforms",
+          description: "Reusable platforms that support multiple products.",
+          owner_label: "Head of Platforms",
+          sort_order: 0,
+          created_at: FIXED_TIMESTAMP,
+          updated_at: FIXED_TIMESTAMP,
+        },
+        {
+          id: "strategy-connectivity",
+          parent_node_id: "strategy-shared-platforms",
+          node_kind: "domain",
+          name: "Device Connectivity",
+          description: "Connectivity domain for paired devices and sync.",
+          owner_label: "Founder",
+          sort_order: 0,
+          created_at: FIXED_TIMESTAMP,
+          updated_at: FIXED_TIMESTAMP,
+        },
+      ],
+      productStrategyLinks: [
+        {
+          id: "strategy-link-wifi",
+          product_id: wifiProductId,
+          strategy_node_id: "strategy-connectivity",
+          is_primary: true,
+          created_at: FIXED_TIMESTAMP,
+        },
+      ],
+      productDependencies: [
+        {
+          id: "dependency-calculator-wifi",
+          product_id: calculatorProductId,
+          capability_id: expressionCapabilityId,
+          depends_on_product_id: wifiProductId,
+          depends_on_capability_id: securePairingCapabilityId,
+          dependency_kind: "platform",
+          description: "Expression result sync depends on secure platform pairing.",
+          status: "active",
+          created_at: FIXED_TIMESTAMP,
+          updated_at: FIXED_TIMESTAMP,
+        },
+      ],
+      productReferences: [
+        {
+          id: "reference-calculator-architecture",
+          scope_type: "product",
+          scope_id: calculatorProductId,
+          title: "Calculator Architecture Note",
+          reference_kind: "architecture",
+          uri: "docs/calculator-architecture.md",
+          content: "Seeded product-level context for product-first reference tests.",
+          created_at: FIXED_TIMESTAMP,
+          updated_at: FIXED_TIMESTAMP,
+        },
+        {
+          id: "reference-scientific-slice",
+          scope_type: "capability_slice",
+          scope_id: rolloutCapabilityId,
+          title: "Scientific Mode Evidence",
+          reference_kind: "customer_evidence",
+          uri: "",
+          content: "Evidence attached to a capability slice scope.",
+          created_at: FIXED_TIMESTAMP,
+          updated_at: FIXED_TIMESTAMP,
+        },
       ],
       workItems: [
         createWorkItem(
@@ -240,8 +352,8 @@
           rolloutCapabilityId,
           rolloutCapabilityId,
           "capability",
-          "Ship scientific mode rollout checklist",
-          "Track rollout-specific delivery work against the rollout node instead of the product root.",
+          "Ship scientific mode slice checklist",
+          "Track slice-specific delivery work against the capability slice instead of the product root.",
           "setup",
           "medium",
           "draft",
@@ -1296,6 +1408,139 @@
           return ok(state.modelDefinitions);
         case "list_products":
           return ok(state.products);
+        case "list_strategy_nodes":
+          return ok(state.strategyNodes);
+        case "create_strategy_node": {
+          const parentNodeId = getArg(args, "parentNodeId", "parent_node_id") ?? null;
+          const nodeKind = getArg(args, "nodeKind", "node_kind") ?? "strategic_area";
+          const node = {
+            id: nextId("strategy"),
+            parent_node_id: parentNodeId,
+            node_kind: nodeKind,
+            name: getArg(args, "name") ?? "",
+            description: getArg(args, "description") ?? "",
+            owner_label: getArg(args, "ownerLabel", "owner_label") ?? "",
+            sort_order: state.strategyNodes.filter((entry) => entry.parent_node_id === parentNodeId).length,
+            created_at: FIXED_TIMESTAMP,
+            updated_at: FIXED_TIMESTAMP,
+          };
+          state.strategyNodes.push(node);
+          return ok(node);
+        }
+        case "update_strategy_node": {
+          const id = getArg(args, "id");
+          const node = state.strategyNodes.find((entry) => entry.id === id);
+          if (!node) {
+            throw new Error("Unknown strategy node");
+          }
+          const clearParent = Boolean(getArg(args, "clearParent", "clear_parent"));
+          if (clearParent) {
+            node.parent_node_id = null;
+          } else if (getArg(args, "parentNodeId", "parent_node_id") !== undefined) {
+            node.parent_node_id = getArg(args, "parentNodeId", "parent_node_id");
+          }
+          node.node_kind = getArg(args, "nodeKind", "node_kind") ?? node.node_kind;
+          node.name = getArg(args, "name") ?? node.name;
+          node.description = getArg(args, "description") ?? node.description;
+          node.owner_label = getArg(args, "ownerLabel", "owner_label") ?? node.owner_label;
+          node.updated_at = FIXED_TIMESTAMP;
+          return ok(node);
+        }
+        case "delete_strategy_node": {
+          const id = getArg(args, "id");
+          const pending = [id];
+          const idsToDelete = new Set();
+          while (pending.length > 0) {
+            const current = pending.pop();
+            idsToDelete.add(current);
+            state.strategyNodes
+              .filter((node) => node.parent_node_id === current)
+              .forEach((node) => pending.push(node.id));
+          }
+          state.strategyNodes = state.strategyNodes.filter((node) => !idsToDelete.has(node.id));
+          state.productStrategyLinks = state.productStrategyLinks.filter((link) => !idsToDelete.has(link.strategy_node_id));
+          return ok(null);
+        }
+        case "list_product_strategy_links":
+          return ok(state.productStrategyLinks);
+        case "link_product_to_strategy": {
+          const productId = getArg(args, "productId", "product_id");
+          const strategyNodeId = getArg(args, "strategyNodeId", "strategy_node_id");
+          const isPrimary = Boolean(getArg(args, "isPrimary", "is_primary"));
+          if (isPrimary) {
+            state.productStrategyLinks.forEach((link) => {
+              if (link.product_id === productId) {
+                link.is_primary = false;
+              }
+            });
+          }
+          let link = state.productStrategyLinks.find((entry) => entry.product_id === productId && entry.strategy_node_id === strategyNodeId);
+          if (!link) {
+            link = {
+              id: nextId("strategy-link"),
+              product_id: productId,
+              strategy_node_id: strategyNodeId,
+              is_primary: isPrimary,
+              created_at: FIXED_TIMESTAMP,
+            };
+            state.productStrategyLinks.push(link);
+          } else {
+            link.is_primary = isPrimary;
+          }
+          return ok(link);
+        }
+        case "unlink_product_from_strategy": {
+          const productId = getArg(args, "productId", "product_id");
+          const strategyNodeId = getArg(args, "strategyNodeId", "strategy_node_id");
+          state.productStrategyLinks = state.productStrategyLinks.filter((link) => link.product_id !== productId || link.strategy_node_id !== strategyNodeId);
+          return ok(null);
+        }
+        case "list_product_dependencies":
+          return ok(state.productDependencies);
+        case "list_product_references": {
+          const scopeType = getArg(args, "scopeType", "scope_type");
+          const scopeId = getArg(args, "scopeId", "scope_id");
+          if (scopeType && scopeId) {
+            return ok(state.productReferences.filter((reference) => reference.scope_type === scopeType && reference.scope_id === scopeId));
+          }
+          return ok(state.productReferences);
+        }
+        case "create_product_reference": {
+          const reference = {
+            id: nextId("reference"),
+            scope_type: getArg(args, "scopeType", "scope_type"),
+            scope_id: getArg(args, "scopeId", "scope_id"),
+            title: getArg(args, "title"),
+            reference_kind: getArg(args, "referenceKind", "reference_kind") ?? "note",
+            uri: getArg(args, "uri") ?? "",
+            content: getArg(args, "content") ?? "",
+            created_at: FIXED_TIMESTAMP,
+            updated_at: FIXED_TIMESTAMP,
+          };
+          state.productReferences.unshift(reference);
+          return ok(reference);
+        }
+        case "delete_product_reference": {
+          const id = getArg(args, "id");
+          state.productReferences = state.productReferences.filter((reference) => reference.id !== id);
+          return ok(null);
+        }
+        case "create_product_dependency": {
+          const dependency = {
+            id: nextId("dependency"),
+            product_id: getArg(args, "productId", "product_id"),
+            capability_id: getArg(args, "capabilityId", "capability_id") ?? null,
+            depends_on_product_id: getArg(args, "dependsOnProductId", "depends_on_product_id"),
+            depends_on_capability_id: getArg(args, "dependsOnCapabilityId", "depends_on_capability_id") ?? null,
+            dependency_kind: getArg(args, "dependencyKind", "dependency_kind") ?? "platform",
+            description: getArg(args, "description") ?? "",
+            status: getArg(args, "status") ?? "active",
+            created_at: FIXED_TIMESTAMP,
+            updated_at: FIXED_TIMESTAMP,
+          };
+          state.productDependencies.push(dependency);
+          return ok(dependency);
+        }
         case "get_product_tree":
           return ok(buildProductTree(getArg(args, "productId", "product_id")));
         case "list_work_items":

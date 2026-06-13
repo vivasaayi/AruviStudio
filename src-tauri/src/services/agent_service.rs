@@ -2786,6 +2786,12 @@ mod tests {
             "vision",
             "[]",
             "[]",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
         )
         .await
         .expect("failed to create product");

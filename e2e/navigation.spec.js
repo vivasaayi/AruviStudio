@@ -3,7 +3,7 @@ import { test, expect } from "./support/test.js";
 const routes = [
   { key: "planner", path: "/planner", heading: null },
   { key: "products", path: "/products", heading: "Products" },
-  { key: "work-items", path: "/work-items", heading: "Work Item Workspace" },
+  { key: "work-items", path: "/work-items", heading: "Delivery / Builder" },
   { key: "ide", path: "/ide", heading: "IDE Workspace" },
   { key: "repositories", path: "/repositories", heading: "Workspaces" },
   { key: "agents", path: "/agents", heading: "Agent Management" },

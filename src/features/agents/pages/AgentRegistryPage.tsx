@@ -1670,7 +1670,7 @@ export function AgentRegistryPage() {
             >
               <option value="product">Product</option>
               <option value="module">Module</option>
-              <option value="capability">Capability / Rollout</option>
+              <option value="capability">Capability / Slice</option>
             </select>
           </div>
           {assignmentScopeType === "module" ? (
@@ -1688,7 +1688,7 @@ export function AgentRegistryPage() {
           ) : null}
           {assignmentScopeType === "capability" ? (
             <div style={styles.field}>
-              <label style={styles.label}>Capability / Rollout</label>
+              <label style={styles.label}>Capability / Slice</label>
               <select style={styles.select} value={assignmentCapabilityId} onChange={(e) => setAssignmentCapabilityId(e.target.value)}>
                 <option value="">Select a capability or rollout</option>
                 {currentCapabilityOptions.map((capability) => (

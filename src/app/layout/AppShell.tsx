@@ -11,10 +11,11 @@ const styles: Record<string, any> = {
 };
 
 const navItems = [
+  { key: "portfolio", label: "Portfolio" },
   { key: "planner", label: "Planner" },
   { key: "product-overview", label: "Product Overview" },
   { key: "products", label: "Products" },
-  { key: "work-items", label: "Work Items" },
+  { key: "work-items", label: "Delivery / Builder" },
   { key: "ide", label: "IDE" },
   { key: "repositories", label: "Workspaces" },
   { key: "agents", label: "Agents" },

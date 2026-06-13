@@ -1,6 +1,7 @@
 use crate::domain::product::{
     Capability, CapabilityTree, ChildReparentStrategy, HierarchyNodeKind, HierarchyNodeType,
-    HierarchyTreeNode, Module, ModuleTree, NodeKindConversionResult, Product, ProductTree,
+    HierarchyTreeNode, Module, ModuleTree, NodeKindConversionResult, Product, ProductReference,
+    ProductTree,
 };
 use crate::error::AppError;
 use sqlx::{Row, SqlitePool};
@@ -8,6 +9,9 @@ use tracing::{debug, error, trace};
 
 const MODULE_SELECT_COLUMNS: &str = "id, product_id, node_kind, name, description, purpose, explanation, examples, implementation_notes, test_guidance, sort_order, created_at, updated_at";
 const CAPABILITY_SELECT_COLUMNS: &str = "id, module_id, parent_capability_id, level, node_kind, sort_order, name, description, acceptance_criteria, explanation, examples, priority, risk, status, technical_notes, implementation_notes, test_guidance, created_at, updated_at";
+const PRODUCT_SELECT_COLUMNS: &str = "id, name, description, vision, goals, tags, status, lifecycle, health, owner_label, investment_status, roadmap, evidence, created_at, updated_at";
+const PRODUCT_REFERENCE_SELECT_COLUMNS: &str =
+    "id, scope_type, scope_id, title, reference_kind, uri, content, created_at, updated_at";
 
 fn row_to_product(row: sqlx::sqlite::SqliteRow) -> Product {
     Product {
@@ -20,6 +24,12 @@ fn row_to_product(row: sqlx::sqlite::SqliteRow) -> Product {
         tags: serde_json::from_str::<Vec<String>>(row.get::<String, _>("tags").as_str())
             .unwrap_or_default(),
         status: row.get("status"),
+        lifecycle: row.get("lifecycle"),
+        health: row.get("health"),
+        owner_label: row.get("owner_label"),
+        investment_status: row.get("investment_status"),
+        roadmap: row.get("roadmap"),
+        evidence: row.get("evidence"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }
@@ -153,10 +163,25 @@ pub async fn create_product(
     vision: &str,
     goals: &str,
     tags: &str,
+    lifecycle: Option<&str>,
+    health: Option<&str>,
+    owner_label: Option<&str>,
+    investment_status: Option<&str>,
+    roadmap: Option<&str>,
+    evidence: Option<&str>,
 ) -> Result<Product, AppError> {
     debug!(product_id = %id, product_name = %name, "persist create_product");
-    let result = sqlx::query(r#"INSERT INTO products (id, name, description, vision, goals, tags) VALUES (?, ?, ?, ?, ?, ?) RETURNING id, name, description, vision, goals, tags, status, created_at, updated_at"#)
+    let result = sqlx::query(&format!(
+        "INSERT INTO products (id, name, description, vision, goals, tags, lifecycle, health, owner_label, investment_status, roadmap, evidence)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING {PRODUCT_SELECT_COLUMNS}"
+    ))
         .bind(id).bind(name).bind(description).bind(vision).bind(goals).bind(tags)
+        .bind(lifecycle.unwrap_or("incubating"))
+        .bind(health.unwrap_or("unknown"))
+        .bind(owner_label.unwrap_or_default())
+        .bind(investment_status.unwrap_or("evaluate"))
+        .bind(roadmap.unwrap_or_default())
+        .bind(evidence.unwrap_or_default())
         .map(row_to_product)
         .fetch_one(pool).await.map_err(|e| e.into());
     if let Err(err) = &result {
@@ -166,14 +191,14 @@ pub async fn create_product(
 }
 
 pub async fn get_product(pool: &SqlitePool, id: &str) -> Result<Product, AppError> {
-    sqlx::query("SELECT id, name, description, vision, goals, tags, status, created_at, updated_at FROM products WHERE id = ?")
+    sqlx::query(&format!("SELECT {PRODUCT_SELECT_COLUMNS} FROM products WHERE id = ?"))
         .bind(id)
         .map(row_to_product)
         .fetch_optional(pool).await?.ok_or_else(|| AppError::NotFound(format!("Product {id} not found")))
 }
 
 pub async fn list_products(pool: &SqlitePool) -> Result<Vec<Product>, AppError> {
-    sqlx::query("SELECT id, name, description, vision, goals, tags, status, created_at, updated_at FROM products ORDER BY created_at DESC")
+    sqlx::query(&format!("SELECT {PRODUCT_SELECT_COLUMNS} FROM products ORDER BY created_at DESC"))
         .map(row_to_product)
         .fetch_all(pool).await.map_err(|e| e.into())
 }
@@ -186,6 +211,12 @@ pub async fn update_product(
     vision: Option<&str>,
     goals: Option<&str>,
     tags: Option<&str>,
+    lifecycle: Option<&str>,
+    health: Option<&str>,
+    owner_label: Option<&str>,
+    investment_status: Option<&str>,
+    roadmap: Option<&str>,
+    evidence: Option<&str>,
 ) -> Result<Product, AppError> {
     debug!(product_id = %id, "persist update_product");
     let existing = get_product(pool, id).await?;
@@ -196,8 +227,22 @@ pub async fn update_product(
     let existing_tags = serde_json::to_string(&existing.tags).unwrap_or_default();
     let goals_str = goals.unwrap_or(&existing_goals);
     let tags_str = tags.unwrap_or(&existing_tags);
-    sqlx::query("UPDATE products SET name=?, description=?, vision=?, goals=?, tags=?, updated_at=datetime('now') WHERE id=?")
-        .bind(name).bind(description).bind(vision).bind(goals_str).bind(tags_str).bind(id)
+    let existing_lifecycle = existing.lifecycle.to_string();
+    let existing_health = existing.health.to_string();
+    let existing_investment_status = existing.investment_status.to_string();
+    sqlx::query(
+        "UPDATE products
+         SET name=?, description=?, vision=?, goals=?, tags=?, lifecycle=?, health=?, owner_label=?, investment_status=?, roadmap=?, evidence=?, updated_at=datetime('now')
+         WHERE id=?"
+    )
+        .bind(name).bind(description).bind(vision).bind(goals_str).bind(tags_str)
+        .bind(lifecycle.unwrap_or(&existing_lifecycle))
+        .bind(health.unwrap_or(&existing_health))
+        .bind(owner_label.unwrap_or(&existing.owner_label))
+        .bind(investment_status.unwrap_or(&existing_investment_status))
+        .bind(roadmap.unwrap_or(&existing.roadmap))
+        .bind(evidence.unwrap_or(&existing.evidence))
+        .bind(id)
         .execute(pool).await?;
     get_product(pool, id).await
 }
@@ -611,6 +656,59 @@ pub async fn reorder_capabilities(
 
 pub async fn delete_capability(pool: &SqlitePool, id: &str) -> Result<(), AppError> {
     sqlx::query("DELETE FROM capabilities WHERE id=?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn list_product_references(
+    pool: &SqlitePool,
+    scope_type: Option<&str>,
+    scope_id: Option<&str>,
+) -> Result<Vec<ProductReference>, AppError> {
+    let mut query = format!("SELECT {PRODUCT_REFERENCE_SELECT_COLUMNS} FROM \"references\"");
+    if scope_type.is_some() && scope_id.is_some() {
+        query.push_str(" WHERE scope_type = ? AND scope_id = ?");
+    }
+    query.push_str(" ORDER BY updated_at DESC, created_at DESC");
+    let mut q = sqlx::query_as::<_, ProductReference>(&query);
+    if let (Some(scope_type), Some(scope_id)) = (scope_type, scope_id) {
+        q = q.bind(scope_type).bind(scope_id);
+    }
+    q.fetch_all(pool).await.map_err(|e| e.into())
+}
+
+pub async fn create_product_reference(
+    pool: &SqlitePool,
+    id: &str,
+    scope_type: &str,
+    scope_id: &str,
+    title: &str,
+    reference_kind: &str,
+    uri: &str,
+    content: &str,
+) -> Result<ProductReference, AppError> {
+    sqlx::query_as::<_, ProductReference>(
+        &format!(
+            "INSERT INTO \"references\" (id, scope_type, scope_id, title, reference_kind, uri, content)
+             VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING {PRODUCT_REFERENCE_SELECT_COLUMNS}"
+        ),
+    )
+    .bind(id)
+    .bind(scope_type)
+    .bind(scope_id)
+    .bind(title)
+    .bind(reference_kind)
+    .bind(uri)
+    .bind(content)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| e.into())
+}
+
+pub async fn delete_product_reference(pool: &SqlitePool, id: &str) -> Result<(), AppError> {
+    sqlx::query("DELETE FROM \"references\" WHERE id=?")
         .bind(id)
         .execute(pool)
         .await?;

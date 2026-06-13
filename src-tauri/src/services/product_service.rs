@@ -283,6 +283,12 @@ async fn seed_example_product(
             &serde_json::to_string(product.goals).unwrap_or_else(|_| "[]".to_string()),
             &serde_json::to_string(&build_product_tags(product.tags))
                 .unwrap_or_else(|_| "[]".to_string()),
+            Some("active"),
+            Some("healthy"),
+            Some("Founder"),
+            Some("maintain"),
+            None,
+            None,
         )
         .await?;
     }

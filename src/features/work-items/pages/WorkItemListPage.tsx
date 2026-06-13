@@ -1585,8 +1585,8 @@ export function WorkItemListPage() {
     <div style={styles.page}>
       <div style={styles.header}>
         <div style={styles.titleBlock}>
-          <h1 style={styles.title}>Work Item Workspace</h1>
-          <div style={styles.subtitle}>Use the queue for intake, detail for refinement, and review for evidence. The active hierarchy still controls scope.</div>
+          <h1 style={styles.title}>Delivery / Builder</h1>
+          <div style={styles.subtitle}>Execute delivery items, inspect evidence, and keep implementation work scoped to the selected product design.</div>
         </div>
       </div>
 
@@ -1594,7 +1594,7 @@ export function WorkItemListPage() {
         <div style={styles.panelInner}>
           <div style={styles.tabBar}>
             <button style={workItemWorkspaceTab === "backlog" ? styles.tabActive : styles.tab} onClick={() => setWorkItemWorkspaceTab("backlog")}>Backlog</button>
-            <button style={workItemWorkspaceTab === "detail" ? styles.tabActive : styles.tab} onClick={() => setWorkItemWorkspaceTab("detail")}>Work Item Detail</button>
+            <button style={workItemWorkspaceTab === "detail" ? styles.tabActive : styles.tab} onClick={() => setWorkItemWorkspaceTab("detail")}>Delivery Item Detail</button>
             <button style={workItemWorkspaceTab === "external_cli" ? styles.tabActive : styles.tab} onClick={() => setWorkItemWorkspaceTab("external_cli")}>External CLI</button>
             <button style={workItemWorkspaceTab === "review" ? styles.tabActive : styles.tab} onClick={() => setWorkItemWorkspaceTab("review")}>Review</button>
           </div>

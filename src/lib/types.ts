@@ -21,6 +21,90 @@ export interface Product {
   goals: string[];
   tags: string[];
   status: "active" | "archived";
+  lifecycle: "idea" | "incubating" | "active" | "maturing" | "sunsetting" | "retired";
+  health: "unknown" | "healthy" | "watch" | "at_risk" | "blocked";
+  owner_label: string;
+  investment_status: "evaluate" | "invest" | "maintain" | "pause" | "retire";
+  roadmap: string;
+  evidence: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type StrategyNodeKind = "strategic_area" | "domain" | "subdomain";
+
+export interface StrategyNode {
+  id: string;
+  parent_node_id: string | null;
+  node_kind: StrategyNodeKind;
+  name: string;
+  description: string;
+  owner_label: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductStrategyLink {
+  id: string;
+  product_id: string;
+  strategy_node_id: string;
+  is_primary: boolean;
+  created_at: string;
+}
+
+export type ProductDependencyKind = "platform" | "capability" | "data" | "integration" | "operational" | "other";
+export type ProductDependencyStatus = "active" | "planned" | "blocked" | "retired";
+
+export interface ProductDependency {
+  id: string;
+  product_id: string;
+  capability_id: string | null;
+  depends_on_product_id: string;
+  depends_on_capability_id: string | null;
+  dependency_kind: ProductDependencyKind;
+  description: string;
+  status: ProductDependencyStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CapabilitySlice {
+  id: string;
+  capability_id: string;
+  name: string;
+  description: string;
+  acceptance_criteria: string;
+  priority: "critical" | "high" | "medium" | "low";
+  status: "draft" | "in_progress" | "done" | "archived";
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DeliveryItem {
+  id: string;
+  product_id: string;
+  capability_id: string | null;
+  capability_slice_id: string | null;
+  work_item_id: string | null;
+  title: string;
+  description: string;
+  delivery_kind: "implementation" | "test" | "review" | "documentation" | "release" | "other";
+  status: "draft" | "ready" | "in_progress" | "review" | "done" | "blocked" | "cancelled";
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductReference {
+  id: string;
+  scope_type: "strategy_node" | "product" | "capability" | "capability_slice" | "delivery_item";
+  scope_id: string;
+  title: string;
+  reference_kind: "note" | "external_doc" | "architecture" | "customer_evidence" | "regulatory" | "design_packet" | "standard" | "other";
+  uri: string;
+  content: string;
   created_at: string;
   updated_at: string;
 }

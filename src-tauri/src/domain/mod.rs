@@ -7,5 +7,6 @@ pub mod finding;
 pub mod model;
 pub mod product;
 pub mod repository;
+pub mod strategy;
 pub mod work_item;
 pub mod workflow;

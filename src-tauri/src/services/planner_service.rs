@@ -411,7 +411,7 @@ Rules:
 - Output valid JSON only. No markdown.
 - Behave conversationally. First reason about what already exists in the supplied context, then suggest what should be added, changed, or removed from the staged design.
 - If the user is exploring or describing a need, prefer proposing actions rather than assuming immediate execution.
-- If the user asks for a detailed plan, architecture, modules, capabilities, or work items, prefer returning a single comprehensive proposal with all relevant create_* actions in one response instead of asking to create only the top-level product first.
+- If the user asks for a detailed plan, architecture, capabilities, capability slices, or delivery items, prefer returning a single comprehensive proposal with all relevant create_* actions in one response instead of asking to create only the top-level product first.
 - If an entity already seems to exist, do not suggest creating a duplicate unless the user explicitly asks for a separate one.
 - For design edits, set needs_confirmation=false. Confirmation is only for applying the approved design later.
 - Only use needs_confirmation=true if you are asking for final persistence or another risky action.
@@ -420,13 +420,14 @@ Rules:
 - If a tool reports that a proposed entity does not exist yet, treat that as expected for proposal refinement and continue planning against the pending proposal instead of failing.
 - Do not call mutation tools. Staged design edits go in final.actions.
 - After receiving tool results, continue reasoning and either call another tool or return type=final.
-- Prefer semantic root sections instead of shallow modules. Root sections should use module nodeKind values area, domain, or system.
-- Capability nodes should use semantic node kinds intentionally: feature_set or capability for structure, reference for explanation-only leaves, rollout for execution leaves.
-- rollout and reference nodes cannot contain structural children. If the user needs chapter-like detail under a rollout topic, create a structural parent capability or feature_set and put reference or capability children above rollout execution slices.
+- The selected product is the root. Strategy hierarchy is not editable here.
+- Prefer product capabilities instead of shallow modules. Storage still uses create_module for top-level capabilities; set module nodeKind to area unless existing evidence strongly requires another legacy root kind.
+- Use create_capability for nested capabilities. Use nodeKind=rollout only as a capability slice. Use nodeKind=reference only for attached context, not as product structure.
+- Capability slices and attached references cannot contain structural children. If the user needs deeper design detail, create a parent capability and put capability slices beneath it.
 - For book-grade technical authoring, prefer long-form fields:
   explanation, examples, implementationNotes, testGuidance.
 - Use apply_capability_template when the user wants a chapter scaffold such as definition/examples/implementation/tests.
-- Use convert_capability_kind when an existing staged design node should change between rollout, reference, capability, or feature_set. If the target kind is a leaf and the node already has structural children, set childStrategy to reparent_to_parent.
+- Use convert_capability_kind when an existing staged design node should change between capability, capability slice (rollout storage), or attached reference (reference storage). If the target kind is a leaf and the node already has structural children, set childStrategy to reparent_to_parent.
 - Use these action types only:
 update_product,
 create_module, update_module, delete_module,
@@ -436,8 +437,8 @@ create_work_item, update_work_item, delete_work_item,
 approve_work_item, reject_work_item, approve_work_item_plan, reject_work_item_plan, approve_work_item_test_review,
 start_workflow, workflow_action, report_status, report_tree.
 - Use the selected product as the root. Do not create or archive products from Planner; users create products in the Products page first.
-- Use product/module/capability/work item names in target fields, never IDs.
-- assistant_response should sound like a planning lead: mention what already exists, what changed in the staged design, and what should be refined next.
+- Use product/module/capability/work item target field names for storage compatibility, but describe them to the user as product, capability, capability slice, and delivery item. Never expose IDs.
+- assistant_response should sound like a product/design lead: mention what already exists, what changed in the staged design packet, and what should be refined next.
 - Use selected node context if supplied."#;
 
     format!(
@@ -461,12 +462,12 @@ Rules:
 - Base the structure on the provided evidence, not wishful features.
 - The selected product is already created. Do not create another product.
 - If a selected design node is provided, merge into that context instead of creating a duplicate branch.
-- Prefer a semantic structure:
+- Prefer a product-first design structure:
   - 1 product root
-  - 2-6 root sections using module nodeKind values area, domain, or system when the evidence supports them
-  - nested feature_set/capability/reference/rollout nodes where the codebase clearly shows deeper technical structure
-  - 1-3 starter work items per concrete rollout or directly executable capability where implementation work is visible or obviously missing
-- Use reference for explanatory leaves, rollout for execution leaves, and keep rollout/reference as structural leaves.
+  - 2-6 top-level capabilities using module storage only for those roots
+  - nested capabilities and capability slices where the codebase clearly shows deeper product design structure
+  - 1-3 starter delivery items per concrete capability slice or directly executable capability where implementation work is visible or obviously missing
+- Use reference storage for attached context and rollout storage for capability slices. Keep delivery execution in work items/Builder, not in strategy.
 - When a topic deserves book-grade depth, add explanation, examples, implementationNotes, and testGuidance fields instead of stopping at shallow summaries.
 - Use create_* when adding inferred structure to the staged design.
 - Use update_* when refining an already selected/root design node from repository evidence.
@@ -4201,6 +4202,14 @@ async fn commit_draft_plan(
         let product_vision = string_field(details, "vision").unwrap_or_default();
         let product_goals = format_joined(string_array_field(details, "goals"));
         let product_tags = format_joined(string_array_field(details, "tags"));
+        let product_lifecycle = string_field(details, "lifecycle");
+        let product_health = string_field(details, "health");
+        let product_owner_label =
+            string_field(details, "ownerLabel").or_else(|| string_field(details, "owner_label"));
+        let product_investment_status = string_field(details, "investmentStatus")
+            .or_else(|| string_field(details, "investment_status"));
+        let product_roadmap = string_field(details, "roadmap");
+        let product_evidence = string_field(details, "evidence");
         let existing_product = match product_repo::get_product(&state.db, &product_node.id).await {
             Ok(product) => Some(product),
             Err(_) => product_repo::list_products(&state.db)
@@ -4220,6 +4229,12 @@ async fn commit_draft_plan(
                 Some(&product_vision),
                 Some(&product_goals),
                 Some(&product_tags),
+                product_lifecycle.as_deref(),
+                product_health.as_deref(),
+                product_owner_label.as_deref(),
+                product_investment_status.as_deref(),
+                product_roadmap.as_deref(),
+                product_evidence.as_deref(),
             )
             .await?
         } else {
@@ -4231,6 +4246,12 @@ async fn commit_draft_plan(
                 &product_vision,
                 &product_goals,
                 &product_tags,
+                product_lifecycle.as_deref(),
+                product_health.as_deref(),
+                product_owner_label.as_deref(),
+                product_investment_status.as_deref(),
+                product_roadmap.as_deref(),
+                product_evidence.as_deref(),
             )
             .await?
         };
@@ -4480,6 +4501,16 @@ async fn execute_action(state: &AppState, action: &Value) -> Result<Vec<String>,
                 &string_field(action, "vision").unwrap_or_default(),
                 &format_joined(string_array_field(action, "goals")),
                 &format_joined(string_array_field(action, "tags")),
+                string_field(action, "lifecycle").as_deref(),
+                string_field(action, "health").as_deref(),
+                string_field(action, "ownerLabel")
+                    .or_else(|| string_field(action, "owner_label"))
+                    .as_deref(),
+                string_field(action, "investmentStatus")
+                    .or_else(|| string_field(action, "investment_status"))
+                    .as_deref(),
+                string_field(action, "roadmap").as_deref(),
+                string_field(action, "evidence").as_deref(),
             )
             .await?;
             Ok(vec![format!("Created product \"{}\".", product.name)])
@@ -4498,6 +4529,16 @@ async fn execute_action(state: &AppState, action: &Value) -> Result<Vec<String>,
                 fields_string_array(action, "tags")
                     .map(|v| v.join(", "))
                     .as_deref(),
+                fields_string(action, "lifecycle").as_deref(),
+                fields_string(action, "health").as_deref(),
+                fields_string(action, "ownerLabel")
+                    .or_else(|| fields_string(action, "owner_label"))
+                    .as_deref(),
+                fields_string(action, "investmentStatus")
+                    .or_else(|| fields_string(action, "investment_status"))
+                    .as_deref(),
+                fields_string(action, "roadmap").as_deref(),
+                fields_string(action, "evidence").as_deref(),
             )
             .await?;
             Ok(vec![format!("Updated product \"{}\".", updated.name)])

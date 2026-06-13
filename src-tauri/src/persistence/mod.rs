@@ -11,5 +11,6 @@ pub mod planner_repo;
 pub mod product_repo;
 pub mod repository_repo;
 pub mod settings_repo;
+pub mod strategy_repo;
 pub mod work_item_repo;
 pub mod workflow_repo;

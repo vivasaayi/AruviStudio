@@ -1,5 +1,5 @@
 use crate::domain::product::{
-    Capability, Module, NodeKindConversionResult, Product, ProductTree,
+    Capability, Module, NodeKindConversionResult, Product, ProductReference, ProductTree,
     SemanticTemplateApplicationResult,
 };
 use crate::error::AppError;
@@ -17,12 +17,31 @@ pub async fn create_product(
     vision: String,
     goals: String,
     tags: String,
+    lifecycle: Option<String>,
+    health: Option<String>,
+    owner_label: Option<String>,
+    investment_status: Option<String>,
+    roadmap: Option<String>,
+    evidence: Option<String>,
 ) -> Result<Product, AppError> {
     info!(product_name = %name, "create_product requested");
     let id = uuid::Uuid::new_v4().to_string();
-    let result =
-        product_repo::create_product(&state.db, &id, &name, &description, &vision, &goals, &tags)
-            .await;
+    let result = product_repo::create_product(
+        &state.db,
+        &id,
+        &name,
+        &description,
+        &vision,
+        &goals,
+        &tags,
+        lifecycle.as_deref(),
+        health.as_deref(),
+        owner_label.as_deref(),
+        investment_status.as_deref(),
+        roadmap.as_deref(),
+        evidence.as_deref(),
+    )
+    .await;
     match &result {
         Ok(product) => info!(product_id = %product.id, "create_product succeeded"),
         Err(err) => error!(product_id = %id, error = %err, "create_product failed"),
@@ -65,6 +84,12 @@ pub async fn update_product(
     vision: Option<String>,
     goals: Option<String>,
     tags: Option<String>,
+    lifecycle: Option<String>,
+    health: Option<String>,
+    owner_label: Option<String>,
+    investment_status: Option<String>,
+    roadmap: Option<String>,
+    evidence: Option<String>,
 ) -> Result<Product, AppError> {
     info!(product_id = %id, "update_product requested");
     debug!(product_id = %id, has_name = name.is_some(), has_description = description.is_some(), has_vision = vision.is_some(), has_goals = goals.is_some(), has_tags = tags.is_some(), "update_product payload summary");
@@ -76,6 +101,12 @@ pub async fn update_product(
         vision.as_deref(),
         goals.as_deref(),
         tags.as_deref(),
+        lifecycle.as_deref(),
+        health.as_deref(),
+        owner_label.as_deref(),
+        investment_status.as_deref(),
+        roadmap.as_deref(),
+        evidence.as_deref(),
     )
     .await;
     match &result {
@@ -428,4 +459,46 @@ pub async fn convert_capability_kind(
         child_strategy.or(childStrategy).as_deref(),
     )
     .await
+}
+
+#[tauri::command]
+pub async fn list_product_references(
+    state: State<'_, AppState>,
+    scope_type: Option<String>,
+    scope_id: Option<String>,
+) -> Result<Vec<ProductReference>, AppError> {
+    product_repo::list_product_references(&state.db, scope_type.as_deref(), scope_id.as_deref())
+        .await
+}
+
+#[tauri::command]
+pub async fn create_product_reference(
+    state: State<'_, AppState>,
+    scope_type: String,
+    scope_id: String,
+    title: String,
+    reference_kind: String,
+    uri: Option<String>,
+    content: Option<String>,
+) -> Result<ProductReference, AppError> {
+    let id = uuid::Uuid::new_v4().to_string();
+    product_repo::create_product_reference(
+        &state.db,
+        &id,
+        &scope_type,
+        &scope_id,
+        &title,
+        &reference_kind,
+        uri.as_deref().unwrap_or_default(),
+        content.as_deref().unwrap_or_default(),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn delete_product_reference(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), AppError> {
+    product_repo::delete_product_reference(&state.db, &id).await
 }

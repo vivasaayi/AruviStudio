@@ -10,6 +10,12 @@ pub struct Product {
     pub goals: Vec<String>,
     pub tags: Vec<String>,
     pub status: ProductStatus,
+    pub lifecycle: ProductLifecycle,
+    pub health: ProductHealth,
+    pub owner_label: String,
+    pub investment_status: ProductInvestmentStatus,
+    pub roadmap: String,
+    pub evidence: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -33,6 +39,77 @@ impl std::fmt::Display for ProductStatus {
         match self {
             ProductStatus::Active => write!(f, "active"),
             ProductStatus::Archived => write!(f, "archived"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(rename_all = "snake_case")]
+pub enum ProductLifecycle {
+    Idea,
+    Incubating,
+    Active,
+    Maturing,
+    Sunsetting,
+    Retired,
+}
+
+impl std::fmt::Display for ProductLifecycle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProductLifecycle::Idea => write!(f, "idea"),
+            ProductLifecycle::Incubating => write!(f, "incubating"),
+            ProductLifecycle::Active => write!(f, "active"),
+            ProductLifecycle::Maturing => write!(f, "maturing"),
+            ProductLifecycle::Sunsetting => write!(f, "sunsetting"),
+            ProductLifecycle::Retired => write!(f, "retired"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(rename_all = "snake_case")]
+pub enum ProductHealth {
+    Unknown,
+    Healthy,
+    Watch,
+    AtRisk,
+    Blocked,
+}
+
+impl std::fmt::Display for ProductHealth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProductHealth::Unknown => write!(f, "unknown"),
+            ProductHealth::Healthy => write!(f, "healthy"),
+            ProductHealth::Watch => write!(f, "watch"),
+            ProductHealth::AtRisk => write!(f, "at_risk"),
+            ProductHealth::Blocked => write!(f, "blocked"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(rename_all = "snake_case")]
+pub enum ProductInvestmentStatus {
+    Evaluate,
+    Invest,
+    Maintain,
+    Pause,
+    Retire,
+}
+
+impl std::fmt::Display for ProductInvestmentStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProductInvestmentStatus::Evaluate => write!(f, "evaluate"),
+            ProductInvestmentStatus::Invest => write!(f, "invest"),
+            ProductInvestmentStatus::Maintain => write!(f, "maintain"),
+            ProductInvestmentStatus::Pause => write!(f, "pause"),
+            ProductInvestmentStatus::Retire => write!(f, "retire"),
         }
     }
 }
@@ -155,6 +232,49 @@ pub struct ModuleTree {
 pub struct CapabilityTree {
     pub capability: Capability,
     pub children: Vec<CapabilityTree>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct CapabilitySlice {
+    pub id: String,
+    pub capability_id: String,
+    pub name: String,
+    pub description: String,
+    pub acceptance_criteria: String,
+    pub priority: Priority,
+    pub status: CapabilityStatus,
+    pub sort_order: i32,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct DeliveryItem {
+    pub id: String,
+    pub product_id: String,
+    pub capability_id: Option<String>,
+    pub capability_slice_id: Option<String>,
+    pub work_item_id: Option<String>,
+    pub title: String,
+    pub description: String,
+    pub delivery_kind: String,
+    pub status: String,
+    pub sort_order: i32,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ProductReference {
+    pub id: String,
+    pub scope_type: String,
+    pub scope_id: String,
+    pub title: String,
+    pub reference_kind: String,
+    pub uri: String,
+    pub content: String,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, sqlx::Type)]
