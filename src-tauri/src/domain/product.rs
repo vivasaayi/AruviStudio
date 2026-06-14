@@ -315,7 +315,7 @@ impl HierarchyNodeKind {
     pub fn default_child(parent_kind: &Self) -> Self {
         match parent_kind {
             Self::Capability => Self::Rollout,
-            Self::FeatureSet => Self::Capability,
+            Self::FeatureSet => Self::Rollout,
             Self::Area | Self::Domain | Self::Subdomain | Self::System | Self::Subsystem => {
                 Self::Capability
             }
@@ -333,55 +333,10 @@ impl HierarchyNodeKind {
 
     pub fn allowed_child_kinds(&self) -> Vec<Self> {
         match self {
-            Self::Area => vec![
-                Self::Area,
-                Self::Domain,
-                Self::System,
-                Self::Subsystem,
-                Self::FeatureSet,
-                Self::Capability,
-                Self::Reference,
-            ],
-            Self::Domain => vec![
-                Self::Subdomain,
-                Self::System,
-                Self::Subsystem,
-                Self::FeatureSet,
-                Self::Capability,
-                Self::Reference,
-            ],
-            Self::Subdomain => vec![
-                Self::Subdomain,
-                Self::System,
-                Self::Subsystem,
-                Self::FeatureSet,
-                Self::Capability,
-                Self::Reference,
-            ],
-            Self::System => vec![
-                Self::Subsystem,
-                Self::FeatureSet,
-                Self::Capability,
-                Self::Reference,
-            ],
-            Self::Subsystem => vec![
-                Self::Subsystem,
-                Self::FeatureSet,
-                Self::Capability,
-                Self::Reference,
-            ],
-            Self::FeatureSet => vec![
-                Self::FeatureSet,
-                Self::Capability,
-                Self::Rollout,
-                Self::Reference,
-            ],
-            Self::Capability => vec![
-                Self::FeatureSet,
-                Self::Capability,
-                Self::Rollout,
-                Self::Reference,
-            ],
+            Self::Area | Self::Domain | Self::System => vec![Self::Capability],
+            Self::Subdomain | Self::Subsystem | Self::FeatureSet | Self::Capability => {
+                vec![Self::Rollout]
+            }
             Self::Rollout | Self::Reference => Vec::new(),
         }
     }

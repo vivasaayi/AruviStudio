@@ -812,8 +812,8 @@ export function buildProductOverviewBookBundle(
             : `
               <section class="page">
                 <div class="chapter-kicker">Catalog</div>
-                <h2 class="chapter-title">No Root Sections Yet</h2>
-                <div class="chapter-intro">Create the first semantic root section in Aruvi Studio to turn this product into a readable book.</div>
+                <h2 class="chapter-title">No Product Areas Yet</h2>
+                <div class="chapter-intro">Create the first product area in Aruvi Studio to turn this product into a readable book.</div>
               </section>
             `}
           ${includeBackMatter ? renderBackMatter({
@@ -858,7 +858,7 @@ function renderFrontMatter({
       <h1>${escapeHtml(product.name)}</h1>
       <div class="deck">${renderRichTextHtml(product.description || "A durable product narrative generated from Aruvi Studio.")}</div>
       <div class="book-meta">
-        <div class="meta-item"><strong>Root Sections</strong>${rootSectionCount}</div>
+        <div class="meta-item"><strong>Product Areas</strong>${rootSectionCount}</div>
         <div class="meta-item"><strong>Total Nodes</strong>${totalNodeCount}</div>
         <div class="meta-item"><strong>Delivery</strong>${metrics.done} done, ${metrics.wip} active, ${metrics.tbd} planned</div>
         <div class="meta-item"><strong>Generated</strong>${escapeHtml(generatedAt)}</div>
@@ -875,18 +875,18 @@ function renderFrontMatter({
         </div>
         <div class="panel">
           <h3>Edition</h3>
-          <div class="index-copy">Prepared on ${escapeHtml(generatedAt)} from the current live product structure and attached delivery items.</div>
+          <div class="index-copy">Prepared on ${escapeHtml(generatedAt)} from the current live product structure and attached delivery stories.</div>
         </div>
         <div class="panel">
           <h3>Catalog Shape</h3>
-          <div class="index-copy">${rootSectionCount} root sections, ${totalNodeCount} total semantic nodes, ${productLevelWorkItems.length} product-level delivery themes.</div>
+          <div class="index-copy">${rootSectionCount} product areas, ${totalNodeCount} total management nodes, ${productLevelWorkItems.length} product-level delivery themes.</div>
         </div>
       </div>
     </section>
 
     <section class="page" id="${BOOK_CONTENTS_ID}">
       <div class="toc-title">Contents</div>
-      <div class="lead">This edition keeps the semantic product tree readable as a technical book: orientation first, then root sections, then nested chapter nodes, with delivery work shown as concise implementation notes.</div>
+      <div class="lead">This edition keeps the product tree readable as a technical book: orientation first, then product areas, capabilities, and features, with delivery stories shown as concise implementation notes.</div>
       <div class="section-grid">
         <div class="panel">
           <h3>Vision</h3>
@@ -1007,7 +1007,7 @@ function renderBookModuleHtml(moduleTree: ProductTree["modules"][number], chapte
     <section class="page" id="${getModuleSectionId(moduleTree.module)}">
       <div class="chapter-kicker">${escapeHtml(rootKindLabel)} ${chapterNumber}</div>
       <h2 class="chapter-title">${escapeHtml(moduleTree.module.name)}</h2>
-      <div class="chapter-intro">${renderRichTextHtml(moduleTree.module.description || moduleTree.module.purpose || "This chapter describes the root section’s role inside the product.")}</div>
+      <div class="chapter-intro">${renderRichTextHtml(moduleTree.module.description || moduleTree.module.purpose || "This chapter describes the product area's role inside the product.")}</div>
       <div class="chapter-stats">
         <span class="stat-pill">${moduleTree.features.length} ${childCountLabel}</span>
         <span class="stat-pill">${metrics.done} done</span>
@@ -1027,7 +1027,7 @@ function renderBookModuleHtml(moduleTree: ProductTree["modules"][number], chapte
       ` : ""}
       ${moduleTree.features.length > 0
         ? moduleTree.features.map((capabilityTree, index) => renderBookCapabilityHtml(capabilityTree, `${chapterNumber}.${index + 1}`, allWorkItems)).join("")
-        : `<div class="section-block"><div class="body-copy">No child nodes are defined for this root section yet.</div></div>`}
+        : `<div class="section-block"><div class="body-copy">No child nodes are defined for this product area yet.</div></div>`}
       <div class="footer-note">End of chapter ${chapterNumber}.</div>
     </section>
   `;

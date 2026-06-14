@@ -1,19 +1,19 @@
 import { test, expect } from "./support/test.js";
 
-test("product design supports capability navigation and review deep links", async ({ page }) => {
+test("product management supports capability navigation and review deep links", async ({ page }) => {
   await page.goto("/products");
 
   await expect(page.getByRole("heading", { name: "Products" })).toBeVisible();
-  await page.getByRole("button", { name: "Product Design" }).click();
+  await page.getByRole("button", { name: "Product Management" }).click();
   await expect(page.getByPlaceholder("Search nodes")).toBeVisible();
   await expect(page.getByRole("button", { name: /^Product$/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^Capabilities$/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Management Tree$/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /^References$/ })).toBeVisible();
 
   await page.getByText("Expression Evaluation").first().click();
   await expect(page.getByText("Selected Node", { exact: true })).toBeVisible();
-  await expect(page.getByText("Children for the selected capability are listed below.")).toBeVisible();
-  await expect(page.getByRole("button", { name: "+ Capability Slice" })).toBeVisible();
+  await expect(page.getByText("Features for the selected capability are listed below.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "+ Feature" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Edit Capability" })).toBeVisible();
 
   await page.getByRole("button", { name: /^References$/ }).first().click();
@@ -41,7 +41,7 @@ test("delivery builder shows owner badges and product-level ownership", async ({
   await expect(page.getByText("Owner: Product", { exact: true })).toBeVisible();
   await expect(page.getByText("Owner: Capability", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Calculator / Core Math Engine / Expression Evaluation", { exact: true })).toBeVisible();
-  await expect(page.getByText("Owner: Capability Slice", { exact: true })).toBeVisible();
+  await expect(page.getByText("Owner: Feature", { exact: true })).toBeVisible();
   await expect(page.getByText("Calculator / Core Math Engine / Expression Evaluation / Scientific Mode Slice", { exact: true })).toBeVisible();
 });
 

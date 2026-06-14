@@ -111,8 +111,8 @@
     };
   }
 
-  const ROOT_ALLOWED_CHILD_KINDS = ["area", "domain", "system", "subsystem", "feature_set", "capability", "reference"];
-  const NESTED_ALLOWED_CHILD_KINDS = ["feature_set", "capability", "rollout", "reference"];
+  const ROOT_ALLOWED_CHILD_KINDS = ["capability"];
+  const NESTED_ALLOWED_CHILD_KINDS = ["rollout"];
 
   function createState() {
     const calculatorProductId = "example-product-calculator";

@@ -184,7 +184,7 @@ export function ProductOverviewDocument({
             <div style={{ minWidth: 0 }}>
               <h2 style={styles.title}>{product.name}</h2>
               <p style={styles.subtitle}>
-                Reader mode for the product: semantic root sections, nested nodes, and delivery work aligned to the same structural tree.
+                Reader mode for the product: product areas, capabilities, features, stories, and tasks aligned to one structural tree.
               </p>
             </div>
             <div style={styles.nodeActionRow}>
@@ -200,7 +200,7 @@ export function ProductOverviewDocument({
 
           <div style={styles.progressPanel}>
             <div style={styles.progressRow}>
-              <span>{metrics.done} of {metrics.total} work items complete</span>
+              <span>{metrics.done} of {metrics.total} stories complete</span>
               <strong>{metrics.completion}% complete</strong>
             </div>
             <div style={styles.progressTrack}>
@@ -209,10 +209,10 @@ export function ProductOverviewDocument({
           </div>
 
           <div style={styles.metricGrid}>
-            <MetricCard label="Root Sections" value={rootSectionCount} />
+            <MetricCard label="Product Areas" value={rootSectionCount} />
             <MetricCard label="Total Nodes" value={totalNodeCount} />
             <MetricCard label="Leaf Nodes" value={leafNodeCount} />
-            <MetricCard label="Active Work Items" value={activeWorkItemCount} />
+            <MetricCard label="Active Stories" value={activeWorkItemCount} />
             <MetricCard label="Done" value={metrics.done} />
             <MetricCard label="Blocked" value={metrics.blocked} />
           </div>
@@ -275,9 +275,9 @@ export function ProductOverviewDocument({
           <section style={styles.section}>
             <div style={styles.sectionHeader}>
               <div style={styles.eyebrow}>Product</div>
-              <h3 style={styles.sectionHeading}>No Root Sections Yet</h3>
+              <h3 style={styles.sectionHeading}>No Product Areas Yet</h3>
               <p style={styles.sectionSubtitle}>
-                Create the first semantic root section to turn the product into a navigable system map.
+                Create the first product area to turn the product into a navigable system map.
               </p>
             </div>
           </section>
@@ -427,7 +427,7 @@ function ModuleChapter({
               />
             ))
           ) : (
-            <div style={styles.empty}>No capabilities defined for this module yet.</div>
+            <div style={styles.empty}>No capabilities defined for this product area yet.</div>
           )}
         </div>
       </details>
@@ -562,11 +562,11 @@ function CapabilityChapter({
 
           {directWorkItems.length > 0 ? (
             <div>
-              <div style={styles.sectionTitle}>Delivery Work</div>
+              <div style={styles.sectionTitle}>Delivery Stories</div>
               <WorkItemTree product={product} nodes={directWorkItems} onOpenWorkItem={onOpenWorkItem} onPlanFromItem={onPlanFromItem} />
             </div>
           ) : (
-            <div style={styles.empty}>No work items attached to this {capabilityType.toLowerCase()} yet.</div>
+            <div style={styles.empty}>No stories attached to this {capabilityType.toLowerCase()} yet.</div>
           )}
 
           {capabilityTree.children.length > 0 ? (
@@ -678,7 +678,7 @@ function WorkItemCard({
 
 function MetricPills({ metrics }: { metrics: WorkItemMetrics }) {
   if (metrics.total === 0) {
-    return <span style={styles.summaryPill}>No work items</span>;
+    return <span style={styles.summaryPill}>No stories</span>;
   }
 
   return (

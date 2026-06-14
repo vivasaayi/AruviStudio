@@ -380,7 +380,7 @@ function summarizeModelUsage(calls: ModelCall[], runs: AgentRun[]): ModelUsageSu
 
 function formatWorkItemTypeLabel(workItemType: WorkItem["work_item_type"]): string {
   const canonicalLabels: Record<WorkItem["work_item_type"], string> = {
-    feature: "delivery",
+    feature: "story",
     setup: "setup",
     bug: "bug fix",
     refactor: "refactor",
@@ -400,13 +400,13 @@ function getWorkItemExecutionSteps(workItem: WorkItem, workspaceName?: string | 
       "Enable version history and create the default branch.",
       "Create baseline files such as README, .gitignore, and tests/ scaffold.",
       `Attach the workspace to the current product or module scope${workspaceName ? ` (${workspaceName})` : ""}.`,
-      "Verify downstream work items can inherit the workspace automatically.",
+      "Verify downstream stories and tasks can inherit the workspace automatically.",
     ];
   }
 
   const steps = [
     "Confirm requirements, constraints, and acceptance criteria are complete.",
-    "Resolve the workspace and working branch for this delivery work.",
+    "Resolve the workspace and working branch for this delivery story.",
     "Implement the scoped change in code.",
     "Produce verification artifacts for review.",
   ];
@@ -461,6 +461,7 @@ export function WorkItemListPage() {
     workItemType: "feature",
     priority: "medium",
     complexity: "medium",
+    parentWorkItemId: null as string | null,
   });
   const [workItemDraft, setWorkItemDraft] = useState({
     title: "",
@@ -793,6 +794,7 @@ export function WorkItemListPage() {
         workItemType: createForm.workItemType,
         priority: createForm.priority,
         complexity: createForm.complexity,
+        parentWorkItemId: createForm.parentWorkItemId ?? undefined,
       }),
     onSuccess: async (createdWorkItem) => {
       queryClient.setQueryData<WorkItem[] | undefined>(["workItems", activeProductId, activeNodeId, activeNodeType, statusFilter], (current) =>
@@ -813,6 +815,7 @@ export function WorkItemListPage() {
         workItemType: "feature",
         priority: "medium",
         complexity: "medium",
+        parentWorkItemId: null,
       });
       setShowCreateForm(false);
       closeWorkItemCreateDialog();
@@ -850,7 +853,7 @@ export function WorkItemListPage() {
   });
 
   const approveMutation = useMutation({
-    mutationFn: () => approveWorkItem(selectedWorkItemId!, "Approved from work item workspace"),
+    mutationFn: () => approveWorkItem(selectedWorkItemId!, "Approved from story workspace"),
     onSuccess: async () => {
       setActionError(null);
       await Promise.all([
@@ -861,7 +864,7 @@ export function WorkItemListPage() {
     onError: (error) => setActionError(String(error)),
   });
   const rejectMutation = useMutation({
-    mutationFn: () => rejectWorkItem(selectedWorkItemId!, "Rejected from work item workspace"),
+    mutationFn: () => rejectWorkItem(selectedWorkItemId!, "Rejected from story workspace"),
     onSuccess: async () => {
       setActionError(null);
       await Promise.all([
@@ -884,7 +887,7 @@ export function WorkItemListPage() {
   const externalCliMutation = useMutation({
     mutationFn: (provider: ExternalCliProvider) => {
       if (!selectedWorkItemId) {
-        throw new Error("No work item selected.");
+        throw new Error("No story selected.");
       }
       return invokeExternalCliForWorkItem({ workItemId: selectedWorkItemId, provider });
     },
@@ -906,11 +909,11 @@ export function WorkItemListPage() {
       if (!selectedWorkItemId || !workflowRunId) {
         throw new Error("No workflow run available for plan approval.");
       }
-      await approveWorkItemPlan(selectedWorkItemId, "Plan approved from work item workspace");
+      await approveWorkItemPlan(selectedWorkItemId, "Plan approved from story workspace");
       await handleWorkflowUserAction({
         workflowRunId,
         action: "approve",
-        notes: "Plan approved from work item workspace",
+        notes: "Plan approved from story workspace",
       });
     },
     onSuccess: async () => {
@@ -924,11 +927,11 @@ export function WorkItemListPage() {
       if (!selectedWorkItemId || !workflowRunId) {
         throw new Error("No workflow run available for plan rejection.");
       }
-      await rejectWorkItemPlan(selectedWorkItemId, "Plan rejected from work item workspace");
+      await rejectWorkItemPlan(selectedWorkItemId, "Plan rejected from story workspace");
       await handleWorkflowUserAction({
         workflowRunId,
         action: "reject",
-        notes: "Plan rejected from work item workspace",
+        notes: "Plan rejected from story workspace",
       });
     },
     onSuccess: async () => {
@@ -942,11 +945,11 @@ export function WorkItemListPage() {
       if (!selectedWorkItemId || !workflowRunId) {
         throw new Error("No workflow run available for test review.");
       }
-      await approveWorkItemTestReview(selectedWorkItemId, "Test review approved from work item workspace");
+      await approveWorkItemTestReview(selectedWorkItemId, "Test review approved from story workspace");
       await handleWorkflowUserAction({
         workflowRunId,
         action: "approve",
-        notes: "Test review approved from work item workspace",
+        notes: "Test review approved from story workspace",
       });
     },
     onSuccess: async () => {
@@ -963,7 +966,7 @@ export function WorkItemListPage() {
       await handleWorkflowUserAction({
         workflowRunId,
         action: "reject",
-        notes: "Test review rejected from work item workspace",
+        notes: "Test review rejected from story workspace",
       });
     },
     onSuccess: async () => {
@@ -979,7 +982,7 @@ export function WorkItemListPage() {
       }
       await markWorkflowRunFailed(
         workflowRunId,
-        "Marked failed from Work Item review due to stale execution",
+        "Marked failed from story review due to stale execution",
       );
     },
     onSuccess: async () => {
@@ -1009,7 +1012,7 @@ export function WorkItemListPage() {
   const createWorkspaceMutation = useMutation({
     mutationFn: async () => {
       if (!selectedWorkItemSummary) {
-        throw new Error("No work item selected.");
+        throw new Error("No story selected.");
       }
       return createLocalWorkspace({
         productId: selectedWorkItemSummary.product_id ?? activeProductId,
@@ -1062,7 +1065,7 @@ export function WorkItemListPage() {
   const assignWorkspaceMutation = useMutation({
     mutationFn: async () => {
       if (!selectedWorkItemSummary) {
-        throw new Error("No work item selected.");
+        throw new Error("No story selected.");
       }
       if (!workspaceRepositoryId) {
         throw new Error("Select a workspace.");
@@ -1079,7 +1082,7 @@ export function WorkItemListPage() {
     },
     onSuccess: async (updatedWorkItem) => {
       setActionError(null);
-      setActionInfo("Workspace and branch updated for this work item.");
+      setActionInfo("Workspace and branch updated for this story.");
       setIsEditingWorkspace(false);
       queryClient.setQueryData(["workItem", selectedWorkItemId], updatedWorkItem);
       const updatedRepositoryId = updatedWorkItem.repo_override_id ?? updatedWorkItem.active_repo_id;
@@ -1100,7 +1103,7 @@ export function WorkItemListPage() {
   const clearWorkspaceOverrideMutation = useMutation({
     mutationFn: async () => {
       if (!selectedWorkItemSummary) {
-        throw new Error("No work item selected.");
+        throw new Error("No story selected.");
       }
       return assignWorkItemWorkspace({
         id: selectedWorkItemSummary.id,
@@ -1371,7 +1374,7 @@ export function WorkItemListPage() {
     const checks: string[] = [];
 
     if (!selectedWorkItemSummary) {
-      return { blockers: ["Select a work item to evaluate readiness."], warnings, checks };
+      return { blockers: ["Select a story to evaluate readiness."], warnings, checks };
     }
 
     if (selectedWorkItemSummary.status !== "approved") {
@@ -1381,7 +1384,7 @@ export function WorkItemListPage() {
     }
 
     if (!resolvedRepository) {
-      blockers.push("No workspace is attached to this work item scope. Create a local workspace before starting delivery stages.");
+      blockers.push("No workspace is attached to this story scope. Create a local workspace before starting delivery stages.");
     } else {
       checks.push(`Workspace resolved: ${resolvedRepository.name}.`);
       checks.push(`Branch resolved: ${selectedWorkItemSummary.branch_name || resolvedRepository.default_branch}.`);
@@ -1548,7 +1551,7 @@ export function WorkItemListPage() {
               onChange={(event) => setWorkspaceBranchMode(event.target.value as WorkspaceBranchMode)}
             >
               <option value="default">Use workspace default branch</option>
-              <option value="work_item">Create/use work item branch</option>
+              <option value="work_item">Create/use story branch</option>
               <option value="custom">Use custom branch</option>
             </select>
 
@@ -1586,7 +1589,7 @@ export function WorkItemListPage() {
       <div style={styles.header}>
         <div style={styles.titleBlock}>
           <h1 style={styles.title}>Delivery / Builder</h1>
-          <div style={styles.subtitle}>Execute delivery items, inspect evidence, and keep implementation work scoped to the selected product design.</div>
+          <div style={styles.subtitle}>Execute product delivery as stories and tasks, inspect evidence, and keep implementation scoped to the selected product management node.</div>
         </div>
       </div>
 
@@ -1594,7 +1597,7 @@ export function WorkItemListPage() {
         <div style={styles.panelInner}>
           <div style={styles.tabBar}>
             <button style={workItemWorkspaceTab === "backlog" ? styles.tabActive : styles.tab} onClick={() => setWorkItemWorkspaceTab("backlog")}>Backlog</button>
-            <button style={workItemWorkspaceTab === "detail" ? styles.tabActive : styles.tab} onClick={() => setWorkItemWorkspaceTab("detail")}>Delivery Item Detail</button>
+            <button style={workItemWorkspaceTab === "detail" ? styles.tabActive : styles.tab} onClick={() => setWorkItemWorkspaceTab("detail")}>Story Detail</button>
             <button style={workItemWorkspaceTab === "external_cli" ? styles.tabActive : styles.tab} onClick={() => setWorkItemWorkspaceTab("external_cli")}>External CLI</button>
             <button style={workItemWorkspaceTab === "review" ? styles.tabActive : styles.tab} onClick={() => setWorkItemWorkspaceTab("review")}>Review</button>
           </div>
@@ -1628,7 +1631,15 @@ export function WorkItemListPage() {
                       </button>
                     </>
                   ) : null}
-                  <button style={styles.ghostBtn} onClick={openWorkItemCreateDialog}>+ New Work Item</button>
+                  <button
+                    style={styles.ghostBtn}
+                    onClick={() => {
+                      setCreateForm((current) => ({ ...current, parentWorkItemId: null }));
+                      openWorkItemCreateDialog();
+                    }}
+                  >
+                    + New Story
+                  </button>
                 </div>
               </div>
               {!activeProductId && <div style={styles.warning}>Select a product to load the backlog.</div>}
@@ -1640,10 +1651,10 @@ export function WorkItemListPage() {
                 ))}
               </select>
               <div style={styles.smallText}>
-                Showing work items for: {scopeDescriptor}
+                Showing stories for: {scopeDescriptor}
               </div>
               {isLoading ? (
-                <div style={styles.empty}>Loading work items...</div>
+                <div style={styles.empty}>Loading stories...</div>
               ) : orderedWorkItems.length > 0 ? (
                 <div style={styles.taskList}>
                   {orderedWorkItems.map((workItem, workItemIndex) => (
@@ -1774,7 +1785,7 @@ export function WorkItemListPage() {
                                         deleteMutation.mutate(workItem.id);
                                       }}
                                     >
-                                      Delete work item
+                                      Delete story
                                     </button>
                                   </div>
                                 )}
@@ -1787,7 +1798,7 @@ export function WorkItemListPage() {
                   ))}
                 </div>
               ) : (
-                <div style={styles.empty}>No work items in the current scope yet.</div>
+                <div style={styles.empty}>No stories in the current scope yet.</div>
               )}
             </>
           )}
@@ -1816,7 +1827,16 @@ export function WorkItemListPage() {
                     </button>
                   )}
                   <button style={styles.ghostBtn} onClick={() => setIsEditingWorkItem(true)}>
-                    Edit Work Item
+                    Edit Story
+                  </button>
+                  <button
+                    style={styles.ghostBtn}
+                    onClick={() => {
+                      setCreateForm((current) => ({ ...current, parentWorkItemId: selectedWorkItemSummary.id }));
+                      openWorkItemCreateDialog();
+                    }}
+                  >
+                    + New Task
                   </button>
                   {EXTERNAL_CLI_PROVIDERS.map((entry) => (
                     <button
@@ -1877,7 +1897,7 @@ export function WorkItemListPage() {
                       </div>
                       <div style={styles.smallText}>Branch: {selectedWorkItemSummary.branch_name || resolvedRepository.default_branch}</div>
                       <div style={styles.smallText}>
-                        Source: {selectedWorkItemSummary.repo_override_id ? "work item override" : "scope default"}
+                        Source: {selectedWorkItemSummary.repo_override_id ? "story override" : "scope default"}
                       </div>
                       <div style={styles.smallText}>Version history: enabled</div>
                       {renderWorkspaceAssignmentPanel()}
@@ -1885,7 +1905,7 @@ export function WorkItemListPage() {
                   ) : (
                     <>
                       <div style={styles.warning}>
-                        No workspace is attached to the current work item scope.
+                        No workspace is attached to the current story scope.
                       </div>
                       <div style={styles.smallText}>
                         Create the workspace here and AruviStudio will enable version history and attach it automatically.
@@ -1920,7 +1940,7 @@ export function WorkItemListPage() {
                     </div>
                   </div>
                   <div style={styles.row}>
-                    <div style={styles.detailCard}><div style={styles.detailLabel}>Work Item Status</div><div style={styles.detailValue}>{selectedWorkItemSummary.status.replace(/_/g, " ")}</div></div>
+                    <div style={styles.detailCard}><div style={styles.detailLabel}>Story Status</div><div style={styles.detailValue}>{selectedWorkItemSummary.status.replace(/_/g, " ")}</div></div>
                     <div style={styles.detailCard}><div style={styles.detailLabel}>Workflow Status</div><div style={styles.detailValue}>{describeWorkItemRuntime(selectedWorkItemSummary, latestWorkflowRun ?? null).detail}</div></div>
                   </div>
                   <div style={styles.row}>
@@ -1934,7 +1954,7 @@ export function WorkItemListPage() {
                 </>
               </>
             ) : (
-              <div style={styles.empty}>Select a work item from the queue to refine it.</div>
+              <div style={styles.empty}>Select a story from the queue to refine it.</div>
             )
           )}
 
@@ -1992,7 +2012,7 @@ export function WorkItemListPage() {
                     })()}
                   </>
                 ) : (
-                  <div style={styles.detailValue}>No external CLI run has been launched for this work item.</div>
+                  <div style={styles.detailValue}>No external CLI run has been launched for this story.</div>
                 )}
               </div>
 
@@ -2078,7 +2098,7 @@ export function WorkItemListPage() {
                     </div>
                     <div style={styles.smallText}>Branch: {selectedWorkItemSummary?.branch_name || resolvedRepository.default_branch}</div>
                     <div style={styles.smallText}>
-                      Source: {selectedWorkItemSummary?.repo_override_id ? "work item override" : "scope default"}
+                      Source: {selectedWorkItemSummary?.repo_override_id ? "story override" : "scope default"}
                     </div>
                     <div style={styles.smallText}>Version history: enabled</div>
                     {renderWorkspaceAssignmentPanel()}
@@ -2086,7 +2106,7 @@ export function WorkItemListPage() {
                 ) : (
                   <>
                     <div style={styles.warning}>
-                      No workspace is attached to the current work item scope.
+                      No workspace is attached to the current story scope.
                     </div>
                     <div style={styles.smallText}>
                       Delivery stages will be blocked until a workspace exists for this scope.
@@ -2409,11 +2429,11 @@ export function WorkItemListPage() {
                     )}
                   </>
                 ) : (
-                  <div style={styles.detailValue}>No workflow run yet. Start a workflow from the Work Item Detail tab.</div>
+                  <div style={styles.detailValue}>No workflow run yet. Start a workflow from the Story Detail tab.</div>
                 )}
               </div>
               <div style={styles.detailCard}>
-                <div style={styles.detailLabel}>Subtasks</div>
+                <div style={styles.detailLabel}>Tasks</div>
               {subWorkItems && subWorkItems.length > 0 ? (
                 <div style={styles.list}>
                     {subWorkItems.map((workItem: WorkItem) => (
@@ -2424,7 +2444,7 @@ export function WorkItemListPage() {
                     ))}
                 </div>
               ) : (
-                  <div style={styles.detailValue}>No child work items yet.</div>
+                  <div style={styles.detailValue}>No tasks yet.</div>
               )}
               </div>
               <div style={styles.detailCard}>
@@ -2521,16 +2541,18 @@ export function WorkItemListPage() {
       )}
 
       {(showCreateForm || workItemCreateDialogOpen) && (
-        <ModalShell title="Create Work Item" onClose={() => { setShowCreateForm(false); closeWorkItemCreateDialog(); }}>
+        <ModalShell title={createForm.parentWorkItemId ? "Create Task" : "Create Story"} onClose={() => { setShowCreateForm(false); closeWorkItemCreateDialog(); }}>
           <div style={styles.detailCard}>
             <div style={styles.detailLabel}>Creation Scope</div>
             <div style={styles.detailValue}>
-              {activeCapability
+              {createForm.parentWorkItemId
+                ? "Current story"
+                : activeCapability
                 ? `Current ${getHierarchyNodeKindLabel(activeCapability.node_kind, { lowercase: true })}`
                 : activeCapabilityId
                   ? "Current node"
                   : activeModuleId
-                    ? "Current root section"
+                    ? "Current product area"
                     : activeProductId
                       ? "Current product"
                       : "No product selected"}
@@ -2564,19 +2586,19 @@ export function WorkItemListPage() {
               </select>
             </div>
           </div>
-          {!activeProductId && <div style={styles.warning}>Select a product before creating a work item.</div>}
+          {!activeProductId && <div style={styles.warning}>Select a product before creating a story.</div>}
           {formError && <div style={styles.errorText}>{formError}</div>}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
             <button style={styles.ghostBtn} onClick={() => { setShowCreateForm(false); closeWorkItemCreateDialog(); }}>Cancel</button>
             <button style={styles.btn} onClick={() => createMutation.mutate()} disabled={!activeProductId || !createForm.title}>
-              {createMutation.isPending ? "Creating..." : "Create Work Item"}
+              {createMutation.isPending ? "Creating..." : createForm.parentWorkItemId ? "Create Task" : "Create Story"}
             </button>
           </div>
         </ModalShell>
       )}
 
       {isEditingWorkItem && selectedWorkItemSummary && (
-        <ModalShell title="Edit Work Item" onClose={() => setIsEditingWorkItem(false)}>
+        <ModalShell title="Edit Story" onClose={() => setIsEditingWorkItem(false)}>
           {formError && <div style={styles.errorText}>{formError}</div>}
           <label style={styles.detailLabel}>Title</label>
           <input style={styles.input} value={workItemDraft.title} onChange={(e) => setWorkItemDraft({ ...workItemDraft, title: e.target.value })} />
@@ -2597,7 +2619,7 @@ export function WorkItemListPage() {
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
             <button style={styles.ghostBtn} onClick={() => setIsEditingWorkItem(false)}>Cancel</button>
             <button style={styles.btn} onClick={() => updateWorkItemMutation.mutate()} disabled={!workItemDraft.title}>
-              {updateWorkItemMutation.isPending ? "Saving..." : "Save Work Item"}
+              {updateWorkItemMutation.isPending ? "Saving..." : "Save Story"}
             </button>
           </div>
         </ModalShell>

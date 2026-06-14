@@ -806,7 +806,7 @@ export function buildProductOverviewHtml({
           <div class="brand">
             <div class="eyebrow">Aruvi Studio</div>
             <h1>${escapeHtml(product.name)}</h1>
-            <p>Generated product documentation with modules, capabilities, and delivery work in one readable view.</p>
+            <p>Generated product documentation with product areas, capabilities, features, stories, and tasks in one readable view.</p>
           </div>
           <div class="toc">
             <div class="toc-title">On this page</div>
@@ -838,16 +838,16 @@ export function buildProductOverviewHtml({
           </div>
           <div class="progress-panel">
             <div class="progress-label">
-              <span>${metrics.done} of ${metrics.total} work items complete</span>
+              <span>${metrics.done} of ${metrics.total} stories complete</span>
               <strong>${metrics.completion}% complete</strong>
             </div>
             <div class="progress-track"><span style="width: ${metrics.completion}%"></span></div>
           </div>
           <div class="metric-grid">
-            ${renderMetricHtml("Root Sections", rootSectionCount)}
+            ${renderMetricHtml("Product Areas", rootSectionCount)}
             ${renderMetricHtml("Total Nodes", totalNodeCount)}
             ${renderMetricHtml("Leaf Nodes", leafNodeCount)}
-            ${renderMetricHtml("Active Work Items", activeWorkItemCount)}
+            ${renderMetricHtml("Active Stories", activeWorkItemCount)}
             ${renderMetricHtml("Done", metrics.done)}
             ${renderMetricHtml("Blocked", metrics.blocked)}
           </div>
@@ -896,8 +896,8 @@ export function buildProductOverviewHtml({
             <section class="section">
               <div class="section-header">
                 <div class="eyebrow">Product</div>
-                <h3>No Root Sections Yet</h3>
-                <p>Create the first semantic root section in Aruvi Studio to turn the product into a navigable system map.</p>
+                <h3>No Product Areas Yet</h3>
+                <p>Create the first product area in Aruvi Studio to turn the product into a navigable system map.</p>
               </div>
             </section>
           `}
@@ -1368,7 +1368,7 @@ export function buildProductOverviewBookHtml({
         <h1>${escapeHtml(product.name)}</h1>
         <div class="deck">${toHtmlParagraph(product.description || "A durable product narrative generated from Aruvi Studio.")}</div>
         <div class="book-meta">
-          <div class="meta-item"><strong>Root Sections</strong>${rootSectionCount}</div>
+          <div class="meta-item"><strong>Product Areas</strong>${rootSectionCount}</div>
           <div class="meta-item"><strong>Total Nodes</strong>${totalNodeCount}</div>
           <div class="meta-item"><strong>Delivery</strong>${metrics.done} done, ${metrics.wip} active, ${metrics.tbd} planned</div>
           <div class="meta-item"><strong>Generated</strong>${escapeHtml(generatedAt)}</div>
@@ -1377,7 +1377,7 @@ export function buildProductOverviewBookHtml({
 
       <section class="page">
         <div class="toc-title">Contents</div>
-        <div class="lead">This edition keeps the semantic product tree readable as a narrative: direction first, then root sections, then nested nodes, with delivery work shown only as concise implementation notes.</div>
+        <div class="lead">This edition keeps the product tree readable as a narrative: direction first, then product areas, capabilities, and features, with delivery stories shown only as concise implementation notes.</div>
         <div class="section-grid">
           <div class="panel">
             <h3>Vision</h3>
@@ -1407,8 +1407,8 @@ export function buildProductOverviewBookHtml({
         : `
           <section class="page">
             <div class="chapter-kicker">Catalog</div>
-            <h2 class="chapter-title">No Root Sections Yet</h2>
-            <div class="chapter-intro">Create the first semantic root section in Aruvi Studio to turn this product into a readable book.</div>
+            <h2 class="chapter-title">No Product Areas Yet</h2>
+            <div class="chapter-intro">Create the first product area in Aruvi Studio to turn this product into a readable book.</div>
           </section>
         `}
     </article>
@@ -1518,7 +1518,7 @@ function renderModuleHtml(moduleTree: ModuleTree, chapterNumber: number, allWork
           ` : ""}
           ${moduleTree.features.length > 0
             ? moduleTree.features.map((capabilityTree, index) => renderCapabilityHtml(capabilityTree, `${chapterNumber}.${index + 1}`, allWorkItems)).join("")
-            : `<p class="muted-line">No capabilities defined for this module yet.</p>`}
+            : `<p class="muted-line">No capabilities defined for this product area yet.</p>`}
         </div>
       </details>
     </section>
@@ -1572,10 +1572,10 @@ function renderCapabilityHtml(capabilityTree: CapabilityTree, numbering: string,
           ${directWorkItems.length > 0 ? `
             <div class="section-header" style="margin: 18px 0 12px;">
               <div class="eyebrow">Delivery</div>
-              <h3 style="font-size: 20px;">Work Items</h3>
+              <h3 style="font-size: 20px;">Stories</h3>
             </div>
             ${renderWorkItemTreeHtml(directWorkItems)}
-          ` : `<p class="muted-line" style="margin-top: 16px;">No work items attached to this ${capabilityType.toLowerCase()} yet.</p>`}
+          ` : `<p class="muted-line" style="margin-top: 16px;">No stories attached to this ${capabilityType.toLowerCase()} yet.</p>`}
 
           ${capabilityTree.children.length > 0
             ? capabilityTree.children.map((child, index) => renderCapabilityHtml(child, `${numbering}.${index + 1}`, allWorkItems)).join("")
@@ -1749,7 +1749,7 @@ function renderBookModuleHtml(moduleTree: ModuleTree, chapterNumber: number, all
       ` : ""}
       ${moduleTree.features.length > 0
         ? moduleTree.features.map((capabilityTree, index) => renderBookCapabilityHtml(capabilityTree, `${chapterNumber}.${index + 1}`, allWorkItems)).join("")
-        : `<div class="section-block"><div class="body-copy">No capabilities are defined for this module yet.</div></div>`}
+        : `<div class="section-block"><div class="body-copy">No capabilities are defined for this product area yet.</div></div>`}
       <div class="footer-note">End of chapter ${chapterNumber}.</div>
     </section>
   `;
@@ -1867,7 +1867,7 @@ function renderTocGroupHtml(group: ProductOverviewTocGroup): string {
 
 function renderMetricSummaryPills(metrics: WorkItemMetrics) {
   if (metrics.total === 0) {
-    return `<span class="count-pill">No work items</span>`;
+    return `<span class="count-pill">No stories</span>`;
   }
 
   return [

@@ -258,18 +258,18 @@ export function ProductOverviewPage() {
 
     switch (action.kind) {
       case "enhance_product":
-        prompt = `Enhance product "${product.name}". Review the current book structure, identify missing root sections, capabilities, rollouts, and work items, then stage a concrete improvement plan.`;
+        prompt = `Enhance product "${product.name}". Review the current product management tree, identify missing product areas, capabilities, features, stories, and tasks, then stage a concrete improvement plan.`;
         break;
       case "add_product_child":
-        prompt = `Add a useful child section under product "${product.name}". Stage the new module/root section with its initial capabilities and starter work items.`;
+        prompt = `Add a useful product area under product "${product.name}". Stage the new product area with its initial capabilities and starter stories.`;
         break;
       case "enhance_module":
         setActiveModule(action.module.id);
-        prompt = `Enhance module "${action.module.name}" in product "${product.name}". Add or revise child capabilities, rollouts, and work items so this branch is execution-ready.`;
+        prompt = `Enhance product area "${action.module.name}" in product "${product.name}". Add or revise child capabilities, features, stories, and tasks so this branch is execution-ready.`;
         break;
       case "add_module_child":
         setActiveModule(action.module.id);
-        prompt = `Add child capabilities under module "${action.module.name}" in product "${product.name}". Include concise descriptions, acceptance criteria, and starter work items where helpful.`;
+        prompt = `Add child capabilities under product area "${action.module.name}" in product "${product.name}". Include concise descriptions, acceptance criteria, and starter stories where helpful.`;
         break;
       case "enhance_capability":
         setActiveModule(action.capability.module_id);
@@ -279,18 +279,18 @@ export function ProductOverviewPage() {
       case "add_capability_child":
         setActiveModule(action.capability.module_id);
         setActiveCapability(action.capability.id);
-        prompt = `Add child nodes under "${action.capability.name}" in product "${product.name}". Stage concrete rollouts or sub-capabilities with clear descriptions and acceptance criteria.`;
+        prompt = `Add child nodes under "${action.capability.name}" in product "${product.name}". Stage concrete features with clear descriptions and acceptance criteria.`;
         break;
       case "add_capability_work_item":
         setActiveModule(action.capability.module_id);
         setActiveCapability(action.capability.id);
-        prompt = `Add implementation work items under "${action.capability.name}" in product "${product.name}". Make each work item specific, testable, and scoped to this branch.`;
+        prompt = `Add delivery stories and tasks under "${action.capability.name}" in product "${product.name}". Make each story specific, testable, and scoped to this branch.`;
         break;
       case "enhance_work_item":
         setActiveModule(action.workItem.module_id ?? null);
         setActiveCapability(action.workItem.capability_id ?? null);
         setActiveWorkItem(action.workItem.id);
-        prompt = `Enhance work item "${action.workItem.title}" in product "${product.name}". Improve the problem statement, acceptance criteria, constraints, and split it into child work items if needed.`;
+        prompt = `Enhance story "${action.workItem.title}" in product "${product.name}". Improve the problem statement, acceptance criteria, constraints, and split it into tasks if needed.`;
         break;
     }
 

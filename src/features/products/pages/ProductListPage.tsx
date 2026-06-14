@@ -9,7 +9,10 @@ import {
   createProduct,
   createProductDependency,
   createProductReference,
+  deleteCapability,
+  deleteModule,
   deleteProductReference,
+  deleteWorkItem,
   getProductTree,
   getSetting,
   listProductDependencies,
@@ -176,6 +179,17 @@ const styles: Record<string, React.CSSProperties> = {
   contextTitle: { fontSize: 13, fontWeight: 700, color: "#f3f3f3", marginBottom: 6 },
   contextText: { fontSize: 12, color: "#aab2bf", lineHeight: 1.5 },
   contextLabel: { fontSize: 11, color: "#8f96a3", textTransform: "uppercase" as const, marginBottom: 4 },
+  managementTabs: { display: "flex", gap: 8, paddingBottom: 10, borderBottom: "1px solid #32353d", marginBottom: 12, flexWrap: "wrap" as const },
+  managementLayout: { display: "grid", gridTemplateColumns: "minmax(220px, 300px) minmax(0, 1fr)", gap: 12, minHeight: 0 },
+  managementThreePane: { display: "grid", gridTemplateColumns: "minmax(220px, 280px) minmax(240px, 340px) minmax(0, 1fr)", gap: 12, minHeight: 0 },
+  managementPane: { border: "1px solid #32353d", borderRadius: 12, backgroundColor: "#1b1d22", padding: 10, minHeight: 0 },
+  managementPaneHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 },
+  managementList: { display: "flex", flexDirection: "column", gap: 6 },
+  managementListButton: { textAlign: "left" as const, border: "1px solid #303640", borderRadius: 8, backgroundColor: "#26292f", color: "#d8e1ef", padding: "8px 10px", cursor: "pointer" },
+  managementListButtonActive: { textAlign: "left" as const, border: "1px solid #0e639c", borderRadius: 8, backgroundColor: "#1f2a35", color: "#ffffff", padding: "8px 10px", cursor: "pointer" },
+  managementTableHeader: { display: "grid", gridTemplateColumns: "minmax(0, 1.5fr) 110px 110px 190px", gap: 10, padding: "10px 12px", borderBottom: "1px solid #32353d", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" as const, color: "#8f96a3" },
+  managementTableRow: { display: "grid", gridTemplateColumns: "minmax(0, 1.5fr) 110px 110px 190px", gap: 10, padding: "12px", borderBottom: "1px solid #2d3139", alignItems: "center" },
+  managementActions: { display: "flex", gap: 6, alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap" as const },
   moduleCard: { border: "1px solid #32353d", borderRadius: 12, backgroundColor: "#26292f", padding: 12, marginBottom: 10 },
   moduleHeader: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" },
   moduleName: { fontSize: 14, fontWeight: 700, color: "#f3f3f3", marginBottom: 4 },
@@ -236,6 +250,7 @@ export function ProductListPage() {
     activeCapabilityId,
     activeNodeId,
     activeNodeType,
+    activeWorkItemId,
     activeWorkspacePath,
     setActiveProduct,
     setActiveModule,
@@ -272,6 +287,7 @@ export function ProductListPage() {
   const [capabilityDraft, setCapabilityDraft] = useState<{ name: string; description: string; acceptanceCriteria: string; technicalNotes: string; nodeKind: HierarchyNodeKind }>({ name: "", description: "", acceptanceCriteria: "", technicalNotes: "", nodeKind: "capability" });
   const [referenceDraft, setReferenceDraft] = useState<{ title: string; referenceKind: ProductReference["reference_kind"]; uri: string; content: string }>({ title: "", referenceKind: "note", uri: "", content: "" });
   const [structureViewMode, setStructureViewMode] = useState<"children" | "references">("children");
+  const [productManagementTab, setProductManagementTab] = useState<"areas" | "capabilities" | "features" | "work_items">("areas");
   const [formError, setFormError] = useState<string | null>(null);
   const [workspaceActionMsg, setWorkspaceActionMsg] = useState<string | null>(null);
   const [workspaceActionError, setWorkspaceActionError] = useState<string | null>(null);
@@ -302,6 +318,18 @@ export function ProductListPage() {
   const [deleteProductCandidate, setDeleteProductCandidate] = useState<Product | null>(null);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [deleteConfirmArchive, setDeleteConfirmArchive] = useState(false);
+  const [resetPlanCandidate, setResetPlanCandidate] = useState<Product | null>(null);
+  const [resetPlanConfirmName, setResetPlanConfirmName] = useState("");
+  const [resetPlanConfirmTree, setResetPlanConfirmTree] = useState(false);
+  const [resetPlanDeleteDelivery, setResetPlanDeleteDelivery] = useState(false);
+  const [deleteHierarchyCandidate, setDeleteHierarchyCandidate] = useState<null | {
+    kind: "area" | "capability" | "feature";
+    id: string;
+    name: string;
+  }>(null);
+  const [deleteHierarchyConfirmName, setDeleteHierarchyConfirmName] = useState("");
+  const [deleteHierarchyConfirmChecked, setDeleteHierarchyConfirmChecked] = useState(false);
+  const [selectedManagementStoryId, setSelectedManagementStoryId] = useState<string | null>(null);
   const [outlineSearchTerm, setOutlineSearchTerm] = useState("");
   const [outlineKindFilter, setOutlineKindFilter] = useState<HierarchyNodeKind | "">("");
   const [recentNodeKeys, setRecentNodeKeys] = useState<string[]>([]);
@@ -801,6 +829,52 @@ export function ProductListPage() {
     onError: (error) => setFormError(String(error)),
   });
 
+  const resetProductPlanMutation = useMutation({
+    mutationFn: async (data: { productId: string; deleteDelivery: boolean }) => {
+      if (data.productId !== selectedProductId) {
+        throw new Error("Select the product before resetting its plan.");
+      }
+      const modulesToDelete = tree?.modules ?? [];
+      await Promise.all(modulesToDelete.map((moduleTree) => deleteModule(moduleTree.module.id)));
+      if (data.deleteDelivery) {
+        await Promise.all(allProductTasks.map((workItem) => deleteWorkItem(workItem.id)));
+      }
+    },
+    onSuccess: async () => {
+      await invalidateHierarchy();
+      await invalidateTasks();
+      setActiveModule(null);
+      setActiveCapability(null);
+      setResetPlanCandidate(null);
+      setResetPlanConfirmName("");
+      setResetPlanConfirmTree(false);
+      setResetPlanDeleteDelivery(false);
+      setProductWorkspaceTab("structure");
+      setFormError(null);
+    },
+    onError: (error) => setFormError(String(error)),
+  });
+
+  const deleteHierarchyMutation = useMutation({
+    mutationFn: async (candidate: NonNullable<typeof deleteHierarchyCandidate>) => {
+      if (candidate.kind === "area") {
+        await deleteModule(candidate.id);
+        return;
+      }
+      await deleteCapability(candidate.id);
+    },
+    onSuccess: async () => {
+      await invalidateHierarchy();
+      setActiveModule(null);
+      setActiveCapability(null);
+      setDeleteHierarchyCandidate(null);
+      setDeleteHierarchyConfirmName("");
+      setDeleteHierarchyConfirmChecked(false);
+      setFormError(null);
+    },
+    onError: (error) => setFormError(String(error)),
+  });
+
   const reorderModulesMutation = useMutation({
     mutationFn: (orderedIds: string[]) => reorderModules(selectedProductId!, orderedIds),
     onSuccess: async () => invalidateHierarchy(),
@@ -965,7 +1039,7 @@ export function ProductListPage() {
   const createProductReferenceMutation = useMutation({
     mutationFn: () => {
       if (!selectedReferenceScope) {
-        throw new Error("Select a product design scope before adding a reference.");
+        throw new Error("Select a product management scope before adding a reference.");
       }
       return createProductReference({
         scopeType: selectedReferenceScope.scopeType,
@@ -994,12 +1068,12 @@ export function ProductListPage() {
     ? [
         { label: "Direct Children", value: selectedDirectChildren.length, help: `${selectedDirectChildren.length} immediate child ${selectedDirectChildren.length === 1 ? "node" : "nodes"}` },
         { label: "Subtree Nodes", value: countDescendantNodes(selectedHierarchyNode) + 1, help: "Selected node plus all nested descendants" },
-        { label: "References", value: selectedReferences.length, help: "Attached context for this design scope" },
+        { label: "References", value: selectedReferences.length, help: "Attached context for this management scope" },
         { label: "Dependencies", value: selectedProductDependencies.length, help: "Cross-product dependencies for this product" },
       ]
     : [
-        { label: "Capabilities", value: tree?.roots.length ?? 0, help: "Top-level product capabilities" },
-        { label: "Design Nodes", value: totalNodeCount, help: "Capabilities and slices in the product design" },
+        { label: "Product Areas", value: tree?.roots.length ?? 0, help: "Top-level product management areas" },
+        { label: "Management Nodes", value: totalNodeCount, help: "Product areas, capabilities, and features" },
         { label: "References", value: selectedReferences.length, help: "Attached product context" },
         { label: "Dependencies", value: selectedProductDependencies.length, help: "Cross-product dependencies" },
       ];
@@ -1020,12 +1094,100 @@ export function ProductListPage() {
     () => groupHierarchyNodeKinds(editableCapabilityNodeKinds),
     [editableCapabilityNodeKinds],
   );
+  const editableRootNodeKinds = useMemo(() => {
+    const nodeKinds = new Set<HierarchyNodeKind>(["area"]);
+    if (moduleDraft.nodeKind) {
+      nodeKinds.add(moduleDraft.nodeKind);
+    }
+    return orderHierarchyNodeKinds(Array.from(nodeKinds));
+  }, [moduleDraft.nodeKind]);
   const orderedModules = useMemo(() => {
     if (!tree) {
       return [];
     }
     return orderItemsByIds(tree.modules, moduleOrderIds, (moduleTree) => moduleTree.module.id);
   }, [tree, moduleOrderIds]);
+  const selectedProductAreaTree = useMemo(
+    () => orderedModules.find((moduleTree) => moduleTree.module.id === activeModuleId) ?? orderedModules[0] ?? null,
+    [activeModuleId, orderedModules],
+  );
+  const selectedProductAreaNode = useMemo(
+    () => selectedProductAreaTree ? tree?.roots.find((node) => node.id === selectedProductAreaTree.module.id) ?? null : null,
+    [selectedProductAreaTree, tree],
+  );
+  const managementCapabilities = useMemo(
+    () => selectedProductAreaTree
+      ? getOrderedCapabilityTrees(
+          selectedProductAreaTree.features,
+          capabilityOrderMap[getCapabilityOrderKey(selectedProductAreaTree.module.id, null)],
+        ).filter((capabilityTree) => capabilityTree.capability.node_kind !== "rollout")
+      : [],
+    [capabilityOrderMap, selectedProductAreaTree],
+  );
+  const selectedManagementCapabilityTree = useMemo(() => {
+    const selectedTopLevelCapability = managementCapabilities.find((capabilityTree) => capabilityTree.capability.id === activeCapabilityId);
+    if (selectedTopLevelCapability) {
+      return selectedTopLevelCapability;
+    }
+    if (selectedCapability?.parent_capability_id) {
+      return managementCapabilities.find((capabilityTree) => capabilityTree.capability.id === selectedCapability.parent_capability_id) ?? managementCapabilities[0] ?? null;
+    }
+    return managementCapabilities[0] ?? null;
+  }, [activeCapabilityId, managementCapabilities, selectedCapability?.parent_capability_id]);
+  const managementFeatures = useMemo(
+    () => selectedManagementCapabilityTree
+      ? getOrderedCapabilityTrees(
+          selectedManagementCapabilityTree.children,
+          capabilityOrderMap[getCapabilityOrderKey(selectedManagementCapabilityTree.capability.module_id, selectedManagementCapabilityTree.capability.id)],
+        ).filter((capabilityTree) => capabilityTree.capability.node_kind === "rollout")
+      : [],
+    [capabilityOrderMap, selectedManagementCapabilityTree],
+  );
+  const allManagementFeatures = useMemo(
+    () => orderedModules.flatMap((moduleTree) =>
+      flattenCapabilityTreeList(moduleTree.features)
+        .filter((capabilityTree) => capabilityTree.capability.node_kind === "rollout")
+        .map((capabilityTree) => ({
+          capabilityTree,
+          productArea: moduleTree.module,
+          parentCapability: capabilityTree.capability.parent_capability_id
+            ? findCapabilityTree(orderedModules, capabilityTree.capability.parent_capability_id)?.capability ?? null
+            : null,
+        })),
+    ),
+    [orderedModules],
+  );
+  const selectedManagementFeature = useMemo(() => {
+    const activeFeature = allManagementFeatures.find((entry) => entry.capabilityTree.capability.id === activeCapabilityId);
+    if (activeFeature) {
+      return activeFeature;
+    }
+    return allManagementFeatures[0] ?? null;
+  }, [activeCapabilityId, allManagementFeatures]);
+  const selectedManagementFeatureNode = useMemo(
+    () => selectedManagementFeature ? findHierarchyNode(tree?.roots ?? [], selectedManagementFeature.capabilityTree.capability.id, "capability") : null,
+    [selectedManagementFeature, tree],
+  );
+  const featureStories = useMemo(() => {
+    if (!selectedManagementFeatureNode) {
+      return [];
+    }
+    return getDirectWorkItemsForNode(selectedManagementFeatureNode, allProductTasks)
+      .filter((workItem) => !workItem.parent_work_item_id);
+  }, [allProductTasks, selectedManagementFeatureNode]);
+  const selectedManagementStory = useMemo(
+    () => featureStories.find((workItem) => workItem.id === selectedManagementStoryId)
+      ?? featureStories.find((workItem) => workItem.id === activeWorkItemId)
+      ?? featureStories[0]
+      ?? null,
+    [activeWorkItemId, featureStories, selectedManagementStoryId],
+  );
+  const selectedManagementTasks = useMemo(
+    () => selectedManagementStory
+      ? allProductTasks.filter((workItem) => workItem.parent_work_item_id === selectedManagementStory.id)
+      : [],
+    [allProductTasks, selectedManagementStory],
+  );
   const structureRows = useMemo(() => {
     if (!tree) {
       return [];
@@ -1121,6 +1283,86 @@ export function ProductListPage() {
     useUIStore.getState().openCapabilityDialog("create");
   };
 
+  const selectProductArea = (moduleTree: ModuleTree) => {
+    setActiveHierarchyNode({
+      nodeId: moduleTree.module.id,
+      nodeType: "module",
+      moduleId: moduleTree.module.id,
+      capabilityId: null,
+    });
+  };
+
+  const selectCapabilityForManagement = (capabilityTree: CapabilityTree) => {
+    setActiveHierarchyNode({
+      nodeId: capabilityTree.capability.id,
+      nodeType: "capability",
+      moduleId: capabilityTree.capability.module_id,
+      capabilityId: capabilityTree.capability.id,
+    });
+  };
+
+  const openCreateCapabilityForArea = (moduleTree: ModuleTree) => {
+    selectProductArea(moduleTree);
+    setCapabilityForm({ name: "", description: "", acceptanceCriteria: "", technicalNotes: "", nodeKind: "capability" });
+    openCapabilityDialog("create");
+  };
+
+  const openCreateFeatureForCapability = (capabilityTree: CapabilityTree) => {
+    selectCapabilityForManagement(capabilityTree);
+    setCapabilityForm({ name: "", description: "", acceptanceCriteria: "", technicalNotes: "", nodeKind: "rollout" });
+    openCapabilityDialog("create");
+  };
+
+  const openEditProductArea = (moduleTree: ModuleTree) => {
+    selectProductArea(moduleTree);
+    setModuleDraft({
+      name: moduleTree.module.name,
+      description: moduleTree.module.description,
+      purpose: moduleTree.module.purpose,
+      nodeKind: moduleTree.module.node_kind,
+    });
+    openModuleDialog("edit");
+  };
+
+  const openEditCapabilityNode = (capabilityTree: CapabilityTree) => {
+    selectCapabilityForManagement(capabilityTree);
+    setCapabilityDraft({
+      name: capabilityTree.capability.name,
+      description: capabilityTree.capability.description,
+      acceptanceCriteria: capabilityTree.capability.acceptance_criteria,
+      technicalNotes: capabilityTree.capability.technical_notes,
+      nodeKind: capabilityTree.capability.node_kind,
+    });
+    openCapabilityDialog("edit");
+  };
+
+  const requestDeleteHierarchyNode = (candidate: NonNullable<typeof deleteHierarchyCandidate>) => {
+    setDeleteHierarchyCandidate(candidate);
+    setDeleteHierarchyConfirmName("");
+    setDeleteHierarchyConfirmChecked(false);
+    setFormError(null);
+  };
+
+  const openFeatureInBuilder = (featureNode: HierarchyTreeNode | null) => {
+    if (featureNode) {
+      setActiveHierarchyNode({
+        nodeId: featureNode.id,
+        nodeType: featureNode.node_type,
+        moduleId: featureNode.module_id,
+        capabilityId: featureNode.capability_id,
+      });
+    }
+    setActiveView("work-items");
+    navigate("/work-items");
+  };
+
+  const openStoryInBuilder = (story: WorkItem) => {
+    setSelectedManagementStoryId(story.id);
+    setActiveWorkItem(story.id);
+    setActiveView("work-items");
+    navigate("/work-items");
+  };
+
   useEffect(() => {
     if (!selectedNodeKey) {
       return;
@@ -1188,7 +1430,7 @@ export function ProductListPage() {
         <div style={styles.contextLabel}>Attached Context</div>
         <div style={styles.contextTitle}>{selectedNodeTitle}</div>
         <div style={styles.contextText}>
-          References stay with product design scopes and are available as context for product owner, builder, and agent work.
+          References stay with product management scopes and are available as context for product owner, builder, and agent work.
         </div>
         <div style={styles.chipRow}>
           <span style={styles.badgeKind}>{selectedReferenceScope?.scopeType.replace("_", " ") ?? "product"}</span>
@@ -1390,16 +1632,307 @@ export function ProductListPage() {
     setFormError(null);
   };
 
+  const requestResetProductPlan = (product: Product) => {
+    setResetPlanCandidate(product);
+    setResetPlanConfirmName("");
+    setResetPlanConfirmTree(false);
+    setResetPlanDeleteDelivery(false);
+    setFormError(null);
+  };
+
   const deleteConfirmationReady = !!deleteProductCandidate
     && deleteConfirmName.trim() === deleteProductCandidate.name
     && deleteConfirmArchive;
+  const resetPlanReady = !!resetPlanCandidate
+    && resetPlanConfirmName.trim() === resetPlanCandidate.name
+    && resetPlanConfirmTree;
+  const deleteHierarchyReady = !!deleteHierarchyCandidate
+    && deleteHierarchyConfirmName.trim() === deleteHierarchyCandidate.name
+    && deleteHierarchyConfirmChecked;
+
+  const renderProductManagementConsole = () => (
+    <div>
+      <div style={styles.managementTabs}>
+        <button style={productManagementTab === "areas" ? styles.tabActive : styles.tab} onClick={() => setProductManagementTab("areas")}>Product Areas</button>
+        <button style={productManagementTab === "capabilities" ? styles.tabActive : styles.tab} onClick={() => setProductManagementTab("capabilities")}>Capabilities</button>
+        <button style={productManagementTab === "features" ? styles.tabActive : styles.tab} onClick={() => setProductManagementTab("features")}>Features</button>
+        <button style={productManagementTab === "work_items" ? styles.tabActive : styles.tab} onClick={() => setProductManagementTab("work_items")}>Work Items</button>
+      </div>
+
+      {productManagementTab === "areas" && (
+        <div style={styles.section}>
+          <div style={styles.sectionTitle}>
+            <span>Product Areas</span>
+            <div style={styles.managementActions}>
+              <button style={styles.ghostBtn} onClick={() => requestResetProductPlan(selectedProduct!)}>Reset Plan</button>
+              <button style={styles.btn} onClick={() => openModuleDialog("create")}>+ Product Area</button>
+            </div>
+          </div>
+          {orderedModules.length > 0 ? (
+            <div style={styles.table}>
+              <div style={styles.managementTableHeader}>
+                <div>Product Area</div>
+                <div>Capabilities</div>
+                <div>Features</div>
+                <div>Actions</div>
+              </div>
+              {orderedModules.map((moduleTree) => (
+                <div key={moduleTree.module.id} style={styles.managementTableRow}>
+                  <div>
+                    <div style={styles.rowPrimary}>{moduleTree.module.name}</div>
+                    <div style={styles.rowSecondary}>{moduleTree.module.description || moduleTree.module.purpose || "No description yet."}</div>
+                  </div>
+                  <div style={styles.rowCell}>{moduleTree.features.filter((node) => node.capability.node_kind !== "rollout").length}</div>
+                  <div style={styles.rowCell}>{flattenCapabilityTreeList(moduleTree.features).filter((node) => node.capability.node_kind === "rollout").length}</div>
+                  <div style={styles.managementActions}>
+                    <button style={styles.compactActionBtn} onClick={() => {
+                      selectProductArea(moduleTree);
+                      setProductManagementTab("capabilities");
+                    }}>Open</button>
+                    <button style={styles.compactActionBtn} onClick={() => openEditProductArea(moduleTree)}>Edit</button>
+                    <button
+                      style={styles.compactDangerBtn}
+                      onClick={() => requestDeleteHierarchyNode({ kind: "area", id: moduleTree.module.id, name: moduleTree.module.name })}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={styles.empty}>No product areas yet. Add a product area to start the management model.</div>
+          )}
+        </div>
+      )}
+
+      {productManagementTab === "capabilities" && (
+        <div style={styles.managementLayout}>
+          <div style={styles.managementPane}>
+            <div style={styles.managementPaneHeader}>
+              <div style={styles.controlLabel}>Product Areas</div>
+            </div>
+            <div style={styles.managementList}>
+              {orderedModules.map((moduleTree) => (
+                <button
+                  key={moduleTree.module.id}
+                  style={selectedProductAreaTree?.module.id === moduleTree.module.id ? styles.managementListButtonActive : styles.managementListButton}
+                  onClick={() => selectProductArea(moduleTree)}
+                >
+                  <div style={styles.rowPrimary}>{moduleTree.module.name}</div>
+                  <div style={styles.rowSecondary}>{moduleTree.features.length} child nodes</div>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={styles.managementPane}>
+            <div style={styles.sectionTitle}>
+              <span>{selectedProductAreaTree?.module.name ?? "Capabilities"}</span>
+              <button
+                style={styles.btn}
+                onClick={() => selectedProductAreaTree && openCreateCapabilityForArea(selectedProductAreaTree)}
+                disabled={!selectedProductAreaTree}
+              >
+                + Capability
+              </button>
+            </div>
+            {managementCapabilities.length > 0 ? (
+              <div style={styles.table}>
+                <div style={styles.managementTableHeader}>
+                  <div>Capability</div>
+                  <div>Features</div>
+                  <div>Stories</div>
+                  <div>Actions</div>
+                </div>
+                {managementCapabilities.map((capabilityTree) => {
+                  const capabilityNode = findHierarchyNode(tree?.roots ?? [], capabilityTree.capability.id, "capability");
+                  const storyCount = capabilityNode ? getSubtreeWorkItemsForNode(capabilityNode, allProductTasks).filter((workItem) => !workItem.parent_work_item_id).length : 0;
+                  return (
+                    <div key={capabilityTree.capability.id} style={styles.managementTableRow}>
+                      <div>
+                        <div style={styles.rowPrimary}>{capabilityTree.capability.name}</div>
+                        <div style={styles.rowSecondary}>{capabilityTree.capability.description || "No description yet."}</div>
+                      </div>
+                      <div style={styles.rowCell}>{capabilityTree.children.filter((node) => node.capability.node_kind === "rollout").length}</div>
+                      <div style={styles.rowCell}>{storyCount}</div>
+                      <div style={styles.managementActions}>
+                        <button style={styles.compactActionBtn} onClick={() => {
+                          selectCapabilityForManagement(capabilityTree);
+                          setProductManagementTab("features");
+                        }}>Open</button>
+                        <button style={styles.compactActionBtn} onClick={() => openEditCapabilityNode(capabilityTree)}>Edit</button>
+                        <button
+                          style={styles.compactDangerBtn}
+                          onClick={() => requestDeleteHierarchyNode({ kind: "capability", id: capabilityTree.capability.id, name: capabilityTree.capability.name })}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={styles.empty}>No capabilities in this product area yet.</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {productManagementTab === "features" && (
+        <div style={styles.managementLayout}>
+          <div style={styles.managementPane}>
+            <div style={styles.controlLabel}>Capabilities</div>
+            <div style={styles.managementList}>
+              {managementCapabilities.map((capabilityTree) => (
+                <button
+                  key={capabilityTree.capability.id}
+                  style={selectedManagementCapabilityTree?.capability.id === capabilityTree.capability.id ? styles.managementListButtonActive : styles.managementListButton}
+                  onClick={() => selectCapabilityForManagement(capabilityTree)}
+                >
+                  <div style={styles.rowPrimary}>{capabilityTree.capability.name}</div>
+                  <div style={styles.rowSecondary}>{capabilityTree.children.filter((node) => node.capability.node_kind === "rollout").length} features</div>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={styles.managementPane}>
+            <div style={styles.sectionTitle}>
+              <span>{selectedManagementCapabilityTree?.capability.name ?? "Features"}</span>
+              <button
+                style={styles.btn}
+                onClick={() => selectedManagementCapabilityTree && openCreateFeatureForCapability(selectedManagementCapabilityTree)}
+                disabled={!selectedManagementCapabilityTree}
+              >
+                + Feature
+              </button>
+            </div>
+            {managementFeatures.length > 0 ? (
+              <div style={styles.table}>
+                <div style={styles.managementTableHeader}>
+                  <div>Feature</div>
+                  <div>Status</div>
+                  <div>Stories</div>
+                  <div>Actions</div>
+                </div>
+                {managementFeatures.map((featureTree) => {
+                  const featureNode = findHierarchyNode(tree?.roots ?? [], featureTree.capability.id, "capability");
+                  const stories = featureNode ? getDirectWorkItemsForNode(featureNode, allProductTasks).filter((workItem) => !workItem.parent_work_item_id) : [];
+                  return (
+                    <div key={featureTree.capability.id} style={styles.managementTableRow}>
+                      <div>
+                        <div style={styles.rowPrimary}>{featureTree.capability.name}</div>
+                        <div style={styles.rowSecondary}>{featureTree.capability.description || "No description yet."}</div>
+                      </div>
+                      <div style={styles.rowCell}>{featureTree.capability.status}</div>
+                      <div style={styles.rowCell}>{stories.length}</div>
+                      <div style={styles.managementActions}>
+                        <button style={styles.compactActionBtn} onClick={() => {
+                          selectCapabilityForManagement(featureTree);
+                          setProductManagementTab("work_items");
+                        }}>Stories</button>
+                        <button style={styles.compactActionBtn} onClick={() => openEditCapabilityNode(featureTree)}>Edit</button>
+                        <button
+                          style={styles.compactDangerBtn}
+                          onClick={() => requestDeleteHierarchyNode({ kind: "feature", id: featureTree.capability.id, name: featureTree.capability.name })}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={styles.empty}>No features in this capability yet.</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {productManagementTab === "work_items" && (
+        <div style={styles.managementThreePane}>
+          <div style={styles.managementPane}>
+            <div style={styles.controlLabel}>Features</div>
+            <div style={styles.managementList}>
+              {allManagementFeatures.map((entry) => (
+                <button
+                  key={entry.capabilityTree.capability.id}
+                  style={selectedManagementFeature?.capabilityTree.capability.id === entry.capabilityTree.capability.id ? styles.managementListButtonActive : styles.managementListButton}
+                  onClick={() => {
+                    selectCapabilityForManagement(entry.capabilityTree);
+                    setSelectedManagementStoryId(null);
+                  }}
+                >
+                  <div style={styles.rowPrimary}>{entry.capabilityTree.capability.name}</div>
+                  <div style={styles.rowSecondary}>{entry.productArea.name}{entry.parentCapability ? ` / ${entry.parentCapability.name}` : ""}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={styles.managementPane}>
+            <div style={styles.sectionTitle}>
+              <span>Stories</span>
+              <button style={styles.ghostBtn} onClick={() => openFeatureInBuilder(selectedManagementFeatureNode)}>Open Builder</button>
+            </div>
+            <div style={styles.managementList}>
+              {featureStories.length > 0 ? featureStories.map((story) => (
+                <button
+                  key={story.id}
+                  style={selectedManagementStory?.id === story.id ? styles.managementListButtonActive : styles.managementListButton}
+                  onClick={() => {
+                    setSelectedManagementStoryId(story.id);
+                    setActiveWorkItem(story.id);
+                  }}
+                >
+                  <div style={styles.rowPrimary}>{story.title}</div>
+                  <div style={styles.rowSecondary}>{story.status.replace(/_/g, " ")} · {story.priority}</div>
+                </button>
+              )) : (
+                <div style={styles.empty}>No stories for this feature yet.</div>
+              )}
+            </div>
+          </div>
+          <div style={styles.managementPane}>
+            {selectedManagementStory ? (
+              <>
+                <div style={styles.sectionTitle}>
+                  <span>Story Details</span>
+                  <button style={styles.ghostBtn} onClick={() => openStoryInBuilder(selectedManagementStory)}>Open Story</button>
+                </div>
+                <div style={styles.contextCard}>
+                  <div style={styles.contextLabel}>{selectedManagementStory.status.replace(/_/g, " ")} · {selectedManagementStory.work_item_type.replace(/_/g, " ")}</div>
+                  <div style={styles.contextTitle}>{selectedManagementStory.title}</div>
+                  <div style={styles.contextText}>{selectedManagementStory.description || selectedManagementStory.problem_statement || "No story description yet."}</div>
+                </div>
+                <div style={styles.sectionTitle}>
+                  <span>Tasks</span>
+                  <span style={styles.badgeMuted}>{selectedManagementTasks.length}</span>
+                </div>
+                {selectedManagementTasks.length > 0 ? selectedManagementTasks.map((task) => (
+                  <div key={task.id} style={styles.contextCard}>
+                    <div style={styles.contextTitle}>{task.title}</div>
+                    <div style={styles.contextText}>{task.status.replace(/_/g, " ")} · {task.priority}</div>
+                  </div>
+                )) : (
+                  <div style={styles.empty}>No tasks under this story yet.</div>
+                )}
+              </>
+            ) : (
+              <div style={styles.empty}>Select a story to inspect details and tasks.</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div style={styles.page}>
       <div style={styles.header}>
         <div style={styles.titleBlock}>
           <h1 style={styles.title}>Products</h1>
-          <div style={styles.subtitle}>Manage first-class products, inspect health, refine product design, and track dependencies without delivery clutter.</div>
+          <div style={styles.subtitle}>Manage products, shape product areas, capabilities, and features, then track delivery stories and tasks separately.</div>
         </div>
       </div>
 
@@ -1427,7 +1960,7 @@ export function ProductListPage() {
             {(products ?? []).map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
           </select>
           <button style={productPageTab === "overview" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("overview")} disabled={!selectedProduct}>Product Overview</button>
-          <button style={productPageTab === "design" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("design")} disabled={!selectedProduct}>Product Design</button>
+          <button style={productPageTab === "design" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("design")} disabled={!selectedProduct}>Product Management</button>
           <button style={productPageTab === "dependencies" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("dependencies")} disabled={!selectedProduct}>Dependencies</button>
         </div>
       </div>
@@ -1506,7 +2039,7 @@ export function ProductListPage() {
                     <div>Product</div>
                     <div>Source</div>
                     <div>Status</div>
-                    <div>Design</div>
+                    <div>Management</div>
                     <div>Progress</div>
                     <div>Actions</div>
                   </div>
@@ -1525,20 +2058,20 @@ export function ProductListPage() {
                         <div style={styles.rowSecondary}>{row.product.health}</div>
                       </div>
                       <div style={styles.productMetaCell}>
-                        <div>{row.rootCount} capabilities</div>
-                        <div style={styles.rowSecondary}>{row.nodeCount} design nodes</div>
+                        <div>{row.rootCount} product areas</div>
+                        <div style={styles.rowSecondary}>{row.nodeCount} management nodes</div>
                       </div>
                       <div>
                         <div style={styles.rowCell}>{row.progress.percent}%</div>
                         <div style={styles.progressTrack}><div style={{ ...styles.progressFill, width: `${row.progress.percent}%` }} /></div>
                         <div style={styles.rowSecondary}>{row.progress.done}/{row.progress.total} done</div>
-                        <div style={styles.rowSecondary}>{row.activeWorkItemCount} active delivery</div>
+                        <div style={styles.rowSecondary}>{row.activeWorkItemCount} active stories</div>
                       </div>
                       <div style={styles.productActions}>
                         <button style={styles.compactActionBtn} onClick={() => editProductFromList(row.product)}>Edit</button>
                         <button style={styles.compactActionBtn} onClick={() => openProductStatus(row.product)}>Status</button>
                         <button style={styles.compactActionBtn} onClick={() => openProductOverview(row.product)}>Overview</button>
-                        <button style={styles.compactActionBtn} onClick={() => openProductDesign(row.product)}>Design</button>
+                        <button style={styles.compactActionBtn} onClick={() => openProductDesign(row.product)}>Manage</button>
                         <button style={styles.compactActionBtn} onClick={() => openProductDependencies(row.product)}>Dependencies</button>
                         <button style={styles.compactDangerBtn} onClick={() => requestArchiveProduct(row.product)}>Delete</button>
                       </div>
@@ -1594,9 +2127,9 @@ export function ProductListPage() {
                       <div style={styles.statusMetricHelp}>{statusSummary.leafCount} leaf</div>
                     </div>
                     <div style={styles.statusMetric}>
-                      <div style={styles.metricLabel}>Delivery Items</div>
+                      <div style={styles.metricLabel}>Stories</div>
                       <div style={styles.statusMetricValue}>{statusSummary.workItemCount}</div>
-                      <div style={styles.statusMetricHelp}>{statusSummary.activeWorkItemCount} active · {statusSummary.doneWorkItemCount} done delivery items</div>
+                      <div style={styles.statusMetricHelp}>{statusSummary.activeWorkItemCount} active · {statusSummary.doneWorkItemCount} done stories</div>
                     </div>
                     <div style={styles.statusMetric}>
                       <div style={styles.metricLabel}>Progress</div>
@@ -1640,7 +2173,7 @@ export function ProductListPage() {
                       <div style={styles.rowCell}>{row.level}</div>
                       <div style={styles.rowCell}>{row.kind}</div>
                       <div style={styles.rowCell}>{row.nodeCount} · {row.childCount} child</div>
-                      <div style={styles.rowCell}>{row.workItemCount} · {row.activeWorkItemCount} active delivery</div>
+                      <div style={styles.rowCell}>{row.workItemCount} · {row.activeWorkItemCount} active stories</div>
                       <div>
                         <div style={{ display: "grid", gridTemplateColumns: "38px minmax(0, 1fr) 46px", gap: 6, alignItems: "center" }}>
                           <span style={styles.rowCell}>{row.progress.percent}%</span>
@@ -1767,287 +2300,13 @@ export function ProductListPage() {
                 <div style={styles.empty}>Select a product before editing dependencies.</div>
               )
             ) : selectedProduct ? (
-              <div style={styles.workspaceWithOutline}>
-                <div style={styles.outlinePanel}>
-                  <div style={styles.outlineSummary}>
-                    <div style={styles.controlLabel}>Outline</div>
-                    <div style={styles.outlineTitle}>{selectedProduct.name}</div>
-                    <div style={styles.outlineMeta}>
-                      {tree?.roots.length ?? 0} root sections · {totalNodeCount} nodes · {selectedReferences.length} selected references
-                    </div>
-                  </div>
-                  <div style={styles.outlineControls}>
-                    <input
-                      style={styles.input}
-                      value={outlineSearchTerm}
-                      onChange={(event) => setOutlineSearchTerm(event.target.value)}
-                      placeholder="Search nodes"
-                    />
-                    <select
-                      style={styles.select}
-                      value={outlineKindFilter}
-                      onChange={(event) => setOutlineKindFilter(event.target.value as HierarchyNodeKind | "")}
-                    >
-                      <option value="">All node kinds</option>
-                      {outlineNodeKindGroups.map((group) => (
-                        <optgroup key={group.label} label={group.label}>
-                          {group.kinds.map((nodeKind) => (
-                            <option key={nodeKind} value={nodeKind}>{getHierarchyNodeKindLabel(nodeKind)}</option>
-                          ))}
-                        </optgroup>
-                      ))}
-                    </select>
-                    <div style={styles.outlineToolRow}>
-                      <button style={styles.ghostBtn} onClick={collapseOutlineNodes}>Collapse All</button>
-                      <button style={styles.ghostBtn} onClick={expandSelectedOutlinePath} disabled={!selectedNodeKey}>Expand Path</button>
-                      <button style={styles.ghostBtn} onClick={jumpToSelectedOutlineNode} disabled={!selectedNodeKey}>Jump To Selected</button>
-                      <button style={styles.ghostBtn} onClick={() => {
-                        setActiveView("work-items");
-                        navigate("/work-items");
-                      }}>
-                        Open Builder
-                      </button>
-                    </div>
-                  </div>
-                  {recentNodeKeys.length > 0 ? (
-                    <div style={styles.outlineRecent}>
-                      <div style={styles.controlLabel}>Recent Nodes</div>
-                      {recentNodeKeys
-                        .map((key) => nodeLookup.get(key))
-                        .filter((node): node is HierarchyTreeNode => Boolean(node))
-                        .map((node) => (
-                          <button
-                            key={getHierarchyNodeKey(node)}
-                            style={styles.outlineRecentBtn}
-                            onClick={() => {
-                              openOutlineNode(node);
-                              requestAnimationFrame(() => {
-                                outlineNodeRefs.current[getHierarchyNodeKey(node)]?.scrollIntoView({ block: "center", behavior: "smooth" });
-                              });
-                            }}
-                          >
-                            {node.path.join(" / ")}
-                          </button>
-                        ))}
-                    </div>
-                  ) : null}
-                  <div style={styles.outlineTree}>
-                    {filteredOutlineRoots.length > 0 ? (
-                      filteredOutlineRoots.map((node) => renderOutlineNode(node))
-                    ) : (
-                      <div style={styles.empty}>
-                        {hasOutlineFilter ? "No nodes match the current filters." : "Create root sections to begin building the hierarchy."}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div style={{ minWidth: 0 }}>
-                <div style={styles.tabBar}>
-                  <button style={productWorkspaceTab === "book" ? styles.tabActive : styles.tab} onClick={() => setProductWorkspaceTab("book")}>Product</button>
-                  <button style={productWorkspaceTab === "structure" ? styles.tabActive : styles.tab} onClick={() => setProductWorkspaceTab("structure")}>Capabilities</button>
-                  <button style={productWorkspaceTab === "delivery" ? styles.tabActive : styles.tab} onClick={() => setProductWorkspaceTab("delivery")}>References</button>
-                </div>
-
-                <div style={styles.hero}>
-                  <div style={styles.heroCard}>
-                    <ScopeBreadcrumb
-                      label="Selected Path"
-                      productName={selectedProduct.name}
-                      path={selectedScopePath}
-                    />
-                    <div style={styles.heroName}>{selectedNodeTitle}</div>
-                    <div style={styles.heroDesc}>{selectedNodeSummary}</div>
-                    <div style={styles.inlineMeta}>
-                      <span style={styles.badgeKind}>{selectedHierarchyNode ? getHierarchyNodeKindLabel(selectedHierarchyNode.node_kind) : "Product"}</span>
-                      {!selectedHierarchyNode ? <span style={styles.badge}>{selectedProduct.status}</span> : null}
-                      {!selectedHierarchyNode && selectedProduct.tags.map((tag) => (
-                        <span key={tag} style={styles.badgeMuted}>{tag}</span>
-                      ))}
-                    </div>
-                    <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                      <button style={styles.ghostBtn} onClick={editSelectedScope}>
-                        {selectedHierarchyNode ? `Edit ${selectedNodeEntityLabel}` : "Edit Product"}
-                      </button>
-                      <button style={styles.ghostBtn} onClick={openSelectedSectionInBook}>Read This Section</button>
-                      {effectiveWorkspacePath ? (
-                        <>
-                          <button style={styles.ghostBtn} onClick={openWorkspaceInIde}>Open Workspace</button>
-                          <button style={styles.ghostBtn} onClick={() => revealInFinder(effectiveWorkspacePath).catch((error) => setWorkspaceActionError(String(error)))}>Reveal in Finder</button>
-                        </>
-                      ) : (
-                        <button
-                          style={styles.btn}
-                          onClick={() => createWorkspaceMutation.mutate()}
-                          disabled={createWorkspaceMutation.isPending}
-                        >
-                          {createWorkspaceMutation.isPending ? "Creating Workspace..." : "Create Workspace"}
-                        </button>
-                      )}
-                      {!selectedHierarchyNode ? <button style={styles.btnDanger} onClick={() => requestArchiveProduct(selectedProduct)}>Delete</button> : null}
-                    </div>
-                    {workspaceActionMsg && <div style={{ ...styles.contextText, color: "#4ec9b0", marginTop: 10 }}>{workspaceActionMsg}</div>}
-                    {workspaceActionError && <div style={{ ...styles.errorText, marginTop: 10, marginBottom: 0 }}>{workspaceActionError}</div>}
-                  </div>
-                  <div style={styles.metricGrid}>
-                    {selectedMetricCards.map((metric) => (
-                      <div key={metric.label} style={styles.metricCard}>
-                        <div style={styles.metricLabel}>{metric.label}</div>
-                        <div style={styles.metricValue}>{metric.value}</div>
-                        <div style={styles.metricHelp}>{metric.help}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {productWorkspaceTab === "book" && (
-                  <>
-                    <div style={styles.section}>
-                      <div style={styles.sectionTitle}>Product</div>
-                      <div style={styles.contextCard}>
-                        <div style={styles.contextLabel}>Section Summary</div>
-                        <div style={styles.contextTitle}>{selectedNodeTitle}</div>
-                        <div style={styles.contextText}>{selectedNodeSummary}</div>
-                        <div style={styles.chipRow}>
-                          <span style={styles.badgeKind}>{selectedHierarchyNode ? getHierarchyNodeKindLabel(selectedHierarchyNode.node_kind) : "Product"}</span>
-                          <span style={styles.badgeMuted}>{selectedDirectChildren.length} direct {selectedDirectChildren.length === 1 ? "child" : "children"}</span>
-                          <span style={styles.badgeMuted}>{selectedReferences.length} references</span>
-                          <span style={styles.badgeMuted}>{selectedProductDependencies.length} dependencies</span>
-                        </div>
-                      </div>
-                      <div style={styles.contextCard}>
-                        <div style={styles.contextLabel}>Allowed Child Kinds</div>
-                        <div style={styles.contextTitle}>
-                          {selectedAllowedChildKinds.length > 0 ? "This section can grow structurally." : "This section is a structural leaf."}
-                        </div>
-                        <div style={styles.contextText}>
-                          {selectedAllowedChildKinds.length > 0
-                            ? selectedAllowedChildKinds.map((nodeKind) => getHierarchyNodeKindLabel(nodeKind)).join(", ")
-                            : "No deeper structural children are allowed here."}
-                        </div>
-                      </div>
-                      <div style={styles.contextCard}>
-                        <div style={styles.contextLabel}>Design Alignment</div>
-                        <div style={styles.contextText}>The current path, ordering, and labels are used as the product design packet for review and export.</div>
-                        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                          <button style={styles.ghostBtn} onClick={openSelectedSectionInBook}>Open In Book</button>
-                          <button style={styles.ghostBtn} onClick={() => setProductWorkspaceTab("structure")}>Inspect Capabilities</button>
-                        </div>
-                      </div>
-                    </div>
-                    {renderReferencesPanel()}
-                  </>
-                )}
-
-                {productWorkspaceTab === "structure" && (
-                  <div style={styles.section}>
-                    <div style={styles.sectionTitle}>
-                      <span>Capabilities</span>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                        <button
-                          style={structureViewMode === "children" ? styles.tabActive : styles.tab}
-                          onClick={() => setStructureViewMode("children")}
-                        >
-                          Children
-                        </button>
-                        <button
-                          style={structureViewMode === "references" ? styles.tabActive : styles.tab}
-                          onClick={() => setStructureViewMode("references")}
-                        >
-                          References
-                        </button>
-                        <button
-                          style={styles.ghostBtn}
-                          onClick={openCreateInSelectedScope}
-                          disabled={!selectedHierarchyNode && !selectedProductId ? true : selectedHierarchyNode ? !canCreateChildCapability : false}
-                        >
-                          {selectedHierarchyNode ? `+ ${nextCapabilityEntityLabel}` : "+ Root Section"}
-                        </button>
-                        {!selectedHierarchyNode ? null : <button style={styles.ghostBtn} onClick={() => useUIStore.getState().openModuleDialog("create")}>+ Root Section</button>}
-                      </div>
-                    </div>
-
-                    <div style={styles.contextCard}>
-                      <div style={styles.contextLabel}>Selected Node</div>
-                      <div style={styles.contextTitle}>{selectedNodeTitle}</div>
-                      <div style={styles.contextText}>
-                        {structureViewMode === "references"
-                          ? "Attached references for the selected product design scope are listed below."
-                          : selectedHierarchyNode
-                            ? supportsHierarchyChildren(selectedHierarchyNode.node_kind)
-                              ? `${getHierarchyChildLabel(selectedHierarchyNode.node_kind, { plural: true })} for the selected ${getHierarchyNodeKindLabel(selectedHierarchyNode.node_kind, { lowercase: true })} are listed below.`
-                              : `This ${getHierarchyNodeKindLabel(selectedHierarchyNode.node_kind, { lowercase: true })} cannot contain deeper structural children.`
-                            : "Root sections for the selected product are listed below."}
-                      </div>
-                      <div style={styles.chipRow}>
-                        <span style={styles.badgeKind}>{selectedHierarchyNode ? getHierarchyNodeKindLabel(selectedHierarchyNode.node_kind) : "Product"}</span>
-                        {selectedAllowedChildKinds.map((nodeKind) => (
-                          <span key={nodeKind} style={styles.badgeMuted}>{getHierarchyNodeKindLabel(nodeKind)}</span>
-                        ))}
-                      </div>
-                    </div>
-
-                    {structureViewMode === "children" ? (
-                      structureRows.length > 0 ? (
-                      <div style={styles.table}>
-                        <div style={styles.tableHeader}>
-                          <div>Name</div>
-                          <div>Kind</div>
-                          <div>Children</div>
-                          <div>References</div>
-                        </div>
-                        {structureRows.map((row) => (
-                          <div
-                            key={row.id}
-                            style={styles.tableRow}
-                            onClick={row.onSelect}
-                          >
-                            <div>
-                              <div style={styles.rowPrimary}>{row.name}</div>
-                              <div style={styles.rowSecondary}>{row.subtitle}</div>
-                            </div>
-                            <div style={styles.rowCell}>{row.type}</div>
-                            <div style={styles.rowCell}>{row.directChildren}</div>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                              <span style={styles.rowCell}>{row.references}</span>
-                              <button
-                                style={styles.ghostBtn}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  row.onEdit();
-                                }}
-                              >
-                                Edit
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div style={styles.empty}>
-                        {selectedHierarchyNode
-                          ? supportsHierarchyChildren(selectedHierarchyNode.node_kind)
-                            ? `No ${getHierarchyChildLabel(selectedHierarchyNode.node_kind, { plural: true, lowercase: true })} yet.`
-                            : `${getHierarchyNodeKindLabel(selectedHierarchyNode.node_kind)} nodes cannot contain deeper hierarchy.`
-                          : "No root sections yet. Start with the first section and build from there."}
-                      </div>
-                      )
-                    ) : (
-                      renderReferencesPanel()
-                    )}
-                  </div>
-                )}
-
-                {productWorkspaceTab === "delivery" && (
-                  renderReferencesPanel()
-                )}
-                </div>
-              </div>
+              renderProductManagementConsole()
             ) : (
               <div style={styles.empty}>
                 {isLoading
                   ? "Loading products..."
                   : products && products.length > 0
-                    ? "Select a product from Product List to start refining the design."
+                    ? "Select a product from Product List to start refining the management tree."
                     : "No visible products yet. Use Add Product or disable Hide Example Products in Settings."}
               </div>
             )}
@@ -2207,18 +2466,103 @@ export function ProductListPage() {
         </ModalShell>
       )}
 
+      {resetPlanCandidate && (
+        <ModalShell title={`Reset Product Plan: ${resetPlanCandidate.name}`} onClose={() => setResetPlanCandidate(null)}>
+          <div style={styles.contextCard}>
+            <div style={styles.contextLabel}>Double Confirm</div>
+            <div style={styles.contextTitle}>This removes the current product management tree.</div>
+            <div style={styles.contextText}>
+              Product areas, capabilities, and features will be deleted so this product can be replanned from a clean management tree.
+              Delivery stories and tasks are preserved unless you explicitly include them below.
+            </div>
+          </div>
+          <label style={styles.label}>Type the product name to confirm</label>
+          <input
+            style={styles.input}
+            value={resetPlanConfirmName}
+            onChange={(event) => setResetPlanConfirmName(event.target.value)}
+            placeholder={resetPlanCandidate.name}
+          />
+          <label style={styles.checkboxLabel}>
+            <input
+              type="checkbox"
+              checked={resetPlanConfirmTree}
+              onChange={(event) => setResetPlanConfirmTree(event.target.checked)}
+            />
+            I understand the product areas, capabilities, and features will be deleted.
+          </label>
+          <label style={styles.checkboxLabel}>
+            <input
+              type="checkbox"
+              checked={resetPlanDeleteDelivery}
+              onChange={(event) => setResetPlanDeleteDelivery(event.target.checked)}
+            />
+            Also delete existing delivery stories and tasks for this product.
+          </label>
+          {formError && <div style={styles.errorText}>{formError}</div>}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button style={styles.ghostBtn} onClick={() => setResetPlanCandidate(null)}>Cancel</button>
+            <button
+              style={styles.btnDanger}
+              onClick={() => resetProductPlanMutation.mutate({ productId: resetPlanCandidate.id, deleteDelivery: resetPlanDeleteDelivery })}
+              disabled={!resetPlanReady || resetProductPlanMutation.isPending}
+            >
+              {resetProductPlanMutation.isPending ? "Resetting..." : "Reset Plan"}
+            </button>
+          </div>
+        </ModalShell>
+      )}
+
+      {deleteHierarchyCandidate && (
+        <ModalShell title={`Delete ${getHierarchyDeleteLabel(deleteHierarchyCandidate.kind)}: ${deleteHierarchyCandidate.name}`} onClose={() => setDeleteHierarchyCandidate(null)}>
+          <div style={styles.contextCard}>
+            <div style={styles.contextLabel}>Double Confirm</div>
+            <div style={styles.contextTitle}>This deletes the selected {getHierarchyDeleteLabel(deleteHierarchyCandidate.kind).toLowerCase()}.</div>
+            <div style={styles.contextText}>
+              Child hierarchy under this node will also be removed. Related delivery stories may be detached by the database if they reference this scope.
+            </div>
+          </div>
+          <label style={styles.label}>Type the name to confirm</label>
+          <input
+            style={styles.input}
+            value={deleteHierarchyConfirmName}
+            onChange={(event) => setDeleteHierarchyConfirmName(event.target.value)}
+            placeholder={deleteHierarchyCandidate.name}
+          />
+          <label style={styles.checkboxLabel}>
+            <input
+              type="checkbox"
+              checked={deleteHierarchyConfirmChecked}
+              onChange={(event) => setDeleteHierarchyConfirmChecked(event.target.checked)}
+            />
+            I understand this hierarchy node and its child hierarchy will be deleted.
+          </label>
+          {formError && <div style={styles.errorText}>{formError}</div>}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button style={styles.ghostBtn} onClick={() => setDeleteHierarchyCandidate(null)}>Cancel</button>
+            <button
+              style={styles.btnDanger}
+              onClick={() => deleteHierarchyMutation.mutate(deleteHierarchyCandidate)}
+              disabled={!deleteHierarchyReady || deleteHierarchyMutation.isPending}
+            >
+              {deleteHierarchyMutation.isPending ? "Deleting..." : `Delete ${getHierarchyDeleteLabel(deleteHierarchyCandidate.kind)}`}
+            </button>
+          </div>
+        </ModalShell>
+      )}
+
       {moduleDialogMode !== "closed" && (
         <ModalShell
           title={moduleDialogMode === "create"
             ? `Create ${getHierarchyNodeKindLabel(moduleForm.nodeKind)}`
-            : `Edit ${selectedModule ? getHierarchyNodeKindLabel(selectedModule.node_kind) : "Root Section"}: ${selectedModule?.name ?? ""}`}
+            : `Edit ${selectedModule ? getHierarchyNodeKindLabel(selectedModule.node_kind) : "Product Area"}: ${selectedModule?.name ?? ""}`}
           onClose={closeModuleDialog}
         >
           {moduleDialogMode === "create" ? (
             <>
-              <label style={styles.label}>Root Kind</label>
+              <label style={styles.label}>Product Area Kind</label>
               <select style={styles.input} value={moduleForm.nodeKind} onChange={(e) => setModuleForm({ ...moduleForm, nodeKind: e.target.value as HierarchyNodeKind })}>
-                {ROOT_NODE_KINDS.map((nodeKind) => (
+                {(["area"] as HierarchyNodeKind[]).map((nodeKind) => (
                   <option key={nodeKind} value={nodeKind}>{getHierarchyNodeKindLabel(nodeKind)}</option>
                 ))}
               </select>
@@ -2232,10 +2576,12 @@ export function ProductListPage() {
             </>
           ) : (
             <>
-              <label style={styles.label}>Root Kind</label>
+              <label style={styles.label}>Product Area Kind</label>
               <select style={styles.input} value={moduleDraft.nodeKind} onChange={(e) => setModuleDraft({ ...moduleDraft, nodeKind: e.target.value as HierarchyNodeKind })}>
-                {ROOT_NODE_KINDS.map((nodeKind) => (
-                  <option key={nodeKind} value={nodeKind}>{getHierarchyNodeKindLabel(nodeKind)}</option>
+                {editableRootNodeKinds.map((nodeKind) => (
+                  <option key={nodeKind} value={nodeKind}>
+                    {getHierarchyNodeKindLabel(nodeKind)}{nodeKind === "area" ? "" : ` (${nodeKind})`}
+                  </option>
                 ))}
               </select>
               <div style={styles.contextText}>{getHierarchyNodeKindGuidance(moduleDraft.nodeKind)}</div>
@@ -2272,14 +2618,14 @@ export function ProductListPage() {
         >
           {capabilityDialogMode === "create" ? (
             <>
-              <label style={styles.label}>Parent Root</label>
+              <label style={styles.label}>Parent Product Area</label>
               <input style={styles.input} value={selectedModule?.name ?? ""} readOnly />
               <label style={styles.label}>Parent Node</label>
               <input
                 style={styles.input}
                 value={selectedCapability?.name ?? ""}
                 readOnly
-                placeholder={`Create a top-level child under ${selectedModule?.name ?? "the selected root"}`}
+                placeholder={`Create a top-level child under ${selectedModule?.name ?? "the selected product area"}`}
               />
               <label style={styles.label}>Node Kind</label>
               <select style={styles.input} value={capabilityForm.nodeKind} onChange={(e) => setCapabilityForm({ ...capabilityForm, nodeKind: e.target.value as HierarchyNodeKind })}>
@@ -2434,6 +2780,17 @@ function countCapabilityTree(capabilityTree: CapabilityTree): number {
   return 1 + capabilityTree.children.reduce((sum, child) => sum + countCapabilityTree(child), 0);
 }
 
+function getHierarchyDeleteLabel(kind: "area" | "capability" | "feature") {
+  switch (kind) {
+    case "area":
+      return "Product Area";
+    case "capability":
+      return "Capability";
+    case "feature":
+      return "Feature";
+  }
+}
+
 function findCapabilityTree(modules: ModuleTree[], capabilityId: string | null): CapabilityTree | null {
   if (!capabilityId) {
     return null;
@@ -2467,6 +2824,10 @@ function searchCapabilityTree(capabilityTree: CapabilityTree, capabilityId: stri
   }
 
   return null;
+}
+
+function flattenCapabilityTreeList(nodes: CapabilityTree[]): CapabilityTree[] {
+  return nodes.flatMap((node) => [node, ...flattenCapabilityTreeList(node.children)]);
 }
 
 function moveId(ids: string[], id: string, direction: -1 | 1): string[] {
@@ -2765,7 +3126,7 @@ function buildWorkStatusPivotRows(
       productId: products.length === 1 ? products[0].id : null,
       level: 0,
       name: status.replace(/_/g, " "),
-      subtitle: "Pivoted across delivery items with this status",
+      subtitle: "Pivoted across stories with this status",
       kind: "Work Status",
       childCount: 0,
       nodeCount: 0,
