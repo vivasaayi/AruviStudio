@@ -1,36 +1,71 @@
 import { test, expect } from "./support/test.js";
 
-test("product management supports capability navigation and review deep links", async ({ page }) => {
+test("product management exposes area, capability, feature, and work item tabs", async ({ page }) => {
   await page.goto("/products");
 
   await expect(page.getByRole("heading", { name: "Products" })).toBeVisible();
   await page.getByRole("button", { name: "Product Management" }).click();
-  await expect(page.getByPlaceholder("Search nodes")).toBeVisible();
-  await expect(page.getByRole("button", { name: /^Product$/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^Management Tree$/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^References$/ })).toBeVisible();
 
-  await page.getByText("Expression Evaluation").first().click();
-  await expect(page.getByText("Selected Node", { exact: true })).toBeVisible();
-  await expect(page.getByText("Features for the selected capability are listed below.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Product Areas" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Capabilities" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Features" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Work Items" })).toBeVisible();
+  await expect(page.getByText("Core Math Engine", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "+ Product Area" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Capabilities" }).click();
+  await expect(page.getByText("Expression Evaluation", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "+ Capability" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Features" }).click();
+  await expect(page.getByText("Scientific Mode Slice", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "+ Feature" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Edit Capability" })).toBeVisible();
 
-  await page.getByRole("button", { name: /^References$/ }).first().click();
-  await expect(page.getByText("Attached Context", { exact: true })).toBeVisible();
-  await expect(page.getByText("No references are attached to this scope yet.")).toBeVisible();
-  await page.getByPlaceholder("Architecture note, standard, evidence packet").fill("Expression Evaluation Contract");
-  await page.getByPlaceholder("Relevant context, constraints, or evidence").fill("Evaluation must remain deterministic across capability slices.");
-  await page.getByRole("button", { name: "Add Reference" }).click();
-  await expect(page.getByText("Expression Evaluation Contract", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Work Items" }).click();
+  await expect(page.getByText("Ship scientific mode slice checklist", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Story Details", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open Builder" })).toBeVisible();
 
-  await page.getByRole("button", { name: /^Product$/ }).click();
-  await page.getByRole("button", { name: "Open In Book" }).click();
+  await page.getByRole("button", { name: "+ Story" }).click();
+  await expect(page.getByLabel("Story title")).toBeVisible();
+  await page.getByLabel("Story title").fill("Validate option payoff story");
+  await page.getByLabel("Problem Statement").fill("Option payoff needs deterministic validation.");
+  await page.getByLabel("Description").fill("Confirm option payoff output is deterministic.");
+  await page.getByLabel("Acceptance Criteria").fill("Payoff output is reproducible for the same inputs.");
+  await page.getByRole("button", { name: "Add Story" }).click();
+  await expect(page.getByText("Validate option payoff story", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Option payoff needs deterministic validation.", { exact: true })).toBeVisible();
 
-  await expect(page).toHaveURL(/\/product-overview#capability-calc-expression-evaluation$/);
-  await expect(page.getByRole("heading", { name: "Product Overview" })).toBeVisible();
-  await expect(page.locator("#capability-calc-expression-evaluation")).toBeVisible();
-  await expect(page.locator("#capability-calc-expression-evaluation")).toContainText("Expression Evaluation");
+  await page.getByRole("button", { name: "Edit" }).last().click();
+  await expect(page.getByLabel("Story title")).toBeVisible();
+  await page.getByLabel("Story title").fill("Validate option payoff story edited");
+  await page.getByRole("button", { name: "Save Story" }).click();
+  await expect(page.getByText("Validate option payoff story edited", { exact: true }).first()).toBeVisible();
+
+  await page.getByRole("button", { name: "+ Task" }).click();
+  await expect(page.getByLabel("Task title")).toBeVisible();
+  await page.getByLabel("Task title").fill("Add payoff fixture");
+  await page.getByLabel("Description").fill("Create a fixture for deterministic option payoff output.");
+  await page.getByRole("button", { name: "Add Task" }).click();
+  await expect(page.getByText("Add payoff fixture", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Edit" }).last().click();
+  await expect(page.getByLabel("Task title")).toBeVisible();
+  await page.getByLabel("Task title").fill("Add payoff fixture edited");
+  await page.getByRole("button", { name: "Save Task" }).click();
+  await expect(page.getByText("Add payoff fixture edited", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Delete" }).last().click();
+  await page.getByLabel("Type the title to confirm").fill("Add payoff fixture edited");
+  await page.getByRole("checkbox").check();
+  await page.getByRole("button", { name: "Delete task" }).click();
+  await expect(page.getByText("Add payoff fixture edited", { exact: true })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Delete" }).last().click();
+  await page.getByLabel("Type the title to confirm").fill("Validate option payoff story edited");
+  await page.getByRole("checkbox").check();
+  await page.getByRole("button", { name: "Delete story" }).click();
+  await expect(page.getByText("Validate option payoff story edited", { exact: true })).toHaveCount(0);
 });
 
 test("delivery builder shows owner badges and product-level ownership", async ({ page }) => {

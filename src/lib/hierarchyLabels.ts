@@ -15,34 +15,34 @@ const NODE_KIND_LABELS: Record<HierarchyNodeKind, LabelForms> = {
     pluralLower: "product areas",
   },
   domain: {
-    singular: "Product Area",
-    plural: "Product Areas",
-    singularLower: "product area",
-    pluralLower: "product areas",
+    singular: "Unsupported Node",
+    plural: "Unsupported Nodes",
+    singularLower: "unsupported node",
+    pluralLower: "unsupported nodes",
   },
   subdomain: {
-    singular: "Capability",
-    plural: "Capabilities",
-    singularLower: "capability",
-    pluralLower: "capabilities",
+    singular: "Unsupported Node",
+    plural: "Unsupported Nodes",
+    singularLower: "unsupported node",
+    pluralLower: "unsupported nodes",
   },
   system: {
-    singular: "Product Area",
-    plural: "Product Areas",
-    singularLower: "product area",
-    pluralLower: "product areas",
+    singular: "Unsupported Node",
+    plural: "Unsupported Nodes",
+    singularLower: "unsupported node",
+    pluralLower: "unsupported nodes",
   },
   subsystem: {
-    singular: "Capability",
-    plural: "Capabilities",
-    singularLower: "capability",
-    pluralLower: "capabilities",
+    singular: "Unsupported Node",
+    plural: "Unsupported Nodes",
+    singularLower: "unsupported node",
+    pluralLower: "unsupported nodes",
   },
   feature_set: {
-    singular: "Capability",
-    plural: "Capabilities",
-    singularLower: "capability",
-    pluralLower: "capabilities",
+    singular: "Unsupported Node",
+    plural: "Unsupported Nodes",
+    singularLower: "unsupported node",
+    pluralLower: "unsupported nodes",
   },
   capability: {
     singular: "Capability",
@@ -66,32 +66,25 @@ const NODE_KIND_LABELS: Record<HierarchyNodeKind, LabelForms> = {
 
 const NODE_KIND_GUIDANCE: Record<HierarchyNodeKind, string> = {
   area: "Use for a durable top-level product area. Strategy belongs in Portfolio; this is the product management tree.",
-  domain: "Use for a durable top-level product area when existing data stores this root as a domain.",
-  subdomain: "Use for a nested capability grouping when existing data already uses this kind.",
-  system: "Use for a durable top-level product area when existing data stores this root as a system.",
-  subsystem: "Use for a nested capability grouping when existing data already uses this kind.",
-  feature_set: "Use as a capability grouping only when it clarifies features under a product capability.",
+  domain: "Unsupported after the product-management cutover. Recreate this as a Product Area.",
+  subdomain: "Unsupported after the product-management cutover. Recreate this as a Capability.",
+  system: "Unsupported after the product-management cutover. Recreate this as a Product Area.",
+  subsystem: "Unsupported after the product-management cutover. Recreate this as a Capability.",
+  feature_set: "Unsupported after the product-management cutover. Recreate this as a Capability or Feature.",
   capability: "Use for something the product must be able to do. Capabilities can contain product-visible features and attached references.",
   rollout: "Use for a product-visible feature under a capability. Delivery stories and tasks execute against features in Builder.",
   reference: "Use for attached context such as notes, standards, evidence, constraints, or design packets.",
 };
 
-export const ROOT_NODE_KINDS: HierarchyNodeKind[] = ["area", "domain", "system"];
+export const ROOT_NODE_KINDS: HierarchyNodeKind[] = ["area"];
 export const NODE_KIND_DISPLAY_ORDER: HierarchyNodeKind[] = [
   "area",
-  "domain",
-  "subdomain",
-  "system",
-  "subsystem",
-  "feature_set",
   "capability",
   "rollout",
-  "reference",
 ];
 
 export const NODE_KIND_GROUPS: Array<{ label: string; kinds: HierarchyNodeKind[] }> = [
-  { label: "Product management", kinds: ["area", "domain", "system", "subdomain", "subsystem", "feature_set", "capability", "rollout"] },
-  { label: "Attached context", kinds: ["reference"] },
+  { label: "Product management", kinds: ["area", "capability", "rollout"] },
 ];
 
 export function orderHierarchyNodeKinds(nodeKinds: HierarchyNodeKind[]) {
@@ -140,14 +133,14 @@ export function getHierarchyNodeKindGuidance(nodeKind: HierarchyNodeKind | null 
 export function getAllowedChildNodeKinds(parentKind: HierarchyNodeKind | null | undefined): HierarchyNodeKind[] {
   switch (parentKind) {
     case "area":
-    case "domain":
-    case "system":
       return ["capability"];
-    case "subdomain":
-    case "subsystem":
-    case "feature_set":
     case "capability":
       return ["rollout"];
+    case "domain":
+    case "subdomain":
+    case "system":
+    case "subsystem":
+    case "feature_set":
     case "rollout":
     case "reference":
       return [];
@@ -160,14 +153,16 @@ export function getDefaultChildNodeKind(parentKind: HierarchyNodeKind | null | u
   switch (parentKind) {
     case "capability":
       return "rollout";
-    case "feature_set":
-      return "capability";
     case "area":
+      return "capability";
     case "domain":
     case "subdomain":
     case "system":
     case "subsystem":
-      return "capability";
+    case "feature_set":
+    case "rollout":
+    case "reference":
+      return "rollout";
     default:
       return "capability";
   }

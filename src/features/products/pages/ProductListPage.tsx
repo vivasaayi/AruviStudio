@@ -9,6 +9,7 @@ import {
   createProduct,
   createProductDependency,
   createProductReference,
+  createWorkItem,
   deleteCapability,
   deleteModule,
   deleteProductReference,
@@ -27,6 +28,7 @@ import {
   updateCapability,
   updateModule,
   updateProduct,
+  updateWorkItem,
 } from "../../../lib/tauri";
 import {
   countDescendantNodes,
@@ -110,6 +112,49 @@ const productHealthOptions: Product["health"][] = ["unknown", "healthy", "watch"
 const productInvestmentOptions: Product["investment_status"][] = ["evaluate", "invest", "maintain", "pause", "retire"];
 const referenceKindOptions: ProductReference["reference_kind"][] = ["note", "external_doc", "architecture", "customer_evidence", "regulatory", "design_packet", "standard", "other"];
 
+type WorkItemDraftState = {
+  title: string;
+  problemStatement: string;
+  description: string;
+  acceptanceCriteria: string;
+  constraints: string;
+  status: WorkItem["status"];
+  priority: WorkItem["priority"];
+  complexity: WorkItem["complexity"];
+};
+
+const emptyWorkItemDraft: WorkItemDraftState = {
+  title: "",
+  problemStatement: "",
+  description: "",
+  acceptanceCriteria: "",
+  constraints: "",
+  status: "draft",
+  priority: "medium",
+  complexity: "medium",
+};
+
+const workItemStatusOptions: WorkItem["status"][] = ["draft", "ready_for_review", "approved", "in_planning", "in_progress", "in_validation", "waiting_human_review", "done", "blocked", "failed", "cancelled"];
+const workItemPriorityOptions: WorkItem["priority"][] = ["critical", "high", "medium", "low"];
+const workItemComplexityOptions: WorkItem["complexity"][] = ["trivial", "low", "medium", "high", "very_high"];
+
+function workItemToDraft(workItem: WorkItem): WorkItemDraftState {
+  return {
+    title: workItem.title,
+    problemStatement: workItem.problem_statement,
+    description: workItem.description,
+    acceptanceCriteria: workItem.acceptance_criteria,
+    constraints: workItem.constraints,
+    status: workItem.status,
+    priority: workItem.priority,
+    complexity: workItem.complexity,
+  };
+}
+
+function formatWorkItemMeta(value: string): string {
+  return value.replace(/_/g, " ");
+}
+
 const styles: Record<string, React.CSSProperties> = {
   page: { display: "flex", flexDirection: "column", height: "100%", gap: 12 },
   header: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 },
@@ -179,6 +224,7 @@ const styles: Record<string, React.CSSProperties> = {
   contextTitle: { fontSize: 13, fontWeight: 700, color: "#f3f3f3", marginBottom: 6 },
   contextText: { fontSize: 12, color: "#aab2bf", lineHeight: 1.5 },
   contextLabel: { fontSize: 11, color: "#8f96a3", textTransform: "uppercase" as const, marginBottom: 4 },
+  workItemDetailGrid: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, marginTop: 10 },
   managementTabs: { display: "flex", gap: 8, paddingBottom: 10, borderBottom: "1px solid #32353d", marginBottom: 12, flexWrap: "wrap" as const },
   managementLayout: { display: "grid", gridTemplateColumns: "minmax(220px, 300px) minmax(0, 1fr)", gap: 12, minHeight: 0 },
   managementThreePane: { display: "grid", gridTemplateColumns: "minmax(220px, 280px) minmax(240px, 340px) minmax(0, 1fr)", gap: 12, minHeight: 0 },
@@ -187,9 +233,11 @@ const styles: Record<string, React.CSSProperties> = {
   managementList: { display: "flex", flexDirection: "column", gap: 6 },
   managementListButton: { textAlign: "left" as const, border: "1px solid #303640", borderRadius: 8, backgroundColor: "#26292f", color: "#d8e1ef", padding: "8px 10px", cursor: "pointer" },
   managementListButtonActive: { textAlign: "left" as const, border: "1px solid #0e639c", borderRadius: 8, backgroundColor: "#1f2a35", color: "#ffffff", padding: "8px 10px", cursor: "pointer" },
+  managementItemSelect: { width: "100%", textAlign: "left" as const, border: "none", backgroundColor: "transparent", color: "inherit", padding: 0, cursor: "pointer" },
   managementTableHeader: { display: "grid", gridTemplateColumns: "minmax(0, 1.5fr) 110px 110px 190px", gap: 10, padding: "10px 12px", borderBottom: "1px solid #32353d", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" as const, color: "#8f96a3" },
   managementTableRow: { display: "grid", gridTemplateColumns: "minmax(0, 1.5fr) 110px 110px 190px", gap: 10, padding: "12px", borderBottom: "1px solid #2d3139", alignItems: "center" },
   managementActions: { display: "flex", gap: 6, alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap" as const },
+  inlineActionRow: { display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" as const },
   moduleCard: { border: "1px solid #32353d", borderRadius: 12, backgroundColor: "#26292f", padding: 12, marginBottom: 10 },
   moduleHeader: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" },
   moduleName: { fontSize: 14, fontWeight: 700, color: "#f3f3f3", marginBottom: 4 },
@@ -330,6 +378,15 @@ export function ProductListPage() {
   const [deleteHierarchyConfirmName, setDeleteHierarchyConfirmName] = useState("");
   const [deleteHierarchyConfirmChecked, setDeleteHierarchyConfirmChecked] = useState(false);
   const [selectedManagementStoryId, setSelectedManagementStoryId] = useState<string | null>(null);
+  const [storyDialogMode, setStoryDialogMode] = useState<"closed" | "create" | "edit">("closed");
+  const [taskDialogMode, setTaskDialogMode] = useState<"closed" | "create" | "edit">("closed");
+  const [editingStory, setEditingStory] = useState<WorkItem | null>(null);
+  const [editingTask, setEditingTask] = useState<WorkItem | null>(null);
+  const [deleteWorkItemCandidate, setDeleteWorkItemCandidate] = useState<null | { workItem: WorkItem; kind: "story" | "task" }>(null);
+  const [deleteWorkItemConfirmName, setDeleteWorkItemConfirmName] = useState("");
+  const [deleteWorkItemConfirmChecked, setDeleteWorkItemConfirmChecked] = useState(false);
+  const [storyDraft, setStoryDraft] = useState<WorkItemDraftState>(emptyWorkItemDraft);
+  const [taskDraft, setTaskDraft] = useState<WorkItemDraftState>(emptyWorkItemDraft);
   const [outlineSearchTerm, setOutlineSearchTerm] = useState("");
   const [outlineKindFilter, setOutlineKindFilter] = useState<HierarchyNodeKind | "">("");
   const [recentNodeKeys, setRecentNodeKeys] = useState<string[]>([]);
@@ -755,7 +812,7 @@ export function ProductListPage() {
         name: moduleDraft.name,
         description: moduleDraft.description,
         purpose: moduleDraft.purpose,
-        nodeKind: moduleDraft.nodeKind,
+        nodeKind: "area",
       }),
     onSuccess: async (updatedModule) => {
       await invalidateHierarchy();
@@ -885,6 +942,140 @@ export function ProductListPage() {
     onSuccess: async () => invalidateHierarchy(),
   });
 
+  const createManagementStoryMutation = useMutation({
+    mutationFn: () => {
+      if (!selectedProductId || !selectedManagementFeatureNode) {
+        throw new Error("Select a feature before adding a story.");
+      }
+      return createWorkItem({
+        productId: selectedProductId,
+        moduleId: selectedManagementFeatureNode.module_id ?? undefined,
+        capabilityId: selectedManagementFeatureNode.capability_id ?? undefined,
+        sourceNodeId: selectedManagementFeatureNode.id,
+        sourceNodeType: selectedManagementFeatureNode.node_type,
+        title: storyDraft.title.trim(),
+        problemStatement: storyDraft.problemStatement.trim(),
+        description: storyDraft.description.trim(),
+        acceptanceCriteria: storyDraft.acceptanceCriteria.trim(),
+        constraints: storyDraft.constraints.trim(),
+        workItemType: "feature",
+        priority: storyDraft.priority,
+        complexity: storyDraft.complexity,
+      });
+    },
+    onSuccess: async (createdStory) => {
+      await invalidateTasks();
+      setSelectedManagementStoryId(createdStory.id);
+      setActiveWorkItem(createdStory.id);
+      setStoryDraft(emptyWorkItemDraft);
+      setStoryDialogMode("closed");
+      setFormError(null);
+    },
+    onError: (error) => setFormError(String(error)),
+  });
+
+  const updateManagementStoryMutation = useMutation({
+    mutationFn: () => {
+      if (!editingStory) {
+        throw new Error("Select a story before editing.");
+      }
+      return updateWorkItem({
+        id: editingStory.id,
+        title: storyDraft.title.trim(),
+        status: storyDraft.status,
+        problemStatement: storyDraft.problemStatement.trim(),
+        description: storyDraft.description.trim(),
+        acceptanceCriteria: storyDraft.acceptanceCriteria.trim(),
+        constraints: storyDraft.constraints.trim(),
+      });
+    },
+    onSuccess: async (updatedStory) => {
+      await invalidateTasks();
+      setSelectedManagementStoryId(updatedStory.id);
+      setActiveWorkItem(updatedStory.id);
+      setEditingStory(null);
+      setStoryDraft(emptyWorkItemDraft);
+      setStoryDialogMode("closed");
+      setFormError(null);
+    },
+    onError: (error) => setFormError(String(error)),
+  });
+
+  const createManagementTaskMutation = useMutation({
+    mutationFn: () => {
+      if (!selectedProductId || !selectedManagementFeatureNode || !selectedManagementStory) {
+        throw new Error("Select a story before adding a task.");
+      }
+      return createWorkItem({
+        productId: selectedProductId,
+        moduleId: selectedManagementFeatureNode.module_id ?? undefined,
+        capabilityId: selectedManagementFeatureNode.capability_id ?? undefined,
+        sourceNodeId: selectedManagementFeatureNode.id,
+        sourceNodeType: selectedManagementFeatureNode.node_type,
+        parentWorkItemId: selectedManagementStory.id,
+        title: taskDraft.title.trim(),
+        problemStatement: taskDraft.problemStatement.trim(),
+        description: taskDraft.description.trim(),
+        acceptanceCriteria: taskDraft.acceptanceCriteria.trim(),
+        constraints: taskDraft.constraints.trim(),
+        workItemType: "feature",
+        priority: taskDraft.priority,
+        complexity: taskDraft.complexity,
+      });
+    },
+    onSuccess: async () => {
+      await invalidateTasks();
+      setTaskDraft(emptyWorkItemDraft);
+      setTaskDialogMode("closed");
+      setFormError(null);
+    },
+    onError: (error) => setFormError(String(error)),
+  });
+
+  const updateManagementTaskMutation = useMutation({
+    mutationFn: () => {
+      if (!editingTask) {
+        throw new Error("Select a task before editing.");
+      }
+      return updateWorkItem({
+        id: editingTask.id,
+        title: taskDraft.title.trim(),
+        status: taskDraft.status,
+        problemStatement: taskDraft.problemStatement.trim(),
+        description: taskDraft.description.trim(),
+        acceptanceCriteria: taskDraft.acceptanceCriteria.trim(),
+        constraints: taskDraft.constraints.trim(),
+      });
+    },
+    onSuccess: async () => {
+      await invalidateTasks();
+      setEditingTask(null);
+      setTaskDraft(emptyWorkItemDraft);
+      setTaskDialogMode("closed");
+      setFormError(null);
+    },
+    onError: (error) => setFormError(String(error)),
+  });
+
+  const deleteManagementWorkItemMutation = useMutation({
+    mutationFn: async (candidate: { workItem: WorkItem; kind: "story" | "task" }) => {
+      if (candidate.kind === "story") {
+        const childTasks = allProductTasks.filter((workItem) => workItem.parent_work_item_id === candidate.workItem.id);
+        await Promise.all(childTasks.map((workItem) => deleteWorkItem(workItem.id)));
+      }
+      await deleteWorkItem(candidate.workItem.id);
+    },
+    onSuccess: async () => {
+      await invalidateTasks();
+      setDeleteWorkItemCandidate(null);
+      setDeleteWorkItemConfirmName("");
+      setDeleteWorkItemConfirmChecked(false);
+      setSelectedManagementStoryId(null);
+      setFormError(null);
+    },
+    onError: (error) => setFormError(String(error)),
+  });
+
   const createWorkspaceMutation = useMutation({
     mutationFn: () =>
       createLocalWorkspace({
@@ -922,6 +1113,10 @@ export function ProductListPage() {
     [tree, activeNodeId, activeNodeType],
   );
   const allTreeNodes = useMemo(() => (tree ? flattenHierarchyNodes(tree.roots) : []), [tree]);
+  const canonicalManagementNodeCount = useMemo(
+    () => allTreeNodes.filter((node) => node.node_kind === "area" || node.node_kind === "capability" || node.node_kind === "rollout").length,
+    [allTreeNodes],
+  );
   const selectedCapabilityOptions = useMemo(
     () => allTreeNodes
       .filter((node) => node.node_type === "capability")
@@ -1072,8 +1267,8 @@ export function ProductListPage() {
         { label: "Dependencies", value: selectedProductDependencies.length, help: "Cross-product dependencies for this product" },
       ]
     : [
-        { label: "Product Areas", value: tree?.roots.length ?? 0, help: "Top-level product management areas" },
-        { label: "Management Nodes", value: totalNodeCount, help: "Product areas, capabilities, and features" },
+        { label: "Product Areas", value: tree?.roots.filter((node) => node.node_kind === "area").length ?? 0, help: "Top-level product management areas" },
+        { label: "Management Nodes", value: canonicalManagementNodeCount, help: "Product areas, capabilities, and features" },
         { label: "References", value: selectedReferences.length, help: "Attached product context" },
         { label: "Dependencies", value: selectedProductDependencies.length, help: "Cross-product dependencies" },
       ];
@@ -1094,22 +1289,19 @@ export function ProductListPage() {
     () => groupHierarchyNodeKinds(editableCapabilityNodeKinds),
     [editableCapabilityNodeKinds],
   );
-  const editableRootNodeKinds = useMemo(() => {
-    const nodeKinds = new Set<HierarchyNodeKind>(["area"]);
-    if (moduleDraft.nodeKind) {
-      nodeKinds.add(moduleDraft.nodeKind);
-    }
-    return orderHierarchyNodeKinds(Array.from(nodeKinds));
-  }, [moduleDraft.nodeKind]);
   const orderedModules = useMemo(() => {
     if (!tree) {
       return [];
     }
     return orderItemsByIds(tree.modules, moduleOrderIds, (moduleTree) => moduleTree.module.id);
   }, [tree, moduleOrderIds]);
+  const productAreaModules = useMemo(
+    () => orderedModules.filter((moduleTree) => moduleTree.module.node_kind === "area"),
+    [orderedModules],
+  );
   const selectedProductAreaTree = useMemo(
-    () => orderedModules.find((moduleTree) => moduleTree.module.id === activeModuleId) ?? orderedModules[0] ?? null,
-    [activeModuleId, orderedModules],
+    () => productAreaModules.find((moduleTree) => moduleTree.module.id === activeModuleId) ?? productAreaModules[0] ?? null,
+    [activeModuleId, productAreaModules],
   );
   const selectedProductAreaNode = useMemo(
     () => selectedProductAreaTree ? tree?.roots.find((node) => node.id === selectedProductAreaTree.module.id) ?? null : null,
@@ -1120,7 +1312,7 @@ export function ProductListPage() {
       ? getOrderedCapabilityTrees(
           selectedProductAreaTree.features,
           capabilityOrderMap[getCapabilityOrderKey(selectedProductAreaTree.module.id, null)],
-        ).filter((capabilityTree) => capabilityTree.capability.node_kind !== "rollout")
+        ).filter((capabilityTree) => capabilityTree.capability.node_kind === "capability")
       : [],
     [capabilityOrderMap, selectedProductAreaTree],
   );
@@ -1144,18 +1336,18 @@ export function ProductListPage() {
     [capabilityOrderMap, selectedManagementCapabilityTree],
   );
   const allManagementFeatures = useMemo(
-    () => orderedModules.flatMap((moduleTree) =>
+    () => productAreaModules.flatMap((moduleTree) =>
       flattenCapabilityTreeList(moduleTree.features)
         .filter((capabilityTree) => capabilityTree.capability.node_kind === "rollout")
         .map((capabilityTree) => ({
           capabilityTree,
           productArea: moduleTree.module,
           parentCapability: capabilityTree.capability.parent_capability_id
-            ? findCapabilityTree(orderedModules, capabilityTree.capability.parent_capability_id)?.capability ?? null
+            ? findCapabilityTree(productAreaModules, capabilityTree.capability.parent_capability_id)?.capability ?? null
             : null,
         })),
     ),
-    [orderedModules],
+    [productAreaModules],
   );
   const selectedManagementFeature = useMemo(() => {
     const activeFeature = allManagementFeatures.find((entry) => entry.capabilityTree.capability.id === activeCapabilityId);
@@ -1640,6 +1832,41 @@ export function ProductListPage() {
     setFormError(null);
   };
 
+  const openCreateStoryDialog = () => {
+    setEditingStory(null);
+    setStoryDraft(emptyWorkItemDraft);
+    setStoryDialogMode("create");
+    setFormError(null);
+  };
+
+  const openEditStoryDialog = (story: WorkItem) => {
+    setEditingStory(story);
+    setStoryDraft(workItemToDraft(story));
+    setStoryDialogMode("edit");
+    setFormError(null);
+  };
+
+  const openCreateTaskDialog = () => {
+    setEditingTask(null);
+    setTaskDraft(emptyWorkItemDraft);
+    setTaskDialogMode("create");
+    setFormError(null);
+  };
+
+  const openEditTaskDialog = (task: WorkItem) => {
+    setEditingTask(task);
+    setTaskDraft(workItemToDraft(task));
+    setTaskDialogMode("edit");
+    setFormError(null);
+  };
+
+  const requestDeleteWorkItem = (workItem: WorkItem, kind: "story" | "task") => {
+    setDeleteWorkItemCandidate({ workItem, kind });
+    setDeleteWorkItemConfirmName("");
+    setDeleteWorkItemConfirmChecked(false);
+    setFormError(null);
+  };
+
   const deleteConfirmationReady = !!deleteProductCandidate
     && deleteConfirmName.trim() === deleteProductCandidate.name
     && deleteConfirmArchive;
@@ -1649,6 +1876,9 @@ export function ProductListPage() {
   const deleteHierarchyReady = !!deleteHierarchyCandidate
     && deleteHierarchyConfirmName.trim() === deleteHierarchyCandidate.name
     && deleteHierarchyConfirmChecked;
+  const deleteManagementWorkItemReady = !!deleteWorkItemCandidate
+    && deleteWorkItemConfirmName.trim() === deleteWorkItemCandidate.workItem.title
+    && deleteWorkItemConfirmChecked;
 
   const renderProductManagementConsole = () => (
     <div>
@@ -1668,7 +1898,7 @@ export function ProductListPage() {
               <button style={styles.btn} onClick={() => openModuleDialog("create")}>+ Product Area</button>
             </div>
           </div>
-          {orderedModules.length > 0 ? (
+          {productAreaModules.length > 0 ? (
             <div style={styles.table}>
               <div style={styles.managementTableHeader}>
                 <div>Product Area</div>
@@ -1676,13 +1906,13 @@ export function ProductListPage() {
                 <div>Features</div>
                 <div>Actions</div>
               </div>
-              {orderedModules.map((moduleTree) => (
+              {productAreaModules.map((moduleTree) => (
                 <div key={moduleTree.module.id} style={styles.managementTableRow}>
                   <div>
                     <div style={styles.rowPrimary}>{moduleTree.module.name}</div>
                     <div style={styles.rowSecondary}>{moduleTree.module.description || moduleTree.module.purpose || "No description yet."}</div>
                   </div>
-                  <div style={styles.rowCell}>{moduleTree.features.filter((node) => node.capability.node_kind !== "rollout").length}</div>
+                  <div style={styles.rowCell}>{moduleTree.features.filter((node) => node.capability.node_kind === "capability").length}</div>
                   <div style={styles.rowCell}>{flattenCapabilityTreeList(moduleTree.features).filter((node) => node.capability.node_kind === "rollout").length}</div>
                   <div style={styles.managementActions}>
                     <button style={styles.compactActionBtn} onClick={() => {
@@ -1713,7 +1943,7 @@ export function ProductListPage() {
               <div style={styles.controlLabel}>Product Areas</div>
             </div>
             <div style={styles.managementList}>
-              {orderedModules.map((moduleTree) => (
+              {productAreaModules.map((moduleTree) => (
                 <button
                   key={moduleTree.module.id}
                   style={selectedProductAreaTree?.module.id === moduleTree.module.id ? styles.managementListButtonActive : styles.managementListButton}
@@ -1873,21 +2103,35 @@ export function ProductListPage() {
           <div style={styles.managementPane}>
             <div style={styles.sectionTitle}>
               <span>Stories</span>
-              <button style={styles.ghostBtn} onClick={() => openFeatureInBuilder(selectedManagementFeatureNode)}>Open Builder</button>
+              <div style={styles.managementActions}>
+                <button
+                  style={styles.btn}
+                  onClick={openCreateStoryDialog}
+                  disabled={!selectedManagementFeatureNode}
+                >
+                  + Story
+                </button>
+                <button style={styles.ghostBtn} onClick={() => openFeatureInBuilder(selectedManagementFeatureNode)}>Open Builder</button>
+              </div>
             </div>
             <div style={styles.managementList}>
               {featureStories.length > 0 ? featureStories.map((story) => (
-                <button
-                  key={story.id}
-                  style={selectedManagementStory?.id === story.id ? styles.managementListButtonActive : styles.managementListButton}
-                  onClick={() => {
-                    setSelectedManagementStoryId(story.id);
-                    setActiveWorkItem(story.id);
-                  }}
-                >
-                  <div style={styles.rowPrimary}>{story.title}</div>
-                  <div style={styles.rowSecondary}>{story.status.replace(/_/g, " ")} · {story.priority}</div>
-                </button>
+                <div key={story.id} style={selectedManagementStory?.id === story.id ? styles.managementListButtonActive : styles.managementListButton}>
+                  <button
+                    style={styles.managementItemSelect}
+                    onClick={() => {
+                      setSelectedManagementStoryId(story.id);
+                      setActiveWorkItem(story.id);
+                    }}
+                  >
+                    <div style={styles.rowPrimary}>{story.title}</div>
+                    <div style={styles.rowSecondary}>{formatWorkItemMeta(story.status)} · {story.priority} · {story.complexity}</div>
+                  </button>
+                  <div style={styles.inlineActionRow}>
+                    <button style={styles.outlineActionBtn} onClick={() => openEditStoryDialog(story)}>Edit</button>
+                    <button style={styles.compactDangerBtn} onClick={() => requestDeleteWorkItem(story, "story")}>Delete</button>
+                  </div>
+                </div>
               )) : (
                 <div style={styles.empty}>No stories for this feature yet.</div>
               )}
@@ -1898,21 +2142,58 @@ export function ProductListPage() {
               <>
                 <div style={styles.sectionTitle}>
                   <span>Story Details</span>
-                  <button style={styles.ghostBtn} onClick={() => openStoryInBuilder(selectedManagementStory)}>Open Story</button>
+                  <div style={styles.managementActions}>
+                    <button style={styles.ghostBtn} onClick={() => openEditStoryDialog(selectedManagementStory)}>Edit</button>
+                    <button style={styles.ghostBtn} onClick={() => openStoryInBuilder(selectedManagementStory)}>Open Story</button>
+                  </div>
                 </div>
                 <div style={styles.contextCard}>
-                  <div style={styles.contextLabel}>{selectedManagementStory.status.replace(/_/g, " ")} · {selectedManagementStory.work_item_type.replace(/_/g, " ")}</div>
+                  <div style={styles.contextLabel}>{formatWorkItemMeta(selectedManagementStory.status)} · {formatWorkItemMeta(selectedManagementStory.work_item_type)} · {selectedManagementStory.priority} priority · {formatWorkItemMeta(selectedManagementStory.complexity)} complexity</div>
                   <div style={styles.contextTitle}>{selectedManagementStory.title}</div>
-                  <div style={styles.contextText}>{selectedManagementStory.description || selectedManagementStory.problem_statement || "No story description yet."}</div>
+                  <div style={styles.workItemDetailGrid}>
+                    <div>
+                      <div style={styles.contextLabel}>Problem</div>
+                      <div style={styles.contextText}>{selectedManagementStory.problem_statement || "No problem statement captured yet."}</div>
+                    </div>
+                    <div>
+                      <div style={styles.contextLabel}>Description</div>
+                      <div style={styles.contextText}>{selectedManagementStory.description || "No story description yet."}</div>
+                    </div>
+                    <div>
+                      <div style={styles.contextLabel}>Acceptance Criteria</div>
+                      <div style={styles.contextText}>{selectedManagementStory.acceptance_criteria || "No acceptance criteria captured yet."}</div>
+                    </div>
+                    <div>
+                      <div style={styles.contextLabel}>Constraints</div>
+                      <div style={styles.contextText}>{selectedManagementStory.constraints || "No constraints captured yet."}</div>
+                    </div>
+                  </div>
                 </div>
                 <div style={styles.sectionTitle}>
                   <span>Tasks</span>
-                  <span style={styles.badgeMuted}>{selectedManagementTasks.length}</span>
+                  <div style={styles.managementActions}>
+                    <span style={styles.badgeMuted}>{selectedManagementTasks.length}</span>
+                    <button
+                      style={styles.btn}
+                      onClick={openCreateTaskDialog}
+                    >
+                      + Task
+                    </button>
+                  </div>
                 </div>
                 {selectedManagementTasks.length > 0 ? selectedManagementTasks.map((task) => (
                   <div key={task.id} style={styles.contextCard}>
-                    <div style={styles.contextTitle}>{task.title}</div>
-                    <div style={styles.contextText}>{task.status.replace(/_/g, " ")} · {task.priority}</div>
+                    <div style={styles.moduleHeader}>
+                      <div>
+                        <div style={styles.contextTitle}>{task.title}</div>
+                        <div style={styles.contextText}>{formatWorkItemMeta(task.status)} · {task.priority} · {formatWorkItemMeta(task.complexity)}</div>
+                        {task.description && <div style={styles.contextText}>{task.description}</div>}
+                      </div>
+                      <div style={styles.managementActions}>
+                        <button style={styles.compactActionBtn} onClick={() => openEditTaskDialog(task)}>Edit</button>
+                        <button style={styles.compactDangerBtn} onClick={() => requestDeleteWorkItem(task, "task")}>Delete</button>
+                      </div>
+                    </div>
                   </div>
                 )) : (
                   <div style={styles.empty}>No tasks under this story yet.</div>
@@ -2551,6 +2832,244 @@ export function ProductListPage() {
         </ModalShell>
       )}
 
+      {deleteWorkItemCandidate && (
+        <ModalShell title={`Delete ${deleteWorkItemCandidate.kind}: ${deleteWorkItemCandidate.workItem.title}`} onClose={() => setDeleteWorkItemCandidate(null)}>
+          <div style={styles.contextCard}>
+            <div style={styles.contextLabel}>Double Confirm</div>
+            <div style={styles.contextTitle}>This deletes the selected {deleteWorkItemCandidate.kind}.</div>
+            <div style={styles.contextText}>
+              {deleteWorkItemCandidate.kind === "story"
+                ? "Tasks under this story will also be deleted."
+                : "This task will be removed from the selected story."}
+            </div>
+          </div>
+          <label style={styles.label}>Type the title to confirm</label>
+          <input
+            style={styles.input}
+            value={deleteWorkItemConfirmName}
+            onChange={(event) => setDeleteWorkItemConfirmName(event.target.value)}
+            placeholder={deleteWorkItemCandidate.workItem.title}
+          />
+          <label style={styles.checkboxLabel}>
+            <input
+              type="checkbox"
+              checked={deleteWorkItemConfirmChecked}
+              onChange={(event) => setDeleteWorkItemConfirmChecked(event.target.checked)}
+            />
+            I understand this delivery item will be deleted.
+          </label>
+          {formError && <div style={styles.errorText}>{formError}</div>}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button style={styles.ghostBtn} onClick={() => setDeleteWorkItemCandidate(null)}>Cancel</button>
+            <button
+              style={styles.btnDanger}
+              onClick={() => deleteManagementWorkItemMutation.mutate(deleteWorkItemCandidate)}
+              disabled={!deleteManagementWorkItemReady || deleteManagementWorkItemMutation.isPending}
+            >
+              {deleteManagementWorkItemMutation.isPending ? "Deleting..." : `Delete ${deleteWorkItemCandidate.kind}`}
+            </button>
+          </div>
+        </ModalShell>
+      )}
+
+      {storyDialogMode !== "closed" && (
+        <ModalShell title={storyDialogMode === "edit" ? "Edit Story" : "Add Story"} onClose={() => setStoryDialogMode("closed")}>
+          <div style={styles.contextCard}>
+            <div style={styles.contextLabel}>Feature</div>
+            <div style={styles.contextTitle}>{selectedManagementFeature?.capabilityTree.capability.name ?? "No feature selected"}</div>
+          </div>
+          <label style={styles.label} htmlFor="management-story-title">Story title</label>
+          <input
+            id="management-story-title"
+            style={styles.input}
+            value={storyDraft.title}
+            onChange={(event) => setStoryDraft((draft) => ({ ...draft, title: event.target.value }))}
+          />
+          <div style={styles.formRow}>
+            <div>
+              <label style={styles.label} htmlFor="management-story-status">Status</label>
+              <select
+                id="management-story-status"
+                style={styles.input}
+                value={storyDraft.status}
+                onChange={(event) => setStoryDraft((draft) => ({ ...draft, status: event.target.value as WorkItem["status"] }))}
+              >
+                {workItemStatusOptions.map((status) => <option key={status} value={status}>{formatWorkItemMeta(status)}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={styles.label} htmlFor="management-story-priority">Priority</label>
+              <select
+                id="management-story-priority"
+                style={styles.input}
+                value={storyDraft.priority}
+                onChange={(event) => setStoryDraft((draft) => ({ ...draft, priority: event.target.value as WorkItem["priority"] }))}
+                disabled={storyDialogMode === "edit"}
+              >
+                {workItemPriorityOptions.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
+              </select>
+            </div>
+          </div>
+          <label style={styles.label} htmlFor="management-story-problem">Problem Statement</label>
+          <textarea
+            id="management-story-problem"
+            style={styles.textarea}
+            value={storyDraft.problemStatement}
+            onChange={(event) => setStoryDraft((draft) => ({ ...draft, problemStatement: event.target.value }))}
+          />
+          <label style={styles.label} htmlFor="management-story-description">Description</label>
+          <textarea
+            id="management-story-description"
+            style={styles.textarea}
+            value={storyDraft.description}
+            onChange={(event) => setStoryDraft((draft) => ({ ...draft, description: event.target.value }))}
+          />
+          <label style={styles.label} htmlFor="management-story-acceptance-criteria">Acceptance Criteria</label>
+          <textarea
+            id="management-story-acceptance-criteria"
+            style={styles.textarea}
+            value={storyDraft.acceptanceCriteria}
+            onChange={(event) => setStoryDraft((draft) => ({ ...draft, acceptanceCriteria: event.target.value }))}
+          />
+          <div style={styles.formRow}>
+            <div>
+              <label style={styles.label} htmlFor="management-story-constraints">Constraints</label>
+              <textarea
+                id="management-story-constraints"
+                style={styles.textarea}
+                value={storyDraft.constraints}
+                onChange={(event) => setStoryDraft((draft) => ({ ...draft, constraints: event.target.value }))}
+              />
+            </div>
+            <div>
+              <label style={styles.label} htmlFor="management-story-complexity">Complexity</label>
+              <select
+                id="management-story-complexity"
+                style={styles.input}
+                value={storyDraft.complexity}
+                onChange={(event) => setStoryDraft((draft) => ({ ...draft, complexity: event.target.value as WorkItem["complexity"] }))}
+                disabled={storyDialogMode === "edit"}
+              >
+                {workItemComplexityOptions.map((complexity) => <option key={complexity} value={complexity}>{formatWorkItemMeta(complexity)}</option>)}
+              </select>
+              {storyDialogMode === "edit" && <div style={styles.contextText}>Priority and complexity are currently set when the story is created.</div>}
+            </div>
+          </div>
+          {formError && <div style={styles.errorText}>{formError}</div>}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button style={styles.ghostBtn} onClick={() => setStoryDialogMode("closed")}>Cancel</button>
+            <button
+              style={styles.btn}
+              onClick={() => storyDialogMode === "edit" ? updateManagementStoryMutation.mutate() : createManagementStoryMutation.mutate()}
+              disabled={!selectedManagementFeatureNode || !storyDraft.title.trim() || createManagementStoryMutation.isPending || updateManagementStoryMutation.isPending}
+            >
+              {createManagementStoryMutation.isPending || updateManagementStoryMutation.isPending
+                ? "Saving..."
+                : storyDialogMode === "edit" ? "Save Story" : "Add Story"}
+            </button>
+          </div>
+        </ModalShell>
+      )}
+
+      {taskDialogMode !== "closed" && (
+        <ModalShell title={taskDialogMode === "edit" ? "Edit Task" : "Add Task"} onClose={() => setTaskDialogMode("closed")}>
+          <div style={styles.contextCard}>
+            <div style={styles.contextLabel}>Story</div>
+            <div style={styles.contextTitle}>{selectedManagementStory?.title ?? "No story selected"}</div>
+          </div>
+          <label style={styles.label} htmlFor="management-task-title">Task title</label>
+          <input
+            id="management-task-title"
+            style={styles.input}
+            value={taskDraft.title}
+            onChange={(event) => setTaskDraft((draft) => ({ ...draft, title: event.target.value }))}
+          />
+          <div style={styles.formRow}>
+            <div>
+              <label style={styles.label} htmlFor="management-task-status">Status</label>
+              <select
+                id="management-task-status"
+                style={styles.input}
+                value={taskDraft.status}
+                onChange={(event) => setTaskDraft((draft) => ({ ...draft, status: event.target.value as WorkItem["status"] }))}
+              >
+                {workItemStatusOptions.map((status) => <option key={status} value={status}>{formatWorkItemMeta(status)}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={styles.label} htmlFor="management-task-priority">Priority</label>
+              <select
+                id="management-task-priority"
+                style={styles.input}
+                value={taskDraft.priority}
+                onChange={(event) => setTaskDraft((draft) => ({ ...draft, priority: event.target.value as WorkItem["priority"] }))}
+                disabled={taskDialogMode === "edit"}
+              >
+                {workItemPriorityOptions.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
+              </select>
+            </div>
+          </div>
+          <label style={styles.label} htmlFor="management-task-problem">Problem Statement</label>
+          <textarea
+            id="management-task-problem"
+            style={styles.textarea}
+            value={taskDraft.problemStatement}
+            onChange={(event) => setTaskDraft((draft) => ({ ...draft, problemStatement: event.target.value }))}
+          />
+          <label style={styles.label} htmlFor="management-task-description">Description</label>
+          <textarea
+            id="management-task-description"
+            style={styles.textarea}
+            value={taskDraft.description}
+            onChange={(event) => setTaskDraft((draft) => ({ ...draft, description: event.target.value }))}
+          />
+          <label style={styles.label} htmlFor="management-task-acceptance-criteria">Acceptance Criteria</label>
+          <textarea
+            id="management-task-acceptance-criteria"
+            style={styles.textarea}
+            value={taskDraft.acceptanceCriteria}
+            onChange={(event) => setTaskDraft((draft) => ({ ...draft, acceptanceCriteria: event.target.value }))}
+          />
+          <div style={styles.formRow}>
+            <div>
+              <label style={styles.label} htmlFor="management-task-constraints">Constraints</label>
+              <textarea
+                id="management-task-constraints"
+                style={styles.textarea}
+                value={taskDraft.constraints}
+                onChange={(event) => setTaskDraft((draft) => ({ ...draft, constraints: event.target.value }))}
+              />
+            </div>
+            <div>
+              <label style={styles.label} htmlFor="management-task-complexity">Complexity</label>
+              <select
+                id="management-task-complexity"
+                style={styles.input}
+                value={taskDraft.complexity}
+                onChange={(event) => setTaskDraft((draft) => ({ ...draft, complexity: event.target.value as WorkItem["complexity"] }))}
+                disabled={taskDialogMode === "edit"}
+              >
+                {workItemComplexityOptions.map((complexity) => <option key={complexity} value={complexity}>{formatWorkItemMeta(complexity)}</option>)}
+              </select>
+              {taskDialogMode === "edit" && <div style={styles.contextText}>Priority and complexity are currently set when the task is created.</div>}
+            </div>
+          </div>
+          {formError && <div style={styles.errorText}>{formError}</div>}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button style={styles.ghostBtn} onClick={() => setTaskDialogMode("closed")}>Cancel</button>
+            <button
+              style={styles.btn}
+              onClick={() => taskDialogMode === "edit" ? updateManagementTaskMutation.mutate() : createManagementTaskMutation.mutate()}
+              disabled={!selectedManagementStory || !taskDraft.title.trim() || createManagementTaskMutation.isPending || updateManagementTaskMutation.isPending}
+            >
+              {createManagementTaskMutation.isPending || updateManagementTaskMutation.isPending
+                ? "Saving..."
+                : taskDialogMode === "edit" ? "Save Task" : "Add Task"}
+            </button>
+          </div>
+        </ModalShell>
+      )}
+
       {moduleDialogMode !== "closed" && (
         <ModalShell
           title={moduleDialogMode === "create"
@@ -2576,16 +3095,11 @@ export function ProductListPage() {
             </>
           ) : (
             <>
-              <label style={styles.label}>Product Area Kind</label>
-              <select style={styles.input} value={moduleDraft.nodeKind} onChange={(e) => setModuleDraft({ ...moduleDraft, nodeKind: e.target.value as HierarchyNodeKind })}>
-                {editableRootNodeKinds.map((nodeKind) => (
-                  <option key={nodeKind} value={nodeKind}>
-                    {getHierarchyNodeKindLabel(nodeKind)}{nodeKind === "area" ? "" : ` (${nodeKind})`}
-                  </option>
-                ))}
-              </select>
-              <div style={styles.contextText}>{getHierarchyNodeKindGuidance(moduleDraft.nodeKind)}</div>
-              <label style={styles.label}>{getHierarchyNodeKindLabel(moduleDraft.nodeKind)} Name</label>
+              <div style={styles.contextCard}>
+                <div style={styles.contextLabel}>Product Area</div>
+                <div style={styles.contextText}>{getHierarchyNodeKindGuidance("area")}</div>
+              </div>
+              <label style={styles.label}>Product Area Name</label>
               <input style={styles.input} value={moduleDraft.name} onChange={(e) => setModuleDraft({ ...moduleDraft, name: e.target.value })} />
               <label style={styles.label}>Description</label>
               <textarea style={styles.textarea} value={moduleDraft.description} onChange={(e) => setModuleDraft({ ...moduleDraft, description: e.target.value })} />
@@ -2603,7 +3117,7 @@ export function ProductListPage() {
             >
               {moduleDialogMode === "create"
                 ? createModuleMutation.isPending ? "Saving..." : `Create ${getHierarchyNodeKindLabel(moduleForm.nodeKind)}`
-                : updateModuleMutation.isPending ? "Saving..." : `Save ${getHierarchyNodeKindLabel(moduleDraft.nodeKind)}`}
+                : updateModuleMutation.isPending ? "Saving..." : "Save Product Area"}
             </button>
           </div>
         </ModalShell>

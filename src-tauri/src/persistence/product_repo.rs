@@ -38,7 +38,7 @@ fn row_to_product(row: sqlx::sqlite::SqliteRow) -> Product {
 fn parse_node_kind(value: &str) -> Result<HierarchyNodeKind, AppError> {
     HierarchyNodeKind::parse(value).ok_or_else(|| {
         AppError::Validation(format!(
-            "Unsupported hierarchy node kind '{value}'. Use area, domain, subdomain, system, subsystem, feature_set, capability, rollout, or reference."
+            "Unsupported hierarchy node kind '{value}'. Use area, capability, or rollout."
         ))
     })
 }
@@ -50,7 +50,7 @@ fn resolve_root_node_kind(node_kind: Option<&str>) -> Result<HierarchyNodeKind, 
         .unwrap_or_else(HierarchyNodeKind::default_root);
     if !kind.is_root_kind() {
         return Err(AppError::Validation(
-            "Root product sections must use area, domain, or system.".to_string(),
+            "Root product areas must use area.".to_string(),
         ));
     }
     Ok(kind)

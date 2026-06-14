@@ -315,29 +315,36 @@ impl HierarchyNodeKind {
     pub fn default_child(parent_kind: &Self) -> Self {
         match parent_kind {
             Self::Capability => Self::Rollout,
-            Self::FeatureSet => Self::Rollout,
-            Self::Area | Self::Domain | Self::Subdomain | Self::System | Self::Subsystem => {
-                Self::Capability
-            }
-            Self::Rollout | Self::Reference => Self::Reference,
+            Self::Area => Self::Capability,
+            Self::Domain
+            | Self::Subdomain
+            | Self::System
+            | Self::Subsystem
+            | Self::FeatureSet
+            | Self::Rollout
+            | Self::Reference => Self::Reference,
         }
     }
 
     pub fn is_root_kind(&self) -> bool {
-        matches!(self, Self::Area | Self::Domain | Self::System)
+        matches!(self, Self::Area)
     }
 
     pub fn can_have_children(&self) -> bool {
-        !matches!(self, Self::Rollout | Self::Reference)
+        matches!(self, Self::Area | Self::Capability)
     }
 
     pub fn allowed_child_kinds(&self) -> Vec<Self> {
         match self {
-            Self::Area | Self::Domain | Self::System => vec![Self::Capability],
-            Self::Subdomain | Self::Subsystem | Self::FeatureSet | Self::Capability => {
-                vec![Self::Rollout]
-            }
-            Self::Rollout | Self::Reference => Vec::new(),
+            Self::Area => vec![Self::Capability],
+            Self::Capability => vec![Self::Rollout],
+            Self::Domain
+            | Self::Subdomain
+            | Self::System
+            | Self::Subsystem
+            | Self::FeatureSet
+            | Self::Rollout
+            | Self::Reference => Vec::new(),
         }
     }
 

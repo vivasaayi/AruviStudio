@@ -485,6 +485,64 @@
     });
   }
 
+  function createWorkItemFromArgs(args) {
+    const state = getState();
+    const id = nextId("work-item");
+    const workItem = {
+      id,
+      product_id: getArg(args, "productId", "product_id"),
+      module_id: getArg(args, "moduleId", "module_id") ?? null,
+      capability_id: getArg(args, "capabilityId", "capability_id") ?? null,
+      source_node_id: getArg(args, "sourceNodeId", "source_node_id") ?? null,
+      source_node_type: getArg(args, "sourceNodeType", "source_node_type") ?? null,
+      parent_work_item_id: getArg(args, "parentWorkItemId", "parent_work_item_id") ?? null,
+      title: getArg(args, "title") ?? "",
+      problem_statement: getArg(args, "problemStatement", "problem_statement") ?? "",
+      description: getArg(args, "description") ?? "",
+      acceptance_criteria: getArg(args, "acceptanceCriteria", "acceptance_criteria") ?? "",
+      constraints: getArg(args, "constraints") ?? "",
+      work_item_type: getArg(args, "workItemType", "work_item_type") ?? "feature",
+      priority: getArg(args, "priority") ?? "medium",
+      complexity: getArg(args, "complexity") ?? "medium",
+      status: getArg(args, "status") ?? "draft",
+      repo_override_id: null,
+      active_repo_id: null,
+      branch_name: null,
+      sort_order: state.workItems.filter((entry) =>
+        entry.product_id === getArg(args, "productId", "product_id")
+        && entry.parent_work_item_id === (getArg(args, "parentWorkItemId", "parent_work_item_id") ?? null)
+      ).length,
+      created_at: FIXED_TIMESTAMP,
+      updated_at: FIXED_TIMESTAMP,
+    };
+    state.workItems.push(workItem);
+    return workItem;
+  }
+
+  function updateWorkItemFromArgs(args) {
+    const state = getState();
+    const id = getArg(args, "id");
+    const workItem = state.workItems.find((entry) => entry.id === id);
+    if (!workItem) {
+      throw new Error("Unknown work item");
+    }
+    if (getArg(args, "title") !== undefined) workItem.title = getArg(args, "title");
+    if (getArg(args, "description") !== undefined) workItem.description = getArg(args, "description");
+    if (getArg(args, "status") !== undefined) workItem.status = getArg(args, "status");
+    if (getArg(args, "problemStatement", "problem_statement") !== undefined) workItem.problem_statement = getArg(args, "problemStatement", "problem_statement");
+    if (getArg(args, "acceptanceCriteria", "acceptance_criteria") !== undefined) workItem.acceptance_criteria = getArg(args, "acceptanceCriteria", "acceptance_criteria");
+    if (getArg(args, "constraints") !== undefined) workItem.constraints = getArg(args, "constraints");
+    workItem.updated_at = FIXED_TIMESTAMP;
+    return workItem;
+  }
+
+  function deleteWorkItemFromArgs(args) {
+    const state = getState();
+    const id = getArg(args, "id");
+    state.workItems = state.workItems.filter((entry) => entry.id !== id && entry.parent_work_item_id !== id);
+    return null;
+  }
+
   function summarizeWorkItemsByProduct() {
     const state = getState();
     return state.products.map((product) => {
@@ -1545,6 +1603,12 @@
           return ok(buildProductTree(getArg(args, "productId", "product_id")));
         case "list_work_items":
           return ok(listWorkItemsFiltered(args || {}));
+        case "create_work_item":
+          return ok(createWorkItemFromArgs(args || {}));
+        case "update_work_item":
+          return ok(updateWorkItemFromArgs(args || {}));
+        case "delete_work_item":
+          return ok(deleteWorkItemFromArgs(args || {}));
         case "summarize_work_items_by_product":
           return ok(summarizeWorkItemsByProduct());
         case "create_planner_session_command":
@@ -1737,9 +1801,6 @@
         case "update_capability":
         case "delete_capability":
         case "reorder_capabilities":
-        case "create_work_item":
-        case "update_work_item":
-        case "delete_work_item":
         case "reorder_work_items":
         case "approve_work_item":
         case "reject_work_item":
