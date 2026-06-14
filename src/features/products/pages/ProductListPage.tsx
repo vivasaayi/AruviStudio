@@ -2843,8 +2843,9 @@ export function ProductListPage() {
                 : "This task will be removed from the selected story."}
             </div>
           </div>
-          <label style={styles.label}>Type the title to confirm</label>
+          <label style={styles.label} htmlFor="delete-work-item-confirm-title">Type the title to confirm</label>
           <input
+            id="delete-work-item-confirm-title"
             style={styles.input}
             value={deleteWorkItemConfirmName}
             onChange={(event) => setDeleteWorkItemConfirmName(event.target.value)}
