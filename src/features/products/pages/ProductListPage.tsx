@@ -128,7 +128,9 @@ const styles: Record<string, React.CSSProperties> = {
   btn: { padding: "7px 12px", fontSize: 12, backgroundColor: "#0e639c", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" },
   ghostBtn: { padding: "6px 10px", fontSize: 12, backgroundColor: "#2c3139", color: "#e0e0e0", border: "1px solid #3b4049", borderRadius: 8, cursor: "pointer" },
   btnDanger: { padding: "5px 10px", fontSize: 12, backgroundColor: "#6c2020", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" },
-  toolbar: { display: "grid", gridTemplateColumns: "minmax(180px, 1fr) repeat(4, minmax(120px, 170px))", gap: 10, alignItems: "end", marginBottom: 12 },
+  compactActionBtn: { padding: "5px 8px", minHeight: 30, fontSize: 11, backgroundColor: "#2c3139", color: "#e0e0e0", border: "1px solid #3b4049", borderRadius: 7, cursor: "pointer", whiteSpace: "nowrap" as const },
+  compactDangerBtn: { padding: "5px 8px", minHeight: 30, fontSize: 11, backgroundColor: "#6c2020", color: "#fff", border: "1px solid #8a2b2b", borderRadius: 7, cursor: "pointer", whiteSpace: "nowrap" as const },
+  toolbar: { display: "grid", gridTemplateColumns: "minmax(260px, 1fr) repeat(4, minmax(120px, 160px)) auto", gap: 10, alignItems: "end", marginBottom: 10 },
   toolbarCompact: { display: "flex", gap: 10, flexWrap: "wrap" as const, alignItems: "flex-end", marginBottom: 12 },
   statusToolbar: { display: "grid", gridTemplateColumns: "minmax(220px, 360px) 150px 180px minmax(360px, 1fr)", gap: 10, alignItems: "end", marginBottom: 10 },
   statusMetrics: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 },
@@ -191,7 +193,7 @@ const styles: Record<string, React.CSSProperties> = {
   taskTitle: { fontSize: 12, fontWeight: 700, color: "#f3f3f3" },
   taskMeta: { fontSize: 11, color: "#8f96a3", marginTop: 4 },
   metricHelp: { fontSize: 11, color: "#8f96a3", marginTop: 6 },
-  chipRow: { display: "flex", gap: 8, flexWrap: "wrap" as const, marginTop: 10 },
+  chipRow: { display: "flex", gap: 6, flexWrap: "wrap" as const, marginTop: 8 },
   empty: { textAlign: "center" as const, color: "#666", padding: 32, fontSize: 14 },
   dropTarget: { outline: "1px dashed #0e639c", outlineOffset: 2 },
   dragHandle: { fontSize: 13, color: "#8f96a3", cursor: "grab", userSelect: "none" as const, padding: "2px 4px" },
@@ -208,8 +210,12 @@ const styles: Record<string, React.CSSProperties> = {
   table: { border: "1px solid #32353d", borderRadius: 12, overflow: "hidden", backgroundColor: "#26292f" },
   tableHeader: { display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) 110px 90px 110px", gap: 10, padding: "10px 12px", borderBottom: "1px solid #32353d", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" as const, color: "#8f96a3" },
   tableRow: { display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) 110px 90px 110px", gap: 10, padding: "12px", borderBottom: "1px solid #2d3139", alignItems: "center" },
-  productTableHeader: { display: "grid", gridTemplateColumns: "minmax(220px, 1.7fr) 105px 100px 110px 105px 140px", gap: 10, padding: "10px 12px", borderBottom: "1px solid #32353d", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" as const, color: "#8f96a3" },
-  productTableRow: { display: "grid", gridTemplateColumns: "minmax(220px, 1.7fr) 105px 100px 110px 105px 140px", gap: 10, padding: "12px", borderBottom: "1px solid #2d3139", alignItems: "center" },
+  productTableHeader: { display: "grid", gridTemplateColumns: "minmax(360px, 1.9fr) 86px 112px 142px 142px 210px", gap: 12, padding: "9px 14px", borderBottom: "1px solid #32353d", fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" as const, color: "#8f96a3" },
+  productTableRow: { display: "grid", gridTemplateColumns: "minmax(360px, 1.9fr) 86px 112px 142px 142px 210px", gap: 12, padding: "12px 14px", borderBottom: "1px solid #2d3139", alignItems: "center", minHeight: 112 },
+  productCell: { minWidth: 0 },
+  productDescription: { fontSize: 12, color: "#8f96a3", marginTop: 4, maxWidth: 720, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const, lineHeight: 1.35 },
+  productMetaCell: { fontSize: 12, color: "#cfd6e4", lineHeight: 1.35, minWidth: 0 },
+  productActions: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 6, alignItems: "center" },
   statusTableHeader: { display: "grid", gridTemplateColumns: "minmax(260px, 1.9fr) 58px 110px 120px 115px 150px", gap: 8, padding: "8px 10px", borderBottom: "1px solid #32353d", fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" as const, color: "#8f96a3" },
   statusTableRow: { display: "grid", gridTemplateColumns: "minmax(260px, 1.9fr) 58px 110px 120px 115px 150px", gap: 8, padding: "8px 10px", borderBottom: "1px solid #2d3139", alignItems: "center" },
   progressTrack: { height: 6, borderRadius: 999, backgroundColor: "#171a20", border: "1px solid #303640", overflow: "hidden" },
@@ -1431,9 +1437,6 @@ export function ProductListPage() {
           <div style={styles.panelInner}>
             {productPageTab === "list" ? (
               <>
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-                  <button style={styles.btn} onClick={() => openProductDialog("create")}>+ Add Product</button>
-                </div>
                 <div style={styles.toolbar}>
                   <div>
                     <div style={styles.controlLabel}>Search</div>
@@ -1476,6 +1479,7 @@ export function ProductListPage() {
                       <option value="work">Work items</option>
                     </select>
                   </div>
+                  <button style={{ ...styles.btn, alignSelf: "center", justifySelf: "end" }} onClick={() => openProductDialog("create")}>+ Add Product</button>
                 </div>
                 <div style={styles.toggleRow}>
                   <label style={styles.checkboxLabel}>
@@ -1508,28 +1512,35 @@ export function ProductListPage() {
                   </div>
                   {productTableRows.length > 0 ? productTableRows.map((row) => (
                     <div key={row.product.id} style={styles.productTableRow}>
-                      <div>
+                      <div style={styles.productCell}>
                         <div style={styles.rowPrimary}>{row.product.name}</div>
-                        <div style={styles.rowSecondary}>{row.product.description || row.product.vision || "No description yet."}</div>
+                        <div style={styles.productDescription}>{row.product.description || row.product.vision || "No description yet."}</div>
                         <div style={styles.chipRow}>
                           {row.product.tags.slice(0, 4).map((tag) => <span key={tag} style={styles.badgeMuted}>{tag}</span>)}
                         </div>
                       </div>
-                      <div style={styles.rowCell}>{row.source}</div>
-                      <div style={styles.rowCell}>{row.product.lifecycle} · {row.product.health}</div>
-                      <div style={styles.rowCell}>{row.rootCount} capabilities · {row.nodeCount} design nodes</div>
+                      <div style={styles.productMetaCell}>{row.source}</div>
+                      <div style={styles.productMetaCell}>
+                        <div>{row.product.lifecycle}</div>
+                        <div style={styles.rowSecondary}>{row.product.health}</div>
+                      </div>
+                      <div style={styles.productMetaCell}>
+                        <div>{row.rootCount} capabilities</div>
+                        <div style={styles.rowSecondary}>{row.nodeCount} design nodes</div>
+                      </div>
                       <div>
                         <div style={styles.rowCell}>{row.progress.percent}%</div>
                         <div style={styles.progressTrack}><div style={{ ...styles.progressFill, width: `${row.progress.percent}%` }} /></div>
-                        <div style={styles.rowSecondary}>{row.progress.done}/{row.progress.total} done · {row.activeWorkItemCount} active delivery</div>
+                        <div style={styles.rowSecondary}>{row.progress.done}/{row.progress.total} done</div>
+                        <div style={styles.rowSecondary}>{row.activeWorkItemCount} active delivery</div>
                       </div>
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                        <button style={styles.ghostBtn} onClick={() => editProductFromList(row.product)}>Edit</button>
-                        <button style={styles.ghostBtn} onClick={() => openProductStatus(row.product)}>Status</button>
-                        <button style={styles.ghostBtn} onClick={() => openProductOverview(row.product)}>Overview</button>
-                        <button style={styles.ghostBtn} onClick={() => openProductDesign(row.product)}>Design</button>
-                        <button style={styles.ghostBtn} onClick={() => openProductDependencies(row.product)}>Dependencies</button>
-                        <button style={styles.btnDanger} onClick={() => requestArchiveProduct(row.product)}>Delete</button>
+                      <div style={styles.productActions}>
+                        <button style={styles.compactActionBtn} onClick={() => editProductFromList(row.product)}>Edit</button>
+                        <button style={styles.compactActionBtn} onClick={() => openProductStatus(row.product)}>Status</button>
+                        <button style={styles.compactActionBtn} onClick={() => openProductOverview(row.product)}>Overview</button>
+                        <button style={styles.compactActionBtn} onClick={() => openProductDesign(row.product)}>Design</button>
+                        <button style={styles.compactActionBtn} onClick={() => openProductDependencies(row.product)}>Dependencies</button>
+                        <button style={styles.compactDangerBtn} onClick={() => requestArchiveProduct(row.product)}>Delete</button>
                       </div>
                     </div>
                   )) : (
