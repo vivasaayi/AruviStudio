@@ -13,7 +13,6 @@ const styles: Record<string, any> = {
 const navItems = [
   { key: "portfolio", label: "Portfolio" },
   { key: "planner", label: "Planner" },
-  { key: "product-overview", label: "Product Overview" },
   { key: "products", label: "Products" },
   { key: "work-items", label: "Delivery / Builder" },
   { key: "ide", label: "IDE" },
@@ -34,7 +33,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const currentView = navItems.find((item) => location.pathname.startsWith(`/${item.key}`))?.key ?? activeView;
+  const currentView = location.pathname.startsWith("/product-overview")
+    ? "products"
+    : navItems.find((item) => location.pathname.startsWith(`/${item.key}`))?.key ?? activeView;
 
   return (
     <div style={styles.container}>

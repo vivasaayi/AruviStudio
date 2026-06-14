@@ -53,6 +53,7 @@ import {
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
 import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
+import { ProductOverviewPage } from "./ProductOverviewPage";
 import type { CapabilityNode, CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ModuleTree, Product, ProductDependency, ProductDependencyKind, ProductReference, ProductTree, Repository, WorkItem } from "../../../lib/types";
 
 const HIDE_EXAMPLE_PRODUCTS_KEY = "catalog.hide_example_products";
@@ -119,6 +120,9 @@ const styles: Record<string, React.CSSProperties> = {
   tab: { padding: "7px 12px", fontSize: 12, fontWeight: 700, borderRadius: 8, border: "1px solid #3b4049", backgroundColor: "#2c3139", color: "#cfd6e4", cursor: "pointer" },
   tabActive: { padding: "7px 12px", fontSize: 12, fontWeight: 700, borderRadius: 8, border: "1px solid #0e639c", backgroundColor: "#173247", color: "#ffffff", cursor: "pointer" },
   pageTabs: { display: "flex", gap: 8, padding: 4, border: "1px solid #32353d", borderRadius: 10, backgroundColor: "#1b1d22", flexWrap: "wrap" as const },
+  pageTabGroup: { display: "flex", gap: 6, alignItems: "center", border: "1px solid #2d3139", borderRadius: 8, padding: 6, flexWrap: "wrap" as const },
+  pageTabGroupLabel: { fontSize: 10, color: "#8f96a3", fontWeight: 800, textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "0 4px" },
+  pageTabProductSelect: { minWidth: 190, padding: "7px 10px", backgroundColor: "#181a1f", border: "1px solid #3c4048", borderRadius: 8, color: "#e0e0e0", fontSize: 12 },
   pageTab: { padding: "8px 12px", fontSize: 12, fontWeight: 800, borderRadius: 8, border: "1px solid transparent", backgroundColor: "transparent", color: "#aeb7c6", cursor: "pointer" },
   pageTabActive: { padding: "8px 12px", fontSize: 12, fontWeight: 800, borderRadius: 8, border: "1px solid #0e639c", backgroundColor: "#173247", color: "#ffffff", cursor: "pointer" },
   btn: { padding: "7px 12px", fontSize: 12, backgroundColor: "#0e639c", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" },
@@ -269,7 +273,7 @@ export function ProductListPage() {
   const [draggedFeature, setDraggedFeature] = useState<null | { id: string; moduleId: string; parentCapabilityId?: string | null; siblingIds: string[] }>(null);
   const [moduleOrderIds, setModuleOrderIds] = useState<string[]>([]);
   const [capabilityOrderMap, setFeatureOrderMap] = useState<Record<string, string[]>>({});
-  const [productPageTab, setProductPageTab] = useState<"list" | "status" | "design" | "dependencies">(() => isProductDetailRoute ? "design" : "list");
+  const [productPageTab, setProductPageTab] = useState<"list" | "status" | "overview" | "design" | "dependencies">(() => isProductDetailRoute ? "design" : "list");
   const [productSearch, setProductSearch] = useState("");
   const [productStatusFilter, setProductStatusFilter] = useState<"all" | Product["status"]>("all");
   const [productSourceFilter, setProductSourceFilter] = useState<"all" | "default" | "custom">("all");
@@ -1355,6 +1359,12 @@ export function ProductListPage() {
     navigate(`/products/${product.id}`);
   };
 
+  const openProductOverview = (product: Product) => {
+    setActiveProduct(product.id);
+    setStatusProductId(product.id);
+    setProductPageTab("overview");
+  };
+
   const openProductStatus = (product: Product) => {
     setActiveProduct(product.id);
     setStatusProductId(product.id);
@@ -1388,10 +1398,32 @@ export function ProductListPage() {
       </div>
 
       <div style={styles.pageTabs}>
-        <button style={productPageTab === "list" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("list")}>Product List</button>
-        <button style={productPageTab === "status" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("status")}>Product Status</button>
-        <button style={productPageTab === "design" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("design")}>Product Design</button>
-        <button style={productPageTab === "dependencies" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("dependencies")}>Dependencies</button>
+        <div style={styles.pageTabGroup}>
+          <span style={styles.pageTabGroupLabel}>Catalog</span>
+          <button style={productPageTab === "list" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("list")}>Product List</button>
+          <button style={productPageTab === "status" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("status")}>Product Status</button>
+        </div>
+        <div style={styles.pageTabGroup}>
+          <span style={styles.pageTabGroupLabel}>Selected Product</span>
+          <select
+            aria-label="Selected product"
+            style={styles.pageTabProductSelect}
+            value={selectedProductId ?? ""}
+            onChange={(event) => {
+              const nextProductId = event.target.value || null;
+              setActiveProduct(nextProductId);
+              if (nextProductId && (productPageTab === "list" || productPageTab === "status")) {
+                setProductPageTab("overview");
+              }
+            }}
+          >
+            <option value="">Select product</option>
+            {(products ?? []).map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
+          </select>
+          <button style={productPageTab === "overview" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("overview")} disabled={!selectedProduct}>Product Overview</button>
+          <button style={productPageTab === "design" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("design")} disabled={!selectedProduct}>Product Design</button>
+          <button style={productPageTab === "dependencies" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("dependencies")} disabled={!selectedProduct}>Dependencies</button>
+        </div>
       </div>
 
       <div style={styles.workspace}>
@@ -1494,6 +1526,7 @@ export function ProductListPage() {
                       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                         <button style={styles.ghostBtn} onClick={() => editProductFromList(row.product)}>Edit</button>
                         <button style={styles.ghostBtn} onClick={() => openProductStatus(row.product)}>Status</button>
+                        <button style={styles.ghostBtn} onClick={() => openProductOverview(row.product)}>Overview</button>
                         <button style={styles.ghostBtn} onClick={() => openProductDesign(row.product)}>Design</button>
                         <button style={styles.ghostBtn} onClick={() => openProductDependencies(row.product)}>Dependencies</button>
                         <button style={styles.btnDanger} onClick={() => requestArchiveProduct(row.product)}>Delete</button>
@@ -1610,6 +1643,12 @@ export function ProductListPage() {
                   )}
                 </div>
               </>
+            ) : productPageTab === "overview" ? (
+              selectedProduct ? (
+                <ProductOverviewPage />
+              ) : (
+                <div style={styles.empty}>Select a product to view the product overview.</div>
+              )
             ) : productPageTab === "dependencies" ? (
               selectedProduct ? (
                 <>
