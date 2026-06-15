@@ -95,6 +95,9 @@ fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "apply_capability_template",
                 "convert_capability_kind",
                 "get_product_tree",
+                "list_references",
+                "create_reference",
+                "delete_reference",
             ],
         ),
         action_tool(
@@ -322,6 +325,81 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
                 vec![("productId", string_property("The product id."))],
                 &["productId"],
             ),
+        ),
+        first_class_tool(
+            "catalog.references.list",
+            "List Catalog References",
+            "List scoped notes, external docs, evidence, architecture references, standards, and design packets attached to product book scopes.",
+            object_schema(
+                vec![
+                    (
+                        "scopeType",
+                        enum_property(
+                            "Optional scope type filter.",
+                            &[
+                                "strategy_node",
+                                "product",
+                                "product_area",
+                                "capability",
+                                "feature",
+                                "delivery_item",
+                            ],
+                        ),
+                    ),
+                    ("scopeId", string_property("Optional scope id filter.")),
+                ],
+                &[],
+            ),
+        ),
+        first_class_tool(
+            "catalog.references.create",
+            "Create Catalog Reference",
+            "Attach a scoped reference to a product, product area, capability, feature, or delivery item.",
+            object_schema(
+                vec![
+                    (
+                        "scopeType",
+                        enum_property(
+                            "Reference scope type.",
+                            &[
+                                "strategy_node",
+                                "product",
+                                "product_area",
+                                "capability",
+                                "feature",
+                                "delivery_item",
+                            ],
+                        ),
+                    ),
+                    ("scopeId", string_property("Reference scope id.")),
+                    ("title", string_property("Reference title.")),
+                    (
+                        "referenceKind",
+                        enum_property(
+                            "Reference kind.",
+                            &[
+                                "note",
+                                "external_doc",
+                                "architecture",
+                                "customer_evidence",
+                                "regulatory",
+                                "design_packet",
+                                "standard",
+                                "other",
+                            ],
+                        ),
+                    ),
+                    ("uri", string_property("Optional URI or file path.")),
+                    ("content", string_property("Optional reference summary or pasted note.")),
+                ],
+                &["scopeType", "scopeId", "title"],
+            ),
+        ),
+        first_class_tool(
+            "catalog.references.delete",
+            "Delete Catalog Reference",
+            "Delete a scoped catalog reference.",
+            object_schema(vec![("id", string_property("The reference id."))], &["id"]),
         ),
         first_class_tool(
             "catalog.product_areas.list",
@@ -1040,6 +1118,9 @@ fn translate_first_class_tool(
         "catalog.products.update" => ("aruvi_catalog", "update_product"),
         "catalog.products.archive" => ("aruvi_catalog", "archive_product"),
         "catalog.products.get_tree" => ("aruvi_catalog", "get_product_tree"),
+        "catalog.references.list" => ("aruvi_catalog", "list_references"),
+        "catalog.references.create" => ("aruvi_catalog", "create_reference"),
+        "catalog.references.delete" => ("aruvi_catalog", "delete_reference"),
         "catalog.product_areas.list" => ("aruvi_catalog", "list_product_areas"),
         "catalog.product_areas.create" => ("aruvi_catalog", "create_product_area"),
         "catalog.product_areas.update" => ("aruvi_catalog", "update_product_area"),
@@ -1750,6 +1831,38 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
                 tree_value["productAreas"] = product_areas;
             }
             action_result("get_product_tree", tree_value)
+        }
+        action @ ("list_references" | "list_product_references") => {
+            let scope_type = args.optional_string(&["scope_type", "scopeType"])?;
+            let scope_id = args.optional_string(&["scope_id", "scopeId"])?;
+            action_result(
+                action,
+                product_repo::list_product_references(
+                    &state.db,
+                    scope_type.as_deref(),
+                    scope_id.as_deref(),
+                )
+                .await?,
+            )
+        }
+        action @ ("create_reference" | "create_product_reference") => {
+            let reference = product_repo::create_product_reference(
+                &state.db,
+                &uuid::Uuid::new_v4().to_string(),
+                &args.required_string(&["scope_type", "scopeType"], "scope_type")?,
+                &args.required_string(&["scope_id", "scopeId"], "scope_id")?,
+                &args.required_string(&["title"], "title")?,
+                &args.string_or_default(&["reference_kind", "referenceKind"], "note")?,
+                &args.string_or_default(&["uri"], "")?,
+                &args.string_or_default(&["content"], "")?,
+            )
+            .await?;
+            action_result(action, reference)
+        }
+        action @ ("delete_reference" | "delete_product_reference") => {
+            let id = args.required_string(&["id"], "id")?;
+            product_repo::delete_product_reference(&state.db, &id).await?;
+            Ok(action_ok(action))
         }
         other => Err(AppError::Validation(format!(
             "unsupported aruvi_catalog action: {other}"
@@ -3384,6 +3497,33 @@ mod tests {
         assert!(capability_create_tool
             .description
             .contains("Feature is the product-management leaf"));
+    }
+
+    #[test]
+    fn discovery_exposes_catalog_reference_tools() {
+        let definitions = definitions();
+        let reference_create_tool = definitions
+            .iter()
+            .find(|tool| tool.name == "catalog.references.create")
+            .expect("catalog.references.create");
+
+        let scope_type_enum = reference_create_tool
+            .input_schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .and_then(|properties| properties.get("scopeType"))
+            .and_then(Value::as_object)
+            .and_then(|scope_type| scope_type.get("enum"))
+            .and_then(Value::as_array)
+            .expect("reference scopeType enum");
+
+        assert!(scope_type_enum.contains(&json!("product_area")));
+        assert!(definitions
+            .iter()
+            .any(|tool| tool.name == "catalog.references.list"));
+        assert!(definitions
+            .iter()
+            .any(|tool| tool.name == "catalog.references.delete"));
     }
 
     #[test]

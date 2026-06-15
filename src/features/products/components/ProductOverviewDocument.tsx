@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { countHierarchyNodes, countLeafNodes, getProductDirectWorkItems } from "../../../lib/hierarchyTree";
 import { getHierarchyNodeKindLabel } from "../../../lib/hierarchyLabels";
-import type { Capability, CapabilityTree, Module, ModuleTree, Product, ProductTree, WorkItem } from "../../../lib/types";
+import type { Capability, CapabilityTree, Module, ModuleTree, Product, ProductReference, ProductTree, WorkItem } from "../../../lib/types";
 import {
   PRODUCT_DELIVERY_ID,
   PRODUCT_OVERVIEW_TOP_ID,
@@ -14,70 +14,77 @@ import {
   type WorkItemMetrics,
   type WorkItemNode,
 } from "../lib/productOverview";
+import { filterReferencesForProductBook, filterReferencesForScope, getCapabilityReferenceScope, getProductAreaReferenceScope, getReferenceKindLabel } from "../lib/productReferences";
 
 const styles: Record<string, React.CSSProperties> = {
   layout: { display: "block" },
-  article: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 18 },
+  article: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 10 },
   hero: {
-    borderRadius: 16,
-    border: "1px solid #bfdbfe",
-    background: "linear-gradient(145deg, #eff6ff 0%, #ffffff 68%, #f8fafc 100%)",
-    padding: 18,
+    borderRadius: 8,
+    border: "1px solid #d8dee8",
+    background: "#ffffff",
+    padding: 14,
   },
-  eyebrow: { fontSize: 11, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase" as const, color: "#2563eb", marginBottom: 8 },
-  heroTop: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 12 },
-  title: { fontSize: 26, fontWeight: 900, color: "#0f172a", margin: 0, lineHeight: 1.05 },
-  subtitle: { fontSize: 13, color: "#475569", lineHeight: 1.5, margin: 0 },
-  prose: { fontSize: 13, color: "#334155", lineHeight: 1.55, whiteSpace: "pre-wrap" as const },
-  button: { padding: "7px 12px", fontSize: 12, fontWeight: 700, backgroundColor: "#f8fafc", color: "#1e3a8a", border: "1px solid #93c5fd", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
-  plannerButton: { padding: "7px 12px", fontSize: 12, fontWeight: 800, backgroundColor: "#2563eb", color: "#ffffff", border: "1px solid #1d4ed8", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
-  subtleButton: { padding: "6px 10px", fontSize: 12, fontWeight: 700, backgroundColor: "#eff6ff", color: "#1d4ed8", border: "1px solid #93c5fd", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
+  eyebrow: { fontSize: 11, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" as const, color: "#2563eb", marginBottom: 8 },
+  heroTop: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 8 },
+  title: { fontSize: 24, fontWeight: 900, color: "#0f172a", margin: 0, lineHeight: 1.05 },
+  subtitle: { fontSize: 12, color: "#475569", lineHeight: 1.4, margin: 0 },
+  prose: { fontSize: 12, color: "#334155", lineHeight: 1.45, whiteSpace: "pre-wrap" as const },
+  button: { padding: "6px 10px", fontSize: 12, fontWeight: 700, backgroundColor: "#f8fafc", color: "#1e3a8a", border: "1px solid #93c5fd", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
+  plannerButton: { padding: "6px 10px", fontSize: 12, fontWeight: 800, backgroundColor: "#2563eb", color: "#ffffff", border: "1px solid #1d4ed8", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
+  subtleButton: { padding: "6px 9px", fontSize: 12, fontWeight: 700, backgroundColor: "#eff6ff", color: "#1d4ed8", border: "1px solid #93c5fd", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
   toggleButton: { padding: "7px 12px", fontSize: 12, fontWeight: 700, backgroundColor: "#eff6ff", color: "#1d4ed8", border: "1px solid #93c5fd", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
-  progressPanel: { marginTop: 12, borderRadius: 12, border: "1px solid #dbeafe", backgroundColor: "#ffffff", padding: 10 },
+  progressPanel: { marginTop: 10, borderRadius: 8, border: "1px solid #d8dee8", backgroundColor: "#f8fafc", padding: 8 },
   progressRow: { display: "flex", justifyContent: "space-between", gap: 16, fontSize: 12, color: "#475569" },
-  progressTrack: { width: "100%", height: 10, borderRadius: 999, backgroundColor: "#e2e8f0", overflow: "hidden", marginTop: 10 },
+  progressTrack: { width: "100%", height: 8, borderRadius: 999, backgroundColor: "#e2e8f0", overflow: "hidden", marginTop: 8 },
   progressFill: { height: "100%", borderRadius: 999, background: "linear-gradient(90deg, #16a34a 0%, #22c55e 100%)" },
-  metricGrid: { display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 8, marginTop: 12 },
-  metricCard: { borderRadius: 10, padding: 10, backgroundColor: "#ffffff", border: "1px solid #dbeafe" },
-  metricLabel: { fontSize: 11, fontWeight: 800, color: "#64748b", textTransform: "uppercase" as const, letterSpacing: "0.08em" },
-  metricValue: { fontSize: 20, fontWeight: 900, color: "#0f172a", marginTop: 4 },
-  summaryGrid: { display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 },
-  summaryCard: { borderRadius: 12, border: "1px solid #d8dee8", backgroundColor: "#ffffff", padding: 12 },
-  sectionTitle: { fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" as const, color: "#64748b", marginBottom: 10 },
-  summaryHeading: { fontSize: 16, fontWeight: 800, color: "#111827", margin: "0 0 6px" },
+  metricGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8, marginTop: 10 },
+  metricCard: { borderRadius: 8, padding: 8, backgroundColor: "#ffffff", border: "1px solid #d8dee8" },
+  metricLabel: { fontSize: 10, fontWeight: 800, color: "#64748b", textTransform: "uppercase" as const, letterSpacing: "0.08em" },
+  metricValue: { fontSize: 18, fontWeight: 900, color: "#0f172a", marginTop: 2 },
+  summaryGrid: { display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 },
+  summaryCard: { borderRadius: 8, border: "1px solid #d8dee8", backgroundColor: "#ffffff", padding: 10 },
+  sectionTitle: { fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" as const, color: "#64748b", marginBottom: 8 },
+  summaryHeading: { fontSize: 15, fontWeight: 800, color: "#111827", margin: "0 0 4px" },
   list: { margin: 0, paddingLeft: 18, color: "#334155", display: "flex", flexDirection: "column", gap: 8, lineHeight: 1.65 },
   chipRow: { display: "flex", gap: 8, flexWrap: "wrap" as const },
   chip: { fontSize: 11, padding: "4px 8px", borderRadius: 999, backgroundColor: "#eff6ff", color: "#1d4ed8" },
-  section: { borderRadius: 12, border: "1px solid #d8dee8", backgroundColor: "#ffffff", padding: 14 },
-  sectionHeader: { display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 },
-  sectionHeading: { fontSize: 20, fontWeight: 900, color: "#111827", margin: 0 },
+  section: { borderRadius: 8, border: "1px solid #d8dee8", backgroundColor: "#ffffff", padding: 12 },
+  sectionHeader: { display: "flex", flexDirection: "column", gap: 4, marginBottom: 10 },
+  sectionHeading: { fontSize: 18, fontWeight: 900, color: "#111827", margin: 0 },
   sectionSubtitle: { fontSize: 12, color: "#64748b", lineHeight: 1.45, margin: 0 },
   empty: { fontSize: 13, color: "#64748b", fontStyle: "italic" as const, lineHeight: 1.6 },
-  detailsShell: { borderRadius: 12, border: "1px solid #d8dee8", backgroundColor: "#ffffff", overflow: "hidden" },
-  summary: { padding: 14, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, cursor: "pointer", listStyle: "none" as const },
-  summaryLeft: { minWidth: 0 },
-  summaryRight: { display: "flex", gap: 8, flexWrap: "wrap" as const, justifyContent: "flex-end" as const },
-  chapterLabel: { fontSize: 11, fontWeight: 800, color: "#2563eb", letterSpacing: "0.14em", textTransform: "uppercase" as const, marginBottom: 6 },
-  chapterTitle: { fontSize: 20, fontWeight: 900, color: "#111827", margin: 0, lineHeight: 1.15 },
-  chapterSubtitle: { fontSize: 12, color: "#475569", lineHeight: 1.45, marginTop: 6 },
-  summaryPill: { display: "inline-flex", alignItems: "center", borderRadius: 999, padding: "5px 9px", fontSize: 11, fontWeight: 700, backgroundColor: "#f8fafc", border: "1px solid #cbd5e1", color: "#475569" },
-  statePill: { display: "inline-flex", alignItems: "center", borderRadius: 999, padding: "5px 9px", fontSize: 11, fontWeight: 800, border: "1px solid currentColor", backgroundColor: "#f8fafc" },
-  detailsBody: { padding: "0 14px 14px", display: "flex", flexDirection: "column", gap: 12 },
-  nodeActionRow: { display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" as const },
-  noteGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 },
-  noteCard: { borderRadius: 10, border: "1px solid #d8dee8", backgroundColor: "#f8fafc", padding: 12 },
-  noteHeading: { fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" as const, color: "#64748b", marginBottom: 8 },
-  noteText: { fontSize: 12, color: "#334155", lineHeight: 1.5, whiteSpace: "pre-wrap" as const },
-  metaRow: { display: "flex", gap: 8, flexWrap: "wrap" as const },
-  metaPill: { fontSize: 11, padding: "4px 8px", borderRadius: 999, backgroundColor: "#eff6ff", color: "#1d4ed8" },
-  pathText: { fontSize: 12, color: "#64748b", lineHeight: 1.6, marginTop: 6 },
-  nested: { marginLeft: 10, paddingLeft: 22, borderLeft: "2px solid #cbd5e1", display: "flex", flexDirection: "column", gap: 16 },
-  workItemList: { display: "flex", flexDirection: "column", gap: 10 },
-  workItemCard: { borderRadius: 12, border: "1px solid #d8dee8", padding: 12, cursor: "pointer", backgroundColor: "#ffffff" },
+  detailsShell: { borderRadius: 8, border: "1px solid #d8dee8", backgroundColor: "#ffffff", overflow: "hidden" },
+  summary: { padding: "9px 12px", display: "grid", gridTemplateColumns: "20px minmax(0, 1fr) minmax(280px, auto)", alignItems: "start", gap: 10, cursor: "pointer", textAlign: "left" as const },
+  summaryToggle: { width: 20, lineHeight: "20px", color: "#0f172a", fontSize: 15, fontWeight: 900, textAlign: "center" as const, userSelect: "none" as const },
+  summaryLeft: { minWidth: 0, width: "100%", textAlign: "left" as const },
+  summaryRight: { display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end", minWidth: 0 },
+  summaryPillRow: { display: "flex", gap: 6, flexWrap: "wrap" as const, justifyContent: "flex-end" as const },
+  chapterLabel: { fontSize: 10, fontWeight: 800, color: "#2563eb", letterSpacing: "0.14em", textTransform: "uppercase" as const, marginBottom: 4 },
+  chapterTitle: { fontSize: 18, fontWeight: 900, color: "#111827", margin: 0, lineHeight: 1.12 },
+  chapterSubtitle: { fontSize: 12, color: "#475569", lineHeight: 1.35, marginTop: 4 },
+  summaryPill: { display: "inline-flex", alignItems: "center", borderRadius: 999, padding: "4px 8px", fontSize: 11, fontWeight: 700, backgroundColor: "#f8fafc", border: "1px solid #cbd5e1", color: "#475569" },
+  statePill: { display: "inline-flex", alignItems: "center", borderRadius: 999, padding: "4px 8px", fontSize: 11, fontWeight: 800, border: "1px solid currentColor", backgroundColor: "#f8fafc" },
+  detailsBody: { padding: "0 12px 10px 42px", display: "flex", flexDirection: "column", gap: 8 },
+  nodeActionRow: { display: "flex", justifyContent: "flex-end", gap: 6, flexWrap: "wrap" as const },
+  noteGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8 },
+  noteCard: { borderRadius: 8, border: "1px solid #d8dee8", backgroundColor: "#f8fafc", padding: 10 },
+  referenceList: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10 },
+  referenceCard: { borderRadius: 8, border: "1px solid #d8dee8", backgroundColor: "#ffffff", padding: 12 },
+  referenceTitle: { fontSize: 13, fontWeight: 800, color: "#111827", margin: "4px 0 0" },
+  referenceUri: { display: "block", marginTop: 8, fontSize: 12, color: "#2563eb", wordBreak: "break-word" as const },
+  noteHeading: { fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" as const, color: "#64748b", marginBottom: 6 },
+  noteText: { fontSize: 12, color: "#334155", lineHeight: 1.45, whiteSpace: "pre-wrap" as const },
+  metaRow: { display: "flex", gap: 6, flexWrap: "wrap" as const },
+  metaPill: { fontSize: 11, padding: "3px 7px", borderRadius: 999, backgroundColor: "#eff6ff", color: "#1d4ed8" },
+  pathText: { fontSize: 11, color: "#64748b", lineHeight: 1.35, marginTop: 4 },
+  nested: { marginLeft: 0, paddingLeft: 12, borderLeft: "2px solid #cbd5e1", display: "flex", flexDirection: "column", gap: 8 },
+  workItemList: { display: "flex", flexDirection: "column", gap: 8 },
+  workItemCard: { borderRadius: 8, border: "1px solid #d8dee8", padding: 8, cursor: "pointer", backgroundColor: "#ffffff" },
   workItemHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 },
-  workItemTitle: { fontSize: 14, fontWeight: 800, color: "#111827", margin: 0, lineHeight: 1.35 },
-  workItemText: { fontSize: 12, color: "#475569", lineHeight: 1.55, marginTop: 8 },
-  workItemChildren: { marginTop: 12, marginLeft: 14, paddingLeft: 14, borderLeft: "1px solid #d8dee8" },
+  workItemTitle: { fontSize: 13, fontWeight: 800, color: "#111827", margin: 0, lineHeight: 1.25 },
+  workItemText: { fontSize: 12, color: "#475569", lineHeight: 1.4, marginTop: 5 },
+  workItemChildren: { marginTop: 8, marginLeft: 8, paddingLeft: 10, borderLeft: "1px solid #d8dee8" },
 };
 
 type LightWorkItemTone = {
@@ -132,6 +139,7 @@ type ProductOverviewDocumentProps = {
   product: Product;
   tree?: ProductTree;
   workItems?: WorkItem[];
+  references?: ProductReference[];
   isLoading?: boolean;
   onEditProduct: () => void;
   onEditModule: (module: Module) => void;
@@ -154,6 +162,7 @@ export function ProductOverviewDocument({
   product,
   tree,
   workItems,
+  references = [],
   isLoading = false,
   onEditProduct,
   onEditModule,
@@ -170,6 +179,14 @@ export function ProductOverviewDocument({
   const rootSectionCount = tree?.roots.length ?? 0;
   const totalNodeCount = useMemo(() => (tree ? countHierarchyNodes(tree.roots) : 0), [tree]);
   const leafNodeCount = useMemo(() => (tree ? countLeafNodes(tree.roots) : 0), [tree]);
+  const bookReferences = useMemo(
+    () => filterReferencesForProductBook(product.id, tree, references),
+    [product.id, references, tree],
+  );
+  const productReferences = useMemo(
+    () => filterReferencesForScope(bookReferences, { scopeType: "product", scopeId: product.id }),
+    [bookReferences, product.id],
+  );
   const activeWorkItemCount = useMemo(
     () => allWorkItems.filter((workItem) => workItem.status !== "done" && workItem.status !== "cancelled").length,
     [allWorkItems],
@@ -179,24 +196,26 @@ export function ProductOverviewDocument({
     <div style={styles.layout}>
       <div style={styles.article}>
         <section id={PRODUCT_OVERVIEW_TOP_ID} style={styles.hero}>
-          <div style={styles.eyebrow}>Product Overview</div>
+          <div style={styles.eyebrow}>Product Book</div>
           <div style={styles.heroTop}>
             <div style={{ minWidth: 0 }}>
               <h2 style={styles.title}>{product.name}</h2>
               <p style={styles.subtitle}>
-                Reader mode for the product: product areas, capabilities, features, stories, and tasks aligned to one structural tree.
+                Product areas read as chapters. Capabilities and features read as sections. Stories and tasks remain delivery notes.
               </p>
             </div>
             <div style={styles.nodeActionRow}>
-              <button style={styles.plannerButton} onClick={() => onPlanFromItem({ kind: "enhance_product", product })}>Enhance</button>
-              <button style={styles.subtleButton} onClick={() => onPlanFromItem({ kind: "add_product_child", product })}>Add Child</button>
-              <button style={styles.button} onClick={onEditProduct}>Edit Product</button>
+              <button style={styles.plannerButton} onClick={() => onPlanFromItem({ kind: "enhance_product", product })}>Improve Book</button>
+              <button style={styles.subtleButton} onClick={() => onPlanFromItem({ kind: "add_product_child", product })}>Add Chapter</button>
+              <button style={styles.button} onClick={onEditProduct}>Edit Book</button>
             </div>
           </div>
 
           <div style={styles.prose}>
-            {product.description || "Add a product description so this page reads like durable documentation instead of a thin status screen."}
+            {product.description || "Add a product description to anchor the book before coding starts."}
           </div>
+
+          <ReferenceList references={productReferences} title="Product References" />
 
           <div style={styles.progressPanel}>
             <div style={styles.progressRow}>
@@ -213,6 +232,7 @@ export function ProductOverviewDocument({
             <MetricCard label="Total Nodes" value={totalNodeCount} />
             <MetricCard label="Leaf Nodes" value={leafNodeCount} />
             <MetricCard label="Active Stories" value={activeWorkItemCount} />
+            <MetricCard label="References" value={bookReferences.length} />
             <MetricCard label="Done" value={metrics.done} />
             <MetricCard label="Blocked" value={metrics.blocked} />
           </div>
@@ -264,7 +284,7 @@ export function ProductOverviewDocument({
               <div style={styles.eyebrow}>Product</div>
               <h3 style={styles.sectionHeading}>Product Delivery</h3>
               <p style={styles.sectionSubtitle}>
-                Cross-cutting work attached directly to the product instead of a specific module or capability.
+                Cross-cutting work attached directly to the book instead of a specific chapter or feature.
               </p>
             </div>
             <WorkItemTree product={product} nodes={productLevelWorkItems} onOpenWorkItem={onOpenWorkItem} onPlanFromItem={onPlanFromItem} />
@@ -292,6 +312,7 @@ export function ProductOverviewDocument({
               moduleTree={moduleTree}
               chapterNumber={index + 1}
               allWorkItems={allWorkItems}
+              references={bookReferences}
               onEditModule={onEditModule}
               onEditCapability={onEditCapability}
               onOpenWorkItem={onOpenWorkItem}
@@ -319,6 +340,7 @@ function ModuleChapter({
   moduleTree,
   chapterNumber,
   allWorkItems,
+  references,
   onEditModule,
   onEditCapability,
   onOpenWorkItem,
@@ -329,6 +351,7 @@ function ModuleChapter({
   moduleTree: ModuleTree;
   chapterNumber: number;
   allWorkItems: WorkItem[];
+  references: ProductReference[];
   onEditModule: (module: Module) => void;
   onEditCapability: (capability: Capability) => void;
   onOpenWorkItem: (workItem: WorkItem) => void;
@@ -340,32 +363,77 @@ function ModuleChapter({
     allWorkItems.filter((workItem) => workItem.module_id === moduleTree.module.id && !workItem.capability_id),
   );
   const metrics = useMemo(() => buildWorkItemMetrics(getModuleScopedWorkItems(moduleTree, allWorkItems)), [allWorkItems, moduleTree]);
+  const moduleReferences = useMemo(
+    () => filterReferencesForScope(references, getProductAreaReferenceScope(moduleTree.module.id)),
+    [moduleTree.module.id, references],
+  );
 
   return (
     <section id={getModuleSectionId(moduleTree.module)} style={styles.detailsShell}>
-      <details open={isOpen} onToggle={(event) => setIsOpen(event.currentTarget.open)}>
-        <summary style={styles.summary}>
-          <div style={styles.summaryLeft}>
-            <div style={styles.chapterLabel}>{rootLabel} {chapterNumber}</div>
-            <h3 style={styles.chapterTitle}>{moduleTree.module.name}</h3>
-            <div style={styles.chapterSubtitle}>
-              {moduleTree.module.description || moduleTree.module.purpose || `Document this ${rootLabel.toLowerCase()} so the product architecture stays readable.`}
-            </div>
-            <div style={styles.pathText}>{productName} / {moduleTree.module.name}</div>
+      <div
+        style={styles.summary}
+        role="button"
+        tabIndex={0}
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setIsOpen((current) => !current);
+          }
+        }}
+      >
+        <span style={styles.summaryToggle}>{isOpen ? "▾" : "▸"}</span>
+        <div style={styles.summaryLeft}>
+          <div style={styles.chapterLabel}>{rootLabel} {chapterNumber}</div>
+          <h3 style={styles.chapterTitle}>{moduleTree.module.name}</h3>
+          <div style={styles.chapterSubtitle}>
+            {moduleTree.module.description || moduleTree.module.purpose || `Document this ${rootLabel.toLowerCase()} so the product architecture stays readable.`}
           </div>
-          <div style={styles.summaryRight}>
+          <div style={styles.pathText}>{productName} / {moduleTree.module.name}</div>
+        </div>
+        <div style={styles.summaryRight}>
+          <div style={styles.summaryPillRow}>
             <span style={styles.summaryPill}>{moduleTree.features.length} {moduleTree.features.length === 1 ? "child node" : "child nodes"}</span>
             <MetricPills metrics={metrics} />
           </div>
-        </summary>
-
-        <div style={styles.detailsBody}>
           <div style={styles.nodeActionRow}>
-            <button style={styles.plannerButton} onClick={() => onPlanFromItem({ kind: "enhance_module", product, module: moduleTree.module })}>Enhance</button>
-            <button style={styles.subtleButton} onClick={() => onPlanFromItem({ kind: "add_module_child", product, module: moduleTree.module })}>Add Child</button>
-            <button style={styles.subtleButton} onClick={() => onEditModule(moduleTree.module)}>Edit {rootLabel}</button>
+            <button
+              style={styles.plannerButton}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onPlanFromItem({ kind: "enhance_module", product, module: moduleTree.module });
+              }}
+            >
+              Improve Chapter
+            </button>
+            <button
+              style={styles.subtleButton}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onPlanFromItem({ kind: "add_module_child", product, module: moduleTree.module });
+              }}
+            >
+              Add Section
+            </button>
+            <button
+              style={styles.subtleButton}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onEditModule(moduleTree.module);
+              }}
+            >
+              Edit {rootLabel}
+            </button>
           </div>
+        </div>
+      </div>
 
+      {isOpen ? (
+        <div style={styles.detailsBody}>
           {moduleTree.module.purpose
             || moduleTree.module.explanation
             || moduleTree.module.examples
@@ -405,6 +473,8 @@ function ModuleChapter({
             </div>
           ) : null}
 
+          <ReferenceList references={moduleReferences} title={`${rootLabel} References`} />
+
           {moduleWorkItems.length > 0 ? (
             <div>
               <div style={styles.sectionTitle}>Direct Work</div>
@@ -421,6 +491,7 @@ function ModuleChapter({
                 capabilityTree={capabilityTree}
                 numbering={`${chapterNumber}.${index + 1}`}
                 allWorkItems={allWorkItems}
+                references={references}
                 onEditCapability={onEditCapability}
                 onOpenWorkItem={onOpenWorkItem}
                 onPlanFromItem={onPlanFromItem}
@@ -430,7 +501,7 @@ function ModuleChapter({
             <div style={styles.empty}>No capabilities defined for this product area yet.</div>
           )}
         </div>
-      </details>
+      ) : null}
     </section>
   );
 }
@@ -441,6 +512,7 @@ function CapabilityChapter({
   capabilityTree,
   numbering,
   allWorkItems,
+  references,
   onEditCapability,
   onOpenWorkItem,
   onPlanFromItem,
@@ -450,6 +522,7 @@ function CapabilityChapter({
   capabilityTree: CapabilityTree;
   numbering: string;
   allWorkItems: WorkItem[];
+  references: ProductReference[];
   onEditCapability: (capability: Capability) => void;
   onOpenWorkItem: (workItem: WorkItem) => void;
   onPlanFromItem: (action: ProductOverviewPlannerAction) => void;
@@ -461,51 +534,89 @@ function CapabilityChapter({
     [allWorkItems, capabilityTree.capability.id],
   );
   const metrics = useMemo(() => buildWorkItemMetrics(getCapabilityScopedWorkItems(capabilityTree, allWorkItems)), [allWorkItems, capabilityTree]);
+  const capabilityReferences = useMemo(
+    () => filterReferencesForScope(references, getCapabilityReferenceScope(capabilityTree.capability)),
+    [capabilityTree.capability, references],
+  );
 
   return (
     <div id={getCapabilitySectionId(capabilityTree.capability)} style={styles.detailsShell}>
-      <details open={isOpen} onToggle={(event) => setIsOpen(event.currentTarget.open)}>
-        <summary style={styles.summary}>
-          <div style={styles.summaryLeft}>
-            <div style={styles.chapterLabel}>{capabilityType} {numbering}</div>
-            <h4 style={{ ...styles.chapterTitle, fontSize: 19 }}>{capabilityTree.capability.name}</h4>
-            <div style={styles.chapterSubtitle}>
-              {capabilityTree.capability.description || `Document what this ${capabilityType.toLowerCase()} is responsible for.`}
-            </div>
-            <div style={styles.pathText}>{[...path, capabilityTree.capability.name].join(" / ")}</div>
+      <div
+        style={styles.summary}
+        role="button"
+        tabIndex={0}
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setIsOpen((current) => !current);
+          }
+        }}
+      >
+        <span style={styles.summaryToggle}>{isOpen ? "▾" : "▸"}</span>
+        <div style={styles.summaryLeft}>
+          <div style={styles.chapterLabel}>{capabilityType} {numbering}</div>
+          <h4 style={{ ...styles.chapterTitle, fontSize: 19 }}>{capabilityTree.capability.name}</h4>
+          <div style={styles.chapterSubtitle}>
+            {capabilityTree.capability.description || `Document what this ${capabilityType.toLowerCase()} is responsible for.`}
           </div>
-          <div style={styles.summaryRight}>
+          <div style={styles.pathText}>{[...path, capabilityTree.capability.name].join(" / ")}</div>
+        </div>
+        <div style={styles.summaryRight}>
+          <div style={styles.summaryPillRow}>
             <span style={styles.summaryPill}>{capabilityTree.capability.status.replace(/_/g, " ")}</span>
             <span style={styles.summaryPill}>{capabilityTree.capability.priority} priority</span>
+            <span style={styles.summaryPill}>{capabilityTree.capability.risk} risk</span>
             <MetricPills metrics={metrics} />
           </div>
-        </summary>
-
-        <div style={styles.detailsBody}>
           <div style={styles.nodeActionRow}>
             <button
               style={styles.plannerButton}
-              onClick={() => onPlanFromItem({ kind: "enhance_capability", product, moduleName: path[1] ?? "", capability: capabilityTree.capability })}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onPlanFromItem({ kind: "enhance_capability", product, moduleName: path[1] ?? "", capability: capabilityTree.capability });
+              }}
             >
-              Enhance
+              Improve Section
             </button>
             <button
               style={styles.subtleButton}
-              onClick={() => onPlanFromItem({ kind: "add_capability_child", product, moduleName: path[1] ?? "", capability: capabilityTree.capability })}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onPlanFromItem({ kind: "add_capability_child", product, moduleName: path[1] ?? "", capability: capabilityTree.capability });
+              }}
             >
-              Add Child
+              Add Child Section
             </button>
             <button
               style={styles.subtleButton}
-              onClick={() => onPlanFromItem({ kind: "add_capability_work_item", product, moduleName: path[1] ?? "", capability: capabilityTree.capability })}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onPlanFromItem({ kind: "add_capability_work_item", product, moduleName: path[1] ?? "", capability: capabilityTree.capability });
+              }}
             >
-              Add Work Item
+              Add Story
             </button>
-            <button style={styles.subtleButton} onClick={() => onEditCapability(capabilityTree.capability)}>
+            <button
+              style={styles.subtleButton}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onEditCapability(capabilityTree.capability);
+              }}
+            >
               Edit {capabilityType}
             </button>
           </div>
+        </div>
+      </div>
 
+      {isOpen ? (
+        <div style={styles.detailsBody}>
           {capabilityTree.capability.acceptance_criteria
             || capabilityTree.capability.technical_notes
             || capabilityTree.capability.explanation
@@ -554,11 +665,7 @@ function CapabilityChapter({
             <div style={styles.empty}>No chapter guidance recorded yet.</div>
           )}
 
-          <div style={styles.metaRow}>
-            <span style={styles.metaPill}>status: {capabilityTree.capability.status.replace(/_/g, " ")}</span>
-            <span style={styles.metaPill}>priority: {capabilityTree.capability.priority}</span>
-            <span style={styles.metaPill}>risk: {capabilityTree.capability.risk}</span>
-          </div>
+          <ReferenceList references={capabilityReferences} title={`${capabilityType} References`} />
 
           {directWorkItems.length > 0 ? (
             <div>
@@ -579,6 +686,7 @@ function CapabilityChapter({
                   capabilityTree={child}
                   numbering={`${numbering}.${index + 1}`}
                   allWorkItems={allWorkItems}
+                  references={references}
                   onEditCapability={onEditCapability}
                   onOpenWorkItem={onOpenWorkItem}
                   onPlanFromItem={onPlanFromItem}
@@ -587,7 +695,7 @@ function CapabilityChapter({
             </div>
           ) : null}
         </div>
-      </details>
+      ) : null}
     </div>
   );
 }
@@ -625,7 +733,8 @@ function WorkItemCard({
 }) {
   const presentation = getWorkItemPresentation(node.workItem.status);
   const tone = getLightWorkItemTone(presentation.bucket);
-  const excerpt = summarizeText(node.workItem.description || node.workItem.problem_statement || node.workItem.acceptance_criteria || "No delivery notes captured yet.");
+  const noteText = node.workItem.description || node.workItem.problem_statement || node.workItem.acceptance_criteria;
+  const excerpt = noteText ? summarizeText(noteText) : "";
 
   return (
     <div
@@ -640,7 +749,7 @@ function WorkItemCard({
       <div style={styles.workItemHeader}>
         <div style={{ minWidth: 0 }}>
           <h5 style={styles.workItemTitle}>{node.workItem.title}</h5>
-          <div style={{ ...styles.metaRow, marginTop: 8 }}>
+          <div style={{ ...styles.metaRow, marginTop: 6 }}>
             <span
               style={{
                 ...styles.statePill,
@@ -663,10 +772,10 @@ function WorkItemCard({
             onPlanFromItem({ kind: "enhance_work_item", product, workItem: node.workItem });
           }}
         >
-          Enhance
+          Improve
         </button>
       </div>
-      <div style={styles.workItemText}>{excerpt}</div>
+      {excerpt ? <div style={styles.workItemText}>{excerpt}</div> : null}
       {node.children.length > 0 ? (
         <div style={styles.workItemChildren}>
           <WorkItemTree product={product} nodes={node.children} onOpenWorkItem={onOpenWorkItem} onPlanFromItem={onPlanFromItem} />
@@ -696,6 +805,32 @@ function StatusTonePill({ label, tone }: { label: string; tone: string }) {
     <span style={{ ...styles.statePill, color: tone }}>
       {label}
     </span>
+  );
+}
+
+function ReferenceList({ references, title }: { references: ProductReference[]; title: string }) {
+  if (references.length === 0) {
+    return null;
+  }
+
+  return (
+    <div>
+      <div style={styles.sectionTitle}>{title}</div>
+      <div style={styles.referenceList}>
+        {references.map((reference) => (
+          <div key={reference.id} style={styles.referenceCard}>
+            <div style={styles.noteHeading}>{getReferenceKindLabel(reference.reference_kind)}</div>
+            <h5 style={styles.referenceTitle}>{reference.title}</h5>
+            {reference.content ? <div style={{ ...styles.noteText, marginTop: 8 }}>{reference.content}</div> : null}
+            {reference.uri ? (
+              <a style={styles.referenceUri} href={reference.uri} target="_blank" rel="noreferrer">
+                {reference.uri}
+              </a>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

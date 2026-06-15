@@ -59,6 +59,7 @@ import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
 import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
 import { ProductOverviewPage } from "./ProductOverviewPage";
+import { getProductAreaReferenceScope } from "../lib/productReferences";
 import type { CapabilityNode, CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ModuleTree, Product, ProductDependency, ProductDependencyKind, ProductReference, ProductTree, Repository, WorkItem } from "../../../lib/types";
 
 const HIDE_EXAMPLE_PRODUCTS_KEY = "catalog.hide_example_products";
@@ -156,23 +157,23 @@ function formatWorkItemMeta(value: string): string {
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  page: { display: "flex", flexDirection: "column", height: "100%", gap: 12 },
+  page: { display: "flex", flexDirection: "column", height: "100%", gap: 8 },
   header: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 },
   titleBlock: { display: "flex", flexDirection: "column", gap: 3 },
   title: { fontSize: 18, fontWeight: 800, color: "#f3f3f3", margin: 0 },
   subtitle: { fontSize: 12, color: "#8f96a3" },
-  workspace: { display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 12, minHeight: 0, flex: 1 },
+  workspace: { display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 8, minHeight: 0, flex: 1 },
   panel: { backgroundColor: "#212327", border: "1px solid #32353d", borderRadius: 12, minHeight: 0, overflow: "hidden" },
-  panelInner: { padding: 14, height: "100%", overflow: "auto" },
+  panelInner: { padding: 10, height: "100%", overflow: "auto" },
   tabBar: { display: "flex", gap: 8, marginBottom: 14, borderBottom: "1px solid #32353d", paddingBottom: 10 },
   tab: { padding: "7px 12px", fontSize: 12, fontWeight: 700, borderRadius: 8, border: "1px solid #3b4049", backgroundColor: "#2c3139", color: "#cfd6e4", cursor: "pointer" },
   tabActive: { padding: "7px 12px", fontSize: 12, fontWeight: 700, borderRadius: 8, border: "1px solid #0e639c", backgroundColor: "#173247", color: "#ffffff", cursor: "pointer" },
-  pageTabs: { display: "flex", gap: 8, padding: 4, border: "1px solid #32353d", borderRadius: 10, backgroundColor: "#1b1d22", flexWrap: "wrap" as const },
-  pageTabGroup: { display: "flex", gap: 6, alignItems: "center", border: "1px solid #2d3139", borderRadius: 8, padding: 6, flexWrap: "wrap" as const },
+  pageTabs: { display: "flex", gap: 6, padding: 3, border: "1px solid #32353d", borderRadius: 10, backgroundColor: "#1b1d22", flexWrap: "wrap" as const },
+  pageTabGroup: { display: "flex", gap: 5, alignItems: "center", border: "1px solid #2d3139", borderRadius: 8, padding: 4, flexWrap: "wrap" as const },
   pageTabGroupLabel: { fontSize: 10, color: "#8f96a3", fontWeight: 800, textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "0 4px" },
-  pageTabProductSelect: { minWidth: 190, padding: "7px 10px", backgroundColor: "#181a1f", border: "1px solid #3c4048", borderRadius: 8, color: "#e0e0e0", fontSize: 12 },
-  pageTab: { padding: "8px 12px", fontSize: 12, fontWeight: 800, borderRadius: 8, border: "1px solid transparent", backgroundColor: "transparent", color: "#aeb7c6", cursor: "pointer" },
-  pageTabActive: { padding: "8px 12px", fontSize: 12, fontWeight: 800, borderRadius: 8, border: "1px solid #0e639c", backgroundColor: "#173247", color: "#ffffff", cursor: "pointer" },
+  pageTabProductSelect: { minWidth: 190, padding: "6px 9px", backgroundColor: "#181a1f", border: "1px solid #3c4048", borderRadius: 8, color: "#e0e0e0", fontSize: 12 },
+  pageTab: { padding: "6px 10px", fontSize: 12, fontWeight: 800, borderRadius: 8, border: "1px solid transparent", backgroundColor: "transparent", color: "#aeb7c6", cursor: "pointer" },
+  pageTabActive: { padding: "6px 10px", fontSize: 12, fontWeight: 800, borderRadius: 8, border: "1px solid #0e639c", backgroundColor: "#173247", color: "#ffffff", cursor: "pointer" },
   btn: { padding: "7px 12px", fontSize: 12, backgroundColor: "#0e639c", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" },
   ghostBtn: { padding: "6px 10px", fontSize: 12, backgroundColor: "#2c3139", color: "#e0e0e0", border: "1px solid #3b4049", borderRadius: 8, cursor: "pointer" },
   btnDanger: { padding: "5px 10px", fontSize: 12, backgroundColor: "#6c2020", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" },
@@ -1217,6 +1218,9 @@ export function ProductListPage() {
     if (!selectedProductId) {
       return null;
     }
+    if (selectedHierarchyNode?.node_type === "module") {
+      return getProductAreaReferenceScope(selectedHierarchyNode.id);
+    }
     if (selectedHierarchyNode?.node_type === "capability" && selectedHierarchyNode.capability_id) {
       return {
         scopeType: selectedHierarchyNode.node_kind === "feature" ? "feature" as const : "capability" as const,
@@ -1391,8 +1395,8 @@ export function ProductListPage() {
       type: getHierarchyNodeKindLabel(node.node_kind, { lowercase: true }),
       directChildren: node.children.length,
       references: productReferences.filter((reference) => {
-        const scopeType = node.node_kind === "feature" ? "feature" : node.node_type === "capability" ? "capability" : "product";
-        const scopeId = node.node_type === "capability" ? node.id : selectedProductId;
+        const scopeType = node.node_type === "module" ? "product_area" : node.node_kind === "feature" ? "feature" : "capability";
+        const scopeId = node.node_type === "capability" && node.capability_id ? node.capability_id : node.id;
         return reference.scope_type === scopeType && reference.scope_id === scopeId;
       }).length,
       onSelect: () => {

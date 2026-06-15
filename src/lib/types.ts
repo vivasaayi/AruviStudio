@@ -78,7 +78,7 @@ export interface CapabilitySlice {
 
 export interface ProductReference {
   id: string;
-  scope_type: "strategy_node" | "product" | "capability" | "feature" | "delivery_item";
+  scope_type: "strategy_node" | "product" | "product_area" | "capability" | "feature" | "delivery_item";
   scope_id: string;
   title: string;
   reference_kind: "note" | "external_doc" | "architecture" | "customer_evidence" | "regulatory" | "design_packet" | "standard" | "other";

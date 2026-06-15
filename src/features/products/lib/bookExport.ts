@@ -1,6 +1,7 @@
 import { countHierarchyNodes, getProductDirectWorkItems } from "../../../lib/hierarchyTree";
-import type { CapabilityTree, HierarchyTreeNode, Product, ProductTree, WorkItem } from "../../../lib/types";
+import type { CapabilityTree, HierarchyTreeNode, Product, ProductReference, ProductTree, WorkItem } from "../../../lib/types";
 import { getHierarchyNodeKindLabel } from "../../../lib/hierarchyLabels";
+import { filterReferencesForScope, getCapabilityReferenceScope, getProductAreaReferenceScope, getReferenceKindLabel } from "./productReferences";
 import {
   PRODUCT_DELIVERY_ID,
   PRODUCT_OVERVIEW_TOP_ID,
@@ -92,6 +93,7 @@ type ReferenceAtlasEntry = {
   pathLabel: string;
   title: string;
   summary: string;
+  uri: string;
 };
 
 type IndexEntry = {
@@ -119,7 +121,7 @@ export function getBookExportTrimPreset(
 }
 
 export function buildProductOverviewBookHtml(
-  input: { product: Product; tree?: ProductTree; workItems?: WorkItem[] },
+  input: { product: Product; tree?: ProductTree; workItems?: WorkItem[]; references?: ProductReference[] },
   options: ProductOverviewBookOptions = {},
 ) {
   return buildProductOverviewBookBundle(input, options).html;
@@ -130,10 +132,12 @@ export function buildProductOverviewBookBundle(
     product,
     tree,
     workItems = [],
+    references = [],
   }: {
     product: Product;
     tree?: ProductTree;
     workItems?: WorkItem[];
+    references?: ProductReference[];
   },
   options: ProductOverviewBookOptions = {},
 ): ProductOverviewBookBundle {
@@ -153,7 +157,8 @@ export function buildProductOverviewBookBundle(
     includeBackMatter,
   );
   const tocTree = buildBookTocTree(tocItems);
-  const referenceAtlas = collectReferenceAtlas(tree?.roots ?? []);
+  const bookReferences = filterBookReferences(product, tree, references);
+  const referenceAtlas = buildReferenceAtlas(product, tree, bookReferences);
   const nodeIndex = collectNodeIndex(tree?.roots ?? []);
 
   return {
@@ -706,6 +711,15 @@ export function buildProductOverviewBookBundle(
         font-family: Inter, ui-sans-serif, system-ui, sans-serif;
       }
 
+      .reference-uri {
+        display: block;
+        margin-top: 8px;
+        color: var(--accent);
+        font-size: 13px;
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        word-break: break-word;
+      }
+
       .footer-note {
         margin-top: 34px;
         padding-top: 18px;
@@ -796,6 +810,7 @@ export function buildProductOverviewBookBundle(
             rootSectionCount,
             totalNodeCount,
             productLevelWorkItems,
+            references: bookReferences,
             generatedAt,
             tocTree,
           }) : ""}
@@ -803,12 +818,12 @@ export function buildProductOverviewBookBundle(
             <section class="page" id="${PRODUCT_DELIVERY_ID}">
               <div class="chapter-kicker">Prelude</div>
               <h2 class="chapter-title">Product Delivery Themes</h2>
-              <div class="chapter-intro">Cross-cutting work attached directly to the product, presented as implementation themes rather than ticket-level execution details.</div>
+              <div class="chapter-intro">Cross-cutting work attached directly to the book, presented as implementation themes rather than ticket-level execution details.</div>
               ${renderBookWorkItemList(productLevelWorkItems)}
             </section>
           ` : ""}
           ${(tree?.modules ?? []).length > 0
-            ? (tree?.modules ?? []).map((moduleTree, index) => renderBookModuleHtml(moduleTree, index + 1, allWorkItems)).join("")
+            ? (tree?.modules ?? []).map((moduleTree, index) => renderBookModuleHtml(moduleTree, index + 1, allWorkItems, bookReferences)).join("")
             : `
               <section class="page">
                 <div class="chapter-kicker">Catalog</div>
@@ -840,6 +855,7 @@ function renderFrontMatter({
   rootSectionCount,
   totalNodeCount,
   productLevelWorkItems,
+  references,
   generatedAt,
   tocTree,
 }: {
@@ -849,9 +865,12 @@ function renderFrontMatter({
   rootSectionCount: number;
   totalNodeCount: number;
   productLevelWorkItems: WorkItemNode[];
+  references: ProductReference[];
   generatedAt: string;
   tocTree: BookTocNode[];
 }) {
+  const productReferences = filterReferencesForScope(references, { scopeType: "product", scopeId: product.id });
+
   return `
     <section class="page title-page" id="${PRODUCT_OVERVIEW_TOP_ID}">
       <div class="kicker">Aruvi Studio Book</div>
@@ -860,6 +879,7 @@ function renderFrontMatter({
       <div class="book-meta">
         <div class="meta-item"><strong>Product Areas</strong>${rootSectionCount}</div>
         <div class="meta-item"><strong>Total Nodes</strong>${totalNodeCount}</div>
+        <div class="meta-item"><strong>References</strong>${references.length}</div>
         <div class="meta-item"><strong>Delivery</strong>${metrics.done} done, ${metrics.wip} active, ${metrics.tbd} planned</div>
         <div class="meta-item"><strong>Generated</strong>${escapeHtml(generatedAt)}</div>
       </div>
@@ -881,6 +901,10 @@ function renderFrontMatter({
           <h3>Catalog Shape</h3>
           <div class="index-copy">${rootSectionCount} product areas, ${totalNodeCount} total management nodes, ${productLevelWorkItems.length} product-level delivery themes.</div>
         </div>
+        <div class="panel">
+          <h3>Evidence</h3>
+          <div class="index-copy">${references.length} scoped ${references.length === 1 ? "reference" : "references"} included in this edition.</div>
+        </div>
       </div>
     </section>
 
@@ -897,6 +921,7 @@ function renderFrontMatter({
           ${product.goals.length > 0 ? `<ol class="goal-list">${product.goals.map((goal) => `<li>${renderInlineRichText(goal)}</li>`).join("")}</ol>` : `<div class="body-copy">No goals recorded yet.</div>`}
         </div>
       </div>
+      ${renderBookReferencesHtml(productReferences)}
       <div class="toc-list">
         ${renderBookContentsHtml(tocTree)}
       </div>
@@ -925,7 +950,7 @@ function renderBackMatter({
     <section class="page" id="${BOOK_REFERENCE_ATLAS_ID}">
       <div class="chapter-kicker">Back Matter</div>
       <h2 class="chapter-title">Reference Atlas</h2>
-      <div class="chapter-intro">Quick lookup for reference-style nodes and their location in the semantic tree.</div>
+      <div class="chapter-intro">Quick lookup for scoped notes, external docs, evidence, architecture references, and standards attached to this product book.</div>
       ${referenceAtlas.length > 0 ? `
         <div class="reference-list">
           ${referenceAtlas.map((entry) => `
@@ -934,10 +959,11 @@ function renderBackMatter({
               <h3 style="margin-top: 6px;">${escapeHtml(entry.title)}</h3>
               <div class="reference-path">${escapeHtml(entry.pathLabel)}</div>
               <div class="note-copy">${renderRichTextHtml(entry.summary || "No summary recorded yet.")}</div>
+              ${entry.uri ? `<a class="reference-uri" href="${escapeHtml(entry.uri)}">${escapeHtml(entry.uri)}</a>` : ""}
             </div>
           `).join("")}
         </div>
-      ` : `<div class="body-copy">No reference nodes are present in this edition yet.</div>`}
+      ` : `<div class="body-copy">No scoped references are attached to this edition yet.</div>`}
     </section>
 
     <section class="page" id="${BOOK_NODE_INDEX_ID}">
@@ -994,7 +1020,7 @@ function renderBookContentsNode(node: BookTocNode): string {
   `;
 }
 
-function renderBookModuleHtml(moduleTree: ProductTree["modules"][number], chapterNumber: number, allWorkItems: WorkItem[]): string {
+function renderBookModuleHtml(moduleTree: ProductTree["modules"][number], chapterNumber: number, allWorkItems: WorkItem[], references: ProductReference[]): string {
   const moduleScopedItems = allWorkItems.filter((workItem) => workItem.module_id === moduleTree.module.id);
   const metrics = buildWorkItemMetrics(moduleScopedItems);
   const directModuleWorkItems = buildScopedWorkItemTree(
@@ -1002,6 +1028,7 @@ function renderBookModuleHtml(moduleTree: ProductTree["modules"][number], chapte
   );
   const rootKindLabel = getHierarchyNodeKindLabel(moduleTree.module.node_kind);
   const childCountLabel = moduleTree.features.length === 1 ? "child node" : "child nodes";
+  const moduleReferences = filterReferencesForScope(references, getProductAreaReferenceScope(moduleTree.module.id));
 
   return `
     <section class="page" id="${getModuleSectionId(moduleTree.module)}">
@@ -1019,6 +1046,7 @@ function renderBookModuleHtml(moduleTree: ProductTree["modules"][number], chapte
       ${renderNoteBlock("Examples", moduleTree.module.examples)}
       ${renderNoteBlock("Implementation Notes", moduleTree.module.implementation_notes)}
       ${renderNoteBlock("Test Guidance", moduleTree.module.test_guidance)}
+      ${renderBookReferencesHtml(moduleReferences)}
       ${directModuleWorkItems.length > 0 ? `
         <div class="section-block">
           <div class="section-kicker">Direct Delivery Notes</div>
@@ -1026,18 +1054,19 @@ function renderBookModuleHtml(moduleTree: ProductTree["modules"][number], chapte
         </div>
       ` : ""}
       ${moduleTree.features.length > 0
-        ? moduleTree.features.map((capabilityTree, index) => renderBookCapabilityHtml(capabilityTree, `${chapterNumber}.${index + 1}`, allWorkItems)).join("")
+        ? moduleTree.features.map((capabilityTree, index) => renderBookCapabilityHtml(capabilityTree, `${chapterNumber}.${index + 1}`, allWorkItems, references)).join("")
         : `<div class="section-block"><div class="body-copy">No child nodes are defined for this product area yet.</div></div>`}
       <div class="footer-note">End of chapter ${chapterNumber}.</div>
     </section>
   `;
 }
 
-function renderBookCapabilityHtml(capabilityTree: CapabilityTree, numbering: string, allWorkItems: WorkItem[]): string {
+function renderBookCapabilityHtml(capabilityTree: CapabilityTree, numbering: string, allWorkItems: WorkItem[], references: ProductReference[]): string {
   const capabilityType = getHierarchyNodeKindLabel(capabilityTree.capability.node_kind);
   const directWorkItems = buildScopedWorkItemTree(
     allWorkItems.filter((workItem) => workItem.capability_id === capabilityTree.capability.id),
   );
+  const capabilityReferences = filterReferencesForScope(references, getCapabilityReferenceScope(capabilityTree.capability));
 
   return `
     <section class="capability" id="${getCapabilitySectionId(capabilityTree.capability)}">
@@ -1055,6 +1084,7 @@ function renderBookCapabilityHtml(capabilityTree: CapabilityTree, numbering: str
       ${renderNoteBlock("Technical Notes", capabilityTree.capability.technical_notes)}
       ${renderNoteBlock("Implementation Notes", capabilityTree.capability.implementation_notes)}
       ${renderNoteBlock("Test Guidance", capabilityTree.capability.test_guidance)}
+      ${renderBookReferencesHtml(capabilityReferences)}
       ${directWorkItems.length > 0 ? `
         <div class="section-block">
           <div class="section-kicker">Delivery Notes</div>
@@ -1062,7 +1092,7 @@ function renderBookCapabilityHtml(capabilityTree: CapabilityTree, numbering: str
         </div>
       ` : ""}
       ${capabilityTree.children.length > 0
-        ? capabilityTree.children.map((child, index) => renderBookCapabilityHtml(child, `${numbering}.${index + 1}`, allWorkItems)).join("")
+        ? capabilityTree.children.map((child, index) => renderBookCapabilityHtml(child, `${numbering}.${index + 1}`, allWorkItems, references)).join("")
         : ""}
     </section>
   `;
@@ -1107,9 +1137,70 @@ function renderNoteBlock(label: string, text: string) {
   `;
 }
 
-function collectReferenceAtlas(nodes: HierarchyTreeNode[]): ReferenceAtlasEntry[] {
-  void nodes;
-  return [];
+function renderBookReferencesHtml(references: ProductReference[]): string {
+  if (references.length === 0) {
+    return "";
+  }
+
+  return `
+    <div class="reference-list">
+      ${references.map((reference) => `
+        <div class="reference-item">
+          <div class="meta-label">${escapeHtml(getReferenceKindLabel(reference.reference_kind))}</div>
+          <h3 style="margin-top: 6px;">${escapeHtml(reference.title)}</h3>
+          ${reference.content ? `<div class="note-copy">${renderRichTextHtml(reference.content)}</div>` : ""}
+          ${reference.uri ? `<a class="reference-uri" href="${escapeHtml(reference.uri)}">${escapeHtml(reference.uri)}</a>` : ""}
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function filterBookReferences(
+  product: Product,
+  tree: ProductTree | undefined,
+  references: ProductReference[],
+): ProductReference[] {
+  const scopeLabels = buildReferenceScopeLabels(product, tree);
+  return references.filter((reference) => scopeLabels.has(getReferenceScopeKey(reference)));
+}
+
+function buildReferenceAtlas(
+  product: Product,
+  tree: ProductTree | undefined,
+  references: ProductReference[],
+): ReferenceAtlasEntry[] {
+  const scopeLabels = buildReferenceScopeLabels(product, tree);
+  return references.map((reference) => ({
+    id: reference.id,
+    kindLabel: getReferenceKindLabel(reference.reference_kind),
+    pathLabel: scopeLabels.get(getReferenceScopeKey(reference)) ?? `${reference.scope_type} / ${reference.scope_id}`,
+    title: reference.title,
+    summary: reference.content,
+    uri: reference.uri,
+  }));
+}
+
+function buildReferenceScopeLabels(product: Product, tree: ProductTree | undefined): Map<string, string> {
+  const scopeLabels = new Map<string, string>();
+  scopeLabels.set(`product:${product.id}`, product.name);
+
+  const visit = (node: HierarchyTreeNode) => {
+    if (node.node_type === "module") {
+      scopeLabels.set(`product_area:${node.id}`, node.path.join(" / "));
+    } else if (node.capability_id) {
+      const scopeType = node.node_kind === "feature" ? "feature" : "capability";
+      scopeLabels.set(`${scopeType}:${node.capability_id}`, node.path.join(" / "));
+    }
+    node.children.forEach(visit);
+  };
+
+  (tree?.roots ?? []).forEach(visit);
+  return scopeLabels;
+}
+
+function getReferenceScopeKey(reference: ProductReference) {
+  return `${reference.scope_type}:${reference.scope_id}`;
 }
 
 function collectNodeIndex(nodes: HierarchyTreeNode[]): IndexEntry[] {
