@@ -82,8 +82,8 @@ pub fn static_resources() -> &'static [PlanningResource] {
         PlanningResource {
             uri: "aruvi://guides/book-grade-structure-decision",
             name: "book-grade-structure-decision",
-            title: "Decision: Keep Rollouts as Execution Leaves",
-            description: "Explains the accepted modeling decision for book-grade detail: rollouts stay leaves and richer chapter structure belongs above them.",
+            title: "Decision: Features Own Delivery Stories",
+            description: "Explains the accepted modeling decision for book-grade detail: features are product-management leaves and delivery stories/tasks live beneath them.",
             mime_type: MARKDOWN_RESOURCE_MIME_TYPE,
             priority: 0.95,
             content: BOOK_GRADE_STRUCTURE_DECISION,
@@ -92,7 +92,7 @@ pub fn static_resources() -> &'static [PlanningResource] {
             uri: "aruvi://examples/deep-calculator-product",
             name: "deep-calculator-product",
             title: "Gold-Standard Example: Scientific Calculator",
-            description: "A technically deep calculator product model showing meaningful areas, capabilities, state concerns, and rollouts.",
+            description: "A technically deep calculator product model showing meaningful product areas, capabilities, features, stories, and tasks.",
             mime_type: MARKDOWN_RESOURCE_MIME_TYPE,
             priority: 0.9,
             content: EXAMPLE_DEEP_CALCULATOR_PRODUCT,
@@ -101,7 +101,7 @@ pub fn static_resources() -> &'static [PlanningResource] {
             uri: "aruvi://examples/kubernetes-dashboard-product",
             name: "kubernetes-dashboard-product",
             title: "Gold-Standard Example: Kubernetes Dashboard",
-            description: "A technically deep operational product model showing systems, subsystems, observability, and safe action design.",
+            description: "A technically deep operational product model showing product areas, capabilities, features, observability, and safe action design.",
             mime_type: MARKDOWN_RESOURCE_MIME_TYPE,
             priority: 0.85,
             content: EXAMPLE_KUBERNETES_DASHBOARD_PRODUCT,
@@ -112,14 +112,8 @@ pub fn static_resources() -> &'static [PlanningResource] {
 pub fn build_node_kind_constraints_resource() -> NodeKindConstraintsResource {
     let node_kinds = [
         HierarchyNodeKind::Area,
-        HierarchyNodeKind::Domain,
-        HierarchyNodeKind::Subdomain,
-        HierarchyNodeKind::System,
-        HierarchyNodeKind::Subsystem,
-        HierarchyNodeKind::FeatureSet,
         HierarchyNodeKind::Capability,
-        HierarchyNodeKind::Rollout,
-        HierarchyNodeKind::Reference,
+        HierarchyNodeKind::Feature,
     ]
     .into_iter()
     .map(|kind| NodeKindConstraint {
@@ -141,17 +135,15 @@ pub fn build_node_kind_constraints_resource() -> NodeKindConstraintsResource {
         default_root_kind: HierarchyNodeKind::default_root().to_string(),
         root_kinds: [
             HierarchyNodeKind::Area,
-            HierarchyNodeKind::Domain,
-            HierarchyNodeKind::System,
         ]
         .into_iter()
         .map(|kind| kind.to_string())
         .collect(),
         node_kinds,
         modeling_notes: vec![
-            "Rollout and reference are execution or context leaves and cannot own structural children."
+            "Feature is the product-management leaf. Stories and tasks live in work items attached to features."
                 .to_string(),
-            "For book-grade detail, create a structural parent and use reference or capability children above rollout execution slices."
+            "Use Product Area > Capability > Feature for product management, then Feature > Story > Task for delivery."
                 .to_string(),
         ],
     }
@@ -217,8 +209,8 @@ mod tests {
         assert!(context.contains("# Aruvi Product Philosophy"));
         assert!(context.contains("# Aruvi Semantic Tree Rules"));
         assert!(context.contains("# Aruvi Technical Depth Rubric"));
-        assert!(context.contains("Decision: Keep Rollouts as Execution Leaves"));
-        assert!(context.contains("\"nodeKind\": \"rollout\""));
+        assert!(context.contains("Decision: Features Own Delivery Stories"));
+        assert!(context.contains("\"nodeKind\": \"feature\""));
         assert!(context.contains("Gold-Standard Example: Scientific Calculator"));
     }
 }

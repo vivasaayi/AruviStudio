@@ -14,77 +14,31 @@ const NODE_KIND_LABELS: Record<HierarchyNodeKind, LabelForms> = {
     singularLower: "product area",
     pluralLower: "product areas",
   },
-  domain: {
-    singular: "Unsupported Node",
-    plural: "Unsupported Nodes",
-    singularLower: "unsupported node",
-    pluralLower: "unsupported nodes",
-  },
-  subdomain: {
-    singular: "Unsupported Node",
-    plural: "Unsupported Nodes",
-    singularLower: "unsupported node",
-    pluralLower: "unsupported nodes",
-  },
-  system: {
-    singular: "Unsupported Node",
-    plural: "Unsupported Nodes",
-    singularLower: "unsupported node",
-    pluralLower: "unsupported nodes",
-  },
-  subsystem: {
-    singular: "Unsupported Node",
-    plural: "Unsupported Nodes",
-    singularLower: "unsupported node",
-    pluralLower: "unsupported nodes",
-  },
-  feature_set: {
-    singular: "Unsupported Node",
-    plural: "Unsupported Nodes",
-    singularLower: "unsupported node",
-    pluralLower: "unsupported nodes",
-  },
   capability: {
     singular: "Capability",
     plural: "Capabilities",
     singularLower: "capability",
     pluralLower: "capabilities",
   },
-  rollout: {
+  feature: {
     singular: "Feature",
     plural: "Features",
     singularLower: "feature",
     pluralLower: "features",
   },
-  reference: {
-    singular: "Attached Reference",
-    plural: "Attached References",
-    singularLower: "attached reference",
-    pluralLower: "attached references",
-  },
 };
 
 const NODE_KIND_GUIDANCE: Record<HierarchyNodeKind, string> = {
-  area: "Use for a durable top-level product area. Strategy belongs in Portfolio; this is the product management tree.",
-  domain: "Unsupported after the product-management cutover. Recreate this as a Product Area.",
-  subdomain: "Unsupported after the product-management cutover. Recreate this as a Capability.",
-  system: "Unsupported after the product-management cutover. Recreate this as a Product Area.",
-  subsystem: "Unsupported after the product-management cutover. Recreate this as a Capability.",
-  feature_set: "Unsupported after the product-management cutover. Recreate this as a Capability or Feature.",
-  capability: "Use for something the product must be able to do. Capabilities can contain product-visible features and attached references.",
-  rollout: "Use for a product-visible feature under a capability. Delivery stories and tasks execute against features in Builder.",
-  reference: "Use for attached context such as notes, standards, evidence, constraints, or design packets.",
+  area: "Use for a durable top-level product area.",
+  capability: "Use for something the product must be able to do inside a product area.",
+  feature: "Use for a product-visible feature under a capability. Delivery stories and tasks execute against features.",
 };
 
 export const ROOT_NODE_KINDS: HierarchyNodeKind[] = ["area"];
-export const NODE_KIND_DISPLAY_ORDER: HierarchyNodeKind[] = [
-  "area",
-  "capability",
-  "rollout",
-];
+export const NODE_KIND_DISPLAY_ORDER: HierarchyNodeKind[] = ["area", "capability", "feature"];
 
 export const NODE_KIND_GROUPS: Array<{ label: string; kinds: HierarchyNodeKind[] }> = [
-  { label: "Product management", kinds: ["area", "capability", "rollout"] },
+  { label: "Product Management", kinds: ["area", "capability", "feature"] },
 ];
 
 export function orderHierarchyNodeKinds(nodeKinds: HierarchyNodeKind[]) {
@@ -120,12 +74,12 @@ export function getHierarchyNodeKindLabel(
 }
 
 export function supportsHierarchyChildren(nodeKind: HierarchyNodeKind | null | undefined) {
-  return Boolean(nodeKind && nodeKind !== "rollout" && nodeKind !== "reference");
+  return Boolean(nodeKind && nodeKind !== "feature");
 }
 
 export function getHierarchyNodeKindGuidance(nodeKind: HierarchyNodeKind | null | undefined) {
   if (!nodeKind) {
-    return "Choose the semantic role this node plays in the product model.";
+    return "Choose the semantic role this node plays in Product Area > Capability > Feature.";
   }
   return NODE_KIND_GUIDANCE[nodeKind];
 }
@@ -135,36 +89,24 @@ export function getAllowedChildNodeKinds(parentKind: HierarchyNodeKind | null | 
     case "area":
       return ["capability"];
     case "capability":
-      return ["rollout"];
-    case "domain":
-    case "subdomain":
-    case "system":
-    case "subsystem":
-    case "feature_set":
-    case "rollout":
-    case "reference":
+      return ["feature"];
+    case "feature":
       return [];
     default:
-      return ["capability"];
+      return ["area"];
   }
 }
 
 export function getDefaultChildNodeKind(parentKind: HierarchyNodeKind | null | undefined): HierarchyNodeKind {
   switch (parentKind) {
-    case "capability":
-      return "rollout";
     case "area":
       return "capability";
-    case "domain":
-    case "subdomain":
-    case "system":
-    case "subsystem":
-    case "feature_set":
-    case "rollout":
-    case "reference":
-      return "rollout";
+    case "capability":
+      return "feature";
+    case "feature":
+      return "feature";
     default:
-      return "capability";
+      return "area";
   }
 }
 
@@ -183,7 +125,7 @@ export function getHierarchyChildLabel(
 }
 
 function legacyLevelToNodeKind(level: number): HierarchyNodeKind {
-  return level <= 0 ? "capability" : "rollout";
+  return level <= 0 ? "capability" : "feature";
 }
 
 export function getCapabilityHierarchyLabel(
@@ -202,7 +144,7 @@ export function getCapabilityChildLabel(
   return getHierarchyChildLabel(nodeKind, options);
 }
 
-export function isCapabilityRolloutLevel(levelOrKind: number | HierarchyNodeKind) {
+export function isCapabilityFeatureLevel(levelOrKind: number | HierarchyNodeKind) {
   const nodeKind = typeof levelOrKind === "number" ? legacyLevelToNodeKind(levelOrKind) : levelOrKind;
-  return nodeKind === "rollout";
+  return nodeKind === "feature";
 }

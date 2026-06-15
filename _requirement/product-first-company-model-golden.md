@@ -96,8 +96,9 @@ Moderately changing. Human-owned, agent-assisted.
 
 ```text
 Product
-  Capability
-    Capability Slice
+  Product Area
+    Capability
+      Feature
 ```
 
 Purpose:
@@ -109,16 +110,18 @@ Purpose:
 
 Examples:
 
+- Product Area: Network Sync
 - Capability: Sync health data over network
-- Capability Slice: Retry sync after transient WiFi loss
+- Feature: Retry sync after transient WiFi loss
 
 ### Delivery
 
 Fast-changing. Agent-visible and agent-executable.
 
 ```text
-Capability Slice
-  Delivery Item
+Feature
+  Story
+    Task
 ```
 
 Purpose:
@@ -144,9 +147,11 @@ References can attach to:
 - Domain
 - Subdomain
 - Product
+- Product Area
 - Capability
-- Capability Slice
-- Delivery Item
+- Feature
+- Story
+- Task
 
 Purpose:
 
@@ -159,22 +164,14 @@ Purpose:
 
 ## Retired Concepts
 
-The following should not remain as primary structural node kinds:
-
-- Area
-- System
-- Subsystem
-- Feature Set
-- Rollout
-- Reference as a node kind
+Legacy architecture/shipment aliases should not remain as primary structural node kinds.
 
 Replacement:
 
-- `Area` becomes `Strategic Area`.
-- `System` and `Subsystem` are removed; they are too architecture-biased and ambiguous.
-- `Feature Set` becomes either a `Capability` or a grouping implied by capability slices.
-- `Rollout` becomes `Delivery Item` or delivery metadata.
-- `Reference` becomes attached context.
+- company strategy grouping belongs in Portfolio
+- product structure uses Product Area, Capability, and Feature
+- execution is captured as stories and tasks
+- references are attached context
 
 ## Persona Lenses
 
@@ -192,8 +189,8 @@ Shows:
 
 Hides:
 
-- capability slices by default
-- delivery items by default
+- features by default unless product detail is expanded
+- stories and tasks by default
 - agent implementation detail
 
 ### Head Lens
@@ -215,8 +212,9 @@ Hides:
 Shows:
 
 - selected product
+- product areas
 - capabilities
-- capability slices
+- features
 - references
 - roadmap/status
 - dependencies on other products/capabilities
@@ -231,8 +229,9 @@ Hides:
 Shows:
 
 - selected product
-- capability slices
-- delivery items
+- features
+- stories
+- tasks
 - repositories
 - implementation artifacts
 - tests/review evidence
@@ -246,9 +245,11 @@ Hides:
 Agents can see:
 
 - Product
+- Product Area
 - Capability
-- Capability Slice
-- Delivery Item
+- Feature
+- Story
+- Task
 - References attached to those scopes
 
 Agents should not mutate by default:
@@ -260,7 +261,7 @@ Agents should not mutate by default:
 
 ## Cross-Product Dependencies
 
-Cross-cutting platform work should be modeled as product dependencies, not nested subsystems.
+Cross-cutting platform work should be modeled as product dependencies, not nested architecture branches.
 
 Example:
 
@@ -283,7 +284,7 @@ CEO sees Smart Watch as one product with health/status.
 
 Head/Product Owner sees that Smart Watch depends on WiFi Platform capabilities.
 
-Builder/Agent sees the scoped capability slice and delivery item.
+Builder/Agent sees the scoped feature, story, and task.
 
 ## Implementation Direction
 
@@ -303,9 +304,10 @@ Introduce or converge toward:
   - `subdomain`
 - `product_strategy_links`
 - `product_dependencies`
+- `product_areas` through module storage
 - `capabilities`
-- `capability_slices`
-- `delivery_items`
+- `features` through capability storage
+- `work_items` as stories and tasks
 - `references`
 
 Keep `products` first-class.
@@ -333,11 +335,12 @@ Products page should become:
 Product Design should show only:
 
 - Product
+- Product Areas
 - Capabilities
-- Capability Slices
+- Features
 - attached references
 
-Delivery should move to the Work Items / Builder surface.
+Delivery should show stories and tasks in the Work Items / Builder surface.
 
 ### Planner Direction
 

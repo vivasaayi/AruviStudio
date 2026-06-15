@@ -48,11 +48,15 @@ The HTTP endpoint follows MCP streamable HTTP request semantics for `POST /api/m
 
 ### Tool Groups
 
-The MCP surface is grouped by domain instead of exposing one tool per Tauri command:
+The MCP surface is grouped by domain instead of exposing one tool per Tauri command. Public catalog language follows the canonical model:
 
-- `aruvi_catalog`: products, modules, capabilities, product trees
-- `aruvi_work_items`: work item CRUD, hierarchy, summaries
-- `aruvi_repositories`: repo registration, scope attachment, workspace creation, tree/file operations, patching
+```text
+Product -> Product Area -> Capability -> Feature -> Story -> Task
+```
+
+- `aruvi_catalog`: products, product areas, capabilities, features, product trees
+- `aruvi_work_items`: story/task CRUD, hierarchy, summaries
+- `aruvi_repositories`: repo registration, product/product-area attachment, workspace creation, tree/file operations, patching
 - `aruvi_planner`: planner sessions, draft editing, repository analysis, plan confirmation
 - `aruvi_workflows`: workflow start/advance/restart plus run and history inspection
 - `aruvi_checkpoints`: approvals, artifacts, findings, logs
@@ -74,6 +78,8 @@ Each tool accepts:
 ```
 
 `arguments` accepts snake_case and common camelCase aliases for the main fields.
+
+First-class clients should prefer `catalog.product_areas.*`, `work_items.stories.create`, and `work_items.tasks.create`. Older `catalog.modules.*` and module-shaped arguments are still accepted for compatibility with existing clients and the current SQLite storage names.
 
 ### Client Setup
 

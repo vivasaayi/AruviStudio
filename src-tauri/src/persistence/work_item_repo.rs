@@ -4,12 +4,35 @@ use crate::error::AppError;
 use sqlx::{Row, SqlitePool};
 use tracing::{debug, error, trace};
 
+fn normalize_source_node_type(value: &str) -> Result<&'static str, AppError> {
+    let normalized = value.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "product_area" | "product-area" | "area" | "module" => Ok("module"),
+        "capability" | "feature" => Ok("capability"),
+        _ => Err(AppError::Validation(format!(
+            "Unsupported source node type '{value}'. Use product_area, capability, or feature."
+        ))),
+    }
+}
+
 fn parse_source_node_type(value: &str) -> Result<HierarchyNodeType, AppError> {
-    match value {
+    match normalize_source_node_type(value)? {
         "module" => Ok(HierarchyNodeType::Module),
         "capability" => Ok(HierarchyNodeType::Capability),
-        _ => Err(AppError::Validation(format!(
-            "Unsupported source node type '{value}'. Use module or capability."
+        _ => unreachable!("normalize_source_node_type only returns known values"),
+    }
+}
+
+fn normalize_work_item_type(value: &str) -> Result<String, AppError> {
+    let normalized = value.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "" | "story" | "task" | "delivery_story" | "capability_delivery" | "feature" => {
+            Ok("feature".to_string())
+        }
+        "setup" | "bug" | "refactor" | "test" | "review" | "security_fix"
+        | "performance_improvement" => Ok(normalized),
+        other => Err(AppError::Validation(format!(
+            "Unsupported work item type '{other}'. Use story, task, setup, bug, refactor, test, review, security_fix, or performance_improvement."
         ))),
     }
 }
@@ -158,6 +181,7 @@ pub async fn create_work_item(
     priority: &str,
     complexity: &str,
 ) -> Result<WorkItem, AppError> {
+    let work_item_type = normalize_work_item_type(work_item_type)?;
     let (module_id, capability_id, source_node_id, source_node_type) = resolve_source_scope(
         pool,
         product_id,
@@ -190,7 +214,7 @@ pub async fn create_work_item(
     };
     trace!(work_item_id = %id, sort_order = next_sort_order, "resolved work item sort order");
     let result = sqlx::query_as::<_, WorkItem>("INSERT INTO work_items (id,product_id,module_id,capability_id,source_node_id,source_node_type,parent_work_item_id,title,problem_statement,description,acceptance_criteria,constraints,work_item_type,priority,complexity,sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id,product_id,module_id,capability_id,source_node_id,source_node_type,parent_work_item_id,title,problem_statement,description,acceptance_criteria,constraints,work_item_type,priority,complexity,status,repo_override_id,active_repo_id,branch_name,sort_order,created_at,updated_at")
-        .bind(id).bind(product_id).bind(&module_id).bind(&capability_id).bind(&source_node_id).bind(source_node_type).bind(parent_work_item_id).bind(title).bind(problem_statement).bind(description).bind(acceptance_criteria).bind(constraints).bind(work_item_type).bind(priority).bind(complexity).bind(next_sort_order)
+        .bind(id).bind(product_id).bind(&module_id).bind(&capability_id).bind(&source_node_id).bind(source_node_type).bind(parent_work_item_id).bind(title).bind(problem_statement).bind(description).bind(acceptance_criteria).bind(constraints).bind(&work_item_type).bind(priority).bind(complexity).bind(next_sort_order)
         .fetch_one(pool).await.map_err(|e| e.into());
     if let Err(err) = &result {
         error!(work_item_id = %id, product_id = %product_id, module_id = ?module_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, parent_work_item_id = ?parent_work_item_id, error = %err, "persist create_work_item failed");
@@ -213,6 +237,9 @@ pub async fn list_work_items(
     source_node_type: Option<&str>,
     status: Option<&str>,
 ) -> Result<Vec<WorkItem>, AppError> {
+    let normalized_source_node_type = source_node_type
+        .map(normalize_source_node_type)
+        .transpose()?;
     trace!(product_id = ?product_id, module_id = ?module_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, status = ?status, "persist list_work_items");
     let mut query = String::from("SELECT id,product_id,module_id,capability_id,source_node_id,source_node_type,parent_work_item_id,title,problem_statement,description,acceptance_criteria,constraints,work_item_type,priority,complexity,status,repo_override_id,active_repo_id,branch_name,sort_order,created_at,updated_at FROM work_items WHERE 1=1");
     if product_id.is_some() {
@@ -227,7 +254,7 @@ pub async fn list_work_items(
     if source_node_id.is_some() {
         query.push_str(" AND source_node_id = ?");
     }
-    if source_node_type.is_some() {
+    if normalized_source_node_type.is_some() {
         query.push_str(" AND source_node_type = ?");
     }
     if status.is_some() {
@@ -248,7 +275,7 @@ pub async fn list_work_items(
     if let Some(v) = source_node_id {
         q = q.bind(v);
     }
-    if let Some(v) = source_node_type {
+    if let Some(v) = normalized_source_node_type {
         q = q.bind(v);
     }
     if let Some(v) = status {

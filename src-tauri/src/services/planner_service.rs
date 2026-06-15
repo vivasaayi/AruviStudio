@@ -411,7 +411,7 @@ Rules:
 - Output valid JSON only. No markdown.
 - Behave conversationally. First reason about what already exists in the supplied context, then suggest what should be added, changed, or removed from the staged design.
 - If the user is exploring or describing a need, prefer proposing actions rather than assuming immediate execution.
-- If the user asks for a detailed plan, architecture, capabilities, capability slices, or delivery items, prefer returning a single comprehensive proposal with all relevant create_* actions in one response instead of asking to create only the top-level product first.
+- If the user asks for a detailed plan, architecture, product areas, capabilities, features, stories, or tasks, prefer returning a single comprehensive proposal with all relevant create_* actions in one response instead of asking to create only the top-level product first.
 - If an entity already seems to exist, do not suggest creating a duplicate unless the user explicitly asks for a separate one.
 - For design edits, set needs_confirmation=false. Confirmation is only for applying the approved design later.
 - Only use needs_confirmation=true if you are asking for final persistence or another risky action.
@@ -421,13 +421,13 @@ Rules:
 - Do not call mutation tools. Staged design edits go in final.actions.
 - After receiving tool results, continue reasoning and either call another tool or return type=final.
 - The selected product is the root. Strategy hierarchy is not editable here.
-- Prefer product capabilities instead of shallow modules. Storage still uses create_module for top-level capabilities; set module nodeKind to area unless existing evidence strongly requires another legacy root kind.
-- Use create_capability for nested capabilities. Use nodeKind=rollout only as a capability slice. Use nodeKind=reference only for attached context, not as product structure.
-- Capability slices and attached references cannot contain structural children. If the user needs deeper design detail, create a parent capability and put capability slices beneath it.
+- Model the product hierarchy as Product > Product Area > Capability > Feature. Storage still uses create_module for product areas and create_capability for capabilities/features.
+- Set module nodeKind to area. Set capability nodeKind to capability under a product area, and feature under a capability.
+- Features are leaves in the product management hierarchy. Delivery stories and tasks belong in work items attached to the feature.
 - For book-grade technical authoring, prefer long-form fields:
   explanation, examples, implementationNotes, testGuidance.
 - Use apply_capability_template when the user wants a chapter scaffold such as definition/examples/implementation/tests.
-- Use convert_capability_kind when an existing staged design node should change between capability, capability slice (rollout storage), or attached reference (reference storage). If the target kind is a leaf and the node already has structural children, set childStrategy to reparent_to_parent.
+- Use convert_capability_kind when an existing staged design node should change between capability and feature. If the target kind is a leaf and the node already has structural children, set childStrategy to reparent_to_parent.
 - Use these action types only:
 update_product,
 create_module, update_module, delete_module,
@@ -437,7 +437,7 @@ create_work_item, update_work_item, delete_work_item,
 approve_work_item, reject_work_item, approve_work_item_plan, reject_work_item_plan, approve_work_item_test_review,
 start_workflow, workflow_action, report_status, report_tree.
 - Use the selected product as the root. Do not create or archive products from Planner; users create products in the Products page first.
-- Use product/module/capability/work item target field names for storage compatibility, but describe them to the user as product, capability, capability slice, and delivery item. Never expose IDs.
+- Use product/module/capability/work item target field names for storage compatibility, but describe them to the user as product, product area, capability, feature, story, and task. Never expose IDs.
 - assistant_response should sound like a product/design lead: mention what already exists, what changed in the staged design packet, and what should be refined next.
 - Use selected node context if supplied."#;
 
@@ -464,10 +464,10 @@ Rules:
 - If a selected design node is provided, merge into that context instead of creating a duplicate branch.
 - Prefer a product-first design structure:
   - 1 product root
-  - 2-6 top-level capabilities using module storage only for those roots
-  - nested capabilities and capability slices where the codebase clearly shows deeper product design structure
-  - 1-3 starter delivery items per concrete capability slice or directly executable capability where implementation work is visible or obviously missing
-- Use reference storage for attached context and rollout storage for capability slices. Keep delivery execution in work items/Builder, not in strategy.
+  - 2-6 product areas using module storage for those roots
+  - capabilities and features where the codebase clearly shows product design structure
+  - 1-3 starter stories/tasks per concrete feature or directly executable capability where implementation work is visible or obviously missing
+- Keep delivery execution in stories/tasks, not in strategy.
 - When a topic deserves book-grade depth, add explanation, examples, implementationNotes, and testGuidance fields instead of stopping at shallow summaries.
 - Use create_* when adding inferred structure to the staged design.
 - Use update_* when refining an already selected/root design node from repository evidence.
@@ -3918,8 +3918,8 @@ fn apply_actions_to_draft(
                         "description": format!("Explain what {name} is and when it should be used."),
                         "priority": priority,
                         "risk": risk,
-                        "technicalNotes": "Reference chapter for explanation and conceptual boundaries.",
-                        "nodeKind": "reference",
+                        "technicalNotes": "Feature chapter for explanation and conceptual boundaries.",
+                        "nodeKind": "feature",
                         "explanation": explanation,
                     }),
                     json!({
@@ -3933,8 +3933,8 @@ fn apply_actions_to_draft(
                         "description": format!("Capture worked examples and expected behaviors for {name}."),
                         "priority": priority,
                         "risk": risk,
-                        "technicalNotes": "Reference chapter for examples and concrete edge cases.",
-                        "nodeKind": "reference",
+                        "technicalNotes": "Feature chapter for examples and concrete edge cases.",
+                        "nodeKind": "feature",
                         "examples": examples,
                     }),
                     json!({
@@ -3948,8 +3948,8 @@ fn apply_actions_to_draft(
                         "description": format!("Describe how {name} should be implemented."),
                         "priority": priority,
                         "risk": risk,
-                        "technicalNotes": "Execution rollout for implementation tasks.",
-                        "nodeKind": "rollout",
+                        "technicalNotes": "Feature execution notes for implementation stories.",
+                        "nodeKind": "feature",
                         "implementationNotes": implementation_notes,
                     }),
                     json!({
@@ -3963,8 +3963,8 @@ fn apply_actions_to_draft(
                         "description": format!("Describe how {name} should be validated."),
                         "priority": priority,
                         "risk": risk,
-                        "technicalNotes": "Execution rollout for tests and verification work.",
-                        "nodeKind": "rollout",
+                        "technicalNotes": "Feature execution notes for test and verification stories.",
+                        "nodeKind": "feature",
                         "testGuidance": test_guidance,
                     }),
                     json!({

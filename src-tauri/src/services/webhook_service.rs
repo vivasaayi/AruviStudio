@@ -1221,12 +1221,14 @@ fn build_mobile_planner_system_prompt(
 {product_context}\
 Use MCP tools to inspect or update the product plan when the user asks for planning work. \
 Prefer the selected product when one is provided. Keep replies short enough for mobile.\n\
+Use the canonical hierarchy Product > Product Area > Capability > Feature, then Story > Task for delivery. \
+Do not describe product areas as modules.\n\
 \n\
 Allowed MCP tools:\n\
 - catalog.products.list, catalog.products.get, catalog.products.get_tree\n\
-- catalog.modules.list, catalog.modules.create, catalog.modules.update, catalog.modules.reorder\n\
+- catalog.product_areas.list, catalog.product_areas.create, catalog.product_areas.update, catalog.product_areas.reorder\n\
 - catalog.capabilities.list, catalog.capabilities.create, catalog.capabilities.update, catalog.capabilities.reorder, catalog.capabilities.apply_template, catalog.capabilities.convert_kind\n\
-- work_items.list, work_items.get, work_items.create, work_items.update, work_items.list_children, work_items.summarize_by_product\n\
+- work_items.list, work_items.get, work_items.create, work_items.stories.create, work_items.tasks.create, work_items.update, work_items.list_children, work_items.summarize_by_product\n\
 - repositories.list, repositories.resolution.for_scope, repositories.resolution.for_work_item, repositories.trees.list, repositories.files.read\n\
 \n\
 Return exactly one JSON object, with no markdown.\n\
@@ -1400,10 +1402,10 @@ fn is_mobile_planner_tool_allowed(tool_name: &str) -> bool {
         "catalog.products.list"
             | "catalog.products.get"
             | "catalog.products.get_tree"
-            | "catalog.modules.list"
-            | "catalog.modules.create"
-            | "catalog.modules.update"
-            | "catalog.modules.reorder"
+            | "catalog.product_areas.list"
+            | "catalog.product_areas.create"
+            | "catalog.product_areas.update"
+            | "catalog.product_areas.reorder"
             | "catalog.capabilities.list"
             | "catalog.capabilities.create"
             | "catalog.capabilities.update"
@@ -1413,6 +1415,8 @@ fn is_mobile_planner_tool_allowed(tool_name: &str) -> bool {
             | "work_items.list"
             | "work_items.get"
             | "work_items.create"
+            | "work_items.stories.create"
+            | "work_items.tasks.create"
             | "work_items.update"
             | "work_items.list_children"
             | "work_items.summarize_by_product"

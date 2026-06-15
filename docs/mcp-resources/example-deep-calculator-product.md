@@ -85,40 +85,38 @@ Failure modes:
 - divide by zero
 - invalid chained operations after error state
 
-Rollouts:
+Features:
 
-- Rollout 1.1.1: Basic Operations
-- Rollout 1.1.2: Parentheses and Grouping
-- Rollout 1.1.3: Repeated Equals Semantics
+- Feature 1.1.1: Basic Operations
+- Feature 1.1.2: Parentheses and Grouping
+- Feature 1.1.3: Repeated Equals Semantics
 
-### Feature Set 1.4: Powers and Roots Book
+### Capability 1.4: Powers and Roots
 
 Purpose:
 Describe the operator family in a readable, book-grade way before deriving delivery work.
 
 Supported structure:
 
-- Capability 1.4.1: Square Operator
-- Capability 1.4.2: Square Root Operator
-- Capability 1.4.3: Power-of-Y Operator
+- Feature 1.4.1: Square Operator
+- Feature 1.4.2: Square Root Operator
+- Feature 1.4.3: Power-of-Y Operator
 
-For each operator chapter, use children like:
+For each feature, derive delivery work like:
 
-- `Reference`: What It Is
-- `Reference`: Worked Examples
-- `Rollout`: Implementation
-- `Rollout`: Tests and Validation
+- Story: Implement deterministic evaluation
+- Task: Add parser fixtures
+- Task: Add display and error-state tests
 
-This is the correct Aruvi shape because the operator chapter owns the meaning, while the rollouts remain execution leaves.
+This is the correct Aruvi shape because the capability owns the meaning, features express product behavior, and stories/tasks carry execution.
 
 Incorrect shape:
 
-- `Rollout`: Powers and Roots
-  - `Reference`: What It Is
-  - `Reference`: Examples
-  - `Rollout`: Implementation
+- `Feature`: Powers and Roots
+  - `Feature`: Implementation
+  - `Feature`: Tests
 
-That fails because rollout nodes cannot own deeper structural children.
+That fails because features are leaves in the product-management hierarchy.
 
 ### Capability 2.1: Input State Machine
 
@@ -152,5 +150,5 @@ Deep Aruvi version:
 
 - explains responsibility
 - reveals boundaries and state
-- makes rollout staging obvious
+- makes feature and story staging obvious
 - gives validation targets for engineering and QA

@@ -38,7 +38,7 @@ fn row_to_product(row: sqlx::sqlite::SqliteRow) -> Product {
 fn parse_node_kind(value: &str) -> Result<HierarchyNodeKind, AppError> {
     HierarchyNodeKind::parse(value).ok_or_else(|| {
         AppError::Validation(format!(
-            "Unsupported hierarchy node kind '{value}'. Use area, capability, or rollout."
+            "Unsupported product hierarchy node kind '{value}'. Use area, capability, or feature."
         ))
     })
 }

@@ -2,14 +2,8 @@
 
 export type HierarchyNodeKind =
   | "area"
-  | "domain"
-  | "subdomain"
-  | "system"
-  | "subsystem"
-  | "feature_set"
   | "capability"
-  | "rollout"
-  | "reference";
+  | "feature";
 
 export type HierarchyNodeType = "module" | "capability";
 
@@ -82,24 +76,9 @@ export interface CapabilitySlice {
   updated_at: string;
 }
 
-export interface DeliveryItem {
-  id: string;
-  product_id: string;
-  capability_id: string | null;
-  capability_slice_id: string | null;
-  work_item_id: string | null;
-  title: string;
-  description: string;
-  delivery_kind: "implementation" | "test" | "review" | "documentation" | "release" | "other";
-  status: "draft" | "ready" | "in_progress" | "review" | "done" | "blocked" | "cancelled";
-  sort_order: number;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface ProductReference {
   id: string;
-  scope_type: "strategy_node" | "product" | "capability" | "capability_slice" | "delivery_item";
+  scope_type: "strategy_node" | "product" | "capability" | "feature" | "delivery_item";
   scope_id: string;
   title: string;
   reference_kind: "note" | "external_doc" | "architecture" | "customer_evidence" | "regulatory" | "design_packet" | "standard" | "other";
@@ -559,8 +538,8 @@ export interface McpBridgeStatus {
   env_overrides_settings: boolean;
   guidance: string;
 }
-export type CapabilityRollout = Capability;
-export type Outcome = CapabilityRollout;
+export type ProductFeature = Capability;
+export type Outcome = ProductFeature;
 export type CapabilityNode = Capability;
 export type SemanticTemplateKind = "operator_chapter" | "technical_topic_book";
 export type ChildReparentStrategy = "reject" | "reparent_to_parent";

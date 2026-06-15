@@ -62,7 +62,7 @@ pub fn definitions() -> Vec<ResourceDefinition> {
         name: "node-kind-constraints".to_string(),
         title: Some("Aruvi Node Kind Constraints".to_string()),
         description: Some(
-            "Machine-readable node kind constraints, root kinds, allowed child kinds, and rollout/reference leaf behavior."
+            "Machine-readable node kind constraints for Product Area, Capability, and Feature."
                 .to_string(),
         ),
         mime_type: Some(JSON_RESOURCE_MIME_TYPE.to_string()),
@@ -145,7 +145,7 @@ mod tests {
     fn read_returns_json_for_node_kind_constraints_resource() {
         let content = read("aruvi://catalog/node-kind-constraints").expect("node-kind constraints");
         assert_eq!(content.mime_type.as_deref(), Some(JSON_RESOURCE_MIME_TYPE));
-        assert!(content.text.contains("\"nodeKind\": \"rollout\""));
+        assert!(content.text.contains("\"nodeKind\": \"feature\""));
         assert!(content.text.contains("\"canHaveChildren\": false"));
     }
 }

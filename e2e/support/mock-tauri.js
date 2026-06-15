@@ -26,7 +26,7 @@
       health: "healthy",
       owner_label: "Founder",
       investment_status: "invest",
-      roadmap: "Near-term roadmap focuses on capability slices and builder-ready delivery.",
+      roadmap: "Near-term roadmap focuses on features and builder-ready stories.",
       evidence: "Seeded evidence for product-first browser tests.",
       created_at: FIXED_TIMESTAMP,
       updated_at: FIXED_TIMESTAMP,
@@ -112,7 +112,7 @@
   }
 
   const ROOT_ALLOWED_CHILD_KINDS = ["capability"];
-  const NESTED_ALLOWED_CHILD_KINDS = ["rollout"];
+  const NESTED_ALLOWED_CHILD_KINDS = ["feature"];
 
   function createState() {
     const calculatorProductId = "example-product-calculator";
@@ -120,7 +120,7 @@
     const coreMathModuleId = "calc-core-math-engine";
     const wifiModuleId = "wifi-connectivity";
     const expressionCapabilityId = "calc-expression-evaluation";
-    const rolloutCapabilityId = "calc-scientific-mode-rollout";
+    const featureCapabilityId = "calc-scientific-mode-feature";
     const securePairingCapabilityId = "wifi-secure-pairing";
 
     return {
@@ -209,14 +209,14 @@
           0,
         ),
         createCapability(
-          rolloutCapabilityId,
+          featureCapabilityId,
           coreMathModuleId,
           expressionCapabilityId,
           1,
-          "rollout",
+          "feature",
           "Scientific Mode Slice",
           "Release advanced evaluation paths without losing the base calculator flow.",
-          "Scientific functions are safely introduced behind the capability slice plan.",
+          "Scientific functions are safely introduced behind the feature plan.",
           0,
         ),
         createCapability(
@@ -292,12 +292,12 @@
         },
         {
           id: "reference-scientific-slice",
-          scope_type: "capability_slice",
-          scope_id: rolloutCapabilityId,
+          scope_type: "feature",
+          scope_id: featureCapabilityId,
           title: "Scientific Mode Evidence",
           reference_kind: "customer_evidence",
           uri: "",
-          content: "Evidence attached to a capability slice scope.",
+          content: "Evidence attached to a feature scope.",
           created_at: FIXED_TIMESTAMP,
           updated_at: FIXED_TIMESTAMP,
         },
@@ -346,14 +346,14 @@
           2,
         ),
         createWorkItem(
-          "work-item-calc-rollout-checklist",
+          "work-item-calc-feature-checklist",
           calculatorProductId,
           coreMathModuleId,
-          rolloutCapabilityId,
-          rolloutCapabilityId,
+          featureCapabilityId,
+          featureCapabilityId,
           "capability",
           "Ship scientific mode slice checklist",
-          "Track slice-specific delivery work against the capability slice instead of the product root.",
+          "Track feature-specific delivery work against the feature instead of the product root.",
           "setup",
           "medium",
           "draft",
@@ -449,7 +449,7 @@
         description: capability.description,
         summary: capability.description,
         path: [...parentPath, capability.name],
-        allowed_child_kinds: capability.node_kind === "rollout" ? [] : NESTED_ALLOWED_CHILD_KINDS,
+        allowed_child_kinds: capability.node_kind === "feature" ? [] : NESTED_ALLOWED_CHILD_KINDS,
         children: buildHierarchyCapabilityNodes(moduleId, capability.id, [...parentPath, capability.name], depth + 1),
       }));
   }

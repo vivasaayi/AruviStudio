@@ -1114,7 +1114,7 @@ export function ProductListPage() {
   );
   const allTreeNodes = useMemo(() => (tree ? flattenHierarchyNodes(tree.roots) : []), [tree]);
   const canonicalManagementNodeCount = useMemo(
-    () => allTreeNodes.filter((node) => node.node_kind === "area" || node.node_kind === "capability" || node.node_kind === "rollout").length,
+    () => allTreeNodes.filter((node) => node.node_kind === "area" || node.node_kind === "capability" || node.node_kind === "feature").length,
     [allTreeNodes],
   );
   const selectedCapabilityOptions = useMemo(
@@ -1219,7 +1219,7 @@ export function ProductListPage() {
     }
     if (selectedHierarchyNode?.node_type === "capability" && selectedHierarchyNode.capability_id) {
       return {
-        scopeType: selectedHierarchyNode.node_kind === "rollout" ? "capability_slice" as const : "capability" as const,
+        scopeType: selectedHierarchyNode.node_kind === "feature" ? "feature" as const : "capability" as const,
         scopeId: selectedHierarchyNode.capability_id,
       };
     }
@@ -1331,14 +1331,14 @@ export function ProductListPage() {
       ? getOrderedCapabilityTrees(
           selectedManagementCapabilityTree.children,
           capabilityOrderMap[getCapabilityOrderKey(selectedManagementCapabilityTree.capability.module_id, selectedManagementCapabilityTree.capability.id)],
-        ).filter((capabilityTree) => capabilityTree.capability.node_kind === "rollout")
+        ).filter((capabilityTree) => capabilityTree.capability.node_kind === "feature")
       : [],
     [capabilityOrderMap, selectedManagementCapabilityTree],
   );
   const allManagementFeatures = useMemo(
     () => productAreaModules.flatMap((moduleTree) =>
       flattenCapabilityTreeList(moduleTree.features)
-        .filter((capabilityTree) => capabilityTree.capability.node_kind === "rollout")
+        .filter((capabilityTree) => capabilityTree.capability.node_kind === "feature")
         .map((capabilityTree) => ({
           capabilityTree,
           productArea: moduleTree.module,
@@ -1391,7 +1391,7 @@ export function ProductListPage() {
       type: getHierarchyNodeKindLabel(node.node_kind, { lowercase: true }),
       directChildren: node.children.length,
       references: productReferences.filter((reference) => {
-        const scopeType = node.node_kind === "rollout" ? "capability_slice" : node.node_type === "capability" ? "capability" : "product";
+        const scopeType = node.node_kind === "feature" ? "feature" : node.node_type === "capability" ? "capability" : "product";
         const scopeId = node.node_type === "capability" ? node.id : selectedProductId;
         return reference.scope_type === scopeType && reference.scope_id === scopeId;
       }).length,
@@ -1501,7 +1501,7 @@ export function ProductListPage() {
 
   const openCreateFeatureForCapability = (capabilityTree: CapabilityTree) => {
     selectCapabilityForManagement(capabilityTree);
-    setCapabilityForm({ name: "", description: "", acceptanceCriteria: "", technicalNotes: "", nodeKind: "rollout" });
+    setCapabilityForm({ name: "", description: "", acceptanceCriteria: "", technicalNotes: "", nodeKind: "feature" });
     openCapabilityDialog("create");
   };
 
@@ -1913,7 +1913,7 @@ export function ProductListPage() {
                     <div style={styles.rowSecondary}>{moduleTree.module.description || moduleTree.module.purpose || "No description yet."}</div>
                   </div>
                   <div style={styles.rowCell}>{moduleTree.features.filter((node) => node.capability.node_kind === "capability").length}</div>
-                  <div style={styles.rowCell}>{flattenCapabilityTreeList(moduleTree.features).filter((node) => node.capability.node_kind === "rollout").length}</div>
+                  <div style={styles.rowCell}>{flattenCapabilityTreeList(moduleTree.features).filter((node) => node.capability.node_kind === "feature").length}</div>
                   <div style={styles.managementActions}>
                     <button style={styles.compactActionBtn} onClick={() => {
                       selectProductArea(moduleTree);
@@ -1983,7 +1983,7 @@ export function ProductListPage() {
                         <div style={styles.rowPrimary}>{capabilityTree.capability.name}</div>
                         <div style={styles.rowSecondary}>{capabilityTree.capability.description || "No description yet."}</div>
                       </div>
-                      <div style={styles.rowCell}>{capabilityTree.children.filter((node) => node.capability.node_kind === "rollout").length}</div>
+                      <div style={styles.rowCell}>{capabilityTree.children.filter((node) => node.capability.node_kind === "feature").length}</div>
                       <div style={styles.rowCell}>{storyCount}</div>
                       <div style={styles.managementActions}>
                         <button style={styles.compactActionBtn} onClick={() => {
@@ -2021,7 +2021,7 @@ export function ProductListPage() {
                   onClick={() => selectCapabilityForManagement(capabilityTree)}
                 >
                   <div style={styles.rowPrimary}>{capabilityTree.capability.name}</div>
-                  <div style={styles.rowSecondary}>{capabilityTree.children.filter((node) => node.capability.node_kind === "rollout").length} features</div>
+                  <div style={styles.rowSecondary}>{capabilityTree.children.filter((node) => node.capability.node_kind === "feature").length} features</div>
                 </button>
               ))}
             </div>
@@ -2857,7 +2857,7 @@ export function ProductListPage() {
               checked={deleteWorkItemConfirmChecked}
               onChange={(event) => setDeleteWorkItemConfirmChecked(event.target.checked)}
             />
-            I understand this delivery item will be deleted.
+            I understand this story/task will be deleted.
           </label>
           {formError && <div style={styles.errorText}>{formError}</div>}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>

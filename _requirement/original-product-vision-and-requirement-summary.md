@@ -27,7 +27,7 @@ The agents should primarily:
 This is intended to be:
 
 - a VS Code-style AI-first IDE,
-- a readable product architecture and rollout planning platform,
+- a readable product architecture and story/task planning platform,
 - and an autonomous multi-agent SDLC engine
 
 all within one system.
@@ -87,16 +87,16 @@ It should work like a navigable technical book:
 The hierarchy serves two purposes at once:
 
 - documentation for understanding the product
-- structure for deriving rollouts and work items
+- structure for deriving stories and tasks
 
-Semantic levels should be preferred over rigid fixed levels. Useful node kinds may include:
+The product planning hierarchy should use the hard-cutover model:
 
 - Product
-- Domain or Area
-- Subdomain or Subsystem
-- Capability or Feature Set
-- Rollout
-- Work Item
+- Product Area
+- Capability
+- Feature
+- Story
+- Task
 
 Each parent should explain the grouping logic of its children. A node should only exist if it improves readability, navigation, or execution clarity.
 

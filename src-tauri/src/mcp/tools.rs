@@ -74,7 +74,7 @@ fn legacy_tool_definitions() -> Vec<ToolDefinition> {
     vec![
         action_tool(
             "aruvi_catalog",
-            "Manage products, top-level capabilities, nested capabilities, capability slices, attached references, and delivery items.",
+            "Manage products, product areas, capabilities, features, and attached delivery stories/tasks.",
             &[
                 "create_product",
                 "get_product",
@@ -82,11 +82,11 @@ fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "seed_example_products",
                 "update_product",
                 "archive_product",
-                "create_module",
-                "list_modules",
-                "update_module",
-                "delete_module",
-                "reorder_modules",
+                "create_product_area",
+                "list_product_areas",
+                "update_product_area",
+                "delete_product_area",
+                "reorder_product_areas",
                 "create_capability",
                 "list_capabilities",
                 "update_capability",
@@ -99,8 +99,10 @@ fn legacy_tool_definitions() -> Vec<ToolDefinition> {
         ),
         action_tool(
             "aruvi_work_items",
-            "Manage delivery items and their hierarchy for Builder execution. Delivery items attach directly to product design scopes, including capability slices.",
+            "Manage delivery stories and tasks for Builder execution. Stories attach directly to product features.",
             &[
+                "create_story",
+                "create_task",
                 "create_work_item",
                 "get_work_item",
                 "list_work_items",
@@ -113,7 +115,7 @@ fn legacy_tool_definitions() -> Vec<ToolDefinition> {
         ),
         action_tool(
             "aruvi_repositories",
-            "Register repositories, attach them to scope, create workspaces, and edit files safely.",
+            "Register repositories, attach them to product or product-area scope, create workspaces, and edit files safely.",
             &[
                 "register_repository",
                 "list_repositories",
@@ -322,39 +324,39 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
             ),
         ),
         first_class_tool(
-            "catalog.modules.list",
-            "List Modules",
-            "List root sections for a product.",
+            "catalog.product_areas.list",
+            "List Product Areas",
+            "List product areas for a product. Product areas are the top-level product-management boundaries in the canonical Product Area > Capability > Feature hierarchy.",
             object_schema(
                 vec![("productId", string_property("The product id."))],
                 &["productId"],
             ),
         ),
         first_class_tool(
-            "catalog.modules.create",
-            "Create Module",
-            "Create a top-level product capability. Storage uses module commands for top-level capabilities.",
+            "catalog.product_areas.create",
+            "Create Product Area",
+            "Create a top-level product area. Product areas must use nodeKind=area; see aruvi://catalog/node-kind-constraints.",
             object_schema(
                 vec![
                     ("productId", string_property("The product id.")),
-                    ("name", string_property("The root section name.")),
-                    ("description", string_property("Short section description.")),
-                    ("purpose", string_property("Section purpose or summary.")),
-                    ("explanation", string_property("Long-form chapter explanation.")),
+                    ("name", string_property("The product area name.")),
+                    ("description", string_property("Short product area description.")),
+                    ("purpose", string_property("Product area purpose or summary.")),
+                    ("explanation", string_property("Long-form area explanation.")),
                     ("examples", string_property("Worked examples or concrete scenarios.")),
                     (
                         "implementationNotes",
-                        string_property("Implementation-oriented notes for the section."),
+                        string_property("Implementation-oriented notes for the product area."),
                     ),
                     (
                         "testGuidance",
-                        string_property("Test guidance or validation notes for the section."),
+                        string_property("Test guidance or validation notes for the product area."),
                     ),
                     (
                         "nodeKind",
                         enum_property(
-                            "Storage node kind for the top-level capability.",
-                            &["area", "domain", "system"],
+                            "Storage node kind for the product area.",
+                            &["area"],
                         ),
                     ),
                 ],
@@ -362,16 +364,16 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
             ),
         ),
         first_class_tool(
-            "catalog.modules.update",
-            "Update Module",
-            "Update an existing top-level product capability.",
+            "catalog.product_areas.update",
+            "Update Product Area",
+            "Update an existing top-level product area.",
             object_schema(
                 vec![
-                    ("id", string_property("The module id.")),
-                    ("name", string_property("Updated root section name.")),
+                    ("id", string_property("The product area id.")),
+                    ("name", string_property("Updated product area name.")),
                     ("description", string_property("Updated description.")),
                     ("purpose", string_property("Updated purpose.")),
-                    ("explanation", string_property("Updated chapter explanation.")),
+                    ("explanation", string_property("Updated area explanation.")),
                     ("examples", string_property("Updated worked examples.")),
                     (
                         "implementationNotes",
@@ -384,8 +386,8 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
                     (
                         "nodeKind",
                         enum_property(
-                            "Updated storage node kind for the top-level capability.",
-                            &["area", "domain", "system"],
+                            "Updated storage node kind for the product area.",
+                            &["area"],
                         ),
                     ),
                 ],
@@ -393,21 +395,21 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
             ),
         ),
         first_class_tool(
-            "catalog.modules.delete",
-            "Delete Module",
-            "Delete a root section.",
-            object_schema(vec![("id", string_property("The module id."))], &["id"]),
+            "catalog.product_areas.delete",
+            "Delete Product Area",
+            "Delete a product area.",
+            object_schema(vec![("id", string_property("The product area id."))], &["id"]),
         ),
         first_class_tool(
-            "catalog.modules.reorder",
-            "Reorder Modules",
-            "Reorder root sections within a product.",
+            "catalog.product_areas.reorder",
+            "Reorder Product Areas",
+            "Reorder product areas within a product.",
             object_schema(
                 vec![
                     ("productId", string_property("The product id.")),
                     (
                         "orderedIds",
-                        string_array_property("Root section ids in the desired order."),
+                        string_array_property("Product area ids in the desired order."),
                     ),
                 ],
                 &["productId", "orderedIds"],
@@ -416,19 +418,19 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "catalog.capabilities.list",
             "List Capabilities",
-            "List nested capabilities and capability slices for a top-level capability.",
+            "List capabilities and features for a product area.",
             object_schema(
-                vec![("moduleId", string_property("The module id."))],
-                &["moduleId"],
+                vec![("productAreaId", string_property("The product area id."))],
+                &["productAreaId"],
             ),
         ),
         first_class_tool(
             "catalog.capabilities.create",
             "Create Capability",
-            "Create a nested capability, capability slice, or attached reference inside a product design scope. Rollout storage means capability slice; reference storage means attached context.",
+            "Create a capability or feature inside the product management hierarchy. Feature is the product-management leaf; stories and tasks live in work items.",
             object_schema(
                 vec![
-                    ("moduleId", string_property("The module id.")),
+                    ("productAreaId", string_property("The product area id.")),
                     ("parentCapabilityId", string_property("Optional parent capability id.")),
                     ("name", string_property("The child node name.")),
                     ("description", string_property("Short node description.")),
@@ -465,27 +467,17 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
                         "nodeKind",
                         enum_property(
                             "Semantic node kind.",
-                            &[
-                                "area",
-                                "domain",
-                                "subdomain",
-                                "system",
-                                "subsystem",
-                                "feature_set",
-                                "capability",
-                                "rollout",
-                                "reference",
-                            ],
+                            &["capability", "feature"],
                         ),
                     ),
                 ],
-                &["moduleId", "name"],
+                &["productAreaId", "name"],
             ),
         ),
         first_class_tool(
             "catalog.capabilities.update",
             "Update Capability",
-            "Update a nested capability, capability slice, or attached reference.",
+            "Update a capability or feature.",
             object_schema(
                 vec![
                     ("id", string_property("The capability id.")),
@@ -524,17 +516,7 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
                         "nodeKind",
                         enum_property(
                             "Updated semantic node kind.",
-                            &[
-                                "area",
-                                "domain",
-                                "subdomain",
-                                "system",
-                                "subsystem",
-                                "feature_set",
-                                "capability",
-                                "rollout",
-                                "reference",
-                            ],
+                            &["capability", "feature"],
                         ),
                     ),
                 ],
@@ -550,26 +532,26 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "catalog.capabilities.reorder",
             "Reorder Capabilities",
-            "Reorder nested capabilities or capability slices under a product design scope.",
+            "Reorder capabilities or features under a product design scope.",
             object_schema(
                 vec![
-                    ("moduleId", string_property("The module id.")),
+                    ("productAreaId", string_property("The product area id.")),
                     ("parentCapabilityId", string_property("Optional parent capability id.")),
                     (
                         "orderedIds",
                         string_array_property("Child capability ids in the desired order."),
                     ),
                 ],
-                &["moduleId", "orderedIds"],
+                &["productAreaId", "orderedIds"],
             ),
         ),
         first_class_tool(
             "catalog.capabilities.apply_template",
             "Apply Capability Template",
-            "Create a supported book-shaped subtree under a module or capability. Use this for topics such as operator chapters with definition, examples, implementation, and tests.",
+            "Create a supported book-shaped subtree under a product area or capability. Use this for topics such as operator chapters with definition, examples, implementation, and tests.",
             object_schema(
                 vec![
-                    ("moduleId", string_property("The module id.")),
+                    ("productAreaId", string_property("The product area id.")),
                     ("parentCapabilityId", string_property("Optional parent capability id.")),
                     (
                         "templateKind",
@@ -602,13 +584,13 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
                         enum_property("Risk level.", &["high", "medium", "low"]),
                     ),
                 ],
-                &["moduleId", "templateKind", "name"],
+                &["productAreaId", "templateKind", "name"],
             ),
         ),
         first_class_tool(
             "catalog.capabilities.convert_kind",
             "Convert Capability Kind",
-            "Safely convert a product design node between capability, capability slice (rollout storage), or attached reference (reference storage). Use childStrategy=reparent_to_parent when converting a structural node into a leaf while preserving children.",
+            "Safely convert a product design node between capability and feature. Use childStrategy=reparent_to_parent when converting a structural node into a feature while preserving children.",
             object_schema(
                 vec![
                     ("id", string_property("The capability id.")),
@@ -616,17 +598,7 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
                         "nodeKind",
                         enum_property(
                             "Target semantic node kind.",
-                            &[
-                                "area",
-                                "domain",
-                                "subdomain",
-                                "system",
-                                "subsystem",
-                                "feature_set",
-                                "capability",
-                                "rollout",
-                                "reference",
-                            ],
+                            &["capability", "feature"],
                         ),
                     ),
                     (
@@ -643,18 +615,18 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "work_items.list",
             "List Work Items",
-            "List work items filtered by product, scope, or status.",
+            "List delivery stories and tasks filtered by product, product area, feature, source scope, or status.",
             object_schema(
                 vec![
                     ("productId", string_property("Optional product id.")),
-                    ("moduleId", string_property("Optional module id.")),
-                    ("capabilityId", string_property("Optional capability id.")),
+                    ("productAreaId", string_property("Optional product area id.")),
+                    ("featureId", string_property("Optional feature id.")),
                     ("sourceNodeId", string_property("Optional source node id.")),
                     (
                         "sourceNodeType",
                         enum_property(
                             "Optional source node type.",
-                            &["module", "capability"],
+                            &["product_area", "capability", "feature"],
                         ),
                     ),
                     ("status", string_property("Optional work item status filter.")),
@@ -671,18 +643,18 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "work_items.create",
             "Create Work Item",
-            "Create a work item attached to a product and optional source scope.",
+            "Create a delivery story or task attached to a product and optional source scope. Prefer work_items.stories.create for feature-attached stories and work_items.tasks.create for tasks under stories.",
             object_schema(
                 vec![
                     ("productId", string_property("The product id.")),
-                    ("moduleId", string_property("Optional module id.")),
-                    ("capabilityId", string_property("Optional capability id.")),
+                    ("productAreaId", string_property("Optional product area id.")),
+                    ("featureId", string_property("Optional feature id.")),
                     ("sourceNodeId", string_property("Optional source node id.")),
                     (
                         "sourceNodeType",
                         enum_property(
                             "Optional source node type.",
-                            &["module", "capability"],
+                            &["product_area", "capability", "feature"],
                         ),
                     ),
                     ("parentWorkItemId", string_property("Optional parent work item id.")),
@@ -697,9 +669,10 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
                     (
                         "workItemType",
                         enum_property(
-                            "Work item type.",
+                            "Delivery work item type. story/task are accepted MCP aliases and persist on the legacy delivery type.",
                             &[
-                                "feature",
+                                "story",
+                                "task",
                                 "setup",
                                 "bug",
                                 "refactor",
@@ -726,6 +699,74 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
                     ),
                 ],
                 &["productId", "title"],
+            ),
+        ),
+        first_class_tool(
+            "work_items.stories.create",
+            "Create Story",
+            "Create a delivery story attached directly to a product feature.",
+            object_schema(
+                vec![
+                    ("productId", string_property("The product id.")),
+                    ("featureId", string_property("The feature id that owns this story.")),
+                    ("title", string_property("The story title.")),
+                    ("problemStatement", string_property("Problem statement.")),
+                    ("description", string_property("Short story description.")),
+                    (
+                        "acceptanceCriteria",
+                        string_property("Acceptance criteria for the story."),
+                    ),
+                    ("constraints", string_property("Execution constraints.")),
+                    (
+                        "priority",
+                        enum_property(
+                            "Priority level.",
+                            &["critical", "high", "medium", "low"],
+                        ),
+                    ),
+                    (
+                        "complexity",
+                        enum_property(
+                            "Complexity level.",
+                            &["trivial", "low", "medium", "high", "very_high"],
+                        ),
+                    ),
+                ],
+                &["productId", "featureId", "title"],
+            ),
+        ),
+        first_class_tool(
+            "work_items.tasks.create",
+            "Create Task",
+            "Create an implementation, test, review, documentation, or release task under a delivery story.",
+            object_schema(
+                vec![
+                    ("storyId", string_property("The parent story work item id.")),
+                    ("productId", string_property("Optional product id. If omitted, it is inherited from the story.")),
+                    ("title", string_property("The task title.")),
+                    ("problemStatement", string_property("Problem statement.")),
+                    ("description", string_property("Short task description.")),
+                    (
+                        "acceptanceCriteria",
+                        string_property("Acceptance criteria for the task."),
+                    ),
+                    ("constraints", string_property("Execution constraints.")),
+                    (
+                        "priority",
+                        enum_property(
+                            "Priority level.",
+                            &["critical", "high", "medium", "low"],
+                        ),
+                    ),
+                    (
+                        "complexity",
+                        enum_property(
+                            "Complexity level.",
+                            &["trivial", "low", "medium", "high", "very_high"],
+                        ),
+                    ),
+                ],
+                &["storyId", "title"],
             ),
         ),
         first_class_tool(
@@ -810,12 +851,12 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "repositories.attachments.create",
             "Attach Repository",
-            "Attach a repository to a product or module scope.",
+            "Attach a repository to a product or product area scope.",
             object_schema(
                 vec![
                     (
                         "scopeType",
-                        enum_property("Attachment scope type.", &["product", "module"]),
+                        enum_property("Attachment scope type.", &["product", "product_area"]),
                     ),
                     ("scopeId", string_property("Scope id to attach to.")),
                     ("repositoryId", string_property("The repository id.")),
@@ -836,11 +877,11 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "repositories.resolution.for_scope",
             "Resolve Repository For Scope",
-            "Resolve the repository associated with a product or module scope.",
+            "Resolve the repository associated with a product or product area scope.",
             object_schema(
                 vec![
                     ("productId", string_property("Optional product id.")),
-                    ("moduleId", string_property("Optional module id.")),
+                    ("productAreaId", string_property("Optional product area id.")),
                 ],
                 &[],
             ),
@@ -848,11 +889,11 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "repositories.workspaces.create_for_scope",
             "Create Local Workspace",
-            "Create a local workspace for a product, module, or work item scope.",
+            "Create a local workspace for a product, product area, or work item scope.",
             object_schema(
                 vec![
                     ("productId", string_property("Optional product id.")),
-                    ("moduleId", string_property("Optional module id.")),
+                    ("productAreaId", string_property("Optional product area id.")),
                     ("workItemId", string_property("Optional work item id.")),
                     ("preferredPath", string_property("Optional preferred workspace path.")),
                 ],
@@ -999,6 +1040,11 @@ fn translate_first_class_tool(
         "catalog.products.update" => ("aruvi_catalog", "update_product"),
         "catalog.products.archive" => ("aruvi_catalog", "archive_product"),
         "catalog.products.get_tree" => ("aruvi_catalog", "get_product_tree"),
+        "catalog.product_areas.list" => ("aruvi_catalog", "list_product_areas"),
+        "catalog.product_areas.create" => ("aruvi_catalog", "create_product_area"),
+        "catalog.product_areas.update" => ("aruvi_catalog", "update_product_area"),
+        "catalog.product_areas.delete" => ("aruvi_catalog", "delete_product_area"),
+        "catalog.product_areas.reorder" => ("aruvi_catalog", "reorder_product_areas"),
         "catalog.modules.list" => ("aruvi_catalog", "list_modules"),
         "catalog.modules.create" => ("aruvi_catalog", "create_module"),
         "catalog.modules.update" => ("aruvi_catalog", "update_module"),
@@ -1014,6 +1060,8 @@ fn translate_first_class_tool(
         "work_items.list" => ("aruvi_work_items", "list_work_items"),
         "work_items.get" => ("aruvi_work_items", "get_work_item"),
         "work_items.create" => ("aruvi_work_items", "create_work_item"),
+        "work_items.stories.create" => ("aruvi_work_items", "create_story"),
+        "work_items.tasks.create" => ("aruvi_work_items", "create_task"),
         "work_items.update" => ("aruvi_work_items", "update_work_item"),
         "work_items.delete" => ("aruvi_work_items", "delete_work_item"),
         "work_items.list_children" => ("aruvi_work_items", "get_sub_work_items"),
@@ -1423,6 +1471,16 @@ fn action_ok(action: &str) -> Value {
     })
 }
 
+fn normalize_repository_scope_type(value: &str) -> Result<String, AppError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "product" => Ok("product".to_string()),
+        "product_area" | "product-area" | "area" | "module" => Ok("module".to_string()),
+        other => Err(AppError::Validation(format!(
+            "Unsupported repository scope type '{other}'. Use product or product_area."
+        ))),
+    }
+}
+
 async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppError> {
     let tool_action = ToolAction::parse(payload)?;
     let args = tool_action.args();
@@ -1493,7 +1551,8 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
                 tags.as_deref(),
                 args.optional_string(&["lifecycle"])?.as_deref(),
                 args.optional_string(&["health"])?.as_deref(),
-                args.optional_string(&["ownerLabel", "owner_label"])?.as_deref(),
+                args.optional_string(&["ownerLabel", "owner_label"])?
+                    .as_deref(),
                 args.optional_string(&["investmentStatus", "investment_status"])?
                     .as_deref(),
                 args.optional_string(&["roadmap"])?.as_deref(),
@@ -1509,10 +1568,10 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
                 product_repo::archive_product(&state.db, &id).await?,
             )
         }
-        "create_module" => {
+        action @ ("create_module" | "create_product_area") => {
             let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
             let name = args.required_string(&["name"], "name")?;
-            let module = product_repo::create_module(
+            let product_area = product_repo::create_module(
                 &state.db,
                 &uuid::Uuid::new_v4().to_string(),
                 &product_id,
@@ -1526,18 +1585,18 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
                 &args.string_or_default(&["test_guidance", "testGuidance"], "")?,
             )
             .await?;
-            action_result("create_module", module)
+            action_result(action, product_area)
         }
-        "list_modules" => {
+        action @ ("list_modules" | "list_product_areas") => {
             let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
             action_result(
-                "list_modules",
+                action,
                 product_repo::list_modules(&state.db, &product_id).await?,
             )
         }
-        "update_module" => {
+        action @ ("update_module" | "update_product_area") => {
             let id = args.required_string(&["id"], "id")?;
-            let module = product_repo::update_module(
+            let product_area = product_repo::update_module(
                 &state.db,
                 &id,
                 args.optional_string(&["name"])?.as_deref(),
@@ -1552,27 +1611,30 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
                     .as_deref(),
             )
             .await?;
-            action_result("update_module", module)
+            action_result(action, product_area)
         }
-        "delete_module" => {
+        action @ ("delete_module" | "delete_product_area") => {
             let id = args.required_string(&["id"], "id")?;
             product_repo::delete_module(&state.db, &id).await?;
-            Ok(action_ok("delete_module"))
+            Ok(action_ok(action))
         }
-        "reorder_modules" => {
+        action @ ("reorder_modules" | "reorder_product_areas") => {
             let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
             let ordered_ids =
                 args.required_string_list(&["ordered_ids", "orderedIds"], "ordered_ids")?;
             product_repo::reorder_modules(&state.db, &product_id, &ordered_ids).await?;
-            Ok(action_ok("reorder_modules"))
+            Ok(action_ok(action))
         }
         "create_capability" => {
-            let module_id = args.required_string(&["module_id", "moduleId"], "module_id")?;
+            let product_area_id = args.required_string(
+                &["product_area_id", "productAreaId", "module_id", "moduleId"],
+                "product_area_id",
+            )?;
             let name = args.required_string(&["name"], "name")?;
             let capability = product_repo::create_capability(
                 &state.db,
                 &uuid::Uuid::new_v4().to_string(),
-                &module_id,
+                &product_area_id,
                 args.optional_string(&["parent_capability_id", "parentCapabilityId"])?
                     .as_deref(),
                 &name,
@@ -1591,10 +1653,13 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
             action_result("create_capability", capability)
         }
         "list_capabilities" => {
-            let module_id = args.required_string(&["module_id", "moduleId"], "module_id")?;
+            let product_area_id = args.required_string(
+                &["product_area_id", "productAreaId", "module_id", "moduleId"],
+                "product_area_id",
+            )?;
             action_result(
                 "list_capabilities",
-                product_repo::list_capabilities(&state.db, &module_id).await?,
+                product_repo::list_capabilities(&state.db, &product_area_id).await?,
             )
         }
         "update_capability" => {
@@ -1627,14 +1692,17 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
             Ok(action_ok("delete_capability"))
         }
         "reorder_capabilities" => {
-            let module_id = args.required_string(&["module_id", "moduleId"], "module_id")?;
+            let product_area_id = args.required_string(
+                &["product_area_id", "productAreaId", "module_id", "moduleId"],
+                "product_area_id",
+            )?;
             let parent_capability_id =
                 args.optional_string(&["parent_capability_id", "parentCapabilityId"])?;
             let ordered_ids =
                 args.required_string_list(&["ordered_ids", "orderedIds"], "ordered_ids")?;
             product_repo::reorder_capabilities(
                 &state.db,
-                &module_id,
+                &product_area_id,
                 parent_capability_id.as_deref(),
                 &ordered_ids,
             )
@@ -1644,7 +1712,10 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
         "apply_capability_template" => {
             let result = product_service::apply_semantic_template(
                 &state.db,
-                &args.required_string(&["module_id", "moduleId"], "module_id")?,
+                &args.required_string(
+                    &["product_area_id", "productAreaId", "module_id", "moduleId"],
+                    "product_area_id",
+                )?,
                 args.optional_string(&["parent_capability_id", "parentCapabilityId"])?
                     .as_deref(),
                 &args.required_string(&["template_kind", "templateKind"], "template_kind")?,
@@ -1673,10 +1744,12 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
         }
         "get_product_tree" => {
             let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
-            action_result(
-                "get_product_tree",
-                product_repo::get_product_tree(&state.db, &product_id).await?,
-            )
+            let tree = product_repo::get_product_tree(&state.db, &product_id).await?;
+            let mut tree_value = serde_json::to_value(tree)?;
+            if let Some(product_areas) = tree_value.get("modules").cloned() {
+                tree_value["productAreas"] = product_areas;
+            }
+            action_result("get_product_tree", tree_value)
         }
         other => Err(AppError::Validation(format!(
             "unsupported aruvi_catalog action: {other}"
@@ -1689,33 +1762,79 @@ async fn handle_work_items(state: &AppState, payload: Value) -> Result<Value, Ap
     let args = tool_action.args();
 
     match tool_action.action.as_str() {
-        "create_work_item" => {
-            let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
+        action @ ("create_work_item" | "create_story" | "create_task") => {
+            let parent_work_item_id = if action == "create_task" {
+                Some(args.required_string(
+                    &[
+                        "story_id",
+                        "storyId",
+                        "parent_work_item_id",
+                        "parentWorkItemId",
+                    ],
+                    "story_id",
+                )?)
+            } else {
+                args.optional_string(&["parent_work_item_id", "parentWorkItemId"])?
+            };
+            let product_id = match args.optional_string(&["product_id", "productId"])? {
+                Some(product_id) => product_id,
+                None if action == "create_task" => {
+                    let story_id = parent_work_item_id
+                        .as_deref()
+                        .ok_or_else(|| AppError::Validation("missing story_id".to_string()))?;
+                    work_item_repo::get_work_item(&state.db, story_id)
+                        .await?
+                        .product_id
+                        .ok_or_else(|| {
+                            AppError::Validation(
+                                "Parent story does not have an associated product.".to_string(),
+                            )
+                        })?
+                }
+                None => return Err(AppError::Validation("missing product_id".to_string())),
+            };
             let title = args.required_string(&["title"], "title")?;
+            let product_area_id = args.optional_string(&[
+                "product_area_id",
+                "productAreaId",
+                "module_id",
+                "moduleId",
+            ])?;
+            let feature_id = args.optional_string(&[
+                "feature_id",
+                "featureId",
+                "capability_id",
+                "capabilityId",
+            ])?;
+            let source_node_id = args.optional_string(&["source_node_id", "sourceNodeId"])?;
+            let source_node_type = args.optional_string(&["source_node_type", "sourceNodeType"])?;
+            let work_item_type = if action == "create_story" {
+                "story".to_string()
+            } else if action == "create_task" {
+                "task".to_string()
+            } else {
+                args.string_or_default(&["work_item_type", "workItemType"], "story")?
+            };
             let work_item = work_item_repo::create_work_item(
                 &state.db,
                 &uuid::Uuid::new_v4().to_string(),
                 &product_id,
-                args.optional_string(&["module_id", "moduleId"])?.as_deref(),
-                args.optional_string(&["capability_id", "capabilityId"])?
-                    .as_deref(),
-                args.optional_string(&["source_node_id", "sourceNodeId"])?
-                    .as_deref(),
-                args.optional_string(&["source_node_type", "sourceNodeType"])?
-                    .as_deref(),
-                args.optional_string(&["parent_work_item_id", "parentWorkItemId"])?
-                    .as_deref(),
+                product_area_id.as_deref(),
+                feature_id.as_deref(),
+                source_node_id.as_deref(),
+                source_node_type.as_deref(),
+                parent_work_item_id.as_deref(),
                 &title,
                 &args.string_or_default(&["problem_statement", "problemStatement"], "")?,
                 &args.string_or_default(&["description"], "")?,
                 &args.string_or_default(&["acceptance_criteria", "acceptanceCriteria"], "")?,
                 &args.string_or_default(&["constraints"], "")?,
-                &args.string_or_default(&["work_item_type", "workItemType"], "feature")?,
+                &work_item_type,
                 &args.string_or_default(&["priority"], "medium")?,
                 &args.string_or_default(&["complexity"], "medium")?,
             )
             .await?;
-            action_result("create_work_item", work_item)
+            action_result(action, work_item)
         }
         "get_work_item" => {
             let id = args.required_string(&["id"], "id")?;
@@ -1730,9 +1849,20 @@ async fn handle_work_items(state: &AppState, payload: Value) -> Result<Value, Ap
                 &state.db,
                 args.optional_string(&["product_id", "productId"])?
                     .as_deref(),
-                args.optional_string(&["module_id", "moduleId"])?.as_deref(),
-                args.optional_string(&["capability_id", "capabilityId"])?
-                    .as_deref(),
+                args.optional_string(&[
+                    "product_area_id",
+                    "productAreaId",
+                    "module_id",
+                    "moduleId",
+                ])?
+                .as_deref(),
+                args.optional_string(&[
+                    "feature_id",
+                    "featureId",
+                    "capability_id",
+                    "capabilityId",
+                ])?
+                .as_deref(),
                 args.optional_string(&["source_node_id", "sourceNodeId"])?
                     .as_deref(),
                 args.optional_string(&["source_node_type", "sourceNodeType"])?
@@ -1815,10 +1945,13 @@ async fn handle_repositories(state: &AppState, payload: Value) -> Result<Value, 
         }
         "attach_repository" => {
             let attachment_id = uuid::Uuid::new_v4().to_string();
+            let scope_type = normalize_repository_scope_type(
+                &args.required_string(&["scope_type", "scopeType"], "scope_type")?,
+            )?;
             repository_repo::attach_repository(
                 &state.db,
                 &attachment_id,
-                &args.required_string(&["scope_type", "scopeType"], "scope_type")?,
+                &scope_type,
                 &args.required_string(&["scope_id", "scopeId"], "scope_id")?,
                 &args.required_string(&["repository_id", "repositoryId"], "repository_id")?,
                 args.bool_or_default(&["is_default", "isDefault"], false)?,
@@ -1846,7 +1979,13 @@ async fn handle_repositories(state: &AppState, payload: Value) -> Result<Value, 
                 &state.db,
                 args.optional_string(&["product_id", "productId"])?
                     .as_deref(),
-                args.optional_string(&["module_id", "moduleId"])?.as_deref(),
+                args.optional_string(&[
+                    "product_area_id",
+                    "productAreaId",
+                    "module_id",
+                    "moduleId",
+                ])?
+                .as_deref(),
             )
             .await?,
         ),
@@ -1854,7 +1993,12 @@ async fn handle_repositories(state: &AppState, payload: Value) -> Result<Value, 
             let workspace = create_local_workspace_for_scope(
                 state,
                 args.optional_string(&["product_id", "productId"])?,
-                args.optional_string(&["module_id", "moduleId"])?,
+                args.optional_string(&[
+                    "product_area_id",
+                    "productAreaId",
+                    "module_id",
+                    "moduleId",
+                ])?,
                 args.optional_string(&["work_item_id", "workItemId"])?,
                 args.optional_string(&["preferred_path", "preferredPath"])?,
             )
@@ -3214,16 +3358,16 @@ mod tests {
     #[test]
     fn discovery_exposes_node_kind_constraints_in_catalog_tool_schemas() {
         let definitions = definitions();
-        let module_create_tool = definitions
+        let product_area_create_tool = definitions
             .iter()
-            .find(|tool| tool.name == "catalog.modules.create")
-            .expect("catalog.modules.create");
+            .find(|tool| tool.name == "catalog.product_areas.create")
+            .expect("catalog.product_areas.create");
         let capability_create_tool = definitions
             .iter()
             .find(|tool| tool.name == "catalog.capabilities.create")
             .expect("catalog.capabilities.create");
 
-        let root_kind_enum = module_create_tool
+        let root_kind_enum = product_area_create_tool
             .input_schema
             .get("properties")
             .and_then(Value::as_object)
@@ -3231,26 +3375,24 @@ mod tests {
             .and_then(Value::as_object)
             .and_then(|node_kind| node_kind.get("enum"))
             .and_then(Value::as_array)
-            .expect("module nodeKind enum");
+            .expect("product area nodeKind enum");
 
-        assert_eq!(
-            root_kind_enum,
-            &vec![json!("area"), json!("domain"), json!("system")]
-        );
-        assert!(module_create_tool
+        assert_eq!(root_kind_enum, &vec![json!("area")]);
+        assert!(product_area_create_tool
             .description
             .contains("aruvi://catalog/node-kind-constraints"));
         assert!(capability_create_tool
             .description
-            .contains("Rollout and reference are leaves"));
+            .contains("Feature is the product-management leaf"));
     }
 
     #[test]
     fn translate_first_class_tool_wraps_action_payload_for_legacy_handlers() {
         let translated = translate_first_class_tool(
-            "catalog.products.get_tree",
+            "catalog.product_areas.create",
             json!({
-                "productId": "product-123"
+                "productId": "product-123",
+                "name": "Runtime Model"
             }),
         )
         .expect("translation should succeed")
@@ -3260,9 +3402,35 @@ mod tests {
         assert_eq!(
             translated.1,
             json!({
-                "action": "get_product_tree",
+                "action": "create_product_area",
                 "arguments": {
-                    "productId": "product-123"
+                    "productId": "product-123",
+                    "name": "Runtime Model"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn translate_legacy_module_tool_names_for_backward_compatibility() {
+        let translated = translate_first_class_tool(
+            "catalog.modules.create",
+            json!({
+                "productId": "product-123",
+                "name": "Runtime Model"
+            }),
+        )
+        .expect("translation should succeed")
+        .expect("known compatibility tool");
+
+        assert_eq!(translated.0, "aruvi_catalog");
+        assert_eq!(
+            translated.1,
+            json!({
+                "action": "create_module",
+                "arguments": {
+                    "productId": "product-123",
+                    "name": "Runtime Model"
                 }
             })
         );

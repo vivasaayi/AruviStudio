@@ -99,8 +99,8 @@ The result is fragmented work, manual orchestration, and high cognitive overhead
 
 ### 8.0 Product Reading and Progressive Refinement
 
-1. User opens a product and reads its structure as a navigable architecture or rollout book.
-2. User moves through modules, features, work items, and related context to understand the wider system.
+1. User opens a product and reads its structure as a navigable product book.
+2. User moves through product areas, capabilities, features, stories, tasks, and related context to understand the wider system.
 3. User exports the current structure as a readable book artifact when deeper review is needed.
 4. User identifies one section that is incomplete, unclear, or outdated.
 5. User edits that section and verifies that the updated structure still makes sense in the wider product context.
@@ -200,7 +200,7 @@ The hierarchy shall be treated as the canonical readable model of the product.
 It serves two purposes at the same time:
 
 - a human-readable documentation surface for understanding the system
-- a structural source from which rollouts and work items are derived
+- a structural source from which stories and tasks are derived
 
 The hierarchy shall optimize for:
 
@@ -211,26 +211,22 @@ The hierarchy shall optimize for:
 
 Each level in the hierarchy shall have a distinct semantic meaning. A node shall exist only when it improves human understanding of the wider system, not merely to satisfy a fixed planning template.
 
-Recommended semantic node kinds include:
+Canonical semantic levels are:
 
-- Product: the whole system or application
-- Domain or Area: a major functional area of the system
-- Subdomain or Subsystem: a meaningful subdivision inside a domain when scale requires it
-- Capability or Feature Set: a user-visible or system-visible ability the product must provide
-- Rollout: a concrete delivery slice that evolves, implements, or ships part of a capability
-- Work Item: an implementation task derived from a rollout or directly from a documented node when necessary
+- Product: the whole sellable/adoptable product
+- Product Area: a durable top-level product management boundary
+- Capability: something the product must be able to do inside a product area
+- Feature: a concrete product-visible or system-visible expression of a capability
+- Story: delivery intent attached to a feature
+- Task: implementation, test, review, documentation, or release work under a story
 
-The system shall support semantic hierarchies such as:
+The system shall support this hierarchy:
 
-- Product -> Domain -> Capability -> Rollout -> Work Item
-- Product -> Domain -> Subdomain -> Capability -> Rollout -> Work Item
-- Product -> System -> Subsystem -> Feature Set -> Capability -> Rollout -> Work Item
-
-The system shall not prematurely constrain the hierarchy to a shallow fixed number of levels if deeper structure improves comprehension for large products such as simulation software, complex creative tools, or broad platform products.
+- Product -> Product Area -> Capability -> Feature -> Story -> Task
 
 Execution must remain subordinate to the hierarchy:
 
-- rollouts and work items shall be derived from the documented structure
+- stories and tasks shall be derived from documented features
 - execution state shall not become a disconnected second planning system
 - exported book/document views shall read like a technical manual or architecture book, not a backlog dump
 

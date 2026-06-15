@@ -1,173 +1,77 @@
-# Aruvi Semantic Tree Rules
+# Aruvi Product Hierarchy Rules
 
 ## Purpose
 
-The semantic tree is the canonical readable representation of the product. It is not only a planning taxonomy.
+The product hierarchy is the canonical readable representation of a product. It is not a Jira taxonomy and it is not a generic node-kind playground.
+
+## Canonical Shape
+
+Product management:
+
+- Product
+- Product Area
+- Capability
+- Feature
+
+Product delivery:
+
+- Feature
+- Story
+- Task
+
+The full planning chain is:
+
+Product -> Product Area -> Capability -> Feature -> Story -> Task
 
 ## Node Kinds
 
-### Root Kinds
+Only these product hierarchy node kinds are valid:
 
-Only these node kinds should be used as top-level roots under a product:
+- `area`: a durable top-level product area
+- `capability`: something the product must be able to do inside a product area
+- `feature`: a product-visible feature under a capability
 
-- `area`
-- `domain`
-- `system`
-
-### Full Kind Set
-
-- `area`: a major functional or conceptual area
-- `domain`: a coherent domain of responsibility
-- `subdomain`: a meaningful subdivision inside a domain
-- `system`: a concrete technical system or major runtime surface
-- `subsystem`: a subdivision inside a system
-- `feature_set`: a grouped set of related abilities
-- `capability`: a stable ability the product must provide
-- `rollout`: a delivery slice that evolves or ships part of a capability
-- `reference`: supporting context, external dependency, or explanatory attachment
+Stories and tasks are delivery work items, not hierarchy nodes.
 
 ## Structural Rules
 
-### Kinds That Can Be Roots
+Allowed product hierarchy children:
 
-- `area`
-- `domain`
-- `system`
+- `area` -> `capability`
+- `capability` -> `feature`
+- `feature` -> no product hierarchy children
 
-### Kinds That Cannot Have Structural Children
+Allowed delivery children:
 
-- `rollout`
-- `reference`
+- story -> task
 
-### Allowed Child Kinds
+## Authoring Guidance
 
-#### `area`
+Use Product Area when the product needs a stable management boundary.
 
-- `area`
-- `domain`
-- `system`
-- `subsystem`
-- `feature_set`
-- `capability`
-- `reference`
+Use Capability when the product must be able to do something durable and owned.
 
-#### `domain`
+Use Feature when the capability needs a concrete user-visible or system-visible expression that can own stories and tasks.
 
-- `subdomain`
-- `system`
-- `subsystem`
-- `feature_set`
-- `capability`
-- `reference`
+Use Story for delivery intent attached to a feature.
 
-#### `subdomain`
+Use Task for implementation, test, review, or documentation work under a story.
 
-- `subdomain`
-- `feature_set`
-- `capability`
-- `reference`
+## Valid Examples
 
-#### `system`
+- Product -> Product Area -> Capability -> Feature
+- Feature -> Story -> Task
 
-- `subsystem`
-- `feature_set`
-- `capability`
-- `reference`
+## Invalid Examples
 
-#### `subsystem`
+- Product -> Feature
+- Product Area -> Feature
+- Capability -> Story as a hierarchy child
+- Story -> Feature
+- Task -> Capability
 
-- `subsystem`
-- `feature_set`
-- `capability`
-- `reference`
+## Book-Grade Detail
 
-#### `feature_set`
+Book and overview exports should read the product hierarchy as Product Area chapters, Capability sections, and Feature subsections.
 
-- `feature_set`
-- `capability`
-- `rollout`
-- `reference`
-
-#### `capability`
-
-- `feature_set`
-- `capability`
-- `rollout`
-- `reference`
-
-#### `rollout`
-
-- no structural children
-
-#### `reference`
-
-- no structural children
-
-## Usage Guidance
-
-Use `area`, `domain`, and `system` to make the product legible at the top level.
-
-Use `feature_set` when you need a grouping layer but a node is not yet a single stable ability.
-
-Use `capability` when the node represents a real product or system ability with clear ownership and correctness conditions.
-
-Use `rollout` only when you are describing a delivery slice, staged implementation path, or guarded release boundary.
-
-Use `reference` when the node exists to attach durable context rather than to describe a part of the product itself.
-
-## Example Valid Chains
-
-- Product -> Area -> Capability -> Rollout
-- Product -> Domain -> Subdomain -> Capability -> Rollout
-- Product -> System -> Subsystem -> Feature Set -> Capability -> Rollout
-- Product -> Area -> Reference
-
-## Example Invalid Patterns
-
-- Product -> Rollout as a root
-- Rollout -> Capability
-- Reference -> Rollout
-- Deep chains created only to mimic an org chart
-
-## Book-Grade Detail Pattern
-
-`rollout` is an execution leaf. It is not the right place for deeper structural chapters such as:
-
-- what this topic is
-- examples
-- implementation notes
-- test strategy
-
-If you need book-grade detail under a technical topic, use a parent that can own structure:
-
-- `feature_set` when grouping a family of related concepts
-- `capability` when the node represents a stable technical ability
-- `reference` when the child exists to carry durable explanatory context
-
-Supported pattern:
-
-- parent `feature_set` or `capability` for the operator family or technical chapter
-- child `capability` or `reference` nodes for definition, examples, constraints, or variants
-- child `rollout` nodes for implementation and shipping slices
-- child work items for executable delivery under the rollout or directly under the documented node when necessary
-
-Unsupported pattern:
-
-- `rollout` -> `capability`
-- `rollout` -> `reference`
-- using a rollout page as if it were the summary container for the full chapter tree
-
-When an LLM wants to create a "book" under a rollout, that structure should move one level up.
-
-## Authoring Standard
-
-Choose the shallowest tree that still preserves understanding.
-
-Add depth only when it clarifies:
-
-- architectural boundaries
-- major subsystems
-- delivery sequencing
-- technical ownership
-
-Do not add depth only because the UI can render it.
+Do not create extra hierarchy levels just to make a document look deeper. Add richer text fields, references, stories, and tasks instead.

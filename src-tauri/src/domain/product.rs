@@ -235,36 +235,6 @@ pub struct CapabilityTree {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct CapabilitySlice {
-    pub id: String,
-    pub capability_id: String,
-    pub name: String,
-    pub description: String,
-    pub acceptance_criteria: String,
-    pub priority: Priority,
-    pub status: CapabilityStatus,
-    pub sort_order: i32,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct DeliveryItem {
-    pub id: String,
-    pub product_id: String,
-    pub capability_id: Option<String>,
-    pub capability_slice_id: Option<String>,
-    pub work_item_id: Option<String>,
-    pub title: String,
-    pub description: String,
-    pub delivery_kind: String,
-    pub status: String,
-    pub sort_order: i32,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ProductReference {
     pub id: String,
     pub scope_type: String,
@@ -282,28 +252,16 @@ pub struct ProductReference {
 #[sqlx(rename_all = "snake_case")]
 pub enum HierarchyNodeKind {
     Area,
-    Domain,
-    Subdomain,
-    System,
-    Subsystem,
-    FeatureSet,
     Capability,
-    Rollout,
-    Reference,
+    Feature,
 }
 
 impl HierarchyNodeKind {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "area" => Some(Self::Area),
-            "domain" => Some(Self::Domain),
-            "subdomain" => Some(Self::Subdomain),
-            "system" => Some(Self::System),
-            "subsystem" => Some(Self::Subsystem),
-            "feature_set" => Some(Self::FeatureSet),
             "capability" => Some(Self::Capability),
-            "rollout" => Some(Self::Rollout),
-            "reference" => Some(Self::Reference),
+            "feature" => Some(Self::Feature),
             _ => None,
         }
     }
@@ -314,15 +272,9 @@ impl HierarchyNodeKind {
 
     pub fn default_child(parent_kind: &Self) -> Self {
         match parent_kind {
-            Self::Capability => Self::Rollout,
             Self::Area => Self::Capability,
-            Self::Domain
-            | Self::Subdomain
-            | Self::System
-            | Self::Subsystem
-            | Self::FeatureSet
-            | Self::Rollout
-            | Self::Reference => Self::Reference,
+            Self::Capability => Self::Feature,
+            Self::Feature => Self::Feature,
         }
     }
 
@@ -337,14 +289,8 @@ impl HierarchyNodeKind {
     pub fn allowed_child_kinds(&self) -> Vec<Self> {
         match self {
             Self::Area => vec![Self::Capability],
-            Self::Capability => vec![Self::Rollout],
-            Self::Domain
-            | Self::Subdomain
-            | Self::System
-            | Self::Subsystem
-            | Self::FeatureSet
-            | Self::Rollout
-            | Self::Reference => Vec::new(),
+            Self::Capability => vec![Self::Feature],
+            Self::Feature => Vec::new(),
         }
     }
 
@@ -357,14 +303,8 @@ impl std::fmt::Display for HierarchyNodeKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let value = match self {
             Self::Area => "area",
-            Self::Domain => "domain",
-            Self::Subdomain => "subdomain",
-            Self::System => "system",
-            Self::Subsystem => "subsystem",
-            Self::FeatureSet => "feature_set",
             Self::Capability => "capability",
-            Self::Rollout => "rollout",
-            Self::Reference => "reference",
+            Self::Feature => "feature",
         };
         write!(f, "{value}")
     }

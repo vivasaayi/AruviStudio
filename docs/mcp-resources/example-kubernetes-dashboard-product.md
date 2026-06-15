@@ -23,20 +23,20 @@ Represent clusters, namespaces, nodes, and resource relationships in a readable 
 
 Children:
 
-- Subsystem 1.1: Namespace Views
-- Subsystem 1.2: Node Health
-- Subsystem 1.3: Resource Utilization
+- Feature 1.1: Namespace Views
+- Feature 1.2: Node Health
+- Feature 1.3: Resource Utilization
 
 ### System 2: Workload Operations
 
 Purpose:
-Help operators inspect workloads, pods, deployments, jobs, and rollout states without losing context.
+Help operators inspect workloads, pods, deployments, jobs, and release states without losing context.
 
 Children:
 
 - Capability 2.1: Deployment Detail
 - Capability 2.2: Pod Explorer
-- Capability 2.3: Rollout Status and Revision History
+- Capability 2.3: Release Status and Revision History
 
 ### System 3: Observability
 
@@ -95,11 +95,11 @@ Failure modes:
 - empty namespace states
 - very large pod lists
 
-Rollouts:
+Features:
 
-- Rollout 2.2.1: Namespace-Scoped Pod Listing
-- Rollout 2.2.2: Pod Detail Drawer
-- Rollout 2.2.3: Filter Persistence and Refresh Safety
+- Feature 2.2.1: Namespace-Scoped Pod Listing
+- Feature 2.2.2: Pod Detail Drawer
+- Feature 2.2.3: Filter Persistence and Refresh Safety
 
 ## Delivery Derivation
 
@@ -120,5 +120,5 @@ This example:
 
 - describes the system as an operator-facing runtime model
 - captures safety and observability concerns
-- makes rollout boundaries obvious
+- makes feature and story boundaries obvious
 - prevents the product tree from collapsing into generic UI labels

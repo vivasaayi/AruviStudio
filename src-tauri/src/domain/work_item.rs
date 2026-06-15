@@ -39,7 +39,7 @@ pub struct ProductWorkItemSummary {
 #[serde(rename_all = "snake_case")]
 #[sqlx(rename_all = "snake_case")]
 pub enum WorkItemType {
-    #[serde(rename = "feature")]
+    #[serde(rename = "story", alias = "feature", alias = "capability_delivery")]
     #[sqlx(rename = "feature")]
     CapabilityDelivery,
     Setup,
@@ -54,7 +54,7 @@ pub enum WorkItemType {
 impl std::fmt::Display for WorkItemType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            WorkItemType::CapabilityDelivery => write!(f, "capability_delivery"),
+            WorkItemType::CapabilityDelivery => write!(f, "story"),
             WorkItemType::Setup => write!(f, "setup"),
             WorkItemType::Bug => write!(f, "bug"),
             WorkItemType::Refactor => write!(f, "refactor"),
@@ -121,5 +121,23 @@ impl std::fmt::Display for WorkItemStatus {
             WorkItemStatus::Failed => write!(f, "failed"),
             WorkItemStatus::Cancelled => write!(f, "cancelled"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn capability_delivery_serializes_as_story_for_public_clients() {
+        assert_eq!(
+            serde_json::to_value(WorkItemType::CapabilityDelivery).expect("serialize work type"),
+            json!("story")
+        );
+        assert!(matches!(
+            serde_json::from_value::<WorkItemType>(json!("feature")).expect("legacy alias"),
+            WorkItemType::CapabilityDelivery
+        ));
     }
 }

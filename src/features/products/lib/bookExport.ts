@@ -1108,24 +1108,8 @@ function renderNoteBlock(label: string, text: string) {
 }
 
 function collectReferenceAtlas(nodes: HierarchyTreeNode[]): ReferenceAtlasEntry[] {
-  const entries: ReferenceAtlasEntry[] = [];
-
-  const visit = (node: HierarchyTreeNode) => {
-    if (node.node_kind === "reference") {
-      entries.push({
-        id: node.node_type === "module" ? node.id : node.capability_id ?? node.id,
-        kindLabel: getHierarchyNodeKindLabel(node.node_kind),
-        pathLabel: node.path.join(" / "),
-        title: node.name,
-        summary: node.summary || node.description,
-      });
-    }
-    node.children.forEach(visit);
-  };
-
-  nodes.forEach(visit);
-
-  return entries;
+  void nodes;
+  return [];
 }
 
 function collectNodeIndex(nodes: HierarchyTreeNode[]): IndexEntry[] {
