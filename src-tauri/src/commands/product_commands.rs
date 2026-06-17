@@ -1,7 +1,7 @@
 use crate::domain::bulk_import::{BulkImportJob, BulkImportJobStatus};
 use crate::domain::product::{
-    Capability, Module, NodeKindConversionResult, Product, ProductReference, ProductTree,
-    SemanticTemplateApplicationResult,
+    Capability, Module, NodeKindConversionResult, Product, ProductPlanResetResult,
+    ProductReference, ProductTree, SemanticTemplateApplicationResult,
 };
 use crate::error::AppError;
 use crate::persistence::{product_repo, settings_repo};
@@ -122,6 +122,22 @@ pub async fn update_product(
 #[tauri::command]
 pub async fn archive_product(state: State<'_, AppState>, id: String) -> Result<Product, AppError> {
     product_repo::archive_product(&state.db, &id).await
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn reset_product_plan(
+    state: State<'_, AppState>,
+    product_id: Option<String>,
+    productId: Option<String>,
+    delete_delivery: Option<bool>,
+    deleteDelivery: Option<bool>,
+) -> Result<ProductPlanResetResult, AppError> {
+    let product_id = product_id
+        .or(productId)
+        .ok_or_else(|| AppError::Validation("missing product id".to_string()))?;
+    let delete_delivery = delete_delivery.or(deleteDelivery).unwrap_or(false);
+    product_repo::reset_product_plan(&state.db, &product_id, delete_delivery).await
 }
 
 #[tauri::command]

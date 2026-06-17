@@ -1,7 +1,7 @@
 use crate::domain::product::{
     Capability, CapabilityTree, ChildReparentStrategy, HierarchyNodeKind, HierarchyNodeType,
-    HierarchyTreeNode, Module, ModuleTree, NodeKindConversionResult, Product, ProductReference,
-    ProductTree,
+    HierarchyTreeNode, Module, ModuleTree, NodeKindConversionResult, Product,
+    ProductPlanResetResult, ProductReference, ProductTree,
 };
 use crate::error::AppError;
 use sqlx::{Row, SqlitePool};
@@ -286,6 +286,141 @@ pub async fn archive_product(pool: &SqlitePool, id: &str) -> Result<Product, App
         .execute(pool)
         .await?;
     get_product(pool, id).await
+}
+
+pub async fn reset_product_plan(
+    pool: &SqlitePool,
+    product_id: &str,
+    delete_delivery: bool,
+) -> Result<ProductPlanResetResult, AppError> {
+    let product_exists: Option<String> = sqlx::query_scalar("SELECT id FROM products WHERE id=?")
+        .bind(product_id)
+        .fetch_optional(pool)
+        .await?;
+    if product_exists.is_none() {
+        return Err(AppError::NotFound(format!(
+            "Product {product_id} not found"
+        )));
+    }
+
+    let product_areas_deleted: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM modules WHERE product_id=?")
+            .bind(product_id)
+            .fetch_one(pool)
+            .await?;
+    let capabilities_deleted: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)
+         FROM capabilities c
+         JOIN modules m ON m.id=c.module_id
+         WHERE m.product_id=?",
+    )
+    .bind(product_id)
+    .fetch_one(pool)
+    .await?;
+
+    let mut result = ProductPlanResetResult {
+        product_id: product_id.to_string(),
+        product_areas_deleted,
+        capabilities_deleted,
+        work_items_deleted: 0,
+        agent_work_runs_deleted: 0,
+        agent_work_items_deleted: 0,
+        agent_work_events_deleted: 0,
+        agent_work_evidence_deleted: 0,
+        agent_work_dependencies_deleted: 0,
+        agent_work_locks_deleted: 0,
+        agent_work_batches_deleted: 0,
+    };
+
+    if delete_delivery {
+        result.work_items_deleted =
+            sqlx::query_scalar("SELECT COUNT(*) FROM work_items WHERE product_id=?")
+                .bind(product_id)
+                .fetch_one(pool)
+                .await?;
+        result.agent_work_runs_deleted =
+            sqlx::query_scalar("SELECT COUNT(*) FROM agent_work_runs WHERE product_id=?")
+                .bind(product_id)
+                .fetch_one(pool)
+                .await?;
+        result.agent_work_items_deleted = sqlx::query_scalar(
+            "SELECT COUNT(*)
+             FROM agent_work_items item
+             JOIN agent_work_runs run ON run.id=item.run_id
+             WHERE run.product_id=?",
+        )
+        .bind(product_id)
+        .fetch_one(pool)
+        .await?;
+        result.agent_work_events_deleted = sqlx::query_scalar(
+            "SELECT COUNT(*)
+             FROM agent_work_events event
+             JOIN agent_work_runs run ON run.id=event.run_id
+             WHERE run.product_id=?",
+        )
+        .bind(product_id)
+        .fetch_one(pool)
+        .await?;
+        result.agent_work_evidence_deleted = sqlx::query_scalar(
+            "SELECT COUNT(*)
+             FROM agent_work_evidence evidence
+             JOIN agent_work_runs run ON run.id=evidence.run_id
+             WHERE run.product_id=?",
+        )
+        .bind(product_id)
+        .fetch_one(pool)
+        .await?;
+        result.agent_work_dependencies_deleted = sqlx::query_scalar(
+            "SELECT COUNT(*)
+             FROM agent_work_dependencies dependency
+             JOIN agent_work_runs run ON run.id=dependency.run_id
+             WHERE run.product_id=?",
+        )
+        .bind(product_id)
+        .fetch_one(pool)
+        .await?;
+        result.agent_work_locks_deleted = sqlx::query_scalar(
+            "SELECT COUNT(*)
+             FROM agent_work_locks l
+             JOIN agent_work_runs run ON run.id=l.run_id
+             WHERE run.product_id=?",
+        )
+        .bind(product_id)
+        .fetch_one(pool)
+        .await?;
+        result.agent_work_batches_deleted = sqlx::query_scalar(
+            "SELECT COUNT(*)
+             FROM agent_work_batches batch
+             JOIN agent_work_runs run ON run.id=batch.run_id
+             WHERE run.product_id=?",
+        )
+        .bind(product_id)
+        .fetch_one(pool)
+        .await?;
+    }
+
+    let mut tx = pool.begin().await?;
+    if delete_delivery {
+        sqlx::query("DELETE FROM agent_work_runs WHERE product_id=?")
+            .bind(product_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM work_items WHERE product_id=?")
+            .bind(product_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    sqlx::query("DELETE FROM modules WHERE product_id=?")
+        .bind(product_id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("UPDATE products SET updated_at=datetime('now') WHERE id=?")
+        .bind(product_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+
+    Ok(result)
 }
 
 pub async fn create_module(
@@ -1000,5 +1135,114 @@ mod tests {
             tree.modules[2].features[0].capability.node_kind,
             HierarchyNodeKind::Capability
         );
+    }
+
+    #[tokio::test]
+    async fn reset_product_plan_deletes_delivery_and_agent_work_when_requested() {
+        let pool = create_test_pool("reset_product_plan").await;
+        create_product(
+            &pool,
+            "product-reset",
+            "Reset Product",
+            "",
+            "",
+            "[]",
+            "[]",
+            Some("active"),
+            Some("healthy"),
+            None,
+            Some("invest"),
+            None,
+            None,
+        )
+        .await
+        .expect("product should be created");
+
+        sqlx::query(
+            "INSERT INTO modules (id, product_id, node_kind, name, sort_order)
+             VALUES ('module-reset', 'product-reset', 'area', 'Area', 0)",
+        )
+        .execute(&pool)
+        .await
+        .expect("module should be inserted");
+        sqlx::query(
+            "INSERT INTO capabilities (
+                id, module_id, parent_capability_id, level, node_kind, sort_order, name
+             )
+             VALUES ('cap-reset', 'module-reset', NULL, 0, 'capability', 0, 'Capability')",
+        )
+        .execute(&pool)
+        .await
+        .expect("capability should be inserted");
+        sqlx::query(
+            "INSERT INTO work_items (
+                id, product_id, module_id, capability_id, title, work_item_type, status
+             )
+             VALUES ('work-reset', 'product-reset', 'module-reset', 'cap-reset', 'Work', 'feature', 'draft')",
+        )
+        .execute(&pool)
+        .await
+        .expect("work item should be inserted");
+        sqlx::query(
+            "INSERT INTO agent_work_runs (id, product_id, roadmap_hash)
+             VALUES ('run-reset', 'product-reset', 'hash')",
+        )
+        .execute(&pool)
+        .await
+        .expect("run should be inserted");
+        sqlx::query(
+            "INSERT INTO agent_work_items (id, run_id, feature_id, work_item_id, module)
+             VALUES ('agent-item-reset', 'run-reset', 'feature-reset', 'work-reset', 'Area')",
+        )
+        .execute(&pool)
+        .await
+        .expect("agent item should be inserted");
+        sqlx::query(
+            "INSERT INTO agent_work_events (run_id, event_type, feature_id, work_item_id)
+             VALUES ('run-reset', 'imported', 'feature-reset', 'work-reset')",
+        )
+        .execute(&pool)
+        .await
+        .expect("agent event should be inserted");
+        sqlx::query(
+            "INSERT INTO agent_work_evidence (id, run_id, feature_id, work_item_id, evidence_type)
+             VALUES ('evidence-reset', 'run-reset', 'feature-reset', 'work-reset', 'test')",
+        )
+        .execute(&pool)
+        .await
+        .expect("agent evidence should be inserted");
+
+        let result = reset_product_plan(&pool, "product-reset", true)
+            .await
+            .expect("reset should succeed");
+
+        assert_eq!(result.product_areas_deleted, 1);
+        assert_eq!(result.capabilities_deleted, 1);
+        assert_eq!(result.work_items_deleted, 1);
+        assert_eq!(result.agent_work_runs_deleted, 1);
+        assert_eq!(result.agent_work_items_deleted, 1);
+        assert_eq!(result.agent_work_events_deleted, 1);
+        assert_eq!(result.agent_work_evidence_deleted, 1);
+
+        let remaining_modules: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM modules WHERE product_id='product-reset'")
+                .fetch_one(&pool)
+                .await
+                .expect("modules should be counted");
+        let remaining_work_items: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM work_items WHERE product_id='product-reset'")
+                .fetch_one(&pool)
+                .await
+                .expect("work items should be counted");
+        let remaining_runs: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM agent_work_runs WHERE product_id='product-reset'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("runs should be counted");
+
+        assert_eq!(remaining_modules, 0);
+        assert_eq!(remaining_work_items, 0);
+        assert_eq!(remaining_runs, 0);
     }
 }

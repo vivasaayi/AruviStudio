@@ -56,6 +56,7 @@ pub fn run() {
             commands::product_commands::list_products,
             commands::product_commands::update_product,
             commands::product_commands::archive_product,
+            commands::product_commands::reset_product_plan,
             commands::product_commands::seed_example_products,
             commands::product_commands::create_module,
             commands::product_commands::list_modules,

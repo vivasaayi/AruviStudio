@@ -20,6 +20,22 @@ pub struct Product {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductPlanResetResult {
+    pub product_id: String,
+    pub product_areas_deleted: i64,
+    pub capabilities_deleted: i64,
+    pub work_items_deleted: i64,
+    pub agent_work_runs_deleted: i64,
+    pub agent_work_items_deleted: i64,
+    pub agent_work_events_deleted: i64,
+    pub agent_work_evidence_deleted: i64,
+    pub agent_work_dependencies_deleted: i64,
+    pub agent_work_locks_deleted: i64,
+    pub agent_work_batches_deleted: i64,
+}
+
 impl Product {
     pub fn is_example_product(&self) -> bool {
         self.tags.iter().any(|tag| tag == "example_product")

@@ -164,6 +164,25 @@ export const updateProduct = (data: {
     evidence: data.evidence,
   });
 export const archiveProduct = (id: string) => invoke<Product>("archive_product", { id });
+export const resetProductPlan = (data: { productId: string; deleteDelivery: boolean }) =>
+  invoke<{
+    productId: string;
+    productAreasDeleted: number;
+    capabilitiesDeleted: number;
+    workItemsDeleted: number;
+    agentWorkRunsDeleted: number;
+    agentWorkItemsDeleted: number;
+    agentWorkEventsDeleted: number;
+    agentWorkEvidenceDeleted: number;
+    agentWorkDependenciesDeleted: number;
+    agentWorkLocksDeleted: number;
+    agentWorkBatchesDeleted: number;
+  }>("reset_product_plan", {
+    product_id: data.productId,
+    productId: data.productId,
+    delete_delivery: data.deleteDelivery,
+    deleteDelivery: data.deleteDelivery,
+  });
 
 // Strategy / portfolio commands
 export const listStrategyNodes = () => invoke<StrategyNode[]>("list_strategy_nodes");

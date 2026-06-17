@@ -22,6 +22,7 @@ import {
   listWorkItems,
   reorderCapabilities,
   reorderModules,
+  resetProductPlan,
   revealInFinder,
   resolveRepositoryForScope,
   setSetting,
@@ -723,6 +724,7 @@ export function ProductListPage() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["products"] }),
       queryClient.invalidateQueries({ queryKey: ["productTree", selectedProductId] }),
+      queryClient.invalidateQueries({ queryKey: ["productOverviewTree", selectedProductId] }),
       queryClient.invalidateQueries({ queryKey: ["sidebarProductTree", selectedProductId] }),
     ]);
   };
@@ -731,6 +733,7 @@ export function ProductListPage() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["productAllTasks", selectedProductId] }),
       queryClient.invalidateQueries({ queryKey: ["productTasks", selectedProductId, activeNodeId, activeNodeType] }),
+      queryClient.invalidateQueries({ queryKey: ["productOverviewPageWorkItems", selectedProductId] }),
       queryClient.invalidateQueries({ queryKey: ["workItems"] }),
       queryClient.invalidateQueries({ queryKey: ["sidebarWorkItems", selectedProductId] }),
     ]);
@@ -892,11 +895,7 @@ export function ProductListPage() {
       if (data.productId !== selectedProductId) {
         throw new Error("Select the product before resetting its plan.");
       }
-      const modulesToDelete = tree?.modules ?? [];
-      await Promise.all(modulesToDelete.map((moduleTree) => deleteModule(moduleTree.module.id)));
-      if (data.deleteDelivery) {
-        await Promise.all(allProductTasks.map((workItem) => deleteWorkItem(workItem.id)));
-      }
+      await resetProductPlan(data);
     },
     onSuccess: async () => {
       await invalidateHierarchy();
@@ -2782,7 +2781,7 @@ export function ProductListPage() {
               checked={resetPlanDeleteDelivery}
               onChange={(event) => setResetPlanDeleteDelivery(event.target.checked)}
             />
-            Also delete existing delivery stories and tasks for this product.
+            Also delete existing delivery stories, tasks, and agent-work import ledger rows for this product.
           </label>
           {formError && <div style={styles.errorText}>{formError}</div>}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
