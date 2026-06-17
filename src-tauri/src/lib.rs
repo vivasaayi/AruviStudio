@@ -20,17 +20,27 @@ use tauri::Manager;
 pub fn run() {
     observability::logger::init_logging();
 
-    tauri::Builder::default()
+    let result = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             let app_identifier = app.config().identifier.clone();
-            let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
-            let state = rt
-                .block_on(async {
-                    bootstrap::initialize_app_state(Some(app_identifier.as_str())).await
-                })
-                .expect("Failed to create app state");
+            let rt = match tokio::runtime::Runtime::new() {
+                Ok(rt) => rt,
+                Err(err) => {
+                    eprintln!("failed to create Tokio runtime: {err}");
+                    std::process::exit(1);
+                }
+            };
+            let state = match rt.block_on(async {
+                bootstrap::initialize_app_state(Some(app_identifier.as_str())).await
+            }) {
+                Ok(state) => state,
+                Err(err) => {
+                    eprintln!("failed to create app state: {err}");
+                    std::process::exit(1);
+                }
+            };
             let webhook_state = state.clone();
             app.manage(state);
             tauri::async_runtime::spawn(async move {
@@ -213,8 +223,11 @@ pub fn run() {
             // Observability commands
             commands::observability_commands::get_logs,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .run(tauri::generate_context!());
+
+    if let Err(err) = result {
+        eprintln!("error while running tauri application: {err}");
+    }
 }
 
 pub fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {

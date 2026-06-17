@@ -4,6 +4,9 @@ use crate::error::AppError;
 use sqlx::{Row, SqlitePool};
 use tracing::{debug, error, trace};
 
+pub const DEFAULT_LIST_WORK_ITEMS_LIMIT: i64 = 500;
+pub const MAX_LIST_WORK_ITEMS_LIMIT: i64 = 2_000;
+
 fn normalize_source_node_type(value: &str) -> Result<&'static str, AppError> {
     let normalized = value.trim().to_ascii_lowercase();
     match normalized.as_str() {
@@ -238,10 +241,61 @@ pub async fn list_work_items(
     source_node_type: Option<&str>,
     status: Option<&str>,
 ) -> Result<Vec<WorkItem>, AppError> {
+    list_work_items_internal(
+        pool,
+        product_id,
+        module_id,
+        capability_id,
+        source_node_id,
+        source_node_type,
+        status,
+        None,
+    )
+    .await
+}
+
+pub async fn list_work_items_page(
+    pool: &SqlitePool,
+    product_id: Option<&str>,
+    module_id: Option<&str>,
+    capability_id: Option<&str>,
+    source_node_id: Option<&str>,
+    source_node_type: Option<&str>,
+    status: Option<&str>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<WorkItem>, AppError> {
+    let limit = limit
+        .unwrap_or(DEFAULT_LIST_WORK_ITEMS_LIMIT)
+        .clamp(1, MAX_LIST_WORK_ITEMS_LIMIT);
+    let offset = offset.unwrap_or(0).max(0);
+    list_work_items_internal(
+        pool,
+        product_id,
+        module_id,
+        capability_id,
+        source_node_id,
+        source_node_type,
+        status,
+        Some((limit, offset)),
+    )
+    .await
+}
+
+async fn list_work_items_internal(
+    pool: &SqlitePool,
+    product_id: Option<&str>,
+    module_id: Option<&str>,
+    capability_id: Option<&str>,
+    source_node_id: Option<&str>,
+    source_node_type: Option<&str>,
+    status: Option<&str>,
+    page: Option<(i64, i64)>,
+) -> Result<Vec<WorkItem>, AppError> {
     let normalized_source_node_type = source_node_type
         .map(normalize_source_node_type)
         .transpose()?;
-    trace!(product_id = ?product_id, module_id = ?module_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, status = ?status, "persist list_work_items");
+    trace!(product_id = ?product_id, module_id = ?module_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, status = ?status, page = ?page, "persist list_work_items");
     let mut query = String::from("SELECT id,product_id,module_id,capability_id,source_node_id,source_node_type,parent_work_item_id,title,problem_statement,description,acceptance_criteria,constraints,work_item_type,priority,complexity,status,repo_override_id,active_repo_id,branch_name,sort_order,created_at,updated_at FROM work_items WHERE 1=1");
     if product_id.is_some() {
         query.push_str(" AND product_id = ?");
@@ -262,6 +316,9 @@ pub async fn list_work_items(
         query.push_str(" AND status = ?");
     }
     query.push_str(" ORDER BY sort_order, created_at DESC");
+    if page.is_some() {
+        query.push_str(" LIMIT ? OFFSET ?");
+    }
 
     let mut q = sqlx::query_as::<_, WorkItem>(&query);
     if let Some(v) = product_id {
@@ -281,6 +338,9 @@ pub async fn list_work_items(
     }
     if let Some(v) = status {
         q = q.bind(v);
+    }
+    if let Some((limit, offset)) = page {
+        q = q.bind(limit).bind(offset);
     }
     q.fetch_all(pool).await.map_err(|e| e.into())
 }
@@ -386,4 +446,91 @@ pub async fn reorder_work_items(pool: &SqlitePool, ordered_ids: &[String]) -> Re
             .await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::persistence::{db as db_service, product_repo};
+
+    fn make_temp_dir(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "aruvi_work_item_repo_{}_{}",
+            name,
+            uuid::Uuid::new_v4()
+        ))
+    }
+
+    async fn create_test_pool(name: &str) -> SqlitePool {
+        let temp_root = make_temp_dir(name);
+        std::fs::create_dir_all(&temp_root).expect("temp dir should be created");
+        let db_path = temp_root.join("test.db");
+        let database_url = format!("sqlite://{}", db_path.display());
+        db_service::create_pool(&database_url)
+            .await
+            .expect("test database should be created")
+    }
+
+    #[tokio::test]
+    async fn list_work_items_page_applies_limit_and_offset() {
+        let pool = create_test_pool("list_page").await;
+        product_repo::create_product(
+            &pool,
+            "product-work-page",
+            "Work Page",
+            "",
+            "",
+            "[]",
+            "[]",
+            Some("active"),
+            Some("healthy"),
+            None,
+            Some("invest"),
+            None,
+            None,
+        )
+        .await
+        .expect("product should be created");
+
+        for index in 0..5 {
+            create_work_item(
+                &pool,
+                &format!("work-item-{index}"),
+                "product-work-page",
+                None,
+                None,
+                None,
+                None,
+                None,
+                &format!("Work item {index}"),
+                "",
+                "",
+                "",
+                "",
+                "story",
+                "medium",
+                "medium",
+            )
+            .await
+            .expect("work item should be created");
+        }
+
+        let page = list_work_items_page(
+            &pool,
+            Some("product-work-page"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(2),
+            Some(1),
+        )
+        .await
+        .expect("page should load");
+
+        assert_eq!(page.len(), 2);
+        assert_eq!(page[0].title, "Work item 1");
+        assert_eq!(page[1].title, "Work item 2");
+    }
 }

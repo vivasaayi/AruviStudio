@@ -495,13 +495,24 @@ export const createWorkItem = (data: {
   });
 
 export const getWorkItem = (id: string) => invoke<WorkItem>("get_work_item", { id });
-export const listWorkItems = (filters?: { productId?: string; moduleId?: string; capabilityId?: string; sourceNodeId?: string; sourceNodeType?: string; status?: string }) =>
+export const listWorkItems = (filters?: {
+  productId?: string;
+  moduleId?: string;
+  capabilityId?: string;
+  sourceNodeId?: string;
+  sourceNodeType?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+}) =>
   invoke<WorkItem[]>("list_work_items", {
     product_id: filters?.productId, module_id: filters?.moduleId,
     capability_id: filters?.capabilityId,
     source_node_id: filters?.sourceNodeId,
     source_node_type: filters?.sourceNodeType,
     status: filters?.status,
+    limit: filters?.limit,
+    offset: filters?.offset,
   });
 export const summarizeWorkItemsByProduct = () =>
   invoke<ProductWorkItemSummary[]>("summarize_work_items_by_product");

@@ -7,8 +7,8 @@ use crate::error::AppError;
 use sqlx::{Row, SqlitePool};
 use tracing::{debug, error, trace};
 
-const MODULE_SELECT_COLUMNS: &str = "id, product_id, node_kind, name, description, purpose, explanation, examples, implementation_notes, test_guidance, sort_order, created_at, updated_at";
-const CAPABILITY_SELECT_COLUMNS: &str = "id, module_id, parent_capability_id, level, node_kind, sort_order, name, description, acceptance_criteria, explanation, examples, priority, risk, status, technical_notes, implementation_notes, test_guidance, created_at, updated_at";
+const MODULE_SELECT_COLUMNS: &str = "id, product_id, CASE lower(replace(node_kind, '-', '_')) WHEN 'area' THEN 'area' WHEN 'product_area' THEN 'area' WHEN 'module' THEN 'area' WHEN 'strategic_area' THEN 'area' WHEN 'domain' THEN 'area' WHEN 'subdomain' THEN 'area' WHEN 'capability' THEN 'area' WHEN 'feature_set' THEN 'area' WHEN 'feature_group' THEN 'area' ELSE 'area' END AS node_kind, name, description, purpose, explanation, examples, implementation_notes, test_guidance, sort_order, created_at, updated_at";
+const CAPABILITY_SELECT_COLUMNS: &str = "id, module_id, parent_capability_id, level, CASE lower(replace(node_kind, '-', '_')) WHEN 'capability' THEN 'capability' WHEN 'area' THEN 'capability' WHEN 'product_area' THEN 'capability' WHEN 'module' THEN 'capability' WHEN 'strategic_area' THEN 'capability' WHEN 'domain' THEN 'capability' WHEN 'subdomain' THEN 'capability' WHEN 'feature_set' THEN 'capability' WHEN 'feature_group' THEN 'capability' WHEN 'system' THEN 'capability' WHEN 'feature' THEN 'feature' WHEN 'rollout' THEN 'feature' WHEN 'capability_slice' THEN 'feature' ELSE CASE WHEN parent_capability_id IS NULL OR level <= 0 THEN 'capability' ELSE 'feature' END END AS node_kind, sort_order, name, description, acceptance_criteria, explanation, examples, priority, risk, status, technical_notes, implementation_notes, test_guidance, created_at, updated_at";
 const PRODUCT_SELECT_COLUMNS: &str = "id, name, description, vision, goals, tags, status, lifecycle, health, owner_label, investment_status, roadmap, evidence, created_at, updated_at";
 const PRODUCT_REFERENCE_SELECT_COLUMNS: &str =
     "id, scope_type, scope_id, title, reference_kind, uri, content, created_at, updated_at";
@@ -35,17 +35,42 @@ fn row_to_product(row: sqlx::sqlite::SqliteRow) -> Product {
     }
 }
 
-fn parse_node_kind(value: &str) -> Result<HierarchyNodeKind, AppError> {
-    HierarchyNodeKind::parse(value).ok_or_else(|| {
-        AppError::Validation(format!(
-            "Unsupported product hierarchy node kind '{value}'. Use area, capability, or feature."
-        ))
-    })
+fn normalize_node_kind_value(value: &str) -> String {
+    value.trim().to_ascii_lowercase().replace('-', "_")
+}
+
+fn parse_root_node_kind(value: &str) -> Result<HierarchyNodeKind, AppError> {
+    match normalize_node_kind_value(value).as_str() {
+        "area" | "product_area" | "module" | "strategic_area" | "domain" | "subdomain"
+        | "capability" | "feature_set" | "feature_group" | "system" => {
+            Ok(HierarchyNodeKind::Area)
+        }
+        value => HierarchyNodeKind::parse(value).ok_or_else(|| {
+            AppError::Validation(format!(
+                "Unsupported product hierarchy node kind '{value}'. Use area, capability, or feature."
+            ))
+        }),
+    }
+}
+
+fn parse_capability_node_kind(value: &str) -> Result<HierarchyNodeKind, AppError> {
+    match normalize_node_kind_value(value).as_str() {
+        "capability" | "area" | "product_area" | "module" | "strategic_area" | "domain"
+        | "subdomain" | "feature_set" | "feature_group" | "system" => {
+            Ok(HierarchyNodeKind::Capability)
+        }
+        "feature" | "rollout" | "capability_slice" => Ok(HierarchyNodeKind::Feature),
+        value => HierarchyNodeKind::parse(value).ok_or_else(|| {
+            AppError::Validation(format!(
+                "Unsupported product hierarchy node kind '{value}'. Use area, capability, or feature."
+            ))
+        }),
+    }
 }
 
 fn resolve_root_node_kind(node_kind: Option<&str>) -> Result<HierarchyNodeKind, AppError> {
     let kind = node_kind
-        .map(parse_node_kind)
+        .map(parse_root_node_kind)
         .transpose()?
         .unwrap_or_else(HierarchyNodeKind::default_root);
     if !kind.is_root_kind() {
@@ -67,7 +92,7 @@ fn resolve_child_node_kind(
         )));
     }
     let child_kind = node_kind
-        .map(parse_node_kind)
+        .map(parse_capability_node_kind)
         .transpose()?
         .unwrap_or_else(|| HierarchyNodeKind::default_child(&parent_kind));
     if !parent_kind.supports_child_kind(&child_kind) {
@@ -88,7 +113,7 @@ async fn get_module_node_kind(
         .fetch_optional(pool)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Module {module_id} not found")))
-        .and_then(|value: String| parse_node_kind(&value))
+        .and_then(|value: String| parse_root_node_kind(&value))
 }
 
 async fn ensure_capability_children_allowed(
@@ -111,7 +136,7 @@ async fn ensure_capability_children_allowed(
         )));
     }
     for child_kind in child_kinds {
-        let parsed_child_kind = parse_node_kind(&child_kind)?;
+        let parsed_child_kind = parse_capability_node_kind(&child_kind)?;
         if !parent_kind.supports_child_kind(&parsed_child_kind) {
             return Err(AppError::Validation(format!(
                 "{} cannot contain existing {} children.",
@@ -389,7 +414,8 @@ pub async fn create_capability(
                 "Capability children must stay inside the same root product section.".to_string(),
             ));
         }
-        let parent_kind = parse_node_kind(parent.get::<String, _>("node_kind").as_str())?;
+        let parent_kind =
+            parse_capability_node_kind(parent.get::<String, _>("node_kind").as_str())?;
         (parent.get::<i64, _>("level") + 1, parent_kind)
     } else {
         (0, get_module_node_kind(pool, module_id).await?)
@@ -487,7 +513,7 @@ pub async fn update_capability(
                 .ok_or_else(|| {
                     AppError::NotFound(format!("Capability {parent_capability_id} not found"))
                 })?;
-        parse_node_kind(&parent_node_kind)?
+        parse_capability_node_kind(&parent_node_kind)?
     } else {
         get_module_node_kind(pool, &existing.module_id).await?
     };
@@ -849,5 +875,130 @@ fn build_capability_tree(
     CapabilityTree {
         capability: capability.clone(),
         children,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::persistence::db as db_service;
+
+    fn make_temp_dir(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "aruvi_product_repo_{}_{}",
+            name,
+            uuid::Uuid::new_v4()
+        ))
+    }
+
+    async fn create_test_pool(name: &str) -> SqlitePool {
+        let temp_root = make_temp_dir(name);
+        std::fs::create_dir_all(&temp_root).expect("temp dir should be created");
+        let db_path = temp_root.join("test.db");
+        let database_url = format!("sqlite://{}", db_path.display());
+        db_service::create_pool(&database_url)
+            .await
+            .expect("test database should be created")
+    }
+
+    #[tokio::test]
+    async fn get_product_tree_normalizes_legacy_catalog_node_kinds() {
+        let pool = create_test_pool("legacy_node_kinds").await;
+        create_product(
+            &pool,
+            "product-legacy-kinds",
+            "Legacy Kinds",
+            "",
+            "",
+            "[]",
+            "[]",
+            Some("active"),
+            Some("healthy"),
+            None,
+            Some("invest"),
+            None,
+            None,
+        )
+        .await
+        .expect("product should be created");
+
+        sqlx::query(
+            "INSERT INTO modules (id, product_id, node_kind, name, sort_order)
+             VALUES ('module-domain', 'product-legacy-kinds', 'domain', 'Payments', 0)",
+        )
+        .execute(&pool)
+        .await
+        .expect("legacy module should be inserted");
+        sqlx::query(
+            "INSERT INTO modules (id, product_id, node_kind, name, sort_order)
+             VALUES ('module-feature-set', 'product-legacy-kinds', 'feature_set', 'Billing', 1)",
+        )
+        .execute(&pool)
+        .await
+        .expect("legacy feature-set module should be inserted");
+        sqlx::query(
+            "INSERT INTO modules (id, product_id, node_kind, name, sort_order)
+             VALUES ('module-system', 'product-legacy-kinds', 'system', 'Operations', 2)",
+        )
+        .execute(&pool)
+        .await
+        .expect("legacy system module should be inserted");
+        sqlx::query(
+            "INSERT INTO capabilities (
+                id, module_id, parent_capability_id, level, node_kind, sort_order, name
+             )
+             VALUES (
+                'capability-feature-set', 'module-domain', NULL, 0, 'feature_set', 0, 'Checkout'
+             )",
+        )
+        .execute(&pool)
+        .await
+        .expect("legacy capability should be inserted");
+        sqlx::query(
+            "INSERT INTO capabilities (
+                id, module_id, parent_capability_id, level, node_kind, sort_order, name
+             )
+             VALUES (
+                'capability-system', 'module-system', NULL, 0, 'system', 0, 'Runtime'
+             )",
+        )
+        .execute(&pool)
+        .await
+        .expect("legacy system capability should be inserted");
+        sqlx::query(
+            "INSERT INTO capabilities (
+                id, module_id, parent_capability_id, level, node_kind, sort_order, name
+             )
+             VALUES (
+                'capability-rollout', 'module-domain', 'capability-feature-set', 1, 'rollout', 0, 'Reconciliation'
+             )",
+        )
+        .execute(&pool)
+        .await
+        .expect("legacy feature should be inserted");
+
+        let tree = get_product_tree(&pool, "product-legacy-kinds")
+            .await
+            .expect("legacy node kinds should not break tree decoding");
+
+        assert_eq!(tree.modules.len(), 3);
+        assert_eq!(tree.modules[0].module.node_kind, HierarchyNodeKind::Area);
+        assert_eq!(tree.modules[1].module.node_kind, HierarchyNodeKind::Area);
+        assert_eq!(tree.modules[2].module.node_kind, HierarchyNodeKind::Area);
+        assert_eq!(tree.modules[0].features.len(), 1);
+        assert_eq!(
+            tree.modules[0].features[0].capability.node_kind,
+            HierarchyNodeKind::Capability
+        );
+        assert_eq!(tree.modules[0].features[0].children.len(), 1);
+        assert_eq!(
+            tree.modules[0].features[0].children[0].capability.node_kind,
+            HierarchyNodeKind::Feature
+        );
+        assert_eq!(tree.modules[2].features.len(), 1);
+        assert_eq!(
+            tree.modules[2].features[0].capability.node_kind,
+            HierarchyNodeKind::Capability
+        );
     }
 }

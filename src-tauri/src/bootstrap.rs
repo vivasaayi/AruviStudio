@@ -11,6 +11,7 @@ pub async fn initialize_app_state(
     std::fs::create_dir_all(&data_dir)?;
 
     let db_path = resolve_database_path(&data_dir)?;
+    tracing::info!(database_path = %db_path.display(), "using AruviStudio database");
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent)?;
     }

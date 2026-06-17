@@ -40,8 +40,8 @@ use tracing::error;
 
 const AUTO_START_AFTER_WORK_ITEM_APPROVAL_KEY: &str =
     "workflow.auto_start_after_work_item_approval";
-const MCP_MODULE_SELECT_COLUMNS: &str = "id, product_id, node_kind, name, description, purpose, explanation, examples, implementation_notes, test_guidance, sort_order, created_at, updated_at";
-const MCP_CAPABILITY_SELECT_COLUMNS: &str = "id, module_id, parent_capability_id, level, node_kind, sort_order, name, description, acceptance_criteria, explanation, examples, priority, risk, status, technical_notes, implementation_notes, test_guidance, created_at, updated_at";
+const MCP_MODULE_SELECT_COLUMNS: &str = "id, product_id, CASE lower(replace(node_kind, '-', '_')) WHEN 'area' THEN 'area' WHEN 'product_area' THEN 'area' WHEN 'module' THEN 'area' WHEN 'strategic_area' THEN 'area' WHEN 'domain' THEN 'area' WHEN 'subdomain' THEN 'area' WHEN 'capability' THEN 'area' WHEN 'feature_set' THEN 'area' WHEN 'feature_group' THEN 'area' ELSE 'area' END AS node_kind, name, description, purpose, explanation, examples, implementation_notes, test_guidance, sort_order, created_at, updated_at";
+const MCP_CAPABILITY_SELECT_COLUMNS: &str = "id, module_id, parent_capability_id, level, CASE lower(replace(node_kind, '-', '_')) WHEN 'capability' THEN 'capability' WHEN 'area' THEN 'capability' WHEN 'product_area' THEN 'capability' WHEN 'module' THEN 'capability' WHEN 'strategic_area' THEN 'capability' WHEN 'domain' THEN 'capability' WHEN 'subdomain' THEN 'capability' WHEN 'feature_set' THEN 'capability' WHEN 'feature_group' THEN 'capability' WHEN 'system' THEN 'capability' WHEN 'feature' THEN 'feature' WHEN 'rollout' THEN 'feature' WHEN 'capability_slice' THEN 'feature' ELSE CASE WHEN parent_capability_id IS NULL OR level <= 0 THEN 'capability' ELSE 'feature' END END AS node_kind, sort_order, name, description, acceptance_criteria, explanation, examples, priority, risk, status, technical_notes, implementation_notes, test_guidance, created_at, updated_at";
 
 fn char_count_i64(content: &str) -> i64 {
     i64::try_from(content.chars().count()).unwrap_or(i64::MAX)
@@ -801,6 +801,11 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
                         ),
                     ),
                     ("status", string_property("Optional work item status filter.")),
+                    (
+                        "limit",
+                        integer_property("Maximum rows to return, capped at 2000."),
+                    ),
+                    ("offset", integer_property("Pagination offset.")),
                 ],
                 &[],
             ),
@@ -3183,7 +3188,7 @@ async fn handle_work_items(state: &AppState, payload: Value) -> Result<Value, Ap
         }
         "list_work_items" => action_result(
             "list_work_items",
-            work_item_repo::list_work_items(
+            work_item_repo::list_work_items_page(
                 &state.db,
                 args.optional_string(&["product_id", "productId"])?
                     .as_deref(),
@@ -3206,6 +3211,8 @@ async fn handle_work_items(state: &AppState, payload: Value) -> Result<Value, Ap
                 args.optional_string(&["source_node_type", "sourceNodeType"])?
                     .as_deref(),
                 args.optional_string(&["status"])?.as_deref(),
+                args.optional_i64(&["limit"])?,
+                args.optional_i64(&["offset"])?,
             )
             .await?,
         ),

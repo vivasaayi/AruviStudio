@@ -110,9 +110,11 @@ pub async fn list_work_items(
     source_node_id: Option<String>,
     source_node_type: Option<String>,
     status: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
 ) -> Result<Vec<WorkItem>, AppError> {
-    debug!(product_id = ?product_id, module_id = ?module_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, status = ?status, "list_work_items requested");
-    let result = work_item_repo::list_work_items(
+    debug!(product_id = ?product_id, module_id = ?module_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, status = ?status, limit = ?limit, offset = ?offset, "list_work_items requested");
+    let result = work_item_repo::list_work_items_page(
         &state.db,
         product_id.as_deref(),
         module_id.as_deref(),
@@ -120,10 +122,12 @@ pub async fn list_work_items(
         source_node_id.as_deref(),
         source_node_type.as_deref(),
         status.as_deref(),
+        limit,
+        offset,
     )
     .await;
     if let Err(err) = &result {
-        error!(product_id = ?product_id, module_id = ?module_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, status = ?status, error = %err, "list_work_items failed");
+        error!(product_id = ?product_id, module_id = ?module_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, status = ?status, limit = ?limit, offset = ?offset, error = %err, "list_work_items failed");
     }
     result
 }
