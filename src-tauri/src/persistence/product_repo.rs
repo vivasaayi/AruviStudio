@@ -191,16 +191,24 @@ pub async fn create_product(
 }
 
 pub async fn get_product(pool: &SqlitePool, id: &str) -> Result<Product, AppError> {
-    sqlx::query(&format!("SELECT {PRODUCT_SELECT_COLUMNS} FROM products WHERE id = ?"))
-        .bind(id)
-        .map(row_to_product)
-        .fetch_optional(pool).await?.ok_or_else(|| AppError::NotFound(format!("Product {id} not found")))
+    sqlx::query(&format!(
+        "SELECT {PRODUCT_SELECT_COLUMNS} FROM products WHERE id = ?"
+    ))
+    .bind(id)
+    .map(row_to_product)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("Product {id} not found")))
 }
 
 pub async fn list_products(pool: &SqlitePool) -> Result<Vec<Product>, AppError> {
-    sqlx::query(&format!("SELECT {PRODUCT_SELECT_COLUMNS} FROM products ORDER BY created_at DESC"))
-        .map(row_to_product)
-        .fetch_all(pool).await.map_err(|e| e.into())
+    sqlx::query(&format!(
+        "SELECT {PRODUCT_SELECT_COLUMNS} FROM products ORDER BY created_at DESC"
+    ))
+    .map(row_to_product)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.into())
 }
 
 pub async fn update_product(
@@ -689,12 +697,10 @@ pub async fn create_product_reference(
     uri: &str,
     content: &str,
 ) -> Result<ProductReference, AppError> {
-    sqlx::query_as::<_, ProductReference>(
-        &format!(
-            "INSERT INTO \"references\" (id, scope_type, scope_id, title, reference_kind, uri, content)
+    sqlx::query_as::<_, ProductReference>(&format!(
+        "INSERT INTO \"references\" (id, scope_type, scope_id, title, reference_kind, uri, content)
              VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING {PRODUCT_REFERENCE_SELECT_COLUMNS}"
-        ),
-    )
+    ))
     .bind(id)
     .bind(scope_type)
     .bind(scope_id)

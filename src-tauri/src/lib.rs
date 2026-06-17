@@ -1,3 +1,4 @@
+mod app_paths;
 mod bootstrap;
 mod commands;
 mod domain;
@@ -23,9 +24,12 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
+            let app_identifier = app.config().identifier.clone();
             let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
             let state = rt
-                .block_on(async { bootstrap::initialize_app_state().await })
+                .block_on(async {
+                    bootstrap::initialize_app_state(Some(app_identifier.as_str())).await
+                })
                 .expect("Failed to create app state");
             let webhook_state = state.clone();
             app.manage(state);
@@ -56,6 +60,10 @@ pub fn run() {
             commands::product_commands::apply_semantic_template,
             commands::product_commands::convert_capability_kind,
             commands::product_commands::get_product_tree,
+            commands::product_commands::get_bulk_import_schema,
+            commands::product_commands::submit_bulk_import,
+            commands::product_commands::get_bulk_import_status,
+            commands::product_commands::list_bulk_import_jobs,
             commands::product_commands::list_product_references,
             commands::product_commands::create_product_reference,
             commands::product_commands::delete_product_reference,

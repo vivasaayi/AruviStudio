@@ -6,7 +6,8 @@ use crate::error::AppError;
 use sqlx::{Row, SqlitePool};
 
 const STRATEGY_NODE_COLUMNS: &str = "id, parent_node_id, node_kind, name, description, owner_label, sort_order, created_at, updated_at";
-const PRODUCT_STRATEGY_LINK_COLUMNS: &str = "id, product_id, strategy_node_id, is_primary, created_at";
+const PRODUCT_STRATEGY_LINK_COLUMNS: &str =
+    "id, product_id, strategy_node_id, is_primary, created_at";
 const PRODUCT_DEPENDENCY_COLUMNS: &str = "id, product_id, capability_id, depends_on_product_id, depends_on_capability_id, dependency_kind, description, status, created_at, updated_at";
 
 fn parse_strategy_node_kind(value: &str) -> Result<StrategyNodeKind, AppError> {
@@ -255,13 +256,11 @@ pub async fn unlink_product_from_strategy(
     product_id: &str,
     strategy_node_id: &str,
 ) -> Result<(), AppError> {
-    sqlx::query(
-        "DELETE FROM product_strategy_links WHERE product_id = ? AND strategy_node_id = ?",
-    )
-    .bind(product_id)
-    .bind(strategy_node_id)
-    .execute(pool)
-    .await?;
+    sqlx::query("DELETE FROM product_strategy_links WHERE product_id = ? AND strategy_node_id = ?")
+        .bind(product_id)
+        .bind(strategy_node_id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 

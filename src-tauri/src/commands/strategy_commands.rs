@@ -84,8 +84,8 @@ pub async fn link_product_to_strategy(
     is_primary: Option<bool>,
 ) -> Result<ProductStrategyLink, AppError> {
     let id = uuid::Uuid::new_v4().to_string();
-    let product_id = product_id
-        .ok_or_else(|| AppError::Validation("Product id is required.".to_string()))?;
+    let product_id =
+        product_id.ok_or_else(|| AppError::Validation("Product id is required.".to_string()))?;
     let strategy_node_id = strategy_node_id
         .ok_or_else(|| AppError::Validation("Strategy node id is required.".to_string()))?;
     strategy_repo::link_product_to_strategy(
@@ -104,8 +104,8 @@ pub async fn unlink_product_from_strategy(
     product_id: Option<String>,
     strategy_node_id: Option<String>,
 ) -> Result<(), AppError> {
-    let product_id = product_id
-        .ok_or_else(|| AppError::Validation("Product id is required.".to_string()))?;
+    let product_id =
+        product_id.ok_or_else(|| AppError::Validation("Product id is required.".to_string()))?;
     let strategy_node_id = strategy_node_id
         .ok_or_else(|| AppError::Validation("Strategy node id is required.".to_string()))?;
     strategy_repo::unlink_product_from_strategy(&state.db, &product_id, &strategy_node_id).await
@@ -130,8 +130,8 @@ pub async fn create_product_dependency(
     status: Option<String>,
 ) -> Result<ProductDependency, AppError> {
     let id = uuid::Uuid::new_v4().to_string();
-    let product_id = product_id
-        .ok_or_else(|| AppError::Validation("Product id is required.".to_string()))?;
+    let product_id =
+        product_id.ok_or_else(|| AppError::Validation("Product id is required.".to_string()))?;
     let depends_on_product_id = depends_on_product_id
         .ok_or_else(|| AppError::Validation("Dependency product id is required.".to_string()))?;
     strategy_repo::create_product_dependency(

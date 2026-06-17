@@ -26,9 +26,10 @@ fn parse_source_node_type(value: &str) -> Result<HierarchyNodeType, AppError> {
 fn normalize_work_item_type(value: &str) -> Result<String, AppError> {
     let normalized = value.trim().to_ascii_lowercase();
     match normalized.as_str() {
-        "" | "story" | "task" | "delivery_story" | "capability_delivery" | "feature" => {
+        "" | "story" | "delivery_story" | "capability_delivery" | "feature" => {
             Ok("feature".to_string())
         }
+        "task" => Ok("task".to_string()),
         "setup" | "bug" | "refactor" | "test" | "review" | "security_fix"
         | "performance_improvement" => Ok(normalized),
         other => Err(AppError::Validation(format!(

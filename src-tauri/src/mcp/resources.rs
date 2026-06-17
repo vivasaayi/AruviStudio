@@ -117,6 +117,9 @@ mod tests {
             .any(|resource| resource.uri == "aruvi://guides/book-grade-structure-decision"));
         assert!(resources
             .iter()
+            .any(|resource| resource.uri == "aruvi://guides/agent-work-coordination"));
+        assert!(resources
+            .iter()
             .any(|resource| resource.uri == "aruvi://catalog/node-kind-constraints"));
         assert!(resources
             .iter()

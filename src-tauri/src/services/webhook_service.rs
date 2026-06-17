@@ -1,4 +1,3 @@
-use crate::mcp;
 use crate::persistence::{model_call_repo, model_repo, planner_repo, product_repo, settings_repo};
 use crate::providers::gateway::ModelGateway;
 use crate::providers::openai_compatible::OpenAiCompatibleProvider;
@@ -16,6 +15,7 @@ use crate::services::speech_service::{
     transcribe_audio_with_provider, SpeechToTextRequest, SpeechToTextResponse,
 };
 use crate::state::AppState;
+use crate::{app_paths, mcp};
 use axum::body::Bytes;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -1717,7 +1717,14 @@ pub async fn resolve_webhook_bind_config(state: &AppState) -> Result<WebhookBind
     } else if let Some(port) = settings_port {
         (port, "settings".to_string())
     } else {
-        (8787, "default".to_string())
+        (
+            app_paths::default_webhook_port(state.app_profile.as_deref()),
+            if state.app_profile.is_some() {
+                "profile-default".to_string()
+            } else {
+                "default".to_string()
+            },
+        )
     };
 
     Ok(WebhookBindConfig {

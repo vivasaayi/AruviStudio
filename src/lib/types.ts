@@ -139,7 +139,7 @@ export interface WorkItem {
   description: string;
   acceptance_criteria: string;
   constraints: string;
-  work_item_type: "feature" | "setup" | "bug" | "refactor" | "test" | "review" | "security_fix" | "performance_improvement";
+  work_item_type: "story" | "feature" | "task" | "setup" | "bug" | "refactor" | "test" | "review" | "security_fix" | "performance_improvement";
   priority: "critical" | "high" | "medium" | "low";
   complexity: "trivial" | "low" | "medium" | "high" | "very_high";
   status: "draft" | "ready_for_review" | "approved" | "in_planning" | "in_progress" | "in_validation" | "waiting_human_review" | "done" | "blocked" | "failed" | "cancelled";

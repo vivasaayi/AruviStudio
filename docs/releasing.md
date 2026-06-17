@@ -4,15 +4,42 @@ Desktop releases are published from GitHub Actions by pushing a version tag.
 
 ## Trigger a release
 
-1. Update the desktop version in `/package.json` and `/src-tauri/tauri.conf.json`.
-2. Commit the version bump.
-3. Push a tag in the format `vX.Y.Z`.
-
-Example:
+Use the version rotation script to update the app version, back up the current
+database, commit the version bump, and create the release tag:
 
 ```bash
-git tag v0.1.1
-git push origin v0.1.1
+npm run version:rotate -- patch --commit --tag
+```
+
+You can pass `major`, `minor`, `patch`, or an explicit `X.Y.Z` version:
+
+```bash
+npm run version:rotate -- 0.2.0 --commit --tag
+```
+
+The script updates:
+
+- `/package.json`
+- `/package-lock.json`
+- `/src-tauri/tauri.conf.json`
+- `/src-tauri/Cargo.toml`
+- `/src-tauri/Cargo.lock`
+
+By default, it runs `/backup.sh` before changing the version, and labels that
+backup with the version you are leaving. The backup source defaults to
+`livedb_path` when present, then `ARUVI_DB_PATH`, then the standard AruviStudio
+app data database path. Override paths when needed:
+
+```bash
+ARUVI_BACKUP_SOURCE_DB=/path/to/aruvi_studio.db \
+ARUVI_BACKUP_DIR=/path/to/backups \
+npm run version:rotate -- patch --commit --tag
+```
+
+Push the created tag to publish:
+
+```bash
+git push origin vX.Y.Z
 ```
 
 The workflow in `/.github/workflows/publish.yml` builds desktop bundles for:

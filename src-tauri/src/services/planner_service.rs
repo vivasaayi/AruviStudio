@@ -1,4 +1,6 @@
-use crate::domain::product::{ChildReparentStrategy, HierarchyNodeKind, Product, SemanticTemplateKind};
+use crate::domain::product::{
+    ChildReparentStrategy, HierarchyNodeKind, Product, SemanticTemplateKind,
+};
 use crate::domain::repository::{Repository, RepositoryTreeNode};
 use crate::error::AppError;
 use crate::persistence::{
@@ -1467,15 +1469,12 @@ fn seed_draft_with_product(
     product: &Product,
 ) -> PlannerDraftPlan {
     let mut draft_plan = draft_plan.unwrap_or(PlannerDraftPlan { nodes: vec![] });
-    let has_matching_product_root = draft_plan
-        .nodes
-        .iter()
-        .any(|node| {
-            node.node_type == "product"
-                && node.parent_id.is_none()
-                && (node.id == product.id
-                    || normalize(Some(node.name.as_str())) == normalize(Some(product.name.as_str())))
-        });
+    let has_matching_product_root = draft_plan.nodes.iter().any(|node| {
+        node.node_type == "product"
+            && node.parent_id.is_none()
+            && (node.id == product.id
+                || normalize(Some(node.name.as_str())) == normalize(Some(product.name.as_str())))
+    });
     if has_matching_product_root {
         return draft_plan;
     }
@@ -5679,8 +5678,13 @@ pub async fn submit_planner_turn(
                 role: "user".to_string(),
                 content: user_input.clone(),
             });
-            append_conversation(&state.db, &session_id, "assistant", "Applied design to catalog.")
-                .await?;
+            append_conversation(
+                &state.db,
+                &session_id,
+                "assistant",
+                "Applied design to catalog.",
+            )
+            .await?;
             session.conversation.push(PlannerConversationEntry {
                 role: "assistant".to_string(),
                 content: "Applied design to catalog.".to_string(),
@@ -6517,13 +6521,19 @@ pub async fn analyze_repository_for_planner(
         db,
         &session_id,
         "user",
-        &format!("Analyze repository {} into a design packet.", repository.name),
+        &format!(
+            "Analyze repository {} into a design packet.",
+            repository.name
+        ),
     )
     .await?;
     append_conversation(db, &session_id, "assistant", &plan.assistant_response).await?;
     session.conversation.push(PlannerConversationEntry {
         role: "user".to_string(),
-        content: format!("Analyze repository {} into a design packet.", repository.name),
+        content: format!(
+            "Analyze repository {} into a design packet.",
+            repository.name
+        ),
     });
     session.conversation.push(PlannerConversationEntry {
         role: "assistant".to_string(),

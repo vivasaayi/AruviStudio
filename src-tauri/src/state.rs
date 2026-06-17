@@ -1,5 +1,5 @@
 use crate::domain::events::DomainEvent;
-use crate::persistence::external_cli_repo;
+use crate::persistence::{bulk_import_repo, external_cli_repo};
 use crate::services::{
     agent_service, model_service, planner_service, product_service, workflow_service,
 };
@@ -12,6 +12,7 @@ use tokio::sync::{broadcast, Mutex};
 pub struct AppState {
     pub db: SqlitePool,
     pub app_data_dir: PathBuf,
+    pub app_profile: Option<String>,
     pub event_tx: broadcast::Sender<DomainEvent>,
     pub artifact_base_path: PathBuf,
     pub workspace_base_path: PathBuf,
@@ -26,6 +27,14 @@ impl AppState {
         db: SqlitePool,
         app_data_dir: PathBuf,
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::new_with_profile(db, app_data_dir, None).await
+    }
+
+    pub async fn new_with_profile(
+        db: SqlitePool,
+        app_data_dir: PathBuf,
+        app_profile: Option<String>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let (event_tx, _) = broadcast::channel(100);
 
         let artifact_base_path = app_data_dir.join("artifacts");
@@ -35,6 +44,7 @@ impl AppState {
         tokio::fs::create_dir_all(&artifact_base_path).await?;
         tokio::fs::create_dir_all(&workspace_base_path).await?;
         external_cli_repo::mark_interrupted_external_cli_runs(&db).await?;
+        bulk_import_repo::mark_interrupted_jobs(&db).await?;
 
         // Initialize services
         let db_arc = Arc::new(db);
@@ -56,6 +66,7 @@ impl AppState {
         Ok(Self {
             db: (*db_arc).clone(),
             app_data_dir,
+            app_profile,
             event_tx,
             artifact_base_path,
             workspace_base_path,

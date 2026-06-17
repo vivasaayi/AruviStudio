@@ -15,6 +15,8 @@ const TECHNICAL_DEPTH_RUBRIC: &str =
     include_str!("../../docs/mcp-resources/technical-depth-rubric.md");
 const BOOK_GRADE_STRUCTURE_DECISION: &str =
     include_str!("../../docs/mcp-resources/book-grade-structure-decision.md");
+const AGENT_WORK_COORDINATION: &str =
+    include_str!("../../docs/mcp-resources/agent-work-coordination.md");
 const EXAMPLE_DEEP_CALCULATOR_PRODUCT: &str =
     include_str!("../../docs/mcp-resources/example-deep-calculator-product.md");
 const EXAMPLE_KUBERNETES_DASHBOARD_PRODUCT: &str =
@@ -87,6 +89,15 @@ pub fn static_resources() -> &'static [PlanningResource] {
             mime_type: MARKDOWN_RESOURCE_MIME_TYPE,
             priority: 0.95,
             content: BOOK_GRADE_STRUCTURE_DECISION,
+        },
+        PlanningResource {
+            uri: "aruvi://guides/agent-work-coordination",
+            name: "agent-work-coordination",
+            title: "Aruvi Agent Work Coordination",
+            description: "Operational protocol for using MCP as the durable multi-agent planning, claim, status, checkpoint, and commit ledger.",
+            mime_type: MARKDOWN_RESOURCE_MIME_TYPE,
+            priority: 0.8,
+            content: AGENT_WORK_COORDINATION,
         },
         PlanningResource {
             uri: "aruvi://examples/deep-calculator-product",

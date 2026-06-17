@@ -1,23 +1,23 @@
+use crate::app_paths;
 use crate::persistence::db;
 use crate::state::AppState;
-use directories::ProjectDirs;
 use std::path::PathBuf;
 
-pub async fn initialize_app_state() -> Result<AppState, Box<dyn std::error::Error>> {
-    let proj_dirs = ProjectDirs::from("com", "aruvi", "studio").ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::NotFound, "project dirs unavailable")
-    })?;
-    let data_dir = proj_dirs.data_dir();
-    std::fs::create_dir_all(data_dir)?;
+pub async fn initialize_app_state(
+    app_identifier: Option<&str>,
+) -> Result<AppState, Box<dyn std::error::Error>> {
+    let runtime_profile = app_paths::initialize_runtime_profile(app_identifier)?;
+    let data_dir = runtime_profile.data_dir.clone();
+    std::fs::create_dir_all(&data_dir)?;
 
-    let db_path = resolve_database_path(data_dir)?;
+    let db_path = resolve_database_path(&data_dir)?;
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
 
     let db_url = format!("sqlite:{}", db_path.display());
     let pool = db::create_pool(&db_url).await?;
-    AppState::new(pool, data_dir.to_path_buf()).await
+    AppState::new_with_profile(pool, data_dir, runtime_profile.profile.clone()).await
 }
 
 fn resolve_database_path(data_dir: &std::path::Path) -> Result<PathBuf, std::io::Error> {

@@ -1,0 +1,12 @@
+{
+  "productName": "AruviStudio",
+  "identifier": "com.aruvi.studio",
+  "bundle": {
+    "targets": ["app", "dmg"],
+    "macOS": {
+      "bundleName": "AruviStudio",
+      "minimumSystemVersion": "10.15",
+      "hardenedRuntime": true
+    }
+  }
+}

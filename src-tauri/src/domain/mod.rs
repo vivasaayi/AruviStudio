@@ -1,6 +1,8 @@
 pub mod agent;
+pub mod agent_work;
 pub mod approval;
 pub mod artifact;
+pub mod bulk_import;
 pub mod events;
 pub mod external_cli;
 pub mod finding;

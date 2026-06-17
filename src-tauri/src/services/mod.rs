@@ -2,6 +2,7 @@ pub mod agent_service;
 pub mod approval_service;
 pub mod artifact_service;
 pub mod audit_service;
+pub mod bulk_import_service;
 pub mod channel_service;
 pub mod docker_service;
 pub mod external_cli_service;

@@ -380,7 +380,9 @@ function summarizeModelUsage(calls: ModelCall[], runs: AgentRun[]): ModelUsageSu
 
 function formatWorkItemTypeLabel(workItemType: WorkItem["work_item_type"]): string {
   const canonicalLabels: Record<WorkItem["work_item_type"], string> = {
+    story: "story",
     feature: "story",
+    task: "task",
     setup: "setup",
     bug: "bug fix",
     refactor: "refactor",
@@ -411,7 +413,7 @@ function getWorkItemExecutionSteps(workItem: WorkItem, workspaceName?: string | 
     "Produce verification artifacts for review.",
   ];
 
-  if (workItem.work_item_type === "feature") {
+  if (workItem.work_item_type === "story" || workItem.work_item_type === "feature") {
     steps.push("Run or generate unit, integration, and UI validation coverage as required.");
   }
 

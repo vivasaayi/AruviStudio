@@ -42,6 +42,7 @@ pub enum WorkItemType {
     #[serde(rename = "story", alias = "feature", alias = "capability_delivery")]
     #[sqlx(rename = "feature")]
     CapabilityDelivery,
+    Task,
     Setup,
     Bug,
     Refactor,
@@ -55,6 +56,7 @@ impl std::fmt::Display for WorkItemType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             WorkItemType::CapabilityDelivery => write!(f, "story"),
+            WorkItemType::Task => write!(f, "task"),
             WorkItemType::Setup => write!(f, "setup"),
             WorkItemType::Bug => write!(f, "bug"),
             WorkItemType::Refactor => write!(f, "refactor"),
@@ -138,6 +140,18 @@ mod tests {
         assert!(matches!(
             serde_json::from_value::<WorkItemType>(json!("feature")).expect("legacy alias"),
             WorkItemType::CapabilityDelivery
+        ));
+    }
+
+    #[test]
+    fn task_serializes_as_task_for_public_clients() {
+        assert_eq!(
+            serde_json::to_value(WorkItemType::Task).expect("serialize work type"),
+            json!("task")
+        );
+        assert!(matches!(
+            serde_json::from_value::<WorkItemType>(json!("task")).expect("task type"),
+            WorkItemType::Task
         ));
     }
 }

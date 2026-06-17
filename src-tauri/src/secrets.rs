@@ -1,11 +1,10 @@
+use crate::app_paths;
 use crate::domain::model::ModelProvider;
 use crate::error::AppError;
 use keyring::Entry;
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
-
-const KEYCHAIN_SERVICE_NAME: &str = "com.aruvi.studio";
 
 fn llm_config_primary_path() -> Option<PathBuf> {
     std::env::var_os("HOME")
@@ -14,8 +13,15 @@ fn llm_config_primary_path() -> Option<PathBuf> {
 }
 
 fn llm_config_secondary_path() -> Option<PathBuf> {
-    directories::ProjectDirs::from("com", "aruvi", "studio")
-        .map(|dirs| dirs.data_dir().join("llm-config.json"))
+    app_paths::current_app_data_dir()
+        .ok()
+        .map(|data_dir| data_dir.join("llm-config.json"))
+}
+
+fn llm_config_override_path() -> Option<PathBuf> {
+    std::env::var_os("ARUVI_LLM_CONFIG_PATH")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
 }
 
 fn read_config_from_path(path: &Path) -> Option<Value> {
@@ -24,13 +30,29 @@ fn read_config_from_path(path: &Path) -> Option<Value> {
 }
 
 fn read_config() -> Option<Value> {
+    if let Some(path) = llm_config_override_path() {
+        return read_config_from_path(&path);
+    }
+
+    if app_paths::current_profile().is_some() {
+        return llm_config_secondary_path().and_then(|path| read_config_from_path(&path));
+    }
+
     llm_config_primary_path()
         .and_then(|path| read_config_from_path(&path))
         .or_else(|| llm_config_secondary_path().and_then(|path| read_config_from_path(&path)))
 }
 
 fn write_config(config: &Value) -> Result<PathBuf, AppError> {
-    let path = if let Some(primary) = llm_config_primary_path() {
+    let path = if let Some(override_path) = llm_config_override_path() {
+        override_path
+    } else if app_paths::current_profile().is_some() {
+        llm_config_secondary_path().ok_or_else(|| {
+            AppError::Internal(
+                "Unable to resolve a writable profile path for llm-config.json".to_string(),
+            )
+        })?
+    } else if let Some(primary) = llm_config_primary_path() {
         primary
     } else if let Some(secondary) = llm_config_secondary_path() {
         secondary
@@ -84,7 +106,8 @@ fn normalize_secret_ref(value: &str) -> &str {
 }
 
 fn read_from_keychain(secret_ref: &str) -> Option<String> {
-    let entry = Entry::new(KEYCHAIN_SERVICE_NAME, secret_ref).ok()?;
+    let service_name = app_paths::current_keychain_service_name();
+    let entry = Entry::new(&service_name, secret_ref).ok()?;
     match entry.get_password() {
         Ok(secret) if !secret.trim().is_empty() => Some(secret),
         Ok(_) => None,
@@ -96,7 +119,8 @@ fn read_from_keychain(secret_ref: &str) -> Option<String> {
 }
 
 fn write_to_keychain(secret_ref: &str, secret_value: &str) -> Result<(), AppError> {
-    let entry = Entry::new(KEYCHAIN_SERVICE_NAME, secret_ref).map_err(|error| {
+    let service_name = app_paths::current_keychain_service_name();
+    let entry = Entry::new(&service_name, secret_ref).map_err(|error| {
         AppError::Internal(format!("Unable to initialize keychain entry: {}", error))
     })?;
     entry.set_password(secret_value).map_err(|error| {

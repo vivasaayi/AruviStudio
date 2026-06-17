@@ -1,0 +1,23 @@
+{
+  "productName": "AruviStudio Local",
+  "identifier": "com.aruvi.studio.localrelease",
+  "app": {
+    "windows": [
+      {
+        "title": "AruviStudio Local",
+        "width": 1400,
+        "height": 900,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ]
+  },
+  "bundle": {
+    "targets": ["app"],
+    "macOS": {
+      "bundleName": "AruviStudio Local",
+      "minimumSystemVersion": "10.15",
+      "hardenedRuntime": true
+    }
+  }
+}
