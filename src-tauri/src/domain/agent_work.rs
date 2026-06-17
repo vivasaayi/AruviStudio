@@ -183,3 +183,18 @@ pub struct AgentWorkClaim {
     pub lease_expires_at: String,
     pub conflict_zones: Vec<String>,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentWorkMaterializationResult {
+    pub run_id: String,
+    pub product_id: String,
+    pub total_items: i64,
+    pub product_areas_created: i64,
+    pub product_areas_reused: i64,
+    pub capabilities_created: i64,
+    pub capabilities_reused: i64,
+    pub features_upserted: i64,
+    pub work_items_upserted: i64,
+    pub linked_work_items: i64,
+}

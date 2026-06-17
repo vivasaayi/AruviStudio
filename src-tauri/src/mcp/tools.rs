@@ -264,6 +264,7 @@ fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "list_events",
                 "link_commit",
                 "import_legacy_checkpoint",
+                "materialize_catalog",
                 "get_feature_context",
                 "export_feature_context",
             ],
@@ -1436,6 +1437,29 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
             ),
         ),
         first_class_tool(
+            "agent_work.materialize_catalog",
+            "Materialize Agent Work Catalog",
+            "Bulk-create or update catalog product areas, capabilities, features, visible work items, and ledger work-item links from an agent-work run.",
+            object_schema(
+                vec![
+                    ("runId", string_property("Agent-work run id.")),
+                    (
+                        "productId",
+                        string_property(
+                            "Optional product id. Required when the run is not attached to a product.",
+                        ),
+                    ),
+                    (
+                        "createWorkItems",
+                        boolean_property(
+                            "Whether to create visible delivery work items and link ledger rows. Defaults to true.",
+                        ),
+                    ),
+                ],
+                &["runId"],
+            ),
+        ),
+        first_class_tool(
             "agent_work.context.get_feature",
             "Get Feature Implementation Context",
             "Get 360-degree product, feature, story, parent, sibling, reference, dependency, evidence, and agent-work context for implementation.",
@@ -1797,6 +1821,7 @@ fn translate_first_class_tool(
         "agent_work.events.list" => ("aruvi_agent_work", "list_events"),
         "agent_work.commits.link" => ("aruvi_agent_work", "link_commit"),
         "agent_work.import_legacy_checkpoint" => ("aruvi_agent_work", "import_legacy_checkpoint"),
+        "agent_work.materialize_catalog" => ("aruvi_agent_work", "materialize_catalog"),
         "agent_work.context.get_feature" => ("aruvi_agent_work", "get_feature_context"),
         "agent_work.context.export_feature" => ("aruvi_agent_work", "export_feature_context"),
         "repositories.list" => ("aruvi_repositories", "list_repositories"),
@@ -4510,6 +4535,17 @@ async fn handle_agent_work(state: &AppState, payload: Value) -> Result<Value, Ap
             )
             .await?,
         ),
+        "materialize_catalog" => action_result(
+            "materialize_catalog",
+            agent_work_repo::materialize_catalog(
+                &state.db,
+                &args.required_string(&["run_id", "runId"], "run_id")?,
+                args.optional_string(&["product_id", "productId"])?
+                    .as_deref(),
+                args.bool_or_default(&["create_work_items", "createWorkItems"], true)?,
+            )
+            .await?,
+        ),
         "get_feature_context" => action_result(
             "get_feature_context",
             build_feature_context(
@@ -5274,6 +5310,9 @@ mod tests {
             .any(|tool| tool.name == "agent_work.commits.link"));
         assert!(definitions
             .iter()
+            .any(|tool| tool.name == "agent_work.materialize_catalog"));
+        assert!(definitions
+            .iter()
             .any(|tool| tool.name == "agent_work.runs.summary"));
         assert!(definitions
             .iter()
@@ -5386,6 +5425,33 @@ mod tests {
                 "arguments": {
                     "featureId": "feature-123",
                     "runId": "run-123"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn translate_materialize_catalog_tool_wraps_action_payload() {
+        let translated = translate_first_class_tool(
+            "agent_work.materialize_catalog",
+            json!({
+                "runId": "run-001",
+                "productId": "mayyam",
+                "createWorkItems": true
+            }),
+        )
+        .expect("translation should succeed")
+        .expect("known materialization tool");
+
+        assert_eq!(translated.0, "aruvi_agent_work");
+        assert_eq!(
+            translated.1,
+            json!({
+                "action": "materialize_catalog",
+                "arguments": {
+                    "runId": "run-001",
+                    "productId": "mayyam",
+                    "createWorkItems": true
                 }
             })
         );
