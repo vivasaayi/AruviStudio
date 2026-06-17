@@ -197,6 +197,10 @@ const styles: Record<string, React.CSSProperties> = {
   btnDanger: { padding: "5px 10px", fontSize: 12, backgroundColor: "#6c2020", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" },
   compactActionBtn: { padding: "5px 8px", minHeight: 30, fontSize: 11, backgroundColor: "#2c3139", color: "#e0e0e0", border: "1px solid #3b4049", borderRadius: 7, cursor: "pointer", whiteSpace: "nowrap" as const },
   compactDangerBtn: { padding: "5px 8px", minHeight: 30, fontSize: 11, backgroundColor: "#6c2020", color: "#fff", border: "1px solid #8a2b2b", borderRadius: 7, cursor: "pointer", whiteSpace: "nowrap" as const },
+  copyIdRow: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" as const, marginTop: 6 },
+  copyIdLabel: { fontSize: 10, color: "#8f96a3", fontWeight: 800, textTransform: "uppercase" as const },
+  copyIdValue: { fontSize: 11, color: "#b7c4d6", fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace", overflowWrap: "anywhere" as const },
+  copyIdButton: { padding: "2px 6px", minHeight: 22, fontSize: 10, fontWeight: 800, backgroundColor: "#1b1d22", color: "#cfd6e4", border: "1px solid #3b4049", borderRadius: 6, cursor: "pointer" },
   toolbar: { display: "grid", gridTemplateColumns: "minmax(260px, 1fr) repeat(4, minmax(120px, 160px)) auto", gap: 10, alignItems: "end", marginBottom: 10 },
   toolbarCompact: { display: "flex", gap: 10, flexWrap: "wrap" as const, alignItems: "flex-end", marginBottom: 12 },
   statusToolbar: { display: "grid", gridTemplateColumns: "minmax(220px, 360px) 150px 180px minmax(360px, 1fr)", gap: 10, alignItems: "end", marginBottom: 10 },
@@ -455,6 +459,7 @@ export function ProductListPage() {
   const [outlineSearchTerm, setOutlineSearchTerm] = useState("");
   const [outlineKindFilter, setOutlineKindFilter] = useState<HierarchyNodeKind | "">("");
   const [recentNodeKeys, setRecentNodeKeys] = useState<string[]>([]);
+  const [copiedEntityId, setCopiedEntityId] = useState<string | null>(null);
   const outlineNodeRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
 
   const { data: products, isLoading } = useQuery({ queryKey: ["products"], queryFn: listProducts });
@@ -1448,10 +1453,20 @@ export function ProductListPage() {
     enabled: !!selectedManagementStoryIdForTasks,
   });
   const selectedManagementTasks = useMemo(
-    () => selectedManagementStory
-      ? selectedManagementStoryTasks.filter((workItem) => workItem.parent_work_item_id === selectedManagementStory.id)
-      : [],
-    [selectedManagementStory, selectedManagementStoryTasks],
+    () => {
+      if (!selectedManagementStory) {
+        return [];
+      }
+      const taskMap = new Map<string, WorkItem>();
+      selectedManagementStoryTasks
+        .filter((workItem) => workItem.parent_work_item_id === selectedManagementStory.id)
+        .forEach((workItem) => taskMap.set(workItem.id, workItem));
+      allProductTasks
+        .filter((workItem) => workItem.parent_work_item_id === selectedManagementStory.id)
+        .forEach((workItem) => taskMap.set(workItem.id, workItem));
+      return Array.from(taskMap.values()).sort((a, b) => a.sort_order - b.sort_order || a.title.localeCompare(b.title));
+    },
+    [allProductTasks, selectedManagementStory, selectedManagementStoryTasks],
   );
   const refreshProductManagementTabQueries = async () => {
     if (!selectedProductId) {
@@ -1777,6 +1792,47 @@ export function ProductListPage() {
     openCapabilityDialog("edit");
   };
 
+  const copyEntityId = async (id: string) => {
+    try {
+      await navigator.clipboard.writeText(id);
+      setCopiedEntityId(id);
+      setTimeout(() => setCopiedEntityId((current) => current === id ? null : current), 1800);
+    } catch {
+      setCopiedEntityId(null);
+    }
+  };
+
+  const renderCopyableEntityId = (label: string, id: string) => {
+    const displayId = id.length > 18 ? `${id.slice(0, 8)}...${id.slice(-6)}` : id;
+    const isCopied = copiedEntityId === id;
+
+    return (
+      <div style={styles.copyIdRow} title={id}>
+        <span style={styles.copyIdLabel}>{label}</span>
+        <span style={styles.copyIdValue}>{displayId}</span>
+        <button
+          type="button"
+          style={styles.copyIdButton}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            void copyEntityId(id);
+          }}
+        >
+          {isCopied ? "Copied" : "Copy"}
+        </button>
+      </div>
+    );
+  };
+
+  const handleManagementListKeyDown = (event: React.KeyboardEvent<HTMLDivElement>, onSelect: () => void) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    onSelect();
+  };
+
   const renderReferencesPanel = () => (
     <div style={styles.section}>
       <div style={styles.sectionTitle}>
@@ -2047,6 +2103,13 @@ export function ProductListPage() {
 
   const renderProductManagementConsole = () => (
     <div>
+      {selectedProduct ? (
+        <div style={styles.contextCard}>
+          <div style={styles.contextLabel}>Selected Product</div>
+          <div style={styles.contextTitle}>{selectedProduct.name}</div>
+          {renderCopyableEntityId("Product ID", selectedProduct.id)}
+        </div>
+      ) : null}
       <div style={styles.managementTabs}>
         <button style={productManagementTab === "areas" ? styles.tabActive : styles.tab} onClick={() => setProductManagementTab("areas")}>Product Areas</button>
         <button style={productManagementTab === "capabilities" ? styles.tabActive : styles.tab} onClick={() => setProductManagementTab("capabilities")}>Capabilities</button>
@@ -2083,6 +2146,7 @@ export function ProductListPage() {
                   <div>
                     <div style={styles.rowPrimary}>{moduleTree.module.name}</div>
                     <div style={styles.rowSecondary}>{moduleTree.module.description || moduleTree.module.purpose || "No description yet."}</div>
+                    {renderCopyableEntityId("Area ID", moduleTree.module.id)}
                   </div>
                   <div style={styles.rowCell}>{moduleTree.features.filter((node) => node.capability.node_kind === "capability").length}</div>
                   <div style={styles.rowCell}>{flattenCapabilityTreeList(moduleTree.features).filter((node) => node.capability.node_kind === "feature").length}</div>
@@ -2116,14 +2180,18 @@ export function ProductListPage() {
             </div>
             <div style={styles.managementList}>
               {productAreaModules.map((moduleTree) => (
-                <button
+                <div
                   key={moduleTree.module.id}
                   style={selectedProductAreaTree?.module.id === moduleTree.module.id ? styles.managementListButtonActive : styles.managementListButton}
                   onClick={() => selectProductArea(moduleTree)}
+                  onKeyDown={(event) => handleManagementListKeyDown(event, () => selectProductArea(moduleTree))}
+                  role="button"
+                  tabIndex={0}
                 >
                   <div style={styles.rowPrimary}>{moduleTree.module.name}</div>
                   <div style={styles.rowSecondary}>{moduleTree.features.length} child nodes</div>
-                </button>
+                  {renderCopyableEntityId("Area ID", moduleTree.module.id)}
+                </div>
               ))}
             </div>
           </div>
@@ -2154,6 +2222,7 @@ export function ProductListPage() {
                       <div>
                         <div style={styles.rowPrimary}>{capabilityTree.capability.name}</div>
                         <div style={styles.rowSecondary}>{capabilityTree.capability.description || "No description yet."}</div>
+                        {renderCopyableEntityId("Capability ID", capabilityTree.capability.id)}
                       </div>
                       <div style={styles.rowCell}>{capabilityTree.children.filter((node) => node.capability.node_kind === "feature").length}</div>
                       <div style={styles.rowCell}>{storyCount}</div>
@@ -2187,14 +2256,18 @@ export function ProductListPage() {
             <div style={styles.controlLabel}>Capabilities</div>
             <div style={styles.managementList}>
               {managementCapabilities.map((capabilityTree) => (
-                <button
+                <div
                   key={capabilityTree.capability.id}
                   style={selectedManagementCapabilityTree?.capability.id === capabilityTree.capability.id ? styles.managementListButtonActive : styles.managementListButton}
                   onClick={() => selectCapabilityForManagement(capabilityTree)}
+                  onKeyDown={(event) => handleManagementListKeyDown(event, () => selectCapabilityForManagement(capabilityTree))}
+                  role="button"
+                  tabIndex={0}
                 >
                   <div style={styles.rowPrimary}>{capabilityTree.capability.name}</div>
                   <div style={styles.rowSecondary}>{capabilityTree.children.filter((node) => node.capability.node_kind === "feature").length} features</div>
-                </button>
+                  {renderCopyableEntityId("Capability ID", capabilityTree.capability.id)}
+                </div>
               ))}
             </div>
           </div>
@@ -2225,6 +2298,7 @@ export function ProductListPage() {
                       <div>
                         <div style={styles.rowPrimary}>{featureTree.capability.name}</div>
                         <div style={styles.rowSecondary}>{featureTree.capability.description || "No description yet."}</div>
+                        {renderCopyableEntityId("Feature ID", featureTree.capability.id)}
                       </div>
                       <div style={styles.rowCell}>{featureTree.capability.status}</div>
                       <div style={styles.rowCell}>{stories.length}</div>
@@ -2258,17 +2332,24 @@ export function ProductListPage() {
             <div style={styles.controlLabel}>Features</div>
             <div style={styles.managementList}>
               {allManagementFeatures.map((entry) => (
-                <button
+                <div
                   key={entry.capabilityTree.capability.id}
                   style={selectedManagementFeature?.capabilityTree.capability.id === entry.capabilityTree.capability.id ? styles.managementListButtonActive : styles.managementListButton}
                   onClick={() => {
                     selectCapabilityForManagement(entry.capabilityTree);
                     setSelectedManagementStoryId(null);
                   }}
+                  onKeyDown={(event) => handleManagementListKeyDown(event, () => {
+                    selectCapabilityForManagement(entry.capabilityTree);
+                    setSelectedManagementStoryId(null);
+                  })}
+                  role="button"
+                  tabIndex={0}
                 >
                   <div style={styles.rowPrimary}>{entry.capabilityTree.capability.name}</div>
                   <div style={styles.rowSecondary}>{entry.productArea.name}{entry.parentCapability ? ` / ${entry.parentCapability.name}` : ""}</div>
-                </button>
+                  {renderCopyableEntityId("Feature ID", entry.capabilityTree.capability.id)}
+                </div>
               ))}
             </div>
           </div>
