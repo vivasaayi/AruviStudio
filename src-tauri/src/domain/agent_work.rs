@@ -198,3 +198,16 @@ pub struct AgentWorkMaterializationResult {
     pub work_items_upserted: i64,
     pub linked_work_items: i64,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentWorkCatalogLinkResult {
+    pub run_id: String,
+    pub product_id: String,
+    pub total_items: i64,
+    pub already_linked: i64,
+    pub linked_work_items: i64,
+    pub missing_work_items: i64,
+    pub ambiguous_work_items: i64,
+    pub status_synced: i64,
+}
