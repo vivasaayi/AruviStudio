@@ -1709,8 +1709,11 @@
         case "get_work_item_approvals":
         case "list_work_item_artifacts":
         case "list_work_item_findings":
-        case "get_sub_work_items":
           return ok([]);
+        case "get_sub_work_items": {
+          const workItemId = String(getArg(args, "workItemId", "work_item_id") ?? "");
+          return ok(state.workItems.filter((entry) => entry.parent_work_item_id === workItemId));
+        }
         case "list_external_cli_runs_for_work_item": {
           const workItemId = String(getArg(args, "workItemId", "work_item_id") ?? "");
           return ok(state.externalCliRuns.filter((run) => !workItemId || run.work_item_id === workItemId));

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, type QueryKey, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   archiveProduct,
@@ -15,6 +15,7 @@ import {
   deleteProductReference,
   deleteWorkItem,
   getProductTree,
+  getSubWorkItems,
   getSetting,
   listProductDependencies,
   listProductReferences,
@@ -157,6 +158,17 @@ function formatWorkItemMeta(value: string): string {
   return value.replace(/_/g, " ");
 }
 
+async function refreshScopedProductQueries(queryClient: QueryClient, queryKeys: QueryKey[]) {
+  const scopedQueryKeys = queryKeys.filter((queryKey) => queryKey.every((part) => part !== null && part !== undefined));
+
+  await Promise.all(
+    scopedQueryKeys.map(async (queryKey) => {
+      await queryClient.invalidateQueries({ queryKey, refetchType: "none" });
+      await queryClient.refetchQueries({ queryKey, type: "active" }, { throwOnError: true });
+    }),
+  );
+}
+
 const styles: Record<string, React.CSSProperties> = {
   page: { display: "flex", flexDirection: "column", height: "100%", gap: 8 },
   header: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 },
@@ -175,6 +187,11 @@ const styles: Record<string, React.CSSProperties> = {
   pageTabProductSelect: { minWidth: 190, padding: "6px 9px", backgroundColor: "#181a1f", border: "1px solid #3c4048", borderRadius: 8, color: "#e0e0e0", fontSize: 12 },
   pageTab: { padding: "6px 10px", fontSize: 12, fontWeight: 800, borderRadius: 8, border: "1px solid transparent", backgroundColor: "transparent", color: "#aeb7c6", cursor: "pointer" },
   pageTabActive: { padding: "6px 10px", fontSize: 12, fontWeight: 800, borderRadius: 8, border: "1px solid #0e639c", backgroundColor: "#173247", color: "#ffffff", cursor: "pointer" },
+  tabRefreshSlot: { marginLeft: "auto", display: "flex", alignItems: "center" },
+  refreshWrap: { display: "flex", alignItems: "center", gap: 8, minHeight: 30 },
+  refreshBtn: { padding: "6px 10px", minHeight: 30, fontSize: 12, fontWeight: 800, backgroundColor: "#2c3139", color: "#e0e0e0", border: "1px solid #3b4049", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
+  refreshBtnBusy: { padding: "6px 10px", minHeight: 30, fontSize: 12, fontWeight: 800, backgroundColor: "#173247", color: "#ffffff", border: "1px solid #0e639c", borderRadius: 8, cursor: "wait", whiteSpace: "nowrap" as const },
+  refreshError: { maxWidth: 260, fontSize: 11, color: "#ff7b72", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
   btn: { padding: "7px 12px", fontSize: 12, backgroundColor: "#0e639c", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" },
   ghostBtn: { padding: "6px 10px", fontSize: 12, backgroundColor: "#2c3139", color: "#e0e0e0", border: "1px solid #3b4049", borderRadius: 8, cursor: "pointer" },
   btnDanger: { padding: "5px 10px", fontSize: 12, backgroundColor: "#6c2020", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" },
@@ -288,6 +305,52 @@ const styles: Record<string, React.CSSProperties> = {
   rowSecondary: { fontSize: 12, color: "#8f96a3", marginTop: 4 },
   rowCell: { fontSize: 12, color: "#cfd6e4" },
 };
+
+function ScopedRefreshButton({
+  label = "Refresh",
+  disabled,
+  onRefresh,
+}: {
+  label?: string;
+  disabled?: boolean;
+  onRefresh: () => Promise<void>;
+}) {
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
+  const [refreshError, setRefreshError] = React.useState<string | null>(null);
+  const isDisabled = disabled || isRefreshing;
+
+  const runRefresh = async () => {
+    if (isDisabled) {
+      return;
+    }
+    try {
+      setIsRefreshing(true);
+      setRefreshError(null);
+      await onRefresh();
+    } catch (error) {
+      setRefreshError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  return (
+    <div style={styles.refreshWrap}>
+      <button
+        style={{
+          ...(isRefreshing ? styles.refreshBtnBusy : styles.refreshBtn),
+          ...(disabled ? { opacity: 0.55, cursor: "not-allowed" } : null),
+        }}
+        onClick={() => void runRefresh()}
+        disabled={isDisabled}
+        title={refreshError ?? label}
+      >
+        {isRefreshing ? "Refreshing..." : label}
+      </button>
+      {refreshError ? <span style={styles.refreshError}>{refreshError}</span> : null}
+    </div>
+  );
+}
 
 export function ProductListPage() {
   const queryClient = useQueryClient();
@@ -733,6 +796,7 @@ export function ProductListPage() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["productAllTasks", selectedProductId] }),
       queryClient.invalidateQueries({ queryKey: ["productTasks", selectedProductId, activeNodeId, activeNodeType] }),
+      queryClient.invalidateQueries({ queryKey: ["subWorkItems"] }),
       queryClient.invalidateQueries({ queryKey: ["productOverviewPageWorkItems", selectedProductId] }),
       queryClient.invalidateQueries({ queryKey: ["workItems"] }),
       queryClient.invalidateQueries({ queryKey: ["sidebarWorkItems", selectedProductId] }),
@@ -958,7 +1022,7 @@ export function ProductListPage() {
         description: storyDraft.description.trim(),
         acceptanceCriteria: storyDraft.acceptanceCriteria.trim(),
         constraints: storyDraft.constraints.trim(),
-        workItemType: "feature",
+        workItemType: "story",
         priority: storyDraft.priority,
         complexity: storyDraft.complexity,
       });
@@ -1018,7 +1082,7 @@ export function ProductListPage() {
         description: taskDraft.description.trim(),
         acceptanceCriteria: taskDraft.acceptanceCriteria.trim(),
         constraints: taskDraft.constraints.trim(),
-        workItemType: "feature",
+        workItemType: "task",
         priority: taskDraft.priority,
         complexity: taskDraft.complexity,
       });
@@ -1060,7 +1124,7 @@ export function ProductListPage() {
   const deleteManagementWorkItemMutation = useMutation({
     mutationFn: async (candidate: { workItem: WorkItem; kind: "story" | "task" }) => {
       if (candidate.kind === "story") {
-        const childTasks = allProductTasks.filter((workItem) => workItem.parent_work_item_id === candidate.workItem.id);
+        const childTasks = await getSubWorkItems(candidate.workItem.id);
         await Promise.all(childTasks.map((workItem) => deleteWorkItem(workItem.id)));
       }
       await deleteWorkItem(candidate.workItem.id);
@@ -1377,12 +1441,110 @@ export function ProductListPage() {
       ?? null,
     [activeWorkItemId, featureStories, selectedManagementStoryId],
   );
+  const selectedManagementStoryIdForTasks = selectedManagementStory?.id ?? null;
+  const { data: selectedManagementStoryTasks = [] } = useQuery({
+    queryKey: ["subWorkItems", selectedManagementStoryIdForTasks],
+    queryFn: () => getSubWorkItems(selectedManagementStoryIdForTasks!),
+    enabled: !!selectedManagementStoryIdForTasks,
+  });
   const selectedManagementTasks = useMemo(
     () => selectedManagementStory
-      ? allProductTasks.filter((workItem) => workItem.parent_work_item_id === selectedManagementStory.id)
+      ? selectedManagementStoryTasks.filter((workItem) => workItem.parent_work_item_id === selectedManagementStory.id)
       : [],
-    [allProductTasks, selectedManagementStory],
+    [selectedManagementStory, selectedManagementStoryTasks],
   );
+  const refreshProductManagementTabQueries = async () => {
+    if (!selectedProductId) {
+      return;
+    }
+
+    const baseQueryKeys: QueryKey[] = [
+      ["products"],
+      ["productTree", selectedProductId],
+      ["productAllTasks", selectedProductId],
+    ];
+    const workItemQueryKeys: QueryKey[] = productManagementTab === "work_items"
+      ? [
+          ["productTasks", selectedProductId, activeNodeId, activeNodeType],
+          ["subWorkItems", selectedManagementStoryIdForTasks],
+        ]
+      : [];
+
+    await refreshScopedProductQueries(queryClient, [...baseQueryKeys, ...workItemQueryKeys]);
+  };
+
+  const refreshActiveProductPageTab = async () => {
+    switch (productPageTab) {
+      case "list":
+        await refreshScopedProductQueries(queryClient, [
+          ["products"],
+          ["setting", HIDE_EXAMPLE_PRODUCTS_KEY],
+          ["productTree"],
+          ["productAllTasks"],
+        ]);
+        return;
+      case "status":
+        await refreshScopedProductQueries(queryClient, [
+          ["products"],
+          ["productTree"],
+          ["productAllTasks"],
+        ]);
+        return;
+      case "overview":
+        if (!selectedProductId) {
+          return;
+        }
+        await refreshScopedProductQueries(queryClient, [
+          ["products"],
+          ["productOverviewTree", selectedProductId],
+          ["productOverviewPageWorkItems", selectedProductId],
+          ["productOverviewPageReferences"],
+        ]);
+        return;
+      case "design":
+        await refreshProductManagementTabQueries();
+        return;
+      case "dependencies":
+        if (!selectedProductId) {
+          return;
+        }
+        await refreshScopedProductQueries(queryClient, [
+          ["products"],
+          ["productTree"],
+          ["product-dependencies"],
+        ]);
+        return;
+    }
+  };
+
+  const activeProductPageRefreshLabel = useMemo(() => {
+    switch (productPageTab) {
+      case "list":
+        return "Refresh List";
+      case "status":
+        return "Refresh Status";
+      case "overview":
+        return "Refresh Overview";
+      case "design":
+        return "Refresh Management";
+      case "dependencies":
+        return "Refresh Dependencies";
+    }
+  }, [productPageTab]);
+  const activeProductPageRefreshDisabled = !selectedProductId && productPageTab !== "list" && productPageTab !== "status";
+  const productManagementRefreshLabel = useMemo(() => {
+    switch (productManagementTab) {
+      case "areas":
+        return "Refresh Areas";
+      case "capabilities":
+        return "Refresh Capabilities";
+      case "features":
+        return "Refresh Features";
+      case "work_items":
+        return "Refresh Work Items";
+    }
+  }, [productManagementTab]);
+
   const structureRows = useMemo(() => {
     if (!tree) {
       return [];
@@ -1890,6 +2052,13 @@ export function ProductListPage() {
         <button style={productManagementTab === "capabilities" ? styles.tabActive : styles.tab} onClick={() => setProductManagementTab("capabilities")}>Capabilities</button>
         <button style={productManagementTab === "features" ? styles.tabActive : styles.tab} onClick={() => setProductManagementTab("features")}>Features</button>
         <button style={productManagementTab === "work_items" ? styles.tabActive : styles.tab} onClick={() => setProductManagementTab("work_items")}>Work Items</button>
+        <div style={styles.tabRefreshSlot}>
+          <ScopedRefreshButton
+            label={productManagementRefreshLabel}
+            onRefresh={refreshProductManagementTabQueries}
+            disabled={!selectedProductId}
+          />
+        </div>
       </div>
 
       {productManagementTab === "areas" && (
@@ -2246,6 +2415,13 @@ export function ProductListPage() {
           <button style={productPageTab === "overview" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("overview")} disabled={!selectedProduct}>Product Overview</button>
           <button style={productPageTab === "design" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("design")} disabled={!selectedProduct}>Product Management</button>
           <button style={productPageTab === "dependencies" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("dependencies")} disabled={!selectedProduct}>Dependencies</button>
+        </div>
+        <div style={styles.tabRefreshSlot}>
+          <ScopedRefreshButton
+            label={activeProductPageRefreshLabel}
+            onRefresh={refreshActiveProductPageTab}
+            disabled={activeProductPageRefreshDisabled}
+          />
         </div>
       </div>
 
