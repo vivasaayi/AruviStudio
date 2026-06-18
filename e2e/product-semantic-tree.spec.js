@@ -76,8 +76,21 @@ test("delivery builder shows owner badges and product-level ownership", async ({
   await expect(page.getByText("Owner: Product", { exact: true })).toBeVisible();
   await expect(page.getByText("Owner: Capability", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Calculator / Core Math Engine / Expression Evaluation", { exact: true })).toBeVisible();
-  await expect(page.getByText("Owner: Feature", { exact: true })).toBeVisible();
-  await expect(page.getByText("Calculator / Core Math Engine / Expression Evaluation / Scientific Mode Slice", { exact: true })).toBeVisible();
+  await expect(page.getByText("Owner: Feature", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Calculator / Core Math Engine / Expression Evaluation / Scientific Mode Slice", { exact: true }).first()).toBeVisible();
+});
+
+test("product management renders every child task for the selected story", async ({ page }) => {
+  await page.goto("/products");
+
+  await page.getByRole("button", { name: "Product Management" }).click();
+  await page.getByRole("button", { name: "Work Items" }).click();
+  await page.getByText("Make story task lists reliable after task creation", { exact: true }).click();
+
+  await expect(page.getByText("Make story task lists reliable after task creation", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Load selected story tasks through get_sub_work_items", { exact: true })).toBeVisible();
+  await expect(page.getByText("Add regression coverage for multi-task story display", { exact: true })).toBeVisible();
+  await expect(page.getByText("Tasks", { exact: true })).toBeVisible();
 });
 
 test("portfolio and products expose cross-product capability dependencies", async ({ page }) => {

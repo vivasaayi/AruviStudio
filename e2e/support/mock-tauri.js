@@ -122,6 +122,7 @@
     const expressionCapabilityId = "calc-expression-evaluation";
     const featureCapabilityId = "calc-scientific-mode-feature";
     const securePairingCapabilityId = "wifi-secure-pairing";
+    const multiTaskStoryId = "work-item-calc-feature-multi-task-story";
 
     return {
       nextId: 1,
@@ -359,6 +360,54 @@
           "draft",
           3,
         ),
+        createWorkItem(
+          multiTaskStoryId,
+          calculatorProductId,
+          coreMathModuleId,
+          featureCapabilityId,
+          featureCapabilityId,
+          "capability",
+          "Make story task lists reliable after task creation",
+          "Story used to verify that Product Management renders every child task.",
+          "feature",
+          "high",
+          "draft",
+          4,
+        ),
+        {
+          ...createWorkItem(
+            "work-item-calc-feature-multi-task-one",
+            calculatorProductId,
+            coreMathModuleId,
+            featureCapabilityId,
+            featureCapabilityId,
+            "capability",
+            "Load selected story tasks through get_sub_work_items",
+            "Use the dedicated child-work-item API for the selected story's task panel.",
+            "task",
+            "high",
+            "draft",
+            0,
+          ),
+          parent_work_item_id: multiTaskStoryId,
+        },
+        {
+          ...createWorkItem(
+            "work-item-calc-feature-multi-task-two",
+            calculatorProductId,
+            coreMathModuleId,
+            featureCapabilityId,
+            featureCapabilityId,
+            "capability",
+            "Add regression coverage for multi-task story display",
+            "Assert that a selected story renders all persisted child tasks.",
+            "task",
+            "medium",
+            "draft",
+            1,
+          ),
+          parent_work_item_id: multiTaskStoryId,
+        },
       ],
       repositories: [],
       externalCliRuns: [],

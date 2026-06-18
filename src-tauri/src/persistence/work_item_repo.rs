@@ -471,13 +471,11 @@ mod tests {
             .expect("test database should be created")
     }
 
-    #[tokio::test]
-    async fn list_work_items_page_applies_limit_and_offset() {
-        let pool = create_test_pool("list_page").await;
+    async fn create_test_product(pool: &SqlitePool, product_id: &str) {
         product_repo::create_product(
-            &pool,
-            "product-work-page",
-            "Work Page",
+            pool,
+            product_id,
+            "Test Product",
             "",
             "",
             "[]",
@@ -491,6 +489,12 @@ mod tests {
         )
         .await
         .expect("product should be created");
+    }
+
+    #[tokio::test]
+    async fn list_work_items_page_applies_limit_and_offset() {
+        let pool = create_test_pool("list_page").await;
+        create_test_product(&pool, "product-work-page").await;
 
         for index in 0..5 {
             create_work_item(
@@ -532,5 +536,259 @@ mod tests {
         assert_eq!(page.len(), 2);
         assert_eq!(page[0].title, "Work item 1");
         assert_eq!(page[1].title, "Work item 2");
+    }
+
+    #[tokio::test]
+    async fn get_sub_work_items_returns_all_child_tasks_for_story() {
+        let pool = create_test_pool("sub_work_items").await;
+        create_test_product(&pool, "product-sub-work").await;
+
+        create_work_item(
+            &pool,
+            "story-with-two-tasks",
+            "product-sub-work",
+            None,
+            None,
+            None,
+            None,
+            None,
+            "Story with two tasks",
+            "",
+            "",
+            "",
+            "",
+            "story",
+            "high",
+            "medium",
+        )
+        .await
+        .expect("story should be created");
+
+        for (index, title) in ["First task", "Second task"].iter().enumerate() {
+            create_work_item(
+                &pool,
+                &format!("story-child-task-{index}"),
+                "product-sub-work",
+                None,
+                None,
+                None,
+                None,
+                Some("story-with-two-tasks"),
+                title,
+                "",
+                "",
+                "",
+                "",
+                "task",
+                "medium",
+                "medium",
+            )
+            .await
+            .expect("task should be created");
+        }
+
+        let tasks = get_sub_work_items(&pool, "story-with-two-tasks")
+            .await
+            .expect("child tasks should load");
+
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0].title, "First task");
+        assert_eq!(tasks[1].title, "Second task");
+        assert!(tasks
+            .iter()
+            .all(|task| task.parent_work_item_id.as_deref() == Some("story-with-two-tasks")));
+    }
+
+    #[tokio::test]
+    async fn create_work_item_normalizes_capability_scope_and_legacy_story_alias() {
+        let pool = create_test_pool("normalize_scope").await;
+        create_test_product(&pool, "product-normalize").await;
+        product_repo::create_module(
+            &pool,
+            "module-normalize",
+            "product-normalize",
+            "Operations",
+            "",
+            "",
+            Some("product_area"),
+            "",
+            "",
+            "",
+            "",
+        )
+        .await
+        .expect("module should be created");
+        product_repo::create_capability(
+            &pool,
+            "capability-normalize",
+            "module-normalize",
+            None,
+            "Checkout",
+            "",
+            "",
+            "medium",
+            "low",
+            "",
+            Some("capability"),
+            "",
+            "",
+            "",
+            "",
+        )
+        .await
+        .expect("capability should be created");
+
+        let work_item = create_work_item(
+            &pool,
+            "work-item-normalize",
+            "product-normalize",
+            None,
+            Some("capability-normalize"),
+            None,
+            None,
+            None,
+            "Normalized story",
+            "",
+            "",
+            "",
+            "",
+            "delivery_story",
+            "medium",
+            "medium",
+        )
+        .await
+        .expect("work item should be created");
+
+        assert_eq!(work_item.module_id.as_deref(), Some("module-normalize"));
+        assert_eq!(work_item.capability_id.as_deref(), Some("capability-normalize"));
+        assert_eq!(work_item.source_node_id.as_deref(), Some("capability-normalize"));
+        assert!(matches!(
+            work_item.source_node_type,
+            Some(HierarchyNodeType::Capability)
+        ));
+        assert!(matches!(
+            work_item.work_item_type,
+            crate::domain::work_item::WorkItemType::CapabilityDelivery
+        ));
+    }
+
+    #[tokio::test]
+    async fn create_child_work_item_inherits_parent_source_scope() {
+        let pool = create_test_pool("inherit_scope").await;
+        create_test_product(&pool, "product-inherit").await;
+        product_repo::create_module(
+            &pool,
+            "module-inherit",
+            "product-inherit",
+            "Platform",
+            "",
+            "",
+            Some("area"),
+            "",
+            "",
+            "",
+            "",
+        )
+        .await
+        .expect("module should be created");
+        product_repo::create_capability(
+            &pool,
+            "capability-inherit",
+            "module-inherit",
+            None,
+            "Runtime",
+            "",
+            "",
+            "medium",
+            "low",
+            "",
+            Some("capability"),
+            "",
+            "",
+            "",
+            "",
+        )
+        .await
+        .expect("capability should be created");
+
+        create_work_item(
+            &pool,
+            "parent-story",
+            "product-inherit",
+            None,
+            Some("capability-inherit"),
+            None,
+            None,
+            None,
+            "Parent story",
+            "",
+            "",
+            "",
+            "",
+            "story",
+            "high",
+            "medium",
+        )
+        .await
+        .expect("parent work item should be created");
+
+        let child = create_work_item(
+            &pool,
+            "child-task",
+            "product-inherit",
+            None,
+            None,
+            None,
+            None,
+            Some("parent-story"),
+            "Child task",
+            "",
+            "",
+            "",
+            "",
+            "task",
+            "medium",
+            "low",
+        )
+        .await
+        .expect("child work item should be created");
+
+        assert_eq!(child.parent_work_item_id.as_deref(), Some("parent-story"));
+        assert_eq!(child.module_id.as_deref(), Some("module-inherit"));
+        assert_eq!(child.capability_id.as_deref(), Some("capability-inherit"));
+        assert_eq!(child.source_node_id.as_deref(), Some("capability-inherit"));
+        assert!(matches!(
+            child.source_node_type,
+            Some(HierarchyNodeType::Capability)
+        ));
+    }
+
+    #[tokio::test]
+    async fn create_work_item_rejects_source_node_id_without_type() {
+        let pool = create_test_pool("source_type_validation").await;
+        create_test_product(&pool, "product-source-validation").await;
+
+        let error = create_work_item(
+            &pool,
+            "work-item-invalid-source",
+            "product-source-validation",
+            None,
+            None,
+            Some("module-missing-type"),
+            None,
+            None,
+            "Invalid source",
+            "",
+            "",
+            "",
+            "",
+            "story",
+            "medium",
+            "medium",
+        )
+        .await
+        .expect_err("missing source node type should fail validation");
+
+        assert!(matches!(error, AppError::Validation(message) if message == "source_node_type is required when source_node_id is provided."));
     }
 }
