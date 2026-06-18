@@ -909,3 +909,208 @@ fn ensure_git_repository(workspace_path: &PathBuf, product_name: &str) -> Result
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::{product_commands, test_helpers::make_test_app, work_item_commands};
+    use crate::state::AppState;
+    use tauri::Manager;
+    use tauri::test::MockRuntime;
+
+    async fn create_work_item_with_module(
+        state: State<'_, AppState>,
+        product_name: &str,
+        module_name: &str,
+        title: &str,
+    ) -> (String, String, String) {
+        let product = product_commands::create_product(
+            state.clone(),
+            product_name.to_string(),
+            "".to_string(),
+            "".to_string(),
+            "[]".to_string(),
+            "[]".to_string(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("product should be created");
+        let module = product_commands::create_module(
+            state.clone(),
+            product.id.clone(),
+            module_name.to_string(),
+            "".to_string(),
+            "".to_string(),
+            Some("area".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("module should be created");
+        let work_item = work_item_commands::create_work_item(
+            state,
+            Some(product.id.clone()),
+            None,
+            Some(module.id.clone()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            title.to_string(),
+            "Problem".to_string(),
+            None,
+            "Description".to_string(),
+            "Acceptance".to_string(),
+            None,
+            "".to_string(),
+            "story".to_string(),
+            None,
+            "medium".to_string(),
+            "medium".to_string(),
+        )
+        .await
+        .expect("work item should be created");
+
+        (product.id, module.id, work_item.id)
+    }
+
+    #[tokio::test]
+    async fn repository_resolution_prefers_module_attachment_over_product_attachment() {
+        let app: tauri::App<MockRuntime> = make_test_app("repository_commands_resolve").await;
+        let state = app.state::<AppState>();
+        let (product_id, module_id, work_item_id) = create_work_item_with_module(
+            state.clone(),
+            "Repository Product",
+            "Repository Module",
+            "Repository Work Item",
+        )
+        .await;
+
+        let product_repo = register_repository(
+            state.clone(),
+            "Product Repo".to_string(),
+            "/tmp/product-repo".to_string(),
+            "".to_string(),
+            "main".to_string(),
+        )
+        .await
+        .expect("product repo should be created");
+        let module_repo = register_repository(
+            state.clone(),
+            "Module Repo".to_string(),
+            "/tmp/module-repo".to_string(),
+            "".to_string(),
+            "develop".to_string(),
+        )
+        .await
+        .expect("module repo should be created");
+
+        attach_repository(
+            state.clone(),
+            "product".to_string(),
+            product_id.clone(),
+            product_repo.id.clone(),
+            true,
+        )
+        .await
+        .expect("product attachment should be created");
+        attach_repository(
+            state.clone(),
+            "module".to_string(),
+            module_id.clone(),
+            module_repo.id.clone(),
+            true,
+        )
+        .await
+        .expect("module attachment should be created");
+
+        let resolved_for_product = resolve_repository_for_scope(
+            state.clone(),
+            Some(product_id.clone()),
+            None,
+        )
+        .await
+        .expect("product scope should resolve")
+        .expect("product repo should exist");
+        let resolved_for_scope = resolve_repository_for_scope(
+            state.clone(),
+            Some(product_id),
+            Some(module_id),
+        )
+        .await
+        .expect("module scope should resolve")
+        .expect("module repo should exist");
+        let resolved_for_work_item = resolve_repository_for_work_item(state, work_item_id)
+            .await
+            .expect("work item repo should resolve")
+            .expect("work item repo should exist");
+
+        assert_eq!(resolved_for_product.id, product_repo.id);
+        assert_eq!(resolved_for_scope.id, module_repo.id);
+        assert_eq!(resolved_for_work_item.id, module_repo.id);
+    }
+
+    #[tokio::test]
+    async fn updating_repository_propagates_new_default_branch_to_assigned_work_items() {
+        let app: tauri::App<MockRuntime> = make_test_app("repository_commands_update").await;
+        let state = app.state::<AppState>();
+        let (_, _, work_item_id) = create_work_item_with_module(
+            state.clone(),
+            "Workspace Product",
+            "Workspace Module",
+            "Workspace Work Item",
+        )
+        .await;
+
+        let repository = register_repository(
+            state.clone(),
+            "Workspace Repo".to_string(),
+            "/tmp/workspace-repo".to_string(),
+            "git@example.com:workspace/repo.git".to_string(),
+            "main".to_string(),
+        )
+        .await
+        .expect("repository should be created");
+
+        work_item_commands::assign_work_item_workspace(
+            state.clone(),
+            work_item_id.clone(),
+            Some(repository.id.clone()),
+            Some("main".to_string()),
+        )
+        .await
+        .expect("workspace should be assigned");
+
+        let updated_repository = update_repository(
+            state.clone(),
+            repository.id.clone(),
+            "Workspace Repo".to_string(),
+            "/tmp/workspace-repo".to_string(),
+            "git@example.com:workspace/repo.git".to_string(),
+            "develop".to_string(),
+        )
+        .await
+        .expect("repository should update");
+        let updated_work_item = work_item_commands::get_work_item(state, work_item_id)
+            .await
+            .expect("work item should load");
+
+        assert_eq!(updated_repository.default_branch, "develop");
+        assert_eq!(updated_work_item.active_repo_id.as_deref(), Some(repository.id.as_str()));
+        assert_eq!(updated_work_item.branch_name.as_deref(), Some("develop"));
+    }
+}

@@ -253,3 +253,194 @@ pub async fn reorder_work_items(
     }
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::product_commands;
+    use crate::commands::test_helpers::make_test_app;
+    use tauri::Manager;
+    use tauri::test::MockRuntime;
+
+    #[tokio::test]
+    async fn create_work_item_accepts_legacy_aliases_and_fallback_fields() {
+        let app: tauri::App<MockRuntime> = make_test_app("work_item_commands_create").await;
+        let state = app.state::<AppState>();
+
+        let product = product_commands::create_product(
+            state.clone(),
+            "Work Item Product".to_string(),
+            "".to_string(),
+            "".to_string(),
+            "[]".to_string(),
+            "[]".to_string(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("product should be created");
+        let module = product_commands::create_module(
+            state.clone(),
+            product.id.clone(),
+            "Area".to_string(),
+            "".to_string(),
+            "".to_string(),
+            Some("area".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("module should be created");
+        let capability = product_commands::create_capability(
+            state.clone(),
+            module.id.clone(),
+            None,
+            "Capability".to_string(),
+            "".to_string(),
+            "".to_string(),
+            "medium".to_string(),
+            "low".to_string(),
+            "".to_string(),
+            Some("capability".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("capability should be created");
+
+        let work_item = create_work_item(
+            state,
+            None,
+            Some(product.id.clone()),
+            None,
+            Some(module.id.clone()),
+            None,
+            Some(capability.id.clone()),
+            None,
+            Some(capability.id.clone()),
+            None,
+            Some("capability".to_string()),
+            None,
+            None,
+            "Legacy Work Item".to_string(),
+            "".to_string(),
+            Some("Problem from alias".to_string()),
+            "".to_string(),
+            "".to_string(),
+            Some("Acceptance from alias".to_string()),
+            "".to_string(),
+            "".to_string(),
+            Some("delivery_story".to_string()),
+            "high".to_string(),
+            "medium".to_string(),
+        )
+        .await
+        .expect("work item should be created");
+
+        assert_eq!(work_item.product_id.as_deref(), Some(product.id.as_str()));
+        assert_eq!(work_item.module_id.as_deref(), Some(module.id.as_str()));
+        assert_eq!(work_item.capability_id.as_deref(), Some(capability.id.as_str()));
+        assert_eq!(work_item.problem_statement, "Problem from alias");
+        assert_eq!(work_item.acceptance_criteria, "Acceptance from alias");
+        assert_eq!(work_item.work_item_type.to_string(), "story");
+    }
+
+    #[tokio::test]
+    async fn list_work_items_applies_filters_and_pagination_from_command_layer() {
+        let app: tauri::App<MockRuntime> = make_test_app("work_item_commands_list").await;
+        let state = app.state::<AppState>();
+
+        let product = product_commands::create_product(
+            state.clone(),
+            "List Product".to_string(),
+            "".to_string(),
+            "".to_string(),
+            "[]".to_string(),
+            "[]".to_string(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("product should be created");
+
+        for (index, status) in ["draft", "done", "draft"].iter().enumerate() {
+            let item = create_work_item(
+                state.clone(),
+                Some(product.id.clone()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                format!("Item {index}"),
+                "".to_string(),
+                None,
+                "".to_string(),
+                "".to_string(),
+                None,
+                "".to_string(),
+                "story".to_string(),
+                None,
+                "medium".to_string(),
+                "medium".to_string(),
+            )
+            .await
+            .expect("work item should be created");
+
+            if *status != "draft" {
+                update_work_item(
+                    state.clone(),
+                    item.id,
+                    None,
+                    None,
+                    Some((*status).to_string()),
+                    None,
+                    None,
+                    None,
+                )
+                .await
+                .expect("status should update");
+            }
+        }
+
+        let page = list_work_items(
+            state,
+            Some(product.id),
+            None,
+            None,
+            None,
+            None,
+            Some("draft".to_string()),
+            Some(1),
+            Some(1),
+        )
+        .await
+        .expect("work items should list");
+
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0].title, "Item 2");
+        assert_eq!(page[0].status.to_string(), "draft");
+    }
+}

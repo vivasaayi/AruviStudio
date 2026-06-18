@@ -571,3 +571,96 @@ pub async fn delete_product_reference(
 ) -> Result<(), AppError> {
     product_repo::delete_product_reference(&state.db, &id).await
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::test_helpers::make_test_app;
+    use crate::persistence::settings_repo;
+    use tauri::Manager;
+    use tauri::test::MockRuntime;
+
+    #[tokio::test]
+    async fn create_product_and_module_accepts_optional_alias_fields() {
+        let app: tauri::App<MockRuntime> = make_test_app("product_commands_create_module").await;
+        let state = app.state::<AppState>();
+
+        let product = create_product(
+            state.clone(),
+            "API Product".to_string(),
+            "Desc".to_string(),
+            "Vision".to_string(),
+            "[]".to_string(),
+            "[]".to_string(),
+            Some("active".to_string()),
+            Some("healthy".to_string()),
+            Some("Owner".to_string()),
+            Some("invest".to_string()),
+            Some("Roadmap".to_string()),
+            Some("Evidence".to_string()),
+        )
+        .await
+        .expect("product should be created");
+
+        let module = create_module(
+            state,
+            product.id.clone(),
+            "Area API".to_string(),
+            "".to_string(),
+            "".to_string(),
+            Some("product_area".to_string()),
+            None,
+            None,
+            None,
+            Some("Use camelCase implementation notes".to_string()),
+            None,
+            Some("Use camelCase test guidance".to_string()),
+        )
+        .await
+        .expect("module should be created");
+
+        assert_eq!(module.node_kind.to_string(), "area");
+        assert_eq!(module.implementation_notes, "Use camelCase implementation notes");
+        assert_eq!(module.test_guidance, "Use camelCase test guidance");
+    }
+
+    #[tokio::test]
+    async fn list_products_hides_example_products_when_setting_enabled() {
+        let app: tauri::App<MockRuntime> = make_test_app("product_commands_list_products").await;
+        let state = app.state::<AppState>();
+
+        create_product(
+            state.clone(),
+            "Custom Product".to_string(),
+            "".to_string(),
+            "".to_string(),
+            "[]".to_string(),
+            "[]".to_string(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("custom product should be created");
+
+        settings_repo::set_setting(&state.db, HIDE_EXAMPLE_PRODUCTS_KEY, "true")
+            .await
+            .expect("setting should update");
+        let hidden = list_products(state.clone())
+            .await
+            .expect("products should list");
+        assert!(hidden.iter().all(|product| !product.is_example_product()));
+        assert!(hidden.iter().any(|product| product.name == "Custom Product"));
+
+        settings_repo::set_setting(&state.db, HIDE_EXAMPLE_PRODUCTS_KEY, "false")
+            .await
+            .expect("setting should update");
+        let visible = list_products(state)
+            .await
+            .expect("products should list");
+        assert!(visible.iter().any(|product| product.is_example_product()));
+    }
+}
