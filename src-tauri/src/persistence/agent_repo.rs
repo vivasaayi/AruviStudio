@@ -38,33 +38,37 @@ pub async fn list_agent_definitions(pool: &SqlitePool) -> Result<Vec<AgentDefini
         .fetch_all(pool).await.map_err(|e| e.into())
 }
 
+pub struct CreateAgentDefinitionInput<'a> {
+    pub id: &'a str,
+    pub name: &'a str,
+    pub role: &'a str,
+    pub description: &'a str,
+    pub prompt_template_ref: &'a str,
+    pub allowed_tools: &'a str,
+    pub skill_tags: &'a str,
+    pub boundaries: &'a str,
+    pub enabled: bool,
+    pub employment_status: &'a str,
+}
+
 pub async fn create_agent_definition(
     pool: &SqlitePool,
-    id: &str,
-    name: &str,
-    role: &str,
-    description: &str,
-    prompt_template_ref: &str,
-    allowed_tools: &str,
-    skill_tags: &str,
-    boundaries: &str,
-    enabled: bool,
-    employment_status: &str,
+    input: CreateAgentDefinitionInput<'_>,
 ) -> Result<AgentDefinition, AppError> {
     sqlx::query("INSERT INTO agent_definitions (id,name,role,description,prompt_template_ref,allowed_tools,skill_tags,boundaries,enabled,employment_status) VALUES (?,?,?,?,?,?,?,?,?,?)")
-        .bind(id)
-        .bind(name)
-        .bind(role)
-        .bind(description)
-        .bind(prompt_template_ref)
-        .bind(allowed_tools)
-        .bind(skill_tags)
-        .bind(boundaries)
-        .bind(enabled)
-        .bind(employment_status)
+        .bind(input.id)
+        .bind(input.name)
+        .bind(input.role)
+        .bind(input.description)
+        .bind(input.prompt_template_ref)
+        .bind(input.allowed_tools)
+        .bind(input.skill_tags)
+        .bind(input.boundaries)
+        .bind(input.enabled)
+        .bind(input.employment_status)
         .execute(pool)
         .await?;
-    get_agent_definition(pool, id).await
+    get_agent_definition(pool, input.id).await
 }
 
 pub async fn get_agent_definition(
@@ -81,18 +85,9 @@ pub async fn get_agent_definition(
 
 pub async fn update_agent_definition(
     pool: &SqlitePool,
-    id: &str,
-    name: Option<&str>,
-    role: Option<&str>,
-    description: Option<&str>,
-    prompt_template_ref: Option<&str>,
-    allowed_tools: Option<&str>,
-    skill_tags: Option<&str>,
-    boundaries: Option<&str>,
-    enabled: Option<bool>,
-    employment_status: Option<&str>,
+    patch: UpdateAgentDefinitionPatch<'_>,
 ) -> Result<AgentDefinition, AppError> {
-    let existing = get_agent_definition(pool, id).await?;
+    let existing = get_agent_definition(pool, patch.id).await?;
     let existing_allowed_tools =
         serde_json::to_string(&existing.allowed_tools).unwrap_or_else(|_| "[]".to_string());
     let existing_skill_tags =
@@ -103,20 +98,33 @@ pub async fn update_agent_definition(
     sqlx::query(
         "UPDATE agent_definitions SET name=?, role=?, description=?, prompt_template_ref=?, allowed_tools=?, skill_tags=?, boundaries=?, enabled=?, employment_status=?, updated_at=datetime('now') WHERE id=?",
     )
-    .bind(name.unwrap_or(&existing.name))
-    .bind(role.unwrap_or(&existing.role))
-    .bind(description.unwrap_or(&existing.description))
-    .bind(prompt_template_ref.unwrap_or(&existing.prompt_template_ref))
-    .bind(allowed_tools.unwrap_or(&existing_allowed_tools))
-    .bind(skill_tags.unwrap_or(&existing_skill_tags))
-    .bind(boundaries.unwrap_or(&existing_boundaries))
-    .bind(enabled.unwrap_or(existing.enabled))
-    .bind(employment_status.unwrap_or(&existing.employment_status))
-    .bind(id)
+    .bind(patch.name.unwrap_or(&existing.name))
+    .bind(patch.role.unwrap_or(&existing.role))
+    .bind(patch.description.unwrap_or(&existing.description))
+    .bind(patch.prompt_template_ref.unwrap_or(&existing.prompt_template_ref))
+    .bind(patch.allowed_tools.unwrap_or(&existing_allowed_tools))
+    .bind(patch.skill_tags.unwrap_or(&existing_skill_tags))
+    .bind(patch.boundaries.unwrap_or(&existing_boundaries))
+    .bind(patch.enabled.unwrap_or(existing.enabled))
+    .bind(patch.employment_status.unwrap_or(&existing.employment_status))
+    .bind(patch.id)
     .execute(pool)
     .await?;
 
-    get_agent_definition(pool, id).await
+    get_agent_definition(pool, patch.id).await
+}
+
+pub struct UpdateAgentDefinitionPatch<'a> {
+    pub id: &'a str,
+    pub name: Option<&'a str>,
+    pub role: Option<&'a str>,
+    pub description: Option<&'a str>,
+    pub prompt_template_ref: Option<&'a str>,
+    pub allowed_tools: Option<&'a str>,
+    pub skill_tags: Option<&'a str>,
+    pub boundaries: Option<&'a str>,
+    pub enabled: Option<bool>,
+    pub employment_status: Option<&'a str>,
 }
 
 pub async fn delete_agent_definition(pool: &SqlitePool, id: &str) -> Result<(), AppError> {
@@ -714,17 +722,6 @@ pub async fn update_agent_run_snapshot_paths(
     .execute(pool)
     .await?;
     Ok(())
-}
-
-pub async fn get_agent_run(pool: &SqlitePool, id: &str) -> Result<AgentRun, AppError> {
-    sqlx::query_as::<_, AgentRun>(
-        "SELECT id,workflow_run_id,agent_id,stage,status,prompt_snapshot_path,output_snapshot_path,token_count_input,token_count_output,duration_ms,error_message,started_at,ended_at,created_at 
-         FROM agent_runs WHERE id=?"
-    )
-    .bind(id)
-    .fetch_one(pool)
-    .await
-    .map_err(|e| e.into())
 }
 
 pub async fn list_agent_runs_for_workflow(

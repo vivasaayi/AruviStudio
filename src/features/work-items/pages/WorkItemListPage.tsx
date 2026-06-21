@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   assignWorkItemWorkspace,
@@ -89,6 +89,8 @@ const styles: Record<string, React.CSSProperties> = {
   sectionTitle: { fontSize: 12, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" as const, color: "#8f96a3", marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" },
   filterSelect: { padding: "7px 10px", fontSize: 12, backgroundColor: "#181a1f", border: "1px solid #3c4048", borderRadius: 8, color: "#e0e0e0", width: "100%", marginBottom: 12 },
   taskList: { display: "flex", flexDirection: "column", gap: 8 },
+  virtualTaskViewport: { maxHeight: "calc(100vh - 355px)", minHeight: 260, overflowY: "auto" as const, paddingRight: 4 },
+  virtualTaskSpacer: { display: "flex", flexDirection: "column", gap: 8 },
   taskCard: { padding: 12, border: "1px solid #32353d", borderRadius: 10, backgroundColor: "#26292f", cursor: "pointer" },
   taskCardActive: { padding: 12, border: "1px solid #0e639c", borderRadius: 10, background: "linear-gradient(135deg, rgba(14,99,156,0.18), rgba(38,41,47,1))", cursor: "pointer" },
   taskRowCard: { display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) minmax(260px, 1fr) auto", gap: 12, alignItems: "center" },
@@ -195,6 +197,9 @@ const EXTERNAL_CLI_PROVIDERS: Array<{ provider: ExternalCliProvider; label: stri
 ];
 const EXTERNAL_CLI_TRACE_LIMIT = 500;
 const WORK_ITEM_PAGE_SIZE = 100;
+const SUB_WORK_ITEM_PAGE_SIZE = 500;
+const BACKLOG_ROW_ESTIMATED_HEIGHT = 116;
+const BACKLOG_OVERSCAN_ROWS = 6;
 
 function workItemBranchName(title: string): string {
   const slug = title
@@ -436,6 +441,9 @@ export function WorkItemListPage() {
 
   const [statusFilter, setStatusFilter] = useState("");
   const [workItemPageIndex, setWorkItemPageIndex] = useState(0);
+  const backlogViewportRef = useRef<HTMLDivElement | null>(null);
+  const [backlogScrollTop, setBacklogScrollTop] = useState(0);
+  const [backlogViewportHeight, setBacklogViewportHeight] = useState(520);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [isEditingWorkItem, setIsEditingWorkItem] = useState(false);
   const [draggedWorkItemId, setDraggedWorkItemId] = useState<string | null>(null);
@@ -497,6 +505,26 @@ export function WorkItemListPage() {
     setSelectedBacklogItemIds([]);
   }, [selectedProductId, activeNodeId, activeNodeType, statusFilter]);
 
+  useEffect(() => {
+    setBacklogScrollTop(0);
+    backlogViewportRef.current?.scrollTo({ top: 0 });
+  }, [selectedProductId, activeNodeId, activeNodeType, statusFilter, workItemPageIndex]);
+
+  useEffect(() => {
+    if (workItemWorkspaceTab !== "backlog") {
+      return;
+    }
+    const updateViewportHeight = () => {
+      const nextHeight = backlogViewportRef.current?.clientHeight;
+      if (nextHeight && nextHeight > 0) {
+        setBacklogViewportHeight(nextHeight);
+      }
+    };
+    updateViewportHeight();
+    window.addEventListener("resize", updateViewportHeight);
+    return () => window.removeEventListener("resize", updateViewportHeight);
+  }, [workItemWorkspaceTab, selectedProductId, activeNodeId, activeNodeType, statusFilter, workItemPageIndex]);
+
   const { data: workItems, isLoading } = useQuery({
     queryKey: ["workItems", selectedProductId, activeNodeId, activeNodeType, statusFilter, workItemPageIndex],
     queryFn: () =>
@@ -541,7 +569,15 @@ export function WorkItemListPage() {
     refetchInterval: 4000,
   });
   const workflowRunId = activeWorkflowRunId ?? latestWorkflowRun?.id ?? null;
-  const { data: subWorkItems } = useQuery({ queryKey: ["subWorkItems", selectedWorkItemId], queryFn: () => getSubWorkItems(selectedWorkItemId!), enabled: !!selectedWorkItemId });
+  const { data: subWorkItems } = useQuery({
+    queryKey: ["subWorkItems", selectedWorkItemId, SUB_WORK_ITEM_PAGE_SIZE],
+    queryFn: () =>
+      getSubWorkItems(selectedWorkItemId!, {
+        limit: SUB_WORK_ITEM_PAGE_SIZE,
+        offset: 0,
+      }),
+    enabled: !!selectedWorkItemId,
+  });
   const { data: approvals } = useQuery({ queryKey: ["approvals", selectedWorkItemId], queryFn: () => getWorkItemApprovals(selectedWorkItemId!), enabled: !!selectedWorkItemId });
   const { data: artifacts } = useQuery({
     queryKey: ["artifacts", selectedWorkItemId],
@@ -1228,9 +1264,23 @@ export function WorkItemListPage() {
     return map;
   }, [activeProduct, activeProductTree?.roots, filteredWorkItems]);
   const orderedWorkItems = useMemo(() => orderWorkItemsByIds(filteredWorkItems, workItemOrderIds), [filteredWorkItems, workItemOrderIds]);
+  const backlogWindow = useMemo(() => {
+    const start = Math.max(0, Math.floor(backlogScrollTop / BACKLOG_ROW_ESTIMATED_HEIGHT) - BACKLOG_OVERSCAN_ROWS);
+    const visibleRows = Math.ceil(backlogViewportHeight / BACKLOG_ROW_ESTIMATED_HEIGHT) + BACKLOG_OVERSCAN_ROWS * 2;
+    const end = Math.min(orderedWorkItems.length, start + Math.max(visibleRows, BACKLOG_OVERSCAN_ROWS * 2));
+    return {
+      start,
+      end,
+      topPadding: start * BACKLOG_ROW_ESTIMATED_HEIGHT,
+      bottomPadding: Math.max(0, orderedWorkItems.length - end) * BACKLOG_ROW_ESTIMATED_HEIGHT,
+      items: orderedWorkItems.slice(start, end),
+    };
+  }, [backlogScrollTop, backlogViewportHeight, orderedWorkItems]);
   const hasNextWorkItemPage = (workItems?.length ?? 0) === WORK_ITEM_PAGE_SIZE;
   const workItemPageStart = workItemPageIndex * WORK_ITEM_PAGE_SIZE + (orderedWorkItems.length > 0 ? 1 : 0);
   const workItemPageEnd = workItemPageIndex * WORK_ITEM_PAGE_SIZE + orderedWorkItems.length;
+  const backlogRenderedRangeLabel =
+    orderedWorkItems.length > 0 ? `${backlogWindow.start + 1}-${backlogWindow.end}` : "0-0";
   const selectedBacklogItems = useMemo(
     () => orderedWorkItems.filter((workItem) => selectedBacklogItemIds.includes(workItem.id)),
     [orderedWorkItems, selectedBacklogItemIds],
@@ -1278,7 +1328,7 @@ export function WorkItemListPage() {
     }
   };
   const backlogWorkflowRunQueries = useQueries({
-    queries: orderedWorkItems.map((workItem) => ({
+    queries: backlogWindow.items.map((workItem) => ({
       queryKey: ["latestWorkflowRun", workItem.id],
       queryFn: () => getLatestWorkflowRunForWorkItem(workItem.id),
       enabled: workItemWorkspaceTab === "backlog",
@@ -1287,12 +1337,12 @@ export function WorkItemListPage() {
   });
   const latestWorkflowRunByWorkItemId = useMemo(() => {
     const map = new Map<string, WorkflowRun | null>();
-    orderedWorkItems.forEach((workItem, index) => {
+    backlogWindow.items.forEach((workItem, index) => {
       const run = backlogWorkflowRunQueries[index]?.data ?? null;
       map.set(workItem.id, run);
     });
     return map;
-  }, [backlogWorkflowRunQueries, orderedWorkItems]);
+  }, [backlogWorkflowRunQueries, backlogWindow.items]);
   const stageLabel = activeWorkflowStage ? activeWorkflowStage.replace(/_/g, " ") : null;
   const completedStages = useMemo(
     () => new Set((workflowHistory ?? []).map((entry) => entry.to_stage)),
@@ -1664,7 +1714,7 @@ export function WorkItemListPage() {
                 ))}
               </select>
               <div style={styles.smallText}>
-                Showing stories for: {scopeDescriptor}. Page {workItemPageIndex + 1}, rows {workItemPageStart}-{workItemPageEnd}.
+                Showing stories for: {scopeDescriptor}. Page {workItemPageIndex + 1}, rows {workItemPageStart}-{workItemPageEnd}. Rendering visible rows {backlogRenderedRangeLabel}.
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
                 <button
@@ -1686,9 +1736,16 @@ export function WorkItemListPage() {
               {isLoading ? (
                 <div style={styles.empty}>Loading stories...</div>
               ) : orderedWorkItems.length > 0 ? (
-                <div style={styles.taskList}>
-                  {orderedWorkItems.map((workItem, workItemIndex) => (
+                <div
+                  data-testid="work-item-virtual-list"
+                  ref={backlogViewportRef}
+                  style={styles.virtualTaskViewport}
+                  onScroll={(event) => setBacklogScrollTop(event.currentTarget.scrollTop)}
+                >
+                  <div style={{ ...styles.virtualTaskSpacer, paddingTop: backlogWindow.topPadding, paddingBottom: backlogWindow.bottomPadding }}>
+                  {backlogWindow.items.map((workItem, visibleWorkItemIndex) => (
                     (() => {
+                      const workItemIndex = backlogWindow.start + visibleWorkItemIndex;
                       const latestRun = latestWorkflowRunByWorkItemId.get(workItem.id) ?? null;
                       const runtimeStatus = describeWorkItemRuntime(workItem, latestRun);
                       const owner = workItemOwnerMap.get(workItem.id);
@@ -1826,6 +1883,7 @@ export function WorkItemListPage() {
                       );
                     })()
                   ))}
+                  </div>
                 </div>
               ) : (
                 <div style={styles.empty}>No stories in the current scope yet.</div>

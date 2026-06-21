@@ -235,14 +235,16 @@ pub async fn run_external_cli_for_work_item(
             let failure_message = format!("External CLI tracking failed: {error}");
             let _ = external_cli_repo::complete_external_cli_run(
                 &fallback_pool,
-                &fallback_run_id,
-                "failed",
-                None,
-                0,
-                0,
-                0,
-                None,
-                Some(&failure_message),
+                external_cli_repo::CompleteExternalCliRunInput {
+                    id: &fallback_run_id,
+                    status: "failed",
+                    exit_code: None,
+                    duration_ms: 0,
+                    stdout_chars: 0,
+                    stderr_chars: 0,
+                    output_artifact_id: None,
+                    error_message: Some(&failure_message),
+                },
             )
             .await;
             eprintln!("external CLI execution failed: {error}");
@@ -328,19 +330,21 @@ async fn execute_external_cli_run(
             .await?;
             finalize_external_cli_run(
                 &pool,
-                &artifact_base_path,
-                &run_id,
-                &invocation,
-                &task_packet,
-                "failed",
-                None,
-                &started_at,
-                Utc::now().to_rfc3339(),
-                i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX),
-                String::new(),
-                String::new(),
-                Some(error_message),
-                &sequence,
+                ExternalCliRunFinalization {
+                    artifact_base_path: &artifact_base_path,
+                    run_id: &run_id,
+                    invocation: &invocation,
+                    task_packet: &task_packet,
+                    status: "failed",
+                    exit_code: None,
+                    started_at: &started_at,
+                    ended_at: Utc::now().to_rfc3339(),
+                    duration_ms: i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX),
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    error_message: Some(error_message),
+                    sequence: &sequence,
+                },
             )
             .await?;
             return Ok(());
@@ -351,26 +355,30 @@ async fn execute_external_cli_run(
     let stderr = Arc::new(Mutex::new(String::new()));
     let stdout_task = child.stdout.take().map(|reader| {
         spawn_output_reader(
-            pool.clone(),
-            run_id.clone(),
-            invocation.work_item_id.clone(),
-            invocation.session_log_path.clone(),
-            "stdout",
+            ExternalCliOutputReaderContext {
+                pool: pool.clone(),
+                run_id: run_id.clone(),
+                work_item_id: invocation.work_item_id.clone(),
+                session_log_path: invocation.session_log_path.clone(),
+                stream: "stdout",
+                capture: stdout.clone(),
+                sequence: sequence.clone(),
+            },
             reader,
-            stdout.clone(),
-            sequence.clone(),
         )
     });
     let stderr_task = child.stderr.take().map(|reader| {
         spawn_output_reader(
-            pool.clone(),
-            run_id.clone(),
-            invocation.work_item_id.clone(),
-            invocation.session_log_path.clone(),
-            "stderr",
+            ExternalCliOutputReaderContext {
+                pool: pool.clone(),
+                run_id: run_id.clone(),
+                work_item_id: invocation.work_item_id.clone(),
+                session_log_path: invocation.session_log_path.clone(),
+                stream: "stderr",
+                capture: stderr.clone(),
+                sequence: sequence.clone(),
+            },
             reader,
-            stderr.clone(),
-            sequence.clone(),
         )
     });
 
@@ -490,59 +498,65 @@ async fn execute_external_cli_run(
     }
     finalize_external_cli_run(
         &pool,
-        &artifact_base_path,
-        &run_id,
-        &invocation,
-        &task_packet,
-        &status,
-        exit_code,
-        &started_at,
-        ended_at,
-        duration_ms,
-        stdout,
-        stderr,
-        error_message,
-        &sequence,
+        ExternalCliRunFinalization {
+            artifact_base_path: &artifact_base_path,
+            run_id: &run_id,
+            invocation: &invocation,
+            task_packet: &task_packet,
+            status: &status,
+            exit_code,
+            started_at: &started_at,
+            ended_at,
+            duration_ms,
+            stdout,
+            stderr,
+            error_message,
+            sequence: &sequence,
+        },
     )
     .await?;
 
     Ok(())
 }
 
-async fn finalize_external_cli_run(
-    pool: &SqlitePool,
-    artifact_base_path: &Path,
-    run_id: &str,
-    invocation: &ExternalCliInvocation,
-    task_packet: &ExternalCliTaskPacket,
-    status: &str,
+struct ExternalCliRunFinalization<'a> {
+    artifact_base_path: &'a Path,
+    run_id: &'a str,
+    invocation: &'a ExternalCliInvocation,
+    task_packet: &'a ExternalCliTaskPacket,
+    status: &'a str,
     exit_code: Option<i64>,
-    started_at: &str,
+    started_at: &'a str,
     ended_at: String,
     duration_ms: i64,
     stdout: String,
     stderr: String,
     error_message: Option<String>,
-    sequence: &Arc<AtomicI64>,
+    sequence: &'a Arc<AtomicI64>,
+}
+
+async fn finalize_external_cli_run(
+    pool: &SqlitePool,
+    input: ExternalCliRunFinalization<'_>,
 ) -> Result<ExternalCliRun, AppError> {
-    let diff_snapshot = capture_git_diff_snapshot(Path::new(&invocation.cwd)).await;
+    let diff_snapshot = capture_git_diff_snapshot(Path::new(&input.invocation.cwd)).await;
     append_external_cli_event(
         pool,
-        run_id,
-        &invocation.work_item_id,
-        &invocation.session_log_path,
+        input.run_id,
+        &input.invocation.work_item_id,
+        &input.invocation.session_log_path,
         "lifecycle",
         "Captured git diff snapshot.".to_string(),
-        sequence,
+        input.sequence,
     )
     .await?;
-    let mut completion_error_message = error_message;
-    let review_checkpoint = if status == "completed" {
+    let mut completion_error_message = input.error_message;
+    let review_checkpoint = if input.status == "completed" {
         match record_successful_external_cli_review_checkpoint(
             pool,
-            &invocation.work_item_id,
-            run_id,
-            &invocation.label,
+            &input.invocation.work_item_id,
+            input.run_id,
+            &input.invocation.label,
         )
         .await
         {
@@ -551,12 +565,12 @@ async fn finalize_external_cli_run(
                 let message = format!("Aruvi review checkpoint failed: {error}");
                 append_external_cli_event(
                     pool,
-                    run_id,
-                    &invocation.work_item_id,
-                    &invocation.session_log_path,
+                    input.run_id,
+                    &input.invocation.work_item_id,
+                    &input.invocation.session_log_path,
                     "error",
                     message.clone(),
-                    sequence,
+                    input.sequence,
                 )
                 .await?;
                 completion_error_message = Some(match completion_error_message {
@@ -572,69 +586,77 @@ async fn finalize_external_cli_run(
     if review_checkpoint.is_some() {
         append_external_cli_event(
             pool,
-            run_id,
-            &invocation.work_item_id,
-            &invocation.session_log_path,
+            input.run_id,
+            &input.invocation.work_item_id,
+            &input.invocation.session_log_path,
             "lifecycle",
             "Moved output to the Aruvi review checkpoint.".to_string(),
-            sequence,
+            input.sequence,
         )
         .await?;
     }
 
     let artifact_id = store_external_cli_artifact(
         pool,
-        artifact_base_path,
-        &invocation.work_item_id,
-        run_id,
-        invocation,
-        task_packet,
-        status,
-        exit_code,
-        started_at,
-        &ended_at,
-        duration_ms,
-        &stdout,
-        &stderr,
-        &diff_snapshot,
-        review_checkpoint.as_ref(),
-        completion_error_message.as_deref(),
+        StoreExternalCliArtifactInput {
+            artifact_base_path: input.artifact_base_path,
+            work_item_id: &input.invocation.work_item_id,
+            run_id: input.run_id,
+            invocation: input.invocation,
+            task_packet: input.task_packet,
+            status: input.status,
+            exit_code: input.exit_code,
+            started_at: input.started_at,
+            ended_at: &input.ended_at,
+            duration_ms: input.duration_ms,
+            stdout: &input.stdout,
+            stderr: &input.stderr,
+            diff_snapshot: &diff_snapshot,
+            review_checkpoint: review_checkpoint.as_ref(),
+            error_message: completion_error_message.as_deref(),
+        },
     )
     .await?;
     append_external_cli_event(
         pool,
-        run_id,
-        &invocation.work_item_id,
-        &invocation.session_log_path,
+        input.run_id,
+        &input.invocation.work_item_id,
+        &input.invocation.session_log_path,
         "lifecycle",
         format!("Captured output artifact: {artifact_id}."),
-        sequence,
+        input.sequence,
     )
     .await?;
 
     external_cli_repo::complete_external_cli_run(
         pool,
-        run_id,
-        status,
-        exit_code,
-        duration_ms,
-        i64::try_from(stdout.chars().count()).unwrap_or(i64::MAX),
-        i64::try_from(stderr.chars().count()).unwrap_or(i64::MAX),
-        Some(&artifact_id),
-        completion_error_message.as_deref(),
+        external_cli_repo::CompleteExternalCliRunInput {
+            id: input.run_id,
+            status: input.status,
+            exit_code: input.exit_code,
+            duration_ms: input.duration_ms,
+            stdout_chars: i64::try_from(input.stdout.chars().count()).unwrap_or(i64::MAX),
+            stderr_chars: i64::try_from(input.stderr.chars().count()).unwrap_or(i64::MAX),
+            output_artifact_id: Some(&artifact_id),
+            error_message: completion_error_message.as_deref(),
+        },
     )
     .await
 }
 
-fn spawn_output_reader<R>(
+struct ExternalCliOutputReaderContext {
     pool: SqlitePool,
     run_id: String,
     work_item_id: String,
     session_log_path: String,
     stream: &'static str,
-    reader: R,
     capture: Arc<Mutex<String>>,
     sequence: Arc<AtomicI64>,
+}
+
+fn spawn_output_reader<R>(
+    context: ExternalCliOutputReaderContext,
+    reader: R,
 ) -> JoinHandle<Result<(), AppError>>
 where
     R: AsyncRead + Unpin + Send + 'static,
@@ -650,20 +672,18 @@ where
             }
             let chunk = String::from_utf8_lossy(&buffer).to_string();
             {
-                let mut output = capture.lock().await;
+                let mut output = context.capture.lock().await;
                 output.push_str(&chunk);
             }
-            let message = chunk
-                .trim_end_matches(|c| c == '\r' || c == '\n')
-                .to_string();
+            let message = chunk.trim_end_matches(['\r', '\n']).to_string();
             append_external_cli_event(
-                &pool,
-                &run_id,
-                &work_item_id,
-                &session_log_path,
-                stream,
+                &context.pool,
+                &context.run_id,
+                &context.work_item_id,
+                &context.session_log_path,
+                context.stream,
                 message,
-                &sequence,
+                &context.sequence,
             )
             .await?;
         }
@@ -1113,60 +1133,69 @@ async fn record_successful_external_cli_review_checkpoint(
     })
 }
 
+struct StoreExternalCliArtifactInput<'a> {
+    artifact_base_path: &'a Path,
+    work_item_id: &'a str,
+    run_id: &'a str,
+    invocation: &'a ExternalCliInvocation,
+    task_packet: &'a ExternalCliTaskPacket,
+    status: &'a str,
+    exit_code: Option<i64>,
+    started_at: &'a str,
+    ended_at: &'a str,
+    duration_ms: i64,
+    stdout: &'a str,
+    stderr: &'a str,
+    diff_snapshot: &'a ExternalCliDiffSnapshot,
+    review_checkpoint: Option<&'a ExternalCliReviewCheckpoint>,
+    error_message: Option<&'a str>,
+}
+
 async fn store_external_cli_artifact(
     pool: &SqlitePool,
-    artifact_base_path: &Path,
-    work_item_id: &str,
-    run_id: &str,
-    invocation: &ExternalCliInvocation,
-    task_packet: &ExternalCliTaskPacket,
-    status: &str,
-    exit_code: Option<i64>,
-    started_at: &str,
-    ended_at: &str,
-    duration_ms: i64,
-    stdout: &str,
-    stderr: &str,
-    diff_snapshot: &ExternalCliDiffSnapshot,
-    review_checkpoint: Option<&ExternalCliReviewCheckpoint>,
-    error_message: Option<&str>,
+    input: StoreExternalCliArtifactInput<'_>,
 ) -> Result<String, AppError> {
-    let run_dir = artifact_base_path.join("external_cli_runs").join(run_id);
+    let run_dir = input
+        .artifact_base_path
+        .join("external_cli_runs")
+        .join(input.run_id);
     tokio::fs::create_dir_all(&run_dir).await?;
     let artifact_path = run_dir.join("run.json");
     let payload = ExternalCliRunArtifact {
-        run_id,
-        provider: &invocation.provider,
-        label: &invocation.label,
-        command: &invocation.command,
-        args: &invocation.args,
-        cwd: &invocation.cwd,
-        prompt: &invocation.prompt,
-        task_packet,
-        status,
-        exit_code,
-        started_at,
-        ended_at,
-        duration_ms,
-        stdout,
-        stderr,
-        session_log_path: &invocation.session_log_path,
-        diff_snapshot,
-        review_checkpoint,
-        error_message,
+        run_id: input.run_id,
+        provider: &input.invocation.provider,
+        label: &input.invocation.label,
+        command: &input.invocation.command,
+        args: &input.invocation.args,
+        cwd: &input.invocation.cwd,
+        prompt: &input.invocation.prompt,
+        task_packet: input.task_packet,
+        status: input.status,
+        exit_code: input.exit_code,
+        started_at: input.started_at,
+        ended_at: input.ended_at,
+        duration_ms: input.duration_ms,
+        stdout: input.stdout,
+        stderr: input.stderr,
+        session_log_path: &input.invocation.session_log_path,
+        diff_snapshot: input.diff_snapshot,
+        review_checkpoint: input.review_checkpoint,
+        error_message: input.error_message,
     };
     let content = serde_json::to_string_pretty(&payload)?;
     tokio::fs::write(&artifact_path, content).await?;
     let artifact_id = Uuid::new_v4().to_string();
     artifact_repo::create_artifact(
         pool,
-        &artifact_id,
-        work_item_id,
-        None,
-        None,
-        "external_cli_run",
-        &format!("{} {}", invocation.label, status),
-        artifact_path.to_string_lossy().as_ref(),
+        artifact_repo::CreateArtifactInput {
+            id: &artifact_id,
+            work_item_id: input.work_item_id,
+            workflow_run_id: None,
+            agent_run_id: None,
+            artifact_type: "external_cli_run",
+            summary: &format!("{} {}", input.invocation.label, input.status),
+            storage_path: artifact_path.to_string_lossy().as_ref(),
+        },
     )
     .await?;
     Ok(artifact_id)

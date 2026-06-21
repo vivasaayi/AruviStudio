@@ -10,6 +10,7 @@ import type {
   Capability,
   WorkItem,
   ProductWorkItemSummary,
+  WorkItemScopeSummary,
   Repository,
   RepositoryTreeNode,
   Approval,
@@ -34,6 +35,7 @@ import type {
   Artifact,
   Finding,
   ProductTree,
+  ProductTreeSummary,
   DatabaseHealth,
   MobileBridgeStatus,
   McpBridgeStatus,
@@ -119,17 +121,19 @@ export const createProduct = (data: {
   evidence?: string;
 }) =>
   invoke<Product>("create_product", {
-    name: data.name,
-    description: data.description,
-    vision: data.vision,
-    goals: toJsonArrayString(data.goals),
-    tags: toJsonArrayString(data.tags),
-    lifecycle: data.lifecycle,
-    health: data.health,
-    owner_label: data.ownerLabel,
-    investment_status: data.investmentStatus,
-    roadmap: data.roadmap,
-    evidence: data.evidence,
+    request: {
+      name: data.name,
+      description: data.description,
+      vision: data.vision,
+      goals: toJsonArrayString(data.goals),
+      tags: toJsonArrayString(data.tags),
+      lifecycle: data.lifecycle,
+      health: data.health,
+      owner_label: data.ownerLabel,
+      investment_status: data.investmentStatus,
+      roadmap: data.roadmap,
+      evidence: data.evidence,
+    },
   });
 
 export const getProduct = (id: string) => invoke<Product>("get_product", { id });
@@ -150,18 +154,20 @@ export const updateProduct = (data: {
   evidence?: string;
 }) =>
   invoke<Product>("update_product", {
-    id: data.id,
-    name: data.name,
-    description: data.description,
-    vision: data.vision,
-    goals: toJsonArrayString(data.goals),
-    tags: toJsonArrayString(data.tags),
-    lifecycle: data.lifecycle,
-    health: data.health,
-    owner_label: data.ownerLabel,
-    investment_status: data.investmentStatus,
-    roadmap: data.roadmap,
-    evidence: data.evidence,
+    request: {
+      id: data.id,
+      name: data.name,
+      description: data.description,
+      vision: data.vision,
+      goals: toJsonArrayString(data.goals),
+      tags: toJsonArrayString(data.tags),
+      lifecycle: data.lifecycle,
+      health: data.health,
+      owner_label: data.ownerLabel,
+      investment_status: data.investmentStatus,
+      roadmap: data.roadmap,
+      evidence: data.evidence,
+    },
   });
 export const archiveProduct = (id: string) => invoke<Product>("archive_product", { id });
 export const resetProductPlan = (data: { productId: string; deleteDelivery: boolean }) =>
@@ -213,17 +219,15 @@ export const updateStrategyNode = (data: {
   ownerLabel?: string;
 }) =>
   invoke<StrategyNode>("update_strategy_node", {
-    id: data.id,
-    parent_node_id: data.parentNodeId ?? null,
-    parentNodeId: data.parentNodeId ?? null,
-    clear_parent: data.clearParent ?? false,
-    clearParent: data.clearParent ?? false,
-    node_kind: data.nodeKind ?? null,
-    nodeKind: data.nodeKind ?? null,
-    name: data.name ?? null,
-    description: data.description ?? null,
-    owner_label: data.ownerLabel ?? null,
-    ownerLabel: data.ownerLabel ?? null,
+    request: {
+      id: data.id,
+      parent_node_id: data.parentNodeId ?? null,
+      clear_parent: data.clearParent ?? false,
+      node_kind: data.nodeKind ?? null,
+      name: data.name ?? null,
+      description: data.description ?? null,
+      owner_label: data.ownerLabel ?? null,
+    },
   });
 export const deleteStrategyNode = (id: string) => invoke<void>("delete_strategy_node", { id });
 export const listProductStrategyLinks = () => invoke<ProductStrategyLink[]>("list_product_strategy_links");
@@ -254,18 +258,15 @@ export const createProductDependency = (data: {
   status?: ProductDependencyStatus;
 }) =>
   invoke<ProductDependency>("create_product_dependency", {
-    product_id: data.productId,
-    productId: data.productId,
-    capability_id: data.capabilityId ?? null,
-    capabilityId: data.capabilityId ?? null,
-    depends_on_product_id: data.dependsOnProductId,
-    dependsOnProductId: data.dependsOnProductId,
-    depends_on_capability_id: data.dependsOnCapabilityId ?? null,
-    dependsOnCapabilityId: data.dependsOnCapabilityId ?? null,
-    dependency_kind: data.dependencyKind ?? "platform",
-    dependencyKind: data.dependencyKind ?? "platform",
-    description: data.description,
-    status: data.status ?? "active",
+    request: {
+      product_id: data.productId,
+      capability_id: data.capabilityId ?? null,
+      depends_on_product_id: data.dependsOnProductId,
+      depends_on_capability_id: data.dependsOnCapabilityId ?? null,
+      dependency_kind: data.dependencyKind ?? "platform",
+      description: data.description,
+      status: data.status ?? "active",
+    },
   });
 export const deleteProductDependency = (id: string) => invoke<void>("delete_product_dependency", { id });
 
@@ -283,12 +284,14 @@ export const createProductReference = (data: {
   content?: string;
 }) =>
   invoke<ProductReference>("create_product_reference", {
-    scope_type: data.scopeType,
-    scope_id: data.scopeId,
-    title: data.title,
-    reference_kind: data.referenceKind,
-    uri: data.uri ?? "",
-    content: data.content ?? "",
+    request: {
+      scope_type: data.scopeType,
+      scope_id: data.scopeId,
+      title: data.title,
+      reference_kind: data.referenceKind,
+      uri: data.uri ?? "",
+      content: data.content ?? "",
+    },
   });
 export const deleteProductReference = (id: string) => invoke<void>("delete_product_reference", { id });
 
@@ -305,19 +308,17 @@ export const createProductArea = (data: {
   testGuidance?: string;
 }) =>
   invoke<ProductArea>("create_product_area", {
-    productId: data.productId,
-    product_id: data.productId,
-    name: data.name,
-    description: data.description,
-    purpose: data.purpose,
-    nodeKind: data.nodeKind,
-    node_kind: data.nodeKind,
-    explanation: data.explanation,
-    examples: data.examples,
-    implementationNotes: data.implementationNotes,
-    implementation_notes: data.implementationNotes,
-    testGuidance: data.testGuidance,
-    test_guidance: data.testGuidance,
+    request: {
+      product_id: data.productId,
+      name: data.name,
+      description: data.description,
+      purpose: data.purpose,
+      node_kind: data.nodeKind,
+      explanation: data.explanation,
+      examples: data.examples,
+      implementation_notes: data.implementationNotes,
+      test_guidance: data.testGuidance,
+    },
   });
 export const listProductAreas = (productId: string) =>
   invoke<ProductArea[]>("list_product_areas", { productId, product_id: productId });
@@ -333,18 +334,17 @@ export const updateProductArea = (data: {
   testGuidance?: string;
 }) =>
   invoke<ProductArea>("update_product_area", {
-    id: data.id,
-    name: data.name,
-    description: data.description,
-    purpose: data.purpose,
-    nodeKind: data.nodeKind,
-    node_kind: data.nodeKind,
-    explanation: data.explanation,
-    examples: data.examples,
-    implementationNotes: data.implementationNotes,
-    implementation_notes: data.implementationNotes,
-    testGuidance: data.testGuidance,
-    test_guidance: data.testGuidance,
+    request: {
+      id: data.id,
+      name: data.name,
+      description: data.description,
+      purpose: data.purpose,
+      node_kind: data.nodeKind,
+      explanation: data.explanation,
+      examples: data.examples,
+      implementation_notes: data.implementationNotes,
+      test_guidance: data.testGuidance,
+    },
   });
 export const deleteProductArea = (id: string) => invoke("delete_product_area", { id });
 export const reorderProductAreas = (productId: string, orderedIds: string[]) =>
@@ -372,26 +372,21 @@ export const createCapability = (data: {
   testGuidance?: string;
 }) =>
   invoke<Capability>("create_capability", {
-    productAreaId: data.productAreaId,
-    product_area_id: data.productAreaId,
-    parentCapabilityId: data.parentCapabilityId,
-    parent_capability_id: data.parentCapabilityId,
-    name: data.name,
-    description: data.description,
-    acceptanceCriteria: data.acceptanceCriteria,
-    acceptance_criteria: data.acceptanceCriteria,
-    priority: data.priority,
-    risk: data.risk,
-    technicalNotes: data.technicalNotes,
-    technical_notes: data.technicalNotes,
-    nodeKind: data.nodeKind,
-    node_kind: data.nodeKind,
-    explanation: data.explanation,
-    examples: data.examples,
-    implementationNotes: data.implementationNotes,
-    implementation_notes: data.implementationNotes,
-    testGuidance: data.testGuidance,
-    test_guidance: data.testGuidance,
+    request: {
+      product_area_id: data.productAreaId,
+      parent_capability_id: data.parentCapabilityId,
+      name: data.name,
+      description: data.description,
+      acceptance_criteria: data.acceptanceCriteria,
+      priority: data.priority,
+      risk: data.risk,
+      technical_notes: data.technicalNotes,
+      node_kind: data.nodeKind,
+      explanation: data.explanation,
+      examples: data.examples,
+      implementation_notes: data.implementationNotes,
+      test_guidance: data.testGuidance,
+    },
   });
 export const listCapabilities = (productAreaId: string) =>
   invoke<Capability[]>("list_capabilities", { productAreaId, product_area_id: productAreaId });
@@ -410,21 +405,20 @@ export const updateCapability = (data: {
   testGuidance?: string;
 }) =>
   invoke<Capability>("update_capability", {
-    id: data.id,
-    name: data.name,
-    description: data.description,
-    acceptance_criteria: data.acceptanceCriteria,
-    priority: data.priority,
-    risk: data.risk,
-    technical_notes: data.technicalNotes,
-    nodeKind: data.nodeKind,
-    node_kind: data.nodeKind,
-    explanation: data.explanation,
-    examples: data.examples,
-    implementationNotes: data.implementationNotes,
-    implementation_notes: data.implementationNotes,
-    testGuidance: data.testGuidance,
-    test_guidance: data.testGuidance,
+    request: {
+      id: data.id,
+      name: data.name,
+      description: data.description,
+      acceptance_criteria: data.acceptanceCriteria,
+      priority: data.priority,
+      risk: data.risk,
+      technical_notes: data.technicalNotes,
+      node_kind: data.nodeKind,
+      explanation: data.explanation,
+      examples: data.examples,
+      implementation_notes: data.implementationNotes,
+      test_guidance: data.testGuidance,
+    },
   });
 export const deleteCapability = (id: string) => invoke("delete_capability", { id });
 export const reorderCapabilities = (data: { productAreaId: string; parentCapabilityId?: string; orderedIds: string[] }) =>
@@ -447,22 +441,19 @@ export const applySemanticTemplate = (data: {
   testGuidance?: string;
 }) =>
   invoke<SemanticTemplateApplicationResult>("apply_semantic_template", {
-    productAreaId: data.productAreaId,
-    product_area_id: data.productAreaId,
-    parentCapabilityId: data.parentCapabilityId,
-    parent_capability_id: data.parentCapabilityId,
-    templateKind: data.templateKind,
-    template_kind: data.templateKind,
-    name: data.name,
-    description: data.description,
-    priority: data.priority,
-    risk: data.risk,
-    explanation: data.explanation,
-    examples: data.examples,
-    implementationNotes: data.implementationNotes,
-    implementation_notes: data.implementationNotes,
-    testGuidance: data.testGuidance,
-    test_guidance: data.testGuidance,
+    request: {
+      product_area_id: data.productAreaId,
+      parent_capability_id: data.parentCapabilityId,
+      template_kind: data.templateKind,
+      name: data.name,
+      description: data.description,
+      priority: data.priority,
+      risk: data.risk,
+      explanation: data.explanation,
+      examples: data.examples,
+      implementation_notes: data.implementationNotes,
+      test_guidance: data.testGuidance,
+    },
   });
 export const convertCapabilityKind = (data: {
   id: string;
@@ -480,6 +471,8 @@ export const convertCapabilityKind = (data: {
 // Product tree
 export const getProductTree = (productId: string) =>
   invoke<ProductTree>("get_product_tree", { productId, product_id: productId });
+export const summarizeProductTree = (productId: string) =>
+  invoke<ProductTreeSummary>("summarize_product_tree", { productId, product_id: productId });
 
 // Work item commands
 export const createWorkItem = (data: {
@@ -488,29 +481,22 @@ export const createWorkItem = (data: {
   constraints: string; workItemType: string; priority: string; complexity: string;
 }) =>
   invoke<WorkItem>("create_work_item", {
-    productId: data.productId,
-    product_id: data.productId,
-    productAreaId: data.productAreaId,
-    product_area_id: data.productAreaId,
-    capabilityId: data.capabilityId,
-    capability_id: data.capabilityId,
-    sourceNodeId: data.sourceNodeId,
-    source_node_id: data.sourceNodeId,
-    sourceNodeType: data.sourceNodeType,
-    source_node_type: data.sourceNodeType,
-    parentWorkItemId: data.parentWorkItemId,
-    parent_work_item_id: data.parentWorkItemId,
-    title: data.title,
-    problemStatement: data.problemStatement,
-    problem_statement: data.problemStatement,
-    description: data.description,
-    acceptanceCriteria: data.acceptanceCriteria,
-    acceptance_criteria: data.acceptanceCriteria,
-    constraints: data.constraints,
-    workItemType: data.workItemType,
-    work_item_type: data.workItemType,
-    priority: data.priority,
-    complexity: data.complexity,
+    request: {
+      product_id: data.productId,
+      product_area_id: data.productAreaId,
+      capability_id: data.capabilityId,
+      source_node_id: data.sourceNodeId,
+      source_node_type: data.sourceNodeType,
+      parent_work_item_id: data.parentWorkItemId,
+      title: data.title,
+      problem_statement: data.problemStatement,
+      description: data.description,
+      acceptance_criteria: data.acceptanceCriteria,
+      constraints: data.constraints,
+      work_item_type: data.workItemType,
+      priority: data.priority,
+      complexity: data.complexity,
+    },
   });
 
 export const getWorkItem = (id: string) => invoke<WorkItem>("get_work_item", { id });
@@ -525,16 +511,23 @@ export const listWorkItems = (filters?: {
   offset?: number;
 }) =>
   invoke<WorkItem[]>("list_work_items", {
-    product_id: filters?.productId, product_area_id: filters?.productAreaId,
-    capability_id: filters?.capabilityId,
-    source_node_id: filters?.sourceNodeId,
-    source_node_type: filters?.sourceNodeType,
-    status: filters?.status,
-    limit: filters?.limit,
-    offset: filters?.offset,
+    request: {
+      product_id: filters?.productId,
+      product_area_id: filters?.productAreaId,
+      capability_id: filters?.capabilityId,
+      source_node_id: filters?.sourceNodeId,
+      source_node_type: filters?.sourceNodeType,
+      status: filters?.status,
+      limit: filters?.limit,
+      offset: filters?.offset,
+    },
   });
 export const summarizeWorkItemsByProduct = () =>
   invoke<ProductWorkItemSummary[]>("summarize_work_items_by_product");
+export const summarizeWorkItemsByScope = (filters?: { productId?: string }) =>
+  invoke<WorkItemScopeSummary[]>("summarize_work_items_by_scope", {
+    product_id: filters?.productId,
+  });
 export const updateWorkItem = (data: {
   id: string;
   title?: string;
@@ -545,13 +538,15 @@ export const updateWorkItem = (data: {
   constraints?: string;
 }) =>
   invoke<WorkItem>("update_work_item", {
-    id: data.id,
-    title: data.title,
-    description: data.description,
-    status: data.status,
-    problem_statement: data.problemStatement,
-    acceptance_criteria: data.acceptanceCriteria,
-    constraints: data.constraints,
+    request: {
+      id: data.id,
+      title: data.title,
+      description: data.description,
+      status: data.status,
+      problem_statement: data.problemStatement,
+      acceptance_criteria: data.acceptanceCriteria,
+      constraints: data.constraints,
+    },
   });
 export const assignWorkItemWorkspace = (data: { id: string; repositoryId: string | null; branchName: string | null }) =>
   invoke<WorkItem>("assign_work_item_workspace", {
@@ -562,7 +557,15 @@ export const assignWorkItemWorkspace = (data: { id: string; repositoryId: string
     branchName: data.branchName,
   });
 export const deleteWorkItem = (id: string) => invoke("delete_work_item", { id });
-export const getSubWorkItems = (workItemId: string) => invoke<WorkItem[]>("get_sub_work_items", { work_item_id: workItemId });
+export const getSubWorkItems = (
+  workItemId: string,
+  options?: { limit?: number; offset?: number },
+) =>
+  invoke<WorkItem[]>("get_sub_work_items", {
+    work_item_id: workItemId,
+    limit: options?.limit,
+    offset: options?.offset,
+  });
 export const reorderWorkItems = (orderedIds: string[]) => invoke("reorder_work_items", { ordered_ids: orderedIds });
 
 // Repository commands
@@ -628,25 +631,18 @@ export const exportProductOverviewPdf = (data: {
   headerRight?: string;
 }) =>
   invoke<string>("export_product_overview_pdf", {
-    fileName: data.fileName,
-    file_name: data.fileName,
-    html: data.html,
-    pageWidth: data.pageWidth,
-    page_width: data.pageWidth,
-    pageHeight: data.pageHeight,
-    page_height: data.pageHeight,
-    marginTop: data.marginTop,
-    margin_top: data.marginTop,
-    marginRight: data.marginRight,
-    margin_right: data.marginRight,
-    marginBottom: data.marginBottom,
-    margin_bottom: data.marginBottom,
-    marginLeft: data.marginLeft,
-    margin_left: data.marginLeft,
-    headerTitle: data.headerTitle,
-    header_title: data.headerTitle,
-    headerRight: data.headerRight ?? null,
-    header_right: data.headerRight ?? null,
+    request: {
+      file_name: data.fileName,
+      html: data.html,
+      page_width: data.pageWidth,
+      page_height: data.pageHeight,
+      margin_top: data.marginTop,
+      margin_right: data.marginRight,
+      margin_bottom: data.marginBottom,
+      margin_left: data.marginLeft,
+      header_title: data.headerTitle,
+      header_right: data.headerRight ?? null,
+    },
   });
 export const attachRepository = (data: { scopeType: "product" | "product_area"; scopeId: string; repositoryId: string; isDefault: boolean }) =>
   invoke("attach_repository", {
@@ -793,16 +789,15 @@ export const updateModelDefinition = (data: {
   enabled?: boolean;
 }) =>
   invoke<ModelDefinition>("update_model_definition", {
-    id: data.id,
-    providerId: data.providerId,
-    provider_id: data.providerId,
-    name: data.name,
-    contextWindow: data.contextWindow ?? null,
-    context_window: data.contextWindow ?? null,
-    capabilityTags: data.capabilityTags ? toJsonStringArray(data.capabilityTags) : null,
-    capability_tags: data.capabilityTags ? toJsonStringArray(data.capabilityTags) : null,
-    notes: data.notes ?? null,
-    enabled: data.enabled,
+    request: {
+      id: data.id,
+      provider_id: data.providerId,
+      name: data.name,
+      context_window: data.contextWindow ?? null,
+      capability_tags: data.capabilityTags ? toJsonStringArray(data.capabilityTags) : null,
+      notes: data.notes ?? null,
+      enabled: data.enabled,
+    },
   });
 export const deleteModelDefinition = (id: string) => invoke("delete_model_definition", { id });
 export const testProviderConnectivity = (id: string) => invoke<string>("test_provider_connectivity", { id });
@@ -817,17 +812,14 @@ export const registerLocalRuntimeModel = (data: {
   contextWindow?: number;
 }) =>
   invoke<LocalModelRegistrationResult>("register_local_runtime_model_command", {
-    providerName: data.providerName,
-    provider_name: data.providerName,
-    modelName: data.modelName,
-    model_name: data.modelName,
-    modelPath: data.modelPath,
-    model_path: data.modelPath,
-    capabilityTags: data.capabilityTags ? toJsonStringArray(data.capabilityTags) : null,
-    capability_tags: data.capabilityTags ? toJsonStringArray(data.capabilityTags) : null,
-    notes: data.notes ?? null,
-    contextWindow: data.contextWindow ?? null,
-    context_window: data.contextWindow ?? null,
+    request: {
+      provider_name: data.providerName,
+      model_name: data.modelName,
+      model_path: data.modelPath,
+      capability_tags: data.capabilityTags ? toJsonStringArray(data.capabilityTags) : null,
+      notes: data.notes ?? null,
+      context_window: data.contextWindow ?? null,
+    },
   });
 export const installManagedLocalModel = (data: {
   providerName: string;
@@ -839,19 +831,15 @@ export const installManagedLocalModel = (data: {
   contextWindow?: number;
 }) =>
   invoke<LocalModelRegistrationResult>("install_managed_local_model_command", {
-    providerName: data.providerName,
-    provider_name: data.providerName,
-    modelName: data.modelName,
-    model_name: data.modelName,
-    downloadUrl: data.downloadUrl,
-    download_url: data.downloadUrl,
-    fileName: data.fileName,
-    file_name: data.fileName,
-    capabilityTags: data.capabilityTags ? toJsonStringArray(data.capabilityTags) : null,
-    capability_tags: data.capabilityTags ? toJsonStringArray(data.capabilityTags) : null,
-    notes: data.notes ?? null,
-    contextWindow: data.contextWindow ?? null,
-    context_window: data.contextWindow ?? null,
+    request: {
+      provider_name: data.providerName,
+      model_name: data.modelName,
+      download_url: data.downloadUrl,
+      file_name: data.fileName,
+      capability_tags: data.capabilityTags ? toJsonStringArray(data.capabilityTags) : null,
+      notes: data.notes ?? null,
+      context_window: data.contextWindow ?? null,
+    },
   });
 export const runModelChatCompletion = (data: {
   providerId: string;
@@ -864,16 +852,16 @@ export const runModelChatCompletion = (data: {
   sourceLabel?: string;
 }) =>
   invoke<ChatCompletionResponse>("run_model_chat_completion", {
-    providerId: data.providerId,
-    provider_id: data.providerId,
-    model: data.model,
-    messages: data.messages,
-    temperature: data.temperature ?? null,
-    maxTokens: data.maxTokens ?? null,
-    max_tokens: data.maxTokens ?? null,
-    source_kind: data.sourceKind ?? null,
-    source_id: data.sourceId ?? null,
-    source_label: data.sourceLabel ?? null,
+    request: {
+      provider_id: data.providerId,
+      model: data.model,
+      messages: data.messages,
+      temperature: data.temperature ?? null,
+      max_tokens: data.maxTokens ?? null,
+      source_kind: data.sourceKind ?? null,
+      source_id: data.sourceId ?? null,
+      source_label: data.sourceLabel ?? null,
+    },
   });
 export const startModelChatStream = (data: {
   providerId: string;
@@ -886,16 +874,16 @@ export const startModelChatStream = (data: {
   sourceLabel?: string;
 }) =>
   invoke<string>("start_model_chat_stream", {
-    providerId: data.providerId,
-    provider_id: data.providerId,
-    model: data.model,
-    messages: data.messages,
-    temperature: data.temperature ?? null,
-    maxTokens: data.maxTokens ?? null,
-    max_tokens: data.maxTokens ?? null,
-    source_kind: data.sourceKind ?? null,
-    source_id: data.sourceId ?? null,
-    source_label: data.sourceLabel ?? null,
+    request: {
+      provider_id: data.providerId,
+      model: data.model,
+      messages: data.messages,
+      temperature: data.temperature ?? null,
+      max_tokens: data.maxTokens ?? null,
+      source_kind: data.sourceKind ?? null,
+      source_id: data.sourceId ?? null,
+      source_label: data.sourceLabel ?? null,
+    },
   });
 export const listModelCalls = (limit = 200) => invoke<ModelCall[]>("list_model_calls", { limit });
 export const getModelCall = (id: string) => invoke<ModelCall>("get_model_call", { id });
@@ -924,15 +912,17 @@ export const createAgentDefinition = (data: {
   employmentStatus: "active" | "inactive" | "terminated";
 }) =>
   invoke<AgentDefinition>("create_agent_definition", {
-    name: data.name,
-    role: data.role,
-    description: data.description,
-    prompt_template_ref: data.promptTemplateRef,
-    allowed_tools: toJsonArrayString(data.allowedTools) ?? "[]",
-    skill_tags: toJsonArrayString(data.skillTags) ?? "[]",
-    boundaries: toJsonObjectString(data.boundaries) ?? "{}",
-    enabled: data.enabled,
-    employment_status: data.employmentStatus,
+    request: {
+      name: data.name,
+      role: data.role,
+      description: data.description,
+      prompt_template_ref: data.promptTemplateRef,
+      allowed_tools: toJsonArrayString(data.allowedTools) ?? "[]",
+      skill_tags: toJsonArrayString(data.skillTags) ?? "[]",
+      boundaries: toJsonObjectString(data.boundaries) ?? "{}",
+      enabled: data.enabled,
+      employment_status: data.employmentStatus,
+    },
   });
 export const updateAgentDefinition = (data: {
   id: string;
@@ -947,16 +937,18 @@ export const updateAgentDefinition = (data: {
   employmentStatus?: "active" | "inactive" | "terminated";
 }) =>
   invoke<AgentDefinition>("update_agent_definition", {
-    id: data.id,
-    name: data.name,
-    role: data.role,
-    description: data.description,
-    prompt_template_ref: data.promptTemplateRef,
-    allowed_tools: toJsonArrayString(data.allowedTools),
-    skill_tags: toJsonArrayString(data.skillTags),
-    boundaries: toJsonObjectString(data.boundaries),
-    enabled: data.enabled,
-    employment_status: data.employmentStatus,
+    request: {
+      id: data.id,
+      name: data.name,
+      role: data.role,
+      description: data.description,
+      prompt_template_ref: data.promptTemplateRef,
+      allowed_tools: toJsonArrayString(data.allowedTools),
+      skill_tags: toJsonArrayString(data.skillTags),
+      boundaries: toJsonObjectString(data.boundaries),
+      enabled: data.enabled,
+      employment_status: data.employmentStatus,
+    },
   });
 export const deleteAgentDefinition = (id: string) => invoke("delete_agent_definition", { id });
 export const listAgentTeams = () => invoke<AgentTeam[]>("list_agent_teams");

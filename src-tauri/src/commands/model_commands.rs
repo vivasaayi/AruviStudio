@@ -8,7 +8,7 @@ use crate::secrets;
 use crate::services::speech_service::resolve_local_runtime_model_path;
 use crate::state::AppState;
 use futures_util::StreamExt;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -33,6 +33,69 @@ struct ChatStreamErrorEvent {
     error: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateModelDefinitionCommand {
+    pub(crate) id: String,
+    #[serde(alias = "providerId")]
+    pub(crate) provider_id: Option<String>,
+    pub(crate) name: Option<String>,
+    #[serde(alias = "contextWindow")]
+    pub(crate) context_window: Option<i64>,
+    #[serde(alias = "capabilityTags")]
+    pub(crate) capability_tags: Option<String>,
+    pub(crate) notes: Option<String>,
+    pub(crate) enabled: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RegisterLocalRuntimeModelCommand {
+    #[serde(alias = "providerName")]
+    pub(crate) provider_name: String,
+    #[serde(alias = "modelName")]
+    pub(crate) model_name: String,
+    #[serde(alias = "modelPath")]
+    pub(crate) model_path: String,
+    #[serde(alias = "capabilityTags")]
+    pub(crate) capability_tags: Option<String>,
+    pub(crate) notes: Option<String>,
+    #[serde(alias = "contextWindow")]
+    pub(crate) context_window: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct InstallManagedLocalModelCommand {
+    #[serde(alias = "providerName")]
+    pub(crate) provider_name: String,
+    #[serde(alias = "modelName")]
+    pub(crate) model_name: String,
+    #[serde(alias = "downloadUrl")]
+    pub(crate) download_url: String,
+    #[serde(alias = "fileName")]
+    pub(crate) file_name: String,
+    #[serde(alias = "capabilityTags")]
+    pub(crate) capability_tags: Option<String>,
+    pub(crate) notes: Option<String>,
+    #[serde(alias = "contextWindow")]
+    pub(crate) context_window: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ModelChatCommand {
+    #[serde(alias = "providerId")]
+    pub(crate) provider_id: String,
+    pub(crate) model: String,
+    pub(crate) messages: Vec<ChatMessage>,
+    pub(crate) temperature: Option<f64>,
+    #[serde(alias = "maxTokens")]
+    pub(crate) max_tokens: Option<i64>,
+    #[serde(alias = "sourceKind")]
+    pub(crate) source_kind: Option<String>,
+    #[serde(alias = "sourceId")]
+    pub(crate) source_id: Option<String>,
+    #[serde(alias = "sourceLabel")]
+    pub(crate) source_label: Option<String>,
+}
+
 fn char_count_i64(content: &str) -> i64 {
     i64::try_from(content.chars().count()).unwrap_or(i64::MAX)
 }
@@ -48,72 +111,76 @@ fn elapsed_ms(started: Instant) -> i64 {
     i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX)
 }
 
-async fn record_model_command_call(
-    db: &SqlitePool,
-    artifact_base_path: &Path,
-    source_kind: &str,
-    source_id: Option<&str>,
-    source_label: &str,
-    provider: &ModelProvider,
-    model_name: &str,
-    messages: &[ChatMessage],
+async fn record_model_command_call(record: ModelCommandCallRecord<'_>) -> Result<(), AppError> {
+    let call_index =
+        model_call_repo::next_model_call_index(record.db, record.source_kind, record.source_id)
+            .await?;
+    let call_id = uuid::Uuid::new_v4().to_string();
+    let request_messages_json = serde_json::to_string_pretty(record.messages)?;
+    let snapshots = model_call_repo::write_model_call_snapshots(
+        record.artifact_base_path,
+        &call_id,
+        Some(&request_messages_json),
+        record.response_text,
+    )
+    .await?;
+    model_call_repo::create_model_call(
+        record.db,
+        model_call_repo::CreateModelCallParams {
+            id: &call_id,
+            source_kind: record.source_kind,
+            source_id: record.source_id,
+            source_label: record.source_label,
+            workflow_run_id: None,
+            agent_run_id: None,
+            work_item_id: None,
+            product_id: None,
+            session_id: record.source_id,
+            agent_id: None,
+            stage: None,
+            provider_id: &record.provider.id,
+            provider_name: &record.provider.name,
+            provider_type: record.provider.provider_type.as_str(),
+            provider_base_url: &record.provider.base_url,
+            model_id: None,
+            model_name: record.model_name,
+            call_index,
+            request_message_count: i64::try_from(record.messages.len()).unwrap_or(i64::MAX),
+            prompt_chars: message_char_count(record.messages),
+            response_chars: record.response_chars,
+            request_snapshot_path: snapshots.request_snapshot_path.as_deref(),
+            response_snapshot_path: snapshots.response_snapshot_path.as_deref(),
+            max_tokens: record.max_tokens,
+            temperature: record.temperature,
+            token_count_input: record.token_count_input,
+            token_count_output: record.token_count_output,
+            duration_ms: Some(record.duration_ms),
+            status: record.status,
+            error_message: record.error_message,
+        },
+    )
+    .await?;
+    Ok(())
+}
+
+struct ModelCommandCallRecord<'a> {
+    db: &'a SqlitePool,
+    artifact_base_path: &'a Path,
+    source_kind: &'a str,
+    source_id: Option<&'a str>,
+    source_label: &'a str,
+    provider: &'a ModelProvider,
+    model_name: &'a str,
+    messages: &'a [ChatMessage],
     max_tokens: Option<i64>,
     temperature: Option<f64>,
     response_chars: i64,
     token_count_input: Option<i64>,
     token_count_output: Option<i64>,
     duration_ms: i64,
-    status: &str,
-    error_message: Option<&str>,
-    response_text: Option<&str>,
-) -> Result<(), AppError> {
-    let call_index = model_call_repo::next_model_call_index(db, source_kind, source_id).await?;
-    let call_id = uuid::Uuid::new_v4().to_string();
-    let request_messages_json = serde_json::to_string_pretty(messages)?;
-    let snapshots = model_call_repo::write_model_call_snapshots(
-        artifact_base_path,
-        &call_id,
-        Some(&request_messages_json),
-        response_text,
-    )
-    .await?;
-    model_call_repo::create_model_call(
-        db,
-        model_call_repo::CreateModelCallParams {
-            id: &call_id,
-            source_kind,
-            source_id,
-            source_label,
-            workflow_run_id: None,
-            agent_run_id: None,
-            work_item_id: None,
-            product_id: None,
-            session_id: source_id,
-            agent_id: None,
-            stage: None,
-            provider_id: &provider.id,
-            provider_name: &provider.name,
-            provider_type: provider.provider_type.as_str(),
-            provider_base_url: &provider.base_url,
-            model_id: None,
-            model_name,
-            call_index,
-            request_message_count: i64::try_from(messages.len()).unwrap_or(i64::MAX),
-            prompt_chars: message_char_count(messages),
-            response_chars,
-            request_snapshot_path: snapshots.request_snapshot_path.as_deref(),
-            response_snapshot_path: snapshots.response_snapshot_path.as_deref(),
-            max_tokens,
-            temperature,
-            token_count_input,
-            token_count_output,
-            duration_ms: Some(duration_ms),
-            status,
-            error_message,
-        },
-    )
-    .await?;
-    Ok(())
+    status: &'a str,
+    error_message: Option<&'a str>,
+    response_text: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -122,6 +189,16 @@ pub struct LocalModelRegistrationResult {
     pub downloaded: bool,
     pub provider: ModelProvider,
     pub model_definition: ModelDefinition,
+}
+
+pub(crate) struct LocalRuntimeRegistrationInput<'a> {
+    pub(crate) provider_name: &'a str,
+    pub(crate) model_name: &'a str,
+    pub(crate) model_path: &'a str,
+    pub(crate) capability_tags: Option<&'a str>,
+    pub(crate) notes: Option<&'a str>,
+    pub(crate) context_window: Option<i64>,
+    pub(crate) downloaded: bool,
 }
 
 fn slugify(value: &str) -> String {
@@ -141,15 +218,9 @@ fn slugify(value: &str) -> String {
 
 pub(crate) async fn upsert_local_runtime_registration(
     state: &AppState,
-    provider_name: &str,
-    model_name: &str,
-    model_path: &str,
-    capability_tags: Option<&str>,
-    notes: Option<&str>,
-    context_window: Option<i64>,
-    downloaded: bool,
+    input: LocalRuntimeRegistrationInput<'_>,
 ) -> Result<LocalModelRegistrationResult, AppError> {
-    let normalized_path = resolve_local_runtime_model_path(model_path)?;
+    let normalized_path = resolve_local_runtime_model_path(input.model_path)?;
     let normalized_path_string = normalized_path.display().to_string();
 
     let existing_provider = model_repo::list_providers(&state.db)
@@ -167,7 +238,7 @@ pub(crate) async fn upsert_local_runtime_registration(
         model_repo::create_provider(
             &state.db,
             &provider_id,
-            provider_name,
+            input.provider_name,
             ProviderType::LocalRuntime.as_str(),
             &normalized_path_string,
             None,
@@ -178,7 +249,7 @@ pub(crate) async fn upsert_local_runtime_registration(
     let existing_model = model_repo::list_model_definitions(&state.db)
         .await?
         .into_iter()
-        .find(|model| model.provider_id == provider.id && model.name == model_name);
+        .find(|model| model.provider_id == provider.id && model.name == input.model_name);
 
     let model_definition = if let Some(model) = existing_model {
         model
@@ -188,17 +259,17 @@ pub(crate) async fn upsert_local_runtime_registration(
             &state.db,
             &model_id,
             &provider.id,
-            model_name,
-            context_window,
-            capability_tags,
-            notes,
+            input.model_name,
+            input.context_window,
+            input.capability_tags,
+            input.notes,
         )
         .await?
     };
 
     Ok(LocalModelRegistrationResult {
         file_path: normalized_path_string,
-        downloaded,
+        downloaded: input.downloaded,
         provider,
         model_definition,
     })
@@ -303,23 +374,19 @@ pub async fn list_model_definitions(
 #[tauri::command]
 pub async fn update_model_definition(
     state: State<'_, AppState>,
-    id: String,
-    provider_id: Option<String>,
-    name: Option<String>,
-    context_window: Option<i64>,
-    capability_tags: Option<String>,
-    notes: Option<String>,
-    enabled: Option<bool>,
+    request: UpdateModelDefinitionCommand,
 ) -> Result<ModelDefinition, AppError> {
     model_repo::update_model_definition(
         &state.db,
-        &id,
-        provider_id.as_deref(),
-        name.as_deref(),
-        context_window,
-        capability_tags.as_deref(),
-        notes.as_deref(),
-        enabled,
+        model_repo::UpdateModelDefinitionPatch {
+            id: &request.id,
+            provider_id: request.provider_id.as_deref(),
+            name: request.name.as_deref(),
+            context_window: request.context_window,
+            capability_tags: request.capability_tags.as_deref(),
+            notes: request.notes.as_deref(),
+            enabled: request.enabled,
+        },
     )
     .await
 }
@@ -377,22 +444,19 @@ pub async fn browse_for_local_model_file() -> Result<Option<String>, AppError> {
 #[tauri::command]
 pub async fn register_local_runtime_model_command(
     state: State<'_, AppState>,
-    provider_name: String,
-    model_name: String,
-    model_path: String,
-    capability_tags: Option<String>,
-    notes: Option<String>,
-    context_window: Option<i64>,
+    request: RegisterLocalRuntimeModelCommand,
 ) -> Result<LocalModelRegistrationResult, AppError> {
     upsert_local_runtime_registration(
         state.inner(),
-        &provider_name,
-        &model_name,
-        &model_path,
-        capability_tags.as_deref(),
-        notes.as_deref(),
-        context_window,
-        false,
+        LocalRuntimeRegistrationInput {
+            provider_name: &request.provider_name,
+            model_name: &request.model_name,
+            model_path: &request.model_path,
+            capability_tags: request.capability_tags.as_deref(),
+            notes: request.notes.as_deref(),
+            context_window: request.context_window,
+            downloaded: false,
+        },
     )
     .await
 }
@@ -400,22 +464,16 @@ pub async fn register_local_runtime_model_command(
 #[tauri::command]
 pub async fn install_managed_local_model_command(
     state: State<'_, AppState>,
-    provider_name: String,
-    model_name: String,
-    download_url: String,
-    file_name: String,
-    capability_tags: Option<String>,
-    notes: Option<String>,
-    context_window: Option<i64>,
+    request: InstallManagedLocalModelCommand,
 ) -> Result<LocalModelRegistrationResult, AppError> {
-    let safe_dir = slugify(&provider_name);
+    let safe_dir = slugify(&request.provider_name);
     let models_dir = state.app_data_dir.join("models").join(safe_dir);
     tokio::fs::create_dir_all(&models_dir).await?;
-    let destination_path = models_dir.join(file_name.trim());
+    let destination_path = models_dir.join(request.file_name.trim());
 
     let mut downloaded = false;
     if !destination_path.exists() {
-        let response = reqwest::get(download_url.trim())
+        let response = reqwest::get(request.download_url.trim())
             .await
             .map_err(|error| AppError::Provider(format!("Failed to download model: {error}")))?;
         if !response.status().is_success() {
@@ -439,15 +497,17 @@ pub async fn install_managed_local_model_command(
 
     upsert_local_runtime_registration(
         state.inner(),
-        &provider_name,
-        &model_name,
-        destination_path.to_str().ok_or_else(|| {
-            AppError::Validation("Installed model path is not valid UTF-8".to_string())
-        })?,
-        capability_tags.as_deref(),
-        notes.as_deref(),
-        context_window,
-        downloaded,
+        LocalRuntimeRegistrationInput {
+            provider_name: &request.provider_name,
+            model_name: &request.model_name,
+            model_path: destination_path.to_str().ok_or_else(|| {
+                AppError::Validation("Installed model path is not valid UTF-8".to_string())
+            })?,
+            capability_tags: request.capability_tags.as_deref(),
+            notes: request.notes.as_deref(),
+            context_window: request.context_window,
+            downloaded,
+        },
     )
     .await
 }
@@ -455,52 +515,49 @@ pub async fn install_managed_local_model_command(
 #[tauri::command]
 pub async fn run_model_chat_completion(
     state: State<'_, AppState>,
-    provider_id: String,
-    model: String,
-    messages: Vec<ChatMessage>,
-    temperature: Option<f64>,
-    max_tokens: Option<i64>,
-    source_kind: Option<String>,
-    source_id: Option<String>,
-    source_label: Option<String>,
+    request: ModelChatCommand,
 ) -> Result<CompletionResponse, AppError> {
-    let provider = model_repo::get_provider(&state.db, &provider_id).await?;
+    let provider = model_repo::get_provider(&state.db, &request.provider_id).await?;
     let api_key = secrets::resolve_provider_secret(&provider)?;
     let gateway = OpenAiCompatibleProvider::new(provider.base_url.clone(), api_key);
-    let source_kind = source_kind.unwrap_or_else(|| "desktop_model_completion".to_string());
-    let source_label = source_label.unwrap_or_else(|| "Desktop model completion".to_string());
+    let source_kind = request
+        .source_kind
+        .unwrap_or_else(|| "desktop_model_completion".to_string());
+    let source_label = request
+        .source_label
+        .unwrap_or_else(|| "Desktop model completion".to_string());
     let started = Instant::now();
     let response = match gateway
         .run_completion(CompletionRequest {
-            model: model.clone(),
-            messages: messages.clone(),
-            temperature,
-            max_tokens,
+            model: request.model.clone(),
+            messages: request.messages.clone(),
+            temperature: request.temperature,
+            max_tokens: request.max_tokens,
         })
         .await
     {
         Ok(response) => response,
         Err(error) => {
             let error_message = error.to_string();
-            if let Err(record_error) = record_model_command_call(
-                &state.db,
-                &state.artifact_base_path,
-                &source_kind,
-                source_id.as_deref(),
-                &source_label,
-                &provider,
-                &model,
-                &messages,
-                max_tokens,
-                temperature,
-                0,
-                None,
-                None,
-                elapsed_ms(started),
-                "failed",
-                Some(&error_message),
-                None,
-            )
+            if let Err(record_error) = record_model_command_call(ModelCommandCallRecord {
+                db: &state.db,
+                artifact_base_path: &state.artifact_base_path,
+                source_kind: &source_kind,
+                source_id: request.source_id.as_deref(),
+                source_label: &source_label,
+                provider: &provider,
+                model_name: &request.model,
+                messages: &request.messages,
+                max_tokens: request.max_tokens,
+                temperature: request.temperature,
+                response_chars: 0,
+                token_count_input: None,
+                token_count_output: None,
+                duration_ms: elapsed_ms(started),
+                status: "failed",
+                error_message: Some(&error_message),
+                response_text: None,
+            })
             .await
             {
                 warn!(error = %record_error, "Failed to record model completion telemetry");
@@ -508,25 +565,25 @@ pub async fn run_model_chat_completion(
             return Err(error);
         }
     };
-    if let Err(record_error) = record_model_command_call(
-        &state.db,
-        &state.artifact_base_path,
-        &source_kind,
-        source_id.as_deref(),
-        &source_label,
-        &provider,
-        &model,
-        &messages,
-        max_tokens,
-        temperature,
-        char_count_i64(&response.content),
-        response.token_count_input,
-        response.token_count_output,
-        elapsed_ms(started),
-        "completed",
-        None,
-        Some(&response.content),
-    )
+    if let Err(record_error) = record_model_command_call(ModelCommandCallRecord {
+        db: &state.db,
+        artifact_base_path: &state.artifact_base_path,
+        source_kind: &source_kind,
+        source_id: request.source_id.as_deref(),
+        source_label: &source_label,
+        provider: &provider,
+        model_name: &request.model,
+        messages: &request.messages,
+        max_tokens: request.max_tokens,
+        temperature: request.temperature,
+        response_chars: char_count_i64(&response.content),
+        token_count_input: response.token_count_input,
+        token_count_output: response.token_count_output,
+        duration_ms: elapsed_ms(started),
+        status: "completed",
+        error_message: None,
+        response_text: Some(&response.content),
+    })
     .await
     {
         warn!(error = %record_error, "Failed to record model completion telemetry");
@@ -583,24 +640,25 @@ pub async fn read_model_call_snapshot(
 pub async fn start_model_chat_stream(
     app: AppHandle,
     state: State<'_, AppState>,
-    provider_id: String,
-    model: String,
-    messages: Vec<ChatMessage>,
-    temperature: Option<f64>,
-    max_tokens: Option<i64>,
-    source_kind: Option<String>,
-    source_id: Option<String>,
-    source_label: Option<String>,
+    request: ModelChatCommand,
 ) -> Result<String, AppError> {
-    let provider = model_repo::get_provider(&state.db, &provider_id).await?;
+    let provider = model_repo::get_provider(&state.db, &request.provider_id).await?;
     let api_key = secrets::resolve_provider_secret(&provider)?;
     let stream_id = uuid::Uuid::new_v4().to_string();
 
     let db = state.db.clone();
     let artifact_base_path = state.artifact_base_path.clone();
-    let source_kind = source_kind.unwrap_or_else(|| "desktop_stream".to_string());
-    let telemetry_source_id = source_id.unwrap_or_else(|| stream_id.clone());
-    let source_label = source_label.unwrap_or_else(|| "Desktop stream".to_string());
+    let source_kind = request
+        .source_kind
+        .unwrap_or_else(|| "desktop_stream".to_string());
+    let telemetry_source_id = request.source_id.unwrap_or_else(|| stream_id.clone());
+    let source_label = request
+        .source_label
+        .unwrap_or_else(|| "Desktop stream".to_string());
+    let model = request.model;
+    let messages = request.messages;
+    let temperature = request.temperature;
+    let max_tokens = request.max_tokens;
     let base_url = provider.base_url.clone();
     let stream_id_for_task = stream_id.clone();
     let telemetry_source_id_for_task = telemetry_source_id.clone();
@@ -630,25 +688,25 @@ pub async fn start_model_chat_stream(
             Ok(response) => response,
             Err(error) => {
                 let error_text = format!("Request failed: {}", error);
-                if let Err(record_error) = record_model_command_call(
-                    &db,
-                    &artifact_base_path,
-                    &source_kind,
-                    Some(&telemetry_source_id_for_task),
-                    &source_label,
-                    &provider,
-                    &model,
-                    &messages,
+                if let Err(record_error) = record_model_command_call(ModelCommandCallRecord {
+                    db: &db,
+                    artifact_base_path: &artifact_base_path,
+                    source_kind: &source_kind,
+                    source_id: Some(&telemetry_source_id_for_task),
+                    source_label: &source_label,
+                    provider: &provider,
+                    model_name: &model,
+                    messages: &messages,
                     max_tokens,
                     temperature,
                     response_chars,
-                    None,
-                    None,
-                    elapsed_ms(started),
-                    "failed",
-                    Some(&error_text),
-                    None,
-                )
+                    token_count_input: None,
+                    token_count_output: None,
+                    duration_ms: elapsed_ms(started),
+                    status: "failed",
+                    error_message: Some(&error_text),
+                    response_text: None,
+                })
                 .await
                 {
                     warn!(error = %record_error, "Failed to record stream telemetry");
@@ -668,25 +726,25 @@ pub async fn start_model_chat_stream(
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
             let error_text = format!("API error {}: {}", status, text);
-            if let Err(record_error) = record_model_command_call(
-                &db,
-                &artifact_base_path,
-                &source_kind,
-                Some(&telemetry_source_id_for_task),
-                &source_label,
-                &provider,
-                &model,
-                &messages,
+            if let Err(record_error) = record_model_command_call(ModelCommandCallRecord {
+                db: &db,
+                artifact_base_path: &artifact_base_path,
+                source_kind: &source_kind,
+                source_id: Some(&telemetry_source_id_for_task),
+                source_label: &source_label,
+                provider: &provider,
+                model_name: &model,
+                messages: &messages,
                 max_tokens,
                 temperature,
                 response_chars,
-                None,
-                None,
-                elapsed_ms(started),
-                "failed",
-                Some(&error_text),
-                None,
-            )
+                token_count_input: None,
+                token_count_output: None,
+                duration_ms: elapsed_ms(started),
+                status: "failed",
+                error_message: Some(&error_text),
+                response_text: None,
+            })
             .await
             {
                 warn!(error = %record_error, "Failed to record stream telemetry");
@@ -709,25 +767,25 @@ pub async fn start_model_chat_stream(
                 Ok(chunk) => chunk,
                 Err(error) => {
                     let error_text = format!("Stream read failed: {}", error);
-                    if let Err(record_error) = record_model_command_call(
-                        &db,
-                        &artifact_base_path,
-                        &source_kind,
-                        Some(&telemetry_source_id_for_task),
-                        &source_label,
-                        &provider,
-                        &model,
-                        &messages,
+                    if let Err(record_error) = record_model_command_call(ModelCommandCallRecord {
+                        db: &db,
+                        artifact_base_path: &artifact_base_path,
+                        source_kind: &source_kind,
+                        source_id: Some(&telemetry_source_id_for_task),
+                        source_label: &source_label,
+                        provider: &provider,
+                        model_name: &model,
+                        messages: &messages,
                         max_tokens,
                         temperature,
                         response_chars,
-                        None,
-                        None,
-                        elapsed_ms(started),
-                        "failed",
-                        Some(&error_text),
-                        Some(&response_text),
-                    )
+                        token_count_input: None,
+                        token_count_output: None,
+                        duration_ms: elapsed_ms(started),
+                        status: "failed",
+                        error_message: Some(&error_text),
+                        response_text: Some(&response_text),
+                    })
                     .await
                     {
                         warn!(error = %record_error, "Failed to record stream telemetry");
@@ -753,25 +811,25 @@ pub async fn start_model_chat_stream(
                 }
                 let payload = trimmed.trim_start_matches("data:").trim();
                 if payload == "[DONE]" {
-                    if let Err(record_error) = record_model_command_call(
-                        &db,
-                        &artifact_base_path,
-                        &source_kind,
-                        Some(&telemetry_source_id_for_task),
-                        &source_label,
-                        &provider,
-                        &model,
-                        &messages,
+                    if let Err(record_error) = record_model_command_call(ModelCommandCallRecord {
+                        db: &db,
+                        artifact_base_path: &artifact_base_path,
+                        source_kind: &source_kind,
+                        source_id: Some(&telemetry_source_id_for_task),
+                        source_label: &source_label,
+                        provider: &provider,
+                        model_name: &model,
+                        messages: &messages,
                         max_tokens,
                         temperature,
                         response_chars,
-                        None,
-                        None,
-                        elapsed_ms(started),
-                        "completed",
-                        None,
-                        Some(&response_text),
-                    )
+                        token_count_input: None,
+                        token_count_output: None,
+                        duration_ms: elapsed_ms(started),
+                        status: "completed",
+                        error_message: None,
+                        response_text: Some(&response_text),
+                    })
                     .await
                     {
                         warn!(error = %record_error, "Failed to record stream telemetry");
@@ -814,25 +872,25 @@ pub async fn start_model_chat_stream(
                 stream_id: stream_id_for_task.clone(),
             },
         );
-        if let Err(record_error) = record_model_command_call(
-            &db,
-            &artifact_base_path,
-            &source_kind,
-            Some(&telemetry_source_id_for_task),
-            &source_label,
-            &provider,
-            &model,
-            &messages,
+        if let Err(record_error) = record_model_command_call(ModelCommandCallRecord {
+            db: &db,
+            artifact_base_path: &artifact_base_path,
+            source_kind: &source_kind,
+            source_id: Some(&telemetry_source_id_for_task),
+            source_label: &source_label,
+            provider: &provider,
+            model_name: &model,
+            messages: &messages,
             max_tokens,
             temperature,
             response_chars,
-            None,
-            None,
-            elapsed_ms(started),
-            "completed",
-            None,
-            Some(&response_text),
-        )
+            token_count_input: None,
+            token_count_output: None,
+            duration_ms: elapsed_ms(started),
+            status: "completed",
+            error_message: None,
+            response_text: Some(&response_text),
+        })
         .await
         {
             warn!(error = %record_error, "Failed to record stream telemetry");

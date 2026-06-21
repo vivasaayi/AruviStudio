@@ -14,13 +14,14 @@
     "release:mac": "bash release_macos_direct.sh",
     "unit-test": "node scripts/ci/run-rust-test-suite.mjs unit",
     "integration-test": "node scripts/ci/run-rust-test-suite.mjs integration",
+    "terminology-check": "node scripts/ci/check-product-area-terminology.mjs",
     "test:frontend": "vitest run --coverage",
     "e2e-tests": "node scripts/ci/run-playwright-suite.mjs",
     "test:rust:unit": "npm run unit-test",
     "test:rust:integration": "npm run integration-test",
     "test:e2e:raw": "playwright test",
     "test:e2e": "npm run e2e-tests",
-    "test:all": "npm run unit-test && npm run test:frontend && npm run integration-test && npm run e2e-tests",
+    "test:all": "npm run terminology-check && npm run unit-test && npm run test:frontend && npm run integration-test && npm run e2e-tests",
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {

@@ -32,13 +32,15 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             .await?;
             work_item_repo::update_work_item(
                 &state.db,
-                &work_item_id,
-                None,
-                None,
-                Some("approved"),
-                None,
-                None,
-                None,
+                work_item_repo::UpdateWorkItemPatch {
+                    id: &work_item_id,
+                    status: Some("approved"),
+                    title: None,
+                    description: None,
+                    problem_statement: None,
+                    acceptance_criteria: None,
+                    constraints: None,
+                },
             )
             .await?;
 
@@ -75,13 +77,15 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             .await?;
             work_item_repo::update_work_item(
                 &state.db,
-                &work_item_id,
-                None,
-                None,
-                Some("draft"),
-                None,
-                None,
-                None,
+                work_item_repo::UpdateWorkItemPatch {
+                    id: &work_item_id,
+                    status: Some("draft"),
+                    title: None,
+                    description: None,
+                    problem_statement: None,
+                    acceptance_criteria: None,
+                    constraints: None,
+                },
             )
             .await?;
             action_result("reject_work_item", approval)

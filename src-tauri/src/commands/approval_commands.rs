@@ -8,24 +8,17 @@ use tracing::{error, info};
 const AUTO_START_AFTER_WORK_ITEM_APPROVAL_KEY: &str =
     "workflow.auto_start_after_work_item_approval";
 
-fn resolve_work_item_id(
-    work_item_id: Option<String>,
-    work_item_id_legacy: Option<String>,
-) -> Result<String, AppError> {
-    work_item_id
-        .or(work_item_id_legacy)
-        .ok_or_else(|| AppError::Validation("missing work item id".to_string()))
+fn resolve_work_item_id(work_item_id: Option<String>) -> Result<String, AppError> {
+    work_item_id.ok_or_else(|| AppError::Validation("missing work item id".to_string()))
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn approve_work_item(
     state: State<'_, AppState>,
     work_item_id: Option<String>,
-    workItemId: Option<String>,
     notes: Option<String>,
 ) -> Result<Approval, AppError> {
-    let work_item_id = resolve_work_item_id(work_item_id, workItemId)?;
+    let work_item_id = resolve_work_item_id(work_item_id)?;
     let id = uuid::Uuid::new_v4().to_string();
     info!(work_item_id = %work_item_id, "approve_work_item requested");
     let approval = approval_repo::create_approval(
@@ -40,13 +33,15 @@ pub async fn approve_work_item(
     .await?;
     if let Err(error) = work_item_repo::update_work_item(
         &state.db,
-        &work_item_id,
-        None,
-        None,
-        Some("approved"),
-        None,
-        None,
-        None,
+        work_item_repo::UpdateWorkItemPatch {
+            id: &work_item_id,
+            status: Some("approved"),
+            title: None,
+            description: None,
+            problem_statement: None,
+            acceptance_criteria: None,
+            constraints: None,
+        },
     )
     .await
     {
@@ -78,14 +73,12 @@ pub async fn approve_work_item(
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn reject_work_item(
     state: State<'_, AppState>,
     work_item_id: Option<String>,
-    workItemId: Option<String>,
     notes: String,
 ) -> Result<Approval, AppError> {
-    let work_item_id = resolve_work_item_id(work_item_id, workItemId)?;
+    let work_item_id = resolve_work_item_id(work_item_id)?;
     let id = uuid::Uuid::new_v4().to_string();
     info!(work_item_id = %work_item_id, "reject_work_item requested");
     let approval = approval_repo::create_approval(
@@ -100,13 +93,15 @@ pub async fn reject_work_item(
     .await?;
     if let Err(error) = work_item_repo::update_work_item(
         &state.db,
-        &work_item_id,
-        None,
-        None,
-        Some("draft"),
-        None,
-        None,
-        None,
+        work_item_repo::UpdateWorkItemPatch {
+            id: &work_item_id,
+            status: Some("draft"),
+            title: None,
+            description: None,
+            problem_statement: None,
+            acceptance_criteria: None,
+            constraints: None,
+        },
     )
     .await
     {
@@ -118,14 +113,12 @@ pub async fn reject_work_item(
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn approve_work_item_plan(
     state: State<'_, AppState>,
     work_item_id: Option<String>,
-    workItemId: Option<String>,
     notes: Option<String>,
 ) -> Result<Approval, AppError> {
-    let work_item_id = resolve_work_item_id(work_item_id, workItemId)?;
+    let work_item_id = resolve_work_item_id(work_item_id)?;
     let id = uuid::Uuid::new_v4().to_string();
     approval_repo::create_approval(
         &state.db,
@@ -140,14 +133,12 @@ pub async fn approve_work_item_plan(
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn reject_work_item_plan(
     state: State<'_, AppState>,
     work_item_id: Option<String>,
-    workItemId: Option<String>,
     notes: String,
 ) -> Result<Approval, AppError> {
-    let work_item_id = resolve_work_item_id(work_item_id, workItemId)?;
+    let work_item_id = resolve_work_item_id(work_item_id)?;
     let id = uuid::Uuid::new_v4().to_string();
     approval_repo::create_approval(
         &state.db,
@@ -162,14 +153,12 @@ pub async fn reject_work_item_plan(
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn approve_work_item_test_review(
     state: State<'_, AppState>,
     work_item_id: Option<String>,
-    workItemId: Option<String>,
     notes: Option<String>,
 ) -> Result<Approval, AppError> {
-    let work_item_id = resolve_work_item_id(work_item_id, workItemId)?;
+    let work_item_id = resolve_work_item_id(work_item_id)?;
     let id = uuid::Uuid::new_v4().to_string();
     approval_repo::create_approval(
         &state.db,
@@ -184,13 +173,11 @@ pub async fn approve_work_item_test_review(
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn get_work_item_approvals(
     state: State<'_, AppState>,
     work_item_id: Option<String>,
-    workItemId: Option<String>,
 ) -> Result<Vec<Approval>, AppError> {
-    let work_item_id = resolve_work_item_id(work_item_id, workItemId)?;
+    let work_item_id = resolve_work_item_id(work_item_id)?;
     approval_repo::list_approvals(&state.db, &work_item_id).await
 }
 
@@ -208,61 +195,56 @@ mod tests {
     async fn create_work_item(state: State<'_, AppState>, title: &str) -> String {
         let product = product_commands::create_product(
             state.clone(),
-            "Approval Product".to_string(),
-            "".to_string(),
-            "".to_string(),
-            "[]".to_string(),
-            "[]".to_string(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
+            product_commands::CreateProductCommand {
+                name: "Approval Product".to_string(),
+                description: "".to_string(),
+                vision: "".to_string(),
+                goals: "[]".to_string(),
+                tags: "[]".to_string(),
+                lifecycle: None,
+                health: None,
+                owner_label: None,
+                investment_status: None,
+                roadmap: None,
+                evidence: None,
+            },
         )
         .await
         .expect("product should be created");
         let product_area = product_commands::create_product_area(
             state.clone(),
-            product.id.clone(),
-            "Approval ProductArea".to_string(),
-            "".to_string(),
-            "".to_string(),
-            Some("product_area".to_string()),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
+            product_commands::CreateProductAreaCommand {
+                product_id: product.id.clone(),
+                name: "Approval ProductArea".to_string(),
+                description: "".to_string(),
+                purpose: "".to_string(),
+                node_kind: Some("product_area".to_string()),
+                explanation: None,
+                examples: None,
+                implementation_notes: None,
+                test_guidance: None,
+            },
         )
         .await
         .expect("product_area should be created");
         let work_item = work_item_commands::create_work_item(
             state,
-            Some(product.id),
-            None,
-            Some(product_area.id),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            title.to_string(),
-            "Problem".to_string(),
-            None,
-            "Description".to_string(),
-            "Acceptance".to_string(),
-            None,
-            "".to_string(),
-            "story".to_string(),
-            None,
-            "medium".to_string(),
-            "medium".to_string(),
+            work_item_commands::CreateWorkItemCommand {
+                product_id: Some(product.id),
+                product_area_id: Some(product_area.id),
+                capability_id: None,
+                source_node_id: None,
+                source_node_type: None,
+                parent_work_item_id: None,
+                title: title.to_string(),
+                problem_statement: "Problem".to_string(),
+                description: "Description".to_string(),
+                acceptance_criteria: "Acceptance".to_string(),
+                constraints: "".to_string(),
+                work_item_type: "story".to_string(),
+                priority: "medium".to_string(),
+                complexity: "medium".to_string(),
+            },
         )
         .await
         .expect("work item should be created");
@@ -281,7 +263,6 @@ mod tests {
         let work_item_id = create_work_item(state.clone(), "Approval Item").await;
         let approval = approve_work_item(
             state.clone(),
-            None,
             Some(work_item_id.clone()),
             Some("looks good".to_string()),
         )
@@ -291,7 +272,7 @@ mod tests {
         let updated = work_item_commands::get_work_item(state.clone(), work_item_id.clone())
             .await
             .expect("work item should load");
-        let approvals = get_work_item_approvals(state, Some(work_item_id), None)
+        let approvals = get_work_item_approvals(state, Some(work_item_id))
             .await
             .expect("approvals should load");
 
@@ -310,13 +291,15 @@ mod tests {
 
         work_item_commands::update_work_item(
             state.clone(),
-            work_item_id.clone(),
-            None,
-            None,
-            Some("approved".to_string()),
-            None,
-            None,
-            None,
+            work_item_commands::UpdateWorkItemCommand {
+                id: work_item_id.clone(),
+                title: None,
+                description: None,
+                status: Some("approved".to_string()),
+                problem_statement: None,
+                acceptance_criteria: None,
+                constraints: None,
+            },
         )
         .await
         .expect("work item should move to approved");
@@ -324,7 +307,6 @@ mod tests {
         reject_work_item(
             state.clone(),
             Some(work_item_id.clone()),
-            None,
             "needs changes".to_string(),
         )
         .await
@@ -332,14 +314,12 @@ mod tests {
         approve_work_item_plan(
             state.clone(),
             Some(work_item_id.clone()),
-            None,
             Some("plan approved".to_string()),
         )
         .await
         .expect("plan approval should succeed");
         approve_work_item_test_review(
             state.clone(),
-            None,
             Some(work_item_id.clone()),
             Some("tests reviewed".to_string()),
         )
@@ -349,7 +329,7 @@ mod tests {
         let updated = work_item_commands::get_work_item(state.clone(), work_item_id.clone())
             .await
             .expect("work item should load");
-        let approvals = get_work_item_approvals(state, None, Some(work_item_id))
+        let approvals = get_work_item_approvals(state, Some(work_item_id))
             .await
             .expect("approvals should load");
 

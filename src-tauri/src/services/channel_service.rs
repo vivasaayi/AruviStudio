@@ -37,14 +37,6 @@ pub struct ChannelInboundMessage {
     pub content: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChannelOutboundMessage {
-    pub channel: String,
-    pub remote_user_id: String,
-    pub remote_conversation_id: String,
-    pub content: String,
-}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelKind {

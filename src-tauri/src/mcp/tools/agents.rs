@@ -34,47 +34,68 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             action_result("set_primary_agent_model_binding", binding)
         }
         "create_agent_definition" => {
+            let id = uuid::Uuid::new_v4().to_string();
+            let name = args.required_string(&["name"], "name")?;
+            let role = args.required_string(&["role"], "role")?;
+            let description = args.string_or_default(&["description"], "")?;
+            let prompt_template_ref =
+                args.string_or_default(&["prompt_template_ref", "promptTemplateRef"], "")?;
+            let allowed_tools = args
+                .optional_json_array_string(&["allowed_tools", "allowedTools"])?
+                .unwrap_or_else(|| "[]".to_string());
+            let skill_tags = args
+                .optional_json_array_string(&["skill_tags", "skillTags"])?
+                .unwrap_or_else(|| "[]".to_string());
+            let boundaries = args
+                .optional_json_object_string(&["boundaries"])?
+                .unwrap_or_else(|| "{}".to_string());
+            let employment_status =
+                args.string_or_default(&["employment_status", "employmentStatus"], "active")?;
             let agent = agent_repo::create_agent_definition(
                 &state.db,
-                &uuid::Uuid::new_v4().to_string(),
-                &args.required_string(&["name"], "name")?,
-                &args.required_string(&["role"], "role")?,
-                &args.string_or_default(&["description"], "")?,
-                &args.string_or_default(&["prompt_template_ref", "promptTemplateRef"], "")?,
-                &args
-                    .optional_json_array_string(&["allowed_tools", "allowedTools"])?
-                    .unwrap_or_else(|| "[]".to_string()),
-                &args
-                    .optional_json_array_string(&["skill_tags", "skillTags"])?
-                    .unwrap_or_else(|| "[]".to_string()),
-                &args
-                    .optional_json_object_string(&["boundaries"])?
-                    .unwrap_or_else(|| "{}".to_string()),
-                args.bool_or_default(&["enabled"], true)?,
-                &args.string_or_default(&["employment_status", "employmentStatus"], "active")?,
+                agent_repo::CreateAgentDefinitionInput {
+                    id: &id,
+                    name: &name,
+                    role: &role,
+                    description: &description,
+                    prompt_template_ref: &prompt_template_ref,
+                    allowed_tools: &allowed_tools,
+                    skill_tags: &skill_tags,
+                    boundaries: &boundaries,
+                    enabled: args.bool_or_default(&["enabled"], true)?,
+                    employment_status: &employment_status,
+                },
             )
             .await?;
             action_result("create_agent_definition", agent)
         }
         "update_agent_definition" => {
             let id = args.required_string(&["id"], "id")?;
+            let name = args.optional_string(&["name"])?;
+            let role = args.optional_string(&["role"])?;
+            let description = args.optional_string(&["description"])?;
+            let prompt_template_ref =
+                args.optional_string(&["prompt_template_ref", "promptTemplateRef"])?;
+            let allowed_tools =
+                args.optional_json_array_string(&["allowed_tools", "allowedTools"])?;
+            let skill_tags = args.optional_json_array_string(&["skill_tags", "skillTags"])?;
+            let boundaries = args.optional_json_object_string(&["boundaries"])?;
+            let employment_status =
+                args.optional_string(&["employment_status", "employmentStatus"])?;
             let agent = agent_repo::update_agent_definition(
                 &state.db,
-                &id,
-                args.optional_string(&["name"])?.as_deref(),
-                args.optional_string(&["role"])?.as_deref(),
-                args.optional_string(&["description"])?.as_deref(),
-                args.optional_string(&["prompt_template_ref", "promptTemplateRef"])?
-                    .as_deref(),
-                args.optional_json_array_string(&["allowed_tools", "allowedTools"])?
-                    .as_deref(),
-                args.optional_json_array_string(&["skill_tags", "skillTags"])?
-                    .as_deref(),
-                args.optional_json_object_string(&["boundaries"])?
-                    .as_deref(),
-                args.optional_bool(&["enabled"])?,
-                args.optional_string(&["employment_status", "employmentStatus"])?
-                    .as_deref(),
+                agent_repo::UpdateAgentDefinitionPatch {
+                    id: &id,
+                    name: name.as_deref(),
+                    role: role.as_deref(),
+                    description: description.as_deref(),
+                    prompt_template_ref: prompt_template_ref.as_deref(),
+                    allowed_tools: allowed_tools.as_deref(),
+                    skill_tags: skill_tags.as_deref(),
+                    boundaries: boundaries.as_deref(),
+                    enabled: args.optional_bool(&["enabled"])?,
+                    employment_status: employment_status.as_deref(),
+                },
             )
             .await?;
             action_result("update_agent_definition", agent)

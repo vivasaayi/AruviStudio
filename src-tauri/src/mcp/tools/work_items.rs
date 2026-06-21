@@ -59,23 +59,34 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             } else {
                 args.string_or_default(&["work_item_type", "workItemType"], "story")?
             };
+            let id = uuid::Uuid::new_v4().to_string();
+            let problem_statement =
+                args.string_or_default(&["problem_statement", "problemStatement"], "")?;
+            let description = args.string_or_default(&["description"], "")?;
+            let acceptance_criteria =
+                args.string_or_default(&["acceptance_criteria", "acceptanceCriteria"], "")?;
+            let constraints = args.string_or_default(&["constraints"], "")?;
+            let priority = args.string_or_default(&["priority"], "medium")?;
+            let complexity = args.string_or_default(&["complexity"], "medium")?;
             let work_item = work_item_repo::create_work_item(
                 &state.db,
-                &uuid::Uuid::new_v4().to_string(),
-                &product_id,
-                product_area_id.as_deref(),
-                feature_id.as_deref(),
-                source_node_id.as_deref(),
-                source_node_type.as_deref(),
-                parent_work_item_id.as_deref(),
-                &title,
-                &args.string_or_default(&["problem_statement", "problemStatement"], "")?,
-                &args.string_or_default(&["description"], "")?,
-                &args.string_or_default(&["acceptance_criteria", "acceptanceCriteria"], "")?,
-                &args.string_or_default(&["constraints"], "")?,
-                &work_item_type,
-                &args.string_or_default(&["priority"], "medium")?,
-                &args.string_or_default(&["complexity"], "medium")?,
+                work_item_repo::CreateWorkItemInput {
+                    id: &id,
+                    product_id: &product_id,
+                    product_area_id: product_area_id.as_deref(),
+                    capability_id: feature_id.as_deref(),
+                    source_node_id: source_node_id.as_deref(),
+                    source_node_type: source_node_type.as_deref(),
+                    parent_work_item_id: parent_work_item_id.as_deref(),
+                    title: &title,
+                    problem_statement: &problem_statement,
+                    description: &description,
+                    acceptance_criteria: &acceptance_criteria,
+                    constraints: &constraints,
+                    work_item_type: &work_item_type,
+                    priority: &priority,
+                    complexity: &complexity,
+                },
             )
             .await?;
             action_result(action, work_item)
@@ -87,48 +98,61 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 work_item_repo::get_work_item(&state.db, &id).await?,
             )
         }
-        "list_work_items" => action_result(
-            "list_work_items",
-            work_item_repo::list_work_items_page(
-                &state.db,
-                args.optional_string(&["product_id", "productId"])?
-                    .as_deref(),
-                args.optional_string(&["product_area_id", "productAreaId"])?
-                    .as_deref(),
-                args.optional_string(&[
-                    "feature_id",
-                    "featureId",
-                    "capability_id",
-                    "capabilityId",
-                ])?
-                .as_deref(),
-                args.optional_string(&["source_node_id", "sourceNodeId"])?
-                    .as_deref(),
-                args.optional_string(&["source_node_type", "sourceNodeType"])?
-                    .as_deref(),
-                args.optional_string(&["status"])?.as_deref(),
-                args.optional_i64(&["limit"])?,
-                args.optional_i64(&["offset"])?,
+        "list_work_items" => {
+            let product_id = args.optional_string(&["product_id", "productId"])?;
+            let product_area_id = args.optional_string(&["product_area_id", "productAreaId"])?;
+            let capability_id = args.optional_string(&[
+                "feature_id",
+                "featureId",
+                "capability_id",
+                "capabilityId",
+            ])?;
+            let source_node_id = args.optional_string(&["source_node_id", "sourceNodeId"])?;
+            let source_node_type = args.optional_string(&["source_node_type", "sourceNodeType"])?;
+            let status = args.optional_string(&["status"])?;
+            action_result(
+                "list_work_items",
+                work_item_repo::list_work_items_page(
+                    &state.db,
+                    work_item_repo::WorkItemListQuery {
+                        product_id: product_id.as_deref(),
+                        product_area_id: product_area_id.as_deref(),
+                        capability_id: capability_id.as_deref(),
+                        source_node_id: source_node_id.as_deref(),
+                        source_node_type: source_node_type.as_deref(),
+                        status: status.as_deref(),
+                        limit: args.optional_i64(&["limit"])?,
+                        offset: args.optional_i64(&["offset"])?,
+                    },
+                )
+                .await?,
             )
-            .await?,
-        ),
+        }
         "summarize_work_items_by_product" => action_result(
             "summarize_work_items_by_product",
             work_item_repo::summarize_work_items_by_product(&state.db).await?,
         ),
         "update_work_item" => {
             let id = args.required_string(&["id"], "id")?;
+            let title = args.optional_string(&["title"])?;
+            let description = args.optional_string(&["description"])?;
+            let status = args.optional_string(&["status"])?;
+            let problem_statement =
+                args.optional_string(&["problem_statement", "problemStatement"])?;
+            let acceptance_criteria =
+                args.optional_string(&["acceptance_criteria", "acceptanceCriteria"])?;
+            let constraints = args.optional_string(&["constraints"])?;
             let work_item = work_item_repo::update_work_item(
                 &state.db,
-                &id,
-                args.optional_string(&["title"])?.as_deref(),
-                args.optional_string(&["description"])?.as_deref(),
-                args.optional_string(&["status"])?.as_deref(),
-                args.optional_string(&["problem_statement", "problemStatement"])?
-                    .as_deref(),
-                args.optional_string(&["acceptance_criteria", "acceptanceCriteria"])?
-                    .as_deref(),
-                args.optional_string(&["constraints"])?.as_deref(),
+                work_item_repo::UpdateWorkItemPatch {
+                    id: &id,
+                    title: title.as_deref(),
+                    description: description.as_deref(),
+                    status: status.as_deref(),
+                    problem_statement: problem_statement.as_deref(),
+                    acceptance_criteria: acceptance_criteria.as_deref(),
+                    constraints: constraints.as_deref(),
+                },
             )
             .await?;
             action_result("update_work_item", work_item)
@@ -143,7 +167,13 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 args.required_string(&["work_item_id", "workItemId"], "work_item_id")?;
             action_result(
                 "get_sub_work_items",
-                work_item_repo::get_sub_work_items(&state.db, &work_item_id).await?,
+                work_item_repo::get_sub_work_items_page(
+                    &state.db,
+                    &work_item_id,
+                    args.optional_i64(&["limit"])?,
+                    args.optional_i64(&["offset"])?,
+                )
+                .await?,
             )
         }
         "reorder_work_items" => {

@@ -196,63 +196,73 @@ mod tests {
     async fn create_test_work_item(pool: &SqlitePool, product_id: &str, work_item_id: &str) {
         product_repo::create_product(
             pool,
-            product_id,
-            "Workflow Product",
-            "",
-            "",
-            "[]",
-            "[]",
-            Some("active"),
-            Some("healthy"),
-            None,
-            Some("invest"),
-            None,
-            None,
+            product_repo::CreateProductInput {
+                id: product_id,
+                name: "Workflow Product",
+                description: "",
+                vision: "",
+                goals: "[]",
+                tags: "[]",
+                lifecycle: Some("active"),
+                health: Some("healthy"),
+                owner_label: None,
+                investment_status: Some("invest"),
+                roadmap: None,
+                evidence: None,
+            },
         )
         .await
         .expect("product should be created");
 
         work_item_repo::create_work_item(
             pool,
-            work_item_id,
-            product_id,
-            None,
-            None,
-            None,
-            None,
-            None,
-            "Workflow work item",
-            "",
-            "",
-            "",
-            "",
-            "story",
-            "medium",
-            "medium",
+            work_item_repo::CreateWorkItemInput {
+                id: work_item_id,
+                product_id,
+                product_area_id: None,
+                capability_id: None,
+                source_node_id: None,
+                source_node_type: None,
+                parent_work_item_id: None,
+                title: "Workflow work item",
+                problem_statement: "",
+                description: "",
+                acceptance_criteria: "",
+                constraints: "",
+                work_item_type: "story",
+                priority: "medium",
+                complexity: "medium",
+            },
         )
         .await
         .expect("work item should be created");
+    }
+
+    async fn create_test_agent(pool: &SqlitePool, id: &str, name: &str, role: &str) {
+        agent_repo::create_agent_definition(
+            pool,
+            agent_repo::CreateAgentDefinitionInput {
+                id,
+                name,
+                role,
+                description: "",
+                prompt_template_ref: "",
+                allowed_tools: "[]",
+                skill_tags: "[]",
+                boundaries: "{}",
+                enabled: true,
+                employment_status: "active",
+            },
+        )
+        .await
+        .expect("agent should be created");
     }
 
     #[tokio::test]
     async fn create_and_update_workflow_run_persists_lifecycle_assignment_and_pending_stage() {
         let pool = create_test_pool("workflow_lifecycle").await;
         create_test_work_item(&pool, "product-workflow-lifecycle", "work-item-lifecycle").await;
-        agent_repo::create_agent_definition(
-            &pool,
-            "coordinator-active",
-            "Coordinator",
-            "coordinator",
-            "",
-            "",
-            "[]",
-            "[]",
-            "{}",
-            true,
-            "active",
-        )
-        .await
-        .expect("agent should be created");
+        create_test_agent(&pool, "coordinator-active", "Coordinator", "coordinator").await;
 
         let workflow = create_workflow_run(&pool, "workflow-lifecycle", "work-item-lifecycle")
             .await
@@ -366,36 +376,14 @@ mod tests {
     async fn close_orphaned_coordinator_reviews_only_closes_invalid_running_reviews() {
         let pool = create_test_pool("workflow_orphans").await;
         create_test_work_item(&pool, "product-workflow-orphans", "work-item-orphans").await;
-        agent_repo::create_agent_definition(
+        create_test_agent(
             &pool,
             "coordinator-valid",
             "Valid Coordinator",
             "coordinator",
-            "",
-            "",
-            "[]",
-            "[]",
-            "{}",
-            true,
-            "active",
         )
-        .await
-        .expect("valid coordinator should be created");
-        agent_repo::create_agent_definition(
-            &pool,
-            "developer-invalid",
-            "Developer",
-            "developer",
-            "",
-            "",
-            "[]",
-            "[]",
-            "{}",
-            true,
-            "active",
-        )
-        .await
-        .expect("invalid coordinator role should be created");
+        .await;
+        create_test_agent(&pool, "developer-invalid", "Developer", "developer").await;
 
         for (id, coordinator_agent_id, status, stage) in [
             (

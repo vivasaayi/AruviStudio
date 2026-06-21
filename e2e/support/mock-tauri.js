@@ -504,30 +504,31 @@
   }
 
   function listWorkItemsFiltered(filters) {
+    const payload = commandPayload(filters);
     const state = getState();
     return state.workItems.filter((item) => {
-      if (filters?.productId && item.product_id !== filters.productId) {
+      if (payload?.productId && item.product_id !== payload.productId) {
         return false;
       }
-      if (filters?.productAreaId && item.product_area_id !== filters.productAreaId) {
+      if (payload?.productAreaId && item.product_area_id !== payload.productAreaId) {
         return false;
       }
-      if (filters?.capabilityId && item.capability_id !== filters.capabilityId) {
+      if (payload?.capabilityId && item.capability_id !== payload.capabilityId) {
         return false;
       }
-      if (filters?.sourceNodeId && item.source_node_id !== filters.sourceNodeId) {
+      if (payload?.sourceNodeId && item.source_node_id !== payload.sourceNodeId) {
         return false;
       }
-      if (filters?.source_node_id && item.source_node_id !== filters.source_node_id) {
+      if (payload?.source_node_id && item.source_node_id !== payload.source_node_id) {
         return false;
       }
-      if (filters?.sourceNodeType && item.source_node_type !== filters.sourceNodeType) {
+      if (payload?.sourceNodeType && item.source_node_type !== payload.sourceNodeType) {
         return false;
       }
-      if (filters?.source_node_type && item.source_node_type !== filters.source_node_type) {
+      if (payload?.source_node_type && item.source_node_type !== payload.source_node_type) {
         return false;
       }
-      if (filters?.status && item.status !== filters.status) {
+      if (payload?.status && item.status !== payload.status) {
         return false;
       }
       return true;
@@ -605,6 +606,64 @@
         blocked_count: items.filter((item) => ["blocked", "failed"].includes(item.status)).length,
       };
     });
+  }
+
+  function summarizeWorkItemsByScope(args = {}) {
+    const state = getState();
+    const productId = getArg(args, "productId", "product_id");
+    const groups = new Map();
+    state.workItems
+      .filter((item) => !productId || item.product_id === productId)
+      .forEach((item) => {
+        const key = [
+          item.product_id,
+          item.product_area_id ?? "",
+          item.capability_id ?? "",
+          item.source_node_id ?? "",
+          item.source_node_type ?? "",
+          item.status,
+        ].join("\u0000");
+        const current = groups.get(key) ?? {
+          product_id: item.product_id,
+          product_area_id: item.product_area_id ?? null,
+          capability_id: item.capability_id ?? null,
+          source_node_id: item.source_node_id ?? null,
+          source_node_type: item.source_node_type ?? null,
+          status: item.status,
+          total_count: 0,
+          top_level_count: 0,
+          active_count: 0,
+          done_count: 0,
+          blocked_count: 0,
+        };
+        current.total_count += 1;
+        if (!item.parent_work_item_id) current.top_level_count += 1;
+        if (!["done", "cancelled"].includes(item.status)) current.active_count += 1;
+        if (item.status === "done") current.done_count += 1;
+        if (["blocked", "failed"].includes(item.status)) current.blocked_count += 1;
+        groups.set(key, current);
+      });
+    return Array.from(groups.values());
+  }
+
+  function summarizeProductTree(args = {}) {
+    const state = getState();
+    const productId = getArg(args, "productId", "product_id");
+    const productAreas = state.product_areas.filter((productArea) => productArea.product_id === productId);
+    const productAreaIds = new Set(productAreas.map((productArea) => productArea.id));
+    const capabilities = state.capabilities.filter((capability) => productAreaIds.has(capability.product_area_id));
+    const parentIds = new Set(capabilities.map((capability) => capability.parent_capability_id).filter(Boolean));
+    const capabilityProductAreaIds = new Set(capabilities.map((capability) => capability.product_area_id));
+    const productAreaLeafCount = productAreas.filter((productArea) => !capabilityProductAreaIds.has(productArea.id)).length;
+    const capabilityLeafCount = capabilities.filter((capability) => !parentIds.has(capability.id)).length;
+
+    return {
+      product_id: productId,
+      product_area_count: productAreas.length,
+      capability_count: capabilities.length,
+      total_node_count: productAreas.length + capabilities.length,
+      leaf_node_count: productAreaLeafCount + capabilityLeafCount,
+    };
   }
 
   function createPlannerSessionRecord(args) {
@@ -1489,10 +1548,18 @@
     );
   }
 
+  function commandPayload(args) {
+    if (args && typeof args === "object" && args.request && typeof args.request === "object") {
+      return args.request;
+    }
+    return args;
+  }
+
   function getArg(args, ...keys) {
+    const payload = commandPayload(args);
     for (const key of keys) {
-      if (args && Object.prototype.hasOwnProperty.call(args, key)) {
-        return args[key];
+      if (payload && Object.prototype.hasOwnProperty.call(payload, key)) {
+        return payload[key];
       }
     }
     return undefined;
@@ -1506,8 +1573,54 @@
     return Promise.resolve(null);
   }
 
+  const invokeCalls = [];
+
   window.__ARUVI_E2E__ = {
+    clearInvokeCalls() {
+      invokeCalls.length = 0;
+    },
+    getInvokeCalls(command) {
+      const calls = command ? invokeCalls.filter((call) => call.command === command) : invokeCalls;
+      return deepClone(calls);
+    },
+    getInvokeCallCount(command) {
+      return command
+        ? invokeCalls.filter((call) => call.command === command).length
+        : invokeCalls.length;
+    },
+    seedLargeBacklog(count = 120) {
+      const state = getState();
+      const product = state.products.find((entry) => entry.name === "Calculator") ?? state.products[0];
+      if (!product) {
+        return;
+      }
+      state.workItems = state.workItems.filter((entry) => !String(entry.id).startsWith("work-item-large-backlog-"));
+      const existingSortOrders = state.workItems
+        .filter((entry) => entry.product_id === product.id && !entry.parent_work_item_id)
+        .map((entry) => Number(entry.sort_order ?? 0));
+      const nextSortOrder = Math.max(-1, ...existingSortOrders) + 1;
+      for (let index = 0; index < count; index += 1) {
+        const rowNumber = String(index + 1).padStart(3, "0");
+        state.workItems.push(
+          createWorkItem(
+            `work-item-large-backlog-${rowNumber}`,
+            product.id,
+            null,
+            null,
+            null,
+            null,
+            `Virtual backlog story ${rowNumber}`,
+            `Synthetic large backlog story ${rowNumber}.`,
+            "feature",
+            "medium",
+            "draft",
+            nextSortOrder + index,
+          ),
+        );
+      }
+    },
     invoke(command, args) {
+      invokeCalls.push({ command, args: deepClone(args ?? null) });
       const state = getState();
 
       switch (command) {
@@ -1652,8 +1765,30 @@
         }
         case "get_product_tree":
           return ok(buildProductTree(getArg(args, "productId", "product_id")));
-        case "list_work_items":
-          return ok(listWorkItemsFiltered(args || {}));
+        case "list_product_areas": {
+          const productId = getArg(args, "productId", "product_id");
+          return ok(
+            state.product_areas
+              .filter((productArea) => productArea.product_id === productId)
+              .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)),
+          );
+        }
+        case "list_capabilities": {
+          const productAreaId = getArg(args, "productAreaId", "product_area_id");
+          return ok(
+            state.capabilities
+              .filter((capability) => capability.product_area_id === productAreaId)
+              .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)),
+          );
+        }
+        case "list_work_items": {
+          const offset = Math.max(0, Number(getArg(args, "offset") ?? 0));
+          const rawLimit = getArg(args, "limit");
+          const limit = rawLimit == null ? null : Math.max(1, Number(rawLimit));
+          const items = listWorkItemsFiltered(args || {})
+            .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.title.localeCompare(b.title));
+          return ok(limit == null ? items.slice(offset) : items.slice(offset, offset + limit));
+        }
         case "create_work_item":
           return ok(createWorkItemFromArgs(args || {}));
         case "update_work_item":
@@ -1662,6 +1797,10 @@
           return ok(deleteWorkItemFromArgs(args || {}));
         case "summarize_work_items_by_product":
           return ok(summarizeWorkItemsByProduct());
+        case "summarize_work_items_by_scope":
+          return ok(summarizeWorkItemsByScope(args || {}));
+        case "summarize_product_tree":
+          return ok(summarizeProductTree(args || {}));
         case "create_planner_session_command":
           return ok(plannerSessionInfo(createPlannerSessionRecord(args || {})));
         case "update_planner_session_command": {
@@ -1763,7 +1902,11 @@
           return ok([]);
         case "get_sub_work_items": {
           const workItemId = String(getArg(args, "workItemId", "work_item_id") ?? "");
-          return ok(state.workItems.filter((entry) => entry.parent_work_item_id === workItemId));
+          const limit = Number(getArg(args, "limit") ?? 500);
+          const offset = Number(getArg(args, "offset") ?? 0);
+          return ok(state.workItems
+            .filter((entry) => entry.parent_work_item_id === workItemId)
+            .slice(Math.max(0, offset), Math.max(0, offset) + Math.max(1, Math.min(limit, 2000))));
         }
         case "list_external_cli_runs_for_work_item": {
           const workItemId = String(getArg(args, "workItemId", "work_item_id") ?? "");
@@ -1846,12 +1989,10 @@
         case "update_product":
         case "archive_product":
         case "create_product_area":
-        case "list_product_areas":
         case "update_product_area":
         case "delete_product_area":
         case "reorder_product_areas":
         case "create_capability":
-        case "list_capabilities":
         case "update_capability":
         case "delete_capability":
         case "reorder_capabilities":

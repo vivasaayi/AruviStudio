@@ -1,6 +1,3 @@
-use tauri::State;
-use tracing::{debug, error, info};
-
 use crate::domain::agent::{
     AgentDefinition, AgentModelBinding, AgentSkillLink, AgentTeam, AgentTeamMembership, Skill,
     TeamAssignment, TeamSkillLink, WorkflowStagePolicy,
@@ -8,6 +5,44 @@ use crate::domain::agent::{
 use crate::error::AppError;
 use crate::persistence::agent_repo;
 use crate::state::AppState;
+use serde::Deserialize;
+use tauri::State;
+use tracing::{debug, error, info};
+
+#[derive(Debug, Deserialize)]
+pub struct CreateAgentDefinitionCommand {
+    pub(crate) name: String,
+    pub(crate) role: String,
+    pub(crate) description: String,
+    #[serde(alias = "promptTemplateRef")]
+    pub(crate) prompt_template_ref: String,
+    #[serde(alias = "allowedTools")]
+    pub(crate) allowed_tools: String,
+    #[serde(alias = "skillTags")]
+    pub(crate) skill_tags: String,
+    pub(crate) boundaries: String,
+    pub(crate) enabled: bool,
+    #[serde(alias = "employmentStatus")]
+    pub(crate) employment_status: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateAgentDefinitionCommand {
+    pub(crate) id: String,
+    pub(crate) name: Option<String>,
+    pub(crate) role: Option<String>,
+    pub(crate) description: Option<String>,
+    #[serde(alias = "promptTemplateRef")]
+    pub(crate) prompt_template_ref: Option<String>,
+    #[serde(alias = "allowedTools")]
+    pub(crate) allowed_tools: Option<String>,
+    #[serde(alias = "skillTags")]
+    pub(crate) skill_tags: Option<String>,
+    pub(crate) boundaries: Option<String>,
+    pub(crate) enabled: Option<bool>,
+    #[serde(alias = "employmentStatus")]
+    pub(crate) employment_status: Option<String>,
+}
 
 fn validate_json_array(label: &str, value: &str) -> Result<(), AppError> {
     let parsed = serde_json::from_str::<serde_json::Value>(value)?;
@@ -29,14 +64,8 @@ fn validate_json_object(label: &str, value: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-fn resolve_required(
-    value: Option<String>,
-    legacy: Option<String>,
-    field_name: &str,
-) -> Result<String, AppError> {
-    value
-        .or(legacy)
-        .ok_or_else(|| AppError::Validation(format!("missing {}", field_name)))
+fn resolve_required(value: Option<String>, field_name: &str) -> Result<String, AppError> {
+    value.ok_or_else(|| AppError::Validation(format!("missing {}", field_name)))
 }
 
 #[tauri::command]
@@ -86,33 +115,27 @@ pub async fn set_primary_agent_model_binding(
 #[tauri::command]
 pub async fn create_agent_definition(
     state: State<'_, AppState>,
-    name: String,
-    role: String,
-    description: String,
-    prompt_template_ref: String,
-    allowed_tools: String,
-    skill_tags: String,
-    boundaries: String,
-    enabled: bool,
-    employment_status: String,
+    request: CreateAgentDefinitionCommand,
 ) -> Result<AgentDefinition, AppError> {
-    info!(agent_name = %name, role = %role, "create_agent_definition requested");
-    validate_json_array("allowed_tools", &allowed_tools)?;
-    validate_json_array("skill_tags", &skill_tags)?;
-    validate_json_object("boundaries", &boundaries)?;
+    info!(agent_name = %request.name, role = %request.role, "create_agent_definition requested");
+    validate_json_array("allowed_tools", &request.allowed_tools)?;
+    validate_json_array("skill_tags", &request.skill_tags)?;
+    validate_json_object("boundaries", &request.boundaries)?;
     let id = uuid::Uuid::new_v4().to_string();
     let result = agent_repo::create_agent_definition(
         &state.db,
-        &id,
-        &name,
-        &role,
-        &description,
-        &prompt_template_ref,
-        &allowed_tools,
-        &skill_tags,
-        &boundaries,
-        enabled,
-        &employment_status,
+        agent_repo::CreateAgentDefinitionInput {
+            id: &id,
+            name: &request.name,
+            role: &request.role,
+            description: &request.description,
+            prompt_template_ref: &request.prompt_template_ref,
+            allowed_tools: &request.allowed_tools,
+            skill_tags: &request.skill_tags,
+            boundaries: &request.boundaries,
+            enabled: request.enabled,
+            employment_status: &request.employment_status,
+        },
     )
     .await;
     match &result {
@@ -125,57 +148,50 @@ pub async fn create_agent_definition(
 #[tauri::command]
 pub async fn update_agent_definition(
     state: State<'_, AppState>,
-    id: String,
-    name: Option<String>,
-    role: Option<String>,
-    description: Option<String>,
-    prompt_template_ref: Option<String>,
-    allowed_tools: Option<String>,
-    skill_tags: Option<String>,
-    boundaries: Option<String>,
-    enabled: Option<bool>,
-    employment_status: Option<String>,
+    request: UpdateAgentDefinitionCommand,
 ) -> Result<AgentDefinition, AppError> {
-    info!(agent_id = %id, "update_agent_definition requested");
-    if let Some(value) = allowed_tools.as_deref() {
+    info!(agent_id = %request.id, "update_agent_definition requested");
+    if let Some(value) = request.allowed_tools.as_deref() {
         validate_json_array("allowed_tools", value)?;
     }
-    if let Some(value) = skill_tags.as_deref() {
+    if let Some(value) = request.skill_tags.as_deref() {
         validate_json_array("skill_tags", value)?;
     }
-    if let Some(value) = boundaries.as_deref() {
+    if let Some(value) = request.boundaries.as_deref() {
         validate_json_object("boundaries", value)?;
     }
     debug!(
-        agent_id = %id,
-        has_name = name.is_some(),
-        has_role = role.is_some(),
-        has_description = description.is_some(),
-        has_prompt_template_ref = prompt_template_ref.is_some(),
-        has_allowed_tools = allowed_tools.is_some(),
-        has_skill_tags = skill_tags.is_some(),
-        has_boundaries = boundaries.is_some(),
-        has_enabled = enabled.is_some(),
-        has_employment_status = employment_status.is_some(),
+        agent_id = %request.id,
+        has_name = request.name.is_some(),
+        has_role = request.role.is_some(),
+        has_description = request.description.is_some(),
+        has_prompt_template_ref = request.prompt_template_ref.is_some(),
+        has_allowed_tools = request.allowed_tools.is_some(),
+        has_skill_tags = request.skill_tags.is_some(),
+        has_boundaries = request.boundaries.is_some(),
+        has_enabled = request.enabled.is_some(),
+        has_employment_status = request.employment_status.is_some(),
         "update_agent_definition payload summary"
     );
     let result = agent_repo::update_agent_definition(
         &state.db,
-        &id,
-        name.as_deref(),
-        role.as_deref(),
-        description.as_deref(),
-        prompt_template_ref.as_deref(),
-        allowed_tools.as_deref(),
-        skill_tags.as_deref(),
-        boundaries.as_deref(),
-        enabled,
-        employment_status.as_deref(),
+        agent_repo::UpdateAgentDefinitionPatch {
+            id: &request.id,
+            name: request.name.as_deref(),
+            role: request.role.as_deref(),
+            description: request.description.as_deref(),
+            prompt_template_ref: request.prompt_template_ref.as_deref(),
+            allowed_tools: request.allowed_tools.as_deref(),
+            skill_tags: request.skill_tags.as_deref(),
+            boundaries: request.boundaries.as_deref(),
+            enabled: request.enabled,
+            employment_status: request.employment_status.as_deref(),
+        },
     )
     .await;
     match &result {
-        Ok(_) => info!(agent_id = %id, "update_agent_definition succeeded"),
-        Err(err) => error!(agent_id = %id, error = %err, "update_agent_definition failed"),
+        Ok(_) => info!(agent_id = %request.id, "update_agent_definition succeeded"),
+        Err(err) => error!(agent_id = %request.id, error = %err, "update_agent_definition failed"),
     }
     result
 }
@@ -205,7 +221,6 @@ pub async fn list_agent_teams(state: State<'_, AppState>) -> Result<Vec<AgentTea
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn create_agent_team(
     state: State<'_, AppState>,
     name: String,
@@ -213,11 +228,8 @@ pub async fn create_agent_team(
     description: String,
     enabled: bool,
     max_concurrent_workflows: Option<i32>,
-    maxConcurrentWorkflows: Option<i32>,
 ) -> Result<AgentTeam, AppError> {
-    let max_concurrent_workflows = max_concurrent_workflows
-        .or(maxConcurrentWorkflows)
-        .unwrap_or(2);
+    let max_concurrent_workflows = max_concurrent_workflows.unwrap_or(2);
     info!(team_name = %name, department = %department, "create_agent_team requested");
     let id = uuid::Uuid::new_v4().to_string();
     let result = agent_repo::create_agent_team(
@@ -238,7 +250,6 @@ pub async fn create_agent_team(
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn update_agent_team(
     state: State<'_, AppState>,
     id: String,
@@ -247,9 +258,7 @@ pub async fn update_agent_team(
     description: Option<String>,
     enabled: Option<bool>,
     max_concurrent_workflows: Option<i32>,
-    maxConcurrentWorkflows: Option<i32>,
 ) -> Result<AgentTeam, AppError> {
-    let max_concurrent_workflows = max_concurrent_workflows.or(maxConcurrentWorkflows);
     info!(team_id = %id, "update_agent_team requested");
     let result = agent_repo::update_agent_team(
         &state.db,
@@ -292,20 +301,16 @@ pub async fn list_team_memberships(
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn add_team_member(
     state: State<'_, AppState>,
     team_id: Option<String>,
-    teamId: Option<String>,
     agent_id: Option<String>,
-    agentId: Option<String>,
     title: String,
     is_lead: Option<bool>,
-    isLead: Option<bool>,
 ) -> Result<AgentTeamMembership, AppError> {
-    let team_id = resolve_required(team_id, teamId, "team id")?;
-    let agent_id = resolve_required(agent_id, agentId, "agent id")?;
-    let is_lead = is_lead.or(isLead).unwrap_or(false);
+    let team_id = resolve_required(team_id, "team id")?;
+    let agent_id = resolve_required(agent_id, "agent id")?;
+    let is_lead = is_lead.unwrap_or(false);
     info!(team_id = %team_id, agent_id = %agent_id, title = %title, is_lead, "add_team_member requested");
     let id = uuid::Uuid::new_v4().to_string();
     let result =
@@ -343,19 +348,15 @@ pub async fn list_team_assignments(
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn assign_team_scope(
     state: State<'_, AppState>,
     team_id: Option<String>,
-    teamId: Option<String>,
     scope_type: Option<String>,
-    scopeType: Option<String>,
     scope_id: Option<String>,
-    scopeId: Option<String>,
 ) -> Result<TeamAssignment, AppError> {
-    let team_id = resolve_required(team_id, teamId, "team id")?;
-    let scope_type = resolve_required(scope_type, scopeType, "scope type")?;
-    let scope_id = resolve_required(scope_id, scopeId, "scope id")?;
+    let team_id = resolve_required(team_id, "team id")?;
+    let scope_type = resolve_required(scope_type, "scope type")?;
+    let scope_id = resolve_required(scope_id, "scope id")?;
     info!(team_id = %team_id, scope_type = %scope_type, scope_id = %scope_id, "assign_team_scope requested");
     let id = uuid::Uuid::new_v4().to_string();
     let result =

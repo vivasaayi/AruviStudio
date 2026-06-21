@@ -275,35 +275,39 @@ pub async fn list_product_dependencies(
     rows.into_iter().map(row_to_product_dependency).collect()
 }
 
+pub struct CreateProductDependencyInput<'a> {
+    pub id: &'a str,
+    pub product_id: &'a str,
+    pub capability_id: Option<&'a str>,
+    pub depends_on_product_id: &'a str,
+    pub depends_on_capability_id: Option<&'a str>,
+    pub dependency_kind: &'a str,
+    pub description: &'a str,
+    pub status: &'a str,
+}
+
 pub async fn create_product_dependency(
     pool: &SqlitePool,
-    id: &str,
-    product_id: &str,
-    capability_id: Option<&str>,
-    depends_on_product_id: &str,
-    depends_on_capability_id: Option<&str>,
-    dependency_kind: &str,
-    description: &str,
-    status: &str,
+    input: CreateProductDependencyInput<'_>,
 ) -> Result<ProductDependency, AppError> {
-    if product_id == depends_on_product_id {
+    if input.product_id == input.depends_on_product_id {
         return Err(AppError::Validation(
             "A product cannot depend on itself.".to_string(),
         ));
     }
-    let kind = parse_dependency_kind(dependency_kind)?;
-    let status = parse_dependency_status(status)?;
+    let kind = parse_dependency_kind(input.dependency_kind)?;
+    let status = parse_dependency_status(input.status)?;
     sqlx::query(
         "INSERT INTO product_dependencies (id, product_id, capability_id, depends_on_product_id, depends_on_capability_id, dependency_kind, description, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
-    .bind(id)
-    .bind(product_id)
-    .bind(capability_id)
-    .bind(depends_on_product_id)
-    .bind(depends_on_capability_id)
+    .bind(input.id)
+    .bind(input.product_id)
+    .bind(input.capability_id)
+    .bind(input.depends_on_product_id)
+    .bind(input.depends_on_capability_id)
     .bind(kind.to_string())
-    .bind(description)
+    .bind(input.description)
     .bind(status.to_string())
     .execute(pool)
     .await?;
@@ -311,7 +315,7 @@ pub async fn create_product_dependency(
     let row = sqlx::query(&format!(
         "SELECT {PRODUCT_DEPENDENCY_COLUMNS} FROM product_dependencies WHERE id = ?"
     ))
-    .bind(id)
+    .bind(input.id)
     .fetch_one(pool)
     .await?;
     row_to_product_dependency(row)

@@ -20,7 +20,7 @@ async fn get_product_area_by_id(
     .bind(product_area_id)
     .fetch_optional(pool)
     .await?
-    .ok_or_else(|| AppError::NotFound(format!("ProductArea {product_area_id} not found")))
+    .ok_or_else(|| AppError::NotFound(format!("Product Area {product_area_id} not found")))
 }
 
 async fn list_capability_children(
@@ -118,22 +118,25 @@ async fn top_level_work_items_for_feature(
     product_id: Option<&str>,
     product_area_id: Option<&str>,
     feature_id: Option<&str>,
+    limit: i64,
 ) -> Result<Vec<WorkItem>, AppError> {
     let Some(feature_id) = feature_id else {
         return Ok(Vec::new());
     };
-    let mut items = work_item_repo::list_work_items(
+    work_item_repo::list_top_level_work_items_page(
         pool,
-        product_id,
-        product_area_id,
-        Some(feature_id),
-        Some(feature_id),
-        Some("capability"),
-        None,
+        work_item_repo::WorkItemListQuery {
+            product_id,
+            product_area_id,
+            capability_id: Some(feature_id),
+            source_node_id: Some(feature_id),
+            source_node_type: Some("capability"),
+            limit: Some(limit),
+            offset: Some(0),
+            ..Default::default()
+        },
     )
-    .await?;
-    items.retain(|item| item.parent_work_item_id.is_none());
-    Ok(items)
+    .await
 }
 
 async fn work_item_parent_chain(
@@ -156,30 +159,31 @@ async fn work_item_siblings(
     work_item: &WorkItem,
     limit: i64,
 ) -> Result<Vec<WorkItem>, AppError> {
-    let limit = limit.clamp(1, 100) as usize;
+    let limit = limit.clamp(1, 100);
     let mut siblings = if let Some(parent_id) = work_item.parent_work_item_id.as_deref() {
-        work_item_repo::get_sub_work_items(pool, parent_id).await?
+        work_item_repo::get_sub_work_items_page(pool, parent_id, Some(limit + 1), Some(0)).await?
     } else {
-        work_item_repo::list_work_items(
+        let source_node_type = work_item
+            .source_node_type
+            .as_ref()
+            .map(|source_type| source_type.to_string());
+        work_item_repo::list_top_level_work_items_page(
             pool,
-            work_item.product_id.as_deref(),
-            work_item.product_area_id.as_deref(),
-            work_item.capability_id.as_deref(),
-            work_item.source_node_id.as_deref(),
-            work_item
-                .source_node_type
-                .as_ref()
-                .map(|source_type| source_type.to_string())
-                .as_deref(),
-            None,
+            work_item_repo::WorkItemListQuery {
+                product_id: work_item.product_id.as_deref(),
+                product_area_id: work_item.product_area_id.as_deref(),
+                capability_id: work_item.capability_id.as_deref(),
+                source_node_id: work_item.source_node_id.as_deref(),
+                source_node_type: source_node_type.as_deref(),
+                limit: Some(limit + 1),
+                offset: Some(0),
+                ..Default::default()
+            },
         )
         .await?
-        .into_iter()
-        .filter(|item| item.parent_work_item_id.is_none())
-        .collect()
     };
     siblings.retain(|item| item.id != work_item.id);
-    siblings.truncate(limit);
+    siblings.truncate(limit as usize);
     Ok(siblings)
 }
 
@@ -277,11 +281,18 @@ pub(super) async fn build_feature_context(
         product.as_ref().map(|product| product.id.as_str()),
         product_area.as_ref().map(|area| area.id.as_str()),
         feature.as_ref().map(|feature| feature.id.as_str()),
+        sibling_limit,
     )
     .await?;
     let mut story_contexts = Vec::new();
     for story in stories {
-        let children = work_item_repo::get_sub_work_items(&state.db, &story.id).await?;
+        let children = work_item_repo::get_sub_work_items_page(
+            &state.db,
+            &story.id,
+            Some(sibling_limit),
+            Some(0),
+        )
+        .await?;
         story_contexts.push(json!({
             "story": story,
             "children": children
@@ -299,7 +310,13 @@ pub(super) async fn build_feature_context(
         Vec::new()
     };
     let selected_work_item_children = if let Some(work_item) = selected_work_item.as_ref() {
-        work_item_repo::get_sub_work_items(&state.db, &work_item.id).await?
+        work_item_repo::get_sub_work_items_page(
+            &state.db,
+            &work_item.id,
+            Some(sibling_limit),
+            Some(0),
+        )
+        .await?
     } else {
         Vec::new()
     };

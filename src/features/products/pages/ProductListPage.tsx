@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { type QueryClient, type QueryKey, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   archiveProduct,
@@ -28,6 +28,7 @@ import {
   resolveRepositoryForScope,
   setSetting,
   summarizeWorkItemsByProduct,
+  summarizeWorkItemsByScope,
   updateCapability,
   updateProductArea,
   updateProduct,
@@ -36,7 +37,6 @@ import {
 import {
   countDescendantNodes,
   countHierarchyNodes,
-  countLeafNodes,
   findHierarchyNode,
   findHierarchyNodePath,
   flattenHierarchyNodes,
@@ -44,8 +44,6 @@ import {
   getDirectWorkItemsForNode,
   getHierarchyNodeKey,
   getHierarchyNodeSectionId,
-  getSubtreeWorkItemsForNode,
-  isDirectProductWorkItem,
 } from "../../../lib/hierarchyTree";
 import {
   getAllowedChildNodeKinds,
@@ -62,10 +60,54 @@ import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
 import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
 import { ProductOverviewPage } from "./ProductOverviewPage";
+import { ProductManagementAreasTab } from "../components/ProductManagementAreasTab";
+import { ProductManagementCapabilitiesTab } from "../components/ProductManagementCapabilitiesTab";
+import { ProductManagementFeaturesTab } from "../components/ProductManagementFeaturesTab";
+import { ProductManagementHeader } from "../components/ProductManagementHeader";
+import { ProductManagementStoryDetailPane } from "../components/ProductManagementStoryDetailPane";
+import { ProductManagementStoriesPane } from "../components/ProductManagementStoriesPane";
+import { ProductManagementWorkItemFeatureSelector } from "../components/ProductManagementWorkItemFeatureSelector";
+import { ProductCatalogTab } from "../components/ProductCatalogTab";
+import { ProductStatusTab, type ProductStatusGroupBy } from "../components/ProductStatusTab";
+import { ScopedRefreshButton } from "../components/ScopedRefreshButton";
+import { refreshScopedProductQueries } from "../lib/productQueryRefresh";
+import {
+  getProductManagementRefreshLabel,
+  getProductManagementRefreshQueryKeys,
+  getProductPageRefreshLabel,
+  getProductPageRefreshQueryKeys,
+  isProductPageRefreshDisabled,
+  type ProductManagementTab,
+  type ProductPageTab,
+} from "../lib/productRefreshScopes";
 import { getProductAreaReferenceScope } from "../lib/productReferences";
-import type { CapabilityNode, CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ProductAreaTree, Product, ProductDependency, ProductDependencyKind, ProductReference, ProductTree, ProductWorkItemSummary, Repository, WorkItem } from "../../../lib/types";
+import {
+  buildProductCatalogRows,
+  getProductCatalogTags,
+  type ProductCatalogSort,
+  type ProductCatalogSourceFilter,
+  type ProductCatalogStatusFilter,
+} from "../lib/productCatalogRows";
+import {
+  buildProductStatusSummary,
+  buildStatusRows,
+  buildWorkItemScopeSummaryIndex,
+} from "../lib/productStatusSummary";
+import {
+  countCapabilities,
+  findCapabilityTree,
+  flattenCapabilityTreeList,
+  getCapabilityOrderKey,
+  getHierarchyDeleteLabel,
+  getOrderedCapabilityTrees,
+  orderItemsByIds,
+  seedCapabilityOrderMap,
+} from "../lib/productHierarchyHelpers";
+import { formatWorkItemMeta } from "../lib/workItemDisplay";
+import type { CapabilityNode, CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ProductAreaTree, Product, ProductDependency, ProductDependencyKind, ProductReference, ProductTree, ProductWorkItemSummary, Repository, WorkItem, WorkItemScopeSummary } from "../../../lib/types";
 
 const HIDE_EXAMPLE_PRODUCTS_KEY = "catalog.hide_example_products";
+const SUB_WORK_ITEM_PAGE_SIZE = 500;
 
 type ProductFormState = {
   name: string;
@@ -155,22 +197,7 @@ function workItemToDraft(workItem: WorkItem): WorkItemDraftState {
   };
 }
 
-function formatWorkItemMeta(value: string): string {
-  return value.replace(/_/g, " ");
-}
-
-async function refreshScopedProductQueries(queryClient: QueryClient, queryKeys: QueryKey[]) {
-  const scopedQueryKeys = queryKeys.filter((queryKey) => queryKey.every((part) => part !== null && part !== undefined));
-
-  await Promise.all(
-    scopedQueryKeys.map(async (queryKey) => {
-      await queryClient.invalidateQueries({ queryKey, refetchType: "none" });
-      await queryClient.refetchQueries({ queryKey, type: "active" }, { throwOnError: true });
-    }),
-  );
-}
-
-const styles: Record<string, React.CSSProperties> = {
+const styles = {
   page: { display: "flex", flexDirection: "column", height: "100%", gap: 8 },
   header: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 },
   titleBlock: { display: "flex", flexDirection: "column", gap: 3 },
@@ -189,10 +216,6 @@ const styles: Record<string, React.CSSProperties> = {
   pageTab: { padding: "6px 10px", fontSize: 12, fontWeight: 800, borderRadius: 8, border: "1px solid transparent", backgroundColor: "transparent", color: "#aeb7c6", cursor: "pointer" },
   pageTabActive: { padding: "6px 10px", fontSize: 12, fontWeight: 800, borderRadius: 8, border: "1px solid #0e639c", backgroundColor: "#173247", color: "#ffffff", cursor: "pointer" },
   tabRefreshSlot: { marginLeft: "auto", display: "flex", alignItems: "center" },
-  refreshWrap: { display: "flex", alignItems: "center", gap: 8, minHeight: 30 },
-  refreshBtn: { padding: "6px 10px", minHeight: 30, fontSize: 12, fontWeight: 800, backgroundColor: "#2c3139", color: "#e0e0e0", border: "1px solid #3b4049", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" as const },
-  refreshBtnBusy: { padding: "6px 10px", minHeight: 30, fontSize: 12, fontWeight: 800, backgroundColor: "#173247", color: "#ffffff", border: "1px solid #0e639c", borderRadius: 8, cursor: "wait", whiteSpace: "nowrap" as const },
-  refreshError: { maxWidth: 260, fontSize: 11, color: "#ff7b72", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
   btn: { padding: "7px 12px", fontSize: 12, backgroundColor: "#0e639c", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" },
   ghostBtn: { padding: "6px 10px", fontSize: 12, backgroundColor: "#2c3139", color: "#e0e0e0", border: "1px solid #3b4049", borderRadius: 8, cursor: "pointer" },
   btnDanger: { padding: "5px 10px", fontSize: 12, backgroundColor: "#6c2020", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" },
@@ -309,53 +332,7 @@ const styles: Record<string, React.CSSProperties> = {
   rowPrimary: { fontSize: 13, fontWeight: 700, color: "#f3f3f3" },
   rowSecondary: { fontSize: 12, color: "#8f96a3", marginTop: 4 },
   rowCell: { fontSize: 12, color: "#cfd6e4" },
-};
-
-function ScopedRefreshButton({
-  label = "Refresh",
-  disabled,
-  onRefresh,
-}: {
-  label?: string;
-  disabled?: boolean;
-  onRefresh: () => Promise<void>;
-}) {
-  const [isRefreshing, setIsRefreshing] = React.useState(false);
-  const [refreshError, setRefreshError] = React.useState<string | null>(null);
-  const isDisabled = disabled || isRefreshing;
-
-  const runRefresh = async () => {
-    if (isDisabled) {
-      return;
-    }
-    try {
-      setIsRefreshing(true);
-      setRefreshError(null);
-      await onRefresh();
-    } catch (error) {
-      setRefreshError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
-  return (
-    <div style={styles.refreshWrap}>
-      <button
-        style={{
-          ...(isRefreshing ? styles.refreshBtnBusy : styles.refreshBtn),
-          ...(disabled ? { opacity: 0.55, cursor: "not-allowed" } : null),
-        }}
-        onClick={() => void runRefresh()}
-        disabled={isDisabled}
-        title={refreshError ?? label}
-      >
-        {isRefreshing ? "Refreshing..." : label}
-      </button>
-      {refreshError ? <span style={styles.refreshError}>{refreshError}</span> : null}
-    </div>
-  );
-}
+} satisfies Record<string, React.CSSProperties>;
 
 export function ProductListPage() {
   const queryClient = useQueryClient();
@@ -405,7 +382,7 @@ export function ProductListPage() {
   const [capabilityDraft, setCapabilityDraft] = useState<{ name: string; description: string; acceptanceCriteria: string; technicalNotes: string; nodeKind: HierarchyNodeKind }>({ name: "", description: "", acceptanceCriteria: "", technicalNotes: "", nodeKind: "capability" });
   const [referenceDraft, setReferenceDraft] = useState<{ title: string; referenceKind: ProductReference["reference_kind"]; uri: string; content: string }>({ title: "", referenceKind: "note", uri: "", content: "" });
   const [structureViewMode, setStructureViewMode] = useState<"children" | "references">("children");
-  const [productManagementTab, setProductManagementTab] = useState<"areas" | "capabilities" | "features" | "work_items">("areas");
+  const [productManagementTab, setProductManagementTab] = useState<ProductManagementTab>("areas");
   const [formError, setFormError] = useState<string | null>(null);
   const [workspaceActionMsg, setWorkspaceActionMsg] = useState<string | null>(null);
   const [workspaceActionError, setWorkspaceActionError] = useState<string | null>(null);
@@ -413,19 +390,19 @@ export function ProductListPage() {
   const [draggedFeature, setDraggedFeature] = useState<null | { id: string; productAreaId: string; parentCapabilityId?: string | null; siblingIds: string[] }>(null);
   const [productAreaOrderIds, setProductAreaOrderIds] = useState<string[]>([]);
   const [capabilityOrderMap, setFeatureOrderMap] = useState<Record<string, string[]>>({});
-  const [productPageTab, setProductPageTab] = useState<"list" | "status" | "overview" | "design" | "dependencies">(() => isProductDetailRoute ? "design" : "list");
+  const [productPageTab, setProductPageTab] = useState<ProductPageTab>(() => isProductDetailRoute ? "design" : "list");
   const [productSearch, setProductSearch] = useState("");
-  const [productStatusFilter, setProductStatusFilter] = useState<"all" | Product["status"]>("all");
-  const [productSourceFilter, setProductSourceFilter] = useState<"all" | "default" | "custom">("all");
+  const [productStatusFilter, setProductStatusFilter] = useState<ProductCatalogStatusFilter>("all");
+  const [productSourceFilter, setProductSourceFilter] = useState<ProductCatalogSourceFilter>("all");
   const [productTagFilter, setProductTagFilter] = useState("all");
-  const [productSort, setProductSort] = useState<"name" | "updated" | "progress" | "work">("name");
+  const [productSort, setProductSort] = useState<ProductCatalogSort>("name");
   const [showDefaultProductsInTable, setShowDefaultProductsInTable] = useState(true);
   const [showCustomProductsInTable, setShowCustomProductsInTable] = useState(true);
   const [catalogFilterMsg, setCatalogFilterMsg] = useState<string | null>(null);
   const [catalogFilterError, setCatalogFilterError] = useState<string | null>(null);
   const [statusProductId, setStatusProductId] = useState<string>("all");
   const [statusDepth, setStatusDepth] = useState(1);
-  const [statusGroupBy, setStatusGroupBy] = useState<"node" | "kind" | "work_status">("node");
+  const [statusGroupBy, setStatusGroupBy] = useState<ProductStatusGroupBy>("node");
   const [dependencyDraft, setDependencyDraft] = useState({
     capabilityId: "",
     dependsOnProductId: "",
@@ -464,8 +441,16 @@ export function ProductListPage() {
   const outlineNodeRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
 
   const { data: products, isLoading } = useQuery({ queryKey: ["products"], queryFn: listProducts });
-  const { data: productDependencies = [] } = useQuery({ queryKey: ["product-dependencies"], queryFn: listProductDependencies });
-  const { data: productReferences = [] } = useQuery({ queryKey: ["product-references"], queryFn: () => listProductReferences() });
+  const { data: productDependencies = [] } = useQuery({
+    queryKey: ["product-dependencies"],
+    queryFn: listProductDependencies,
+    enabled: productPageTab === "design" || productPageTab === "dependencies",
+  });
+  const { data: productReferences = [] } = useQuery({
+    queryKey: ["product-references"],
+    queryFn: () => listProductReferences(),
+    enabled: productPageTab === "design",
+  });
   const { data: hideExampleProductsSetting } = useQuery({
     queryKey: ["setting", HIDE_EXAMPLE_PRODUCTS_KEY],
     queryFn: () => getSetting(HIDE_EXAMPLE_PRODUCTS_KEY),
@@ -473,6 +458,7 @@ export function ProductListPage() {
   const { data: productWorkItemSummaries = [] } = useQuery<ProductWorkItemSummary[]>({
     queryKey: ["productWorkItemSummary"],
     queryFn: summarizeWorkItemsByProduct,
+    enabled: productPageTab === "list" || productPageTab === "status",
   });
   const visibleActiveProductId = products?.some((product) => product.id === activeProductId)
     ? activeProductId
@@ -504,62 +490,32 @@ export function ProductListPage() {
   const { data: tree } = useQuery({
     queryKey: ["productTree", selectedProductId],
     queryFn: () => getProductTree(selectedProductId!),
-    enabled: !!selectedProduct,
-  });
-
-  const { data: productWorkItems } = useQuery({
-    queryKey: ["productAllTasks", selectedProductId],
-    queryFn: () => listWorkItems({ productId: selectedProductId ?? undefined }),
-    enabled: !!selectedProduct && productPageTab === "design" && productManagementTab !== "areas",
+    enabled: !!selectedProduct && (productPageTab === "design" || productPageTab === "dependencies"),
   });
 
   const productTreeQueries = useQueries({
     queries: (products ?? []).map((product) => ({
       queryKey: ["productTree", product.id],
       queryFn: () => getProductTree(product.id),
-      enabled: !!product.id,
+      enabled: !!product.id && (productPageTab === "list" || productPageTab === "status" || productPageTab === "dependencies"),
     })),
   });
 
-  const productWorkItemQueries = useQueries({
-    queries: (products ?? []).map((product) => ({
-      queryKey: ["productAllTasks", product.id],
-      queryFn: () => listWorkItems({ productId: product.id }),
-      enabled: !!product.id && productPageTab === "status",
-    })),
-  });
-
-  const { data: scopedTasks } = useQuery({
-    queryKey: ["productTasks", selectedProductId, activeNodeId, activeNodeType],
-    queryFn: () =>
-      listWorkItems({
-        productId: selectedProductId ?? undefined,
-        sourceNodeId: activeNodeId ?? undefined,
-        sourceNodeType: activeNodeType ?? undefined,
-      }),
-    enabled: !!selectedProduct,
+  const workItemScopeSummaryProductId = productPageTab === "status"
+    ? statusProductId === "all" ? undefined : statusProductId
+    : selectedProductId ?? undefined;
+  const { data: workItemScopeSummaries = [] } = useQuery<WorkItemScopeSummary[]>({
+    queryKey: ["workItemScopeSummary", workItemScopeSummaryProductId ?? "all"],
+    queryFn: () => summarizeWorkItemsByScope({ productId: workItemScopeSummaryProductId }),
+    enabled: productPageTab === "status" || (!!selectedProduct && productPageTab === "design"),
   });
 
   const { data: resolvedWorkspace } = useQuery<Repository | null>({
     queryKey: ["productScopeRepo", selectedProductId, activeProductAreaId],
     queryFn: () => resolveRepositoryForScope({ productId: selectedProductId, productAreaId: activeProductAreaId }),
-    enabled: !!selectedProduct,
+    enabled: !!selectedProduct && productPageTab === "design",
   });
   const effectiveWorkspacePath = resolvedWorkspace?.local_path ?? activeWorkspacePath ?? null;
-
-  const allProductTasks = useMemo(() => {
-    if (!selectedProductId) {
-      return [];
-    }
-    return (productWorkItems ?? []).filter((workItem) => workItem.product_id === selectedProductId);
-  }, [productWorkItems, selectedProductId]);
-
-  const filteredScopedTasks = useMemo(() => {
-    if (!selectedProductId) {
-      return [];
-    }
-    return (scopedTasks ?? []).filter((workItem) => workItem.product_id === selectedProductId);
-  }, [scopedTasks, selectedProductId]);
 
   const productTreeById = useMemo(() => {
     const map = new Map<string, ProductTree>();
@@ -572,13 +528,7 @@ export function ProductListPage() {
     return map;
   }, [productTreeQueries, products]);
 
-  const productTasksById = useMemo(() => {
-    const map = new Map<string, WorkItem[]>();
-    (products ?? []).forEach((product, index) => {
-      map.set(product.id, productWorkItemQueries[index]?.data ?? []);
-    });
-    return map;
-  }, [productWorkItemQueries, products]);
+  const scopeSummaryIndex = useMemo(() => buildWorkItemScopeSummaryIndex(workItemScopeSummaries), [workItemScopeSummaries]);
 
   const productSummaryById = useMemo(() => {
     const map = new Map<string, ProductWorkItemSummary>();
@@ -586,69 +536,21 @@ export function ProductListPage() {
     return map;
   }, [productWorkItemSummaries]);
 
-  const allProductTags = useMemo(() => {
-    const tags = new Set<string>();
-    (products ?? []).forEach((product) => product.tags.forEach((tag) => tags.add(tag)));
-    return Array.from(tags).sort((a, b) => a.localeCompare(b));
-  }, [products]);
+  const allProductTags = useMemo(() => getProductCatalogTags(products ?? []), [products]);
 
   const includeDefaultProductsInCatalog = !parseBooleanSetting(hideExampleProductsSetting, true);
-  const productTableRows = useMemo(() => {
-    const rows = (products ?? []).map((product) => {
-      const treeForProduct = productTreeById.get(product.id);
-      const summary = productSummaryById.get(product.id);
-      const total = summary?.total_count ?? 0;
-      const done = summary?.done_count ?? 0;
-      const progress = getProgressSummaryFromCounts(total, done);
-      return {
-        product,
-        source: isExampleProduct(product) ? "default" as const : "custom" as const,
-        rootCount: treeForProduct?.roots.length ?? 0,
-        nodeCount: treeForProduct ? countHierarchyNodes(treeForProduct.roots) : 0,
-        workItemCount: total,
-        activeWorkItemCount: summary?.active_count ?? 0,
-        progress,
-      };
-    });
-
-    const search = productSearch.trim().toLowerCase();
-    return rows
-      .filter((row) => {
-        if (!showDefaultProductsInTable && row.source === "default") return false;
-        if (!showCustomProductsInTable && row.source === "custom") return false;
-        if (productStatusFilter !== "all" && row.product.status !== productStatusFilter) return false;
-        if (productSourceFilter !== "all" && row.source !== productSourceFilter) return false;
-        if (productTagFilter !== "all" && !row.product.tags.includes(productTagFilter)) return false;
-        if (!search) return true;
-        return [
-          row.product.name,
-          row.product.description,
-          row.product.vision,
-          row.product.status,
-          row.product.lifecycle,
-          row.product.health,
-          row.product.owner_label,
-          row.product.investment_status,
-          row.product.roadmap,
-          row.product.evidence,
-          row.source,
-          ...row.product.tags,
-        ].join(" ").toLowerCase().includes(search);
-      })
-      .sort((a, b) => {
-        switch (productSort) {
-          case "updated":
-            return Date.parse(b.product.updated_at) - Date.parse(a.product.updated_at);
-          case "progress":
-            return b.progress.percent - a.progress.percent || a.product.name.localeCompare(b.product.name);
-          case "work":
-            return b.workItemCount - a.workItemCount || a.product.name.localeCompare(b.product.name);
-          case "name":
-          default:
-            return a.product.name.localeCompare(b.product.name);
-        }
-      });
-  }, [
+  const productTableRows = useMemo(() => buildProductCatalogRows({
+    products: products ?? [],
+    productTreeById,
+    productSummaryById,
+    search: productSearch,
+    statusFilter: productStatusFilter,
+    sourceFilter: productSourceFilter,
+    tagFilter: productTagFilter,
+    sort: productSort,
+    showDefaultProducts: showDefaultProductsInTable,
+    showCustomProducts: showCustomProductsInTable,
+  }), [
     productSearch,
     productSort,
     productSourceFilter,
@@ -666,12 +568,12 @@ export function ProductListPage() {
     : products?.find((product) => product.id === statusProductId) ?? null;
   const selectedStatusProducts = selectedStatusProduct ? [selectedStatusProduct] : (products ?? []);
   const statusSummary = useMemo(
-    () => buildProductStatusSummary(selectedStatusProducts, productTreeById, productTasksById),
-    [productTasksById, productTreeById, selectedStatusProducts],
+    () => buildProductStatusSummary(selectedStatusProducts, productTreeById, productSummaryById),
+    [productSummaryById, productTreeById, selectedStatusProducts],
   );
   const statusRows = useMemo(
-    () => buildStatusRows(selectedStatusProducts, productTreeById, productTasksById, statusDepth, statusGroupBy),
-    [productTasksById, productTreeById, selectedStatusProducts, statusDepth, statusGroupBy],
+    () => buildStatusRows(selectedStatusProducts, productTreeById, scopeSummaryIndex, statusDepth, statusGroupBy),
+    [productTreeById, scopeSummaryIndex, selectedStatusProducts, statusDepth, statusGroupBy],
   );
 
   const updateDefaultProductVisibility = async (includeDefaultProducts: boolean) => {
@@ -801,15 +703,16 @@ export function ProductListPage() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["products"] }),
       queryClient.invalidateQueries({ queryKey: ["productTree", selectedProductId] }),
-      queryClient.invalidateQueries({ queryKey: ["productOverviewTree", selectedProductId] }),
+      queryClient.invalidateQueries({ queryKey: ["productOverviewProductAreas", selectedProductId] }),
+      queryClient.invalidateQueries({ queryKey: ["productTreeSummary", selectedProductId] }),
       queryClient.invalidateQueries({ queryKey: ["sidebarProductTree", selectedProductId] }),
     ]);
   };
 
   const invalidateTasks = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["productAllTasks", selectedProductId] }),
-      queryClient.invalidateQueries({ queryKey: ["productTasks", selectedProductId, activeNodeId, activeNodeType] }),
+      queryClient.invalidateQueries({ queryKey: ["workItemScopeSummary", selectedProductId] }),
+      queryClient.invalidateQueries({ queryKey: ["productTasks", selectedProductId] }),
       queryClient.invalidateQueries({ queryKey: ["productWorkItemSummary"] }),
       queryClient.invalidateQueries({ queryKey: ["subWorkItems"] }),
       queryClient.invalidateQueries({ queryKey: ["workItems"] }),
@@ -1138,8 +1041,19 @@ export function ProductListPage() {
   const deleteManagementWorkItemMutation = useMutation({
     mutationFn: async (candidate: { workItem: WorkItem; kind: "story" | "task" }) => {
       if (candidate.kind === "story") {
-        const childTasks = await getSubWorkItems(candidate.workItem.id);
-        await Promise.all(childTasks.map((workItem) => deleteWorkItem(workItem.id)));
+        for (;;) {
+          const childTasks = await getSubWorkItems(candidate.workItem.id, {
+            limit: SUB_WORK_ITEM_PAGE_SIZE,
+            offset: 0,
+          });
+          if (childTasks.length === 0) {
+            break;
+          }
+          await Promise.all(childTasks.map((workItem) => deleteWorkItem(workItem.id)));
+          if (childTasks.length < SUB_WORK_ITEM_PAGE_SIZE) {
+            break;
+          }
+        }
       }
       await deleteWorkItem(candidate.workItem.id);
     },
@@ -1441,13 +1355,23 @@ export function ProductListPage() {
     () => selectedManagementFeature ? findHierarchyNode(tree?.roots ?? [], selectedManagementFeature.capabilityTree.capability.id, "capability") : null,
     [selectedManagementFeature, tree],
   );
+  const { data: managementFeatureWorkItems = [] } = useQuery({
+    queryKey: ["productTasks", selectedProductId, selectedManagementFeatureNode?.id, selectedManagementFeatureNode?.node_type],
+    queryFn: () =>
+      listWorkItems({
+        productId: selectedProductId ?? undefined,
+        sourceNodeId: selectedManagementFeatureNode?.id,
+        sourceNodeType: selectedManagementFeatureNode?.node_type,
+      }),
+    enabled: !!selectedProductId && !!selectedManagementFeatureNode && productPageTab === "design" && productManagementTab === "work_items",
+  });
   const featureStories = useMemo(() => {
     if (!selectedManagementFeatureNode) {
       return [];
     }
-    return getDirectWorkItemsForNode(selectedManagementFeatureNode, allProductTasks)
+    return getDirectWorkItemsForNode(selectedManagementFeatureNode, managementFeatureWorkItems)
       .filter((workItem) => !workItem.parent_work_item_id);
-  }, [allProductTasks, selectedManagementFeatureNode]);
+  }, [managementFeatureWorkItems, selectedManagementFeatureNode]);
   const selectedManagementStory = useMemo(
     () => featureStories.find((workItem) => workItem.id === selectedManagementStoryId)
       ?? featureStories.find((workItem) => workItem.id === activeWorkItemId)
@@ -1457,8 +1381,12 @@ export function ProductListPage() {
   );
   const selectedManagementStoryIdForTasks = selectedManagementStory?.id ?? null;
   const { data: selectedManagementStoryTasks = [] } = useQuery({
-    queryKey: ["subWorkItems", selectedManagementStoryIdForTasks],
-    queryFn: () => getSubWorkItems(selectedManagementStoryIdForTasks!),
+    queryKey: ["subWorkItems", selectedManagementStoryIdForTasks, SUB_WORK_ITEM_PAGE_SIZE],
+    queryFn: () =>
+      getSubWorkItems(selectedManagementStoryIdForTasks!, {
+        limit: SUB_WORK_ITEM_PAGE_SIZE,
+        offset: 0,
+      }),
     enabled: !!selectedManagementStoryIdForTasks,
   });
   const selectedManagementTasks = useMemo(
@@ -1470,105 +1398,35 @@ export function ProductListPage() {
       selectedManagementStoryTasks
         .filter((workItem) => workItem.parent_work_item_id === selectedManagementStory.id)
         .forEach((workItem) => taskMap.set(workItem.id, workItem));
-      allProductTasks
+      managementFeatureWorkItems
         .filter((workItem) => workItem.parent_work_item_id === selectedManagementStory.id)
         .forEach((workItem) => taskMap.set(workItem.id, workItem));
       return Array.from(taskMap.values()).sort((a, b) => a.sort_order - b.sort_order || a.title.localeCompare(b.title));
     },
-    [allProductTasks, selectedManagementStory, selectedManagementStoryTasks],
+    [managementFeatureWorkItems, selectedManagementStory, selectedManagementStoryTasks],
   );
   const refreshProductManagementTabQueries = async () => {
-    if (!selectedProductId) {
-      return;
-    }
-
-    const baseQueryKeys: QueryKey[] = [
-      ["products"],
-      ["productTree", selectedProductId],
-      ["productAllTasks", selectedProductId],
-    ];
-    const workItemQueryKeys: QueryKey[] = productManagementTab === "work_items"
-      ? [
-          ["productTasks", selectedProductId, activeNodeId, activeNodeType],
-          ["subWorkItems", selectedManagementStoryIdForTasks],
-        ]
-      : [];
-
-    await refreshScopedProductQueries(queryClient, [...baseQueryKeys, ...workItemQueryKeys]);
+    await refreshScopedProductQueries(queryClient, getProductManagementRefreshQueryKeys({
+      selectedProductId,
+      productManagementTab,
+      selectedManagementStoryIdForTasks,
+    }));
   };
 
   const refreshActiveProductPageTab = async () => {
-    switch (productPageTab) {
-      case "list":
-        await refreshScopedProductQueries(queryClient, [
-          ["products"],
-          ["setting", HIDE_EXAMPLE_PRODUCTS_KEY],
-          ["productTree"],
-          ["productWorkItemSummary"],
-        ]);
-        return;
-      case "status":
-        await refreshScopedProductQueries(queryClient, [
-          ["products"],
-          ["productTree"],
-          ["productAllTasks"],
-          ["productWorkItemSummary"],
-        ]);
-        return;
-      case "overview":
-        if (!selectedProductId) {
-          return;
-        }
-        await refreshScopedProductQueries(queryClient, [
-          ["products"],
-          ["productOverviewTree", selectedProductId],
-          ["productWorkItemSummary"],
-          ["productOverviewPageReferences"],
-        ]);
-        return;
-      case "design":
-        await refreshProductManagementTabQueries();
-        return;
-      case "dependencies":
-        if (!selectedProductId) {
-          return;
-        }
-        await refreshScopedProductQueries(queryClient, [
-          ["products"],
-          ["productTree"],
-          ["product-dependencies"],
-        ]);
-        return;
-    }
+    await refreshScopedProductQueries(queryClient, getProductPageRefreshQueryKeys({
+      productPageTab,
+      selectedProductId,
+      statusProductId,
+      hideExampleProductsKey: HIDE_EXAMPLE_PRODUCTS_KEY,
+      productManagementTab,
+      selectedManagementStoryIdForTasks,
+    }));
   };
 
-  const activeProductPageRefreshLabel = useMemo(() => {
-    switch (productPageTab) {
-      case "list":
-        return "Refresh List";
-      case "status":
-        return "Refresh Status";
-      case "overview":
-        return "Refresh Overview";
-      case "design":
-        return "Refresh Management";
-      case "dependencies":
-        return "Refresh Dependencies";
-    }
-  }, [productPageTab]);
-  const activeProductPageRefreshDisabled = !selectedProductId && productPageTab !== "list" && productPageTab !== "status";
-  const productManagementRefreshLabel = useMemo(() => {
-    switch (productManagementTab) {
-      case "areas":
-        return "Refresh Areas";
-      case "capabilities":
-        return "Refresh Capabilities";
-      case "features":
-        return "Refresh Features";
-      case "work_items":
-        return "Refresh Work Items";
-    }
-  }, [productManagementTab]);
+  const activeProductPageRefreshLabel = getProductPageRefreshLabel(productPageTab);
+  const activeProductPageRefreshDisabled = isProductPageRefreshDisabled(productPageTab, selectedProductId);
+  const productManagementRefreshLabel = getProductManagementRefreshLabel(productManagementTab);
 
   const structureRows = useMemo(() => {
     if (!tree) {
@@ -1833,14 +1691,6 @@ export function ProductListPage() {
         </button>
       </div>
     );
-  };
-
-  const handleManagementListKeyDown = (event: React.KeyboardEvent<HTMLDivElement>, onSelect: () => void) => {
-    if (event.key !== "Enter" && event.key !== " ") {
-      return;
-    }
-    event.preventDefault();
-    onSelect();
   };
 
   const renderReferencesPanel = () => (
@@ -2113,359 +1963,124 @@ export function ProductListPage() {
 
   const renderProductManagementConsole = () => (
     <div>
-      {selectedProduct ? (
-        <div style={styles.contextCard}>
-          <div style={styles.contextLabel}>Selected Product</div>
-          <div style={styles.contextTitle}>{selectedProduct.name}</div>
-          {renderCopyableEntityId("Product ID", selectedProduct.id)}
-        </div>
-      ) : null}
-      <div style={styles.managementTabs}>
-        <button style={productManagementTab === "areas" ? styles.tabActive : styles.tab} onClick={() => setProductManagementTab("areas")}>Product Areas</button>
-        <button style={productManagementTab === "capabilities" ? styles.tabActive : styles.tab} onClick={() => setProductManagementTab("capabilities")}>Capabilities</button>
-        <button style={productManagementTab === "features" ? styles.tabActive : styles.tab} onClick={() => setProductManagementTab("features")}>Features</button>
-        <button style={productManagementTab === "work_items" ? styles.tabActive : styles.tab} onClick={() => setProductManagementTab("work_items")}>Work Items</button>
-        <div style={styles.tabRefreshSlot}>
-          <ScopedRefreshButton
-            label={productManagementRefreshLabel}
-            onRefresh={refreshProductManagementTabQueries}
-            disabled={!selectedProductId}
-          />
-        </div>
-      </div>
+      <ProductManagementHeader
+        selectedProduct={selectedProduct}
+        activeTab={productManagementTab}
+        onTabChange={setProductManagementTab}
+        refreshLabel={productManagementRefreshLabel}
+        onRefresh={refreshProductManagementTabQueries}
+        refreshDisabled={!selectedProductId}
+        renderCopyableEntityId={renderCopyableEntityId}
+        styles={styles}
+      />
 
       {productManagementTab === "areas" && (
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>
-            <span>Product Areas</span>
-            <div style={styles.managementActions}>
-              <button style={styles.ghostBtn} onClick={() => requestResetProductPlan(selectedProduct!)}>Reset Plan</button>
-              <button style={styles.btn} onClick={() => openProductAreaDialog("create")}>+ Product Area</button>
-            </div>
-          </div>
-          {productAreaProductAreas.length > 0 ? (
-            <div style={styles.table}>
-              <div style={styles.managementTableHeader}>
-                <div>Product Area</div>
-                <div>Capabilities</div>
-                <div>Features</div>
-                <div>Actions</div>
-              </div>
-              {productAreaProductAreas.map((productAreaTree) => (
-                <div key={productAreaTree.product_area.id} style={styles.managementTableRow}>
-                  <div>
-                    <div style={styles.rowPrimary}>{productAreaTree.product_area.name}</div>
-                    <div style={styles.rowSecondary}>{productAreaTree.product_area.description || productAreaTree.product_area.purpose || "No description yet."}</div>
-                    {renderCopyableEntityId("Area ID", productAreaTree.product_area.id)}
-                  </div>
-                  <div style={styles.rowCell}>{productAreaTree.features.filter((node) => node.capability.node_kind === "capability").length}</div>
-                  <div style={styles.rowCell}>{flattenCapabilityTreeList(productAreaTree.features).filter((node) => node.capability.node_kind === "feature").length}</div>
-                  <div style={styles.managementActions}>
-                    <button style={styles.compactActionBtn} onClick={() => {
-                      selectProductArea(productAreaTree);
-                      setProductManagementTab("capabilities");
-                    }}>Open</button>
-                    <button style={styles.compactActionBtn} onClick={() => openEditProductArea(productAreaTree)}>Edit</button>
-                    <button
-                      style={styles.compactDangerBtn}
-                      onClick={() => requestDeleteHierarchyNode({ kind: "product_area", id: productAreaTree.product_area.id, name: productAreaTree.product_area.name })}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div style={styles.empty}>No product areas yet. Add a product area to start the management model.</div>
-          )}
-        </div>
+        <ProductManagementAreasTab
+          selectedProduct={selectedProduct}
+          productAreas={productAreaProductAreas}
+          onResetProductPlan={requestResetProductPlan}
+          onCreateProductArea={() => openProductAreaDialog("create")}
+          onOpenProductArea={(productAreaTree) => {
+            selectProductArea(productAreaTree);
+            setProductManagementTab("capabilities");
+          }}
+          onEditProductArea={openEditProductArea}
+          onDeleteProductArea={(productAreaTree) => requestDeleteHierarchyNode({
+            kind: "product_area",
+            id: productAreaTree.product_area.id,
+            name: productAreaTree.product_area.name,
+          })}
+          renderCopyableEntityId={renderCopyableEntityId}
+          styles={styles}
+        />
       )}
 
       {productManagementTab === "capabilities" && (
-        <div style={styles.managementLayout}>
-          <div style={styles.managementPane}>
-            <div style={styles.managementPaneHeader}>
-              <div style={styles.controlLabel}>Product Areas</div>
-            </div>
-            <div style={styles.managementList}>
-              {productAreaProductAreas.map((productAreaTree) => (
-                <div
-                  key={productAreaTree.product_area.id}
-                  style={selectedProductAreaTree?.product_area.id === productAreaTree.product_area.id ? styles.managementListButtonActive : styles.managementListButton}
-                  onClick={() => selectProductArea(productAreaTree)}
-                  onKeyDown={(event) => handleManagementListKeyDown(event, () => selectProductArea(productAreaTree))}
-                  role="button"
-                  tabIndex={0}
-                >
-                  <div style={styles.rowPrimary}>{productAreaTree.product_area.name}</div>
-                  <div style={styles.rowSecondary}>{productAreaTree.features.length} child nodes</div>
-                  {renderCopyableEntityId("Area ID", productAreaTree.product_area.id)}
-                </div>
-              ))}
-            </div>
-          </div>
-          <div style={styles.managementPane}>
-            <div style={styles.sectionTitle}>
-              <span>{selectedProductAreaTree?.product_area.name ?? "Capabilities"}</span>
-              <button
-                style={styles.btn}
-                onClick={() => selectedProductAreaTree && openCreateCapabilityForArea(selectedProductAreaTree)}
-                disabled={!selectedProductAreaTree}
-              >
-                + Capability
-              </button>
-            </div>
-            {managementCapabilities.length > 0 ? (
-              <div style={styles.table}>
-                <div style={styles.managementTableHeader}>
-                  <div>Capability</div>
-                  <div>Features</div>
-                  <div>Stories</div>
-                  <div>Actions</div>
-                </div>
-                {managementCapabilities.map((capabilityTree) => {
-                  const capabilityNode = findHierarchyNode(tree?.roots ?? [], capabilityTree.capability.id, "capability");
-                  const storyCount = capabilityNode ? getSubtreeWorkItemsForNode(capabilityNode, allProductTasks).filter((workItem) => !workItem.parent_work_item_id).length : 0;
-                  return (
-                    <div key={capabilityTree.capability.id} style={styles.managementTableRow}>
-                      <div>
-                        <div style={styles.rowPrimary}>{capabilityTree.capability.name}</div>
-                        <div style={styles.rowSecondary}>{capabilityTree.capability.description || "No description yet."}</div>
-                        {renderCopyableEntityId("Capability ID", capabilityTree.capability.id)}
-                      </div>
-                      <div style={styles.rowCell}>{capabilityTree.children.filter((node) => node.capability.node_kind === "feature").length}</div>
-                      <div style={styles.rowCell}>{storyCount}</div>
-                      <div style={styles.managementActions}>
-                        <button style={styles.compactActionBtn} onClick={() => {
-                          selectCapabilityForManagement(capabilityTree);
-                          setProductManagementTab("features");
-                        }}>Open</button>
-                        <button style={styles.compactActionBtn} onClick={() => openEditCapabilityNode(capabilityTree)}>Edit</button>
-                        <button
-                          style={styles.compactDangerBtn}
-                          onClick={() => requestDeleteHierarchyNode({ kind: "capability", id: capabilityTree.capability.id, name: capabilityTree.capability.name })}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div style={styles.empty}>No capabilities in this product area yet.</div>
-            )}
-          </div>
-        </div>
+        <ProductManagementCapabilitiesTab
+          productAreas={productAreaProductAreas}
+          selectedProductAreaTree={selectedProductAreaTree}
+          capabilities={managementCapabilities}
+          productTree={tree}
+          selectedProductId={selectedProductId}
+          scopeSummaryIndex={scopeSummaryIndex}
+          onSelectProductArea={selectProductArea}
+          onCreateCapability={openCreateCapabilityForArea}
+          onOpenCapability={(capabilityTree) => {
+            selectCapabilityForManagement(capabilityTree);
+            setProductManagementTab("features");
+          }}
+          onEditCapability={openEditCapabilityNode}
+          onDeleteCapability={(capabilityTree) => requestDeleteHierarchyNode({
+            kind: "capability",
+            id: capabilityTree.capability.id,
+            name: capabilityTree.capability.name,
+          })}
+          renderCopyableEntityId={renderCopyableEntityId}
+          styles={styles}
+        />
       )}
 
       {productManagementTab === "features" && (
-        <div style={styles.managementLayout}>
-          <div style={styles.managementPane}>
-            <div style={styles.controlLabel}>Capabilities</div>
-            <div style={styles.managementList}>
-              {managementCapabilities.map((capabilityTree) => (
-                <div
-                  key={capabilityTree.capability.id}
-                  style={selectedManagementCapabilityTree?.capability.id === capabilityTree.capability.id ? styles.managementListButtonActive : styles.managementListButton}
-                  onClick={() => selectCapabilityForManagement(capabilityTree)}
-                  onKeyDown={(event) => handleManagementListKeyDown(event, () => selectCapabilityForManagement(capabilityTree))}
-                  role="button"
-                  tabIndex={0}
-                >
-                  <div style={styles.rowPrimary}>{capabilityTree.capability.name}</div>
-                  <div style={styles.rowSecondary}>{capabilityTree.children.filter((node) => node.capability.node_kind === "feature").length} features</div>
-                  {renderCopyableEntityId("Capability ID", capabilityTree.capability.id)}
-                </div>
-              ))}
-            </div>
-          </div>
-          <div style={styles.managementPane}>
-            <div style={styles.sectionTitle}>
-              <span>{selectedManagementCapabilityTree?.capability.name ?? "Features"}</span>
-              <button
-                style={styles.btn}
-                onClick={() => selectedManagementCapabilityTree && openCreateFeatureForCapability(selectedManagementCapabilityTree)}
-                disabled={!selectedManagementCapabilityTree}
-              >
-                + Feature
-              </button>
-            </div>
-            {managementFeatures.length > 0 ? (
-              <div style={styles.table}>
-                <div style={styles.managementTableHeader}>
-                  <div>Feature</div>
-                  <div>Status</div>
-                  <div>Stories</div>
-                  <div>Actions</div>
-                </div>
-                {managementFeatures.map((featureTree) => {
-                  const featureNode = findHierarchyNode(tree?.roots ?? [], featureTree.capability.id, "capability");
-                  const stories = featureNode ? getDirectWorkItemsForNode(featureNode, allProductTasks).filter((workItem) => !workItem.parent_work_item_id) : [];
-                  return (
-                    <div key={featureTree.capability.id} style={styles.managementTableRow}>
-                      <div>
-                        <div style={styles.rowPrimary}>{featureTree.capability.name}</div>
-                        <div style={styles.rowSecondary}>{featureTree.capability.description || "No description yet."}</div>
-                        {renderCopyableEntityId("Feature ID", featureTree.capability.id)}
-                      </div>
-                      <div style={styles.rowCell}>{featureTree.capability.status}</div>
-                      <div style={styles.rowCell}>{stories.length}</div>
-                      <div style={styles.managementActions}>
-                        <button style={styles.compactActionBtn} onClick={() => {
-                          selectCapabilityForManagement(featureTree);
-                          setProductManagementTab("work_items");
-                        }}>Stories</button>
-                        <button style={styles.compactActionBtn} onClick={() => openEditCapabilityNode(featureTree)}>Edit</button>
-                        <button
-                          style={styles.compactDangerBtn}
-                          onClick={() => requestDeleteHierarchyNode({ kind: "feature", id: featureTree.capability.id, name: featureTree.capability.name })}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div style={styles.empty}>No features in this capability yet.</div>
-            )}
-          </div>
-        </div>
+        <ProductManagementFeaturesTab
+          capabilities={managementCapabilities}
+          selectedCapabilityTree={selectedManagementCapabilityTree}
+          features={managementFeatures}
+          productTree={tree}
+          selectedProductId={selectedProductId}
+          scopeSummaryIndex={scopeSummaryIndex}
+          onSelectCapability={selectCapabilityForManagement}
+          onCreateFeature={openCreateFeatureForCapability}
+          onOpenFeatureStories={(featureTree) => {
+            selectCapabilityForManagement(featureTree);
+            setProductManagementTab("work_items");
+          }}
+          onEditFeature={openEditCapabilityNode}
+          onDeleteFeature={(featureTree) => requestDeleteHierarchyNode({
+            kind: "feature",
+            id: featureTree.capability.id,
+            name: featureTree.capability.name,
+          })}
+          renderCopyableEntityId={renderCopyableEntityId}
+          styles={styles}
+        />
       )}
 
       {productManagementTab === "work_items" && (
         <div style={styles.managementThreePane}>
-          <div style={styles.managementPane}>
-            <div style={styles.controlLabel}>Features</div>
-            <div style={styles.managementList}>
-              {allManagementFeatures.map((entry) => (
-                <div
-                  key={entry.capabilityTree.capability.id}
-                  style={selectedManagementFeature?.capabilityTree.capability.id === entry.capabilityTree.capability.id ? styles.managementListButtonActive : styles.managementListButton}
-                  onClick={() => {
-                    selectCapabilityForManagement(entry.capabilityTree);
-                    setSelectedManagementStoryId(null);
-                  }}
-                  onKeyDown={(event) => handleManagementListKeyDown(event, () => {
-                    selectCapabilityForManagement(entry.capabilityTree);
-                    setSelectedManagementStoryId(null);
-                  })}
-                  role="button"
-                  tabIndex={0}
-                >
-                  <div style={styles.rowPrimary}>{entry.capabilityTree.capability.name}</div>
-                  <div style={styles.rowSecondary}>{entry.productArea.name}{entry.parentCapability ? ` / ${entry.parentCapability.name}` : ""}</div>
-                  {renderCopyableEntityId("Feature ID", entry.capabilityTree.capability.id)}
-                </div>
-              ))}
-            </div>
-          </div>
-          <div style={styles.managementPane}>
-            <div style={styles.sectionTitle}>
-              <span>Stories</span>
-              <div style={styles.managementActions}>
-                <button
-                  style={styles.btn}
-                  onClick={openCreateStoryDialog}
-                  disabled={!selectedManagementFeatureNode}
-                >
-                  + Story
-                </button>
-                <button style={styles.ghostBtn} onClick={() => openFeatureInBuilder(selectedManagementFeatureNode)}>Open Builder</button>
-              </div>
-            </div>
-            <div style={styles.managementList}>
-              {featureStories.length > 0 ? featureStories.map((story) => (
-                <div key={story.id} style={selectedManagementStory?.id === story.id ? styles.managementListButtonActive : styles.managementListButton}>
-                  <button
-                    style={styles.managementItemSelect}
-                    onClick={() => {
-                      setSelectedManagementStoryId(story.id);
-                      setActiveWorkItem(story.id);
-                    }}
-                  >
-                    <div style={styles.rowPrimary}>{story.title}</div>
-                    <div style={styles.rowSecondary}>{formatWorkItemMeta(story.status)} · {story.priority} · {story.complexity}</div>
-                  </button>
-                  <div style={styles.inlineActionRow}>
-                    <button style={styles.outlineActionBtn} onClick={() => openEditStoryDialog(story)}>Edit</button>
-                    <button style={styles.compactDangerBtn} onClick={() => requestDeleteWorkItem(story, "story")}>Delete</button>
-                  </div>
-                </div>
-              )) : (
-                <div style={styles.empty}>No stories for this feature yet.</div>
-              )}
-            </div>
-          </div>
-          <div style={styles.managementPane}>
-            {selectedManagementStory ? (
-              <>
-                <div style={styles.sectionTitle}>
-                  <span>Story Details</span>
-                  <div style={styles.managementActions}>
-                    <button style={styles.ghostBtn} onClick={() => openEditStoryDialog(selectedManagementStory)}>Edit</button>
-                    <button style={styles.ghostBtn} onClick={() => openStoryInBuilder(selectedManagementStory)}>Open Story</button>
-                  </div>
-                </div>
-                <div style={styles.contextCard}>
-                  <div style={styles.contextLabel}>{formatWorkItemMeta(selectedManagementStory.status)} · {formatWorkItemMeta(selectedManagementStory.work_item_type)} · {selectedManagementStory.priority} priority · {formatWorkItemMeta(selectedManagementStory.complexity)} complexity</div>
-                  <div style={styles.contextTitle}>{selectedManagementStory.title}</div>
-                  <div style={styles.workItemDetailGrid}>
-                    <div>
-                      <div style={styles.contextLabel}>Problem</div>
-                      <div style={styles.contextText}>{selectedManagementStory.problem_statement || "No problem statement captured yet."}</div>
-                    </div>
-                    <div>
-                      <div style={styles.contextLabel}>Description</div>
-                      <div style={styles.contextText}>{selectedManagementStory.description || "No story description yet."}</div>
-                    </div>
-                    <div>
-                      <div style={styles.contextLabel}>Acceptance Criteria</div>
-                      <div style={styles.contextText}>{selectedManagementStory.acceptance_criteria || "No acceptance criteria captured yet."}</div>
-                    </div>
-                    <div>
-                      <div style={styles.contextLabel}>Constraints</div>
-                      <div style={styles.contextText}>{selectedManagementStory.constraints || "No constraints captured yet."}</div>
-                    </div>
-                  </div>
-                </div>
-                <div style={styles.sectionTitle}>
-                  <span>Tasks</span>
-                  <div style={styles.managementActions}>
-                    <span style={styles.badgeMuted}>{selectedManagementTasks.length}</span>
-                    <button
-                      style={styles.btn}
-                      onClick={openCreateTaskDialog}
-                    >
-                      + Task
-                    </button>
-                  </div>
-                </div>
-                {selectedManagementTasks.length > 0 ? selectedManagementTasks.map((task) => (
-                  <div key={task.id} style={styles.contextCard}>
-                    <div style={styles.productAreaHeader}>
-                      <div>
-                        <div style={styles.contextTitle}>{task.title}</div>
-                        <div style={styles.contextText}>{formatWorkItemMeta(task.status)} · {task.priority} · {formatWorkItemMeta(task.complexity)}</div>
-                        {task.description && <div style={styles.contextText}>{task.description}</div>}
-                      </div>
-                      <div style={styles.managementActions}>
-                        <button style={styles.compactActionBtn} onClick={() => openEditTaskDialog(task)}>Edit</button>
-                        <button style={styles.compactDangerBtn} onClick={() => requestDeleteWorkItem(task, "task")}>Delete</button>
-                      </div>
-                    </div>
-                  </div>
-                )) : (
-                  <div style={styles.empty}>No tasks under this story yet.</div>
-                )}
-              </>
-            ) : (
-              <div style={styles.empty}>Select a story to inspect details and tasks.</div>
-            )}
-          </div>
+          <ProductManagementWorkItemFeatureSelector
+            features={allManagementFeatures}
+            selectedFeature={selectedManagementFeature}
+            onSelectFeature={(entry) => {
+              selectCapabilityForManagement(entry.capabilityTree);
+              setSelectedManagementStoryId(null);
+            }}
+            renderCopyableEntityId={renderCopyableEntityId}
+            styles={styles}
+          />
+          <ProductManagementStoriesPane
+            stories={featureStories}
+            selectedStory={selectedManagementStory}
+            canCreateStory={!!selectedManagementFeatureNode}
+            onCreateStory={openCreateStoryDialog}
+            onOpenBuilder={() => openFeatureInBuilder(selectedManagementFeatureNode)}
+            onSelectStory={(story) => {
+              setSelectedManagementStoryId(story.id);
+              setActiveWorkItem(story.id);
+            }}
+            onEditStory={openEditStoryDialog}
+            onDeleteStory={(story) => requestDeleteWorkItem(story, "story")}
+            styles={styles}
+          />
+          <ProductManagementStoryDetailPane
+            selectedStory={selectedManagementStory}
+            tasks={selectedManagementTasks}
+            onEditStory={openEditStoryDialog}
+            onOpenStory={openStoryInBuilder}
+            onCreateTask={openCreateTaskDialog}
+            onEditTask={openEditTaskDialog}
+            onDeleteTask={(task) => requestDeleteWorkItem(task, "task")}
+            styles={styles}
+          />
         </div>
       )}
     </div>
@@ -2520,224 +2135,70 @@ export function ProductListPage() {
         <div style={styles.panel}>
           <div style={styles.panelInner}>
             {productPageTab === "list" ? (
-              <>
-                <div style={styles.toolbar}>
-                  <div>
-                    <div style={styles.controlLabel}>Search</div>
-                    <input
-                      style={styles.input}
-                      value={productSearch}
-                      onChange={(event) => setProductSearch(event.target.value)}
-                      placeholder="Filter by name, tag, status, or description"
-                    />
-                  </div>
-                  <div>
-                    <div style={styles.controlLabel}>Status</div>
-                    <select style={styles.select} value={productStatusFilter} onChange={(event) => setProductStatusFilter(event.target.value as typeof productStatusFilter)}>
-                      <option value="all">All statuses</option>
-                      <option value="active">Active</option>
-                      <option value="archived">Archived</option>
-                    </select>
-                  </div>
-                  <div>
-                    <div style={styles.controlLabel}>Source</div>
-                    <select style={styles.select} value={productSourceFilter} onChange={(event) => setProductSourceFilter(event.target.value as typeof productSourceFilter)}>
-                      <option value="all">All sources</option>
-                      <option value="custom">Custom</option>
-                      <option value="default">Default</option>
-                    </select>
-                  </div>
-                  <div>
-                    <div style={styles.controlLabel}>Tag</div>
-                    <select style={styles.select} value={productTagFilter} onChange={(event) => setProductTagFilter(event.target.value)}>
-                      <option value="all">All tags</option>
-                      {allProductTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <div style={styles.controlLabel}>Sort</div>
-                    <select style={styles.select} value={productSort} onChange={(event) => setProductSort(event.target.value as typeof productSort)}>
-                      <option value="name">Name</option>
-                      <option value="updated">Recently updated</option>
-                      <option value="progress">Progress</option>
-                      <option value="work">Work items</option>
-                    </select>
-                  </div>
-                  <button style={{ ...styles.btn, alignSelf: "center", justifySelf: "end" }} onClick={() => openProductDialog("create")}>+ Add Product</button>
-                </div>
-                <div style={styles.toggleRow}>
-                  <label style={styles.checkboxLabel}>
-                    <input type="checkbox" checked={showCustomProductsInTable} onChange={(event) => setShowCustomProductsInTable(event.target.checked)} />
-                    Show custom products
-                  </label>
-                  <label style={styles.checkboxLabel}>
-                    <input type="checkbox" checked={showDefaultProductsInTable} onChange={(event) => setShowDefaultProductsInTable(event.target.checked)} />
-                    Show default products in table
-                  </label>
-                  <label style={styles.checkboxLabel}>
-                    <input
-                      type="checkbox"
-                      checked={includeDefaultProductsInCatalog}
-                      onChange={(event) => updateDefaultProductVisibility(event.target.checked)}
-                    />
-                    Include default products from catalog
-                  </label>
-                  {catalogFilterMsg && <span style={{ ...styles.contextText, color: "#4ec9b0" }}>{catalogFilterMsg}</span>}
-                  {catalogFilterError && <span style={styles.errorText}>{catalogFilterError}</span>}
-                </div>
-                <div style={styles.table}>
-                  <div style={styles.productTableHeader}>
-                    <div>Product</div>
-                    <div>Source</div>
-                    <div>Status</div>
-                    <div>Management</div>
-                    <div>Progress</div>
-                    <div>Actions</div>
-                  </div>
-                  {productTableRows.length > 0 ? productTableRows.map((row) => (
-                    <div key={row.product.id} style={styles.productTableRow}>
-                      <div style={styles.productCell}>
-                        <div style={styles.rowPrimary}>{row.product.name}</div>
-                        <div style={styles.productDescription}>{row.product.description || row.product.vision || "No description yet."}</div>
-                        <div style={styles.chipRow}>
-                          {row.product.tags.slice(0, 4).map((tag) => <span key={tag} style={styles.badgeMuted}>{tag}</span>)}
-                        </div>
-                      </div>
-                      <div style={styles.productMetaCell}>{row.source}</div>
-                      <div style={styles.productMetaCell}>
-                        <div>{row.product.lifecycle}</div>
-                        <div style={styles.rowSecondary}>{row.product.health}</div>
-                      </div>
-                      <div style={styles.productMetaCell}>
-                        <div>{row.rootCount} product areas</div>
-                        <div style={styles.rowSecondary}>{row.nodeCount} management nodes</div>
-                      </div>
-                      <div>
-                        <div style={styles.rowCell}>{row.progress.percent}%</div>
-                        <div style={styles.progressTrack}><div style={{ ...styles.progressFill, width: `${row.progress.percent}%` }} /></div>
-                        <div style={styles.rowSecondary}>{row.progress.done}/{row.progress.total} done</div>
-                        <div style={styles.rowSecondary}>{row.activeWorkItemCount} active stories</div>
-                      </div>
-                      <div style={styles.productActions}>
-                        <button style={styles.compactActionBtn} onClick={() => editProductFromList(row.product)}>Edit</button>
-                        <button style={styles.compactActionBtn} onClick={() => openProductStatus(row.product)}>Status</button>
-                        <button style={styles.compactActionBtn} onClick={() => openProductOverview(row.product)}>Overview</button>
-                        <button style={styles.compactActionBtn} onClick={() => openProductDesign(row.product)}>Manage</button>
-                        <button style={styles.compactActionBtn} onClick={() => openProductDependencies(row.product)}>Dependencies</button>
-                        <button style={styles.compactDangerBtn} onClick={() => requestArchiveProduct(row.product)}>Delete</button>
-                      </div>
-                    </div>
-                  )) : (
-                    <div style={styles.empty}>{isLoading ? "Loading products..." : "No products match the current filters."}</div>
-                  )}
-                </div>
-              </>
+              <ProductCatalogTab
+                productSearch={productSearch}
+                productStatusFilter={productStatusFilter}
+                productSourceFilter={productSourceFilter}
+                productTagFilter={productTagFilter}
+                productSort={productSort}
+                allProductTags={allProductTags}
+                showCustomProductsInTable={showCustomProductsInTable}
+                showDefaultProductsInTable={showDefaultProductsInTable}
+                includeDefaultProductsInCatalog={includeDefaultProductsInCatalog}
+                catalogFilterMsg={catalogFilterMsg}
+                catalogFilterError={catalogFilterError}
+                productTableRows={productTableRows}
+                isLoading={isLoading}
+                onProductSearchChange={setProductSearch}
+                onProductStatusFilterChange={setProductStatusFilter}
+                onProductSourceFilterChange={setProductSourceFilter}
+                onProductTagFilterChange={setProductTagFilter}
+                onProductSortChange={setProductSort}
+                onShowCustomProductsInTableChange={setShowCustomProductsInTable}
+                onShowDefaultProductsInTableChange={setShowDefaultProductsInTable}
+                onIncludeDefaultProductsInCatalogChange={updateDefaultProductVisibility}
+                onAddProduct={() => openProductDialog("create")}
+                onEditProduct={editProductFromList}
+                onOpenProductStatus={openProductStatus}
+                onOpenProductOverview={openProductOverview}
+                onOpenProductDesign={openProductDesign}
+                onOpenProductDependencies={openProductDependencies}
+                onDeleteProduct={requestArchiveProduct}
+                styles={styles}
+              />
             ) : productPageTab === "status" ? (
-              <>
-                <div style={styles.statusToolbar}>
-                  <div>
-                    <div style={styles.controlLabel}>Product</div>
-                    <select
-                      style={styles.select}
-                      value={statusProductId}
-                      onChange={(event) => {
-                        const nextProductId = event.target.value;
-                        setStatusProductId(nextProductId);
-                        if (nextProductId !== "all") {
-                          setActiveProduct(nextProductId);
-                        }
-                      }}
-                    >
-                      <option value="all">All visible products</option>
-                      {(products ?? []).map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <div style={styles.controlLabel}>Visible levels</div>
-                    <select style={styles.select} value={statusDepth} onChange={(event) => setStatusDepth(Number(event.target.value))}>
-                      {[1, 2, 3, 4, 5, 6].map((depth) => <option key={depth} value={depth}>{depth} {depth === 1 ? "level" : "levels"}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <div style={styles.controlLabel}>Pivot</div>
-                    <select style={styles.select} value={statusGroupBy} onChange={(event) => setStatusGroupBy(event.target.value as typeof statusGroupBy)}>
-                      <option value="node">Tree nodes</option>
-                      <option value="kind">Node kind</option>
-                      <option value="work_status">Work status</option>
-                    </select>
-                  </div>
-                  <div style={styles.statusMetrics}>
-                    <div style={styles.statusMetric}>
-                      <div style={styles.metricLabel}>Products</div>
-                      <div style={styles.statusMetricValue}>{statusSummary.productCount}</div>
-                      <div style={styles.statusMetricHelp}>included</div>
-                    </div>
-                    <div style={styles.statusMetric}>
-                      <div style={styles.metricLabel}>Nodes</div>
-                      <div style={styles.statusMetricValue}>{statusSummary.nodeCount}</div>
-                      <div style={styles.statusMetricHelp}>{statusSummary.leafCount} leaf</div>
-                    </div>
-                    <div style={styles.statusMetric}>
-                      <div style={styles.metricLabel}>Stories</div>
-                      <div style={styles.statusMetricValue}>{statusSummary.workItemCount}</div>
-                      <div style={styles.statusMetricHelp}>{statusSummary.activeWorkItemCount} active · {statusSummary.doneWorkItemCount} done stories</div>
-                    </div>
-                    <div style={styles.statusMetric}>
-                      <div style={styles.metricLabel}>Progress</div>
-                      <div style={styles.statusMetricValue}>{statusSummary.progress.percent}%</div>
-                      <div style={styles.statusMetricHelp}>{statusSummary.progress.done}/{statusSummary.progress.total}</div>
-                    </div>
-                  </div>
-                </div>
-                <div style={styles.table}>
-                  <div style={styles.statusTableHeader}>
-                    <div>{statusGroupBy === "node" ? "Scope" : "Group"}</div>
-                    <div>Level</div>
-                    <div>Kind</div>
-                    <div>Nodes</div>
-                    <div>Work</div>
-                    <div>Progress</div>
-                  </div>
-                  {statusRows.length > 0 ? statusRows.map((row) => (
-                    <div
-                      key={row.id}
-                      style={styles.statusTableRow}
-                      onClick={() => {
-                        if (row.productId) {
-                          setActiveProduct(row.productId);
-                        }
-                        if (row.nodeId && row.nodeType) {
-                          setActiveHierarchyNode({
-                            nodeId: row.nodeId,
-                            nodeType: row.nodeType,
-                            productAreaId: row.productAreaId ?? null,
-                            capabilityId: row.capabilityId ?? null,
-                          });
-                          setProductPageTab("design");
-                        }
-                      }}
-                    >
-                      <div style={{ paddingLeft: statusGroupBy === "node" ? Math.max(0, row.level - 1) * 16 : 0 }}>
-                        <div style={{ ...styles.rowPrimary, fontSize: 12 }}>{row.name}</div>
-                        <div style={{ ...styles.rowSecondary, fontSize: 10, marginTop: 2 }}>{row.subtitle}</div>
-                      </div>
-                      <div style={styles.rowCell}>{row.level}</div>
-                      <div style={styles.rowCell}>{row.kind}</div>
-                      <div style={styles.rowCell}>{row.nodeCount} · {row.childCount} child</div>
-                      <div style={styles.rowCell}>{row.workItemCount} · {row.activeWorkItemCount} active stories</div>
-                      <div>
-                        <div style={{ display: "grid", gridTemplateColumns: "38px minmax(0, 1fr) 46px", gap: 6, alignItems: "center" }}>
-                          <span style={styles.rowCell}>{row.progress.percent}%</span>
-                          <div style={styles.progressTrack}><div style={{ ...styles.progressFill, width: `${row.progress.percent}%` }} /></div>
-                          <span style={{ ...styles.rowSecondary, marginTop: 0 }}>{row.progress.done}/{row.progress.total}</span>
-                        </div>
-                      </div>
-                    </div>
-                  )) : (
-                    <div style={styles.empty}>{isLoading ? "Loading status..." : "No status rows are available for this selection."}</div>
-                  )}
-                </div>
-              </>
+              <ProductStatusTab
+                products={products ?? []}
+                statusProductId={statusProductId}
+                statusDepth={statusDepth}
+                statusGroupBy={statusGroupBy}
+                statusSummary={statusSummary}
+                statusRows={statusRows}
+                isLoading={isLoading}
+                onStatusProductChange={(nextProductId) => {
+                  setStatusProductId(nextProductId);
+                  if (nextProductId !== "all") {
+                    setActiveProduct(nextProductId);
+                  }
+                }}
+                onStatusDepthChange={setStatusDepth}
+                onStatusGroupByChange={setStatusGroupBy}
+                onOpenStatusRow={(row) => {
+                  if (row.productId) {
+                    setActiveProduct(row.productId);
+                  }
+                  if (row.nodeId && row.nodeType) {
+                    setActiveHierarchyNode({
+                      nodeId: row.nodeId,
+                      nodeType: row.nodeType,
+                      productAreaId: row.productAreaId ?? null,
+                      capabilityId: row.capabilityId ?? null,
+                    });
+                    setProductPageTab("design");
+                  }
+                }}
+                styles={styles}
+              />
             ) : productPageTab === "overview" ? (
               selectedProduct ? (
                 <ProductOverviewPage />
@@ -3557,132 +3018,6 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
   );
 }
 
-function countCapabilities(product_areas: ProductAreaTree[]) {
-  return product_areas.reduce((total, productAreaTree) => total + productAreaTree.features.reduce((sum, capabilityTree) => sum + countCapabilityTree(capabilityTree), 0), 0);
-}
-
-function countCapabilityTree(capabilityTree: CapabilityTree): number {
-  return 1 + capabilityTree.children.reduce((sum, child) => sum + countCapabilityTree(child), 0);
-}
-
-function getHierarchyDeleteLabel(kind: "product_area" | "capability" | "feature") {
-  switch (kind) {
-    case "product_area":
-      return "Product Area";
-    case "capability":
-      return "Capability";
-    case "feature":
-      return "Feature";
-  }
-}
-
-function findCapabilityTree(product_areas: ProductAreaTree[], capabilityId: string | null): CapabilityTree | null {
-  if (!capabilityId) {
-    return null;
-  }
-
-  for (const productAreaTree of product_areas) {
-    for (const capabilityTree of productAreaTree.features) {
-      const found = searchCapabilityTree(capabilityTree, capabilityId);
-      if (found) {
-        return found;
-      }
-    }
-  }
-
-  return null;
-}
-
-function searchCapabilityTree(capabilityTree: CapabilityTree, capabilityId: string | null): CapabilityTree | null {
-  if (!capabilityId) {
-    return null;
-  }
-  if (capabilityTree.capability.id === capabilityId) {
-    return capabilityTree;
-  }
-
-  for (const child of capabilityTree.children) {
-    const found = searchCapabilityTree(child, capabilityId);
-      if (found) {
-        return found;
-      }
-  }
-
-  return null;
-}
-
-function flattenCapabilityTreeList(nodes: CapabilityTree[]): CapabilityTree[] {
-  return nodes.flatMap((node) => [node, ...flattenCapabilityTreeList(node.children)]);
-}
-
-function moveId(ids: string[], id: string, direction: -1 | 1): string[] {
-  const currentIndex = ids.indexOf(id);
-  if (currentIndex === -1) {
-    return ids;
-  }
-  return moveIdToIndex(ids, id, currentIndex + direction);
-}
-
-function addCapabilityToTree(tree: ProductTree, capability: CapabilityNode): ProductTree {
-  return {
-    ...tree,
-    product_areas: tree.product_areas.map((productAreaTree) =>
-      productAreaTree.product_area.id === capability.product_area_id
-        ? {
-            ...productAreaTree,
-            features: insertCapabilityTree(productAreaTree.features, capability),
-          }
-        : productAreaTree,
-    ),
-  };
-}
-
-function insertCapabilityTree(nodes: CapabilityTree[], capability: CapabilityNode): CapabilityTree[] {
-  if (!capability.parent_capability_id) {
-    return [...nodes, { capability, children: [] }];
-  }
-
-  return nodes.map((node) =>
-    node.capability.id === capability.parent_capability_id
-      ? { ...node, children: [...node.children, { capability, children: [] }] }
-      : { ...node, children: insertCapabilityTree(node.children, capability) },
-  );
-}
-
-function getCapabilityOrderKey(productAreaId: string, parentCapabilityId: string | null) {
-  return `${productAreaId}:${parentCapabilityId ?? "root"}`;
-}
-
-function seedCapabilityOrderMap(target: Record<string, string[]>, nodes: CapabilityTree[]) {
-  nodes.forEach((node) => {
-    target[getCapabilityOrderKey(node.capability.product_area_id, node.capability.id)] = node.children.map((child) => child.capability.id);
-    seedCapabilityOrderMap(target, node.children);
-  });
-}
-
-function getOrderedCapabilityTrees(nodes: CapabilityTree[], orderedIds?: string[]) {
-  return orderItemsByIds(nodes, orderedIds ?? [], (node) => node.capability.id);
-}
-
-function orderItemsByIds<T>(items: T[], orderedIds: string[], getId: (item: T) => string) {
-  if (orderedIds.length === 0) {
-    return items;
-  }
-  const rank = new Map(orderedIds.map((id, index) => [id, index]));
-  return [...items].sort((a, b) => (rank.get(getId(a)) ?? Number.MAX_SAFE_INTEGER) - (rank.get(getId(b)) ?? Number.MAX_SAFE_INTEGER));
-}
-
-function moveIdToIndex(ids: string[], id: string, nextIndex: number): string[] {
-  const currentIndex = ids.indexOf(id);
-  if (currentIndex === -1 || nextIndex < 0 || nextIndex >= ids.length) {
-    return ids;
-  }
-  const nextIds = [...ids];
-  const [item] = nextIds.splice(currentIndex, 1);
-  nextIds.splice(nextIndex, 0, item);
-  return nextIds;
-}
-
 function parseBooleanSetting(value: string | null | undefined, fallback: boolean) {
   if (value == null) return fallback;
   switch (value.trim().toLowerCase()) {
@@ -3699,228 +3034,4 @@ function parseBooleanSetting(value: string | null | undefined, fallback: boolean
     default:
       return fallback;
   }
-}
-
-function isExampleProduct(product: Product) {
-  return product.id.startsWith("example-") || product.tags.includes("example_product") || product.tags.includes("seeded_catalog");
-}
-
-function isActiveWorkItem(workItem: WorkItem) {
-  return workItem.status !== "done" && workItem.status !== "cancelled";
-}
-
-function getProgressSummary(workItems: WorkItem[]) {
-  const total = workItems.length;
-  const done = workItems.filter((workItem) => workItem.status === "done").length;
-  return getProgressSummaryFromCounts(total, done);
-}
-
-function getProgressSummaryFromCounts(total: number, done: number) {
-  return {
-    total,
-    done,
-    percent: total > 0 ? Math.round((done / total) * 100) : 0,
-  };
-}
-
-interface ProductStatusSummary {
-  productCount: number;
-  nodeCount: number;
-  leafCount: number;
-  workItemCount: number;
-  activeWorkItemCount: number;
-  doneWorkItemCount: number;
-  progress: ReturnType<typeof getProgressSummary>;
-}
-
-interface StatusRow {
-  id: string;
-  productId: string | null;
-  nodeId?: string;
-  nodeType?: HierarchyTreeNode["node_type"];
-  productAreaId?: string;
-  capabilityId?: string | null;
-  level: number;
-  name: string;
-  subtitle: string;
-  kind: string;
-  childCount: number;
-  nodeCount: number;
-  workItemCount: number;
-  activeWorkItemCount: number;
-  progress: ReturnType<typeof getProgressSummary>;
-}
-
-function buildProductStatusSummary(
-  products: Product[],
-  productTreeById: Map<string, ProductTree>,
-  productTasksById: Map<string, WorkItem[]>,
-): ProductStatusSummary {
-  const allWorkItems = products.flatMap((product) => productTasksById.get(product.id) ?? []);
-  return {
-    productCount: products.length,
-    nodeCount: products.reduce((total, product) => total + countHierarchyNodes(productTreeById.get(product.id)?.roots ?? []), 0),
-    leafCount: products.reduce((total, product) => total + countLeafNodes(productTreeById.get(product.id)?.roots ?? []), 0),
-    workItemCount: allWorkItems.length,
-    activeWorkItemCount: allWorkItems.filter(isActiveWorkItem).length,
-    doneWorkItemCount: allWorkItems.filter((workItem) => workItem.status === "done").length,
-    progress: getProgressSummary(allWorkItems),
-  };
-}
-
-function buildStatusRows(
-  products: Product[],
-  productTreeById: Map<string, ProductTree>,
-  productTasksById: Map<string, WorkItem[]>,
-  maxDepth: number,
-  groupBy: "node" | "kind" | "work_status",
-): StatusRow[] {
-  if (groupBy === "kind") {
-    return buildKindPivotRows(products, productTreeById, productTasksById, maxDepth);
-  }
-  if (groupBy === "work_status") {
-    return buildWorkStatusPivotRows(products, productTasksById);
-  }
-
-  const rows: StatusRow[] = [];
-  const includeProductRows = products.length !== 1;
-  products.forEach((product) => {
-    const tree = productTreeById.get(product.id);
-    const workItems = productTasksById.get(product.id) ?? [];
-    if (includeProductRows || !tree?.roots.length) {
-      rows.push({
-        id: `product:${product.id}`,
-        productId: product.id,
-        level: 0,
-        name: product.name,
-        subtitle: product.description || product.vision || "Product summary",
-        kind: "Product",
-        childCount: tree?.roots.length ?? 0,
-        nodeCount: tree ? countHierarchyNodes(tree.roots) : 0,
-        workItemCount: workItems.length,
-        activeWorkItemCount: workItems.filter(isActiveWorkItem).length,
-        progress: getProgressSummary(workItems),
-      });
-    }
-    if (tree) {
-      tree.roots.forEach((node) => pushNodeStatusRows(rows, product, node, workItems, maxDepth));
-    }
-  });
-  return rows;
-}
-
-function pushNodeStatusRows(
-  rows: StatusRow[],
-  product: Product,
-  node: HierarchyTreeNode,
-  workItems: WorkItem[],
-  maxDepth: number,
-) {
-  const level = node.depth + 1;
-  if (level > maxDepth) {
-    return;
-  }
-  const subtreeWorkItems = getSubtreeWorkItemsForNode(node, workItems);
-  rows.push({
-    id: `${product.id}:${node.node_type}:${node.id}`,
-    productId: product.id,
-    nodeId: node.id,
-    nodeType: node.node_type,
-    productAreaId: node.product_area_id,
-    capabilityId: node.capability_id,
-    level,
-    name: node.name,
-    subtitle: node.path.join(" / ") || product.name,
-    kind: getHierarchyNodeKindLabel(node.node_kind),
-    childCount: node.children.length,
-    nodeCount: countDescendantNodes(node) + 1,
-    workItemCount: subtreeWorkItems.length,
-    activeWorkItemCount: subtreeWorkItems.filter(isActiveWorkItem).length,
-    progress: getProgressSummary(subtreeWorkItems),
-  });
-  node.children.forEach((child) => pushNodeStatusRows(rows, product, child, workItems, maxDepth));
-}
-
-function buildKindPivotRows(
-  products: Product[],
-  productTreeById: Map<string, ProductTree>,
-  productTasksById: Map<string, WorkItem[]>,
-  maxDepth: number,
-): StatusRow[] {
-  const groups = new Map<string, StatusRow>();
-  products.forEach((product) => {
-    const tree = productTreeById.get(product.id);
-    const workItems = productTasksById.get(product.id) ?? [];
-    (tree?.roots ?? []).forEach((node) => collectKindPivot(node, product, workItems, maxDepth, groups));
-  });
-  return Array.from(groups.values()).sort((a, b) => a.kind.localeCompare(b.kind));
-}
-
-function collectKindPivot(
-  node: HierarchyTreeNode,
-  product: Product,
-  workItems: WorkItem[],
-  maxDepth: number,
-  groups: Map<string, StatusRow>,
-) {
-  const level = node.depth + 1;
-  if (level > maxDepth) {
-    return;
-  }
-  const kind = getHierarchyNodeKindLabel(node.node_kind);
-  const directWorkItems = getDirectWorkItemsForNode(node, workItems);
-  const existing = groups.get(kind) ?? {
-    id: `kind:${kind}`,
-    productId: product.id,
-    level: 0,
-    name: kind,
-    subtitle: "Pivoted across matching node kinds",
-    kind,
-    childCount: 0,
-    nodeCount: 0,
-    workItemCount: 0,
-    activeWorkItemCount: 0,
-    progress: getProgressSummary([]),
-  };
-  const nextWorkItems = [
-    ...Array.from({ length: existing.progress.done }, (_, index) => ({ id: `done-${index}`, status: "done" } as WorkItem)),
-    ...Array.from({ length: existing.progress.total - existing.progress.done }, (_, index) => ({ id: `open-${index}`, status: "in_progress" } as WorkItem)),
-    ...directWorkItems,
-  ];
-  groups.set(kind, {
-    ...existing,
-    childCount: existing.childCount + node.children.length,
-    nodeCount: existing.nodeCount + 1,
-    workItemCount: existing.workItemCount + directWorkItems.length,
-    activeWorkItemCount: existing.activeWorkItemCount + directWorkItems.filter(isActiveWorkItem).length,
-    progress: getProgressSummary(nextWorkItems),
-  });
-  node.children.forEach((child) => collectKindPivot(child, product, workItems, maxDepth, groups));
-}
-
-function buildWorkStatusPivotRows(
-  products: Product[],
-  productTasksById: Map<string, WorkItem[]>,
-): StatusRow[] {
-  const groups = new Map<string, WorkItem[]>();
-  products.forEach((product) => {
-    (productTasksById.get(product.id) ?? []).forEach((workItem) => {
-      groups.set(workItem.status, [...(groups.get(workItem.status) ?? []), workItem]);
-    });
-  });
-  return Array.from(groups.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([status, workItems]) => ({
-      id: `work-status:${status}`,
-      productId: products.length === 1 ? products[0].id : null,
-      level: 0,
-      name: status.replace(/_/g, " "),
-      subtitle: "Pivoted across stories with this status",
-      kind: "Work Status",
-      childCount: 0,
-      nodeCount: 0,
-      workItemCount: workItems.length,
-      activeWorkItemCount: workItems.filter(isActiveWorkItem).length,
-      progress: getProgressSummary(workItems),
-    }));
 }

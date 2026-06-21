@@ -84,7 +84,7 @@ pub fn write_repository_file(
     relative_path: &str,
     content: &str,
 ) -> Result<(), AppError> {
-    if content.as_bytes().len() > MAX_FILE_BYTES {
+    if content.len() > MAX_FILE_BYTES {
         return Err(AppError::Validation(format!(
             "File content exceeds IDE save limit (> {} bytes): {}",
             MAX_FILE_BYTES, relative_path

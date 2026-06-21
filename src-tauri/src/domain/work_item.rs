@@ -37,6 +37,21 @@ pub struct ProductWorkItemSummary {
     pub blocked_count: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct WorkItemScopeSummary {
+    pub product_id: String,
+    pub product_area_id: Option<String>,
+    pub capability_id: Option<String>,
+    pub source_node_id: Option<String>,
+    pub source_node_type: Option<String>,
+    pub status: String,
+    pub total_count: i64,
+    pub top_level_count: i64,
+    pub active_count: i64,
+    pub done_count: i64,
+    pub blocked_count: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "snake_case")]
 #[sqlx(rename_all = "snake_case")]

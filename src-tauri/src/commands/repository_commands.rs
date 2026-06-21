@@ -29,6 +29,29 @@ pub struct BookExportTocItem {
     pub level: i32,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct ExportProductOverviewPdfCommand {
+    #[serde(alias = "fileName")]
+    pub file_name: String,
+    pub html: String,
+    #[serde(alias = "pageWidth")]
+    pub page_width: String,
+    #[serde(alias = "pageHeight")]
+    pub page_height: String,
+    #[serde(alias = "marginTop")]
+    pub margin_top: String,
+    #[serde(alias = "marginRight")]
+    pub margin_right: String,
+    #[serde(alias = "marginBottom")]
+    pub margin_bottom: String,
+    #[serde(alias = "marginLeft")]
+    pub margin_left: String,
+    #[serde(alias = "headerTitle")]
+    pub header_title: String,
+    #[serde(alias = "headerRight")]
+    pub header_right: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 struct EpubNavNode {
     item: BookExportTocItem,
@@ -216,7 +239,6 @@ pub async fn export_product_overview_html(
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn export_product_overview_epub(
     file_name: String,
     title: String,
@@ -257,27 +279,18 @@ pub async fn export_product_overview_epub(
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn export_product_overview_pdf(
-    file_name: String,
-    html: String,
-    page_width: String,
-    page_height: String,
-    margin_top: String,
-    margin_right: String,
-    margin_bottom: String,
-    margin_left: String,
-    header_title: String,
-    header_right: Option<String>,
+    request: ExportProductOverviewPdfCommand,
 ) -> Result<String, AppError> {
     let export_dir = export_documents_dir()?;
-    let safe_name = sanitize_export_file_name_with_extension(&file_name, "product-book", "pdf");
+    let safe_name =
+        sanitize_export_file_name_with_extension(&request.file_name, "product-book", "pdf");
     let destination = export_dir.join(safe_name);
 
     let temp_root = std::env::temp_dir().join(format!("aruvi-pdf-export-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&temp_root)?;
     let source_path = temp_root.join("book.html");
-    fs::write(&source_path, html)?;
+    fs::write(&source_path, request.html)?;
 
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -296,14 +309,18 @@ pub async fn export_product_overview_pdf(
         .arg(&script_path)
         .arg(&source_path)
         .arg(&destination)
-        .arg(page_width)
-        .arg(page_height)
-        .arg(margin_top)
-        .arg(margin_right)
-        .arg(margin_bottom)
-        .arg(margin_left)
-        .arg(header_title)
-        .arg(header_right.unwrap_or_else(|| "Aruvi Studio Book".to_string()))
+        .arg(request.page_width)
+        .arg(request.page_height)
+        .arg(request.margin_top)
+        .arg(request.margin_right)
+        .arg(request.margin_bottom)
+        .arg(request.margin_left)
+        .arg(request.header_title)
+        .arg(
+            request
+                .header_right
+                .unwrap_or_else(|| "Aruvi Studio Book".to_string()),
+        )
         .output()
         .map_err(|error| {
             AppError::Validation(format!(
@@ -394,24 +411,19 @@ pub async fn apply_repository_patch(
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn create_local_workspace(
     state: State<'_, AppState>,
     product_id: Option<String>,
-    productId: Option<String>,
     product_area_id: Option<String>,
-    productAreaId: Option<String>,
     work_item_id: Option<String>,
-    workItemId: Option<String>,
     preferred_path: Option<String>,
-    preferredPath: Option<String>,
 ) -> Result<WorkspaceProvisionResult, AppError> {
     create_local_workspace_for_scope(
         state.inner(),
-        product_id.or(productId),
-        product_area_id.or(productAreaId),
-        work_item_id.or(workItemId),
-        preferred_path.or(preferredPath),
+        product_id,
+        product_area_id,
+        work_item_id,
+        preferred_path,
     )
     .await
 }
@@ -937,61 +949,56 @@ mod tests {
     ) -> (String, String, String) {
         let product = product_commands::create_product(
             state.clone(),
-            product_name.to_string(),
-            "".to_string(),
-            "".to_string(),
-            "[]".to_string(),
-            "[]".to_string(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
+            product_commands::CreateProductCommand {
+                name: product_name.to_string(),
+                description: "".to_string(),
+                vision: "".to_string(),
+                goals: "[]".to_string(),
+                tags: "[]".to_string(),
+                lifecycle: None,
+                health: None,
+                owner_label: None,
+                investment_status: None,
+                roadmap: None,
+                evidence: None,
+            },
         )
         .await
         .expect("product should be created");
         let product_area = product_commands::create_product_area(
             state.clone(),
-            product.id.clone(),
-            product_area_name.to_string(),
-            "".to_string(),
-            "".to_string(),
-            Some("product_area".to_string()),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
+            product_commands::CreateProductAreaCommand {
+                product_id: product.id.clone(),
+                name: product_area_name.to_string(),
+                description: "".to_string(),
+                purpose: "".to_string(),
+                node_kind: Some("product_area".to_string()),
+                explanation: None,
+                examples: None,
+                implementation_notes: None,
+                test_guidance: None,
+            },
         )
         .await
         .expect("product_area should be created");
         let work_item = work_item_commands::create_work_item(
             state,
-            Some(product.id.clone()),
-            None,
-            Some(product_area.id.clone()),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            title.to_string(),
-            "Problem".to_string(),
-            None,
-            "Description".to_string(),
-            "Acceptance".to_string(),
-            None,
-            "".to_string(),
-            "story".to_string(),
-            None,
-            "medium".to_string(),
-            "medium".to_string(),
+            work_item_commands::CreateWorkItemCommand {
+                product_id: Some(product.id.clone()),
+                product_area_id: Some(product_area.id.clone()),
+                capability_id: None,
+                source_node_id: None,
+                source_node_type: None,
+                parent_work_item_id: None,
+                title: title.to_string(),
+                problem_statement: "Problem".to_string(),
+                description: "Description".to_string(),
+                acceptance_criteria: "Acceptance".to_string(),
+                constraints: "".to_string(),
+                work_item_type: "story".to_string(),
+                priority: "medium".to_string(),
+                complexity: "medium".to_string(),
+            },
         )
         .await
         .expect("work item should be created");

@@ -13,27 +13,32 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
 
     match tool_action.action.as_str() {
         "upsert_run" => {
+            let id = args.required_string(&["id", "run_id", "runId"], "id")?;
+            let product_id = args.optional_string(&["product_id", "productId"])?;
+            let repository_id = args.optional_string(&["repository_id", "repositoryId"])?;
+            let roadmap_hash = args.string_or_default(&["roadmap_hash", "roadmapHash"], "")?;
+            let status = args.optional_string(&["status"])?;
+            let last_commit_sha = args.optional_string(&[
+                "last_commit_sha",
+                "lastCommitSha",
+                "last_commit",
+                "lastCommit",
+            ])?;
+            let current_batch_id = args.optional_string(&["current_batch_id", "currentBatchId"])?;
+            let next_action = args.optional_string(&["next_action", "nextAction"])?;
             let run = agent_work_repo::upsert_run(
                 &state.db,
-                &args.required_string(&["id", "run_id", "runId"], "id")?,
-                args.optional_string(&["product_id", "productId"])?
-                    .as_deref(),
-                args.optional_string(&["repository_id", "repositoryId"])?
-                    .as_deref(),
-                &args.string_or_default(&["roadmap_hash", "roadmapHash"], "")?,
-                args.optional_string(&["status"])?.as_deref(),
-                args.optional_string(&[
-                    "last_commit_sha",
-                    "lastCommitSha",
-                    "last_commit",
-                    "lastCommit",
-                ])?
-                .as_deref(),
-                args.optional_string(&["current_batch_id", "currentBatchId"])?
-                    .as_deref(),
-                args.optional_string(&["next_action", "nextAction"])?
-                    .as_deref(),
-                args.optional_deserialize::<Value>(&["metadata"], "metadata")?,
+                agent_work_repo::UpsertAgentWorkRunInput {
+                    id: &id,
+                    product_id: product_id.as_deref(),
+                    repository_id: repository_id.as_deref(),
+                    roadmap_hash: &roadmap_hash,
+                    status: status.as_deref(),
+                    last_commit_sha: last_commit_sha.as_deref(),
+                    current_batch_id: current_batch_id.as_deref(),
+                    next_action: next_action.as_deref(),
+                    metadata: args.optional_deserialize::<Value>(&["metadata"], "metadata")?,
+                },
             )
             .await?;
             action_result("upsert_run", run)
@@ -141,23 +146,30 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             )
             .await?,
         ),
-        "update_item_status" => action_result(
-            "update_item_status",
+        "update_item_status" => action_result("update_item_status", {
+            let run_id = args.required_string(&["run_id", "runId"], "run_id")?;
+            let feature_id = args.required_string(&["feature_id", "featureId"], "feature_id")?;
+            let status = args.required_string(&["status"], "status")?;
+            let agent = args.optional_string(&["agent"])?;
+            let batch_id = args.optional_string(&["batch_id", "batchId"])?;
+            let claim_token = args.optional_string(&["claim_token", "claimToken"])?;
+            let commit_sha = args.optional_string(&["commit_sha", "commitSha"])?;
+            let details = args.optional_string(&["details"])?;
             agent_work_repo::update_item_status(
                 &state.db,
-                &args.required_string(&["run_id", "runId"], "run_id")?,
-                &args.required_string(&["feature_id", "featureId"], "feature_id")?,
-                &args.required_string(&["status"], "status")?,
-                args.optional_string(&["agent"])?.as_deref(),
-                args.optional_string(&["batch_id", "batchId"])?.as_deref(),
-                args.optional_string(&["claim_token", "claimToken"])?
-                    .as_deref(),
-                args.optional_string(&["commit_sha", "commitSha"])?
-                    .as_deref(),
-                args.optional_string(&["details"])?.as_deref(),
+                agent_work_repo::UpdateAgentWorkItemStatusInput {
+                    run_id: &run_id,
+                    feature_id: &feature_id,
+                    status: &status,
+                    agent: agent.as_deref(),
+                    batch_id: batch_id.as_deref(),
+                    claim_token: claim_token.as_deref(),
+                    commit_sha: commit_sha.as_deref(),
+                    details: details.as_deref(),
+                },
             )
-            .await?,
-        ),
+            .await?
+        }),
         "release_item_locks" => {
             agent_work_repo::release_item_locks(
                 &state.db,
@@ -225,22 +237,27 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             )
             .await?,
         ),
-        "reserve_conflict_zone" => action_result(
-            "reserve_conflict_zone",
+        "reserve_conflict_zone" => action_result("reserve_conflict_zone", {
+            let run_id = args.required_string(&["run_id", "runId"], "run_id")?;
+            let zone_key = args.required_string(&["zone_key", "zoneKey"], "zone_key")?;
+            let agent = args.required_string(&["agent"], "agent")?;
+            let batch_id = args.optional_string(&["batch_id", "batchId"])?;
+            let feature_id = args.optional_string(&["feature_id", "featureId"])?;
+            let claim_token = args.optional_string(&["claim_token", "claimToken"])?;
             agent_work_repo::reserve_conflict_zone(
                 &state.db,
-                &args.required_string(&["run_id", "runId"], "run_id")?,
-                &args.required_string(&["zone_key", "zoneKey"], "zone_key")?,
-                &args.required_string(&["agent"], "agent")?,
-                args.optional_string(&["batch_id", "batchId"])?.as_deref(),
-                args.optional_string(&["feature_id", "featureId"])?
-                    .as_deref(),
-                args.optional_string(&["claim_token", "claimToken"])?
-                    .as_deref(),
-                args.optional_i64(&["lease_seconds", "leaseSeconds"])?,
+                agent_work_repo::ReserveConflictZoneInput {
+                    run_id: &run_id,
+                    zone_key: &zone_key,
+                    agent: &agent,
+                    batch_id: batch_id.as_deref(),
+                    feature_id: feature_id.as_deref(),
+                    claim_token: claim_token.as_deref(),
+                    lease_seconds: args.optional_i64(&["lease_seconds", "leaseSeconds"])?,
+                },
             )
-            .await?,
-        ),
+            .await?
+        }),
         "release_conflict_zone" => {
             agent_work_repo::release_conflict_zone(
                 &state.db,

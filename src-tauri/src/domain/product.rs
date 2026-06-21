@@ -239,6 +239,15 @@ pub struct ProductTree {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProductTreeSummary {
+    pub product_id: String,
+    pub product_area_count: i64,
+    pub capability_count: i64,
+    pub total_node_count: i64,
+    pub leaf_node_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProductAreaTree {
     pub product_area: ProductArea,
     pub features: Vec<CapabilityTree>,

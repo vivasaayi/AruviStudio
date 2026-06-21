@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { countHierarchyNodes, countLeafNodes, getProductDirectWorkItems } from "../../../lib/hierarchyTree";
 import { getHierarchyNodeKindLabel } from "../../../lib/hierarchyLabels";
 import type { Capability, CapabilityTree, ProductArea, ProductAreaTree, Product, ProductReference, ProductTree, WorkItem } from "../../../lib/types";
@@ -140,12 +140,18 @@ type ProductOverviewDocumentProps = {
   tree?: ProductTree;
   workItems?: WorkItem[];
   metricsOverride?: WorkItemMetrics;
+  nodeCountsOverride?: {
+    productAreaCount: number;
+    totalNodeCount: number;
+    leafNodeCount: number;
+  };
   activeWorkItemCountOverride?: number;
   references?: ProductReference[];
   isLoading?: boolean;
   onEditProduct: () => void;
   onEditProductArea: (product_area: ProductArea) => void;
   onEditCapability: (capability: Capability) => void;
+  onLoadProductAreaTree?: (productArea: ProductArea) => Promise<ProductAreaTree>;
   onOpenWorkItem: (workItem: WorkItem) => void;
   onPlanFromItem: (action: ProductOverviewPlannerAction) => void;
 };
@@ -165,12 +171,14 @@ export function ProductOverviewDocument({
   tree,
   workItems,
   metricsOverride,
+  nodeCountsOverride,
   activeWorkItemCountOverride,
   references = [],
   isLoading = false,
   onEditProduct,
   onEditProductArea,
   onEditCapability,
+  onLoadProductAreaTree,
   onOpenWorkItem,
   onPlanFromItem,
 }: ProductOverviewDocumentProps) {
@@ -181,9 +189,9 @@ export function ProductOverviewDocument({
     () => buildScopedWorkItemTree(getProductDirectWorkItems(allWorkItems)),
     [allWorkItems],
   );
-  const rootSectionCount = tree?.roots.length ?? 0;
-  const totalNodeCount = useMemo(() => (tree ? countHierarchyNodes(tree.roots) : 0), [tree]);
-  const leafNodeCount = useMemo(() => (tree ? countLeafNodes(tree.roots) : 0), [tree]);
+  const rootSectionCount = nodeCountsOverride?.productAreaCount ?? tree?.roots.length ?? 0;
+  const totalNodeCount = nodeCountsOverride?.totalNodeCount ?? (tree ? countHierarchyNodes(tree.roots) : 0);
+  const leafNodeCount = nodeCountsOverride?.leafNodeCount ?? (tree ? countLeafNodes(tree.roots) : 0);
   const bookReferences = useMemo(
     () => filterReferencesForProductBook(product.id, tree, references),
     [product.id, references, tree],
@@ -321,6 +329,7 @@ export function ProductOverviewDocument({
               references={bookReferences}
               onEditProductArea={onEditProductArea}
               onEditCapability={onEditCapability}
+              onLoadProductAreaTree={onLoadProductAreaTree}
               onOpenWorkItem={onOpenWorkItem}
               onPlanFromItem={onPlanFromItem}
             />
@@ -349,6 +358,7 @@ function ProductAreaChapter({
   references,
   onEditProductArea,
   onEditCapability,
+  onLoadProductAreaTree,
   onOpenWorkItem,
   onPlanFromItem,
 }: {
@@ -360,22 +370,55 @@ function ProductAreaChapter({
   references: ProductReference[];
   onEditProductArea: (product_area: ProductArea) => void;
   onEditCapability: (capability: Capability) => void;
+  onLoadProductAreaTree?: (productArea: ProductArea) => Promise<ProductAreaTree>;
   onOpenWorkItem: (workItem: WorkItem) => void;
   onPlanFromItem: (action: ProductOverviewPlannerAction) => void;
 }) {
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
+  const [loadedProductAreaTree, setLoadedProductAreaTree] = useState<ProductAreaTree | null>(null);
+  const [loadState, setLoadState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
   const rootLabel = getHierarchyNodeKindLabel(productAreaTree.product_area.node_kind);
+  const renderedProductAreaTree = loadedProductAreaTree ?? productAreaTree;
+  const shouldLazyLoad = productAreaTree.features.length === 0 && !!onLoadProductAreaTree;
+
+  useEffect(() => {
+    if (!isOpen || !shouldLazyLoad || loadState !== "idle" || !onLoadProductAreaTree) {
+      return;
+    }
+
+    let cancelled = false;
+    setLoadState("loading");
+    onLoadProductAreaTree(productAreaTree.product_area)
+      .then((nextTree) => {
+        if (cancelled) {
+          return;
+        }
+        setLoadedProductAreaTree(nextTree);
+        setLoadState("loaded");
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLoadState("error");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, loadState, onLoadProductAreaTree, productAreaTree.product_area, shouldLazyLoad]);
+
   const productAreaWorkItems = buildScopedWorkItemTree(
-    allWorkItems.filter((workItem) => workItem.product_area_id === productAreaTree.product_area.id && !workItem.capability_id),
+    allWorkItems.filter((workItem) => workItem.product_area_id === renderedProductAreaTree.product_area.id && !workItem.capability_id),
   );
-  const metrics = useMemo(() => buildWorkItemMetrics(getProductAreaScopedWorkItems(productAreaTree, allWorkItems)), [allWorkItems, productAreaTree]);
+  const metrics = useMemo(() => buildWorkItemMetrics(getProductAreaScopedWorkItems(renderedProductAreaTree, allWorkItems)), [allWorkItems, renderedProductAreaTree]);
   const productAreaReferences = useMemo(
-    () => filterReferencesForScope(references, getProductAreaReferenceScope(productAreaTree.product_area.id)),
-    [productAreaTree.product_area.id, references],
+    () => filterReferencesForScope(references, getProductAreaReferenceScope(renderedProductAreaTree.product_area.id)),
+    [renderedProductAreaTree.product_area.id, references],
   );
+  const loadedChildCount = renderedProductAreaTree.features.length;
 
   return (
-    <section id={getProductAreaSectionId(productAreaTree.product_area)} style={styles.detailsShell}>
+    <section id={getProductAreaSectionId(renderedProductAreaTree.product_area)} style={styles.detailsShell}>
       <div
         style={styles.summary}
         role="button"
@@ -392,16 +435,22 @@ function ProductAreaChapter({
         <span style={styles.summaryToggle}>{isOpen ? "▾" : "▸"}</span>
         <div style={styles.summaryLeft}>
           <div style={styles.chapterLabel}>{rootLabel} {chapterNumber}</div>
-          <h3 style={styles.chapterTitle}>{productAreaTree.product_area.name}</h3>
+          <h3 style={styles.chapterTitle}>{renderedProductAreaTree.product_area.name}</h3>
           <div style={styles.chapterSubtitle}>
-            {productAreaTree.product_area.description || productAreaTree.product_area.purpose || `Document this ${rootLabel.toLowerCase()} so the product architecture stays readable.`}
+            {renderedProductAreaTree.product_area.description || renderedProductAreaTree.product_area.purpose || `Document this ${rootLabel.toLowerCase()} so the product architecture stays readable.`}
           </div>
-          <div style={styles.pathText}>{productName} / {productAreaTree.product_area.name}</div>
+          <div style={styles.pathText}>{productName} / {renderedProductAreaTree.product_area.name}</div>
         </div>
         <div style={styles.summaryRight}>
           <div style={styles.summaryPillRow}>
-            <span style={styles.summaryPill}>{productAreaTree.features.length} {productAreaTree.features.length === 1 ? "child node" : "child nodes"}</span>
-            <MetricPills metrics={metrics} />
+            <span style={styles.summaryPill}>
+              {loadState === "loading"
+                ? "Loading sections"
+                : shouldLazyLoad && loadState === "idle"
+                  ? "Open to load sections"
+                  : `${loadedChildCount} ${loadedChildCount === 1 ? "child node" : "child nodes"}`}
+            </span>
+            {shouldLazyLoad && loadState !== "loaded" ? null : <MetricPills metrics={metrics} />}
           </div>
           <div style={styles.nodeActionRow}>
             <button
@@ -409,7 +458,7 @@ function ProductAreaChapter({
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                onPlanFromItem({ kind: "enhance_product_area", product, product_area: productAreaTree.product_area });
+                onPlanFromItem({ kind: "enhance_product_area", product, product_area: renderedProductAreaTree.product_area });
               }}
             >
               Improve Chapter
@@ -419,7 +468,7 @@ function ProductAreaChapter({
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                onPlanFromItem({ kind: "add_product_area_child", product, product_area: productAreaTree.product_area });
+                onPlanFromItem({ kind: "add_product_area_child", product, product_area: renderedProductAreaTree.product_area });
               }}
             >
               Add Section
@@ -429,7 +478,7 @@ function ProductAreaChapter({
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                onEditProductArea(productAreaTree.product_area);
+                onEditProductArea(renderedProductAreaTree.product_area);
               }}
             >
               Edit {rootLabel}
@@ -440,40 +489,40 @@ function ProductAreaChapter({
 
       {isOpen ? (
         <div style={styles.detailsBody}>
-          {productAreaTree.product_area.purpose
-            || productAreaTree.product_area.explanation
-            || productAreaTree.product_area.examples
-            || productAreaTree.product_area.implementation_notes
-            || productAreaTree.product_area.test_guidance ? (
+          {renderedProductAreaTree.product_area.purpose
+            || renderedProductAreaTree.product_area.explanation
+            || renderedProductAreaTree.product_area.examples
+            || renderedProductAreaTree.product_area.implementation_notes
+            || renderedProductAreaTree.product_area.test_guidance ? (
             <div style={styles.noteGrid}>
-              {productAreaTree.product_area.purpose ? (
+              {renderedProductAreaTree.product_area.purpose ? (
                 <div style={styles.noteCard}>
                   <div style={styles.noteHeading}>Purpose</div>
-                  <div style={styles.noteText}>{productAreaTree.product_area.purpose}</div>
+                  <div style={styles.noteText}>{renderedProductAreaTree.product_area.purpose}</div>
                 </div>
               ) : null}
-              {productAreaTree.product_area.explanation ? (
+              {renderedProductAreaTree.product_area.explanation ? (
                 <div style={styles.noteCard}>
                   <div style={styles.noteHeading}>Explanation</div>
-                  <div style={styles.noteText}>{productAreaTree.product_area.explanation}</div>
+                  <div style={styles.noteText}>{renderedProductAreaTree.product_area.explanation}</div>
                 </div>
               ) : null}
-              {productAreaTree.product_area.examples ? (
+              {renderedProductAreaTree.product_area.examples ? (
                 <div style={styles.noteCard}>
                   <div style={styles.noteHeading}>Examples</div>
-                  <div style={styles.noteText}>{productAreaTree.product_area.examples}</div>
+                  <div style={styles.noteText}>{renderedProductAreaTree.product_area.examples}</div>
                 </div>
               ) : null}
-              {productAreaTree.product_area.implementation_notes ? (
+              {renderedProductAreaTree.product_area.implementation_notes ? (
                 <div style={styles.noteCard}>
                   <div style={styles.noteHeading}>Implementation Notes</div>
-                  <div style={styles.noteText}>{productAreaTree.product_area.implementation_notes}</div>
+                  <div style={styles.noteText}>{renderedProductAreaTree.product_area.implementation_notes}</div>
                 </div>
               ) : null}
-              {productAreaTree.product_area.test_guidance ? (
+              {renderedProductAreaTree.product_area.test_guidance ? (
                 <div style={styles.noteCard}>
                   <div style={styles.noteHeading}>Test Guidance</div>
-                  <div style={styles.noteText}>{productAreaTree.product_area.test_guidance}</div>
+                  <div style={styles.noteText}>{renderedProductAreaTree.product_area.test_guidance}</div>
                 </div>
               ) : null}
             </div>
@@ -488,12 +537,16 @@ function ProductAreaChapter({
             </div>
           ) : null}
 
-          {productAreaTree.features.length > 0 ? (
-            productAreaTree.features.map((capabilityTree, index) => (
+          {loadState === "loading" ? (
+            <div style={styles.empty}>Loading chapter sections...</div>
+          ) : loadState === "error" ? (
+            <div style={styles.empty}>Unable to load chapter sections. Collapse and reopen the chapter to try again.</div>
+          ) : renderedProductAreaTree.features.length > 0 ? (
+            renderedProductAreaTree.features.map((capabilityTree, index) => (
               <CapabilityChapter
                 key={capabilityTree.capability.id}
                 product={product}
-                path={[productName, productAreaTree.product_area.name]}
+                path={[productName, renderedProductAreaTree.product_area.name]}
                 capabilityTree={capabilityTree}
                 numbering={`${chapterNumber}.${index + 1}`}
                 allWorkItems={allWorkItems}

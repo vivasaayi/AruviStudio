@@ -483,7 +483,7 @@ function findProductArea(context: ResolverContext, product: Product, productArea
   if (tree.product_areas.length === 1) {
     return tree.product_areas[0].product_area;
   }
-  throw new Error("ProductArea is required.");
+  throw new Error("Product Area is required.");
 }
 
 function flattenCapabilities(tree: CapabilityTree[], bucket: CapabilityTree[] = []) {
@@ -499,7 +499,7 @@ function findCapability(context: ResolverContext, product: Product, productAreaN
   const tree = findTree(context, product);
   const productAreaTree = tree.product_areas.find((entry) => entry.product_area.id === product_area.id);
   if (!productAreaTree) {
-    throw new Error(`ProductArea "${product_area.name}" has no capability tree.`);
+    throw new Error(`Product Area "${product_area.name}" has no capability tree.`);
   }
   const capabilities = flattenCapabilities(productAreaTree.features);
   if (capabilityName) {

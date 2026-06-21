@@ -1675,7 +1675,7 @@ export function AgentRegistryPage() {
           </div>
           {assignmentScopeType === "product_area" ? (
             <div style={styles.field}>
-              <label style={styles.label}>ProductArea</label>
+              <label style={styles.label}>Product Area</label>
               <select style={styles.select} value={assignmentProductAreaId} onChange={(e) => setAssignmentProductAreaId(e.target.value)}>
                 <option value="">Select a product area</option>
                 {currentProductAreaOptions.map((product_area) => (

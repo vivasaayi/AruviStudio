@@ -46,15 +46,19 @@ pub async fn mark_job_running(
     .map_err(AppError::from)
 }
 
+pub struct UpdateBulkImportJobProgressInput<'a> {
+    pub job_id: &'a str,
+    pub processed_delta: i64,
+    pub product_delta: i64,
+    pub product_area_delta: i64,
+    pub capability_delta: i64,
+    pub feature_delta: i64,
+    pub work_item_delta: i64,
+}
+
 pub async fn update_job_progress(
     pool: &SqlitePool,
-    job_id: &str,
-    processed_delta: i64,
-    product_delta: i64,
-    product_area_delta: i64,
-    capability_delta: i64,
-    feature_delta: i64,
-    work_item_delta: i64,
+    input: UpdateBulkImportJobProgressInput<'_>,
 ) -> Result<BulkImportJob, AppError> {
     sqlx::query_as::<_, BulkImportJob>(&format!(
         "UPDATE bulk_import_jobs
@@ -68,13 +72,13 @@ pub async fn update_job_progress(
          WHERE id=?
          RETURNING {JOB_SELECT_COLUMNS}"
     ))
-    .bind(processed_delta)
-    .bind(product_delta)
-    .bind(product_area_delta)
-    .bind(capability_delta)
-    .bind(feature_delta)
-    .bind(work_item_delta)
-    .bind(job_id)
+    .bind(input.processed_delta)
+    .bind(input.product_delta)
+    .bind(input.product_area_delta)
+    .bind(input.capability_delta)
+    .bind(input.feature_delta)
+    .bind(input.work_item_delta)
+    .bind(input.job_id)
     .fetch_one(pool)
     .await
     .map_err(AppError::from)
@@ -261,13 +265,15 @@ pub async fn upsert_products(
         tx.commit().await?;
         update_job_progress(
             pool,
-            job_id,
-            chunk.len().try_into().unwrap_or(i64::MAX),
-            chunk.len().try_into().unwrap_or(i64::MAX),
-            0,
-            0,
-            0,
-            0,
+            UpdateBulkImportJobProgressInput {
+                job_id,
+                processed_delta: chunk.len().try_into().unwrap_or(i64::MAX),
+                product_delta: chunk.len().try_into().unwrap_or(i64::MAX),
+                product_area_delta: 0,
+                capability_delta: 0,
+                feature_delta: 0,
+                work_item_delta: 0,
+            },
         )
         .await?;
     }
@@ -318,13 +324,15 @@ pub async fn upsert_product_areas(
         tx.commit().await?;
         update_job_progress(
             pool,
-            job_id,
-            chunk.len().try_into().unwrap_or(i64::MAX),
-            0,
-            chunk.len().try_into().unwrap_or(i64::MAX),
-            0,
-            0,
-            0,
+            UpdateBulkImportJobProgressInput {
+                job_id,
+                processed_delta: chunk.len().try_into().unwrap_or(i64::MAX),
+                product_delta: 0,
+                product_area_delta: chunk.len().try_into().unwrap_or(i64::MAX),
+                capability_delta: 0,
+                feature_delta: 0,
+                work_item_delta: 0,
+            },
         )
         .await?;
     }
@@ -399,13 +407,15 @@ pub async fn upsert_capabilities(
             .unwrap_or(i64::MAX);
         update_job_progress(
             pool,
-            job_id,
-            chunk.len().try_into().unwrap_or(i64::MAX),
-            0,
-            0,
-            capability_delta,
-            feature_delta,
-            0,
+            UpdateBulkImportJobProgressInput {
+                job_id,
+                processed_delta: chunk.len().try_into().unwrap_or(i64::MAX),
+                product_delta: 0,
+                product_area_delta: 0,
+                capability_delta,
+                feature_delta,
+                work_item_delta: 0,
+            },
         )
         .await?;
     }
@@ -471,13 +481,15 @@ pub async fn upsert_work_items(
         tx.commit().await?;
         update_job_progress(
             pool,
-            job_id,
-            chunk.len().try_into().unwrap_or(i64::MAX),
-            0,
-            0,
-            0,
-            0,
-            chunk.len().try_into().unwrap_or(i64::MAX),
+            UpdateBulkImportJobProgressInput {
+                job_id,
+                processed_delta: chunk.len().try_into().unwrap_or(i64::MAX),
+                product_delta: 0,
+                product_area_delta: 0,
+                capability_delta: 0,
+                feature_delta: 0,
+                work_item_delta: chunk.len().try_into().unwrap_or(i64::MAX),
+            },
         )
         .await?;
     }

@@ -1,48 +1,187 @@
 use crate::domain::bulk_import::{BulkImportJob, BulkImportJobStatus};
 use crate::domain::product::{
     Capability, NodeKindConversionResult, Product, ProductArea, ProductPlanResetResult,
-    ProductReference, ProductTree, SemanticTemplateApplicationResult,
+    ProductReference, ProductTree, ProductTreeSummary, SemanticTemplateApplicationResult,
 };
 use crate::error::AppError;
 use crate::persistence::{product_repo, settings_repo};
 use crate::services::bulk_import_service::{self, BulkImportRequest};
 use crate::services::product_service::{self, HIDE_EXAMPLE_PRODUCTS_KEY};
 use crate::state::AppState;
+use serde::Deserialize;
 use serde_json::Value;
 use tauri::State;
 use tracing::{debug, error, info};
 
+#[derive(Debug, Deserialize)]
+pub struct CreateProductCommand {
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) vision: String,
+    pub(crate) goals: String,
+    pub(crate) tags: String,
+    pub(crate) lifecycle: Option<String>,
+    pub(crate) health: Option<String>,
+    #[serde(alias = "ownerLabel")]
+    pub(crate) owner_label: Option<String>,
+    #[serde(alias = "investmentStatus")]
+    pub(crate) investment_status: Option<String>,
+    pub(crate) roadmap: Option<String>,
+    pub(crate) evidence: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateProductCommand {
+    pub(crate) id: String,
+    pub(crate) name: Option<String>,
+    pub(crate) description: Option<String>,
+    pub(crate) vision: Option<String>,
+    pub(crate) goals: Option<String>,
+    pub(crate) tags: Option<String>,
+    pub(crate) lifecycle: Option<String>,
+    pub(crate) health: Option<String>,
+    #[serde(alias = "ownerLabel")]
+    pub(crate) owner_label: Option<String>,
+    #[serde(alias = "investmentStatus")]
+    pub(crate) investment_status: Option<String>,
+    pub(crate) roadmap: Option<String>,
+    pub(crate) evidence: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateProductAreaCommand {
+    #[serde(alias = "productId")]
+    pub(crate) product_id: String,
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) purpose: String,
+    #[serde(alias = "nodeKind")]
+    pub(crate) node_kind: Option<String>,
+    pub(crate) explanation: Option<String>,
+    pub(crate) examples: Option<String>,
+    #[serde(alias = "implementationNotes")]
+    pub(crate) implementation_notes: Option<String>,
+    #[serde(alias = "testGuidance")]
+    pub(crate) test_guidance: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateProductAreaCommand {
+    pub(crate) id: String,
+    pub(crate) name: Option<String>,
+    pub(crate) description: Option<String>,
+    pub(crate) purpose: Option<String>,
+    #[serde(alias = "nodeKind")]
+    pub(crate) node_kind: Option<String>,
+    pub(crate) explanation: Option<String>,
+    pub(crate) examples: Option<String>,
+    #[serde(alias = "implementationNotes")]
+    pub(crate) implementation_notes: Option<String>,
+    #[serde(alias = "testGuidance")]
+    pub(crate) test_guidance: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateCapabilityCommand {
+    #[serde(alias = "productAreaId")]
+    pub(crate) product_area_id: String,
+    #[serde(alias = "parentCapabilityId")]
+    pub(crate) parent_capability_id: Option<String>,
+    pub(crate) name: String,
+    pub(crate) description: String,
+    #[serde(alias = "acceptanceCriteria")]
+    pub(crate) acceptance_criteria: String,
+    pub(crate) priority: String,
+    pub(crate) risk: String,
+    #[serde(alias = "technicalNotes")]
+    pub(crate) technical_notes: String,
+    #[serde(alias = "nodeKind")]
+    pub(crate) node_kind: Option<String>,
+    pub(crate) explanation: Option<String>,
+    pub(crate) examples: Option<String>,
+    #[serde(alias = "implementationNotes")]
+    pub(crate) implementation_notes: Option<String>,
+    #[serde(alias = "testGuidance")]
+    pub(crate) test_guidance: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateCapabilityCommand {
+    pub(crate) id: String,
+    pub(crate) name: Option<String>,
+    pub(crate) description: Option<String>,
+    #[serde(alias = "acceptanceCriteria")]
+    pub(crate) acceptance_criteria: Option<String>,
+    pub(crate) priority: Option<String>,
+    pub(crate) risk: Option<String>,
+    #[serde(alias = "technicalNotes")]
+    pub(crate) technical_notes: Option<String>,
+    #[serde(alias = "nodeKind")]
+    pub(crate) node_kind: Option<String>,
+    pub(crate) explanation: Option<String>,
+    pub(crate) examples: Option<String>,
+    #[serde(alias = "implementationNotes")]
+    pub(crate) implementation_notes: Option<String>,
+    #[serde(alias = "testGuidance")]
+    pub(crate) test_guidance: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ApplySemanticTemplateCommand {
+    #[serde(alias = "productAreaId")]
+    pub(crate) product_area_id: Option<String>,
+    #[serde(alias = "parentCapabilityId")]
+    pub(crate) parent_capability_id: Option<String>,
+    #[serde(alias = "templateKind")]
+    pub(crate) template_kind: Option<String>,
+    pub(crate) name: String,
+    pub(crate) description: Option<String>,
+    pub(crate) priority: Option<String>,
+    pub(crate) risk: Option<String>,
+    pub(crate) explanation: Option<String>,
+    pub(crate) examples: Option<String>,
+    #[serde(alias = "implementationNotes")]
+    pub(crate) implementation_notes: Option<String>,
+    #[serde(alias = "testGuidance")]
+    pub(crate) test_guidance: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateProductReferenceCommand {
+    #[serde(alias = "scopeType")]
+    pub(crate) scope_type: String,
+    #[serde(alias = "scopeId")]
+    pub(crate) scope_id: String,
+    pub(crate) title: String,
+    #[serde(alias = "referenceKind")]
+    pub(crate) reference_kind: String,
+    pub(crate) uri: Option<String>,
+    pub(crate) content: Option<String>,
+}
+
 #[tauri::command]
 pub async fn create_product(
     state: State<'_, AppState>,
-    name: String,
-    description: String,
-    vision: String,
-    goals: String,
-    tags: String,
-    lifecycle: Option<String>,
-    health: Option<String>,
-    owner_label: Option<String>,
-    investment_status: Option<String>,
-    roadmap: Option<String>,
-    evidence: Option<String>,
+    request: CreateProductCommand,
 ) -> Result<Product, AppError> {
-    info!(product_name = %name, "create_product requested");
+    info!(product_name = %request.name, "create_product requested");
     let id = uuid::Uuid::new_v4().to_string();
     let result = product_repo::create_product(
         &state.db,
-        &id,
-        &name,
-        &description,
-        &vision,
-        &goals,
-        &tags,
-        lifecycle.as_deref(),
-        health.as_deref(),
-        owner_label.as_deref(),
-        investment_status.as_deref(),
-        roadmap.as_deref(),
-        evidence.as_deref(),
+        product_repo::CreateProductInput {
+            id: &id,
+            name: &request.name,
+            description: &request.description,
+            vision: &request.vision,
+            goals: &request.goals,
+            tags: &request.tags,
+            lifecycle: request.lifecycle.as_deref(),
+            health: request.health.as_deref(),
+            owner_label: request.owner_label.as_deref(),
+            investment_status: request.investment_status.as_deref(),
+            roadmap: request.roadmap.as_deref(),
+            evidence: request.evidence.as_deref(),
+        },
     )
     .await;
     match &result {
@@ -81,40 +220,31 @@ pub async fn seed_example_products(state: State<'_, AppState>) -> Result<(), App
 #[tauri::command]
 pub async fn update_product(
     state: State<'_, AppState>,
-    id: String,
-    name: Option<String>,
-    description: Option<String>,
-    vision: Option<String>,
-    goals: Option<String>,
-    tags: Option<String>,
-    lifecycle: Option<String>,
-    health: Option<String>,
-    owner_label: Option<String>,
-    investment_status: Option<String>,
-    roadmap: Option<String>,
-    evidence: Option<String>,
+    request: UpdateProductCommand,
 ) -> Result<Product, AppError> {
-    info!(product_id = %id, "update_product requested");
-    debug!(product_id = %id, has_name = name.is_some(), has_description = description.is_some(), has_vision = vision.is_some(), has_goals = goals.is_some(), has_tags = tags.is_some(), "update_product payload summary");
+    info!(product_id = %request.id, "update_product requested");
+    debug!(product_id = %request.id, has_name = request.name.is_some(), has_description = request.description.is_some(), has_vision = request.vision.is_some(), has_goals = request.goals.is_some(), has_tags = request.tags.is_some(), "update_product payload summary");
     let result = product_repo::update_product(
         &state.db,
-        &id,
-        name.as_deref(),
-        description.as_deref(),
-        vision.as_deref(),
-        goals.as_deref(),
-        tags.as_deref(),
-        lifecycle.as_deref(),
-        health.as_deref(),
-        owner_label.as_deref(),
-        investment_status.as_deref(),
-        roadmap.as_deref(),
-        evidence.as_deref(),
+        product_repo::UpdateProductPatch {
+            id: &request.id,
+            name: request.name.as_deref(),
+            description: request.description.as_deref(),
+            vision: request.vision.as_deref(),
+            goals: request.goals.as_deref(),
+            tags: request.tags.as_deref(),
+            lifecycle: request.lifecycle.as_deref(),
+            health: request.health.as_deref(),
+            owner_label: request.owner_label.as_deref(),
+            investment_status: request.investment_status.as_deref(),
+            roadmap: request.roadmap.as_deref(),
+            evidence: request.evidence.as_deref(),
+        },
     )
     .await;
     match &result {
-        Ok(_) => info!(product_id = %id, "update_product succeeded"),
-        Err(err) => error!(product_id = %id, error = %err, "update_product failed"),
+        Ok(_) => info!(product_id = %request.id, "update_product succeeded"),
+        Err(err) => error!(product_id = %request.id, error = %err, "update_product failed"),
     }
     result
 }
@@ -125,56 +255,42 @@ pub async fn archive_product(state: State<'_, AppState>, id: String) -> Result<P
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn reset_product_plan(
     state: State<'_, AppState>,
     product_id: Option<String>,
-    productId: Option<String>,
     delete_delivery: Option<bool>,
-    deleteDelivery: Option<bool>,
 ) -> Result<ProductPlanResetResult, AppError> {
-    let product_id = product_id
-        .or(productId)
-        .ok_or_else(|| AppError::Validation("missing product id".to_string()))?;
-    let delete_delivery = delete_delivery.or(deleteDelivery).unwrap_or(false);
+    let product_id =
+        product_id.ok_or_else(|| AppError::Validation("missing product id".to_string()))?;
+    let delete_delivery = delete_delivery.unwrap_or(false);
     product_repo::reset_product_plan(&state.db, &product_id, delete_delivery).await
 }
 
 #[tauri::command]
 pub async fn create_product_area(
     state: State<'_, AppState>,
-    product_id: String,
-    name: String,
-    description: String,
-    purpose: String,
-    node_kind: Option<String>,
-    explanation: Option<String>,
-    examples: Option<String>,
-    implementation_notes: Option<String>,
-    implementationNotes: Option<String>,
-    test_guidance: Option<String>,
-    testGuidance: Option<String>,
+    request: CreateProductAreaCommand,
 ) -> Result<ProductArea, AppError> {
-    info!(product_id = %product_id, product_area_name = %name, "create_product_area requested");
+    info!(product_id = %request.product_id, product_area_name = %request.name, "create_product_area requested");
     let id = uuid::Uuid::new_v4().to_string();
+    let explanation = request.explanation.unwrap_or_default();
+    let examples = request.examples.unwrap_or_default();
+    let implementation_notes = request.implementation_notes.unwrap_or_default();
+    let test_guidance = request.test_guidance.unwrap_or_default();
     let result = product_repo::create_product_area(
         &state.db,
-        &id,
-        &product_id,
-        &name,
-        &description,
-        &purpose,
-        node_kind.as_deref(),
-        explanation.as_deref().unwrap_or_default(),
-        examples.as_deref().unwrap_or_default(),
-        implementation_notes
-            .or(implementationNotes)
-            .as_deref()
-            .unwrap_or_default(),
-        test_guidance
-            .or(testGuidance)
-            .as_deref()
-            .unwrap_or_default(),
+        product_repo::CreateProductAreaInput {
+            id: &id,
+            product_id: &request.product_id,
+            name: &request.name,
+            description: &request.description,
+            purpose: &request.purpose,
+            node_kind: request.node_kind.as_deref(),
+            explanation: &explanation,
+            examples: &examples,
+            implementation_notes: &implementation_notes,
+            test_guidance: &test_guidance,
+        },
     )
     .await;
     match &result {
@@ -182,7 +298,7 @@ pub async fn create_product_area(
             info!(product_area_id = %product_area.id, product_id = %product_area.product_id, "create_product_area succeeded")
         }
         Err(err) => {
-            error!(product_area_id = %id, product_id = %product_id, error = %err, "create_product_area failed")
+            error!(product_area_id = %id, product_id = %request.product_id, error = %err, "create_product_area failed")
         }
     }
     result
@@ -199,38 +315,30 @@ pub async fn list_product_areas(
 #[tauri::command]
 pub async fn update_product_area(
     state: State<'_, AppState>,
-    id: String,
-    name: Option<String>,
-    description: Option<String>,
-    purpose: Option<String>,
-    node_kind: Option<String>,
-    explanation: Option<String>,
-    examples: Option<String>,
-    implementation_notes: Option<String>,
-    implementationNotes: Option<String>,
-    test_guidance: Option<String>,
-    testGuidance: Option<String>,
+    request: UpdateProductAreaCommand,
 ) -> Result<ProductArea, AppError> {
-    info!(product_area_id = %id, "update_product_area requested");
-    debug!(product_area_id = %id, has_name = name.is_some(), has_description = description.is_some(), has_purpose = purpose.is_some(), has_node_kind = node_kind.is_some(), "update_product_area payload summary");
+    info!(product_area_id = %request.id, "update_product_area requested");
+    debug!(product_area_id = %request.id, has_name = request.name.is_some(), has_description = request.description.is_some(), has_purpose = request.purpose.is_some(), has_node_kind = request.node_kind.is_some(), "update_product_area payload summary");
     let result = product_repo::update_product_area(
         &state.db,
-        &id,
-        name.as_deref(),
-        description.as_deref(),
-        purpose.as_deref(),
-        node_kind.as_deref(),
-        explanation.as_deref(),
-        examples.as_deref(),
-        implementation_notes
-            .as_deref()
-            .or(implementationNotes.as_deref()),
-        test_guidance.as_deref().or(testGuidance.as_deref()),
+        product_repo::UpdateProductAreaPatch {
+            id: &request.id,
+            name: request.name.as_deref(),
+            description: request.description.as_deref(),
+            purpose: request.purpose.as_deref(),
+            node_kind: request.node_kind.as_deref(),
+            explanation: request.explanation.as_deref(),
+            examples: request.examples.as_deref(),
+            implementation_notes: request.implementation_notes.as_deref(),
+            test_guidance: request.test_guidance.as_deref(),
+        },
     )
     .await;
     match &result {
-        Ok(_) => info!(product_area_id = %id, "update_product_area succeeded"),
-        Err(err) => error!(product_area_id = %id, error = %err, "update_product_area failed"),
+        Ok(_) => info!(product_area_id = %request.id, "update_product_area succeeded"),
+        Err(err) => {
+            error!(product_area_id = %request.id, error = %err, "update_product_area failed")
+        }
     }
     result
 }
@@ -258,46 +366,32 @@ pub async fn reorder_product_areas(
 #[tauri::command]
 pub async fn create_capability(
     state: State<'_, AppState>,
-    product_area_id: String,
-    parent_capability_id: Option<String>,
-    name: String,
-    description: String,
-    acceptance_criteria: String,
-    priority: String,
-    risk: String,
-    technical_notes: String,
-    node_kind: Option<String>,
-    explanation: Option<String>,
-    examples: Option<String>,
-    implementation_notes: Option<String>,
-    implementationNotes: Option<String>,
-    test_guidance: Option<String>,
-    testGuidance: Option<String>,
+    request: CreateCapabilityCommand,
 ) -> Result<Capability, AppError> {
-    info!(product_area_id = %product_area_id, parent_capability_id = ?parent_capability_id, capability_name = %name, "create_capability requested");
+    info!(product_area_id = %request.product_area_id, parent_capability_id = ?request.parent_capability_id, capability_name = %request.name, "create_capability requested");
     let id = uuid::Uuid::new_v4().to_string();
+    let explanation = request.explanation.unwrap_or_default();
+    let examples = request.examples.unwrap_or_default();
+    let implementation_notes = request.implementation_notes.unwrap_or_default();
+    let test_guidance = request.test_guidance.unwrap_or_default();
     let result = product_repo::create_capability(
         &state.db,
-        &id,
-        &product_area_id,
-        parent_capability_id.as_deref(),
-        &name,
-        &description,
-        &acceptance_criteria,
-        &priority,
-        &risk,
-        &technical_notes,
-        node_kind.as_deref(),
-        explanation.as_deref().unwrap_or_default(),
-        examples.as_deref().unwrap_or_default(),
-        implementation_notes
-            .or(implementationNotes)
-            .as_deref()
-            .unwrap_or_default(),
-        test_guidance
-            .or(testGuidance)
-            .as_deref()
-            .unwrap_or_default(),
+        product_repo::CreateCapabilityInput {
+            id: &id,
+            product_area_id: &request.product_area_id,
+            parent_capability_id: request.parent_capability_id.as_deref(),
+            name: &request.name,
+            description: &request.description,
+            acceptance_criteria: &request.acceptance_criteria,
+            priority: &request.priority,
+            risk: &request.risk,
+            technical_notes: &request.technical_notes,
+            node_kind: request.node_kind.as_deref(),
+            explanation: &explanation,
+            examples: &examples,
+            implementation_notes: &implementation_notes,
+            test_guidance: &test_guidance,
+        },
     )
     .await;
     match &result {
@@ -305,7 +399,7 @@ pub async fn create_capability(
             info!(capability_id = %capability.id, product_area_id = %capability.product_area_id, parent_capability_id = ?capability.parent_capability_id, "create_capability succeeded")
         }
         Err(err) => {
-            error!(capability_id = %id, product_area_id = %product_area_id, parent_capability_id = ?parent_capability_id, error = %err, "create_capability failed")
+            error!(capability_id = %id, product_area_id = %request.product_area_id, parent_capability_id = ?request.parent_capability_id, error = %err, "create_capability failed")
         }
     }
     result
@@ -322,44 +416,31 @@ pub async fn list_capabilities(
 #[tauri::command]
 pub async fn update_capability(
     state: State<'_, AppState>,
-    id: String,
-    name: Option<String>,
-    description: Option<String>,
-    acceptance_criteria: Option<String>,
-    priority: Option<String>,
-    risk: Option<String>,
-    technical_notes: Option<String>,
-    node_kind: Option<String>,
-    explanation: Option<String>,
-    examples: Option<String>,
-    implementation_notes: Option<String>,
-    implementationNotes: Option<String>,
-    test_guidance: Option<String>,
-    testGuidance: Option<String>,
+    request: UpdateCapabilityCommand,
 ) -> Result<Capability, AppError> {
-    info!(capability_id = %id, "update_capability requested");
-    debug!(capability_id = %id, has_name = name.is_some(), has_description = description.is_some(), has_acceptance_criteria = acceptance_criteria.is_some(), has_priority = priority.is_some(), has_risk = risk.is_some(), has_technical_notes = technical_notes.is_some(), has_node_kind = node_kind.is_some(), "update_capability payload summary");
+    info!(capability_id = %request.id, "update_capability requested");
+    debug!(capability_id = %request.id, has_name = request.name.is_some(), has_description = request.description.is_some(), has_acceptance_criteria = request.acceptance_criteria.is_some(), has_priority = request.priority.is_some(), has_risk = request.risk.is_some(), has_technical_notes = request.technical_notes.is_some(), has_node_kind = request.node_kind.is_some(), "update_capability payload summary");
     let result = product_repo::update_capability(
         &state.db,
-        &id,
-        name.as_deref(),
-        description.as_deref(),
-        acceptance_criteria.as_deref(),
-        priority.as_deref(),
-        risk.as_deref(),
-        technical_notes.as_deref(),
-        node_kind.as_deref(),
-        explanation.as_deref(),
-        examples.as_deref(),
-        implementation_notes
-            .as_deref()
-            .or(implementationNotes.as_deref()),
-        test_guidance.as_deref().or(testGuidance.as_deref()),
+        product_repo::UpdateCapabilityPatch {
+            id: &request.id,
+            name: request.name.as_deref(),
+            description: request.description.as_deref(),
+            acceptance_criteria: request.acceptance_criteria.as_deref(),
+            priority: request.priority.as_deref(),
+            risk: request.risk.as_deref(),
+            technical_notes: request.technical_notes.as_deref(),
+            node_kind: request.node_kind.as_deref(),
+            explanation: request.explanation.as_deref(),
+            examples: request.examples.as_deref(),
+            implementation_notes: request.implementation_notes.as_deref(),
+            test_guidance: request.test_guidance.as_deref(),
+        },
     )
     .await;
     match &result {
-        Ok(_) => info!(capability_id = %id, "update_capability succeeded"),
-        Err(err) => error!(capability_id = %id, error = %err, "update_capability failed"),
+        Ok(_) => info!(capability_id = %request.id, "update_capability succeeded"),
+        Err(err) => error!(capability_id = %request.id, error = %err, "update_capability failed"),
     }
     result
 }
@@ -409,44 +490,44 @@ pub async fn get_product_tree(
 }
 
 #[tauri::command]
+pub async fn summarize_product_tree(
+    state: State<'_, AppState>,
+    product_id: String,
+) -> Result<ProductTreeSummary, AppError> {
+    product_repo::summarize_product_tree(&state.db, &product_id).await
+}
+
+#[tauri::command]
 pub async fn get_bulk_import_schema() -> Result<Value, AppError> {
     Ok(bulk_import_service::bulk_import_schema())
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn submit_bulk_import(
     state: State<'_, AppState>,
     file_path: Option<String>,
-    filePath: Option<String>,
     format: Option<String>,
     product_id: Option<String>,
-    productId: Option<String>,
 ) -> Result<BulkImportJob, AppError> {
-    let file_path = file_path
-        .or(filePath)
-        .ok_or_else(|| AppError::Validation("missing file path".to_string()))?;
+    let file_path =
+        file_path.ok_or_else(|| AppError::Validation("missing file path".to_string()))?;
     bulk_import_service::submit_bulk_import(
         state.inner().clone(),
         BulkImportRequest {
             file_path,
             format,
-            product_id: product_id.or(productId),
+            product_id,
         },
     )
     .await
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn get_bulk_import_status(
     state: State<'_, AppState>,
     job_id: Option<String>,
-    jobId: Option<String>,
 ) -> Result<BulkImportJobStatus, AppError> {
-    let job_id = job_id
-        .or(jobId)
-        .ok_or_else(|| AppError::Validation("missing job id".to_string()))?;
+    let job_id = job_id.ok_or_else(|| AppError::Validation("missing job id".to_string()))?;
     bulk_import_service::get_bulk_import_status(&state.db, &job_id).await
 }
 
@@ -459,75 +540,46 @@ pub async fn list_bulk_import_jobs(
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn apply_semantic_template(
     state: State<'_, AppState>,
-    product_area_id: Option<String>,
-    productAreaId: Option<String>,
-    parent_capability_id: Option<String>,
-    parentCapabilityId: Option<String>,
-    template_kind: Option<String>,
-    templateKind: Option<String>,
-    name: String,
-    description: Option<String>,
-    priority: Option<String>,
-    risk: Option<String>,
-    explanation: Option<String>,
-    examples: Option<String>,
-    implementation_notes: Option<String>,
-    implementationNotes: Option<String>,
-    test_guidance: Option<String>,
-    testGuidance: Option<String>,
+    request: ApplySemanticTemplateCommand,
 ) -> Result<SemanticTemplateApplicationResult, AppError> {
-    let product_area_id = product_area_id
-        .or(productAreaId)
+    let product_area_id = request
+        .product_area_id
         .ok_or_else(|| AppError::Validation("missing product_area id".to_string()))?;
-    let template_kind = template_kind
-        .or(templateKind)
+    let template_kind = request
+        .template_kind
         .ok_or_else(|| AppError::Validation("missing template kind".to_string()))?;
     product_service::apply_semantic_template(
         &state.db,
-        &product_area_id,
-        parent_capability_id.or(parentCapabilityId).as_deref(),
-        &template_kind,
-        &name,
-        description.as_deref().unwrap_or_default(),
-        priority.as_deref(),
-        risk.as_deref(),
-        explanation.as_deref().unwrap_or_default(),
-        examples.as_deref().unwrap_or_default(),
-        implementation_notes
-            .or(implementationNotes)
-            .as_deref()
-            .unwrap_or_default(),
-        test_guidance
-            .or(testGuidance)
-            .as_deref()
-            .unwrap_or_default(),
+        product_service::ApplySemanticTemplateInput {
+            product_area_id: &product_area_id,
+            parent_capability_id: request.parent_capability_id.as_deref(),
+            template_kind: &template_kind,
+            name: &request.name,
+            description: request.description.as_deref().unwrap_or_default(),
+            priority: request.priority.as_deref(),
+            risk: request.risk.as_deref(),
+            explanation: request.explanation.as_deref().unwrap_or_default(),
+            examples: request.examples.as_deref().unwrap_or_default(),
+            implementation_notes: request.implementation_notes.as_deref().unwrap_or_default(),
+            test_guidance: request.test_guidance.as_deref().unwrap_or_default(),
+        },
     )
     .await
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn convert_capability_kind(
     state: State<'_, AppState>,
     id: String,
     node_kind: Option<String>,
-    nodeKind: Option<String>,
     child_strategy: Option<String>,
-    childStrategy: Option<String>,
 ) -> Result<NodeKindConversionResult, AppError> {
-    let node_kind = node_kind
-        .or(nodeKind)
-        .ok_or_else(|| AppError::Validation("missing node kind".to_string()))?;
-    product_service::convert_capability_kind(
-        &state.db,
-        &id,
-        &node_kind,
-        child_strategy.or(childStrategy).as_deref(),
-    )
-    .await
+    let node_kind =
+        node_kind.ok_or_else(|| AppError::Validation("missing node kind".to_string()))?;
+    product_service::convert_capability_kind(&state.db, &id, &node_kind, child_strategy.as_deref())
+        .await
 }
 
 #[tauri::command]
@@ -543,23 +595,20 @@ pub async fn list_product_references(
 #[tauri::command]
 pub async fn create_product_reference(
     state: State<'_, AppState>,
-    scope_type: String,
-    scope_id: String,
-    title: String,
-    reference_kind: String,
-    uri: Option<String>,
-    content: Option<String>,
+    request: CreateProductReferenceCommand,
 ) -> Result<ProductReference, AppError> {
     let id = uuid::Uuid::new_v4().to_string();
     product_repo::create_product_reference(
         &state.db,
-        &id,
-        &scope_type,
-        &scope_id,
-        &title,
-        &reference_kind,
-        uri.as_deref().unwrap_or_default(),
-        content.as_deref().unwrap_or_default(),
+        product_repo::CreateProductReferenceInput {
+            id: &id,
+            scope_type: &request.scope_type,
+            scope_id: &request.scope_id,
+            title: &request.title,
+            reference_kind: &request.reference_kind,
+            uri: request.uri.as_deref().unwrap_or_default(),
+            content: request.content.as_deref().unwrap_or_default(),
+        },
     )
     .await
 }
@@ -581,41 +630,43 @@ mod tests {
     use tauri::Manager;
 
     #[tokio::test]
-    async fn create_product_and_product_area_accepts_optional_alias_fields() {
+    async fn create_product_and_product_area_accepts_optional_detail_fields() {
         let app: tauri::App<MockRuntime> =
             make_test_app("product_commands_create_product_area").await;
         let state = app.state::<AppState>();
 
         let product = create_product(
             state.clone(),
-            "API Product".to_string(),
-            "Desc".to_string(),
-            "Vision".to_string(),
-            "[]".to_string(),
-            "[]".to_string(),
-            Some("active".to_string()),
-            Some("healthy".to_string()),
-            Some("Owner".to_string()),
-            Some("invest".to_string()),
-            Some("Roadmap".to_string()),
-            Some("Evidence".to_string()),
+            CreateProductCommand {
+                name: "API Product".to_string(),
+                description: "Desc".to_string(),
+                vision: "Vision".to_string(),
+                goals: "[]".to_string(),
+                tags: "[]".to_string(),
+                lifecycle: Some("active".to_string()),
+                health: Some("healthy".to_string()),
+                owner_label: Some("Owner".to_string()),
+                investment_status: Some("invest".to_string()),
+                roadmap: Some("Roadmap".to_string()),
+                evidence: Some("Evidence".to_string()),
+            },
         )
         .await
         .expect("product should be created");
 
         let product_area = create_product_area(
             state,
-            product.id.clone(),
-            "Area API".to_string(),
-            "".to_string(),
-            "".to_string(),
-            Some("product_area".to_string()),
-            None,
-            None,
-            None,
-            Some("Use camelCase implementation notes".to_string()),
-            None,
-            Some("Use camelCase test guidance".to_string()),
+            CreateProductAreaCommand {
+                product_id: product.id.clone(),
+                name: "Area API".to_string(),
+                description: "".to_string(),
+                purpose: "".to_string(),
+                node_kind: Some("product_area".to_string()),
+                explanation: None,
+                examples: None,
+                implementation_notes: Some("Use camelCase implementation notes".to_string()),
+                test_guidance: Some("Use camelCase test guidance".to_string()),
+            },
         )
         .await
         .expect("product_area should be created");
@@ -635,17 +686,19 @@ mod tests {
 
         create_product(
             state.clone(),
-            "Custom Product".to_string(),
-            "".to_string(),
-            "".to_string(),
-            "[]".to_string(),
-            "[]".to_string(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
+            CreateProductCommand {
+                name: "Custom Product".to_string(),
+                description: "".to_string(),
+                vision: "".to_string(),
+                goals: "[]".to_string(),
+                tags: "[]".to_string(),
+                lifecycle: None,
+                health: None,
+                owner_label: None,
+                investment_status: None,
+                roadmap: None,
+                evidence: None,
+            },
         )
         .await
         .expect("custom product should be created");

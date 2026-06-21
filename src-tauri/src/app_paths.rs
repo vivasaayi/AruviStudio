@@ -27,12 +27,9 @@ pub fn initialize_runtime_profile(
 
     let profile = resolve_runtime_profile(app_identifier)?;
     let _ = RUNTIME_PROFILE.set(profile);
-    RUNTIME_PROFILE.get().ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "runtime profile initialization failed",
-        )
-    })
+    RUNTIME_PROFILE
+        .get()
+        .ok_or_else(|| std::io::Error::other("runtime profile initialization failed"))
 }
 
 pub fn current_profile() -> Option<String> {
@@ -152,15 +149,15 @@ fn normalize_profile(raw: &str) -> Option<String> {
         if character.is_ascii_alphanumeric() {
             output.push(character.to_ascii_lowercase());
             previous_was_separator = false;
-        } else if character == '-'
+        } else if (character == '-'
             || character == '_'
             || character == '.'
-            || character.is_whitespace()
+            || character.is_whitespace())
+            && !output.is_empty()
+            && !previous_was_separator
         {
-            if !output.is_empty() && !previous_was_separator {
-                output.push('-');
-                previous_was_separator = true;
-            }
+            output.push('-');
+            previous_was_separator = true;
         }
     }
 

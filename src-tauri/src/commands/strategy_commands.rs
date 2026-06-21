@@ -2,7 +2,39 @@ use crate::domain::strategy::{ProductDependency, ProductStrategyLink, StrategyNo
 use crate::error::AppError;
 use crate::persistence::strategy_repo;
 use crate::state::AppState;
+use serde::Deserialize;
 use tauri::State;
+
+#[derive(Debug, Deserialize)]
+pub struct CreateProductDependencyCommand {
+    #[serde(alias = "productId")]
+    pub(crate) product_id: Option<String>,
+    #[serde(alias = "capabilityId")]
+    pub(crate) capability_id: Option<String>,
+    #[serde(alias = "dependsOnProductId")]
+    pub(crate) depends_on_product_id: Option<String>,
+    #[serde(alias = "dependsOnCapabilityId")]
+    pub(crate) depends_on_capability_id: Option<String>,
+    #[serde(alias = "dependencyKind")]
+    pub(crate) dependency_kind: Option<String>,
+    pub(crate) description: String,
+    pub(crate) status: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateStrategyNodeCommand {
+    pub(crate) id: String,
+    #[serde(alias = "parentNodeId")]
+    pub(crate) parent_node_id: Option<String>,
+    #[serde(alias = "clearParent")]
+    pub(crate) clear_parent: Option<bool>,
+    #[serde(alias = "nodeKind")]
+    pub(crate) node_kind: Option<String>,
+    pub(crate) name: Option<String>,
+    pub(crate) description: Option<String>,
+    #[serde(alias = "ownerLabel")]
+    pub(crate) owner_label: Option<String>,
+}
 
 #[tauri::command]
 pub async fn list_strategy_nodes(
@@ -38,28 +70,22 @@ pub async fn create_strategy_node(
 #[tauri::command]
 pub async fn update_strategy_node(
     state: State<'_, AppState>,
-    id: String,
-    parent_node_id: Option<String>,
-    clear_parent: Option<bool>,
-    node_kind: Option<String>,
-    name: Option<String>,
-    description: Option<String>,
-    owner_label: Option<String>,
+    request: UpdateStrategyNodeCommand,
 ) -> Result<StrategyNode, AppError> {
-    let clear_parent = clear_parent.unwrap_or(false);
+    let clear_parent = request.clear_parent.unwrap_or(false);
     let next_parent = if clear_parent {
         Some(None)
     } else {
-        parent_node_id.as_deref().map(Some)
+        request.parent_node_id.as_deref().map(Some)
     };
     strategy_repo::update_strategy_node(
         &state.db,
-        &id,
+        &request.id,
         next_parent,
-        node_kind.as_deref(),
-        name.as_deref(),
-        description.as_deref(),
-        owner_label.as_deref(),
+        request.node_kind.as_deref(),
+        request.name.as_deref(),
+        request.description.as_deref(),
+        request.owner_label.as_deref(),
     )
     .await
 }
@@ -121,29 +147,27 @@ pub async fn list_product_dependencies(
 #[tauri::command]
 pub async fn create_product_dependency(
     state: State<'_, AppState>,
-    product_id: Option<String>,
-    capability_id: Option<String>,
-    depends_on_product_id: Option<String>,
-    depends_on_capability_id: Option<String>,
-    dependency_kind: Option<String>,
-    description: String,
-    status: Option<String>,
+    request: CreateProductDependencyCommand,
 ) -> Result<ProductDependency, AppError> {
     let id = uuid::Uuid::new_v4().to_string();
-    let product_id =
-        product_id.ok_or_else(|| AppError::Validation("Product id is required.".to_string()))?;
-    let depends_on_product_id = depends_on_product_id
+    let product_id = request
+        .product_id
+        .ok_or_else(|| AppError::Validation("Product id is required.".to_string()))?;
+    let depends_on_product_id = request
+        .depends_on_product_id
         .ok_or_else(|| AppError::Validation("Dependency product id is required.".to_string()))?;
     strategy_repo::create_product_dependency(
         &state.db,
-        &id,
-        &product_id,
-        capability_id.as_deref(),
-        &depends_on_product_id,
-        depends_on_capability_id.as_deref(),
-        dependency_kind.as_deref().unwrap_or("platform"),
-        &description,
-        status.as_deref().unwrap_or("active"),
+        strategy_repo::CreateProductDependencyInput {
+            id: &id,
+            product_id: &product_id,
+            capability_id: request.capability_id.as_deref(),
+            depends_on_product_id: &depends_on_product_id,
+            depends_on_capability_id: request.depends_on_capability_id.as_deref(),
+            dependency_kind: request.dependency_kind.as_deref().unwrap_or("platform"),
+            description: &request.description,
+            status: request.status.as_deref().unwrap_or("active"),
+        },
     )
     .await
 }

@@ -1,88 +1,104 @@
-use crate::domain::work_item::{ProductWorkItemSummary, WorkItem};
+use crate::domain::work_item::{ProductWorkItemSummary, WorkItem, WorkItemScopeSummary};
 use crate::error::AppError;
 use crate::persistence::work_item_repo;
 use crate::state::AppState;
+use serde::Deserialize;
 use tauri::State;
 use tracing::{debug, error, info};
 
-fn resolve_required(
-    value: Option<String>,
-    legacy: Option<String>,
-    field_name: &str,
-) -> Result<String, AppError> {
-    value
-        .or(legacy)
-        .ok_or_else(|| AppError::Validation(format!("missing {}", field_name)))
+fn resolve_required(value: Option<String>, field_name: &str) -> Result<String, AppError> {
+    value.ok_or_else(|| AppError::Validation(format!("missing {}", field_name)))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateWorkItemCommand {
+    #[serde(alias = "productId")]
+    pub(crate) product_id: Option<String>,
+    #[serde(alias = "productAreaId")]
+    pub(crate) product_area_id: Option<String>,
+    #[serde(alias = "capabilityId")]
+    pub(crate) capability_id: Option<String>,
+    #[serde(alias = "sourceNodeId")]
+    pub(crate) source_node_id: Option<String>,
+    #[serde(alias = "sourceNodeType")]
+    pub(crate) source_node_type: Option<String>,
+    #[serde(alias = "parentWorkItemId")]
+    pub(crate) parent_work_item_id: Option<String>,
+    pub(crate) title: String,
+    #[serde(alias = "problemStatement")]
+    pub(crate) problem_statement: String,
+    pub(crate) description: String,
+    #[serde(alias = "acceptanceCriteria")]
+    pub(crate) acceptance_criteria: String,
+    pub(crate) constraints: String,
+    #[serde(alias = "workItemType")]
+    pub(crate) work_item_type: String,
+    pub(crate) priority: String,
+    pub(crate) complexity: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct ListWorkItemsCommand {
+    #[serde(alias = "productId")]
+    pub(crate) product_id: Option<String>,
+    #[serde(alias = "productAreaId")]
+    pub(crate) product_area_id: Option<String>,
+    #[serde(alias = "capabilityId")]
+    pub(crate) capability_id: Option<String>,
+    #[serde(alias = "sourceNodeId")]
+    pub(crate) source_node_id: Option<String>,
+    #[serde(alias = "sourceNodeType")]
+    pub(crate) source_node_type: Option<String>,
+    pub(crate) status: Option<String>,
+    pub(crate) limit: Option<i64>,
+    pub(crate) offset: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateWorkItemCommand {
+    pub(crate) id: String,
+    pub(crate) title: Option<String>,
+    pub(crate) description: Option<String>,
+    pub(crate) status: Option<String>,
+    #[serde(alias = "problemStatement")]
+    pub(crate) problem_statement: Option<String>,
+    #[serde(alias = "acceptanceCriteria")]
+    pub(crate) acceptance_criteria: Option<String>,
+    pub(crate) constraints: Option<String>,
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn create_work_item(
     state: State<'_, AppState>,
-    product_id: Option<String>,
-    productId: Option<String>,
-    product_area_id: Option<String>,
-    productAreaId: Option<String>,
-    capability_id: Option<String>,
-    capabilityId: Option<String>,
-    source_node_id: Option<String>,
-    sourceNodeId: Option<String>,
-    source_node_type: Option<String>,
-    sourceNodeType: Option<String>,
-    parent_work_item_id: Option<String>,
-    parentWorkItemId: Option<String>,
-    title: String,
-    problem_statement: String,
-    problemStatement: Option<String>,
-    description: String,
-    acceptance_criteria: String,
-    acceptanceCriteria: Option<String>,
-    constraints: String,
-    work_item_type: String,
-    workItemType: Option<String>,
-    priority: String,
-    complexity: String,
+    request: CreateWorkItemCommand,
 ) -> Result<WorkItem, AppError> {
-    let product_id = resolve_required(product_id, productId, "product id")?;
-    let product_area_id = product_area_id.or(productAreaId);
-    let capability_id = capability_id.or(capabilityId);
-    let source_node_id = source_node_id.or(sourceNodeId);
-    let source_node_type = source_node_type.or(sourceNodeType);
-    let parent_work_item_id = parent_work_item_id.or(parentWorkItemId);
-    let problem_statement = if problem_statement.trim().is_empty() {
-        problemStatement.unwrap_or_default()
+    let product_id = resolve_required(request.product_id, "product id")?;
+    let work_item_type = if request.work_item_type.trim().is_empty() {
+        "story".to_string()
     } else {
-        problem_statement
+        request.work_item_type
     };
-    let acceptance_criteria = if acceptance_criteria.trim().is_empty() {
-        acceptanceCriteria.unwrap_or_default()
-    } else {
-        acceptance_criteria
-    };
-    let work_item_type = if work_item_type.trim().is_empty() {
-        workItemType.unwrap_or_else(|| "story".to_string())
-    } else {
-        work_item_type
-    };
-    info!(product_id = %product_id, product_area_id = ?product_area_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, parent_work_item_id = ?parent_work_item_id, title = %title, "create_work_item requested");
+    info!(product_id = %product_id, product_area_id = ?request.product_area_id, capability_id = ?request.capability_id, source_node_id = ?request.source_node_id, source_node_type = ?request.source_node_type, parent_work_item_id = ?request.parent_work_item_id, title = %request.title, "create_work_item requested");
     let id = uuid::Uuid::new_v4().to_string();
     let result = work_item_repo::create_work_item(
         &state.db,
-        &id,
-        &product_id,
-        product_area_id.as_deref(),
-        capability_id.as_deref(),
-        source_node_id.as_deref(),
-        source_node_type.as_deref(),
-        parent_work_item_id.as_deref(),
-        &title,
-        &problem_statement,
-        &description,
-        &acceptance_criteria,
-        &constraints,
-        &work_item_type,
-        &priority,
-        &complexity,
+        work_item_repo::CreateWorkItemInput {
+            id: &id,
+            product_id: &product_id,
+            product_area_id: request.product_area_id.as_deref(),
+            capability_id: request.capability_id.as_deref(),
+            source_node_id: request.source_node_id.as_deref(),
+            source_node_type: request.source_node_type.as_deref(),
+            parent_work_item_id: request.parent_work_item_id.as_deref(),
+            title: &request.title,
+            problem_statement: &request.problem_statement,
+            description: &request.description,
+            acceptance_criteria: &request.acceptance_criteria,
+            constraints: &request.constraints,
+            work_item_type: &work_item_type,
+            priority: &request.priority,
+            complexity: &request.complexity,
+        },
     )
     .await;
     match &result {
@@ -90,7 +106,7 @@ pub async fn create_work_item(
             info!(work_item_id = %work_item.id, product_id = ?work_item.product_id, "create_work_item succeeded")
         }
         Err(err) => {
-            error!(work_item_id = %id, product_id = %product_id, product_area_id = ?product_area_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, parent_work_item_id = ?parent_work_item_id, error = %err, "create_work_item failed")
+            error!(work_item_id = %id, product_id = %product_id, product_area_id = ?request.product_area_id, capability_id = ?request.capability_id, source_node_id = ?request.source_node_id, source_node_type = ?request.source_node_type, parent_work_item_id = ?request.parent_work_item_id, error = %err, "create_work_item failed")
         }
     }
     result
@@ -104,30 +120,25 @@ pub async fn get_work_item(state: State<'_, AppState>, id: String) -> Result<Wor
 #[tauri::command]
 pub async fn list_work_items(
     state: State<'_, AppState>,
-    product_id: Option<String>,
-    product_area_id: Option<String>,
-    capability_id: Option<String>,
-    source_node_id: Option<String>,
-    source_node_type: Option<String>,
-    status: Option<String>,
-    limit: Option<i64>,
-    offset: Option<i64>,
+    request: ListWorkItemsCommand,
 ) -> Result<Vec<WorkItem>, AppError> {
-    debug!(product_id = ?product_id, product_area_id = ?product_area_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, status = ?status, limit = ?limit, offset = ?offset, "list_work_items requested");
+    debug!(product_id = ?request.product_id, product_area_id = ?request.product_area_id, capability_id = ?request.capability_id, source_node_id = ?request.source_node_id, source_node_type = ?request.source_node_type, status = ?request.status, limit = ?request.limit, offset = ?request.offset, "list_work_items requested");
     let result = work_item_repo::list_work_items_page(
         &state.db,
-        product_id.as_deref(),
-        product_area_id.as_deref(),
-        capability_id.as_deref(),
-        source_node_id.as_deref(),
-        source_node_type.as_deref(),
-        status.as_deref(),
-        limit,
-        offset,
+        work_item_repo::WorkItemListQuery {
+            product_id: request.product_id.as_deref(),
+            product_area_id: request.product_area_id.as_deref(),
+            capability_id: request.capability_id.as_deref(),
+            source_node_id: request.source_node_id.as_deref(),
+            source_node_type: request.source_node_type.as_deref(),
+            status: request.status.as_deref(),
+            limit: request.limit,
+            offset: request.offset,
+        },
     )
     .await;
     if let Err(err) = &result {
-        error!(product_id = ?product_id, product_area_id = ?product_area_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, status = ?status, limit = ?limit, offset = ?offset, error = %err, "list_work_items failed");
+        error!(product_id = ?request.product_id, product_area_id = ?request.product_area_id, capability_id = ?request.capability_id, source_node_id = ?request.source_node_id, source_node_type = ?request.source_node_type, status = ?request.status, limit = ?request.limit, offset = ?request.offset, error = %err, "list_work_items failed");
     }
     result
 }
@@ -145,32 +156,42 @@ pub async fn summarize_work_items_by_product(
 }
 
 #[tauri::command]
+pub async fn summarize_work_items_by_scope(
+    state: State<'_, AppState>,
+    product_id: Option<String>,
+) -> Result<Vec<WorkItemScopeSummary>, AppError> {
+    debug!(product_id = ?product_id, "summarize_work_items_by_scope requested");
+    let result =
+        work_item_repo::summarize_work_items_by_scope(&state.db, product_id.as_deref()).await;
+    if let Err(err) = &result {
+        error!(product_id = ?product_id, error = %err, "summarize_work_items_by_scope failed");
+    }
+    result
+}
+
+#[tauri::command]
 pub async fn update_work_item(
     state: State<'_, AppState>,
-    id: String,
-    title: Option<String>,
-    description: Option<String>,
-    status: Option<String>,
-    problem_statement: Option<String>,
-    acceptance_criteria: Option<String>,
-    constraints: Option<String>,
+    request: UpdateWorkItemCommand,
 ) -> Result<WorkItem, AppError> {
-    info!(work_item_id = %id, "update_work_item requested");
-    debug!(work_item_id = %id, has_title = title.is_some(), has_description = description.is_some(), has_status = status.is_some(), has_problem_statement = problem_statement.is_some(), has_acceptance_criteria = acceptance_criteria.is_some(), has_constraints = constraints.is_some(), "update_work_item payload summary");
+    info!(work_item_id = %request.id, "update_work_item requested");
+    debug!(work_item_id = %request.id, has_title = request.title.is_some(), has_description = request.description.is_some(), has_status = request.status.is_some(), has_problem_statement = request.problem_statement.is_some(), has_acceptance_criteria = request.acceptance_criteria.is_some(), has_constraints = request.constraints.is_some(), "update_work_item payload summary");
     let result = work_item_repo::update_work_item(
         &state.db,
-        &id,
-        title.as_deref(),
-        description.as_deref(),
-        status.as_deref(),
-        problem_statement.as_deref(),
-        acceptance_criteria.as_deref(),
-        constraints.as_deref(),
+        work_item_repo::UpdateWorkItemPatch {
+            id: &request.id,
+            title: request.title.as_deref(),
+            description: request.description.as_deref(),
+            status: request.status.as_deref(),
+            problem_statement: request.problem_statement.as_deref(),
+            acceptance_criteria: request.acceptance_criteria.as_deref(),
+            constraints: request.constraints.as_deref(),
+        },
     )
     .await;
     match &result {
-        Ok(_) => info!(work_item_id = %id, "update_work_item succeeded"),
-        Err(err) => error!(work_item_id = %id, error = %err, "update_work_item failed"),
+        Ok(_) => info!(work_item_id = %request.id, "update_work_item succeeded"),
+        Err(err) => error!(work_item_id = %request.id, error = %err, "update_work_item failed"),
     }
     result
 }
@@ -223,11 +244,14 @@ pub async fn delete_work_item(state: State<'_, AppState>, id: String) -> Result<
 pub async fn get_sub_work_items(
     state: State<'_, AppState>,
     work_item_id: String,
+    limit: Option<i64>,
+    offset: Option<i64>,
 ) -> Result<Vec<WorkItem>, AppError> {
-    debug!(work_item_id = %work_item_id, "get_sub_work_items requested");
-    let result = work_item_repo::get_sub_work_items(&state.db, &work_item_id).await;
+    debug!(work_item_id = %work_item_id, limit = ?limit, offset = ?offset, "get_sub_work_items requested");
+    let result =
+        work_item_repo::get_sub_work_items_page(&state.db, &work_item_id, limit, offset).await;
     if let Err(err) = &result {
-        error!(work_item_id = %work_item_id, error = %err, "get_sub_work_items failed");
+        error!(work_item_id = %work_item_id, limit = ?limit, offset = ?offset, error = %err, "get_sub_work_items failed");
     }
     result
 }
@@ -259,92 +283,110 @@ mod tests {
     use super::*;
     use crate::commands::product_commands;
     use crate::commands::test_helpers::make_test_app;
+    use crate::domain::product::{Capability, Product, ProductArea};
     use tauri::test::MockRuntime;
     use tauri::Manager;
 
+    async fn create_test_product(state: State<'_, AppState>, name: &str) -> Product {
+        product_commands::create_product(
+            state,
+            product_commands::CreateProductCommand {
+                name: name.to_string(),
+                description: "".to_string(),
+                vision: "".to_string(),
+                goals: "[]".to_string(),
+                tags: "[]".to_string(),
+                lifecycle: None,
+                health: None,
+                owner_label: None,
+                investment_status: None,
+                roadmap: None,
+                evidence: None,
+            },
+        )
+        .await
+        .expect("product should be created")
+    }
+
+    async fn create_test_product_area(
+        state: State<'_, AppState>,
+        product_id: String,
+        name: &str,
+    ) -> ProductArea {
+        product_commands::create_product_area(
+            state,
+            product_commands::CreateProductAreaCommand {
+                product_id,
+                name: name.to_string(),
+                description: "".to_string(),
+                purpose: "".to_string(),
+                node_kind: Some("product_area".to_string()),
+                explanation: None,
+                examples: None,
+                implementation_notes: None,
+                test_guidance: None,
+            },
+        )
+        .await
+        .expect("product_area should be created")
+    }
+
+    async fn create_test_capability(
+        state: State<'_, AppState>,
+        product_area_id: String,
+        name: &str,
+    ) -> Capability {
+        product_commands::create_capability(
+            state,
+            product_commands::CreateCapabilityCommand {
+                product_area_id,
+                parent_capability_id: None,
+                name: name.to_string(),
+                description: "".to_string(),
+                acceptance_criteria: "".to_string(),
+                priority: "medium".to_string(),
+                risk: "low".to_string(),
+                technical_notes: "".to_string(),
+                node_kind: Some("capability".to_string()),
+                explanation: None,
+                examples: None,
+                implementation_notes: None,
+                test_guidance: None,
+            },
+        )
+        .await
+        .expect("capability should be created")
+    }
+
     #[tokio::test]
-    async fn create_work_item_accepts_legacy_aliases_and_fallback_fields() {
+    async fn create_work_item_accepts_canonical_scope_fields() {
         let app: tauri::App<MockRuntime> = make_test_app("work_item_commands_create").await;
         let state = app.state::<AppState>();
 
-        let product = product_commands::create_product(
-            state.clone(),
-            "Work Item Product".to_string(),
-            "".to_string(),
-            "".to_string(),
-            "[]".to_string(),
-            "[]".to_string(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
-        .expect("product should be created");
-        let product_area = product_commands::create_product_area(
-            state.clone(),
-            product.id.clone(),
-            "Area".to_string(),
-            "".to_string(),
-            "".to_string(),
-            Some("product_area".to_string()),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
-        .expect("product_area should be created");
-        let capability = product_commands::create_capability(
-            state.clone(),
-            product_area.id.clone(),
-            None,
-            "Capability".to_string(),
-            "".to_string(),
-            "".to_string(),
-            "medium".to_string(),
-            "low".to_string(),
-            "".to_string(),
-            Some("capability".to_string()),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
-        .expect("capability should be created");
+        let product = create_test_product(state.clone(), "Work Item Product").await;
+        let product_area =
+            create_test_product_area(state.clone(), product.id.clone(), "Area").await;
+        let capability =
+            create_test_capability(state.clone(), product_area.id.clone(), "Capability").await;
 
         let work_item = create_work_item(
             state,
-            None,
-            Some(product.id.clone()),
-            None,
-            Some(product_area.id.clone()),
-            None,
-            Some(capability.id.clone()),
-            None,
-            Some(capability.id.clone()),
-            None,
-            Some("capability".to_string()),
-            None,
-            None,
-            "Legacy Work Item".to_string(),
-            "".to_string(),
-            Some("Problem from alias".to_string()),
-            "".to_string(),
-            "".to_string(),
-            Some("Acceptance from alias".to_string()),
-            "".to_string(),
-            "".to_string(),
-            Some("story".to_string()),
-            "high".to_string(),
-            "medium".to_string(),
+            CreateWorkItemCommand {
+                product_id: Some(product.id.clone()),
+                product_area_id: Some(product_area.id.clone()),
+                capability_id: Some(capability.id.clone()),
+                source_node_id: Some(capability.id.clone()),
+                source_node_type: Some("capability".to_string()),
+                parent_work_item_id: None,
+                title: "Canonical Work Item".to_string(),
+                problem_statement: "Problem from canonical field".to_string(),
+                description: "".to_string(),
+                acceptance_criteria: "Acceptance from canonical field".to_string(),
+                constraints: "".to_string(),
+                work_item_type: "story".to_string(),
+                priority: "high".to_string(),
+                complexity: "medium".to_string(),
+            },
         )
         .await
         .expect("work item should be created");
@@ -358,8 +400,11 @@ mod tests {
             work_item.capability_id.as_deref(),
             Some(capability.id.as_str())
         );
-        assert_eq!(work_item.problem_statement, "Problem from alias");
-        assert_eq!(work_item.acceptance_criteria, "Acceptance from alias");
+        assert_eq!(work_item.problem_statement, "Problem from canonical field");
+        assert_eq!(
+            work_item.acceptance_criteria,
+            "Acceptance from canonical field"
+        );
         assert_eq!(work_item.work_item_type.to_string(), "story");
     }
 
@@ -368,49 +413,27 @@ mod tests {
         let app: tauri::App<MockRuntime> = make_test_app("work_item_commands_list").await;
         let state = app.state::<AppState>();
 
-        let product = product_commands::create_product(
-            state.clone(),
-            "List Product".to_string(),
-            "".to_string(),
-            "".to_string(),
-            "[]".to_string(),
-            "[]".to_string(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
-        .expect("product should be created");
+        let product = create_test_product(state.clone(), "List Product").await;
 
         for (index, status) in ["draft", "done", "draft"].iter().enumerate() {
             let item = create_work_item(
                 state.clone(),
-                Some(product.id.clone()),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                format!("Item {index}"),
-                "".to_string(),
-                None,
-                "".to_string(),
-                "".to_string(),
-                None,
-                "".to_string(),
-                "story".to_string(),
-                None,
-                "medium".to_string(),
-                "medium".to_string(),
+                CreateWorkItemCommand {
+                    product_id: Some(product.id.clone()),
+                    product_area_id: None,
+                    capability_id: None,
+                    source_node_id: None,
+                    source_node_type: None,
+                    parent_work_item_id: None,
+                    title: format!("Item {index}"),
+                    problem_statement: "".to_string(),
+                    description: "".to_string(),
+                    acceptance_criteria: "".to_string(),
+                    constraints: "".to_string(),
+                    work_item_type: "story".to_string(),
+                    priority: "medium".to_string(),
+                    complexity: "medium".to_string(),
+                },
             )
             .await
             .expect("work item should be created");
@@ -418,13 +441,15 @@ mod tests {
             if *status != "draft" {
                 update_work_item(
                     state.clone(),
-                    item.id,
-                    None,
-                    None,
-                    Some((*status).to_string()),
-                    None,
-                    None,
-                    None,
+                    UpdateWorkItemCommand {
+                        id: item.id,
+                        title: None,
+                        description: None,
+                        status: Some((*status).to_string()),
+                        problem_statement: None,
+                        acceptance_criteria: None,
+                        constraints: None,
+                    },
                 )
                 .await
                 .expect("status should update");
@@ -433,14 +458,16 @@ mod tests {
 
         let page = list_work_items(
             state,
-            Some(product.id),
-            None,
-            None,
-            None,
-            None,
-            Some("draft".to_string()),
-            Some(1),
-            Some(1),
+            ListWorkItemsCommand {
+                product_id: Some(product.id),
+                product_area_id: None,
+                capability_id: None,
+                source_node_id: None,
+                source_node_type: None,
+                status: Some("draft".to_string()),
+                limit: Some(1),
+                offset: Some(1),
+            },
         )
         .await
         .expect("work items should list");

@@ -36,6 +36,54 @@ struct ExampleCapabilitySpec {
     technical_notes: &'static str,
 }
 
+pub(crate) struct ApplySemanticTemplateInput<'a> {
+    pub(crate) product_area_id: &'a str,
+    pub(crate) parent_capability_id: Option<&'a str>,
+    pub(crate) template_kind: &'a str,
+    pub(crate) name: &'a str,
+    pub(crate) description: &'a str,
+    pub(crate) priority: Option<&'a str>,
+    pub(crate) risk: Option<&'a str>,
+    pub(crate) explanation: &'a str,
+    pub(crate) examples: &'a str,
+    pub(crate) implementation_notes: &'a str,
+    pub(crate) test_guidance: &'a str,
+}
+
+struct CapabilityInputSpec<'a> {
+    id: &'a str,
+    product_area_id: &'a str,
+    parent_capability_id: Option<&'a str>,
+    name: &'a str,
+    description: &'a str,
+    acceptance_criteria: &'a str,
+    priority: &'a str,
+    risk: &'a str,
+    technical_notes: &'a str,
+    node_kind: Option<&'a str>,
+}
+
+fn create_capability_input(
+    spec: CapabilityInputSpec<'_>,
+) -> product_repo::CreateCapabilityInput<'_> {
+    product_repo::CreateCapabilityInput {
+        id: spec.id,
+        product_area_id: spec.product_area_id,
+        parent_capability_id: spec.parent_capability_id,
+        name: spec.name,
+        description: spec.description,
+        acceptance_criteria: spec.acceptance_criteria,
+        priority: spec.priority,
+        risk: spec.risk,
+        technical_notes: spec.technical_notes,
+        node_kind: spec.node_kind,
+        explanation: "",
+        examples: "",
+        implementation_notes: "",
+        test_guidance: "",
+    }
+}
+
 pub async fn initialize_example_catalog(pool: &SqlitePool) -> Result<(), AppError> {
     if settings_repo::get_setting(pool, HIDE_EXAMPLE_PRODUCTS_KEY)
         .await?
@@ -53,56 +101,46 @@ pub async fn initialize_example_catalog(pool: &SqlitePool) -> Result<(), AppErro
 
 pub async fn apply_semantic_template(
     pool: &SqlitePool,
-    product_area_id: &str,
-    parent_capability_id: Option<&str>,
-    template_kind: &str,
-    name: &str,
-    description: &str,
-    priority: Option<&str>,
-    risk: Option<&str>,
-    explanation: &str,
-    examples: &str,
-    implementation_notes: &str,
-    test_guidance: &str,
+    input: ApplySemanticTemplateInput<'_>,
 ) -> Result<SemanticTemplateApplicationResult, AppError> {
-    let template_kind = SemanticTemplateKind::parse(template_kind).ok_or_else(|| {
+    let template_kind = SemanticTemplateKind::parse(input.template_kind).ok_or_else(|| {
         AppError::Validation(
             "Unsupported template_kind. Use operator_chapter or technical_topic_book.".to_string(),
         )
     })?;
-    let trimmed_name = name.trim();
+    let trimmed_name = input.name.trim();
     if trimmed_name.is_empty() {
         return Err(AppError::Validation(
             "Template topic name cannot be empty.".to_string(),
         ));
     }
 
-    let priority = priority.unwrap_or("medium");
-    let risk = risk.unwrap_or("medium");
-    let chapter_description = if description.trim().is_empty() {
+    let priority = input.priority.unwrap_or("medium");
+    let risk = input.risk.unwrap_or("medium");
+    let chapter_description = if input.description.trim().is_empty() {
         format!("{trimmed_name} book section.")
     } else {
-        description.trim().to_string()
+        input.description.trim().to_string()
     };
+    let topic_id = uuid::Uuid::new_v4().to_string();
+    let topic_acceptance = format!(
+        "{} has definition, examples, implementation guidance, and test guidance captured.",
+        trimmed_name
+    );
     let topic_node = product_repo::create_capability(
         pool,
-        &uuid::Uuid::new_v4().to_string(),
-        product_area_id,
-        parent_capability_id,
-        trimmed_name,
-        &chapter_description,
-        &format!(
-            "{} has definition, examples, implementation guidance, and test guidance captured.",
-            trimmed_name
-        ),
-        priority,
-        risk,
-        "Template-generated semantic chapter root.",
-        Some("capability"),
-        "",
-        "",
-        "",
-        "",
+        create_capability_input(CapabilityInputSpec {
+            id: &topic_id,
+            product_area_id: input.product_area_id,
+            parent_capability_id: input.parent_capability_id,
+            name: trimmed_name,
+            description: &chapter_description,
+            acceptance_criteria: &topic_acceptance,
+            priority,
+            risk,
+            technical_notes: "Template-generated semantic chapter root.",
+            node_kind: Some("capability"),
+        }),
     )
     .await?;
 
@@ -122,128 +160,159 @@ pub async fn apply_semantic_template(
         ),
     };
 
+    let definition_id = uuid::Uuid::new_v4().to_string();
+    let definition_description =
+        format!("Explain what {trimmed_name} is and when it should be used.");
     let definition_node = product_repo::create_capability(
         pool,
-        &uuid::Uuid::new_v4().to_string(),
-        product_area_id,
-        Some(&topic_node.id),
-        &definition_label,
-        &format!("Explain what {trimmed_name} is and when it should be used."),
-        "",
-        priority,
-        risk,
-        "Feature chapter for explanation and conceptual boundaries.",
-        Some("feature"),
-        explanation,
-        "",
-        "",
-        "",
+        product_repo::CreateCapabilityInput {
+            explanation: input.explanation,
+            ..create_capability_input(CapabilityInputSpec {
+                id: &definition_id,
+                product_area_id: input.product_area_id,
+                parent_capability_id: Some(&topic_node.id),
+                name: &definition_label,
+                description: &definition_description,
+                acceptance_criteria: "",
+                priority,
+                risk,
+                technical_notes: "Feature chapter for explanation and conceptual boundaries.",
+                node_kind: Some("feature"),
+            })
+        },
     )
     .await?;
+    let examples_id = uuid::Uuid::new_v4().to_string();
+    let examples_description =
+        format!("Capture worked examples and expected behaviors for {trimmed_name}.");
     let examples_node = product_repo::create_capability(
         pool,
-        &uuid::Uuid::new_v4().to_string(),
-        product_area_id,
-        Some(&topic_node.id),
-        &examples_label,
-        &format!("Capture worked examples and expected behaviors for {trimmed_name}."),
-        "",
-        priority,
-        risk,
-        "Feature chapter for examples and concrete edge cases.",
-        Some("feature"),
-        "",
-        examples,
-        "",
-        "",
+        product_repo::CreateCapabilityInput {
+            examples: input.examples,
+            ..create_capability_input(CapabilityInputSpec {
+                id: &examples_id,
+                product_area_id: input.product_area_id,
+                parent_capability_id: Some(&topic_node.id),
+                name: &examples_label,
+                description: &examples_description,
+                acceptance_criteria: "",
+                priority,
+                risk,
+                technical_notes: "Feature chapter for examples and concrete edge cases.",
+                node_kind: Some("feature"),
+            })
+        },
     )
     .await?;
+    let implementation_id = uuid::Uuid::new_v4().to_string();
+    let implementation_description = format!("Describe how {trimmed_name} should be implemented.");
     let implementation_node = product_repo::create_capability(
         pool,
-        &uuid::Uuid::new_v4().to_string(),
-        product_area_id,
-        Some(&topic_node.id),
-        &implementation_label,
-        &format!("Describe how {trimmed_name} should be implemented."),
-        "",
-        priority,
-        risk,
-        "Feature execution notes for implementation stories.",
-        Some("feature"),
-        "",
-        "",
-        implementation_notes,
-        "",
+        product_repo::CreateCapabilityInput {
+            implementation_notes: input.implementation_notes,
+            ..create_capability_input(CapabilityInputSpec {
+                id: &implementation_id,
+                product_area_id: input.product_area_id,
+                parent_capability_id: Some(&topic_node.id),
+                name: &implementation_label,
+                description: &implementation_description,
+                acceptance_criteria: "",
+                priority,
+                risk,
+                technical_notes: "Feature execution notes for implementation stories.",
+                node_kind: Some("feature"),
+            })
+        },
     )
     .await?;
+    let tests_id = uuid::Uuid::new_v4().to_string();
+    let tests_description = format!("Describe how {trimmed_name} should be validated.");
     let tests_node = product_repo::create_capability(
         pool,
-        &uuid::Uuid::new_v4().to_string(),
-        product_area_id,
-        Some(&topic_node.id),
-        &tests_label,
-        &format!("Describe how {trimmed_name} should be validated."),
-        "",
-        priority,
-        risk,
-        "Feature execution notes for test and verification stories.",
-        Some("feature"),
-        "",
-        "",
-        "",
-        test_guidance,
+        product_repo::CreateCapabilityInput {
+            test_guidance: input.test_guidance,
+            ..create_capability_input(CapabilityInputSpec {
+                id: &tests_id,
+                product_area_id: input.product_area_id,
+                parent_capability_id: Some(&topic_node.id),
+                name: &tests_label,
+                description: &tests_description,
+                acceptance_criteria: "",
+                priority,
+                risk,
+                technical_notes: "Feature execution notes for test and verification stories.",
+                node_kind: Some("feature"),
+            })
+        },
     )
     .await?;
 
+    let product_id = resolve_product_id_for_product_area(pool, input.product_area_id).await?;
+    let implementation_work_item_id = uuid::Uuid::new_v4().to_string();
+    let implementation_title = format!("Implement {trimmed_name}");
+    let implementation_problem =
+        format!("{trimmed_name} needs implementation aligned to the authored chapter structure.");
+    let implementation_acceptance = format!(
+        "{trimmed_name} is implemented and matches the documented behavior, examples, and edge cases."
+    );
     let implementation_work_item = work_item_repo::create_work_item(
         pool,
-        &uuid::Uuid::new_v4().to_string(),
-        &resolve_product_id_for_product_area(pool, product_area_id).await?,
-        Some(product_area_id),
-        Some(&implementation_node.id),
-        Some(&implementation_node.id),
-        Some("capability"),
-        None,
-        &format!("Implement {trimmed_name}"),
-        &format!("{trimmed_name} needs implementation aligned to the authored chapter structure."),
-        implementation_notes,
-        &format!(
-            "{trimmed_name} is implemented and matches the documented behavior, examples, and edge cases."
-        ),
-        "Preserve the authored semantic structure and keep behavior deterministic.",
-        "story",
-        priority,
-        "medium",
+        work_item_repo::CreateWorkItemInput {
+            id: &implementation_work_item_id,
+            product_id: &product_id,
+            product_area_id: Some(input.product_area_id),
+            capability_id: Some(&implementation_node.id),
+            source_node_id: Some(&implementation_node.id),
+            source_node_type: Some("capability"),
+            parent_work_item_id: None,
+            title: &implementation_title,
+            problem_statement: &implementation_problem,
+            description: input.implementation_notes,
+            acceptance_criteria: &implementation_acceptance,
+            constraints:
+                "Preserve the authored semantic structure and keep behavior deterministic.",
+            work_item_type: "story",
+            priority,
+            complexity: "medium",
+        },
     )
     .await?;
+    let test_work_item_id = uuid::Uuid::new_v4().to_string();
+    let test_title = format!("Write {trimmed_name} test cases");
+    let test_problem = format!(
+        "{trimmed_name} needs verification that matches the documented examples and risks."
+    );
+    let test_acceptance =
+        format!("Coverage validates happy paths, edge cases, and regressions for {trimmed_name}.");
     let test_work_item = work_item_repo::create_work_item(
         pool,
-        &uuid::Uuid::new_v4().to_string(),
-        &resolve_product_id_for_product_area(pool, product_area_id).await?,
-        Some(product_area_id),
-        Some(&tests_node.id),
-        Some(&tests_node.id),
-        Some("capability"),
-        None,
-        &format!("Write {trimmed_name} test cases"),
-        &format!(
-            "{trimmed_name} needs verification that matches the documented examples and risks."
-        ),
-        test_guidance,
-        &format!("Coverage validates happy paths, edge cases, and regressions for {trimmed_name}."),
-        "Keep tests aligned with the authored examples and implementation notes.",
-        "test",
-        priority,
-        "medium",
+        work_item_repo::CreateWorkItemInput {
+            id: &test_work_item_id,
+            product_id: &product_id,
+            product_area_id: Some(input.product_area_id),
+            capability_id: Some(&tests_node.id),
+            source_node_id: Some(&tests_node.id),
+            source_node_type: Some("capability"),
+            parent_work_item_id: None,
+            title: &test_title,
+            problem_statement: &test_problem,
+            description: input.test_guidance,
+            acceptance_criteria: &test_acceptance,
+            constraints: "Keep tests aligned with the authored examples and implementation notes.",
+            work_item_type: "test",
+            priority,
+            complexity: "medium",
+        },
     )
     .await?;
 
     Ok(SemanticTemplateApplicationResult {
         template_kind,
-        parent_node_id: parent_capability_id
+        parent_node_id: input
+            .parent_capability_id
             .map(ToString::to_string)
-            .unwrap_or_else(|| product_area_id.to_string()),
-        parent_node_type: if parent_capability_id.is_some() {
+            .unwrap_or_else(|| input.product_area_id.to_string()),
+        parent_node_type: if input.parent_capability_id.is_some() {
             HierarchyNodeType::Capability
         } else {
             HierarchyNodeType::ProductArea
@@ -274,21 +343,25 @@ async fn seed_example_product(
 ) -> Result<(), AppError> {
     if !record_exists(pool, "products", product.id).await? {
         info!(product_id = %product.id, product_name = %product.name, "Seeding example product");
+        let goals = serde_json::to_string(product.goals).unwrap_or_else(|_| "[]".to_string());
+        let tags = serde_json::to_string(&build_product_tags(product.tags))
+            .unwrap_or_else(|_| "[]".to_string());
         product_repo::create_product(
             pool,
-            product.id,
-            product.name,
-            product.description,
-            product.vision,
-            &serde_json::to_string(product.goals).unwrap_or_else(|_| "[]".to_string()),
-            &serde_json::to_string(&build_product_tags(product.tags))
-                .unwrap_or_else(|_| "[]".to_string()),
-            Some("active"),
-            Some("healthy"),
-            Some("Founder"),
-            Some("maintain"),
-            None,
-            None,
+            product_repo::CreateProductInput {
+                id: product.id,
+                name: product.name,
+                description: product.description,
+                vision: product.vision,
+                goals: &goals,
+                tags: &tags,
+                lifecycle: Some("active"),
+                health: Some("healthy"),
+                owner_label: Some("Founder"),
+                investment_status: Some("maintain"),
+                roadmap: None,
+                evidence: None,
+            },
         )
         .await?;
     }
@@ -297,42 +370,47 @@ async fn seed_example_product(
     if !record_exists(pool, "product_areas", product_area.id).await? {
         product_repo::create_product_area(
             pool,
-            product_area.id,
-            product.id,
-            product_area.name,
-            product_area.description,
-            product_area.purpose,
-            None,
-            "",
-            "",
-            "",
-            "",
+            product_repo::CreateProductAreaInput {
+                id: product_area.id,
+                product_id: product.id,
+                name: product_area.name,
+                description: product_area.description,
+                purpose: product_area.purpose,
+                node_kind: None,
+                explanation: "",
+                examples: "",
+                implementation_notes: "",
+                test_guidance: "",
+            },
         )
         .await?;
     }
 
     let bootstrap_work_item_id = format!("{}-bootstrap-local-repo", product.id);
     if !record_exists(pool, "work_items", &bootstrap_work_item_id).await? {
+        let bootstrap_problem = format!(
+            "{} needs a local repository, git history, and starter test structure before delivery work should begin.",
+            product.name
+        );
         work_item_repo::create_work_item(
             pool,
-            &bootstrap_work_item_id,
-            product.id,
-            Some(product_area.id),
-            None,
-            None,
-            None,
-            None,
-            "Initialize local repository and test scaffold",
-            &format!(
-                "{} needs a local repository, git history, and starter test structure before delivery work should begin.",
-                product.name
-            ),
-            "Create or attach the local repository for this seeded example, initialize git if needed, add a minimal README, .gitignore, and tests folder, then attach that repository to product or product area scope so downstream work items inherit it.",
-            "A local repository is attached to the seeded product, git is initialized, the default branch exists, a starter tests folder is present, and downstream work items can resolve the repository automatically.",
-            "Do not implement feature outcomes in this bootstrap work item. This step is only for repository and test scaffold readiness.",
-            "setup",
-            "high",
-            "low",
+            work_item_repo::CreateWorkItemInput {
+                id: &bootstrap_work_item_id,
+                product_id: product.id,
+                product_area_id: Some(product_area.id),
+                capability_id: None,
+                source_node_id: None,
+                source_node_type: None,
+                parent_work_item_id: None,
+                title: "Initialize local repository and test scaffold",
+                problem_statement: &bootstrap_problem,
+                description: "Create or attach the local repository for this seeded example, initialize git if needed, add a minimal README, .gitignore, and tests folder, then attach that repository to product or product area scope so downstream work items inherit it.",
+                acceptance_criteria: "A local repository is attached to the seeded product, git is initialized, the default branch exists, a starter tests folder is present, and downstream work items can resolve the repository automatically.",
+                constraints: "Do not implement feature outcomes in this bootstrap work item. This step is only for repository and test scaffold readiness.",
+                work_item_type: "setup",
+                priority: "high",
+                complexity: "low",
+            },
         )
         .await?;
     }
@@ -351,26 +429,26 @@ async fn seed_example_capability(
     capability: &ExampleCapabilitySpec,
 ) -> Result<(), AppError> {
     if !record_exists(pool, "capabilities", capability.id).await? {
+        let description = format!("{} capability for {}.", capability.name, product.name);
+        let acceptance_criteria = format!(
+            "{} ships these outcomes end-to-end: {}.",
+            capability.name,
+            capability.outcomes.join(", ")
+        );
         product_repo::create_capability(
             pool,
-            capability.id,
-            product_area.id,
-            None,
-            capability.name,
-            &format!("{} capability for {}.", capability.name, product.name),
-            &format!(
-                "{} ships these outcomes end-to-end: {}.",
-                capability.name,
-                capability.outcomes.join(", ")
-            ),
-            capability.priority,
-            capability.risk,
-            capability.technical_notes,
-            None,
-            "",
-            "",
-            "",
-            "",
+            create_capability_input(CapabilityInputSpec {
+                id: capability.id,
+                product_area_id: product_area.id,
+                parent_capability_id: None,
+                name: capability.name,
+                description: &description,
+                acceptance_criteria: &acceptance_criteria,
+                priority: capability.priority,
+                risk: capability.risk,
+                technical_notes: capability.technical_notes,
+                node_kind: None,
+            }),
         )
         .await?;
     }
@@ -380,59 +458,65 @@ async fn seed_example_capability(
         let work_item_id = format!("{}-ship", outcome_id);
 
         if !record_exists(pool, "capabilities", &outcome_id).await? {
+            let description = format!(
+                "Deliver the {} outcome under {} for {}.",
+                outcome_name, capability.name, product.name
+            );
+            let acceptance_criteria = format!(
+                "{} behaves correctly, keeps UI state coherent, and is ready for validation.",
+                outcome_name
+            );
+            let technical_notes = format!(
+                "Outcome belongs to the {} example product seed and should be delivered incrementally.",
+                product.name
+            );
             product_repo::create_capability(
                 pool,
-                &outcome_id,
-                product_area.id,
-                Some(capability.id),
-                outcome_name,
-                &format!(
-                    "Deliver the {} outcome under {} for {}.",
-                    outcome_name, capability.name, product.name
-                ),
-                &format!(
-                    "{} behaves correctly, keeps UI state coherent, and is ready for validation.",
-                    outcome_name
-                ),
-                capability.priority,
-                capability.risk,
-                    &format!(
-                        "Outcome belongs to the {} example product seed and should be delivered incrementally.",
-                        product.name
-                    ),
-                    None,
-                    "",
-                    "",
-                    "",
-                    "",
-                )
-                .await?;
+                create_capability_input(CapabilityInputSpec {
+                    id: &outcome_id,
+                    product_area_id: product_area.id,
+                    parent_capability_id: Some(capability.id),
+                    name: outcome_name,
+                    description: &description,
+                    acceptance_criteria: &acceptance_criteria,
+                    priority: capability.priority,
+                    risk: capability.risk,
+                    technical_notes: &technical_notes,
+                    node_kind: None,
+                }),
+            )
+            .await?;
         }
 
         if !record_exists(pool, "work_items", &work_item_id).await? {
+            let title = format!("Ship {}", outcome_name);
+            let problem_statement = format!(
+                "{} is defined in the {} product but not yet implemented end-to-end.",
+                outcome_name, product.name
+            );
+            let description = format!(
+                "Implement the {} outcome for {} inside the {} capability.",
+                outcome_name, product.name, capability.name
+            );
             work_item_repo::create_work_item(
                 pool,
-                &work_item_id,
-                product.id,
-                Some(product_area.id),
-                Some(&outcome_id),
-                None,
-                None,
-                None,
-                &format!("Ship {}", outcome_name),
-                &format!(
-                    "{} is defined in the {} product but not yet implemented end-to-end.",
-                    outcome_name, product.name
-                ),
-                &format!(
-                    "Implement the {} outcome for {} inside the {} capability.",
-                    outcome_name, product.name, capability.name
-                ),
-                "Implementation, unit tests, integration tests, and UI validation all pass. The user can inspect the change in the IDE and workflow artifacts.",
-                "Keep the implementation scoped to the seeded example product. Preserve existing behavior and leave artifacts ready for human review.",
-                "story",
-                capability.priority,
-                "medium",
+                work_item_repo::CreateWorkItemInput {
+                    id: &work_item_id,
+                    product_id: product.id,
+                    product_area_id: Some(product_area.id),
+                    capability_id: Some(&outcome_id),
+                    source_node_id: None,
+                    source_node_type: None,
+                    parent_work_item_id: None,
+                    title: &title,
+                    problem_statement: &problem_statement,
+                    description: &description,
+                    acceptance_criteria: "Implementation, unit tests, integration tests, and UI validation all pass. The user can inspect the change in the IDE and workflow artifacts.",
+                    constraints: "Keep the implementation scoped to the seeded example product. Preserve existing behavior and leave artifacts ready for human review.",
+                    work_item_type: "story",
+                    priority: capability.priority,
+                    complexity: "medium",
+                },
             )
             .await?;
         }
@@ -449,7 +533,7 @@ async fn resolve_product_id_for_product_area(
         .bind(product_area_id)
         .fetch_optional(pool)
         .await?
-        .ok_or_else(|| AppError::NotFound(format!("ProductArea {product_area_id} not found")))
+        .ok_or_else(|| AppError::NotFound(format!("Product Area {product_area_id} not found")))
 }
 
 async fn record_exists(pool: &SqlitePool, table: &str, id: &str) -> Result<bool, AppError> {
@@ -468,8 +552,7 @@ fn slugify(value: &str) -> String {
     value
         .to_ascii_lowercase()
         .replace('&', "and")
-        .replace('/', "-")
-        .replace(' ', "-")
+        .replace(['/', ' '], "-")
 }
 
 fn example_product_specs() -> Vec<ExampleProductSpec> {

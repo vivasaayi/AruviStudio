@@ -1,4 +1,6 @@
-use crate::commands::model_commands::upsert_local_runtime_registration;
+use crate::commands::model_commands::{
+    upsert_local_runtime_registration, LocalRuntimeRegistrationInput,
+};
 use crate::domain::model::ProviderType;
 use crate::error::AppError;
 use crate::persistence::{model_call_repo, model_repo};
@@ -87,17 +89,22 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
         ),
         "update_model_definition" => {
             let id = args.required_string(&["id"], "id")?;
+            let provider_id = args.optional_string(&["provider_id", "providerId"])?;
+            let name = args.optional_string(&["name"])?;
+            let capability_tags =
+                args.optional_json_array_string(&["capability_tags", "capabilityTags"])?;
+            let notes = args.optional_string(&["notes"])?;
             let model = model_repo::update_model_definition(
                 &state.db,
-                &id,
-                args.optional_string(&["provider_id", "providerId"])?
-                    .as_deref(),
-                args.optional_string(&["name"])?.as_deref(),
-                args.optional_i64(&["context_window", "contextWindow"])?,
-                args.optional_json_array_string(&["capability_tags", "capabilityTags"])?
-                    .as_deref(),
-                args.optional_string(&["notes"])?.as_deref(),
-                args.optional_bool(&["enabled"])?,
+                model_repo::UpdateModelDefinitionPatch {
+                    id: &id,
+                    provider_id: provider_id.as_deref(),
+                    name: name.as_deref(),
+                    context_window: args.optional_i64(&["context_window", "contextWindow"])?,
+                    capability_tags: capability_tags.as_deref(),
+                    notes: notes.as_deref(),
+                    enabled: args.optional_bool(&["enabled"])?,
+                },
             )
             .await?;
             action_result("update_model_definition", model)
@@ -130,16 +137,24 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             action_result("test_provider_connectivity", json!({ "message": message }))
         }
         "register_local_runtime_model" => {
+            let provider_name =
+                args.required_string(&["provider_name", "providerName"], "provider_name")?;
+            let model_name = args.required_string(&["model_name", "modelName"], "model_name")?;
+            let model_path = args.required_string(&["model_path", "modelPath"], "model_path")?;
+            let capability_tags =
+                args.optional_json_array_string(&["capability_tags", "capabilityTags"])?;
+            let notes = args.optional_string(&["notes"])?;
             let registration = upsert_local_runtime_registration(
                 state,
-                &args.required_string(&["provider_name", "providerName"], "provider_name")?,
-                &args.required_string(&["model_name", "modelName"], "model_name")?,
-                &args.required_string(&["model_path", "modelPath"], "model_path")?,
-                args.optional_json_array_string(&["capability_tags", "capabilityTags"])?
-                    .as_deref(),
-                args.optional_string(&["notes"])?.as_deref(),
-                args.optional_i64(&["context_window", "contextWindow"])?,
-                false,
+                LocalRuntimeRegistrationInput {
+                    provider_name: &provider_name,
+                    model_name: &model_name,
+                    model_path: &model_path,
+                    capability_tags: capability_tags.as_deref(),
+                    notes: notes.as_deref(),
+                    context_window: args.optional_i64(&["context_window", "contextWindow"])?,
+                    downloaded: false,
+                },
             )
             .await?;
             action_result("register_local_runtime_model", registration)
@@ -151,6 +166,9 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let download_url =
                 args.required_string(&["download_url", "downloadUrl"], "download_url")?;
             let file_name = args.required_string(&["file_name", "fileName"], "file_name")?;
+            let capability_tags =
+                args.optional_json_array_string(&["capability_tags", "capabilityTags"])?;
+            let notes = args.optional_string(&["notes"])?;
             let safe_dir = slugify(&provider_name);
             let models_dir = state.app_data_dir.join("models").join(safe_dir);
             tokio::fs::create_dir_all(&models_dir).await?;
@@ -185,16 +203,17 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
 
             let registration = upsert_local_runtime_registration(
                 state,
-                &provider_name,
-                &model_name,
-                destination_path.to_str().ok_or_else(|| {
-                    AppError::Validation("Installed model path is not valid UTF-8".to_string())
-                })?,
-                args.optional_json_array_string(&["capability_tags", "capabilityTags"])?
-                    .as_deref(),
-                args.optional_string(&["notes"])?.as_deref(),
-                args.optional_i64(&["context_window", "contextWindow"])?,
-                downloaded,
+                LocalRuntimeRegistrationInput {
+                    provider_name: &provider_name,
+                    model_name: &model_name,
+                    model_path: destination_path.to_str().ok_or_else(|| {
+                        AppError::Validation("Installed model path is not valid UTF-8".to_string())
+                    })?,
+                    capability_tags: capability_tags.as_deref(),
+                    notes: notes.as_deref(),
+                    context_window: args.optional_i64(&["context_window", "contextWindow"])?,
+                    downloaded,
+                },
             )
             .await?;
             action_result("install_managed_local_model", registration)

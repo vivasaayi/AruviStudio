@@ -159,6 +159,20 @@ export interface ProductWorkItemSummary {
   blocked_count: number;
 }
 
+export interface WorkItemScopeSummary {
+  product_id: string;
+  product_area_id: string | null;
+  capability_id: string | null;
+  source_node_id: string | null;
+  source_node_type: HierarchyNodeType | null;
+  status: WorkItem["status"];
+  total_count: number;
+  top_level_count: number;
+  active_count: number;
+  done_count: number;
+  blocked_count: number;
+}
+
 export interface Repository {
   id: string;
   name: string;
@@ -464,6 +478,14 @@ export interface ProductTree {
   product: Product;
   product_areas: ProductAreaTree[];
   roots: HierarchyTreeNode[];
+}
+
+export interface ProductTreeSummary {
+  product_id: string;
+  product_area_count: number;
+  capability_count: number;
+  total_node_count: number;
+  leaf_node_count: number;
 }
 
 export interface ProductAreaTree {

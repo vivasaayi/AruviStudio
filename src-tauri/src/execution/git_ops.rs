@@ -1,96 +1,12 @@
 // Git operations - branch creation, diff generation, commits via git2
 
-use crate::domain::repository::Repository as RepoDomain;
 use crate::error::AppError;
-use git2::{BranchType, DiffFormat, DiffOptions, Repository};
-use std::path::Path;
-use tracing::{debug, error, info, warn};
+use git2::Repository;
+use tracing::{error, info, warn};
 
 pub struct GitOperations;
 
 impl GitOperations {
-    /// Create a new branch for the work item
-    pub fn create_work_item_branch(repo_path: &str, branch_name: &str) -> Result<(), AppError> {
-        info!(repo_path = %repo_path, branch_name = %branch_name, "Creating work item branch");
-        let repo = Repository::open(repo_path).map_err(|e| {
-            error!(repo_path = %repo_path, error = %e, "Failed to open repository");
-            AppError::Internal(format!("Failed to open repository: {}", e))
-        })?;
-
-        // Get the current HEAD
-        let head = repo.head().map_err(|e| {
-            error!(repo_path = %repo_path, error = %e, "Failed to get HEAD");
-            AppError::Internal(format!("Failed to get HEAD: {}", e))
-        })?;
-        let head_commit = head.peel_to_commit().map_err(|e| {
-            error!(repo_path = %repo_path, error = %e, "Failed to get HEAD commit");
-            AppError::Internal(format!("Failed to get HEAD commit: {}", e))
-        })?;
-
-        // Create the new branch
-        repo.branch(branch_name, &head_commit, false)
-            .map_err(|e| {
-                error!(repo_path = %repo_path, branch_name = %branch_name, error = %e, "Failed to create branch");
-                AppError::Internal(format!("Failed to create branch: {}", e))
-            })?;
-
-        info!(repo_path = %repo_path, branch_name = %branch_name, "Successfully created work item branch");
-        Ok(())
-    }
-
-    /// Generate diff between current branch and base branch
-    pub fn generate_diff(repo_path: &str, base_branch: &str) -> Result<String, AppError> {
-        info!(repo_path = %repo_path, base_branch = %base_branch, "Generating diff");
-        let repo = Repository::open(repo_path).map_err(|e| {
-            error!(repo_path = %repo_path, error = %e, "Failed to open repository");
-            AppError::Internal(format!("Failed to open repository: {}", e))
-        })?;
-
-        // Get the base branch
-        let base_ref = repo.find_branch(base_branch, BranchType::Local)
-            .map_err(|e| {
-                error!(repo_path = %repo_path, base_branch = %base_branch, error = %e, "Failed to find base branch");
-                AppError::Internal(format!("Failed to find base branch: {}", e))
-            })?;
-        let base_commit = base_ref.get().peel_to_commit()
-            .map_err(|e| {
-                error!(repo_path = %repo_path, base_branch = %base_branch, error = %e, "Failed to get base commit");
-                AppError::Internal(format!("Failed to get base commit: {}", e))
-            })?;
-
-        // Get current HEAD
-        let head_commit = repo.head()?.peel_to_commit().map_err(|e| {
-            error!(repo_path = %repo_path, error = %e, "Failed to get HEAD commit");
-            AppError::Internal(format!("Failed to get HEAD commit: {}", e))
-        })?;
-
-        // Generate diff
-        let mut diff_opts = DiffOptions::new();
-        let diff = repo.diff_tree_to_tree(
-            Some(&base_commit.tree()?),
-            Some(&head_commit.tree()?),
-            Some(&mut diff_opts),
-        ).map_err(|e| {
-            error!(repo_path = %repo_path, base_branch = %base_branch, error = %e, "Failed to generate diff");
-            AppError::Internal(format!("Failed to generate diff: {}", e))
-        })?;
-
-        let mut diff_text = String::new();
-        diff.print(DiffFormat::Patch, |delta, hunk, line| {
-            match line.origin() {
-                '+' => diff_text.push('+'),
-                '-' => diff_text.push('-'),
-                ' ' => diff_text.push(' '),
-                _ => {}
-            }
-            diff_text.push_str(&String::from_utf8_lossy(line.content()));
-            true
-        })
-        .map_err(|e| AppError::Internal(format!("Failed to format diff: {}", e)))?;
-
-        Ok(diff_text)
-    }
-
     /// Stage all changes in the working directory
     pub fn stage_all_changes(repo_path: &str) -> Result<(), AppError> {
         info!(repo_path = %repo_path, "Staging all changes");
@@ -228,45 +144,5 @@ impl GitOperations {
 
         info!(repo_path = %repo_path, remote_name = %remote_name, branch_name = %branch_name, "Successfully pushed to remote");
         Ok(())
-    }
-
-    /// Check if repository has uncommitted changes
-    pub fn has_uncommitted_changes(repo_path: &str) -> Result<bool, AppError> {
-        debug!(repo_path = %repo_path, "Checking for uncommitted changes");
-        let repo = Repository::open(repo_path).map_err(|e| {
-            error!(repo_path = %repo_path, error = %e, "Failed to open repository");
-            AppError::Internal(format!("Failed to open repository: {}", e))
-        })?;
-
-        let diff = repo.diff_index_to_workdir(None, None).map_err(|e| {
-            error!(repo_path = %repo_path, error = %e, "Failed to check for changes");
-            AppError::Internal(format!("Failed to check for changes: {}", e))
-        })?;
-
-        let has_changes = diff.deltas().len() > 0;
-        debug!(repo_path = %repo_path, has_changes = has_changes, "Checked for uncommitted changes");
-        Ok(has_changes)
-    }
-
-    /// Get current branch name
-    pub fn get_current_branch(repo_path: &str) -> Result<String, AppError> {
-        debug!(repo_path = %repo_path, "Getting current branch");
-        let repo = Repository::open(repo_path).map_err(|e| {
-            error!(repo_path = %repo_path, error = %e, "Failed to open repository");
-            AppError::Internal(format!("Failed to open repository: {}", e))
-        })?;
-
-        let head = repo.head().map_err(|e| {
-            error!(repo_path = %repo_path, error = %e, "Failed to get HEAD");
-            AppError::Internal(format!("Failed to get HEAD: {}", e))
-        })?;
-
-        let branch_name = head.shorthand().ok_or_else(|| {
-            error!(repo_path = %repo_path, "Not on a branch");
-            AppError::Internal("Not on a branch".to_string())
-        })?;
-
-        debug!(repo_path = %repo_path, branch_name = %branch_name, "Got current branch");
-        Ok(branch_name.to_string())
     }
 }

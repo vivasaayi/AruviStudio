@@ -6,15 +6,18 @@ import {
   exportProductOverviewHtml,
   exportProductOverviewPdf,
   getProductTree,
+  listCapabilities,
+  listProductAreas,
   listProductReferences,
   listProducts,
   revealInFinder,
+  summarizeProductTree,
   summarizeWorkItemsByProduct,
 } from "../../../lib/tauri";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
 import { ProductOverviewDocument, type ProductOverviewPlannerAction } from "../components/ProductOverviewDocument";
-import type { Capability, ProductArea, Product, ProductReference, ProductTree, ProductWorkItemSummary, WorkItem } from "../../../lib/types";
+import type { Capability, CapabilityTree, HierarchyTreeNode, ProductArea, ProductAreaTree, Product, ProductReference, ProductTree, ProductTreeSummary, ProductWorkItemSummary, WorkItem } from "../../../lib/types";
 import {
   BOOK_EXPORT_TRIM_PRESETS,
   buildProductOverviewBookBundle,
@@ -77,11 +80,28 @@ export function ProductOverviewPage() {
     }
   }, [activeProductId, productsLoading, selectedProductId, setActiveProduct]);
 
-  const { data: tree, isLoading: treeLoading } = useQuery({
-    queryKey: ["productOverviewTree", selectedProductId],
-    queryFn: () => getProductTree(selectedProductId!),
+  const { data: productAreas = [], isLoading: productAreasLoading } = useQuery<ProductArea[]>({
+    queryKey: ["productOverviewProductAreas", selectedProductId],
+    queryFn: () => listProductAreas(selectedProductId!),
     enabled: !!selectedProduct,
   });
+  const { data: treeSummary, isLoading: treeSummaryLoading } = useQuery<ProductTreeSummary>({
+    queryKey: ["productTreeSummary", selectedProductId],
+    queryFn: () => summarizeProductTree(selectedProductId!),
+    enabled: !!selectedProduct,
+  });
+  const tree = React.useMemo(
+    () => selectedProduct ? buildProductAreaOnlyTree(selectedProduct, productAreas) : undefined,
+    [productAreas, selectedProduct],
+  );
+  const treeLoading = productAreasLoading || treeSummaryLoading;
+  const loadProductAreaTree = React.useCallback(async (productArea: ProductArea): Promise<ProductAreaTree> => {
+    const capabilities = await listCapabilities(productArea.id);
+    return {
+      product_area: productArea,
+      features: buildCapabilityTrees(capabilities),
+    };
+  }, []);
 
   const { data: productWorkItemSummaries = [], isLoading: summariesLoading } = useQuery<ProductWorkItemSummary[]>({
     queryKey: ["productWorkItemSummary"],
@@ -152,9 +172,10 @@ export function ProductOverviewPage() {
     try {
       setIsExporting(true);
       setExportError(null);
+      const exportTree = await getProductTree(selectedProduct.id);
       const html = builder({
         product: selectedProduct,
-        tree,
+        tree: exportTree,
         workItems,
         references: productReferences,
       });
@@ -181,10 +202,11 @@ export function ProductOverviewPage() {
     try {
       setIsExporting(true);
       setExportError(null);
+      const exportTree = await getProductTree(selectedProduct.id);
       const bundle = buildProductOverviewBookBundle(
         {
           product: selectedProduct,
-          tree,
+          tree: exportTree,
           workItems,
           references: productReferences,
         },
@@ -433,12 +455,18 @@ export function ProductOverviewPage() {
           tree={tree}
           workItems={workItems}
           metricsOverride={overviewMetrics}
+          nodeCountsOverride={treeSummary ? {
+            productAreaCount: treeSummary.product_area_count,
+            totalNodeCount: treeSummary.total_node_count,
+            leafNodeCount: treeSummary.leaf_node_count,
+          } : undefined}
           activeWorkItemCountOverride={selectedProductWorkItemSummary?.active_count ?? 0}
           references={productReferences}
           isLoading={treeLoading || summariesLoading || referencesLoading}
           onEditProduct={editProduct}
           onEditProductArea={editProductArea}
           onEditCapability={editCapability}
+          onLoadProductAreaTree={loadProductAreaTree}
           onOpenWorkItem={openWorkItem}
           onPlanFromItem={planFromItem}
         />
@@ -456,4 +484,55 @@ function slugify(value: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     || "product";
+}
+
+function buildProductAreaOnlyTree(product: Product, productAreas: ProductArea[]): ProductTree {
+  const productAreaTrees = productAreas.map((product_area) => ({
+    product_area,
+    features: [],
+  }));
+
+  return {
+    product,
+    product_areas: productAreaTrees,
+    roots: productAreas.map(productAreaToHierarchyRoot),
+  };
+}
+
+function productAreaToHierarchyRoot(productArea: ProductArea): HierarchyTreeNode {
+  return {
+    id: productArea.id,
+    node_type: "product_area",
+    node_kind: productArea.node_kind,
+    product_area_id: productArea.id,
+    capability_id: null,
+    parent_node_id: null,
+    parent_node_type: null,
+    depth: 0,
+    name: productArea.name,
+    description: productArea.description,
+    summary: productArea.description || productArea.purpose,
+    path: [productArea.name],
+    allowed_child_kinds: ["capability"],
+    children: [],
+  };
+}
+
+function buildCapabilityTrees(capabilities: Capability[]): CapabilityTree[] {
+  const childrenByParent = new Map<string, Capability[]>();
+  capabilities.forEach((capability) => {
+    const parentKey = capability.parent_capability_id ?? "";
+    const siblings = childrenByParent.get(parentKey) ?? [];
+    siblings.push(capability);
+    childrenByParent.set(parentKey, siblings);
+  });
+
+  const sortCapabilities = (items: Capability[]) =>
+    [...items].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
+  const buildTree = (capability: Capability): CapabilityTree => ({
+    capability,
+    children: sortCapabilities(childrenByParent.get(capability.id) ?? []).map(buildTree),
+  });
+
+  return sortCapabilities(childrenByParent.get("") ?? []).map(buildTree);
 }

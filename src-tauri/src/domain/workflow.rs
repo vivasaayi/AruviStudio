@@ -65,21 +65,6 @@ impl WorkflowStage {
         )
     }
 
-    pub fn requires_agent(&self) -> bool {
-        matches!(
-            self,
-            Self::RequirementAnalysis
-                | Self::Planning
-                | Self::Coding
-                | Self::UnitTestGeneration
-                | Self::IntegrationTestGeneration
-                | Self::UiTestPlanning
-                | Self::QaValidation
-                | Self::SecurityReview
-                | Self::PerformanceReview
-        )
-    }
-
     pub fn requires_coordinator_review(&self) -> bool {
         matches!(
             self,

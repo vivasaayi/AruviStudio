@@ -690,7 +690,11 @@ fn work_item_definitions() -> Vec<ToolDefinition> {
             "List Child Work Items",
             "List direct child work items for a parent work item.",
             object_schema(
-                vec![("workItemId", string_property("The parent work item id."))],
+                vec![
+                    ("workItemId", string_property("The parent work item id.")),
+                    ("limit", integer_property("Maximum rows to return.")),
+                    ("offset", integer_property("Pagination offset.")),
+                ],
                 &["workItemId"],
             ),
         ),
