@@ -1,6 +1,6 @@
 use crate::domain::bulk_import::{BulkImportJob, BulkImportJobStatus};
 use crate::domain::product::{
-    Capability, ProductArea, NodeKindConversionResult, Product, ProductPlanResetResult,
+    Capability, NodeKindConversionResult, Product, ProductArea, ProductPlanResetResult,
     ProductReference, ProductTree, SemanticTemplateApplicationResult,
 };
 use crate::error::AppError;
@@ -577,12 +577,13 @@ mod tests {
     use super::*;
     use crate::commands::test_helpers::make_test_app;
     use crate::persistence::settings_repo;
-    use tauri::Manager;
     use tauri::test::MockRuntime;
+    use tauri::Manager;
 
     #[tokio::test]
     async fn create_product_and_product_area_accepts_optional_alias_fields() {
-        let app: tauri::App<MockRuntime> = make_test_app("product_commands_create_product_area").await;
+        let app: tauri::App<MockRuntime> =
+            make_test_app("product_commands_create_product_area").await;
         let state = app.state::<AppState>();
 
         let product = create_product(
@@ -620,7 +621,10 @@ mod tests {
         .expect("product_area should be created");
 
         assert_eq!(product_area.node_kind.to_string(), "product_area");
-        assert_eq!(product_area.implementation_notes, "Use camelCase implementation notes");
+        assert_eq!(
+            product_area.implementation_notes,
+            "Use camelCase implementation notes"
+        );
         assert_eq!(product_area.test_guidance, "Use camelCase test guidance");
     }
 
@@ -653,14 +657,14 @@ mod tests {
             .await
             .expect("products should list");
         assert!(hidden.iter().all(|product| !product.is_example_product()));
-        assert!(hidden.iter().any(|product| product.name == "Custom Product"));
+        assert!(hidden
+            .iter()
+            .any(|product| product.name == "Custom Product"));
 
         settings_repo::set_setting(&state.db, HIDE_EXAMPLE_PRODUCTS_KEY, "false")
             .await
             .expect("setting should update");
-        let visible = list_products(state)
-            .await
-            .expect("products should list");
+        let visible = list_products(state).await.expect("products should list");
         assert!(visible.iter().any(|product| product.is_example_product()));
     }
 }

@@ -714,7 +714,10 @@ mod tests {
         .await
         .expect("work item should be created");
 
-        assert_eq!(work_item.product_area_id.as_deref(), Some("product_area-normalize"));
+        assert_eq!(
+            work_item.product_area_id.as_deref(),
+            Some("product_area-normalize")
+        );
         assert_eq!(
             work_item.capability_id.as_deref(),
             Some("capability-normalize")
@@ -815,7 +818,10 @@ mod tests {
         .expect("child work item should be created");
 
         assert_eq!(child.parent_work_item_id.as_deref(), Some("parent-story"));
-        assert_eq!(child.product_area_id.as_deref(), Some("product_area-inherit"));
+        assert_eq!(
+            child.product_area_id.as_deref(),
+            Some("product_area-inherit")
+        );
         assert_eq!(child.capability_id.as_deref(), Some("capability-inherit"));
         assert_eq!(child.source_node_id.as_deref(), Some("capability-inherit"));
         assert!(matches!(

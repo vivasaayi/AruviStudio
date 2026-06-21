@@ -734,7 +734,10 @@ pub async fn materialize_catalog(
             .entry(product_area_id.clone())
             .and_modify(|current| *current = (*current).max(sort_order))
             .or_insert(sort_order);
-        capabilities_by_key.insert((product_area_id, normalize_catalog_key(&name)), (id, sort_order));
+        capabilities_by_key.insert(
+            (product_area_id, normalize_catalog_key(&name)),
+            (id, sort_order),
+        );
     }
 
     let mut capability_specs = items
@@ -759,7 +762,10 @@ pub async fn materialize_catalog(
     let mut capabilities: HashMap<(String, String), MaterializedCapability> = HashMap::new();
     let mut capability_rows_to_upsert = Vec::new();
     for (product_area_id, capability_label) in capability_specs {
-        let key = (product_area_id.clone(), normalize_catalog_key(&capability_label));
+        let key = (
+            product_area_id.clone(),
+            normalize_catalog_key(&capability_label),
+        );
         if let Some((capability_id, sort_order)) = capabilities_by_key.get(&key) {
             capabilities.insert(
                 key,
@@ -781,8 +787,10 @@ pub async fn materialize_catalog(
             .entry(product_area_id.clone())
             .and_modify(|current| *current += 1)
             .or_insert(0);
-        let capability_id =
-            stable_materialized_id("agentwork-cap", &[run_id, &product_area_id, &capability_label]);
+        let capability_id = stable_materialized_id(
+            "agentwork-cap",
+            &[run_id, &product_area_id, &capability_label],
+        );
         capabilities.insert(
             key,
             MaterializedCapability {

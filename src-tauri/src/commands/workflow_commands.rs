@@ -209,8 +209,8 @@ mod tests {
     use crate::commands::{product_commands, test_helpers::make_test_app, work_item_commands};
     use crate::domain::work_item::WorkItem;
     use crate::persistence::workflow_repo;
-    use tauri::Manager;
     use tauri::test::MockRuntime;
+    use tauri::Manager;
 
     async fn create_approved_work_item(
         state: State<'_, AppState>,
@@ -299,9 +299,10 @@ mod tests {
         let work_item =
             create_approved_work_item(state.clone(), "Workflow Seed Product", "Workflow Seed Item")
                 .await;
-        let seeded = workflow_repo::create_workflow_run(&state.db, "workflow-seeded", &work_item.id)
-            .await
-            .expect("workflow should be seeded");
+        let seeded =
+            workflow_repo::create_workflow_run(&state.db, "workflow-seeded", &work_item.id)
+                .await
+                .expect("workflow should be seeded");
         workflow_repo::update_workflow_stage(&state.db, &seeded.id, "pending_plan_approval")
             .await
             .expect("workflow stage should update");
@@ -309,14 +310,11 @@ mod tests {
         let workflow_run = get_workflow_run(state.clone(), None, Some(seeded.id.clone()))
             .await
             .expect("workflow run should load");
-        let latest = get_latest_workflow_run_for_work_item(
-            state.clone(),
-            None,
-            Some(work_item.id.clone()),
-        )
-        .await
-        .expect("latest workflow should load")
-        .expect("latest workflow should exist");
+        let latest =
+            get_latest_workflow_run_for_work_item(state.clone(), None, Some(work_item.id.clone()))
+                .await
+                .expect("latest workflow should load")
+                .expect("latest workflow should exist");
         let missing = start_work_item_workflow(state, None, None)
             .await
             .expect_err("missing work item id should fail");
@@ -324,7 +322,9 @@ mod tests {
         assert_eq!(workflow_run.id, seeded.id);
         assert_eq!(workflow_run.current_stage, "pending_plan_approval");
         assert_eq!(latest.id, seeded.id);
-        assert!(matches!(missing, AppError::Validation(message) if message == "missing work item id"));
+        assert!(
+            matches!(missing, AppError::Validation(message) if message == "missing work item id")
+        );
     }
 
     #[tokio::test]
@@ -334,14 +334,11 @@ mod tests {
         let work_item =
             create_approved_work_item(state.clone(), "Workflow Fail Product", "Workflow Fail Item")
                 .await;
-        let workflow_run_id = workflow_repo::create_workflow_run(
-            &state.db,
-            "workflow-fail-seeded",
-            &work_item.id,
-        )
-        .await
-        .expect("workflow should be seeded")
-        .id;
+        let workflow_run_id =
+            workflow_repo::create_workflow_run(&state.db, "workflow-fail-seeded", &work_item.id)
+                .await
+                .expect("workflow should be seeded")
+                .id;
         workflow_repo::update_workflow_stage(&state.db, &workflow_run_id, "pending_plan_approval")
             .await
             .expect("workflow stage should update");
@@ -355,7 +352,9 @@ mod tests {
         )
         .await
         .expect_err("invalid action should fail");
-        assert!(matches!(invalid, AppError::Validation(message) if message.contains("Unsupported workflow action")));
+        assert!(
+            matches!(invalid, AppError::Validation(message) if message.contains("Unsupported workflow action"))
+        );
 
         mark_workflow_run_failed(
             state.clone(),

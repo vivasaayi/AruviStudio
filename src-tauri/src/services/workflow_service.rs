@@ -1879,9 +1879,13 @@ mod tests {
             "missing rejection transition back to requirement analysis"
         );
         assert!(
-            history.iter().filter(|entry| {
-                entry.from_stage == "planning" && entry.to_stage == "pending_plan_approval"
-            }).count() >= 2,
+            history
+                .iter()
+                .filter(|entry| {
+                    entry.from_stage == "planning" && entry.to_stage == "pending_plan_approval"
+                })
+                .count()
+                >= 2,
             "expected planning to reach the plan gate again after rejection"
         );
 

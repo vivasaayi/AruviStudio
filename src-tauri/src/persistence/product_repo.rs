@@ -1,6 +1,6 @@
 use crate::domain::product::{
     Capability, CapabilityTree, ChildReparentStrategy, HierarchyNodeKind, HierarchyNodeType,
-    HierarchyTreeNode, ProductArea, ProductAreaTree, NodeKindConversionResult, Product,
+    HierarchyTreeNode, NodeKindConversionResult, Product, ProductArea, ProductAreaTree,
     ProductPlanResetResult, ProductReference, ProductTree,
 };
 use crate::error::AppError;
@@ -450,7 +450,10 @@ pub async fn create_product_area(
         .fetch_one(pool).await.map_err(|e| e.into())
 }
 
-pub async fn list_product_areas(pool: &SqlitePool, product_id: &str) -> Result<Vec<ProductArea>, AppError> {
+pub async fn list_product_areas(
+    pool: &SqlitePool,
+    product_id: &str,
+) -> Result<Vec<ProductArea>, AppError> {
     sqlx::query_as::<_, ProductArea>(&format!(
         "SELECT {PRODUCT_AREA_SELECT_COLUMNS} FROM product_areas WHERE product_id=? ORDER BY sort_order"
     ))
@@ -936,7 +939,10 @@ fn build_product_area_hierarchy_tree(product_area_tree: &ProductAreaTree) -> Hie
             &product_area_tree.product_area.test_guidance,
         ]),
         path,
-        allowed_child_kinds: product_area_tree.product_area.node_kind.allowed_child_kinds(),
+        allowed_child_kinds: product_area_tree
+            .product_area
+            .node_kind
+            .allowed_child_kinds(),
         children,
     }
 }
@@ -1130,7 +1136,9 @@ mod tests {
         );
         assert_eq!(tree.product_areas[0].features[0].children.len(), 1);
         assert_eq!(
-            tree.product_areas[0].features[0].children[0].capability.node_kind,
+            tree.product_areas[0].features[0].children[0]
+                .capability
+                .node_kind,
             HierarchyNodeKind::Feature
         );
         assert_eq!(tree.product_areas[2].features.len(), 1);
@@ -1227,11 +1235,12 @@ mod tests {
         assert_eq!(result.agent_work_events_deleted, 1);
         assert_eq!(result.agent_work_evidence_deleted, 1);
 
-        let remaining_product_areas: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM product_areas WHERE product_id='product-reset'")
-                .fetch_one(&pool)
-                .await
-                .expect("product_areas should be counted");
+        let remaining_product_areas: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM product_areas WHERE product_id='product-reset'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("product_areas should be counted");
         let remaining_work_items: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM work_items WHERE product_id='product-reset'")
                 .fetch_one(&pool)

@@ -436,7 +436,8 @@ pub(crate) async fn create_local_workspace_for_scope(
             AppError::Validation("Selected work item has no product scope".to_string())
         })?;
         let product = crate::persistence::product_repo::get_product(&state.db, &product_id).await?;
-        let product_area_name = if let Some(product_area_id) = work_item.product_area_id.as_deref() {
+        let product_area_name = if let Some(product_area_id) = work_item.product_area_id.as_deref()
+        {
             Some(resolve_product_area_name(&state.db, product_area_id).await?)
         } else {
             None
@@ -457,7 +458,13 @@ pub(crate) async fn create_local_workspace_for_scope(
         } else {
             None
         };
-        (product_id, product_area_id, product.name, product_area_name, None)
+        (
+            product_id,
+            product_area_id,
+            product.name,
+            product_area_name,
+            None,
+        )
     };
 
     let (product_id, product_area_id, product_name, product_area_name, maybe_work_item_id) = scope;
@@ -505,11 +512,12 @@ pub(crate) async fn create_local_workspace_for_scope(
         .await?
     };
 
-    let (attached_scope_type, attached_scope_id) = if let Some(product_area_id) = product_area_id.as_deref() {
-        ("product_area".to_string(), product_area_id.to_string())
-    } else {
-        ("product".to_string(), product_id.clone())
-    };
+    let (attached_scope_type, attached_scope_id) =
+        if let Some(product_area_id) = product_area_id.as_deref() {
+            ("product_area".to_string(), product_area_id.to_string())
+        } else {
+            ("product".to_string(), product_id.clone())
+        };
 
     sqlx::query(
         "DELETE FROM repository_attachments WHERE scope_type = ? AND scope_id = ? AND is_default = 1",
@@ -839,7 +847,10 @@ fn default_workspace_root() -> PathBuf {
         .join("AruviStudioWorkspaces")
 }
 
-async fn resolve_product_area_name(db: &sqlx::SqlitePool, product_area_id: &str) -> Result<String, AppError> {
+async fn resolve_product_area_name(
+    db: &sqlx::SqlitePool,
+    product_area_id: &str,
+) -> Result<String, AppError> {
     sqlx::query_scalar::<_, String>("SELECT name FROM product_areas WHERE id = ?")
         .bind(product_area_id)
         .fetch_one(db)
@@ -915,8 +926,8 @@ mod tests {
     use super::*;
     use crate::commands::{product_commands, test_helpers::make_test_app, work_item_commands};
     use crate::state::AppState;
-    use tauri::Manager;
     use tauri::test::MockRuntime;
+    use tauri::Manager;
 
     async fn create_work_item_with_product_area(
         state: State<'_, AppState>,
@@ -1038,22 +1049,16 @@ mod tests {
         .await
         .expect("product_area attachment should be created");
 
-        let resolved_for_product = resolve_repository_for_scope(
-            state.clone(),
-            Some(product_id.clone()),
-            None,
-        )
-        .await
-        .expect("product scope should resolve")
-        .expect("product repo should exist");
-        let resolved_for_scope = resolve_repository_for_scope(
-            state.clone(),
-            Some(product_id),
-            Some(product_area_id),
-        )
-        .await
-        .expect("product area scope should resolve")
-        .expect("product area repo should exist");
+        let resolved_for_product =
+            resolve_repository_for_scope(state.clone(), Some(product_id.clone()), None)
+                .await
+                .expect("product scope should resolve")
+                .expect("product repo should exist");
+        let resolved_for_scope =
+            resolve_repository_for_scope(state.clone(), Some(product_id), Some(product_area_id))
+                .await
+                .expect("product area scope should resolve")
+                .expect("product area repo should exist");
         let resolved_for_work_item = resolve_repository_for_work_item(state, work_item_id)
             .await
             .expect("work item repo should resolve")
@@ -1110,7 +1115,10 @@ mod tests {
             .expect("work item should load");
 
         assert_eq!(updated_repository.default_branch, "develop");
-        assert_eq!(updated_work_item.active_repo_id.as_deref(), Some(repository.id.as_str()));
+        assert_eq!(
+            updated_work_item.active_repo_id.as_deref(),
+            Some(repository.id.as_str())
+        );
         assert_eq!(updated_work_item.branch_name.as_deref(), Some("develop"));
     }
 }

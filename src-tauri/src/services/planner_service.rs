@@ -1098,14 +1098,20 @@ fn normalize_planner_action(action: Value) -> Option<Value> {
             }
             if !object.contains_key("productAreaName") {
                 if let Some(name) = object.get("name").and_then(Value::as_str) {
-                    object.insert("productAreaName".to_string(), Value::String(name.to_string()));
+                    object.insert(
+                        "productAreaName".to_string(),
+                        Value::String(name.to_string()),
+                    );
                 }
             }
         }
         "create_capability" => {
             if let Some(target_name) = raw_target_name.clone() {
                 if let Some(Value::String(_)) = object.get("target") {
-                    object.insert("target".to_string(), json!({ "productAreaName": target_name }));
+                    object.insert(
+                        "target".to_string(),
+                        json!({ "productAreaName": target_name }),
+                    );
                 }
             }
             if !object.contains_key("name") {
@@ -1931,7 +1937,10 @@ async fn find_product_area(
                 name
             )));
         }
-        return Err(AppError::NotFound(format!("No product_area matches {}", name)));
+        return Err(AppError::NotFound(format!(
+            "No product_area matches {}",
+            name
+        )));
     }
     if product_areas.len() == 1 {
         return Ok(product_areas[0].clone());
@@ -2570,14 +2579,18 @@ fn resolve_draft_product_area_node_id(
         .as_deref()
         .and_then(|name| find_draft_node(draft_plan, "product", name, None))
         .map(|node| node.id.clone());
-    let product_area_name = resolve_draft_product_area_name(Some(draft_plan), selected_draft_node_id, action)?;
+    let product_area_name =
+        resolve_draft_product_area_name(Some(draft_plan), selected_draft_node_id, action)?;
     let Some(product_area_name) = product_area_name else {
         return Ok(None);
     };
     if let Some(product_id) = product_id.as_deref() {
-        if let Some(product_area) =
-            find_draft_node(draft_plan, "product_area", &product_area_name, Some(product_id))
-        {
+        if let Some(product_area) = find_draft_node(
+            draft_plan,
+            "product_area",
+            &product_area_name,
+            Some(product_id),
+        ) {
             return Ok(Some(product_area.id.clone()));
         }
     }
@@ -2597,7 +2610,8 @@ fn resolve_draft_capability_node_id(
     let Some(capability_name) = capability_name else {
         return Ok(None);
     };
-    let product_area_id = resolve_draft_product_area_node_id(draft_plan, selected_draft_node_id, action)?;
+    let product_area_id =
+        resolve_draft_product_area_node_id(draft_plan, selected_draft_node_id, action)?;
     let normalized_name = normalize(Some(&capability_name));
     let matches = draft_plan
         .nodes
@@ -2658,7 +2672,12 @@ fn infer_selected_draft_context(
             .as_deref()
             .and_then(|parent_id| find_draft_node_by_id(draft_plan, Some(parent_id)));
     }
-    (product_name, product_area_name, capability_name, work_item_title)
+    (
+        product_name,
+        product_area_name,
+        capability_name,
+        work_item_title,
+    )
 }
 
 fn resolve_draft_product_name(
@@ -2671,9 +2690,7 @@ fn resolve_draft_product_name(
             if find_draft_node(draft_plan, "product", name, None).is_some() {
                 return Ok(Some(name.to_string()));
             }
-            if let Some(node) =
-                find_unique_draft_node_by_name(draft_plan, "product_area", name)?
-            {
+            if let Some(node) = find_unique_draft_node_by_name(draft_plan, "product_area", name)? {
                 return Ok(find_draft_ancestor_name(draft_plan, node, "product"));
             }
             if let Some(node) = find_unique_draft_node_by_name(draft_plan, "capability", name)? {
@@ -3348,7 +3365,7 @@ fn apply_actions_to_draft(
                 let product_name =
                     resolve_draft_product_name(Some(&draft_plan), selected_draft_node_id, action)?
                         .ok_or_else(|| {
-                        AppError::Validation("Draft product area needs a product".to_string())
+                            AppError::Validation("Draft product area needs a product".to_string())
                         })?;
                 let product = find_draft_node(&draft_plan, "product", &product_name, None)
                     .ok_or_else(|| AppError::Validation("Draft product is required".to_string()))?;
@@ -3403,16 +3420,23 @@ fn apply_actions_to_draft(
                         })?;
                 let product = find_draft_node(&draft_plan, "product", &product_name, None)
                     .ok_or_else(|| AppError::Validation("Draft product is required".to_string()))?;
-                let product_area_name =
-                    resolve_draft_product_area_name(Some(&draft_plan), selected_draft_node_id, action)?
-                        .ok_or_else(|| {
-                        AppError::Validation("Draft capability needs a product area".to_string())
-                    })?;
-                let product_area =
-                    find_draft_node(&draft_plan, "product_area", &product_area_name, Some(&product.id))
-                        .ok_or_else(|| {
-                            AppError::Validation("Draft product area is required".to_string())
-                        })?;
+                let product_area_name = resolve_draft_product_area_name(
+                    Some(&draft_plan),
+                    selected_draft_node_id,
+                    action,
+                )?
+                .ok_or_else(|| {
+                    AppError::Validation("Draft capability needs a product area".to_string())
+                })?;
+                let product_area = find_draft_node(
+                    &draft_plan,
+                    "product_area",
+                    &product_area_name,
+                    Some(&product.id),
+                )
+                .ok_or_else(|| {
+                    AppError::Validation("Draft product area is required".to_string())
+                })?;
                 let parent_capability_id =
                     resolve_draft_capability_node_id(&draft_plan, selected_draft_node_id, action)?;
                 let parent_node = parent_capability_id
@@ -3490,8 +3514,11 @@ fn apply_actions_to_draft(
                 let title = string_field(action, "title").ok_or_else(|| {
                     AppError::Validation("Draft work item title is required".to_string())
                 })?;
-                let product_area_id =
-                    resolve_draft_product_area_node_id(&draft_plan, selected_draft_node_id, action)?;
+                let product_area_id = resolve_draft_product_area_node_id(
+                    &draft_plan,
+                    selected_draft_node_id,
+                    action,
+                )?;
                 let capability_id =
                     resolve_draft_capability_node_id(&draft_plan, selected_draft_node_id, action)?;
                 let parent_id = if let Some(capability_id) = capability_id.clone() {
@@ -3627,7 +3654,9 @@ fn apply_actions_to_draft(
                     selected_draft_node_id,
                     action,
                 )?
-                .ok_or_else(|| AppError::Validation("Draft product area is required".to_string()))?;
+                .ok_or_else(|| {
+                    AppError::Validation("Draft product area is required".to_string())
+                })?;
                 let node_index = draft_plan
                     .nodes
                     .iter()
@@ -3636,7 +3665,9 @@ fn apply_actions_to_draft(
                             && node.parent_id.as_deref() == Some(product_id.as_str())
                             && normalize(Some(&node.name)) == normalize(Some(&product_area_name))
                     })
-                    .ok_or_else(|| AppError::Validation("Draft product area is required".to_string()))?;
+                    .ok_or_else(|| {
+                        AppError::Validation("Draft product area is required".to_string())
+                    })?;
                 let previous_name = draft_plan.nodes[node_index].name.clone();
                 let next_name = fields_string(action, "name");
                 let next_description = fields_string(action, "description");
@@ -3847,11 +3878,14 @@ fn apply_actions_to_draft(
                         .ok_or_else(|| {
                             AppError::Validation("Draft template needs a product".to_string())
                         })?;
-                let product_area_name =
-                    resolve_draft_product_area_name(Some(&draft_plan), selected_draft_node_id, action)?
-                        .ok_or_else(|| {
-                        AppError::Validation("Draft template needs a product area".to_string())
-                    })?;
+                let product_area_name = resolve_draft_product_area_name(
+                    Some(&draft_plan),
+                    selected_draft_node_id,
+                    action,
+                )?
+                .ok_or_else(|| {
+                    AppError::Validation("Draft template needs a product area".to_string())
+                })?;
                 let parent_capability_name = resolve_draft_capability_name(
                     Some(&draft_plan),
                     selected_draft_node_id,
@@ -4118,7 +4152,10 @@ fn apply_actions_to_draft(
                     set_string_value(&mut node.details, "nodeKind", &target_kind.to_string());
                 }
             }
-            "archive_product" | "delete_product_area" | "delete_capability" | "delete_work_item" => {
+            "archive_product"
+            | "delete_product_area"
+            | "delete_capability"
+            | "delete_work_item" => {
                 let candidate = match action_type {
                     "archive_product" => resolve_draft_product_name(
                         Some(&draft_plan),
@@ -4271,7 +4308,8 @@ async fn commit_draft_plan(
             .nodes
             .iter()
             .filter(|node| {
-                node.node_type == "product_area" && node.parent_id.as_deref() == Some(&product_node.id)
+                node.node_type == "product_area"
+                    && node.parent_id.as_deref() == Some(&product_node.id)
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -4329,29 +4367,30 @@ async fn commit_draft_plan(
                 )));
             };
 
-            let (product_area_id, parent_capability_id) =
-                if let Some(product_area_id) = product_area_ids.get(parent_draft_id) {
-                    (product_area_id.clone(), None)
-                } else if let Some(parent_capability_id) = capability_ids.get(parent_draft_id) {
-                    let product_area_node =
-                        find_draft_ancestor_node_by_type(draft_plan, &capability_node, "product_area")
-                            .ok_or_else(|| {
-                                AppError::Validation(format!(
-                                    "Draft capability {} is missing a product_area ancestor",
-                                    capability_node.name
-                                ))
-                            })?;
-                    let product_area_id = product_area_ids.get(&product_area_node.id).cloned().ok_or_else(|| {
+            let (product_area_id, parent_capability_id) = if let Some(product_area_id) =
+                product_area_ids.get(parent_draft_id)
+            {
+                (product_area_id.clone(), None)
+            } else if let Some(parent_capability_id) = capability_ids.get(parent_draft_id) {
+                let product_area_node =
+                    find_draft_ancestor_node_by_type(draft_plan, &capability_node, "product_area")
+                        .ok_or_else(|| {
+                            AppError::Validation(format!(
+                                "Draft capability {} is missing a product_area ancestor",
+                                capability_node.name
+                            ))
+                        })?;
+                let product_area_id = product_area_ids.get(&product_area_node.id).cloned().ok_or_else(|| {
                         AppError::Validation(format!(
                             "Draft capability {} could not resolve its persisted product_area parent",
                             capability_node.name
                         ))
                     })?;
-                    (product_area_id, Some(parent_capability_id.clone()))
-                } else {
-                    remaining.push(capability_node);
-                    continue;
-                };
+                (product_area_id, Some(parent_capability_id.clone()))
+            } else {
+                remaining.push(capability_node);
+                continue;
+            };
 
             let capability = product_repo::create_capability(
                 &state.db,
@@ -4623,7 +4662,10 @@ async fn execute_action(state: &AppState, action: &Value) -> Result<Vec<String>,
             )
             .await?;
             product_repo::delete_product_area(&state.db, &product_area.id).await?;
-            Ok(vec![format!("Deleted product area \"{}\".", product_area.name)])
+            Ok(vec![format!(
+                "Deleted product area \"{}\".",
+                product_area.name
+            )])
         }
         "create_capability" => {
             let product_area = find_product_area(
@@ -6775,7 +6817,10 @@ mod tests {
             .find(|node| node.node_type == "capability" && node.name == "Guest Profile Management")
             .expect("missing capability node");
         let capability_id = capability.id.clone();
-        assert_eq!(capability.parent_id.as_deref(), Some(product_area_id.as_str()));
+        assert_eq!(
+            capability.parent_id.as_deref(),
+            Some(product_area_id.as_str())
+        );
 
         let add_work_item = normalize_actions(vec![json!({
             "type": "create_work_item",
@@ -6829,7 +6874,10 @@ mod tests {
         let draft = apply_actions_to_draft(None, None, &actions).expect("failed to build draft");
         let tree = build_draft_tree_nodes(&draft, None);
         let product = tree.first().expect("product node should exist");
-        let product_area = product.children.first().expect("product_area node should exist");
+        let product_area = product
+            .children
+            .first()
+            .expect("product_area node should exist");
 
         assert_eq!(product.source.as_deref(), Some("repository_analysis"));
         assert_eq!(product.confidence.as_deref(), Some("high"));
@@ -6902,7 +6950,10 @@ mod tests {
             .expect("missing work item");
 
         assert_eq!(product_area.parent_id.as_deref(), Some(product.id.as_str()));
-        assert_eq!(capability.parent_id.as_deref(), Some(product_area.id.as_str()));
+        assert_eq!(
+            capability.parent_id.as_deref(),
+            Some(product_area.id.as_str())
+        );
         assert_eq!(work_item.parent_id.as_deref(), Some(capability.id.as_str()));
     }
 
@@ -7236,13 +7287,19 @@ mod tests {
         )
         .expect("work item should be created");
 
-        assert_eq!(capability.parent_id.as_deref(), Some(product_area_id.as_str()));
+        assert_eq!(
+            capability.parent_id.as_deref(),
+            Some(product_area_id.as_str())
+        );
         assert_eq!(work_item.parent_id.as_deref(), Some(capability.id.as_str()));
 
         let (_, fallback_parent_id) =
             delete_draft_node(&mut draft, &capability.id).expect("delete should succeed");
 
-        assert_eq!(fallback_parent_id.as_deref(), Some(product_area_id.as_str()));
+        assert_eq!(
+            fallback_parent_id.as_deref(),
+            Some(product_area_id.as_str())
+        );
         assert!(draft
             .nodes
             .iter()

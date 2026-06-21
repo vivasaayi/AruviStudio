@@ -259,8 +259,8 @@ mod tests {
     use super::*;
     use crate::commands::product_commands;
     use crate::commands::test_helpers::make_test_app;
-    use tauri::Manager;
     use tauri::test::MockRuntime;
+    use tauri::Manager;
 
     #[tokio::test]
     async fn create_work_item_accepts_legacy_aliases_and_fallback_fields() {
@@ -350,8 +350,14 @@ mod tests {
         .expect("work item should be created");
 
         assert_eq!(work_item.product_id.as_deref(), Some(product.id.as_str()));
-        assert_eq!(work_item.product_area_id.as_deref(), Some(product_area.id.as_str()));
-        assert_eq!(work_item.capability_id.as_deref(), Some(capability.id.as_str()));
+        assert_eq!(
+            work_item.product_area_id.as_deref(),
+            Some(product_area.id.as_str())
+        );
+        assert_eq!(
+            work_item.capability_id.as_deref(),
+            Some(capability.id.as_str())
+        );
         assert_eq!(work_item.problem_statement, "Problem from alias");
         assert_eq!(work_item.acceptance_criteria, "Acceptance from alias");
         assert_eq!(work_item.work_item_type.to_string(), "story");

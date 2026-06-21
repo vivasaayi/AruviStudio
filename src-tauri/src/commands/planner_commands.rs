@@ -257,25 +257,18 @@ pub async fn analyze_repository_for_planner_command(
 mod tests {
     use super::*;
     use crate::commands::test_helpers::make_test_app;
-    use tauri::Manager;
     use tauri::test::MockRuntime;
+    use tauri::Manager;
 
     #[tokio::test]
     async fn planner_commands_validate_required_session_ids() {
         let app: tauri::App<MockRuntime> = make_test_app("planner_commands_validation").await;
         let state = app.state::<AppState>();
 
-        let update = update_planner_session_command(
-            state.clone(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
-        .expect_err("update should require session id");
+        let update =
+            update_planner_session_command(state.clone(), None, None, None, None, None, None)
+                .await
+                .expect_err("update should require session id");
         let clear = clear_planner_pending_command(state.clone(), None, None)
             .await
             .expect_err("clear should require session id");
@@ -292,15 +285,10 @@ mod tests {
         )
         .await
         .expect_err("rename should require session id");
-        let delete = delete_planner_draft_node_command(
-            state,
-            None,
-            None,
-            Some("node-1".to_string()),
-            None,
-        )
-        .await
-        .expect_err("delete should require session id");
+        let delete =
+            delete_planner_draft_node_command(state, None, None, Some("node-1".to_string()), None)
+                .await
+                .expect_err("delete should require session id");
 
         assert!(matches!(
             update,

@@ -147,8 +147,8 @@ pub async fn clear_database_path_override(state: State<'_, AppState>) -> Result<
 mod tests {
     use super::*;
     use crate::commands::test_helpers::make_test_app;
-    use tauri::Manager;
     use tauri::test::MockRuntime;
+    use tauri::Manager;
 
     #[tokio::test]
     async fn settings_commands_round_trip_settings_and_db_metadata() {
@@ -175,7 +175,10 @@ mod tests {
         assert_eq!(stored.as_deref(), Some("enabled"));
         assert!(active_db_path.ends_with(".db"));
         assert!(health.applied_migrations > 0);
-        assert_eq!(health.latest_version, health.migrations.last().map(|item| item.version));
+        assert_eq!(
+            health.latest_version,
+            health.migrations.last().map(|item| item.version)
+        );
     }
 
     #[tokio::test]
@@ -191,12 +194,9 @@ mod tests {
             .expect_err("relative path should fail");
 
         let override_path = state.app_data_dir.join("custom.db");
-        set_database_path_override(
-            state.clone(),
-            override_path.to_string_lossy().to_string(),
-        )
-        .await
-        .expect("absolute path should persist");
+        set_database_path_override(state.clone(), override_path.to_string_lossy().to_string())
+            .await
+            .expect("absolute path should persist");
         let stored = get_database_path_override(state.clone())
             .await
             .expect("override should load");

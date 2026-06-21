@@ -202,8 +202,8 @@ mod tests {
     use crate::domain::work_item::WorkItemStatus;
     use crate::persistence::settings_repo;
     use crate::state::AppState;
-    use tauri::Manager;
     use tauri::test::MockRuntime;
+    use tauri::Manager;
 
     async fn create_work_item(state: State<'_, AppState>, title: &str) -> String {
         let product = product_commands::create_product(
@@ -274,13 +274,9 @@ mod tests {
     async fn approve_work_item_creates_approval_and_updates_status() {
         let app: tauri::App<MockRuntime> = make_test_app("approval_commands_approve").await;
         let state = app.state::<AppState>();
-        settings_repo::set_setting(
-            &state.db,
-            AUTO_START_AFTER_WORK_ITEM_APPROVAL_KEY,
-            "false",
-        )
-        .await
-        .expect("setting should be stored");
+        settings_repo::set_setting(&state.db, AUTO_START_AFTER_WORK_ITEM_APPROVAL_KEY, "false")
+            .await
+            .expect("setting should be stored");
 
         let work_item_id = create_work_item(state.clone(), "Approval Item").await;
         let approval = approve_work_item(
@@ -359,24 +355,26 @@ mod tests {
 
         assert_eq!(updated.status, WorkItemStatus::Draft);
         assert_eq!(approvals.len(), 3);
-        assert!(
-            approvals
-                .iter()
-                .any(|approval| matches!(approval.approval_type, ApprovalType::TaskApproval)
-                    && matches!(approval.status, ApprovalStatus::Rejected)
-                    && approval.notes == "needs changes")
-        );
-        assert!(
-            approvals
-                .iter()
-                .any(|approval| matches!(approval.approval_type, ApprovalType::PlanApproval)
-                    && matches!(approval.status, ApprovalStatus::Approved))
-        );
-        assert!(
-            approvals
-                .iter()
-                .any(|approval| matches!(approval.approval_type, ApprovalType::TestReview)
-                    && matches!(approval.status, ApprovalStatus::Approved))
-        );
+        assert!(approvals.iter().any(|approval| matches!(
+            approval.approval_type,
+            ApprovalType::TaskApproval
+        ) && matches!(
+            approval.status,
+            ApprovalStatus::Rejected
+        ) && approval.notes == "needs changes"));
+        assert!(approvals.iter().any(|approval| matches!(
+            approval.approval_type,
+            ApprovalType::PlanApproval
+        ) && matches!(
+            approval.status,
+            ApprovalStatus::Approved
+        )));
+        assert!(approvals.iter().any(|approval| matches!(
+            approval.approval_type,
+            ApprovalType::TestReview
+        ) && matches!(
+            approval.status,
+            ApprovalStatus::Approved
+        )));
     }
 }
