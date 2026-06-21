@@ -60,7 +60,7 @@ pub async fn create_work_item(
         acceptance_criteria
     };
     let work_item_type = if work_item_type.trim().is_empty() {
-        workItemType.unwrap_or_else(|| "feature".to_string())
+        workItemType.unwrap_or_else(|| "story".to_string())
     } else {
         work_item_type
     };
@@ -289,7 +289,7 @@ mod tests {
             "Area".to_string(),
             "".to_string(),
             "".to_string(),
-            Some("area".to_string()),
+            Some("product_area".to_string()),
             None,
             None,
             None,
@@ -342,7 +342,7 @@ mod tests {
             Some("Acceptance from alias".to_string()),
             "".to_string(),
             "".to_string(),
-            Some("delivery_story".to_string()),
+            Some("story".to_string()),
             "high".to_string(),
             "medium".to_string(),
         )

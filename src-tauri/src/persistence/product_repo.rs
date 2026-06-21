@@ -7,8 +7,8 @@ use crate::error::AppError;
 use sqlx::{Row, SqlitePool};
 use tracing::{debug, error, trace};
 
-const MODULE_SELECT_COLUMNS: &str = "id, product_id, CASE lower(replace(node_kind, '-', '_')) WHEN 'area' THEN 'area' WHEN 'product_area' THEN 'area' WHEN 'module' THEN 'area' WHEN 'strategic_area' THEN 'area' WHEN 'domain' THEN 'area' WHEN 'subdomain' THEN 'area' WHEN 'capability' THEN 'area' WHEN 'feature_set' THEN 'area' WHEN 'feature_group' THEN 'area' ELSE 'area' END AS node_kind, name, description, purpose, explanation, examples, implementation_notes, test_guidance, sort_order, created_at, updated_at";
-const CAPABILITY_SELECT_COLUMNS: &str = "id, module_id, parent_capability_id, level, CASE lower(replace(node_kind, '-', '_')) WHEN 'capability' THEN 'capability' WHEN 'area' THEN 'capability' WHEN 'product_area' THEN 'capability' WHEN 'module' THEN 'capability' WHEN 'strategic_area' THEN 'capability' WHEN 'domain' THEN 'capability' WHEN 'subdomain' THEN 'capability' WHEN 'feature_set' THEN 'capability' WHEN 'feature_group' THEN 'capability' WHEN 'system' THEN 'capability' WHEN 'feature' THEN 'feature' WHEN 'rollout' THEN 'feature' WHEN 'capability_slice' THEN 'feature' ELSE CASE WHEN parent_capability_id IS NULL OR level <= 0 THEN 'capability' ELSE 'feature' END END AS node_kind, sort_order, name, description, acceptance_criteria, explanation, examples, priority, risk, status, technical_notes, implementation_notes, test_guidance, created_at, updated_at";
+const MODULE_SELECT_COLUMNS: &str = "id, product_id, node_kind, name, description, purpose, explanation, examples, implementation_notes, test_guidance, sort_order, created_at, updated_at";
+const CAPABILITY_SELECT_COLUMNS: &str = "id, module_id, parent_capability_id, level, node_kind, sort_order, name, description, acceptance_criteria, explanation, examples, priority, risk, status, technical_notes, implementation_notes, test_guidance, created_at, updated_at";
 const PRODUCT_SELECT_COLUMNS: &str = "id, name, description, vision, goals, tags, status, lifecycle, health, owner_label, investment_status, roadmap, evidence, created_at, updated_at";
 const PRODUCT_REFERENCE_SELECT_COLUMNS: &str =
     "id, scope_type, scope_id, title, reference_kind, uri, content, created_at, updated_at";
@@ -41,13 +41,10 @@ fn normalize_node_kind_value(value: &str) -> String {
 
 fn parse_root_node_kind(value: &str) -> Result<HierarchyNodeKind, AppError> {
     match normalize_node_kind_value(value).as_str() {
-        "area" | "product_area" | "module" | "strategic_area" | "domain" | "subdomain"
-        | "capability" | "feature_set" | "feature_group" | "system" => {
-            Ok(HierarchyNodeKind::Area)
-        }
+        "product_area" => Ok(HierarchyNodeKind::ProductArea),
         value => HierarchyNodeKind::parse(value).ok_or_else(|| {
             AppError::Validation(format!(
-                "Unsupported product hierarchy node kind '{value}'. Use area, capability, or feature."
+                "Unsupported product hierarchy node kind '{value}'. Use product_area, capability, or feature."
             ))
         }),
     }
@@ -55,14 +52,11 @@ fn parse_root_node_kind(value: &str) -> Result<HierarchyNodeKind, AppError> {
 
 fn parse_capability_node_kind(value: &str) -> Result<HierarchyNodeKind, AppError> {
     match normalize_node_kind_value(value).as_str() {
-        "capability" | "area" | "product_area" | "module" | "strategic_area" | "domain"
-        | "subdomain" | "feature_set" | "feature_group" | "system" => {
-            Ok(HierarchyNodeKind::Capability)
-        }
-        "feature" | "rollout" | "capability_slice" => Ok(HierarchyNodeKind::Feature),
+        "capability" => Ok(HierarchyNodeKind::Capability),
+        "feature" => Ok(HierarchyNodeKind::Feature),
         value => HierarchyNodeKind::parse(value).ok_or_else(|| {
             AppError::Validation(format!(
-                "Unsupported product hierarchy node kind '{value}'. Use area, capability, or feature."
+                "Unsupported product hierarchy node kind '{value}'. Use product_area, capability, or feature."
             ))
         }),
     }
@@ -75,7 +69,7 @@ fn resolve_root_node_kind(node_kind: Option<&str>) -> Result<HierarchyNodeKind, 
         .unwrap_or_else(HierarchyNodeKind::default_root);
     if !kind.is_root_kind() {
         return Err(AppError::Validation(
-            "Root product areas must use area.".to_string(),
+            "Root product areas must use product_area.".to_string(),
         ));
     }
     Ok(kind)
@@ -925,7 +919,7 @@ fn build_module_hierarchy_tree(module_tree: &ModuleTree) -> HierarchyTreeNode {
         .collect();
     HierarchyTreeNode {
         id: module_tree.module.id.clone(),
-        node_type: HierarchyNodeType::Module,
+        node_type: HierarchyNodeType::ProductArea,
         node_kind: module_tree.module.node_kind,
         module_id: module_tree.module.id.clone(),
         capability_id: None,
@@ -977,7 +971,7 @@ fn build_hierarchy_tree(
             if capability_tree.capability.parent_capability_id.is_some() {
                 HierarchyNodeType::Capability
             } else {
-                HierarchyNodeType::Module
+                HierarchyNodeType::ProductArea
             },
         ),
         depth: capability_tree.capability.level + 1,
@@ -1037,11 +1031,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_product_tree_normalizes_legacy_catalog_node_kinds() {
-        let pool = create_test_pool("legacy_node_kinds").await;
+    async fn get_product_tree_decodes_canonical_catalog_node_kinds() {
+        let pool = create_test_pool("canonical_node_kinds").await;
         create_product(
             &pool,
-            "product-legacy-kinds",
+            "product-canonical-kinds",
             "Legacy Kinds",
             "",
             "",
@@ -1059,67 +1053,76 @@ mod tests {
 
         sqlx::query(
             "INSERT INTO modules (id, product_id, node_kind, name, sort_order)
-             VALUES ('module-domain', 'product-legacy-kinds', 'domain', 'Payments', 0)",
+             VALUES ('module-payments', 'product-canonical-kinds', 'product_area', 'Payments', 0)",
         )
         .execute(&pool)
         .await
-        .expect("legacy module should be inserted");
+        .expect("product area should be inserted");
         sqlx::query(
             "INSERT INTO modules (id, product_id, node_kind, name, sort_order)
-             VALUES ('module-feature-set', 'product-legacy-kinds', 'feature_set', 'Billing', 1)",
+             VALUES ('module-billing', 'product-canonical-kinds', 'product_area', 'Billing', 1)",
         )
         .execute(&pool)
         .await
-        .expect("legacy feature-set module should be inserted");
+        .expect("product area should be inserted");
         sqlx::query(
             "INSERT INTO modules (id, product_id, node_kind, name, sort_order)
-             VALUES ('module-system', 'product-legacy-kinds', 'system', 'Operations', 2)",
+             VALUES ('module-operations', 'product-canonical-kinds', 'product_area', 'Operations', 2)",
         )
         .execute(&pool)
         .await
-        .expect("legacy system module should be inserted");
+        .expect("product area should be inserted");
         sqlx::query(
             "INSERT INTO capabilities (
                 id, module_id, parent_capability_id, level, node_kind, sort_order, name
              )
              VALUES (
-                'capability-feature-set', 'module-domain', NULL, 0, 'feature_set', 0, 'Checkout'
+                'capability-checkout', 'module-payments', NULL, 0, 'capability', 0, 'Checkout'
              )",
         )
         .execute(&pool)
         .await
-        .expect("legacy capability should be inserted");
+        .expect("capability should be inserted");
         sqlx::query(
             "INSERT INTO capabilities (
                 id, module_id, parent_capability_id, level, node_kind, sort_order, name
              )
              VALUES (
-                'capability-system', 'module-system', NULL, 0, 'system', 0, 'Runtime'
+                'capability-runtime', 'module-operations', NULL, 0, 'capability', 0, 'Runtime'
              )",
         )
         .execute(&pool)
         .await
-        .expect("legacy system capability should be inserted");
+        .expect("capability should be inserted");
         sqlx::query(
             "INSERT INTO capabilities (
                 id, module_id, parent_capability_id, level, node_kind, sort_order, name
              )
              VALUES (
-                'capability-rollout', 'module-domain', 'capability-feature-set', 1, 'rollout', 0, 'Reconciliation'
+                'feature-reconciliation', 'module-payments', 'capability-checkout', 1, 'feature', 0, 'Reconciliation'
              )",
         )
         .execute(&pool)
         .await
-        .expect("legacy feature should be inserted");
+        .expect("feature should be inserted");
 
-        let tree = get_product_tree(&pool, "product-legacy-kinds")
+        let tree = get_product_tree(&pool, "product-canonical-kinds")
             .await
-            .expect("legacy node kinds should not break tree decoding");
+            .expect("canonical node kinds should decode");
 
         assert_eq!(tree.modules.len(), 3);
-        assert_eq!(tree.modules[0].module.node_kind, HierarchyNodeKind::Area);
-        assert_eq!(tree.modules[1].module.node_kind, HierarchyNodeKind::Area);
-        assert_eq!(tree.modules[2].module.node_kind, HierarchyNodeKind::Area);
+        assert_eq!(
+            tree.modules[0].module.node_kind,
+            HierarchyNodeKind::ProductArea
+        );
+        assert_eq!(
+            tree.modules[1].module.node_kind,
+            HierarchyNodeKind::ProductArea
+        );
+        assert_eq!(
+            tree.modules[2].module.node_kind,
+            HierarchyNodeKind::ProductArea
+        );
         assert_eq!(tree.modules[0].features.len(), 1);
         assert_eq!(
             tree.modules[0].features[0].capability.node_kind,
@@ -1160,7 +1163,7 @@ mod tests {
 
         sqlx::query(
             "INSERT INTO modules (id, product_id, node_kind, name, sort_order)
-             VALUES ('module-reset', 'product-reset', 'area', 'Area', 0)",
+             VALUES ('module-reset', 'product-reset', 'product_area', 'Area', 0)",
         )
         .execute(&pool)
         .await
@@ -1178,7 +1181,7 @@ mod tests {
             "INSERT INTO work_items (
                 id, product_id, module_id, capability_id, title, work_item_type, status
              )
-             VALUES ('work-reset', 'product-reset', 'module-reset', 'cap-reset', 'Work', 'feature', 'draft')",
+             VALUES ('work-reset', 'product-reset', 'module-reset', 'cap-reset', 'Work', 'story', 'draft')",
         )
         .execute(&pool)
         .await

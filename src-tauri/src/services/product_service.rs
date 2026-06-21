@@ -211,7 +211,7 @@ pub async fn apply_semantic_template(
             "{trimmed_name} is implemented and matches the documented behavior, examples, and edge cases."
         ),
         "Preserve the authored semantic structure and keep behavior deterministic.",
-        "feature",
+        "story",
         priority,
         "medium",
     )
@@ -246,7 +246,7 @@ pub async fn apply_semantic_template(
         parent_node_type: if parent_capability_id.is_some() {
             HierarchyNodeType::Capability
         } else {
-            HierarchyNodeType::Module
+            HierarchyNodeType::ProductArea
         },
         topic_node,
         created_nodes: vec![
@@ -327,7 +327,7 @@ async fn seed_example_product(
                 "{} needs a local repository, git history, and starter test structure before delivery work should begin.",
                 product.name
             ),
-            "Create or attach the local repository for this seeded example, initialize git if needed, add a minimal README, .gitignore, and tests folder, then attach that repository to product or module scope so downstream work items inherit it.",
+            "Create or attach the local repository for this seeded example, initialize git if needed, add a minimal README, .gitignore, and tests folder, then attach that repository to product or product area scope so downstream work items inherit it.",
             "A local repository is attached to the seeded product, git is initialized, the default branch exists, a starter tests folder is present, and downstream work items can resolve the repository automatically.",
             "Do not implement feature outcomes in this bootstrap work item. This step is only for repository and test scaffold readiness.",
             "setup",
@@ -430,7 +430,7 @@ async fn seed_example_capability(
                 ),
                 "Implementation, unit tests, integration tests, and UI validation all pass. The user can inspect the change in the IDE and workflow artifacts.",
                 "Keep the implementation scoped to the seeded example product. Preserve existing behavior and leave artifacts ready for human review.",
-                "feature",
+                "story",
                 capability.priority,
                 "medium",
             )

@@ -2841,7 +2841,7 @@ mod tests {
             "description",
             "acceptance",
             "constraints",
-            "feature",
+            "story",
             "medium",
             "medium",
         )

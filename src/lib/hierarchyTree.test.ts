@@ -24,7 +24,7 @@ const capabilityNode: HierarchyTreeNode = {
   module_id: "module-a",
   capability_id: "capability-a",
   parent_node_id: "module-a",
-  parent_node_type: "module",
+  parent_node_type: "product_area",
   depth: 1,
   name: "Capability A",
   description: "",
@@ -36,8 +36,8 @@ const capabilityNode: HierarchyTreeNode = {
 
 const moduleNode: HierarchyTreeNode = {
   id: "module-a",
-  node_type: "module",
-  node_kind: "area",
+  node_type: "product_area",
+  node_kind: "product_area",
   module_id: "module-a",
   capability_id: null,
   parent_node_id: null,
@@ -113,19 +113,19 @@ function makeWorkItem(overrides: Partial<WorkItem> = {}): WorkItem {
 describe("hierarchyTree", () => {
   it("derives stable owner keys from explicit and legacy scope fields", () => {
     expect(getWorkItemOwnerKey(makeWorkItem())).toBe("product");
-    expect(getWorkItemOwnerKey(makeWorkItem({ module_id: "module-a" }))).toBe("module:module-a");
+    expect(getWorkItemOwnerKey(makeWorkItem({ module_id: "module-a" }))).toBe("product_area:module-a");
     expect(getWorkItemOwnerKey(makeWorkItem({ capability_id: "capability-a" }))).toBe(
       "capability:capability-a",
     );
     expect(
       getWorkItemOwnerKey(
-        makeWorkItem({ source_node_id: "module-a", source_node_type: "module" }),
+        makeWorkItem({ source_node_id: "module-a", source_node_type: "product_area" }),
       ),
-    ).toBe("module:module-a");
+    ).toBe("product_area:module-a");
   });
 
   it("finds nodes, paths, and counts across a nested tree", () => {
-    expect(getHierarchyNodeKey(moduleNode)).toBe("module:module-a");
+    expect(getHierarchyNodeKey(moduleNode)).toBe("product_area:module-a");
     expect(countHierarchyNodes(productTree.roots)).toBe(3);
     expect(countLeafNodes(productTree.roots)).toBe(2);
     expect(countDescendantNodes(moduleNode)).toBe(1);
@@ -146,7 +146,7 @@ describe("hierarchyTree", () => {
     const moduleItem = makeWorkItem({
       id: "module-item",
       source_node_id: "module-a",
-      source_node_type: "module",
+      source_node_type: "product_area",
     });
     const capabilityItem = makeWorkItem({
       id: "capability-item",
@@ -168,6 +168,7 @@ describe("hierarchyTree", () => {
 
   it("resolves section ids and direct child collections", () => {
     expect(getHierarchyNodeSectionId(null)).toBe("product-overview-top");
+    expect(getHierarchyNodeSectionId(moduleNode)).toBe("product-area-module-a");
     expect(getHierarchyNodeSectionId(capabilityNode)).toBe("capability-capability-a");
     expect(getDirectChildNodes(productTree, null).map((node) => node.id)).toEqual([
       "module-a",

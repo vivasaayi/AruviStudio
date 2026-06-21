@@ -382,7 +382,6 @@ function summarizeModelUsage(calls: ModelCall[], runs: AgentRun[]): ModelUsageSu
 function formatWorkItemTypeLabel(workItemType: WorkItem["work_item_type"]): string {
   const canonicalLabels: Record<WorkItem["work_item_type"], string> = {
     story: "story",
-    feature: "story",
     task: "task",
     setup: "setup",
     bug: "bug fix",
@@ -402,7 +401,7 @@ function getWorkItemExecutionSteps(workItem: WorkItem, workspaceName?: string | 
       "Register the workspace inside AruviStudio.",
       "Enable version history and create the default branch.",
       "Create baseline files such as README, .gitignore, and tests/ scaffold.",
-      `Attach the workspace to the current product or module scope${workspaceName ? ` (${workspaceName})` : ""}.`,
+      `Attach the workspace to the current product or product area scope${workspaceName ? ` (${workspaceName})` : ""}.`,
       "Verify downstream stories and tasks can inherit the workspace automatically.",
     ];
   }
@@ -414,7 +413,7 @@ function getWorkItemExecutionSteps(workItem: WorkItem, workspaceName?: string | 
     "Produce verification artifacts for review.",
   ];
 
-  if (workItem.work_item_type === "story" || workItem.work_item_type === "feature") {
+  if (workItem.work_item_type === "story") {
     steps.push("Run or generate unit, integration, and UI validation coverage as required.");
   }
 
@@ -462,7 +461,7 @@ export function WorkItemListPage() {
     description: "",
     acceptanceCriteria: "",
     constraints: "",
-    workItemType: "feature",
+    workItemType: "story",
     priority: "medium",
     complexity: "medium",
     parentWorkItemId: null as string | null,
@@ -823,7 +822,7 @@ export function WorkItemListPage() {
         description: "",
         acceptanceCriteria: "",
         constraints: "",
-        workItemType: "feature",
+        workItemType: "story",
         priority: "medium",
         complexity: "medium",
         parentWorkItemId: null,
@@ -1198,7 +1197,7 @@ export function WorkItemListPage() {
       const ownerNode = findHierarchyNode(
         roots,
         workItem.source_node_id ?? workItem.capability_id ?? workItem.module_id,
-        workItem.source_node_type ?? (workItem.capability_id ? "capability" : workItem.module_id ? "module" : null),
+        workItem.source_node_type ?? (workItem.capability_id ? "capability" : workItem.module_id ? "product_area" : null),
       );
 
       if (ownerNode) {
@@ -1411,7 +1410,7 @@ export function WorkItemListPage() {
       if (assignment.scope_type === "capability" && selectedWorkItemSummary.capability_id) {
         return assignment.scope_id === selectedWorkItemSummary.capability_id;
       }
-      if (assignment.scope_type === "module" && selectedWorkItemSummary.module_id) {
+      if (assignment.scope_type === "product_area" && selectedWorkItemSummary.module_id) {
         return assignment.scope_id === selectedWorkItemSummary.module_id;
       }
       if (assignment.scope_type === "product") {

@@ -859,7 +859,7 @@ async fn ensure_repository_ready_for_external_cli(
         .await?
         .ok_or_else(|| {
             AppError::Validation(
-                "Repository readiness failed for external CLI invocation: no repository is attached to the work item, module, or product scope."
+                "Repository readiness failed for external CLI invocation: no repository is attached to the work item, product area, or product scope."
                     .to_string(),
             )
         })?;
@@ -1185,14 +1185,14 @@ mod tests {
             module_id: Some("module-1".to_string()),
             capability_id: None,
             source_node_id: Some("module-1".to_string()),
-            source_node_type: Some(HierarchyNodeType::Module),
+            source_node_type: Some(HierarchyNodeType::ProductArea),
             parent_work_item_id: None,
             title: "Add external CLI launch buttons".to_string(),
             problem_statement: "A user already pays for another coding assistant.".to_string(),
             description: "Let the user invoke that assistant from AruviStudio.".to_string(),
             acceptance_criteria: "The run is tracked with output and status.".to_string(),
             constraints: "".to_string(),
-            work_item_type: WorkItemType::CapabilityDelivery,
+            work_item_type: WorkItemType::Story,
             priority: Priority::High,
             complexity: Complexity::Medium,
             status: WorkItemStatus::Approved,

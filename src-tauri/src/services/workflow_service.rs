@@ -138,7 +138,7 @@ impl WorkflowService {
 
         let Some(repo) = resolved_repo else {
             return Err(AppError::Validation(format!(
-                "Repository readiness failed for stage {}. No repository is attached to work item, module, or product scope. Complete a bootstrap setup work item or attach a repository before starting delivery.",
+                "Repository readiness failed for stage {}. No repository is attached to work item, product area, or product scope. Complete a bootstrap setup work item or attach a repository before starting delivery.",
                 stage.as_str()
             )));
         };
@@ -1396,7 +1396,7 @@ mod tests {
             "description",
             "acceptance",
             "constraints",
-            "feature",
+            "story",
             "medium",
             "medium",
         )
@@ -1621,7 +1621,7 @@ mod tests {
             "description",
             "acceptance",
             "constraints",
-            "feature",
+            "story",
             "medium",
             "medium",
         )
@@ -1795,7 +1795,7 @@ mod tests {
             "description",
             "acceptance",
             "constraints",
-            "feature",
+            "story",
             "medium",
             "medium",
         )
@@ -1962,7 +1962,7 @@ mod tests {
             "description",
             "acceptance",
             "constraints",
-            "feature",
+            "story",
             "medium",
             "medium",
         )
@@ -2132,7 +2132,7 @@ mod tests {
             "description",
             "acceptance",
             "constraints",
-            "feature",
+            "story",
             "medium",
             "medium",
         )
@@ -2296,7 +2296,7 @@ mod tests {
             "Create the baseline repository structure (including an empty tests folder), commit the setup, and keep follow-up outcomes focused on incremental functional changes.",
             "Repository baseline is committed, tests folder exists, and subsequent outcomes can commit changes without re-initializing the project.",
             "Do not implement calculator features in this bootstrap outcome.",
-            "feature",
+            "story",
             "high",
             "low",
         )
@@ -2382,7 +2382,7 @@ mod tests {
                     ),
                     "Component behavior, unit tests, integration tests, and UI tests pass.",
                     "Stay inside React codebase and calculator scope.",
-                    "feature",
+                    "story",
                     "medium",
                     "medium",
                 )

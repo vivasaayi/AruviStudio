@@ -74,7 +74,7 @@ function makeCapability(overrides: Partial<Capability> = {}): Capability {
 const moduleRecord: Module = {
   id: "module-1",
   product_id: "product-1",
-  node_kind: "area",
+  node_kind: "product_area",
   name: "Area One",
   description: "",
   purpose: "",
@@ -129,8 +129,8 @@ const productTree: ProductTree = {
   roots: [
     {
       id: "module-1",
-      node_type: "module",
-      node_kind: "area",
+      node_type: "product_area",
+      node_kind: "product_area",
       module_id: "module-1",
       capability_id: null,
       parent_node_id: null,
@@ -149,7 +149,7 @@ const productTree: ProductTree = {
           module_id: "module-1",
           capability_id: "capability-root",
           parent_node_id: "module-1",
-          parent_node_type: "module",
+          parent_node_type: "product_area",
           depth: 1,
           name: "Capability Root",
           description: "",
@@ -225,7 +225,7 @@ describe("productOverview helpers", () => {
     expect(getWorkItemPresentation("failed").bucket).toBe("blocked");
     expect(getWorkItemPresentation("ready_for_review").label).toBe("WIP");
     expect(getWorkItemPresentation("approved").toneClass).toBe("is-tbd");
-    expect(getModuleSectionId(moduleRecord)).toBe("module-module-1");
+    expect(getModuleSectionId(moduleRecord)).toBe("product-area-module-1");
     expect(getCapabilitySectionId(makeCapability({ id: "capability-root" }))).toBe(
       "capability-capability-root",
     );
@@ -235,7 +235,7 @@ describe("productOverview helpers", () => {
     expect(buildProductOverviewToc(productTree, true)).toEqual([
       { id: PRODUCT_OVERVIEW_TOP_ID, title: "Overview", level: 0 },
       { id: PRODUCT_DELIVERY_ID, title: "Product Delivery", level: 0 },
-      { id: "module-module-1", title: "1. Area One", level: 0 },
+      { id: "product-area-module-1", title: "1. Area One", level: 0 },
       { id: "capability-capability-root", title: "1.1. Capability Root", level: 1 },
     ]);
   });

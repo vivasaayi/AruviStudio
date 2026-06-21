@@ -690,10 +690,10 @@ pub async fn materialize_catalog(
                     id, product_id, node_kind, name, description, purpose, explanation,
                     examples, implementation_notes, test_guidance, sort_order
                  )
-                 VALUES (?, ?, 'area', ?, ?, ?, '', '', '', '', ?)
+                 VALUES (?, ?, 'product_area', ?, ?, ?, '', '', '', '', ?)
                  ON CONFLICT(id) DO UPDATE SET
                     product_id=excluded.product_id,
-                    node_kind='area',
+                    node_kind='product_area',
                     name=excluded.name,
                     description=excluded.description,
                     purpose=excluded.purpose,
@@ -706,7 +706,7 @@ pub async fn materialize_catalog(
             .bind(format!(
                 "Materialized product area from agent-work run {run_id}."
             ))
-            .bind(format!("Agent-work module {area_label}."))
+            .bind(format!("Agent-work product area {area_label}."))
             .bind(*sort_order)
             .execute(&mut *tx)
             .await?;
@@ -947,7 +947,7 @@ pub async fn materialize_catalog(
                         acceptance_criteria, constraints, work_item_type, priority, complexity,
                         status, sort_order
                      )
-                     VALUES (?, ?, ?, ?, ?, 'capability', NULL, ?, ?, ?, ?, ?, 'feature', ?, 'medium', ?, 0)
+                     VALUES (?, ?, ?, ?, ?, 'capability', NULL, ?, ?, ?, ?, ?, 'story', ?, 'medium', ?, 0)
                      ON CONFLICT(id) DO UPDATE SET
                         product_id=excluded.product_id,
                         module_id=excluded.module_id,
@@ -960,7 +960,7 @@ pub async fn materialize_catalog(
                         description=excluded.description,
                         acceptance_criteria=excluded.acceptance_criteria,
                         constraints=excluded.constraints,
-                        work_item_type='feature',
+                        work_item_type='story',
                         priority=excluded.priority,
                         complexity='medium',
                         status=excluded.status,
@@ -2908,7 +2908,7 @@ mod tests {
             "Payments",
             "",
             "",
-            Some("area"),
+            Some("product_area"),
             "",
             "",
             "",
@@ -3019,7 +3019,7 @@ mod tests {
             "Payments",
             "",
             "",
-            Some("area"),
+            Some("product_area"),
             "",
             "",
             "",
@@ -3056,7 +3056,7 @@ mod tests {
              )
              VALUES (
                 'mayyam-work-link-test', 'product-link-test', 'area-link-test', 'mayyam-feature-link-test',
-                'mayyam-feature-link-test', 'capability', 'Reconcile checkout', 'feature', 'draft'
+                'mayyam-feature-link-test', 'capability', 'Reconcile checkout', 'story', 'draft'
              )",
         )
         .execute(&pool)

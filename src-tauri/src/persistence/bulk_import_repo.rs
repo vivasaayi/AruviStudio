@@ -288,10 +288,10 @@ pub async fn upsert_product_areas(
                     id, product_id, node_kind, name, description, purpose, explanation,
                     examples, implementation_notes, test_guidance, sort_order
                  )
-                 VALUES (?, ?, 'area', ?, ?, ?, ?, ?, ?, ?, ?)
+                 VALUES (?, ?, 'product_area', ?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(id) DO UPDATE SET
                     product_id=excluded.product_id,
-                    node_kind='area',
+                    node_kind='product_area',
                     name=excluded.name,
                     description=excluded.description,
                     purpose=excluded.purpose,

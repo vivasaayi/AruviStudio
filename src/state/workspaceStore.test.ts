@@ -62,7 +62,7 @@ describe("workspaceStore", () => {
       activeModuleId: "module-1",
       activeCapabilityId: null,
       activeNodeId: "module-1",
-      activeNodeType: "module",
+      activeNodeType: "product_area",
     });
 
     store.setActiveCapability("capability-1");
@@ -97,14 +97,14 @@ describe("workspaceStore", () => {
 
     workspaceStoreModule.useWorkspaceStore.getState().setActiveHierarchyNode({
       nodeId: "module-3",
-      nodeType: "module",
+      nodeType: "product_area",
     });
 
     expect(workspaceStoreModule.useWorkspaceStore.getState()).toMatchObject({
       activeModuleId: "module-3",
       activeCapabilityId: null,
       activeNodeId: "module-3",
-      activeNodeType: "module",
+      activeNodeType: "product_area",
     });
   });
 

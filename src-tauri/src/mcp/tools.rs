@@ -40,8 +40,8 @@ use tracing::error;
 
 const AUTO_START_AFTER_WORK_ITEM_APPROVAL_KEY: &str =
     "workflow.auto_start_after_work_item_approval";
-const MCP_MODULE_SELECT_COLUMNS: &str = "id, product_id, CASE lower(replace(node_kind, '-', '_')) WHEN 'area' THEN 'area' WHEN 'product_area' THEN 'area' WHEN 'module' THEN 'area' WHEN 'strategic_area' THEN 'area' WHEN 'domain' THEN 'area' WHEN 'subdomain' THEN 'area' WHEN 'capability' THEN 'area' WHEN 'feature_set' THEN 'area' WHEN 'feature_group' THEN 'area' ELSE 'area' END AS node_kind, name, description, purpose, explanation, examples, implementation_notes, test_guidance, sort_order, created_at, updated_at";
-const MCP_CAPABILITY_SELECT_COLUMNS: &str = "id, module_id, parent_capability_id, level, CASE lower(replace(node_kind, '-', '_')) WHEN 'capability' THEN 'capability' WHEN 'area' THEN 'capability' WHEN 'product_area' THEN 'capability' WHEN 'module' THEN 'capability' WHEN 'strategic_area' THEN 'capability' WHEN 'domain' THEN 'capability' WHEN 'subdomain' THEN 'capability' WHEN 'feature_set' THEN 'capability' WHEN 'feature_group' THEN 'capability' WHEN 'system' THEN 'capability' WHEN 'feature' THEN 'feature' WHEN 'rollout' THEN 'feature' WHEN 'capability_slice' THEN 'feature' ELSE CASE WHEN parent_capability_id IS NULL OR level <= 0 THEN 'capability' ELSE 'feature' END END AS node_kind, sort_order, name, description, acceptance_criteria, explanation, examples, priority, risk, status, technical_notes, implementation_notes, test_guidance, created_at, updated_at";
+const MCP_MODULE_SELECT_COLUMNS: &str = "id, product_id, node_kind, name, description, purpose, explanation, examples, implementation_notes, test_guidance, sort_order, created_at, updated_at";
+const MCP_CAPABILITY_SELECT_COLUMNS: &str = "id, module_id, parent_capability_id, level, node_kind, sort_order, name, description, acceptance_criteria, explanation, examples, priority, risk, status, technical_notes, implementation_notes, test_guidance, created_at, updated_at";
 
 fn char_count_i64(content: &str) -> i64 {
     i64::try_from(content.chars().count()).unwrap_or(i64::MAX)
@@ -507,7 +507,7 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "catalog.product_areas.create",
             "Create Product Area",
-            "Create a top-level product area. Product areas must use nodeKind=area; see aruvi://catalog/node-kind-constraints.",
+            "Create a top-level product area. Product areas must use nodeKind=product_area; see aruvi://catalog/node-kind-constraints.",
             object_schema(
                 vec![
                     ("productId", string_property("The product id.")),
@@ -527,8 +527,8 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
                     (
                         "nodeKind",
                         enum_property(
-                            "Storage node kind for the product area.",
-                            &["area"],
+                            "Canonical node kind for the product area.",
+                            &["product_area"],
                         ),
                     ),
                 ],
@@ -559,7 +559,7 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
                         "nodeKind",
                         enum_property(
                             "Updated storage node kind for the product area.",
-                            &["area"],
+                            &["product_area"],
                         ),
                     ),
                 ],
@@ -2271,7 +2271,7 @@ fn action_ok(action: &str) -> Value {
 fn normalize_repository_scope_type(value: &str) -> Result<String, AppError> {
     match value.trim().to_ascii_lowercase().as_str() {
         "product" => Ok("product".to_string()),
-        "product_area" | "product-area" | "area" | "module" => Ok("module".to_string()),
+        "product_area" => Ok("product_area".to_string()),
         other => Err(AppError::Validation(format!(
             "Unsupported repository scope type '{other}'. Use product or product_area."
         ))),
@@ -5274,7 +5274,7 @@ mod tests {
             .and_then(Value::as_array)
             .expect("product area nodeKind enum");
 
-        assert_eq!(root_kind_enum, &vec![json!("area")]);
+        assert_eq!(root_kind_enum, &vec![json!("product_area")]);
         assert!(product_area_create_tool
             .description
             .contains("aruvi://catalog/node-kind-constraints"));

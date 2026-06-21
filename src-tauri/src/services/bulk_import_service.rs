@@ -29,13 +29,13 @@ struct PreparedImport {
 #[derive(Debug, Clone)]
 struct ProductAreaScope {
     product_id: String,
-    module_id: String,
+    product_area_id: String,
 }
 
 #[derive(Debug, Clone)]
 struct CapabilityScope {
     product_id: String,
-    module_id: String,
+    product_area_id: String,
     capability_id: String,
 }
 
@@ -66,7 +66,7 @@ struct ImportBuildContext {
 struct ImportDocument {
     #[serde(default)]
     product: Option<ImportProduct>,
-    #[serde(default, alias = "product_areas", alias = "modules")]
+    #[serde(default, alias = "product_areas")]
     product_areas: Vec<ImportProductArea>,
     #[serde(default, alias = "work_items")]
     work_items: Vec<ImportWorkItem>,
@@ -213,7 +213,7 @@ pub fn bulk_import_schema() -> Value {
     json!({
         "formats": ["json", "csv"],
         "json": {
-            "description": "Canonical nested import format. Product Areas become modules, capabilities become capability nodes, features become feature nodes, and workItems become delivery stories/tasks.",
+            "description": "Canonical nested import format. Product Areas contain capabilities, capabilities contain features, and workItems contain stories/tasks.",
             "requiredTopLevel": ["product or submit productId", "productAreas"],
             "shape": {
                 "product": {
@@ -592,7 +592,7 @@ fn push_product_area(
         id.clone(),
         ProductAreaScope {
             product_id: product_id.to_string(),
-            module_id: id.clone(),
+            product_area_id: id.clone(),
         },
     );
 
@@ -604,7 +604,7 @@ fn push_product_area(
         module_id: Some(id.clone()),
         capability_id: None,
         source_node_id: Some(id.clone()),
-        source_node_type: Some("module".to_string()),
+        source_node_type: Some("product_area".to_string()),
     };
     push_work_items(ctx, area_scope, area.work_items, None, "story")?;
     Ok(id)
@@ -666,7 +666,7 @@ fn push_capability(
         id.clone(),
         CapabilityScope {
             product_id: product_id.to_string(),
-            module_id: module_id.to_string(),
+            product_area_id: module_id.to_string(),
             capability_id: id.clone(),
         },
     );
@@ -789,7 +789,7 @@ fn resolve_work_item_scope(
             return Ok(WorkItemScope {
                 product_id: clean_ref(item.product_id.as_deref())
                     .unwrap_or_else(|| scope.product_id.clone()),
-                module_id: Some(scope.module_id.clone()),
+                module_id: Some(scope.product_area_id.clone()),
                 capability_id: Some(scope.capability_id.clone()),
                 source_node_id: Some(scope.capability_id.clone()),
                 source_node_type: Some("capability".to_string()),
@@ -810,10 +810,10 @@ fn resolve_work_item_scope(
             return Ok(WorkItemScope {
                 product_id: clean_ref(item.product_id.as_deref())
                     .unwrap_or_else(|| scope.product_id.clone()),
-                module_id: Some(scope.module_id.clone()),
+                module_id: Some(scope.product_area_id.clone()),
                 capability_id: None,
-                source_node_id: Some(scope.module_id.clone()),
-                source_node_type: Some("module".to_string()),
+                source_node_id: Some(scope.product_area_id.clone()),
+                source_node_type: Some("product_area".to_string()),
             });
         }
         return Ok(WorkItemScope {
@@ -822,7 +822,7 @@ fn resolve_work_item_scope(
             module_id: Some(area_id.clone()),
             capability_id: None,
             source_node_id: Some(area_id),
-            source_node_type: Some("module".to_string()),
+            source_node_type: Some("product_area".to_string()),
         });
     }
     if let Some(source_node_id) = clean_ref(item.source_node_id.as_deref()) {
@@ -954,8 +954,8 @@ fn push_csv_feature(
     let parent_scope = ctx.capabilities.get(&parent_id).cloned();
     let module_id = parent_scope
         .as_ref()
-        .map(|scope| scope.module_id.clone())
-        .or_else(|| csv_field(record, &["product_area_id", "module_id"]))
+        .map(|scope| scope.product_area_id.clone())
+        .or_else(|| csv_field(record, &["product_area_id"]))
         .ok_or_else(|| csv_error(record, "missing product_area_id for feature"))?;
     let product_id = parent_scope
         .as_ref()
@@ -1205,7 +1205,7 @@ fn normalize_header(value: &str) -> String {
 
 fn normalize_record_type(value: &str) -> String {
     match value.trim().to_ascii_lowercase().replace('-', "_").as_str() {
-        "area" | "module" | "productarea" => "product_area".to_string(),
+        "productarea" => "product_area".to_string(),
         "story" => "story".to_string(),
         "task" => "task".to_string(),
         other => other.to_string(),
@@ -1289,7 +1289,7 @@ fn normalize_node_kind(value: Option<&str>, default_value: &str) -> Result<Strin
 
 fn normalize_source_node_type(value: &str) -> Result<String, AppError> {
     match value.trim().to_ascii_lowercase().replace('-', "_").as_str() {
-        "product_area" | "area" | "module" => Ok("module".to_string()),
+        "product_area" => Ok("product_area".to_string()),
         "capability" | "feature" => Ok("capability".to_string()),
         other => Err(AppError::Validation(format!(
             "Unsupported sourceNodeType '{other}'. Use product_area, capability, or feature."
@@ -1299,9 +1299,7 @@ fn normalize_source_node_type(value: &str) -> Result<String, AppError> {
 
 fn normalize_work_item_type(value: &str) -> Result<String, AppError> {
     match value.trim().to_ascii_lowercase().replace('-', "_").as_str() {
-        "" | "story" | "feature" | "delivery_story" | "capability_delivery" => {
-            Ok("feature".to_string())
-        }
+        "" | "story" => Ok("story".to_string()),
         "task" => Ok("task".to_string()),
         "setup" => Ok("setup".to_string()),
         "bug" => Ok("bug".to_string()),
@@ -1338,7 +1336,7 @@ fn normalize_value(
     }
 }
 
-const NODE_KINDS: &[&str] = &["area", "capability", "feature"];
+const NODE_KINDS: &[&str] = &["product_area", "capability", "feature"];
 const PRODUCT_LIFECYCLES: &[&str] = &[
     "idea",
     "incubating",

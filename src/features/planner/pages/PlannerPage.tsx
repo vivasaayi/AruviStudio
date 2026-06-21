@@ -974,8 +974,8 @@ function parseDraftNodeType(meta?: string | null) {
   if (meta.includes("product")) {
     return "product";
   }
-  if (meta.includes("module")) {
-    return "module";
+  if (meta.includes("product area") || meta.includes("product_area")) {
+    return "product area";
   }
   if (meta.includes("capability")) {
     return "capability";
@@ -1080,7 +1080,7 @@ function buildProposalTreeNodes(plan: PlannerPlan): PlannerTreeNode[] {
     const key = `${product.label}::${label}`;
     let node = moduleNodes.get(key);
     if (!node) {
-      node = { id: `proposal-module-${key}`, label, meta: "proposed capability", node_type: "module", evidence: [], children: [] };
+      node = { id: `proposal-product-area-${key}`, label, meta: "proposed product area", node_type: "product_area", evidence: [], children: [] };
       moduleNodes.set(key, node);
       product.children.push(node);
     }
@@ -1196,7 +1196,7 @@ function resolveVoiceNodeReference(
     return findAncestorNodeByType(selectedPath, "product") ?? nodes[0] ?? null;
   }
   if (["this module", "selected module"].includes(reference)) {
-    return findAncestorNodeByType(selectedPath, "module");
+    return findAncestorNodeByType(selectedPath, "product area");
   }
   if (["this capability", "selected capability"].includes(reference)) {
     return findAncestorNodeByType(selectedPath, "capability");
@@ -1227,14 +1227,14 @@ type DraftValidationIssue = {
 
 type DraftValidationSummary = {
   score: number;
-  counts: Record<"product" | "module" | "capability" | "work item", number>;
+  counts: Record<"product" | "product area" | "capability" | "work item", number>;
   issues: DraftValidationIssue[];
 };
 
 function buildDraftValidation(nodes: PlannerTreeNode[]): DraftValidationSummary {
   const counts: DraftValidationSummary["counts"] = {
     product: 0,
-    module: 0,
+    "product area": 0,
     capability: 0,
     "work item": 0,
   };
@@ -1267,7 +1267,7 @@ function buildDraftValidation(nodes: PlannerTreeNode[]): DraftValidationSummary 
         detail: "Products should usually have at least one product area before the design is applied.",
       });
     }
-    if (nodeType === "module" && node.children.length === 0) {
+    if (nodeType === "product area" && node.children.length === 0) {
       issues.push({
         tone: "warn",
         title: `${node.label} is empty`,
@@ -1321,7 +1321,7 @@ function buildSuggestedPrompts(node: PlannerTreeNode | null): string[] {
         `What is missing under ${node.label} before I apply it?`,
         `Add notification, reporting, and integration capabilities under ${node.label}.`,
       ];
-    case "module":
+    case "product area":
       return [
         `Enhance ${node.label} with 3 concrete capabilities.`,
         `Break ${node.label} into capabilities, features, and starter stories.`,
@@ -1351,8 +1351,8 @@ function getAllowedDraftChildTypes(node: PlannerTreeNode | null): PlannerDraftCh
   const nodeType = getPlannerNodeType(node);
   switch (nodeType) {
     case "product":
-      return ["module", "work_item"];
-    case "module":
+      return ["product_area", "work_item"];
+    case "product area":
       return ["capability", "work_item"];
     case "capability":
       return ["capability", "work_item"];
@@ -1365,8 +1365,8 @@ function formatDraftChildTypeLabel(type: PlannerDraftChildType) {
   switch (type) {
     case "work_item":
       return "Work Item";
-    case "module":
-      return "Module";
+    case "product_area":
+      return "Product Area";
     case "capability":
       return "Capability";
   }
@@ -1383,7 +1383,7 @@ function findRelevantPlanActions(plan: PlannerPlan | null, node: PlannerTreeNode
     if (nodeType === "product") {
       return target?.productName === node.label;
     }
-    if (nodeType === "module") {
+    if (nodeType === "product area") {
       return action.type === "create_module"
         ? action.name === node.label || target?.moduleName === node.label
         : target?.moduleName === node.label;
@@ -1545,7 +1545,7 @@ async function executePlannerAction(action: PlannerAction, context: ResolverCont
         description: action.description ?? "",
         acceptanceCriteria: action.acceptanceCriteria ?? "",
         constraints: action.constraints ?? "",
-        workItemType: action.workItemType ?? "feature",
+        workItemType: action.workItemType ?? "story",
         priority: action.priority ?? "medium",
         complexity: action.complexity ?? "medium",
       });
@@ -1951,7 +1951,7 @@ export function PlannerPage() {
   const [expandedDraftNodeIds, setExpandedDraftNodeIds] = useState<string[]>([]);
   const [latestTraceEvents, setLatestTraceEvents] = useState<PlannerTraceEvent[]>([]);
   const [renameDraftName, setRenameDraftName] = useState("");
-  const [draftChildType, setDraftChildType] = useState<PlannerDraftChildType>("module");
+  const [draftChildType, setDraftChildType] = useState<PlannerDraftChildType>("product_area");
   const [draftChildName, setDraftChildName] = useState("");
   const [draftChildSummary, setDraftChildSummary] = useState("");
   const [draftEditError, setDraftEditError] = useState<string | null>(null);
@@ -2082,7 +2082,7 @@ export function PlannerPage() {
     }
     if (draftTreeNodes.length > 0) {
       return {
-        title: `Design active: ${draftValidation.counts.product} product, ${draftValidation.counts.module} product area, ${draftValidation.counts.capability} capability/feature, ${draftValidation.counts["work item"]} story/task`,
+        title: `Design active: ${draftValidation.counts.product} product, ${draftValidation.counts["product area"]} product area, ${draftValidation.counts.capability} capability/feature, ${draftValidation.counts["work item"]} story/task`,
         detail: selectedDraftNode
           ? `Selected node: ${selectedDraftNode.label}.`
           : "Select a node and keep refining before apply.",
@@ -3207,7 +3207,7 @@ export function PlannerPage() {
       { prefix: "work item ", type: "work item" },
       { prefix: "work-item ", type: "work item" },
       { prefix: "capability ", type: "capability" },
-      { prefix: "module ", type: "module" },
+      { prefix: "product area ", type: "product area" },
       { prefix: "product ", type: "product" },
       { prefix: "node ", type: "node" },
     ];
@@ -3660,7 +3660,7 @@ export function PlannerPage() {
                   <div style={styles.compactSummaryGrid}>
                     <div style={styles.compactSummaryItem}>
                       <div style={styles.compactSummaryLabel}>Design</div>
-                      <div style={styles.compactSummaryValue}>{draftTreeNodes.length > 0 ? `${draftValidation.counts.module} product areas staged` : "No active design"}</div>
+                      <div style={styles.compactSummaryValue}>{draftTreeNodes.length > 0 ? `${draftValidation.counts["product area"]} product areas staged` : "No active design"}</div>
                     </div>
                     <div style={styles.compactSummaryItem}>
                       <div style={styles.compactSummaryLabel}>Selection</div>
@@ -3715,7 +3715,7 @@ export function PlannerPage() {
                       </div>
                       <div style={styles.metricCard}>
                         <div style={styles.metricLabel}>Product Areas</div>
-                        <div style={styles.metricValue}>{draftValidation.counts.module}</div>
+                        <div style={styles.metricValue}>{draftValidation.counts["product area"]}</div>
                       </div>
                       <div style={styles.metricCard}>
                         <div style={styles.metricLabel}>Capabilities</div>

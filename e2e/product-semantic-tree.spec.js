@@ -116,7 +116,7 @@ test("portfolio manage tab edits strategy hierarchy with modals and double-confi
   await page.getByRole("button", { name: "Manage" }).click();
 
   await expect(page.getByText("Strategy Hierarchy")).toBeVisible();
-  await page.getByRole("button", { name: "Add Strategic Area" }).click();
+  await page.getByRole("button", { name: "Add Strategic Product Area" }).click();
   await expect(page.getByText("Add Strategy Node")).toBeVisible();
   await page.getByLabel("Strategy node name").fill("Connected Devices");
   await page.getByLabel("Owner or hat").fill("Founder");

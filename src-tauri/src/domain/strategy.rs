@@ -4,17 +4,17 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 #[sqlx(rename_all = "snake_case")]
 pub enum StrategyNodeKind {
-    StrategicArea,
+    StrategicProductArea,
     Domain,
-    Subdomain,
+    SubDomain,
 }
 
 impl StrategyNodeKind {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
-            "strategic_area" => Some(Self::StrategicArea),
+            "strategic_product_area" => Some(Self::StrategicProductArea),
             "domain" => Some(Self::Domain),
-            "subdomain" => Some(Self::Subdomain),
+            "sub_domain" => Some(Self::SubDomain),
             _ => None,
         }
     }
@@ -22,24 +22,21 @@ impl StrategyNodeKind {
     pub fn supports_child_kind(&self, child_kind: &Self) -> bool {
         matches!(
             (self, child_kind),
-            (Self::StrategicArea, Self::Domain)
-                | (Self::StrategicArea, Self::Subdomain)
-                | (Self::Domain, Self::Subdomain)
-                | (Self::Subdomain, Self::Subdomain)
+            (Self::StrategicProductArea, Self::Domain) | (Self::Domain, Self::SubDomain)
         )
     }
 
     pub fn is_root_kind(&self) -> bool {
-        matches!(self, Self::StrategicArea)
+        matches!(self, Self::StrategicProductArea)
     }
 }
 
 impl std::fmt::Display for StrategyNodeKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let value = match self {
-            Self::StrategicArea => "strategic_area",
+            Self::StrategicProductArea => "strategic_product_area",
             Self::Domain => "domain",
-            Self::Subdomain => "subdomain",
+            Self::SubDomain => "sub_domain",
         };
         write!(f, "{value}")
     }

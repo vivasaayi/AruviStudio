@@ -46,8 +46,8 @@ const productTree: ProductTree = {
   roots: [
     {
       id: "module-1",
-      node_type: "module",
-      node_kind: "area",
+      node_type: "product_area",
+      node_kind: "product_area",
       module_id: "module-1",
       capability_id: null,
       parent_node_id: null,
@@ -66,7 +66,7 @@ const productTree: ProductTree = {
           module_id: "module-1",
           capability_id: "capability-1",
           parent_node_id: "module-1",
-          parent_node_type: "module",
+          parent_node_type: "product_area",
           depth: 1,
           name: "Capability One",
           description: "",

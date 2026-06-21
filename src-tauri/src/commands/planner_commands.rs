@@ -362,7 +362,7 @@ mod tests {
             None,
             None,
             None,
-            Some("module".to_string()),
+            Some("product_area".to_string()),
             None,
             "Child".to_string(),
             None,

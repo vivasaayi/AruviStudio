@@ -8,7 +8,7 @@ type LabelForms = {
 };
 
 const NODE_KIND_LABELS: Record<HierarchyNodeKind, LabelForms> = {
-  area: {
+  product_area: {
     singular: "Product Area",
     plural: "Product Areas",
     singularLower: "product area",
@@ -29,16 +29,16 @@ const NODE_KIND_LABELS: Record<HierarchyNodeKind, LabelForms> = {
 };
 
 const NODE_KIND_GUIDANCE: Record<HierarchyNodeKind, string> = {
-  area: "Use for a durable top-level product area.",
+  product_area: "Use for a durable top-level product area.",
   capability: "Use for something the product must be able to do inside a product area.",
   feature: "Use for a product-visible feature under a capability. Delivery stories and tasks execute against features.",
 };
 
-export const ROOT_NODE_KINDS: HierarchyNodeKind[] = ["area"];
-export const NODE_KIND_DISPLAY_ORDER: HierarchyNodeKind[] = ["area", "capability", "feature"];
+export const ROOT_NODE_KINDS: HierarchyNodeKind[] = ["product_area"];
+export const NODE_KIND_DISPLAY_ORDER: HierarchyNodeKind[] = ["product_area", "capability", "feature"];
 
 export const NODE_KIND_GROUPS: Array<{ label: string; kinds: HierarchyNodeKind[] }> = [
-  { label: "Product Management", kinds: ["area", "capability", "feature"] },
+  { label: "Product Management", kinds: ["product_area", "capability", "feature"] },
 ];
 
 export function orderHierarchyNodeKinds(nodeKinds: HierarchyNodeKind[]) {
@@ -86,27 +86,27 @@ export function getHierarchyNodeKindGuidance(nodeKind: HierarchyNodeKind | null 
 
 export function getAllowedChildNodeKinds(parentKind: HierarchyNodeKind | null | undefined): HierarchyNodeKind[] {
   switch (parentKind) {
-    case "area":
+    case "product_area":
       return ["capability"];
     case "capability":
       return ["feature"];
     case "feature":
       return [];
     default:
-      return ["area"];
+      return ["product_area"];
   }
 }
 
 export function getDefaultChildNodeKind(parentKind: HierarchyNodeKind | null | undefined): HierarchyNodeKind {
   switch (parentKind) {
-    case "area":
+    case "product_area":
       return "capability";
     case "capability":
       return "feature";
     case "feature":
       return "feature";
     default:
-      return "area";
+      return "product_area";
   }
 }
 

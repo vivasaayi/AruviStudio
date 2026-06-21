@@ -228,7 +228,7 @@ mod tests {
             "Approval Module".to_string(),
             "".to_string(),
             "".to_string(),
-            Some("area".to_string()),
+            Some("product_area".to_string()),
             None,
             None,
             None,

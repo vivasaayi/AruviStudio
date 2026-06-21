@@ -175,7 +175,7 @@ function countAssignmentsByType(assignments: TeamAssignment[]) {
       acc[assignment.scope_type] += 1;
       return acc;
     },
-    { product: 0, module: 0, capability: 0 } as Record<"product" | "module" | "capability", number>,
+    { product: 0, product_area: 0, capability: 0 } as Record<"product" | "product_area" | "capability", number>,
   );
 }
 
@@ -195,7 +195,7 @@ function resolveScopeLabel(
   if (assignment.scope_type === "product") {
     return products.find((product) => product.id === assignment.scope_id)?.name ?? assignment.scope_id;
   }
-  if (assignment.scope_type === "module") {
+  if (assignment.scope_type === "product_area") {
     return modules.find((module) => module.id === assignment.scope_id)?.name ?? assignment.scope_id;
   }
   return capabilities.find((capability) => capability.id === assignment.scope_id)?.name.trim() ?? assignment.scope_id;
@@ -319,7 +319,7 @@ export function AgentRegistryPage() {
   const [membershipError, setMembershipError] = React.useState<string | null>(null);
 
   const [assignmentProductId, setAssignmentProductId] = React.useState<string | null>(activeProductId);
-  const [assignmentScopeType, setAssignmentScopeType] = React.useState<"product" | "module" | "capability">("module");
+  const [assignmentScopeType, setAssignmentScopeType] = React.useState<"product" | "product_area" | "capability">("product_area");
   const [assignmentModuleId, setAssignmentModuleId] = React.useState<string>("");
   const [assignmentCapabilityId, setAssignmentCapabilityId] = React.useState<string>("");
   const [assignmentError, setAssignmentError] = React.useState<string | null>(null);
@@ -972,7 +972,7 @@ export function AgentRegistryPage() {
       return;
     }
     let scopeId = assignmentProductId ?? "";
-    if (assignmentScopeType === "module") {
+    if (assignmentScopeType === "product_area") {
       scopeId = assignmentModuleId;
     }
     if (assignmentScopeType === "capability") {
@@ -1627,7 +1627,7 @@ export function AgentRegistryPage() {
         <div style={styles.headerRow}>
           <div style={styles.titleWrap}>
             <h2 style={styles.title}>Scope Assignments</h2>
-            <div style={styles.subtitle}>Resolve work items to a team first: capability or capability rollout beats module, module beats product.</div>
+            <div style={styles.subtitle}>Resolve work items to a team first: capability or feature beats product area, product area beats product.</div>
           </div>
         </div>
         <div style={styles.formGrid}>
@@ -1666,18 +1666,18 @@ export function AgentRegistryPage() {
             <select
               style={styles.select}
               value={assignmentScopeType}
-              onChange={(e) => setAssignmentScopeType(e.target.value as "product" | "module" | "capability")}
+              onChange={(e) => setAssignmentScopeType(e.target.value as "product" | "product_area" | "capability")}
             >
               <option value="product">Product</option>
-              <option value="module">Module</option>
+              <option value="product_area">Product Area</option>
               <option value="capability">Capability / Slice</option>
             </select>
           </div>
-          {assignmentScopeType === "module" ? (
+          {assignmentScopeType === "product_area" ? (
             <div style={styles.field}>
               <label style={styles.label}>Module</label>
               <select style={styles.select} value={assignmentModuleId} onChange={(e) => setAssignmentModuleId(e.target.value)}>
-                <option value="">Select a module</option>
+                <option value="">Select a product area</option>
                 {currentModuleOptions.map((module) => (
                   <option key={module.id} value={module.id}>
                     {module.name}
@@ -1724,7 +1724,7 @@ export function AgentRegistryPage() {
                 style={{ ...styles.treeRow, gridTemplateColumns: "minmax(0, 1.5fr) 100px 160px 140px" }}
               >
                 <div style={styles.treeNameCell}>
-                  <span style={styles.treeCaret}>{assignment.scope_type === "product" ? "▣" : assignment.scope_type === "module" ? "▸" : "•"}</span>
+                  <span style={styles.treeCaret}>{assignment.scope_type === "product" ? "▣" : assignment.scope_type === "product_area" ? "▸" : "•"}</span>
                   <span style={styles.treeSubName}>{assignment.scope_type === "capability" ? "capability" : assignment.scope_type}</span>
                 </div>
                 <div style={styles.treeCell}>{assignment.scope_type === "capability" ? "capability" : assignment.scope_type}</div>

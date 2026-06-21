@@ -506,7 +506,7 @@ pub(crate) async fn create_local_workspace_for_scope(
     };
 
     let (attached_scope_type, attached_scope_id) = if let Some(module_id) = module_id.as_deref() {
-        ("module".to_string(), module_id.to_string())
+        ("product_area".to_string(), module_id.to_string())
     } else {
         ("product".to_string(), product_id.clone())
     };
@@ -946,7 +946,7 @@ mod tests {
             module_name.to_string(),
             "".to_string(),
             "".to_string(),
-            Some("area".to_string()),
+            Some("product_area".to_string()),
             None,
             None,
             None,
@@ -1030,7 +1030,7 @@ mod tests {
         .expect("product attachment should be created");
         attach_repository(
             state.clone(),
-            "module".to_string(),
+            "product_area".to_string(),
             module_id.clone(),
             module_repo.id.clone(),
             true,
@@ -1052,8 +1052,8 @@ mod tests {
             Some(module_id),
         )
         .await
-        .expect("module scope should resolve")
-        .expect("module repo should exist");
+        .expect("product area scope should resolve")
+        .expect("product area repo should exist");
         let resolved_for_work_item = resolve_repository_for_work_item(state, work_item_id)
             .await
             .expect("work item repo should resolve")

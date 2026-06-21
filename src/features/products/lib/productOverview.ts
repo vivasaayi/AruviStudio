@@ -165,7 +165,7 @@ export function getWorkItemPresentation(status: WorkItem["status"]): WorkItemPre
 }
 
 export function getModuleSectionId(module: Module) {
-  return `module-${module.id}`;
+  return `product-area-${module.id}`;
 }
 
 export function getCapabilitySectionId(capability: Capability) {
@@ -1761,7 +1761,7 @@ function renderBookModuleHtml(moduleTree: ModuleTree, chapterNumber: number, all
     <section class="page page-break" id="${getModuleSectionId(moduleTree.module)}">
       <div class="chapter-kicker">${escapeHtml(rootKindLabel)} ${chapterNumber}</div>
       <h2 class="chapter-title">${escapeHtml(moduleTree.module.name)}</h2>
-      <div class="chapter-intro">${toHtmlParagraph(moduleTree.module.description || moduleTree.module.purpose || "This chapter describes the module’s role inside the product.")}</div>
+      <div class="chapter-intro">${toHtmlParagraph(moduleTree.module.description || moduleTree.module.purpose || "This chapter describes the product area's role inside the product.")}</div>
       <div class="chapter-stats">
         <span class="stat-pill">${moduleTree.features.length} ${childCountLabel}</span>
         <span class="stat-pill">${metrics.done} done</span>

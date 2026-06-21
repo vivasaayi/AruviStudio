@@ -648,7 +648,7 @@ export const exportProductOverviewPdf = (data: {
     headerRight: data.headerRight ?? null,
     header_right: data.headerRight ?? null,
   });
-export const attachRepository = (data: { scopeType: "product" | "module"; scopeId: string; repositoryId: string; isDefault: boolean }) =>
+export const attachRepository = (data: { scopeType: "product" | "product_area"; scopeId: string; repositoryId: string; isDefault: boolean }) =>
   invoke("attach_repository", {
     scope_type: data.scopeType,
     scope_id: data.scopeId,
@@ -999,7 +999,7 @@ export const addTeamMember = (data: { teamId: string; agentId: string; title: st
   });
 export const removeTeamMember = (id: string) => invoke("remove_team_member", { id });
 export const listTeamAssignments = () => invoke<TeamAssignment[]>("list_team_assignments");
-export const assignTeamScope = (data: { teamId: string; scopeType: "product" | "module" | "capability"; scopeId: string }) =>
+export const assignTeamScope = (data: { teamId: string; scopeType: "product" | "product_area" | "capability"; scopeId: string }) =>
   invoke<TeamAssignment>("assign_team_scope", {
     teamId: data.teamId,
     team_id: data.teamId,

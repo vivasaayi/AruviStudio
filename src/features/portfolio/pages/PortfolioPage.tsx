@@ -26,7 +26,7 @@ type StrategyFormState = {
 
 const emptyStrategyForm: StrategyFormState = {
   parentNodeId: "",
-  nodeKind: "strategic_area",
+  nodeKind: "strategic_product_area",
   name: "",
   description: "",
   ownerLabel: "",
@@ -87,9 +87,9 @@ const styles: Record<string, React.CSSProperties> = {
 };
 
 const strategyKindLabels: Record<StrategyNodeKind, string> = {
-  strategic_area: "Strategic Area",
+  strategic_product_area: "Strategic Product Area",
   domain: "Domain",
-  subdomain: "Subdomain",
+  sub_domain: "Sub Domain",
 };
 
 export function PortfolioPage() {
@@ -220,7 +220,7 @@ export function PortfolioPage() {
   const selectedProductLinks = (product: Product) => strategyLinks.filter((link) => link.product_id === product.id);
 
   const openCreateRootDialog = () => {
-    setStrategyForm({ ...emptyStrategyForm, nodeKind: "strategic_area" });
+    setStrategyForm({ ...emptyStrategyForm, nodeKind: "strategic_product_area" });
     setEditingNodeId(null);
     setFormError(null);
     setStrategyDialogMode("create");
@@ -291,7 +291,7 @@ export function PortfolioPage() {
       </div>
 
       <div style={styles.statGrid}>
-        <Metric label="Strategic Areas" value={strategyNodes.filter((node) => node.node_kind === "strategic_area").length} />
+        <Metric label="Strategic Product Areas" value={strategyNodes.filter((node) => node.node_kind === "strategic_product_area").length} />
         <Metric label="Domains" value={strategyNodes.filter((node) => node.node_kind === "domain").length} />
         <Metric label="Products" value={products.length} />
         <Metric label="Unlinked Products" value={unlinkedProducts.length} />
@@ -342,7 +342,7 @@ export function PortfolioPage() {
                 ) : strategyTree.length > 0 ? (
                   <CompactStrategyList nodes={strategyTree} selectedId={selectedStrategyNodeId} onSelect={setSelectedStrategyNodeId} strategyLinks={strategyLinks} />
                 ) : (
-                  <div style={styles.empty}>No strategy areas yet. Use Manage to create the first strategic area.</div>
+                  <div style={styles.empty}>No strategic product areas yet. Use Manage to create the first strategic product area.</div>
                 )}
               </div>
               <div style={styles.section}>
@@ -372,12 +372,12 @@ export function PortfolioPage() {
             <div style={styles.panelHeader}>
               <div>
                 <div style={styles.panelTitle}>Strategy Hierarchy</div>
-                <div style={styles.subtitle}>Accordion map for Strategic Area / Domain / Subdomain.</div>
+                <div style={styles.subtitle}>Accordion map for Strategic Product Area / Domain / Sub Domain.</div>
               </div>
               <div style={styles.controlRow}>
                 <button style={styles.ghostButton} onClick={expandAll}>Expand All</button>
                 <button style={styles.ghostButton} onClick={collapseAll}>Collapse All</button>
-                <button style={styles.button} onClick={openCreateRootDialog}>Add Strategic Area</button>
+                <button style={styles.button} onClick={openCreateRootDialog}>Add Strategic Product Area</button>
               </div>
             </div>
             <div style={styles.panelBody}>
@@ -406,7 +406,7 @@ export function PortfolioPage() {
                   ))}
                 </div>
               ) : (
-                <div style={styles.empty}>No strategy hierarchy yet. Add the first strategic area.</div>
+                <div style={styles.empty}>No strategy hierarchy yet. Add the first strategic product area.</div>
               )}
             </div>
           </div>
@@ -645,7 +645,7 @@ function StrategyNodeForm(props: {
 }) {
   const { form, nodes, editingNodeId, onChange } = props;
   const parentNode = nodes.find((node) => node.id === form.parentNodeId) ?? null;
-  const allowedKind = parentNode ? getChildKind(parentNode.node_kind) : "strategic_area";
+  const allowedKind = parentNode ? getChildKind(parentNode.node_kind) : "strategic_product_area";
   const blockedParentIds = new Set(editingNodeId ? [editingNodeId, ...collectDescendantIds(nodes, editingNodeId)] : []);
   const parentOptions = nodes.filter((node) => !blockedParentIds.has(node.id) && Boolean(getChildKind(node.node_kind)));
   const setParent = (parentNodeId: string) => {
@@ -653,14 +653,14 @@ function StrategyNodeForm(props: {
     onChange({
       ...form,
       parentNodeId,
-      nodeKind: nextParent ? getChildKind(nextParent.node_kind) ?? form.nodeKind : "strategic_area",
+      nodeKind: nextParent ? getChildKind(nextParent.node_kind) ?? form.nodeKind : "strategic_product_area",
     });
   };
   return (
     <>
       <div style={styles.label}>Parent</div>
       <select style={styles.input} value={form.parentNodeId} onChange={(event) => setParent(event.target.value)}>
-        <option value="">No parent / Strategic Area</option>
+        <option value="">No parent / Strategic Product Area</option>
         {parentOptions.map((node) => <option key={node.id} value={node.id}>{strategyKindLabels[node.node_kind]} / {node.name}</option>)}
       </select>
       <div style={styles.label}>Kind</div>
@@ -766,11 +766,11 @@ function countProductsForStrategy(node: StrategyTreeNode | null, links: ProductS
 
 function getChildKind(kind: StrategyNodeKind): StrategyNodeKind | null {
   switch (kind) {
-    case "strategic_area":
+    case "strategic_product_area":
       return "domain";
     case "domain":
-      return "subdomain";
-    case "subdomain":
+      return "sub_domain";
+    case "sub_domain":
       return null;
   }
 }

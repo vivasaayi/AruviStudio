@@ -267,7 +267,7 @@ pub struct ProductReference {
 #[serde(rename_all = "snake_case")]
 #[sqlx(rename_all = "snake_case")]
 pub enum HierarchyNodeKind {
-    Area,
+    ProductArea,
     Capability,
     Feature,
 }
@@ -275,7 +275,7 @@ pub enum HierarchyNodeKind {
 impl HierarchyNodeKind {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
-            "area" => Some(Self::Area),
+            "product_area" => Some(Self::ProductArea),
             "capability" => Some(Self::Capability),
             "feature" => Some(Self::Feature),
             _ => None,
@@ -283,28 +283,28 @@ impl HierarchyNodeKind {
     }
 
     pub fn default_root() -> Self {
-        Self::Area
+        Self::ProductArea
     }
 
     pub fn default_child(parent_kind: &Self) -> Self {
         match parent_kind {
-            Self::Area => Self::Capability,
+            Self::ProductArea => Self::Capability,
             Self::Capability => Self::Feature,
             Self::Feature => Self::Feature,
         }
     }
 
     pub fn is_root_kind(&self) -> bool {
-        matches!(self, Self::Area)
+        matches!(self, Self::ProductArea)
     }
 
     pub fn can_have_children(&self) -> bool {
-        matches!(self, Self::Area | Self::Capability)
+        matches!(self, Self::ProductArea | Self::Capability)
     }
 
     pub fn allowed_child_kinds(&self) -> Vec<Self> {
         match self {
-            Self::Area => vec![Self::Capability],
+            Self::ProductArea => vec![Self::Capability],
             Self::Capability => vec![Self::Feature],
             Self::Feature => Vec::new(),
         }
@@ -318,7 +318,7 @@ impl HierarchyNodeKind {
 impl std::fmt::Display for HierarchyNodeKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let value = match self {
-            Self::Area => "area",
+            Self::ProductArea => "product_area",
             Self::Capability => "capability",
             Self::Feature => "feature",
         };
@@ -330,14 +330,14 @@ impl std::fmt::Display for HierarchyNodeKind {
 #[serde(rename_all = "snake_case")]
 #[sqlx(rename_all = "snake_case")]
 pub enum HierarchyNodeType {
-    Module,
+    ProductArea,
     Capability,
 }
 
 impl std::fmt::Display for HierarchyNodeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Module => write!(f, "module"),
+            Self::ProductArea => write!(f, "product_area"),
             Self::Capability => write!(f, "capability"),
         }
     }

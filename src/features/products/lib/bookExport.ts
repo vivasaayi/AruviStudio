@@ -1186,7 +1186,7 @@ function buildReferenceScopeLabels(product: Product, tree: ProductTree | undefin
   scopeLabels.set(`product:${product.id}`, product.name);
 
   const visit = (node: HierarchyTreeNode) => {
-    if (node.node_type === "module") {
+    if (node.node_type === "product_area") {
       scopeLabels.set(`product_area:${node.id}`, node.path.join(" / "));
     } else if (node.capability_id) {
       const scopeType = node.node_kind === "feature" ? "feature" : "capability";
@@ -1219,8 +1219,8 @@ function collectNodeIndex(nodes: HierarchyTreeNode[]): IndexEntry[] {
 }
 
 function getTreeNodeSectionId(node: HierarchyTreeNode) {
-  return node.node_type === "module"
-    ? `module-${node.id}`
+  return node.node_type === "product_area"
+    ? `product-area-${node.id}`
     : `capability-${node.capability_id ?? node.id}`;
 }
 

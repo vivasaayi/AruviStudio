@@ -16,7 +16,7 @@ import {
 
 describe("hierarchyLabels", () => {
   it("orders and groups known node kinds using display semantics", () => {
-    expect(orderHierarchyNodeKinds(["feature", "area"])).toEqual(["area", "feature"]);
+    expect(orderHierarchyNodeKinds(["feature", "product_area"])).toEqual(["product_area", "feature"]);
     expect(groupHierarchyNodeKinds(["capability", "feature"])).toEqual([
       {
         label: "Product Management",
@@ -26,7 +26,7 @@ describe("hierarchyLabels", () => {
   });
 
   it("renders labels and guidance for known and fallback node kinds", () => {
-    expect(getHierarchyNodeKindLabel("area")).toBe("Product Area");
+    expect(getHierarchyNodeKindLabel("product_area")).toBe("Product Area");
     expect(getHierarchyNodeKindLabel("feature", { plural: true, lowercase: true })).toBe(
       "features",
     );
@@ -36,14 +36,14 @@ describe("hierarchyLabels", () => {
   });
 
   it("describes child semantics by parent node kind", () => {
-    expect(supportsHierarchyChildren("area")).toBe(true);
+    expect(supportsHierarchyChildren("product_area")).toBe(true);
     expect(supportsHierarchyChildren("feature")).toBe(false);
-    expect(getAllowedChildNodeKinds("area")).toEqual(["capability"]);
+    expect(getAllowedChildNodeKinds("product_area")).toEqual(["capability"]);
     expect(getAllowedChildNodeKinds("capability")).toEqual(["feature"]);
-    expect(getAllowedChildNodeKinds(undefined)).toEqual(["area"]);
+    expect(getAllowedChildNodeKinds(undefined)).toEqual(["product_area"]);
     expect(getDefaultChildNodeKind("capability")).toBe("feature");
-    expect(getDefaultChildNodeKind(undefined)).toBe("area");
-    expect(getHierarchyChildLabel("area")).toBe("Capability");
+    expect(getDefaultChildNodeKind(undefined)).toBe("product_area");
+    expect(getHierarchyChildLabel("product_area")).toBe("Capability");
     expect(getHierarchyChildLabel(undefined, { plural: true, lowercase: true })).toBe(
       "product areas",
     );

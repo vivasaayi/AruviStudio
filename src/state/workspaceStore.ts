@@ -32,10 +32,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       activeRepoId: null,
       activeWorkspacePath: null,
       setActiveProduct: (id) => set({ activeProductId: id, activeModuleId: null, activeCapabilityId: null, activeNodeId: null, activeNodeType: null, activeWorkItemId: null }),
-      setActiveModule: (id) => set({ activeModuleId: id, activeCapabilityId: null, activeNodeId: id, activeNodeType: id ? "module" : null, activeWorkItemId: null }),
+      setActiveModule: (id) => set({ activeModuleId: id, activeCapabilityId: null, activeNodeId: id, activeNodeType: id ? "product_area" : null, activeWorkItemId: null }),
       setActiveCapability: (id) => set((state) => ({ activeModuleId: id ? state.activeModuleId : state.activeModuleId, activeCapabilityId: id, activeNodeId: id, activeNodeType: id ? "capability" : null, activeWorkItemId: null })),
       setActiveHierarchyNode: ({ nodeId, nodeType, moduleId, capabilityId }) => set({
-        activeModuleId: moduleId ?? (nodeType === "module" ? nodeId : null),
+        activeModuleId: moduleId ?? (nodeType === "product_area" ? nodeId : null),
         activeCapabilityId: capabilityId ?? (nodeType === "capability" ? nodeId : null),
         activeNodeId: nodeId,
         activeNodeType: nodeType,

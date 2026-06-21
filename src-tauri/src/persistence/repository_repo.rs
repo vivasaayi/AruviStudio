@@ -96,7 +96,7 @@ pub async fn resolve_repository_for_work_item(
     }
     if let Some(ref module_id) = work_item.module_id {
         let repo = sqlx::query_as::<_, Repository>(
-            "SELECT r.id,r.name,r.local_path,r.remote_url,r.default_branch,r.auth_profile,r.created_at,r.updated_at FROM repositories r JOIN repository_attachments ra ON r.id=ra.repository_id WHERE ra.scope_type='module' AND ra.scope_id=? AND ra.is_default=1 LIMIT 1")
+            "SELECT r.id,r.name,r.local_path,r.remote_url,r.default_branch,r.auth_profile,r.created_at,r.updated_at FROM repositories r JOIN repository_attachments ra ON r.id=ra.repository_id WHERE ra.scope_type='product_area' AND ra.scope_id=? AND ra.is_default=1 LIMIT 1")
             .bind(module_id)
             .fetch_optional(pool).await?;
         if repo.is_some() {
@@ -121,7 +121,7 @@ pub async fn resolve_repository_for_scope(
             "SELECT r.id,r.name,r.local_path,r.remote_url,r.default_branch,r.auth_profile,r.created_at,r.updated_at
              FROM repositories r
              JOIN repository_attachments ra ON r.id=ra.repository_id
-             WHERE ra.scope_type='module' AND ra.scope_id=? AND ra.is_default=1
+             WHERE ra.scope_type='product_area' AND ra.scope_id=? AND ra.is_default=1
              LIMIT 1",
         )
         .bind(module_id)

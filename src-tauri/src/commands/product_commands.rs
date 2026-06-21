@@ -619,7 +619,7 @@ mod tests {
         .await
         .expect("module should be created");
 
-        assert_eq!(module.node_kind.to_string(), "area");
+        assert_eq!(module.node_kind.to_string(), "product_area");
         assert_eq!(module.implementation_notes, "Use camelCase implementation notes");
         assert_eq!(module.test_guidance, "Use camelCase test guidance");
     }

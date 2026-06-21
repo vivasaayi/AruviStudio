@@ -1,11 +1,11 @@
 // Domain types matching Rust backend
 
 export type HierarchyNodeKind =
-  | "area"
+  | "product_area"
   | "capability"
   | "feature";
 
-export type HierarchyNodeType = "module" | "capability";
+export type HierarchyNodeType = "product_area" | "capability";
 
 export interface Product {
   id: string;
@@ -25,7 +25,7 @@ export interface Product {
   updated_at: string;
 }
 
-export type StrategyNodeKind = "strategic_area" | "domain" | "subdomain";
+export type StrategyNodeKind = "strategic_product_area" | "domain" | "sub_domain";
 
 export interface StrategyNode {
   id: string;
@@ -139,7 +139,7 @@ export interface WorkItem {
   description: string;
   acceptance_criteria: string;
   constraints: string;
-  work_item_type: "story" | "feature" | "task" | "setup" | "bug" | "refactor" | "test" | "review" | "security_fix" | "performance_improvement";
+  work_item_type: "story" | "task" | "setup" | "bug" | "refactor" | "test" | "review" | "security_fix" | "performance_improvement";
   priority: "critical" | "high" | "medium" | "low";
   complexity: "trivial" | "low" | "medium" | "high" | "very_high";
   status: "draft" | "ready_for_review" | "approved" | "in_planning" | "in_progress" | "in_validation" | "waiting_human_review" | "done" | "blocked" | "failed" | "cancelled";
@@ -180,7 +180,7 @@ export interface RepositoryTreeNode {
 
 export interface RepositoryAttachment {
   id: string;
-  scope_type: "product" | "module";
+  scope_type: "product" | "product_area";
   scope_id: string;
   repository_id: string;
   is_default: boolean;
@@ -190,7 +190,7 @@ export interface RepositoryAttachment {
 export interface WorkspaceProvisionResult {
   repository: Repository;
   created_path: string;
-  attached_scope_type: "product" | "module";
+  attached_scope_type: "product" | "product_area";
   attached_scope_id: string;
 }
 
@@ -281,7 +281,7 @@ export interface AgentTeamMembership {
 export interface TeamAssignment {
   id: string;
   team_id: string;
-  scope_type: "product" | "module" | "capability";
+  scope_type: "product" | "product_area" | "capability";
   scope_id: string;
   created_at: string;
 }
@@ -657,7 +657,7 @@ export interface PlannerTurnResponse {
   trace_events: PlannerTraceEvent[];
 }
 
-export type PlannerDraftChildType = "module" | "capability" | "work_item";
+export type PlannerDraftChildType = "product_area" | "capability" | "work_item";
 
 export interface SpeechToTextResponse {
   transcript: string;

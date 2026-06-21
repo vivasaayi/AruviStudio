@@ -181,7 +181,7 @@
         createModule(
           coreMathModuleId,
           calculatorProductId,
-          "area",
+          "product_area",
           "Core Math Engine",
           "Semantic root section for the calculator's parsing and evaluation logic.",
           "Coordinate the parser, evaluator, and delivery work attached to the engine.",
@@ -190,7 +190,7 @@
         createModule(
           wifiModuleId,
           wifiProductId,
-          "area",
+          "product_area",
           "Connectivity Services",
           "Top-level capability for pairing and sync platform behavior.",
           "Own secure connectivity primitives for dependent products.",
@@ -236,7 +236,7 @@
         {
           id: "strategy-shared-platforms",
           parent_node_id: null,
-          node_kind: "strategic_area",
+          node_kind: "strategic_product_area",
           name: "Shared Platforms",
           description: "Reusable platforms that support multiple products.",
           owner_label: "Head of Platforms",
@@ -324,7 +324,7 @@
           coreMathModuleId,
           null,
           coreMathModuleId,
-          "module",
+          "product_area",
           "Refine parser error surfaces",
           "Improve direct engine-level error messages for malformed expressions.",
           "refactor",
@@ -464,7 +464,7 @@
       .sort((a, b) => a.sort_order - b.sort_order)
       .map((moduleEntry) => ({
         id: moduleEntry.id,
-        node_type: "module",
+        node_type: "product_area",
         node_kind: moduleEntry.node_kind,
         module_id: moduleEntry.id,
         capability_id: null,
@@ -492,7 +492,7 @@
         module_id: moduleId,
         capability_id: capability.id,
         parent_node_id: parentCapabilityId ?? moduleId,
-        parent_node_type: parentCapabilityId ? "capability" : "module",
+        parent_node_type: parentCapabilityId ? "capability" : "product_area",
         depth,
         name: capability.name,
         description: capability.description,
@@ -550,7 +550,7 @@
       description: getArg(args, "description") ?? "",
       acceptance_criteria: getArg(args, "acceptanceCriteria", "acceptance_criteria") ?? "",
       constraints: getArg(args, "constraints") ?? "",
-      work_item_type: getArg(args, "workItemType", "work_item_type") ?? "feature",
+      work_item_type: getArg(args, "workItemType", "work_item_type") ?? "story",
       priority: getArg(args, "priority") ?? "medium",
       complexity: getArg(args, "complexity") ?? "medium",
       status: getArg(args, "status") ?? "draft",
@@ -785,16 +785,16 @@
       tags: selectedProduct.tags,
     });
 
-    const inputExperience = createDraftNode(session, "module", "Input Experience", product.id, {
+    const inputExperience = createDraftNode(session, "product_area", "Input Experience", product.id, {
       description: "Handles expression entry, keyboard shortcuts, validation, and accessible input workflows.",
     });
-    const calculationHistory = createDraftNode(session, "module", "Calculation History", product.id, {
+    const calculationHistory = createDraftNode(session, "product_area", "Calculation History", product.id, {
       description: "Tracks previous calculations, labels, replay, and result comparison.",
     });
-    const resultsReporting = createDraftNode(session, "module", "Results Reporting", product.id, {
+    const resultsReporting = createDraftNode(session, "product_area", "Results Reporting", product.id, {
       description: "Exports calculation summaries, sessions, and reviewable result reports.",
     });
-    const expressionEngine = createDraftNode(session, "module", "Expression Engine", product.id, {
+    const expressionEngine = createDraftNode(session, "product_area", "Expression Engine", product.id, {
       description: "Coordinates parsing, deterministic evaluation, and scientific operations.",
     });
 
@@ -833,14 +833,14 @@
   function addNotificationsToProduct(session, selectedNode) {
     const productNode = selectedNode?.type === "product"
       ? selectedNode
-      : selectedNode?.type === "module"
+      : selectedNode?.type === "product_area"
         ? findDraftNodeById(session, selectedNode.parentId)
         : selectedNode?.type === "capability"
           ? findDraftNodeById(session, findDraftNodeById(session, selectedNode.parentId)?.parentId)
           : findDraftNodeById(session, findDraftNodeById(session, findDraftNodeById(session, selectedNode?.parentId)?.parentId)?.parentId);
 
     const resolvedProduct = productNode ?? ensureSelectedProductDraft(session);
-    const notificationsModule = createDraftNode(session, "module", "Notifications & Messaging", resolvedProduct.id, {
+    const notificationsModule = createDraftNode(session, "product_area", "Notifications & Messaging", resolvedProduct.id, {
       description: "Coordinates outbound email, SMS, and WhatsApp notifications across reservations and guest service workflows.",
     });
     const preferencesCapability = createDraftNode(session, "capability", "Guest Notification Preferences", notificationsModule.id, {
@@ -866,12 +866,12 @@
           description: preferencesCapability.data.description,
         },
       ],
-      message: "I expanded the design with a Notifications & Messaging module, including guest preference management so you can handle email and WhatsApp communication cleanly.",
+      message: "I expanded the design with a Notifications & Messaging product area, including guest preference management so you can handle email and WhatsApp communication cleanly.",
     };
   }
 
   function enhanceSelectedModule(session, selectedNode) {
-    const moduleNode = selectedNode?.type === "module" ? selectedNode : null;
+    const moduleNode = selectedNode?.type === "product_area" ? selectedNode : null;
     if (!moduleNode) {
       return null;
     }
@@ -898,7 +898,7 @@
           description: capabilityB.data.description,
         },
       ],
-      message: `I enhanced ${moduleNode.label} with delivery tracking and trigger/template capabilities so the module is operationally useful, not just a placeholder.`,
+      message: `I enhanced ${moduleNode.label} with delivery tracking and trigger/template capabilities so the product area is operationally useful, not just a placeholder.`,
     };
   }
 
@@ -967,7 +967,7 @@
     const selectedNode = findDraftNodeById(session, session.selected_draft_node_id);
     const normalizedInput = userInput.toLowerCase();
 
-    if (!session.has_draft_plan && (normalizedInput.includes("design") || normalizedInput.includes("module") || normalizedInput.includes("product"))) {
+    if (!session.has_draft_plan && (normalizedInput.includes("design") || normalizedInput.includes("product area") || normalizedInput.includes("product"))) {
       const product = ensureSelectedProductDraft(session, args);
       const actions = product.children.map((moduleId) => {
           const moduleNode = session.draftNodes[moduleId];
@@ -980,7 +980,7 @@
         });
       return createPlannerResponse(
         session,
-        `I staged a design for ${product.label} with core modules, foundational capabilities, and starter work items. Use the design tree to refine any branch before applying it.`,
+        `I staged a design for ${product.label} with core product areas, foundational capabilities, and starter work items. Use the design tree to refine any branch before applying it.`,
         actions,
         ["Updated the design plan."],
         product.id,
@@ -990,7 +990,7 @@
       );
     }
 
-    if ((normalizedInput.includes("enhance") || normalizedInput.includes("expand")) && selectedNode?.type === "module") {
+    if ((normalizedInput.includes("enhance") || normalizedInput.includes("expand")) && selectedNode?.type === "product_area") {
       const result = enhanceSelectedModule(session, selectedNode);
       return createPlannerResponse(session, result.message, result.actions, ["Updated the design plan."], result.selectedNodeId);
     }
@@ -1013,7 +1013,7 @@
     return {
       session_id: session.session_id,
       status: "clarification",
-      assistant_message: "I need a bit more detail. Select a design node or tell me whether you want to expand the product, a module, a capability, or a work item.",
+      assistant_message: "I need a bit more detail. Select a design node or tell me whether you want to expand the product, a product area, a capability, or a work item.",
       pending_plan: {
         assistant_response: "I need a bit more detail.",
         needs_confirmation: false,
@@ -1058,7 +1058,7 @@
       let module = state.modules.find((entry) => entry.product_id === product.id && entry.name === node.label);
       if (!module) {
         module = {
-          id: nextId("module"),
+          id: nextId("product-area"),
           product_id: product.id,
           name: node.label,
           description: node.data.description || "",
@@ -1117,7 +1117,7 @@
           description: node.data.description || "",
           acceptance_criteria: node.data.acceptanceCriteria || "",
           constraints: "",
-          work_item_type: "feature",
+          work_item_type: "story",
           priority: "high",
           complexity: "medium",
           status: "draft",
@@ -1150,7 +1150,7 @@
         return;
       }
 
-      if (node.type === "module" && context.product) {
+      if (node.type === "product_area" && context.product) {
         const module = upsertModule(node, context.product);
         node.children.forEach((childId) => walk(childId, { product: context.product, module }));
         return;
@@ -1201,7 +1201,7 @@
           step: 1,
           stage: "execution",
           title: "Applied staged design",
-          detail: "The staged product tree was persisted into products, modules, capabilities, and work items.",
+          detail: "The staged product tree was persisted into products, product areas, capabilities, and work items.",
         },
       ],
     };
@@ -1273,7 +1273,7 @@
         .replace(/^work item\s+/i, "")
         .replace(/^work-item\s+/i, "")
         .replace(/^capability\s+/i, "")
-        .replace(/^module\s+/i, "")
+        .replace(/^product area\s+/i, "")
         .replace(/^product\s+/i, "")
         .replace(/^node\s+/i, "")
         .trim();
@@ -1283,8 +1283,8 @@
           ? "work_item"
           : /^capability\s+/i.test(rawTarget)
             ? "capability"
-            : /^module\s+/i.test(rawTarget)
-              ? "module"
+            : /^product area\s+/i.test(rawTarget)
+              ? "product_area"
               : /^product\s+/i.test(rawTarget)
                 ? "product"
                 : null;
@@ -1346,10 +1346,10 @@
     }
 
     const product = ensureSelectedProductDraft(session, args);
-    const plannerModule = createDraftNode(session, "module", "Interactive Planner", product.id, {
+    const plannerModule = createDraftNode(session, "product_area", "Interactive Planner", product.id, {
       description: "Conversational planning, design staging, approval flow, and trace inspection.",
     });
-    const repoModule = createDraftNode(session, "module", "Repository Intelligence", product.id, {
+    const repoModule = createDraftNode(session, "product_area", "Repository Intelligence", product.id, {
       description: "Repository registration, reverse engineering, and code-aware planning expansion.",
     });
     const plannerCapability = createDraftNode(session, "capability", "Draft Tree Editing", plannerModule.id, {
@@ -1364,7 +1364,7 @@
     session.selected_draft_node_id = product.id;
     return createPlannerResponse(
       session,
-      `I analyzed the ${repository.name} repository and staged repository-informed modules under ${product.label} so you can refine them before approval.`,
+      `I analyzed the ${repository.name} repository and staged repository-informed product areas under ${product.label} so you can refine them before approval.`,
       [
         {
           type: "create_module",
@@ -1521,7 +1521,7 @@
           return ok(state.strategyNodes);
         case "create_strategy_node": {
           const parentNodeId = getArg(args, "parentNodeId", "parent_node_id") ?? null;
-          const nodeKind = getArg(args, "nodeKind", "node_kind") ?? "strategic_area";
+          const nodeKind = getArg(args, "nodeKind", "node_kind") ?? "strategic_product_area";
           const node = {
             id: nextId("strategy"),
             parent_node_id: parentNodeId,

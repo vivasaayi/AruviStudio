@@ -10,7 +10,7 @@ pub const MAX_LIST_WORK_ITEMS_LIMIT: i64 = 2_000;
 fn normalize_source_node_type(value: &str) -> Result<&'static str, AppError> {
     let normalized = value.trim().to_ascii_lowercase();
     match normalized.as_str() {
-        "product_area" | "product-area" | "area" | "module" => Ok("module"),
+        "product_area" => Ok("product_area"),
         "capability" | "feature" => Ok("capability"),
         _ => Err(AppError::Validation(format!(
             "Unsupported source node type '{value}'. Use product_area, capability, or feature."
@@ -20,7 +20,7 @@ fn normalize_source_node_type(value: &str) -> Result<&'static str, AppError> {
 
 fn parse_source_node_type(value: &str) -> Result<HierarchyNodeType, AppError> {
     match normalize_source_node_type(value)? {
-        "module" => Ok(HierarchyNodeType::Module),
+        "product_area" => Ok(HierarchyNodeType::ProductArea),
         "capability" => Ok(HierarchyNodeType::Capability),
         _ => unreachable!("normalize_source_node_type only returns known values"),
     }
@@ -29,9 +29,7 @@ fn parse_source_node_type(value: &str) -> Result<HierarchyNodeType, AppError> {
 fn normalize_work_item_type(value: &str) -> Result<String, AppError> {
     let normalized = value.trim().to_ascii_lowercase();
     match normalized.as_str() {
-        "" | "story" | "delivery_story" | "capability_delivery" | "feature" => {
-            Ok("feature".to_string())
-        }
+        "" | "story" => Ok("story".to_string()),
         "task" => Ok("task".to_string()),
         "setup" | "bug" | "refactor" | "test" | "review" | "security_fix"
         | "performance_improvement" => Ok(normalized),
@@ -100,7 +98,7 @@ async fn resolve_source_scope(
             resolved_source_node_type = Some(HierarchyNodeType::Capability);
         } else if let Some(module_id) = resolved_module_id.clone() {
             resolved_source_node_id = Some(module_id);
-            resolved_source_node_type = Some(HierarchyNodeType::Module);
+            resolved_source_node_type = Some(HierarchyNodeType::ProductArea);
         } else if let Some(parent_work_item_id) = parent_work_item_id {
             let inherited = inherit_source_from_parent(pool, parent_work_item_id).await?;
             resolved_module_id = inherited.0;
@@ -114,7 +112,7 @@ async fn resolve_source_scope(
         resolved_source_node_id.as_deref(),
         resolved_source_node_type,
     ) {
-        (Some(node_id), Some(HierarchyNodeType::Module)) => {
+        (Some(node_id), Some(HierarchyNodeType::ProductArea)) => {
             let module_row = sqlx::query("SELECT product_id FROM modules WHERE id = ?")
                 .bind(node_id)
                 .fetch_optional(pool)
@@ -657,7 +655,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_work_item_normalizes_capability_scope_and_legacy_story_alias() {
+    async fn create_work_item_resolves_capability_scope_and_story_type() {
         let pool = create_test_pool("normalize_scope").await;
         create_test_product(&pool, "product-normalize").await;
         product_repo::create_module(
@@ -709,7 +707,7 @@ mod tests {
             "",
             "",
             "",
-            "delivery_story",
+            "story",
             "medium",
             "medium",
         )
@@ -731,7 +729,7 @@ mod tests {
         ));
         assert!(matches!(
             work_item.work_item_type,
-            crate::domain::work_item::WorkItemType::CapabilityDelivery
+            crate::domain::work_item::WorkItemType::Story
         ));
     }
 
@@ -746,7 +744,7 @@ mod tests {
             "Platform",
             "",
             "",
-            Some("area"),
+            Some("product_area"),
             "",
             "",
             "",

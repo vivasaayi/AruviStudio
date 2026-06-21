@@ -13,7 +13,7 @@ const PRODUCT_DEPENDENCY_COLUMNS: &str = "id, product_id, capability_id, depends
 fn parse_strategy_node_kind(value: &str) -> Result<StrategyNodeKind, AppError> {
     StrategyNodeKind::parse(value).ok_or_else(|| {
         AppError::Validation(format!(
-            "Unsupported strategy node kind '{value}'. Use strategic_area, domain, or subdomain."
+            "Unsupported strategy node kind '{value}'. Use strategic_product_area, domain, or sub_domain."
         ))
     })
 }
@@ -113,7 +113,7 @@ async fn validate_strategy_parent(
         None => {
             if !node_kind.is_root_kind() {
                 return Err(AppError::Validation(
-                    "Root strategy nodes must use strategic_area.".to_string(),
+                    "Root strategy nodes must use strategic_product_area.".to_string(),
                 ));
             }
             Ok(())
