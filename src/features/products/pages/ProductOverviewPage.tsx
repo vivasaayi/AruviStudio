@@ -8,20 +8,20 @@ import {
   getProductTree,
   listProductReferences,
   listProducts,
-  listWorkItems,
   revealInFinder,
+  summarizeWorkItemsByProduct,
 } from "../../../lib/tauri";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
 import { ProductOverviewDocument, type ProductOverviewPlannerAction } from "../components/ProductOverviewDocument";
-import type { Capability, Module, Product, ProductReference, ProductTree, WorkItem } from "../../../lib/types";
+import type { Capability, Module, Product, ProductReference, ProductTree, ProductWorkItemSummary, WorkItem } from "../../../lib/types";
 import {
   BOOK_EXPORT_TRIM_PRESETS,
   buildProductOverviewBookBundle,
   getBookExportTrimPreset,
   type BookExportTrimPresetId,
 } from "../lib/bookExport";
-import { buildProductOverviewHtml } from "../lib/productOverview";
+import { buildProductOverviewHtml, type WorkItemMetrics } from "../lib/productOverview";
 
 const styles: Record<string, React.CSSProperties> = {
   page: { display: "flex", flexDirection: "column", gap: 8, minHeight: "100%", width: "100%" },
@@ -83,11 +83,32 @@ export function ProductOverviewPage() {
     enabled: !!selectedProduct,
   });
 
-  const { data: workItems = [], isLoading: workItemsLoading } = useQuery<WorkItem[]>({
-    queryKey: ["productOverviewPageWorkItems", selectedProductId],
-    queryFn: () => listWorkItems({ productId: selectedProductId ?? undefined }),
+  const { data: productWorkItemSummaries = [], isLoading: summariesLoading } = useQuery<ProductWorkItemSummary[]>({
+    queryKey: ["productWorkItemSummary"],
+    queryFn: summarizeWorkItemsByProduct,
     enabled: !!selectedProduct,
   });
+  const selectedProductWorkItemSummary = React.useMemo(
+    () => productWorkItemSummaries.find((summary) => summary.product_id === selectedProductId) ?? null,
+    [productWorkItemSummaries, selectedProductId],
+  );
+  const overviewMetrics = React.useMemo<WorkItemMetrics>(() => {
+    const total = selectedProductWorkItemSummary?.total_count ?? 0;
+    const done = selectedProductWorkItemSummary?.done_count ?? 0;
+    const blocked = selectedProductWorkItemSummary?.blocked_count ?? 0;
+    const active = selectedProductWorkItemSummary?.active_count ?? 0;
+    const wip = Math.max(0, active - blocked);
+    const tbd = Math.max(0, total - done - active);
+    return {
+      total,
+      done,
+      wip,
+      tbd,
+      blocked,
+      completion: total > 0 ? Math.round((done / total) * 100) : 0,
+    };
+  }, [selectedProductWorkItemSummary]);
+  const workItems = React.useMemo<WorkItem[]>(() => [], []);
 
   const { data: productReferences = [], isLoading: referencesLoading } = useQuery<ProductReference[]>({
     queryKey: ["productOverviewPageReferences"],
@@ -96,7 +117,7 @@ export function ProductOverviewPage() {
   });
 
   useEffect(() => {
-    if (treeLoading || workItemsLoading) {
+    if (treeLoading || summariesLoading) {
       return;
     }
     if (typeof window === "undefined") {
@@ -109,7 +130,7 @@ export function ProductOverviewPage() {
     requestAnimationFrame(() => {
       document.getElementById(hash)?.scrollIntoView({ block: "start" });
     });
-  }, [selectedProductId, treeLoading, workItemsLoading, tree, workItems.length]);
+  }, [selectedProductId, treeLoading, summariesLoading, tree, overviewMetrics.total]);
 
   const goToProductWorkspace = () => {
     setActiveView("products");
@@ -365,28 +386,28 @@ export function ProductOverviewPage() {
               <button
                 style={styles.primaryBtn}
                 onClick={exportHtml}
-                disabled={!selectedProduct || treeLoading || workItemsLoading || referencesLoading || isExporting}
+                disabled={!selectedProduct || treeLoading || referencesLoading || isExporting}
               >
                 {isExporting ? "Exporting..." : "Docs HTML"}
               </button>
               <button
                 style={styles.ghostBtn}
                 onClick={() => runBookArtifactExport("html")}
-                disabled={!selectedProduct || treeLoading || workItemsLoading || referencesLoading || isExporting}
+                disabled={!selectedProduct || treeLoading || referencesLoading || isExporting}
               >
                 Book HTML
               </button>
               <button
                 style={styles.ghostBtn}
                 onClick={() => runBookArtifactExport("epub")}
-                disabled={!selectedProduct || treeLoading || workItemsLoading || referencesLoading || isExporting}
+                disabled={!selectedProduct || treeLoading || referencesLoading || isExporting}
               >
                 EPUB
               </button>
               <button
                 style={styles.ghostBtn}
                 onClick={() => runBookArtifactExport("pdf")}
-                disabled={!selectedProduct || treeLoading || workItemsLoading || referencesLoading || isExporting}
+                disabled={!selectedProduct || treeLoading || referencesLoading || isExporting}
               >
                 PDF
               </button>
@@ -411,8 +432,10 @@ export function ProductOverviewPage() {
           product={selectedProduct}
           tree={tree}
           workItems={workItems}
+          metricsOverride={overviewMetrics}
+          activeWorkItemCountOverride={selectedProductWorkItemSummary?.active_count ?? 0}
           references={productReferences}
-          isLoading={treeLoading || workItemsLoading || referencesLoading}
+          isLoading={treeLoading || summariesLoading || referencesLoading}
           onEditProduct={editProduct}
           onEditModule={editModule}
           onEditCapability={editCapability}

@@ -350,7 +350,9 @@ pub async fn summarize_work_items_by_product(
 ) -> Result<Vec<ProductWorkItemSummary>, AppError> {
     sqlx::query_as::<_, ProductWorkItemSummary>(
         "SELECT product_id, COUNT(*) as total_count,
-         SUM(CASE WHEN status NOT IN ('done', 'cancelled') THEN 1 ELSE 0 END) as active_count
+         SUM(CASE WHEN status NOT IN ('done', 'cancelled') THEN 1 ELSE 0 END) as active_count,
+         SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done_count,
+         SUM(CASE WHEN status IN ('blocked', 'failed') THEN 1 ELSE 0 END) as blocked_count
          FROM work_items
          WHERE product_id IS NOT NULL
          GROUP BY product_id",
@@ -539,6 +541,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn summarize_work_items_by_product_counts_total_active_and_done() {
+        let pool = create_test_pool("summarize_counts").await;
+        create_test_product(&pool, "product-summary-counts").await;
+
+        for (index, status) in ["draft", "done", "cancelled", "blocked"].iter().enumerate() {
+            let work_item_id = format!("summary-work-item-{index}");
+            create_work_item(
+                &pool,
+                &work_item_id,
+                "product-summary-counts",
+                None,
+                None,
+                None,
+                None,
+                None,
+                &format!("Summary work item {index}"),
+                "",
+                "",
+                "",
+                "",
+                "story",
+                "medium",
+                "medium",
+            )
+            .await
+            .expect("work item should be created");
+            update_work_item(
+                &pool,
+                &work_item_id,
+                None,
+                None,
+                Some(status),
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect("status should update");
+        }
+
+        let summaries = summarize_work_items_by_product(&pool)
+            .await
+            .expect("summaries should load");
+        let summary = summaries
+            .iter()
+            .find(|entry| entry.product_id == "product-summary-counts")
+            .expect("product summary should be present");
+
+        assert_eq!(summary.total_count, 4);
+        assert_eq!(summary.active_count, 2);
+        assert_eq!(summary.done_count, 1);
+        assert_eq!(summary.blocked_count, 1);
+    }
+
+    #[tokio::test]
     async fn get_sub_work_items_returns_all_child_tasks_for_story() {
         let pool = create_test_pool("sub_work_items").await;
         create_test_product(&pool, "product-sub-work").await;
@@ -660,8 +717,14 @@ mod tests {
         .expect("work item should be created");
 
         assert_eq!(work_item.module_id.as_deref(), Some("module-normalize"));
-        assert_eq!(work_item.capability_id.as_deref(), Some("capability-normalize"));
-        assert_eq!(work_item.source_node_id.as_deref(), Some("capability-normalize"));
+        assert_eq!(
+            work_item.capability_id.as_deref(),
+            Some("capability-normalize")
+        );
+        assert_eq!(
+            work_item.source_node_id.as_deref(),
+            Some("capability-normalize")
+        );
         assert!(matches!(
             work_item.source_node_type,
             Some(HierarchyNodeType::Capability)
@@ -789,6 +852,8 @@ mod tests {
         .await
         .expect_err("missing source node type should fail validation");
 
-        assert!(matches!(error, AppError::Validation(message) if message == "source_node_type is required when source_node_id is provided."));
+        assert!(
+            matches!(error, AppError::Validation(message) if message == "source_node_type is required when source_node_id is provided.")
+        );
     }
 }

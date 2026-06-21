@@ -139,6 +139,8 @@ type ProductOverviewDocumentProps = {
   product: Product;
   tree?: ProductTree;
   workItems?: WorkItem[];
+  metricsOverride?: WorkItemMetrics;
+  activeWorkItemCountOverride?: number;
   references?: ProductReference[];
   isLoading?: boolean;
   onEditProduct: () => void;
@@ -162,6 +164,8 @@ export function ProductOverviewDocument({
   product,
   tree,
   workItems,
+  metricsOverride,
+  activeWorkItemCountOverride,
   references = [],
   isLoading = false,
   onEditProduct,
@@ -171,7 +175,8 @@ export function ProductOverviewDocument({
   onPlanFromItem,
 }: ProductOverviewDocumentProps) {
   const allWorkItems = useMemo(() => sortWorkItems(workItems ?? []), [workItems]);
-  const metrics = useMemo(() => buildWorkItemMetrics(allWorkItems), [allWorkItems]);
+  const derivedMetrics = useMemo(() => buildWorkItemMetrics(allWorkItems), [allWorkItems]);
+  const metrics = metricsOverride ?? derivedMetrics;
   const productLevelWorkItems = useMemo(
     () => buildScopedWorkItemTree(getProductDirectWorkItems(allWorkItems)),
     [allWorkItems],
@@ -187,10 +192,11 @@ export function ProductOverviewDocument({
     () => filterReferencesForScope(bookReferences, { scopeType: "product", scopeId: product.id }),
     [bookReferences, product.id],
   );
-  const activeWorkItemCount = useMemo(
+  const derivedActiveWorkItemCount = useMemo(
     () => allWorkItems.filter((workItem) => workItem.status !== "done" && workItem.status !== "cancelled").length,
     [allWorkItems],
   );
+  const activeWorkItemCount = activeWorkItemCountOverride ?? derivedActiveWorkItemCount;
 
   return (
     <div style={styles.layout}>

@@ -27,6 +27,7 @@ import {
   revealInFinder,
   resolveRepositoryForScope,
   setSetting,
+  summarizeWorkItemsByProduct,
   updateCapability,
   updateModule,
   updateProduct,
@@ -62,7 +63,7 @@ import { useUIStore } from "../../../state/uiStore";
 import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
 import { ProductOverviewPage } from "./ProductOverviewPage";
 import { getProductAreaReferenceScope } from "../lib/productReferences";
-import type { CapabilityNode, CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ModuleTree, Product, ProductDependency, ProductDependencyKind, ProductReference, ProductTree, Repository, WorkItem } from "../../../lib/types";
+import type { CapabilityNode, CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ModuleTree, Product, ProductDependency, ProductDependencyKind, ProductReference, ProductTree, ProductWorkItemSummary, Repository, WorkItem } from "../../../lib/types";
 
 const HIDE_EXAMPLE_PRODUCTS_KEY = "catalog.hide_example_products";
 
@@ -469,6 +470,10 @@ export function ProductListPage() {
     queryKey: ["setting", HIDE_EXAMPLE_PRODUCTS_KEY],
     queryFn: () => getSetting(HIDE_EXAMPLE_PRODUCTS_KEY),
   });
+  const { data: productWorkItemSummaries = [] } = useQuery<ProductWorkItemSummary[]>({
+    queryKey: ["productWorkItemSummary"],
+    queryFn: summarizeWorkItemsByProduct,
+  });
   const visibleActiveProductId = products?.some((product) => product.id === activeProductId)
     ? activeProductId
     : null;
@@ -505,7 +510,7 @@ export function ProductListPage() {
   const { data: productWorkItems } = useQuery({
     queryKey: ["productAllTasks", selectedProductId],
     queryFn: () => listWorkItems({ productId: selectedProductId ?? undefined }),
-    enabled: !!selectedProduct,
+    enabled: !!selectedProduct && productPageTab === "design" && productManagementTab !== "areas",
   });
 
   const productTreeQueries = useQueries({
@@ -520,7 +525,7 @@ export function ProductListPage() {
     queries: (products ?? []).map((product) => ({
       queryKey: ["productAllTasks", product.id],
       queryFn: () => listWorkItems({ productId: product.id }),
-      enabled: !!product.id,
+      enabled: !!product.id && productPageTab === "status",
     })),
   });
 
@@ -575,6 +580,12 @@ export function ProductListPage() {
     return map;
   }, [productWorkItemQueries, products]);
 
+  const productSummaryById = useMemo(() => {
+    const map = new Map<string, ProductWorkItemSummary>();
+    productWorkItemSummaries.forEach((summary) => map.set(summary.product_id, summary));
+    return map;
+  }, [productWorkItemSummaries]);
+
   const allProductTags = useMemo(() => {
     const tags = new Set<string>();
     (products ?? []).forEach((product) => product.tags.forEach((tag) => tags.add(tag)));
@@ -585,15 +596,17 @@ export function ProductListPage() {
   const productTableRows = useMemo(() => {
     const rows = (products ?? []).map((product) => {
       const treeForProduct = productTreeById.get(product.id);
-      const tasksForProduct = productTasksById.get(product.id) ?? [];
-      const progress = getProgressSummary(tasksForProduct);
+      const summary = productSummaryById.get(product.id);
+      const total = summary?.total_count ?? 0;
+      const done = summary?.done_count ?? 0;
+      const progress = getProgressSummaryFromCounts(total, done);
       return {
         product,
         source: isExampleProduct(product) ? "default" as const : "custom" as const,
         rootCount: treeForProduct?.roots.length ?? 0,
         nodeCount: treeForProduct ? countHierarchyNodes(treeForProduct.roots) : 0,
-        workItemCount: tasksForProduct.length,
-        activeWorkItemCount: tasksForProduct.filter(isActiveWorkItem).length,
+        workItemCount: total,
+        activeWorkItemCount: summary?.active_count ?? 0,
         progress,
       };
     });
@@ -641,7 +654,7 @@ export function ProductListPage() {
     productSourceFilter,
     productStatusFilter,
     productTagFilter,
-    productTasksById,
+    productSummaryById,
     productTreeById,
     products,
     showCustomProductsInTable,
@@ -801,8 +814,8 @@ export function ProductListPage() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["productAllTasks", selectedProductId] }),
       queryClient.invalidateQueries({ queryKey: ["productTasks", selectedProductId, activeNodeId, activeNodeType] }),
+      queryClient.invalidateQueries({ queryKey: ["productWorkItemSummary"] }),
       queryClient.invalidateQueries({ queryKey: ["subWorkItems"] }),
-      queryClient.invalidateQueries({ queryKey: ["productOverviewPageWorkItems", selectedProductId] }),
       queryClient.invalidateQueries({ queryKey: ["workItems"] }),
       queryClient.invalidateQueries({ queryKey: ["sidebarWorkItems", selectedProductId] }),
     ]);
@@ -1495,7 +1508,7 @@ export function ProductListPage() {
           ["products"],
           ["setting", HIDE_EXAMPLE_PRODUCTS_KEY],
           ["productTree"],
-          ["productAllTasks"],
+          ["productWorkItemSummary"],
         ]);
         return;
       case "status":
@@ -1503,6 +1516,7 @@ export function ProductListPage() {
           ["products"],
           ["productTree"],
           ["productAllTasks"],
+          ["productWorkItemSummary"],
         ]);
         return;
       case "overview":
@@ -1512,7 +1526,7 @@ export function ProductListPage() {
         await refreshScopedProductQueries(queryClient, [
           ["products"],
           ["productOverviewTree", selectedProductId],
-          ["productOverviewPageWorkItems", selectedProductId],
+          ["productWorkItemSummary"],
           ["productOverviewPageReferences"],
         ]);
         return;
@@ -3702,6 +3716,10 @@ function isActiveWorkItem(workItem: WorkItem) {
 function getProgressSummary(workItems: WorkItem[]) {
   const total = workItems.length;
   const done = workItems.filter((workItem) => workItem.status === "done").length;
+  return getProgressSummaryFromCounts(total, done);
+}
+
+function getProgressSummaryFromCounts(total: number, done: number) {
   return {
     total,
     done,

@@ -194,6 +194,7 @@ const EXTERNAL_CLI_PROVIDERS: Array<{ provider: ExternalCliProvider; label: stri
   { provider: "copilot", label: "Copilot" },
 ];
 const EXTERNAL_CLI_TRACE_LIMIT = 500;
+const WORK_ITEM_PAGE_SIZE = 100;
 
 function workItemBranchName(title: string): string {
   const slug = title
@@ -435,6 +436,7 @@ export function WorkItemListPage() {
   const { workItemWorkspaceTab, setWorkItemWorkspaceTab, workItemCreateDialogOpen, openWorkItemCreateDialog, closeWorkItemCreateDialog, setActiveView } = useUIStore();
 
   const [statusFilter, setStatusFilter] = useState("");
+  const [workItemPageIndex, setWorkItemPageIndex] = useState(0);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [isEditingWorkItem, setIsEditingWorkItem] = useState(false);
   const [draggedWorkItemId, setDraggedWorkItemId] = useState<string | null>(null);
@@ -491,14 +493,21 @@ export function WorkItemListPage() {
     }
   }, [activeProductId, productsLoading, selectedProductId, setActiveProduct]);
 
+  useEffect(() => {
+    setWorkItemPageIndex(0);
+    setSelectedBacklogItemIds([]);
+  }, [selectedProductId, activeNodeId, activeNodeType, statusFilter]);
+
   const { data: workItems, isLoading } = useQuery({
-    queryKey: ["workItems", selectedProductId, activeNodeId, activeNodeType, statusFilter],
+    queryKey: ["workItems", selectedProductId, activeNodeId, activeNodeType, statusFilter, workItemPageIndex],
     queryFn: () =>
       listWorkItems({
         productId: selectedProductId ?? undefined,
         sourceNodeId: activeNodeId ?? undefined,
         sourceNodeType: activeNodeType ?? undefined,
         status: statusFilter || undefined,
+        limit: WORK_ITEM_PAGE_SIZE,
+        offset: workItemPageIndex * WORK_ITEM_PAGE_SIZE,
       }),
     enabled: !!selectedProductId,
   });
@@ -765,7 +774,7 @@ export function WorkItemListPage() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["workItems", activeProductId, activeNodeId, activeNodeType, statusFilter] }),
       queryClient.invalidateQueries({ queryKey: ["sidebarWorkItems", activeProductId] }),
-      queryClient.invalidateQueries({ queryKey: ["productWorkItemSummaries"] }),
+      queryClient.invalidateQueries({ queryKey: ["productWorkItemSummary"] }),
       queryClient.invalidateQueries({ queryKey: ["workItem", selectedWorkItemId] }),
       queryClient.invalidateQueries({ queryKey: ["latestWorkflowRun", selectedWorkItemId] }),
       queryClient.invalidateQueries({ queryKey: ["workflowHistory", workflowRunId] }),
@@ -799,7 +808,7 @@ export function WorkItemListPage() {
         parentWorkItemId: createForm.parentWorkItemId ?? undefined,
       }),
     onSuccess: async (createdWorkItem) => {
-      queryClient.setQueryData<WorkItem[] | undefined>(["workItems", activeProductId, activeNodeId, activeNodeType, statusFilter], (current) =>
+      queryClient.setQueryData<WorkItem[] | undefined>(["workItems", activeProductId, activeNodeId, activeNodeType, statusFilter, workItemPageIndex], (current) =>
         current ? [...current, createdWorkItem] : [createdWorkItem],
       );
       queryClient.setQueryData<WorkItem[] | undefined>(["sidebarWorkItems", activeProductId], (current) =>
@@ -1220,6 +1229,9 @@ export function WorkItemListPage() {
     return map;
   }, [activeProduct, activeProductTree?.roots, filteredWorkItems]);
   const orderedWorkItems = useMemo(() => orderWorkItemsByIds(filteredWorkItems, workItemOrderIds), [filteredWorkItems, workItemOrderIds]);
+  const hasNextWorkItemPage = (workItems?.length ?? 0) === WORK_ITEM_PAGE_SIZE;
+  const workItemPageStart = workItemPageIndex * WORK_ITEM_PAGE_SIZE + (orderedWorkItems.length > 0 ? 1 : 0);
+  const workItemPageEnd = workItemPageIndex * WORK_ITEM_PAGE_SIZE + orderedWorkItems.length;
   const selectedBacklogItems = useMemo(
     () => orderedWorkItems.filter((workItem) => selectedBacklogItemIds.includes(workItem.id)),
     [orderedWorkItems, selectedBacklogItemIds],
@@ -1653,7 +1665,24 @@ export function WorkItemListPage() {
                 ))}
               </select>
               <div style={styles.smallText}>
-                Showing stories for: {scopeDescriptor}
+                Showing stories for: {scopeDescriptor}. Page {workItemPageIndex + 1}, rows {workItemPageStart}-{workItemPageEnd}.
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+                <button
+                  style={styles.ghostBtn}
+                  onClick={() => setWorkItemPageIndex((current) => Math.max(0, current - 1))}
+                  disabled={workItemPageIndex === 0 || isLoading}
+                >
+                  Previous
+                </button>
+                <button
+                  style={styles.ghostBtn}
+                  onClick={() => setWorkItemPageIndex((current) => current + 1)}
+                  disabled={!hasNextWorkItemPage || isLoading}
+                >
+                  Next
+                </button>
+                <span style={styles.smallText}>100 rows per page. Use status/scope filters to narrow large products.</span>
               </div>
               {isLoading ? (
                 <div style={styles.empty}>Loading stories...</div>

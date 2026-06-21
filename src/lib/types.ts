@@ -155,6 +155,8 @@ export interface ProductWorkItemSummary {
   product_id: string;
   total_count: number;
   active_count: number;
+  done_count: number;
+  blocked_count: number;
 }
 
 export interface Repository {

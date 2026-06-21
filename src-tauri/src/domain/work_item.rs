@@ -33,6 +33,8 @@ pub struct ProductWorkItemSummary {
     pub product_id: String,
     pub total_count: i64,
     pub active_count: i64,
+    pub done_count: i64,
+    pub blocked_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]

@@ -596,11 +596,13 @@
     const state = getState();
     return state.products.map((product) => {
       const items = state.workItems.filter((item) => item.product_id === product.id);
-      const activeCount = items.filter((item) => !["done", "cancelled", "failed"].includes(item.status)).length;
+      const activeCount = items.filter((item) => !["done", "cancelled"].includes(item.status)).length;
       return {
         product_id: product.id,
         total_count: items.length,
         active_count: activeCount,
+        done_count: items.filter((item) => item.status === "done").length,
+        blocked_count: items.filter((item) => ["blocked", "failed"].includes(item.status)).length,
       };
     });
   }
