@@ -305,8 +305,8 @@ pub async fn reset_product_plan(
     let capabilities_deleted: i64 = sqlx::query_scalar(
         "SELECT COUNT(*)
          FROM capabilities c
-         JOIN product_areas m ON m.id=c.product_area_id
-         WHERE m.product_id=?",
+         JOIN product_areas pa ON pa.id=c.product_area_id
+         WHERE pa.product_id=?",
     )
     .bind(product_id)
     .fetch_one(pool)
@@ -884,8 +884,8 @@ pub async fn get_product_tree(
     let product = get_product(pool, product_id).await?;
     let product_areas = list_product_areas(pool, product_id).await?;
     let mut product_area_trees = Vec::new();
-    for m in product_areas {
-        let features = list_capabilities(pool, &m.id).await?;
+    for product_area in product_areas {
+        let features = list_capabilities(pool, &product_area.id).await?;
         let root_features: Vec<_> = features
             .iter()
             .filter(|f| f.parent_capability_id.is_none())
@@ -895,7 +895,7 @@ pub async fn get_product_tree(
             .map(|f| build_capability_tree(f, &features))
             .collect();
         product_area_trees.push(ProductAreaTree {
-            product_area: m,
+            product_area,
             features: capability_trees,
         });
     }

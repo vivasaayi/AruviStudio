@@ -129,7 +129,7 @@ async fn resolve_source_scope(
         }
         (Some(node_id), Some(HierarchyNodeType::Capability)) => {
             let capability_row = sqlx::query(
-                "SELECT c.product_area_id, m.product_id FROM capabilities c JOIN product_areas m ON m.id = c.product_area_id WHERE c.id = ?",
+                "SELECT c.product_area_id, pa.product_id FROM capabilities c JOIN product_areas pa ON pa.id = c.product_area_id WHERE c.id = ?",
             )
             .bind(node_id)
             .fetch_optional(pool)

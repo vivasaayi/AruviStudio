@@ -2929,7 +2929,7 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
         }
         "create_capability" => {
             let product_area_id = args.required_string(
-                &["product_area_id", "productAreaId", "product_area_id", "productAreaId"],
+                &["product_area_id", "productAreaId"],
                 "product_area_id",
             )?;
             let name = args.required_string(&["name"], "name")?;
@@ -2956,7 +2956,7 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
         }
         "list_capabilities" => {
             let product_area_id = args.required_string(
-                &["product_area_id", "productAreaId", "product_area_id", "productAreaId"],
+                &["product_area_id", "productAreaId"],
                 "product_area_id",
             )?;
             action_result(
@@ -2995,7 +2995,7 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
         }
         "reorder_capabilities" => {
             let product_area_id = args.required_string(
-                &["product_area_id", "productAreaId", "product_area_id", "productAreaId"],
+                &["product_area_id", "productAreaId"],
                 "product_area_id",
             )?;
             let parent_capability_id =
@@ -3015,7 +3015,7 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
             let result = product_service::apply_semantic_template(
                 &state.db,
                 &args.required_string(
-                    &["product_area_id", "productAreaId", "product_area_id", "productAreaId"],
+                    &["product_area_id", "productAreaId"],
                     "product_area_id",
                 )?,
                 args.optional_string(&["parent_capability_id", "parentCapabilityId"])?
@@ -3157,12 +3157,7 @@ async fn handle_work_items(state: &AppState, payload: Value) -> Result<Value, Ap
                 None => return Err(AppError::Validation("missing product_id".to_string())),
             };
             let title = args.required_string(&["title"], "title")?;
-            let product_area_id = args.optional_string(&[
-                "product_area_id",
-                "productAreaId",
-                "product_area_id",
-                "productAreaId",
-            ])?;
+            let product_area_id = args.optional_string(&["product_area_id", "productAreaId"])?;
             let feature_id = args.optional_string(&[
                 "feature_id",
                 "featureId",
@@ -3213,8 +3208,6 @@ async fn handle_work_items(state: &AppState, payload: Value) -> Result<Value, Ap
                 args.optional_string(&["product_id", "productId"])?
                     .as_deref(),
                 args.optional_string(&[
-                    "product_area_id",
-                    "productAreaId",
                     "product_area_id",
                     "productAreaId",
                 ])?
@@ -3347,8 +3340,6 @@ async fn handle_repositories(state: &AppState, payload: Value) -> Result<Value, 
                 args.optional_string(&[
                     "product_area_id",
                     "productAreaId",
-                    "product_area_id",
-                    "productAreaId",
                 ])?
                 .as_deref(),
             )
@@ -3359,8 +3350,6 @@ async fn handle_repositories(state: &AppState, payload: Value) -> Result<Value, 
                 state,
                 args.optional_string(&["product_id", "productId"])?,
                 args.optional_string(&[
-                    "product_area_id",
-                    "productAreaId",
                     "product_area_id",
                     "productAreaId",
                 ])?,

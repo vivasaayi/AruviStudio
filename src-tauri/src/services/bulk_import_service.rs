@@ -172,7 +172,7 @@ struct ImportWorkItem {
     name: Option<String>,
     #[serde(default, alias = "product_id")]
     product_id: Option<String>,
-    #[serde(default, alias = "product_area_id", alias = "product_area_id")]
+    #[serde(default, alias = "product_area_id")]
     product_area_id: Option<String>,
     #[serde(default, alias = "capability_id")]
     capability_id: Option<String>,
@@ -884,7 +884,7 @@ fn push_csv_product_area(
     let product_id = csv_field(record, &["product_id", "productId"])
         .or_else(|| request_product_id.map(ToString::to_string))
         .ok_or_else(|| csv_error(record, "missing product_id for product_area"))?;
-    let id = csv_field(record, &["id", "product_area_id", "product_area_id"]).unwrap_or_else(new_id);
+    let id = csv_field(record, &["id", "product_area_id"]).unwrap_or_else(new_id);
     let area = ImportProductArea {
         id: Some(id),
         name: csv_field(record, &["name"]),
@@ -906,7 +906,7 @@ fn push_csv_capability(
     record: &CsvRecord,
     request_product_id: Option<&str>,
 ) -> Result<(), AppError> {
-    let product_area_id = csv_field(record, &["product_area_id", "product_area_id", "parent_id"])
+    let product_area_id = csv_field(record, &["product_area_id", "parent_id"])
         .ok_or_else(|| csv_error(record, "missing product_area_id for capability"))?;
     let product_id = ctx
         .product_areas
@@ -1010,7 +1010,7 @@ fn push_csv_work_item(
                 product_id: csv_field(record, &["product_id", "productId"])
                     .or_else(|| request_product_id.map(ToString::to_string))
                     .unwrap_or_default(),
-                product_area_id: csv_field(record, &["product_area_id", "product_area_id"]),
+                product_area_id: csv_field(record, &["product_area_id"]),
                 capability_id: csv_field(record, &["feature_id", "capability_id"]),
                 source_node_id: csv_field(record, &["feature_id", "capability_id"]),
                 source_node_type: csv_field(record, &["feature_id", "capability_id"])
@@ -1021,7 +1021,7 @@ fn push_csv_work_item(
             product_id: csv_field(record, &["product_id", "productId"])
                 .or_else(|| request_product_id.map(ToString::to_string))
                 .unwrap_or_default(),
-            product_area_id: csv_field(record, &["product_area_id", "product_area_id"]),
+            product_area_id: csv_field(record, &["product_area_id"]),
             capability_id: csv_field(record, &["feature_id", "capability_id"]),
             source_node_id: None,
             source_node_type: None,

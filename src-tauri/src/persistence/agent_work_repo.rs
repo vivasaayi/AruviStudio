@@ -717,8 +717,8 @@ pub async fn materialize_catalog(
     let existing_capability_rows = sqlx::query(
         "SELECT c.id, c.product_area_id, c.name, c.sort_order
          FROM capabilities c
-         JOIN product_areas m ON m.id=c.product_area_id
-         WHERE m.product_id=? AND c.parent_capability_id IS NULL",
+         JOIN product_areas pa ON pa.id=c.product_area_id
+         WHERE pa.product_id=? AND c.parent_capability_id IS NULL",
     )
     .bind(&resolved_product_id)
     .fetch_all(pool)
@@ -1155,8 +1155,8 @@ pub async fn link_catalog_work_items(
     let feature_metadata_rows = sqlx::query(
         "SELECT c.id, c.technical_notes
          FROM capabilities c
-         JOIN product_areas m ON m.id=c.product_area_id
-         WHERE m.product_id=? AND c.node_kind='feature' AND c.technical_notes LIKE '%Roadmap feature id:%'",
+         JOIN product_areas pa ON pa.id=c.product_area_id
+         WHERE pa.product_id=? AND c.node_kind='feature' AND c.technical_notes LIKE '%Roadmap feature id:%'",
     )
     .bind(&resolved_product_id)
     .fetch_all(pool)
