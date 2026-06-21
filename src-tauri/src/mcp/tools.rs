@@ -2,7 +2,7 @@ use crate::commands::model_commands::upsert_local_runtime_registration;
 use crate::commands::repository_commands::create_local_workspace_for_scope;
 use crate::commands::settings_commands::{DatabaseHealth, MigrationStatus};
 use crate::domain::model::{ModelDefinition, ProviderType};
-use crate::domain::product::{Capability, Module};
+use crate::domain::product::{Capability, ProductArea};
 use crate::domain::work_item::WorkItem;
 use crate::domain::workflow::UserAction;
 use crate::error::AppError;
@@ -40,8 +40,8 @@ use tracing::error;
 
 const AUTO_START_AFTER_WORK_ITEM_APPROVAL_KEY: &str =
     "workflow.auto_start_after_work_item_approval";
-const MCP_MODULE_SELECT_COLUMNS: &str = "id, product_id, node_kind, name, description, purpose, explanation, examples, implementation_notes, test_guidance, sort_order, created_at, updated_at";
-const MCP_CAPABILITY_SELECT_COLUMNS: &str = "id, module_id, parent_capability_id, level, node_kind, sort_order, name, description, acceptance_criteria, explanation, examples, priority, risk, status, technical_notes, implementation_notes, test_guidance, created_at, updated_at";
+const MCP_PRODUCT_AREA_SELECT_COLUMNS: &str = "id, product_id, node_kind, name, description, purpose, explanation, examples, implementation_notes, test_guidance, sort_order, created_at, updated_at";
+const MCP_CAPABILITY_SELECT_COLUMNS: &str = "id, product_area_id, parent_capability_id, level, node_kind, sort_order, name, description, acceptance_criteria, explanation, examples, priority, risk, status, technical_notes, implementation_notes, test_guidance, created_at, updated_at";
 
 fn char_count_i64(content: &str) -> i64 {
     i64::try_from(content.chars().count()).unwrap_or(i64::MAX)
@@ -1063,7 +1063,7 @@ fn first_class_tool_definitions() -> Vec<ToolDefinition> {
                     ("runId", string_property("Run id.")),
                     ("featureId", string_property("Feature row id.")),
                     ("workItemId", string_property("Optional Aruvi work item id.")),
-                    ("module", string_property("Roadmap module or domain id.")),
+                    ("product_area", string_property("Roadmap product_area or domain id.")),
                     ("serviceOrDomain", string_property("Optional service/domain label.")),
                     ("priority", string_property("Priority, for example P0/P1/P2.")),
                     ("releasePhase", string_property("Release phase, for example M1.")),
@@ -1796,11 +1796,6 @@ fn translate_first_class_tool(
         "catalog.product_areas.update" => ("aruvi_catalog", "update_product_area"),
         "catalog.product_areas.delete" => ("aruvi_catalog", "delete_product_area"),
         "catalog.product_areas.reorder" => ("aruvi_catalog", "reorder_product_areas"),
-        "catalog.modules.list" => ("aruvi_catalog", "list_modules"),
-        "catalog.modules.create" => ("aruvi_catalog", "create_module"),
-        "catalog.modules.update" => ("aruvi_catalog", "update_module"),
-        "catalog.modules.delete" => ("aruvi_catalog", "delete_module"),
-        "catalog.modules.reorder" => ("aruvi_catalog", "reorder_modules"),
         "catalog.capabilities.list" => ("aruvi_catalog", "list_capabilities"),
         "catalog.capabilities.create" => ("aruvi_catalog", "create_capability"),
         "catalog.capabilities.update" => ("aruvi_catalog", "update_capability"),
@@ -2375,19 +2370,19 @@ fn repository_git_diff(local_path: &str, max_bytes: i64) -> Result<Value, AppErr
     }))
 }
 
-async fn get_module_by_id(pool: &sqlx::SqlitePool, module_id: &str) -> Result<Module, AppError> {
-    sqlx::query_as::<_, Module>(&format!(
-        "SELECT {MCP_MODULE_SELECT_COLUMNS} FROM modules WHERE id=?"
+async fn get_product_area_by_id(pool: &sqlx::SqlitePool, product_area_id: &str) -> Result<ProductArea, AppError> {
+    sqlx::query_as::<_, ProductArea>(&format!(
+        "SELECT {MCP_PRODUCT_AREA_SELECT_COLUMNS} FROM product_areas WHERE id=?"
     ))
-    .bind(module_id)
+    .bind(product_area_id)
     .fetch_optional(pool)
     .await?
-    .ok_or_else(|| AppError::NotFound(format!("Module {module_id} not found")))
+    .ok_or_else(|| AppError::NotFound(format!("ProductArea {product_area_id} not found")))
 }
 
 async fn list_capability_children(
     pool: &sqlx::SqlitePool,
-    module_id: &str,
+    product_area_id: &str,
     parent_capability_id: Option<&str>,
     limit: i64,
 ) -> Result<Vec<Capability>, AppError> {
@@ -2396,11 +2391,11 @@ async fn list_capability_children(
         sqlx::query_as::<_, Capability>(&format!(
             "SELECT {MCP_CAPABILITY_SELECT_COLUMNS}
              FROM capabilities
-             WHERE module_id=? AND parent_capability_id=?
+             WHERE product_area_id=? AND parent_capability_id=?
              ORDER BY sort_order, name
              LIMIT ?"
         ))
-        .bind(module_id)
+        .bind(product_area_id)
         .bind(parent_id)
         .bind(limit)
         .fetch_all(pool)
@@ -2410,11 +2405,11 @@ async fn list_capability_children(
         sqlx::query_as::<_, Capability>(&format!(
             "SELECT {MCP_CAPABILITY_SELECT_COLUMNS}
              FROM capabilities
-             WHERE module_id=? AND parent_capability_id IS NULL
+             WHERE product_area_id=? AND parent_capability_id IS NULL
              ORDER BY sort_order, name
              LIMIT ?"
         ))
-        .bind(module_id)
+        .bind(product_area_id)
         .bind(limit)
         .fetch_all(pool)
         .await
@@ -2432,11 +2427,11 @@ async fn list_capability_siblings(
         sqlx::query_as::<_, Capability>(&format!(
             "SELECT {MCP_CAPABILITY_SELECT_COLUMNS}
              FROM capabilities
-             WHERE module_id=? AND parent_capability_id=? AND id<>?
+             WHERE product_area_id=? AND parent_capability_id=? AND id<>?
              ORDER BY sort_order, name
              LIMIT ?"
         ))
-        .bind(&capability.module_id)
+        .bind(&capability.product_area_id)
         .bind(parent_id)
         .bind(&capability.id)
         .bind(limit)
@@ -2447,11 +2442,11 @@ async fn list_capability_siblings(
         sqlx::query_as::<_, Capability>(&format!(
             "SELECT {MCP_CAPABILITY_SELECT_COLUMNS}
              FROM capabilities
-             WHERE module_id=? AND parent_capability_id IS NULL AND id<>?
+             WHERE product_area_id=? AND parent_capability_id IS NULL AND id<>?
              ORDER BY sort_order, name
              LIMIT ?"
         ))
-        .bind(&capability.module_id)
+        .bind(&capability.product_area_id)
         .bind(&capability.id)
         .bind(limit)
         .fetch_all(pool)
@@ -2478,7 +2473,7 @@ async fn capability_ancestors(
 async fn top_level_work_items_for_feature(
     pool: &sqlx::SqlitePool,
     product_id: Option<&str>,
-    module_id: Option<&str>,
+    product_area_id: Option<&str>,
     feature_id: Option<&str>,
 ) -> Result<Vec<WorkItem>, AppError> {
     let Some(feature_id) = feature_id else {
@@ -2487,7 +2482,7 @@ async fn top_level_work_items_for_feature(
     let mut items = work_item_repo::list_work_items(
         pool,
         product_id,
-        module_id,
+        product_area_id,
         Some(feature_id),
         Some(feature_id),
         Some("capability"),
@@ -2525,7 +2520,7 @@ async fn work_item_siblings(
         work_item_repo::list_work_items(
             pool,
             work_item.product_id.as_deref(),
-            work_item.module_id.as_deref(),
+            work_item.product_area_id.as_deref(),
             work_item.capability_id.as_deref(),
             work_item.source_node_id.as_deref(),
             work_item
@@ -2589,12 +2584,12 @@ async fn build_feature_context(
     };
 
     let product_area = if let Some(feature) = feature.as_ref() {
-        Some(get_module_by_id(&state.db, &feature.module_id).await?)
-    } else if let Some(module_id) = selected_work_item
+        Some(get_product_area_by_id(&state.db, &feature.product_area_id).await?)
+    } else if let Some(product_area_id) = selected_work_item
         .as_ref()
-        .and_then(|item| item.module_id.as_deref())
+        .and_then(|item| item.product_area_id.as_deref())
     {
-        Some(get_module_by_id(&state.db, module_id).await?)
+        Some(get_product_area_by_id(&state.db, product_area_id).await?)
     } else {
         None
     };
@@ -2620,7 +2615,7 @@ async fn build_feature_context(
     let feature_children = if let Some(feature) = feature.as_ref() {
         list_capability_children(
             &state.db,
-            &feature.module_id,
+            &feature.product_area_id,
             Some(&feature.id),
             sibling_limit,
         )
@@ -2875,10 +2870,10 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
                 product_repo::archive_product(&state.db, &id).await?,
             )
         }
-        action @ ("create_module" | "create_product_area") => {
+        action @ "create_product_area" => {
             let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
             let name = args.required_string(&["name"], "name")?;
-            let product_area = product_repo::create_module(
+            let product_area = product_repo::create_product_area(
                 &state.db,
                 &uuid::Uuid::new_v4().to_string(),
                 &product_id,
@@ -2894,16 +2889,16 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
             .await?;
             action_result(action, product_area)
         }
-        action @ ("list_modules" | "list_product_areas") => {
+        action @ "list_product_areas" => {
             let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
             action_result(
                 action,
-                product_repo::list_modules(&state.db, &product_id).await?,
+                product_repo::list_product_areas(&state.db, &product_id).await?,
             )
         }
-        action @ ("update_module" | "update_product_area") => {
+        action @ "update_product_area" => {
             let id = args.required_string(&["id"], "id")?;
-            let product_area = product_repo::update_module(
+            let product_area = product_repo::update_product_area(
                 &state.db,
                 &id,
                 args.optional_string(&["name"])?.as_deref(),
@@ -2920,21 +2915,21 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
             .await?;
             action_result(action, product_area)
         }
-        action @ ("delete_module" | "delete_product_area") => {
+        action @ "delete_product_area" => {
             let id = args.required_string(&["id"], "id")?;
-            product_repo::delete_module(&state.db, &id).await?;
+            product_repo::delete_product_area(&state.db, &id).await?;
             Ok(action_ok(action))
         }
-        action @ ("reorder_modules" | "reorder_product_areas") => {
+        action @ "reorder_product_areas" => {
             let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
             let ordered_ids =
                 args.required_string_list(&["ordered_ids", "orderedIds"], "ordered_ids")?;
-            product_repo::reorder_modules(&state.db, &product_id, &ordered_ids).await?;
+            product_repo::reorder_product_areas(&state.db, &product_id, &ordered_ids).await?;
             Ok(action_ok(action))
         }
         "create_capability" => {
             let product_area_id = args.required_string(
-                &["product_area_id", "productAreaId", "module_id", "moduleId"],
+                &["product_area_id", "productAreaId", "product_area_id", "productAreaId"],
                 "product_area_id",
             )?;
             let name = args.required_string(&["name"], "name")?;
@@ -2961,7 +2956,7 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
         }
         "list_capabilities" => {
             let product_area_id = args.required_string(
-                &["product_area_id", "productAreaId", "module_id", "moduleId"],
+                &["product_area_id", "productAreaId", "product_area_id", "productAreaId"],
                 "product_area_id",
             )?;
             action_result(
@@ -3000,7 +2995,7 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
         }
         "reorder_capabilities" => {
             let product_area_id = args.required_string(
-                &["product_area_id", "productAreaId", "module_id", "moduleId"],
+                &["product_area_id", "productAreaId", "product_area_id", "productAreaId"],
                 "product_area_id",
             )?;
             let parent_capability_id =
@@ -3020,7 +3015,7 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
             let result = product_service::apply_semantic_template(
                 &state.db,
                 &args.required_string(
-                    &["product_area_id", "productAreaId", "module_id", "moduleId"],
+                    &["product_area_id", "productAreaId", "product_area_id", "productAreaId"],
                     "product_area_id",
                 )?,
                 args.optional_string(&["parent_capability_id", "parentCapabilityId"])?
@@ -3053,7 +3048,7 @@ async fn handle_catalog(state: &AppState, payload: Value) -> Result<Value, AppEr
             let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
             let tree = product_repo::get_product_tree(&state.db, &product_id).await?;
             let mut tree_value = serde_json::to_value(tree)?;
-            if let Some(product_areas) = tree_value.get("modules").cloned() {
+            if let Some(product_areas) = tree_value.get("product_areas").cloned() {
                 tree_value["productAreas"] = product_areas;
             }
             action_result("get_product_tree", tree_value)
@@ -3165,8 +3160,8 @@ async fn handle_work_items(state: &AppState, payload: Value) -> Result<Value, Ap
             let product_area_id = args.optional_string(&[
                 "product_area_id",
                 "productAreaId",
-                "module_id",
-                "moduleId",
+                "product_area_id",
+                "productAreaId",
             ])?;
             let feature_id = args.optional_string(&[
                 "feature_id",
@@ -3220,8 +3215,8 @@ async fn handle_work_items(state: &AppState, payload: Value) -> Result<Value, Ap
                 args.optional_string(&[
                     "product_area_id",
                     "productAreaId",
-                    "module_id",
-                    "moduleId",
+                    "product_area_id",
+                    "productAreaId",
                 ])?
                 .as_deref(),
                 args.optional_string(&[
@@ -3352,8 +3347,8 @@ async fn handle_repositories(state: &AppState, payload: Value) -> Result<Value, 
                 args.optional_string(&[
                     "product_area_id",
                     "productAreaId",
-                    "module_id",
-                    "moduleId",
+                    "product_area_id",
+                    "productAreaId",
                 ])?
                 .as_deref(),
             )
@@ -3366,8 +3361,8 @@ async fn handle_repositories(state: &AppState, payload: Value) -> Result<Value, 
                 args.optional_string(&[
                     "product_area_id",
                     "productAreaId",
-                    "module_id",
-                    "moduleId",
+                    "product_area_id",
+                    "productAreaId",
                 ])?,
                 args.optional_string(&["work_item_id", "workItemId"])?,
                 args.optional_string(&["preferred_path", "preferredPath"])?,
@@ -4239,7 +4234,7 @@ async fn handle_agent_work(state: &AppState, payload: Value) -> Result<Value, Ap
                 &feature_id,
                 args.optional_string(&["work_item_id", "workItemId"])?
                     .as_deref(),
-                &args.string_or_default(&["module"], "")?,
+                &args.string_or_default(&["product_area"], "")?,
                 args.optional_string(&["service_or_domain", "serviceOrDomain"])?
                     .as_deref(),
                 args.optional_string(&["priority"])?.as_deref(),
@@ -5531,9 +5526,9 @@ mod tests {
     }
 
     #[test]
-    fn translate_legacy_module_tool_names_for_backward_compatibility() {
+    fn translate_product_area_tool_names_for_catalog() {
         let translated = translate_first_class_tool(
-            "catalog.modules.create",
+            "catalog.product_areas.create",
             json!({
                 "productId": "product-123",
                 "name": "Runtime Model"
@@ -5546,7 +5541,7 @@ mod tests {
         assert_eq!(
             translated.1,
             json!({
-                "action": "create_module",
+                "action": "create_product_area",
                 "arguments": {
                     "productId": "product-123",
                     "name": "Runtime Model"

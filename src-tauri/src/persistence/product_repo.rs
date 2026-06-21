@@ -1,14 +1,14 @@
 use crate::domain::product::{
     Capability, CapabilityTree, ChildReparentStrategy, HierarchyNodeKind, HierarchyNodeType,
-    HierarchyTreeNode, Module, ModuleTree, NodeKindConversionResult, Product,
+    HierarchyTreeNode, ProductArea, ProductAreaTree, NodeKindConversionResult, Product,
     ProductPlanResetResult, ProductReference, ProductTree,
 };
 use crate::error::AppError;
 use sqlx::{Row, SqlitePool};
 use tracing::{debug, error, trace};
 
-const MODULE_SELECT_COLUMNS: &str = "id, product_id, node_kind, name, description, purpose, explanation, examples, implementation_notes, test_guidance, sort_order, created_at, updated_at";
-const CAPABILITY_SELECT_COLUMNS: &str = "id, module_id, parent_capability_id, level, node_kind, sort_order, name, description, acceptance_criteria, explanation, examples, priority, risk, status, technical_notes, implementation_notes, test_guidance, created_at, updated_at";
+const PRODUCT_AREA_SELECT_COLUMNS: &str = "id, product_id, node_kind, name, description, purpose, explanation, examples, implementation_notes, test_guidance, sort_order, created_at, updated_at";
+const CAPABILITY_SELECT_COLUMNS: &str = "id, product_area_id, parent_capability_id, level, node_kind, sort_order, name, description, acceptance_criteria, explanation, examples, priority, risk, status, technical_notes, implementation_notes, test_guidance, created_at, updated_at";
 const PRODUCT_SELECT_COLUMNS: &str = "id, name, description, vision, goals, tags, status, lifecycle, health, owner_label, investment_status, roadmap, evidence, created_at, updated_at";
 const PRODUCT_REFERENCE_SELECT_COLUMNS: &str =
     "id, scope_type, scope_id, title, reference_kind, uri, content, created_at, updated_at";
@@ -98,15 +98,15 @@ fn resolve_child_node_kind(
     Ok(child_kind)
 }
 
-async fn get_module_node_kind(
+async fn get_product_area_node_kind(
     pool: &SqlitePool,
-    module_id: &str,
+    product_area_id: &str,
 ) -> Result<HierarchyNodeKind, AppError> {
-    sqlx::query_scalar("SELECT node_kind FROM modules WHERE id = ?")
-        .bind(module_id)
+    sqlx::query_scalar("SELECT node_kind FROM product_areas WHERE id = ?")
+        .bind(product_area_id)
         .fetch_optional(pool)
         .await?
-        .ok_or_else(|| AppError::NotFound(format!("Module {module_id} not found")))
+        .ok_or_else(|| AppError::NotFound(format!("ProductArea {product_area_id} not found")))
         .and_then(|value: String| parse_root_node_kind(&value))
 }
 
@@ -298,14 +298,14 @@ pub async fn reset_product_plan(
     }
 
     let product_areas_deleted: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM modules WHERE product_id=?")
+        sqlx::query_scalar("SELECT COUNT(*) FROM product_areas WHERE product_id=?")
             .bind(product_id)
             .fetch_one(pool)
             .await?;
     let capabilities_deleted: i64 = sqlx::query_scalar(
         "SELECT COUNT(*)
          FROM capabilities c
-         JOIN modules m ON m.id=c.module_id
+         JOIN product_areas m ON m.id=c.product_area_id
          WHERE m.product_id=?",
     )
     .bind(product_id)
@@ -404,7 +404,7 @@ pub async fn reset_product_plan(
             .execute(&mut *tx)
             .await?;
     }
-    sqlx::query("DELETE FROM modules WHERE product_id=?")
+    sqlx::query("DELETE FROM product_areas WHERE product_id=?")
         .bind(product_id)
         .execute(&mut *tx)
         .await?;
@@ -417,7 +417,7 @@ pub async fn reset_product_plan(
     Ok(result)
 }
 
-pub async fn create_module(
+pub async fn create_product_area(
     pool: &SqlitePool,
     id: &str,
     product_id: &str,
@@ -429,19 +429,19 @@ pub async fn create_module(
     examples: &str,
     implementation_notes: &str,
     test_guidance: &str,
-) -> Result<Module, AppError> {
-    debug!(module_id = %id, product_id = %product_id, module_name = %name, "persist create_module");
+) -> Result<ProductArea, AppError> {
+    debug!(product_area_id = %id, product_id = %product_id, product_area_name = %name, "persist create_product_area");
     let node_kind = resolve_root_node_kind(node_kind)?;
     let next_sort_order: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM modules WHERE product_id = ?",
+        "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM product_areas WHERE product_id = ?",
     )
     .bind(product_id)
     .fetch_one(pool)
     .await?;
-    trace!(module_id = %id, product_id = %product_id, sort_order = next_sort_order, "resolved module sort order");
-    sqlx::query_as::<_, Module>(
+    trace!(product_area_id = %id, product_id = %product_id, sort_order = next_sort_order, "resolved product_area sort order");
+    sqlx::query_as::<_, ProductArea>(
         &format!(
-            "INSERT INTO modules (id, product_id, node_kind, name, description, purpose, explanation, examples, implementation_notes, test_guidance, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING {MODULE_SELECT_COLUMNS}"
+            "INSERT INTO product_areas (id, product_id, node_kind, name, description, purpose, explanation, examples, implementation_notes, test_guidance, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING {PRODUCT_AREA_SELECT_COLUMNS}"
         ),
     )
         .bind(id).bind(product_id).bind(node_kind).bind(name).bind(description).bind(purpose)
@@ -450,9 +450,9 @@ pub async fn create_module(
         .fetch_one(pool).await.map_err(|e| e.into())
 }
 
-pub async fn list_modules(pool: &SqlitePool, product_id: &str) -> Result<Vec<Module>, AppError> {
-    sqlx::query_as::<_, Module>(&format!(
-        "SELECT {MODULE_SELECT_COLUMNS} FROM modules WHERE product_id=? ORDER BY sort_order"
+pub async fn list_product_areas(pool: &SqlitePool, product_id: &str) -> Result<Vec<ProductArea>, AppError> {
+    sqlx::query_as::<_, ProductArea>(&format!(
+        "SELECT {PRODUCT_AREA_SELECT_COLUMNS} FROM product_areas WHERE product_id=? ORDER BY sort_order"
     ))
     .bind(product_id)
     .fetch_all(pool)
@@ -460,7 +460,7 @@ pub async fn list_modules(pool: &SqlitePool, product_id: &str) -> Result<Vec<Mod
     .map_err(|e| e.into())
 }
 
-pub async fn update_module(
+pub async fn update_product_area(
     pool: &SqlitePool,
     id: &str,
     name: Option<&str>,
@@ -471,15 +471,15 @@ pub async fn update_module(
     examples: Option<&str>,
     implementation_notes: Option<&str>,
     test_guidance: Option<&str>,
-) -> Result<Module, AppError> {
-    debug!(module_id = %id, "persist update_module");
-    let existing = sqlx::query_as::<_, Module>(&format!(
-        "SELECT {MODULE_SELECT_COLUMNS} FROM modules WHERE id=?"
+) -> Result<ProductArea, AppError> {
+    debug!(product_area_id = %id, "persist update_product_area");
+    let existing = sqlx::query_as::<_, ProductArea>(&format!(
+        "SELECT {PRODUCT_AREA_SELECT_COLUMNS} FROM product_areas WHERE id=?"
     ))
     .bind(id)
     .fetch_optional(pool)
     .await?
-    .ok_or_else(|| AppError::NotFound(format!("Module {id} not found")))?;
+    .ok_or_else(|| AppError::NotFound(format!("ProductArea {id} not found")))?;
     let name = name.unwrap_or(&existing.name);
     let description = description.unwrap_or(&existing.description);
     let purpose = purpose.unwrap_or(&existing.purpose);
@@ -492,11 +492,11 @@ pub async fn update_module(
     } else {
         existing.node_kind
     };
-    sqlx::query("UPDATE modules SET name=?, description=?, purpose=?, explanation=?, examples=?, implementation_notes=?, test_guidance=?, node_kind=?, updated_at=datetime('now') WHERE id=?")
+    sqlx::query("UPDATE product_areas SET name=?, description=?, purpose=?, explanation=?, examples=?, implementation_notes=?, test_guidance=?, node_kind=?, updated_at=datetime('now') WHERE id=?")
         .bind(name).bind(description).bind(purpose).bind(explanation).bind(examples)
         .bind(implementation_notes).bind(test_guidance).bind(node_kind).bind(id).execute(pool).await?;
-    sqlx::query_as::<_, Module>(&format!(
-        "SELECT {MODULE_SELECT_COLUMNS} FROM modules WHERE id=?"
+    sqlx::query_as::<_, ProductArea>(&format!(
+        "SELECT {PRODUCT_AREA_SELECT_COLUMNS} FROM product_areas WHERE id=?"
     ))
     .bind(id)
     .fetch_one(pool)
@@ -504,8 +504,8 @@ pub async fn update_module(
     .map_err(|e| e.into())
 }
 
-pub async fn delete_module(pool: &SqlitePool, id: &str) -> Result<(), AppError> {
-    sqlx::query("DELETE FROM modules WHERE id=?")
+pub async fn delete_product_area(pool: &SqlitePool, id: &str) -> Result<(), AppError> {
+    sqlx::query("DELETE FROM product_areas WHERE id=?")
         .bind(id)
         .execute(pool)
         .await?;
@@ -515,7 +515,7 @@ pub async fn delete_module(pool: &SqlitePool, id: &str) -> Result<(), AppError> 
 pub async fn create_capability(
     pool: &SqlitePool,
     id: &str,
-    module_id: &str,
+    product_area_id: &str,
     parent_capability_id: Option<&str>,
     name: &str,
     description: &str,
@@ -529,16 +529,16 @@ pub async fn create_capability(
     implementation_notes: &str,
     test_guidance: &str,
 ) -> Result<Capability, AppError> {
-    debug!(capability_id = %id, module_id = %module_id, parent_capability_id = ?parent_capability_id, capability_name = %name, "persist create_capability");
+    debug!(capability_id = %id, product_area_id = %product_area_id, parent_capability_id = ?parent_capability_id, capability_name = %name, "persist create_capability");
     let (level, parent_kind) = if let Some(parent_id) = parent_capability_id {
         let parent =
-            sqlx::query("SELECT level, module_id, node_kind FROM capabilities WHERE id = ?")
+            sqlx::query("SELECT level, product_area_id, node_kind FROM capabilities WHERE id = ?")
                 .bind(parent_id)
                 .fetch_optional(pool)
                 .await?
                 .ok_or_else(|| AppError::NotFound(format!("Capability {parent_id} not found")))?;
-        let parent_module_id: String = parent.get("module_id");
-        if parent_module_id != module_id {
+        let parent_product_area_id: String = parent.get("product_area_id");
+        if parent_product_area_id != product_area_id {
             return Err(AppError::Validation(
                 "Capability children must stay inside the same root product section.".to_string(),
             ));
@@ -547,29 +547,29 @@ pub async fn create_capability(
             parse_capability_node_kind(parent.get::<String, _>("node_kind").as_str())?;
         (parent.get::<i64, _>("level") + 1, parent_kind)
     } else {
-        (0, get_module_node_kind(pool, module_id).await?)
+        (0, get_product_area_node_kind(pool, product_area_id).await?)
     };
     let node_kind = resolve_child_node_kind(parent_kind, node_kind)?;
     trace!(capability_id = %id, level = level, "resolved capability level");
     let next_sort_order: i64 = if let Some(parent_id) = parent_capability_id {
-        sqlx::query_scalar("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM capabilities WHERE module_id = ? AND parent_capability_id = ?")
-            .bind(module_id)
+        sqlx::query_scalar("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM capabilities WHERE product_area_id = ? AND parent_capability_id = ?")
+            .bind(product_area_id)
             .bind(parent_id)
             .fetch_one(pool)
             .await?
     } else {
-        sqlx::query_scalar("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM capabilities WHERE module_id = ? AND parent_capability_id IS NULL")
-            .bind(module_id)
+        sqlx::query_scalar("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM capabilities WHERE product_area_id = ? AND parent_capability_id IS NULL")
+            .bind(product_area_id)
             .fetch_one(pool)
             .await?
     };
     trace!(capability_id = %id, sort_order = next_sort_order, "resolved capability sort order");
     sqlx::query_as::<_, Capability>(
         &format!(
-            "INSERT INTO capabilities (id, module_id, parent_capability_id, level, node_kind, sort_order, name, description, acceptance_criteria, explanation, examples, priority, risk, technical_notes, implementation_notes, test_guidance) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING {CAPABILITY_SELECT_COLUMNS}"
+            "INSERT INTO capabilities (id, product_area_id, parent_capability_id, level, node_kind, sort_order, name, description, acceptance_criteria, explanation, examples, priority, risk, technical_notes, implementation_notes, test_guidance) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING {CAPABILITY_SELECT_COLUMNS}"
         ),
     )
-        .bind(id).bind(module_id).bind(parent_capability_id).bind(level).bind(node_kind)
+        .bind(id).bind(product_area_id).bind(parent_capability_id).bind(level).bind(node_kind)
         .bind(next_sort_order).bind(name).bind(description).bind(acceptance_criteria)
         .bind(explanation).bind(examples).bind(priority).bind(risk).bind(technical_notes)
         .bind(implementation_notes).bind(test_guidance)
@@ -578,12 +578,12 @@ pub async fn create_capability(
 
 pub async fn list_capabilities(
     pool: &SqlitePool,
-    module_id: &str,
+    product_area_id: &str,
 ) -> Result<Vec<Capability>, AppError> {
     sqlx::query_as::<_, Capability>(&format!(
-        "SELECT {CAPABILITY_SELECT_COLUMNS} FROM capabilities WHERE module_id=? ORDER BY sort_order, name"
+        "SELECT {CAPABILITY_SELECT_COLUMNS} FROM capabilities WHERE product_area_id=? ORDER BY sort_order, name"
     ))
-        .bind(module_id)
+        .bind(product_area_id)
         .fetch_all(pool).await.map_err(|e| e.into())
 }
 
@@ -644,7 +644,7 @@ pub async fn update_capability(
                 })?;
         parse_capability_node_kind(&parent_node_kind)?
     } else {
-        get_module_node_kind(pool, &existing.module_id).await?
+        get_product_area_node_kind(pool, &existing.product_area_id).await?
     };
     let node_kind = if let Some(value) = node_kind {
         resolve_child_node_kind(parent_kind, Some(value))?
@@ -691,7 +691,7 @@ pub async fn convert_capability_node_kind(
     let parent_kind = if let Some(parent_capability_id) = existing.parent_capability_id.as_deref() {
         get_capability(pool, parent_capability_id).await?.node_kind
     } else {
-        get_module_node_kind(pool, &existing.module_id).await?
+        get_product_area_node_kind(pool, &existing.product_area_id).await?
     };
     let next_node_kind = resolve_child_node_kind(parent_kind, Some(target_node_kind))?;
     let strategy = child_strategy
@@ -774,14 +774,14 @@ pub async fn convert_capability_node_kind(
     })
 }
 
-pub async fn reorder_modules(
+pub async fn reorder_product_areas(
     pool: &SqlitePool,
     product_id: &str,
     ordered_ids: &[String],
 ) -> Result<(), AppError> {
-    debug!(product_id = %product_id, item_count = ordered_ids.len(), "persist reorder_modules");
+    debug!(product_id = %product_id, item_count = ordered_ids.len(), "persist reorder_product_areas");
     for (index, id) in ordered_ids.iter().enumerate() {
-        sqlx::query("UPDATE modules SET sort_order=?, updated_at=datetime('now') WHERE id=? AND product_id=?")
+        sqlx::query("UPDATE product_areas SET sort_order=?, updated_at=datetime('now') WHERE id=? AND product_id=?")
             .bind(index as i64)
             .bind(id)
             .bind(product_id)
@@ -793,13 +793,13 @@ pub async fn reorder_modules(
 
 pub async fn reorder_capabilities(
     pool: &SqlitePool,
-    module_id: &str,
+    product_area_id: &str,
     parent_capability_id: Option<&str>,
     ordered_ids: &[String],
 ) -> Result<(), AppError> {
-    debug!(module_id = %module_id, parent_capability_id = ?parent_capability_id, item_count = ordered_ids.len(), "persist reorder_capabilities");
+    debug!(product_area_id = %product_area_id, parent_capability_id = ?parent_capability_id, item_count = ordered_ids.len(), "persist reorder_capabilities");
     for (index, id) in ordered_ids.iter().enumerate() {
-        let mut query = String::from("UPDATE capabilities SET sort_order=?, updated_at=datetime('now') WHERE id=? AND module_id=?");
+        let mut query = String::from("UPDATE capabilities SET sort_order=?, updated_at=datetime('now') WHERE id=? AND product_area_id=?");
         if parent_capability_id.is_some() {
             query.push_str(" AND parent_capability_id=?");
         } else {
@@ -808,7 +808,7 @@ pub async fn reorder_capabilities(
         let mut q = sqlx::query(&query)
             .bind(index as i64)
             .bind(id)
-            .bind(module_id);
+            .bind(product_area_id);
         if let Some(parent_id) = parent_capability_id {
             q = q.bind(parent_id);
         }
@@ -882,9 +882,9 @@ pub async fn get_product_tree(
 ) -> Result<ProductTree, AppError> {
     trace!(product_id = %product_id, "persist get_product_tree");
     let product = get_product(pool, product_id).await?;
-    let modules = list_modules(pool, product_id).await?;
-    let mut module_trees = Vec::new();
-    for m in modules {
+    let product_areas = list_product_areas(pool, product_id).await?;
+    let mut product_area_trees = Vec::new();
+    for m in product_areas {
         let features = list_capabilities(pool, &m.id).await?;
         let root_features: Vec<_> = features
             .iter()
@@ -894,49 +894,49 @@ pub async fn get_product_tree(
             .iter()
             .map(|f| build_capability_tree(f, &features))
             .collect();
-        module_trees.push(ModuleTree {
-            module: m,
+        product_area_trees.push(ProductAreaTree {
+            product_area: m,
             features: capability_trees,
         });
     }
-    let roots = module_trees
+    let roots = product_area_trees
         .iter()
-        .map(|module_tree| build_module_hierarchy_tree(module_tree))
+        .map(|product_area_tree| build_product_area_hierarchy_tree(product_area_tree))
         .collect();
     Ok(ProductTree {
         product,
-        modules: module_trees,
+        product_areas: product_area_trees,
         roots,
     })
 }
 
-fn build_module_hierarchy_tree(module_tree: &ModuleTree) -> HierarchyTreeNode {
-    let path = vec![module_tree.module.name.clone()];
-    let children = module_tree
+fn build_product_area_hierarchy_tree(product_area_tree: &ProductAreaTree) -> HierarchyTreeNode {
+    let path = vec![product_area_tree.product_area.name.clone()];
+    let children = product_area_tree
         .features
         .iter()
         .map(|capability_tree| build_hierarchy_tree(capability_tree, &path))
         .collect();
     HierarchyTreeNode {
-        id: module_tree.module.id.clone(),
+        id: product_area_tree.product_area.id.clone(),
         node_type: HierarchyNodeType::ProductArea,
-        node_kind: module_tree.module.node_kind,
-        module_id: module_tree.module.id.clone(),
+        node_kind: product_area_tree.product_area.node_kind,
+        product_area_id: product_area_tree.product_area.id.clone(),
         capability_id: None,
         parent_node_id: None,
         parent_node_type: None,
         depth: 0,
-        name: module_tree.module.name.clone(),
-        description: module_tree.module.description.clone(),
+        name: product_area_tree.product_area.name.clone(),
+        description: product_area_tree.product_area.description.clone(),
         summary: first_non_empty(&[
-            &module_tree.module.description,
-            &module_tree.module.explanation,
-            &module_tree.module.purpose,
-            &module_tree.module.implementation_notes,
-            &module_tree.module.test_guidance,
+            &product_area_tree.product_area.description,
+            &product_area_tree.product_area.explanation,
+            &product_area_tree.product_area.purpose,
+            &product_area_tree.product_area.implementation_notes,
+            &product_area_tree.product_area.test_guidance,
         ]),
         path,
-        allowed_child_kinds: module_tree.module.node_kind.allowed_child_kinds(),
+        allowed_child_kinds: product_area_tree.product_area.node_kind.allowed_child_kinds(),
         children,
     }
 }
@@ -956,7 +956,7 @@ fn build_hierarchy_tree(
         id: capability_tree.capability.id.clone(),
         node_type: HierarchyNodeType::Capability,
         node_kind: capability_tree.capability.node_kind,
-        module_id: capability_tree.capability.module_id.clone(),
+        product_area_id: capability_tree.capability.product_area_id.clone(),
         capability_id: Some(capability_tree.capability.id.clone()),
         parent_node_id: capability_tree
             .capability
@@ -965,7 +965,7 @@ fn build_hierarchy_tree(
             .or_else(|| {
                 parent_path
                     .first()
-                    .map(|_| capability_tree.capability.module_id.clone())
+                    .map(|_| capability_tree.capability.product_area_id.clone())
             }),
         parent_node_type: Some(
             if capability_tree.capability.parent_capability_id.is_some() {
@@ -1052,32 +1052,32 @@ mod tests {
         .expect("product should be created");
 
         sqlx::query(
-            "INSERT INTO modules (id, product_id, node_kind, name, sort_order)
-             VALUES ('module-payments', 'product-canonical-kinds', 'product_area', 'Payments', 0)",
+            "INSERT INTO product_areas (id, product_id, node_kind, name, sort_order)
+             VALUES ('product_area-payments', 'product-canonical-kinds', 'product_area', 'Payments', 0)",
         )
         .execute(&pool)
         .await
         .expect("product area should be inserted");
         sqlx::query(
-            "INSERT INTO modules (id, product_id, node_kind, name, sort_order)
-             VALUES ('module-billing', 'product-canonical-kinds', 'product_area', 'Billing', 1)",
+            "INSERT INTO product_areas (id, product_id, node_kind, name, sort_order)
+             VALUES ('product_area-billing', 'product-canonical-kinds', 'product_area', 'Billing', 1)",
         )
         .execute(&pool)
         .await
         .expect("product area should be inserted");
         sqlx::query(
-            "INSERT INTO modules (id, product_id, node_kind, name, sort_order)
-             VALUES ('module-operations', 'product-canonical-kinds', 'product_area', 'Operations', 2)",
+            "INSERT INTO product_areas (id, product_id, node_kind, name, sort_order)
+             VALUES ('product_area-operations', 'product-canonical-kinds', 'product_area', 'Operations', 2)",
         )
         .execute(&pool)
         .await
         .expect("product area should be inserted");
         sqlx::query(
             "INSERT INTO capabilities (
-                id, module_id, parent_capability_id, level, node_kind, sort_order, name
+                id, product_area_id, parent_capability_id, level, node_kind, sort_order, name
              )
              VALUES (
-                'capability-checkout', 'module-payments', NULL, 0, 'capability', 0, 'Checkout'
+                'capability-checkout', 'product_area-payments', NULL, 0, 'capability', 0, 'Checkout'
              )",
         )
         .execute(&pool)
@@ -1085,10 +1085,10 @@ mod tests {
         .expect("capability should be inserted");
         sqlx::query(
             "INSERT INTO capabilities (
-                id, module_id, parent_capability_id, level, node_kind, sort_order, name
+                id, product_area_id, parent_capability_id, level, node_kind, sort_order, name
              )
              VALUES (
-                'capability-runtime', 'module-operations', NULL, 0, 'capability', 0, 'Runtime'
+                'capability-runtime', 'product_area-operations', NULL, 0, 'capability', 0, 'Runtime'
              )",
         )
         .execute(&pool)
@@ -1096,10 +1096,10 @@ mod tests {
         .expect("capability should be inserted");
         sqlx::query(
             "INSERT INTO capabilities (
-                id, module_id, parent_capability_id, level, node_kind, sort_order, name
+                id, product_area_id, parent_capability_id, level, node_kind, sort_order, name
              )
              VALUES (
-                'feature-reconciliation', 'module-payments', 'capability-checkout', 1, 'feature', 0, 'Reconciliation'
+                'feature-reconciliation', 'product_area-payments', 'capability-checkout', 1, 'feature', 0, 'Reconciliation'
              )",
         )
         .execute(&pool)
@@ -1110,32 +1110,32 @@ mod tests {
             .await
             .expect("canonical node kinds should decode");
 
-        assert_eq!(tree.modules.len(), 3);
+        assert_eq!(tree.product_areas.len(), 3);
         assert_eq!(
-            tree.modules[0].module.node_kind,
+            tree.product_areas[0].product_area.node_kind,
             HierarchyNodeKind::ProductArea
         );
         assert_eq!(
-            tree.modules[1].module.node_kind,
+            tree.product_areas[1].product_area.node_kind,
             HierarchyNodeKind::ProductArea
         );
         assert_eq!(
-            tree.modules[2].module.node_kind,
+            tree.product_areas[2].product_area.node_kind,
             HierarchyNodeKind::ProductArea
         );
-        assert_eq!(tree.modules[0].features.len(), 1);
+        assert_eq!(tree.product_areas[0].features.len(), 1);
         assert_eq!(
-            tree.modules[0].features[0].capability.node_kind,
+            tree.product_areas[0].features[0].capability.node_kind,
             HierarchyNodeKind::Capability
         );
-        assert_eq!(tree.modules[0].features[0].children.len(), 1);
+        assert_eq!(tree.product_areas[0].features[0].children.len(), 1);
         assert_eq!(
-            tree.modules[0].features[0].children[0].capability.node_kind,
+            tree.product_areas[0].features[0].children[0].capability.node_kind,
             HierarchyNodeKind::Feature
         );
-        assert_eq!(tree.modules[2].features.len(), 1);
+        assert_eq!(tree.product_areas[2].features.len(), 1);
         assert_eq!(
-            tree.modules[2].features[0].capability.node_kind,
+            tree.product_areas[2].features[0].capability.node_kind,
             HierarchyNodeKind::Capability
         );
     }
@@ -1162,26 +1162,26 @@ mod tests {
         .expect("product should be created");
 
         sqlx::query(
-            "INSERT INTO modules (id, product_id, node_kind, name, sort_order)
-             VALUES ('module-reset', 'product-reset', 'product_area', 'Area', 0)",
+            "INSERT INTO product_areas (id, product_id, node_kind, name, sort_order)
+             VALUES ('product_area-reset', 'product-reset', 'product_area', 'Area', 0)",
         )
         .execute(&pool)
         .await
-        .expect("module should be inserted");
+        .expect("product_area should be inserted");
         sqlx::query(
             "INSERT INTO capabilities (
-                id, module_id, parent_capability_id, level, node_kind, sort_order, name
+                id, product_area_id, parent_capability_id, level, node_kind, sort_order, name
              )
-             VALUES ('cap-reset', 'module-reset', NULL, 0, 'capability', 0, 'Capability')",
+             VALUES ('cap-reset', 'product_area-reset', NULL, 0, 'capability', 0, 'Capability')",
         )
         .execute(&pool)
         .await
         .expect("capability should be inserted");
         sqlx::query(
             "INSERT INTO work_items (
-                id, product_id, module_id, capability_id, title, work_item_type, status
+                id, product_id, product_area_id, capability_id, title, work_item_type, status
              )
-             VALUES ('work-reset', 'product-reset', 'module-reset', 'cap-reset', 'Work', 'story', 'draft')",
+             VALUES ('work-reset', 'product-reset', 'product_area-reset', 'cap-reset', 'Work', 'story', 'draft')",
         )
         .execute(&pool)
         .await
@@ -1194,7 +1194,7 @@ mod tests {
         .await
         .expect("run should be inserted");
         sqlx::query(
-            "INSERT INTO agent_work_items (id, run_id, feature_id, work_item_id, module)
+            "INSERT INTO agent_work_items (id, run_id, feature_id, work_item_id, product_area)
              VALUES ('agent-item-reset', 'run-reset', 'feature-reset', 'work-reset', 'Area')",
         )
         .execute(&pool)
@@ -1227,11 +1227,11 @@ mod tests {
         assert_eq!(result.agent_work_events_deleted, 1);
         assert_eq!(result.agent_work_evidence_deleted, 1);
 
-        let remaining_modules: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM modules WHERE product_id='product-reset'")
+        let remaining_product_areas: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM product_areas WHERE product_id='product-reset'")
                 .fetch_one(&pool)
                 .await
-                .expect("modules should be counted");
+                .expect("product_areas should be counted");
         let remaining_work_items: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM work_items WHERE product_id='product-reset'")
                 .fetch_one(&pool)
@@ -1244,7 +1244,7 @@ mod tests {
         .await
         .expect("runs should be counted");
 
-        assert_eq!(remaining_modules, 0);
+        assert_eq!(remaining_product_areas, 0);
         assert_eq!(remaining_work_items, 0);
         assert_eq!(remaining_runs, 0);
     }

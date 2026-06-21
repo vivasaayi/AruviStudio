@@ -11,12 +11,12 @@ import {
   confirmPlannerPlan,
   convertCapabilityKind,
   createCapability,
-  createModule,
+  createProductArea,
   createPlannerSession,
   createWorkItem,
   deletePlannerDraftNode,
   deleteCapability,
-  deleteModule,
+  deleteProductArea,
   deleteWorkItem,
   exportProductOverviewHtml,
   getSetting,
@@ -42,7 +42,7 @@ import {
   transcribeAudio,
   updatePlannerSession,
   updateCapability,
-  updateModule,
+  updateProductArea,
   updateProduct,
   updateWorkItem,
 } from "../../../lib/tauri";
@@ -209,21 +209,21 @@ type PlannerAction =
       fields: { name?: string; description?: string; vision?: string; goals?: string[]; tags?: string[] };
     }
   | {
-      type: "create_module";
+      type: "create_product_area";
       target?: { productName?: string };
       name: string;
       description?: string;
       purpose?: string;
     }
   | {
-      type: "update_module";
-      target?: { productName?: string; moduleName?: string };
+      type: "update_product_area";
+      target?: { productName?: string; productAreaName?: string };
       fields: { name?: string; description?: string; purpose?: string };
     }
-  | { type: "delete_module"; target?: { productName?: string; moduleName?: string } }
+  | { type: "delete_product_area"; target?: { productName?: string; productAreaName?: string } }
   | {
       type: "create_capability";
-      target?: { productName?: string; moduleName?: string; capabilityName?: string };
+      target?: { productName?: string; productAreaName?: string; capabilityName?: string };
       name: string;
       description?: string;
       acceptanceCriteria?: string;
@@ -233,7 +233,7 @@ type PlannerAction =
     }
   | {
       type: "apply_capability_template";
-      target?: { productName?: string; moduleName?: string; capabilityName?: string };
+      target?: { productName?: string; productAreaName?: string; capabilityName?: string };
       templateKind: "operator_chapter" | "technical_topic_book";
       name: string;
       description?: string;
@@ -246,19 +246,19 @@ type PlannerAction =
     }
   | {
       type: "convert_capability_kind";
-      target?: { productName?: string; moduleName?: string; capabilityName?: string };
+      target?: { productName?: string; productAreaName?: string; capabilityName?: string };
       nodeKind: string;
       childStrategy?: "reject" | "reparent_to_parent";
     }
   | {
       type: "update_capability";
-      target?: { productName?: string; moduleName?: string; capabilityName?: string };
+      target?: { productName?: string; productAreaName?: string; capabilityName?: string };
       fields: { name?: string; description?: string; acceptanceCriteria?: string; technicalNotes?: string; priority?: "critical" | "high" | "medium" | "low"; risk?: "high" | "medium" | "low" };
     }
-  | { type: "delete_capability"; target?: { productName?: string; moduleName?: string; capabilityName?: string } }
+  | { type: "delete_capability"; target?: { productName?: string; productAreaName?: string; capabilityName?: string } }
   | {
       type: "create_work_item";
-      target?: { productName?: string; moduleName?: string; capabilityName?: string };
+      target?: { productName?: string; productAreaName?: string; capabilityName?: string };
       title: string;
       description?: string;
       problemStatement?: string;
@@ -301,7 +301,7 @@ type ResolverContext = {
   productTrees: ProductTree[];
   workItems: WorkItem[];
   activeProductId: string | null;
-  activeModuleId: string | null;
+  activeProductAreaId: string | null;
   activeCapabilityId: string | null;
   activeWorkItemId: string | null;
 };
@@ -457,33 +457,33 @@ function findTree(context: ResolverContext, product: Product) {
   return tree;
 }
 
-function findModule(context: ResolverContext, product: Product, moduleName?: string) {
+function findProductArea(context: ResolverContext, product: Product, productAreaName?: string) {
   const tree = findTree(context, product);
-  if (moduleName) {
-    const normalized = normalize(moduleName);
-    const exact = tree.modules.find((entry) => normalize(entry.module.name) === normalized);
+  if (productAreaName) {
+    const normalized = normalize(productAreaName);
+    const exact = tree.product_areas.find((entry) => normalize(entry.product_area.name) === normalized);
     if (exact) {
-      return exact.module;
+      return exact.product_area;
     }
-    const partial = tree.modules.filter((entry) => normalize(entry.module.name).includes(normalized));
+    const partial = tree.product_areas.filter((entry) => normalize(entry.product_area.name).includes(normalized));
     if (partial.length === 1) {
-      return partial[0].module;
+      return partial[0].product_area;
     }
     if (partial.length > 1) {
-      throw new Error(`Multiple modules match "${moduleName}" in "${product.name}".`);
+      throw new Error(`Multiple product_areas match "${productAreaName}" in "${product.name}".`);
     }
-    throw new Error(`No module matches "${moduleName}" in "${product.name}".`);
+    throw new Error(`No product_area matches "${productAreaName}" in "${product.name}".`);
   }
-  if (context.activeModuleId) {
-    const active = tree.modules.find((entry) => entry.module.id === context.activeModuleId);
+  if (context.activeProductAreaId) {
+    const active = tree.product_areas.find((entry) => entry.product_area.id === context.activeProductAreaId);
     if (active) {
-      return active.module;
+      return active.product_area;
     }
   }
-  if (tree.modules.length === 1) {
-    return tree.modules[0].module;
+  if (tree.product_areas.length === 1) {
+    return tree.product_areas[0].product_area;
   }
-  throw new Error("Module is required.");
+  throw new Error("ProductArea is required.");
 }
 
 function flattenCapabilities(tree: CapabilityTree[], bucket: CapabilityTree[] = []) {
@@ -494,14 +494,14 @@ function flattenCapabilities(tree: CapabilityTree[], bucket: CapabilityTree[] = 
   return bucket;
 }
 
-function findCapability(context: ResolverContext, product: Product, moduleName?: string, capabilityName?: string) {
-  const module = findModule(context, product, moduleName);
+function findCapability(context: ResolverContext, product: Product, productAreaName?: string, capabilityName?: string) {
+  const product_area = findProductArea(context, product, productAreaName);
   const tree = findTree(context, product);
-  const moduleTree = tree.modules.find((entry) => entry.module.id === module.id);
-  if (!moduleTree) {
-    throw new Error(`Module "${module.name}" has no capability tree.`);
+  const productAreaTree = tree.product_areas.find((entry) => entry.product_area.id === product_area.id);
+  if (!productAreaTree) {
+    throw new Error(`ProductArea "${product_area.name}" has no capability tree.`);
   }
-  const capabilities = flattenCapabilities(moduleTree.features);
+  const capabilities = flattenCapabilities(productAreaTree.features);
   if (capabilityName) {
     const normalized = normalize(capabilityName);
     const exact = capabilities.find((entry) => normalize(entry.capability.name) === normalized);
@@ -513,9 +513,9 @@ function findCapability(context: ResolverContext, product: Product, moduleName?:
       return partial[0].capability;
     }
     if (partial.length > 1) {
-      throw new Error(`Multiple capabilities match "${capabilityName}" in "${module.name}".`);
+      throw new Error(`Multiple capabilities match "${capabilityName}" in "${product_area.name}".`);
     }
-    throw new Error(`No capability matches "${capabilityName}" in "${module.name}".`);
+    throw new Error(`No capability matches "${capabilityName}" in "${product_area.name}".`);
   }
   if (context.activeCapabilityId) {
     const active = capabilities.find((entry) => entry.capability.id === context.activeCapabilityId);
@@ -592,19 +592,19 @@ function buildWorkItemTreeReport(context: ResolverContext, productName?: string)
 
     const includedWorkItemIds = new Set<string>();
 
-    tree.modules.forEach((moduleTree) => {
-      lines.push(`  ${moduleTree.module.name}`);
+    tree.product_areas.forEach((productAreaTree) => {
+      lines.push(`  ${productAreaTree.product_area.name}`);
 
-      const moduleDirectItems = productItems.filter(
-        (item) => item.module_id === moduleTree.module.id && !item.capability_id,
+      const productAreaDirectItems = productItems.filter(
+        (item) => item.product_area_id === productAreaTree.product_area.id && !item.capability_id,
       );
-      if (moduleDirectItems.length > 0) {
+      if (productAreaDirectItems.length > 0) {
         lines.push("    direct stories/tasks");
-        appendWorkItemHierarchy(lines, moduleDirectItems, null, "      ");
-        moduleDirectItems.forEach((item) => includedWorkItemIds.add(item.id));
+        appendWorkItemHierarchy(lines, productAreaDirectItems, null, "      ");
+        productAreaDirectItems.forEach((item) => includedWorkItemIds.add(item.id));
       }
 
-      const flattenedCapabilities = flattenCapabilities(moduleTree.features);
+      const flattenedCapabilities = flattenCapabilities(productAreaTree.features);
       flattenedCapabilities.forEach((capabilityTree) => {
         const capabilityItems = productItems.filter((item) => item.capability_id === capabilityTree.capability.id);
         if (capabilityItems.length === 0) {
@@ -652,29 +652,29 @@ function buildWorkItemTreeNodes(context: ResolverContext, productName?: string):
     const tree = context.productTrees.find((entry) => entry.product.id === product.id);
     const productItems = context.workItems.filter((item) => item.product_id === product.id);
     const includedWorkItemIds = new Set<string>();
-    const moduleNodes: PlannerTreeNode[] = [];
+    const productAreaNodes: PlannerTreeNode[] = [];
 
     if (tree) {
-      tree.modules.forEach((moduleTree) => {
-        const moduleChildren: PlannerTreeNode[] = [];
-        const moduleDirectItems = productItems.filter(
-          (item) => item.module_id === moduleTree.module.id && !item.capability_id,
+      tree.product_areas.forEach((productAreaTree) => {
+        const productAreaChildren: PlannerTreeNode[] = [];
+        const productAreaDirectItems = productItems.filter(
+          (item) => item.product_area_id === productAreaTree.product_area.id && !item.capability_id,
         );
-        if (moduleDirectItems.length > 0) {
-          moduleChildren.push({
-            id: `${moduleTree.module.id}-direct`,
+        if (productAreaDirectItems.length > 0) {
+          productAreaChildren.push({
+            id: `${productAreaTree.product_area.id}-direct`,
             label: "Direct Delivery Items",
-            children: buildWorkItemNodes(moduleDirectItems, null),
+            children: buildWorkItemNodes(productAreaDirectItems, null),
           });
-          moduleDirectItems.forEach((item) => includedWorkItemIds.add(item.id));
+          productAreaDirectItems.forEach((item) => includedWorkItemIds.add(item.id));
         }
 
-        flattenCapabilities(moduleTree.features).forEach((capabilityTree) => {
+        flattenCapabilities(productAreaTree.features).forEach((capabilityTree) => {
           const capabilityItems = productItems.filter((item) => item.capability_id === capabilityTree.capability.id);
           if (capabilityItems.length === 0) {
             return;
           }
-          moduleChildren.push({
+          productAreaChildren.push({
             id: capabilityTree.capability.id,
             label: capabilityTree.capability.name,
             children: buildWorkItemNodes(capabilityItems, null),
@@ -682,10 +682,10 @@ function buildWorkItemTreeNodes(context: ResolverContext, productName?: string):
           capabilityItems.forEach((item) => includedWorkItemIds.add(item.id));
         });
 
-        moduleNodes.push({
-          id: moduleTree.module.id,
-          label: moduleTree.module.name,
-          children: moduleChildren,
+        productAreaNodes.push({
+          id: productAreaTree.product_area.id,
+          label: productAreaTree.product_area.name,
+          children: productAreaChildren,
         });
       });
     }
@@ -694,15 +694,15 @@ function buildWorkItemTreeNodes(context: ResolverContext, productName?: string):
       (item) => !includedWorkItemIds.has(item.id) && !item.parent_work_item_id,
     );
     if (unscopedItems.length > 0) {
-      moduleNodes.push({
+      productAreaNodes.push({
         id: `${product.id}-unscoped`,
         label: "Unscoped",
         children: buildWorkItemNodes(unscopedItems, null),
       });
     }
 
-    if (moduleNodes.length === 0) {
-      moduleNodes.push({
+    if (productAreaNodes.length === 0) {
+      productAreaNodes.push({
         id: `${product.id}-empty`,
         label: "No stories/tasks",
         meta: "empty",
@@ -713,7 +713,7 @@ function buildWorkItemTreeNodes(context: ResolverContext, productName?: string):
     return {
       id: product.id,
       label: product.name,
-      children: moduleNodes,
+      children: productAreaNodes,
     };
   });
 }
@@ -731,23 +731,23 @@ function summarizeAction(action: PlannerAction | Record<string, unknown> | null 
   const actionType = typeof (action as { type?: unknown }).type === "string"
     ? String((action as { type: string }).type)
     : "unknown_action";
-  const target = raw.target as { productName?: string; moduleName?: string; capabilityName?: string; workItemTitle?: string } | undefined;
+  const target = raw.target as { productName?: string; productAreaName?: string; capabilityName?: string; workItemTitle?: string } | undefined;
   const name = typeof raw.name === "string" ? raw.name : undefined;
   const title = typeof raw.title === "string" ? raw.title : undefined;
   const description = typeof raw.description === "string" ? raw.description : undefined;
   const vision = typeof raw.vision === "string" ? raw.vision : undefined;
   const fields = raw.fields ?? undefined;
   switch (actionType) {
-    case "create_module":
-      return { symbol: "+", tone: "add", title: `Create product area ${name ?? target?.moduleName ?? "unnamed product area"}`, detail: target?.productName ? `Product: ${target.productName}` : "Attach to selected product." };
+    case "create_product_area":
+      return { symbol: "+", tone: "add", title: `Create product area ${name ?? target?.productAreaName ?? "unnamed product area"}`, detail: target?.productName ? `Product: ${target.productName}` : "Attach to selected product." };
     case "create_capability":
-      return { symbol: "+", tone: "add", title: `Create capability ${name ?? target?.capabilityName ?? "unnamed capability"}`, detail: [target?.productName, target?.moduleName].filter(Boolean).join(" / ") || "Attach to selected scope." };
+      return { symbol: "+", tone: "add", title: `Create capability ${name ?? target?.capabilityName ?? "unnamed capability"}`, detail: [target?.productName, target?.productAreaName].filter(Boolean).join(" / ") || "Attach to selected scope." };
     case "apply_capability_template":
       return {
         symbol: "+",
         tone: "add",
         title: `Apply template ${String(raw.templateKind ?? "chapter")} to ${name ?? "unnamed topic"}`,
-        detail: [target?.productName, target?.moduleName, target?.capabilityName].filter(Boolean).join(" / ") || description || "Create a product-design scaffold.",
+        detail: [target?.productName, target?.productAreaName, target?.capabilityName].filter(Boolean).join(" / ") || description || "Create a product-design scaffold.",
       };
     case "convert_capability_kind":
       return {
@@ -757,11 +757,11 @@ function summarizeAction(action: PlannerAction | Record<string, unknown> | null 
         detail: `nodeKind=${String(raw.nodeKind ?? "unknown")} childStrategy=${String(raw.childStrategy ?? "reject")}`,
       };
     case "create_work_item":
-      return { symbol: "+", tone: "add", title: `Create story/task ${title ?? target?.workItemTitle ?? "untitled work item"}`, detail: [target?.productName, target?.moduleName, target?.capabilityName].filter(Boolean).join(" / ") || description || "New delivery work proposal." };
+      return { symbol: "+", tone: "add", title: `Create story/task ${title ?? target?.workItemTitle ?? "untitled work item"}`, detail: [target?.productName, target?.productAreaName, target?.capabilityName].filter(Boolean).join(" / ") || description || "New delivery work proposal." };
     case "update_product":
       return { symbol: "~", tone: "update", title: `Update product ${target?.productName ?? ""}`.trim(), detail: JSON.stringify(fields, null, 2) };
-    case "update_module":
-      return { symbol: "~", tone: "update", title: `Update product area ${target?.moduleName ?? ""}`.trim(), detail: JSON.stringify(fields, null, 2) };
+    case "update_product_area":
+      return { symbol: "~", tone: "update", title: `Update product area ${target?.productAreaName ?? ""}`.trim(), detail: JSON.stringify(fields, null, 2) };
     case "update_capability":
       return { symbol: "~", tone: "update", title: `Update capability ${target?.capabilityName ?? ""}`.trim(), detail: JSON.stringify(fields, null, 2) };
     case "update_work_item":
@@ -774,7 +774,7 @@ function summarizeAction(action: PlannerAction | Record<string, unknown> | null 
     case "reject_work_item":
     case "reject_work_item_plan":
     case "archive_product":
-    case "delete_module":
+    case "delete_product_area":
     case "delete_capability":
     case "delete_work_item":
       return { symbol: "!", tone: "warn", title: actionType.replace(/_/g, " "), detail: JSON.stringify(action, null, 2) };
@@ -1061,7 +1061,7 @@ function SelectableTreeNodeView({
 
 function buildProposalTreeNodes(plan: PlannerPlan): PlannerTreeNode[] {
   const productNodes = new Map<string, PlannerTreeNode>();
-  const moduleNodes = new Map<string, PlannerTreeNode>();
+  const productAreaNodes = new Map<string, PlannerTreeNode>();
   const capabilityNodes = new Map<string, PlannerTreeNode>();
 
   const ensureProduct = (name?: string | null) => {
@@ -1074,44 +1074,44 @@ function buildProposalTreeNodes(plan: PlannerPlan): PlannerTreeNode[] {
     return node!;
   };
 
-  const ensureModule = (productName?: string | null, moduleName?: string | null) => {
+  const ensureProductArea = (productName?: string | null, productAreaName?: string | null) => {
     const product = ensureProduct(productName);
-    const label = moduleName?.trim() || "Proposed capability";
+    const label = productAreaName?.trim() || "Proposed capability";
     const key = `${product.label}::${label}`;
-    let node = moduleNodes.get(key);
+    let node = productAreaNodes.get(key);
     if (!node) {
       node = { id: `proposal-product-area-${key}`, label, meta: "proposed product area", node_type: "product_area", evidence: [], children: [] };
-      moduleNodes.set(key, node);
+      productAreaNodes.set(key, node);
       product.children.push(node);
     }
     return node!;
   };
 
-  const ensureCapability = (productName?: string | null, moduleName?: string | null, capabilityName?: string | null) => {
-    const module = ensureModule(productName, moduleName);
+  const ensureCapability = (productName?: string | null, productAreaName?: string | null, capabilityName?: string | null) => {
+    const product_area = ensureProductArea(productName, productAreaName);
     const label = capabilityName?.trim() || "Proposed capability";
-    const key = `${module.id}::${label}`;
+    const key = `${product_area.id}::${label}`;
     let node = capabilityNodes.get(key);
     if (!node) {
       node = { id: `proposal-capability-${key}`, label, meta: "proposed capability", node_type: "capability", evidence: [], children: [] };
       capabilityNodes.set(key, node);
-      module.children.push(node);
+      product_area.children.push(node);
     }
     return node!;
   };
 
   for (const action of plan.actions) {
-    const target = (action as { target?: { productName?: string; moduleName?: string; capabilityName?: string; workItemTitle?: string } }).target;
+    const target = (action as { target?: { productName?: string; productAreaName?: string; capabilityName?: string; workItemTitle?: string } }).target;
     switch (action.type) {
-      case "create_module":
-        ensureModule(target?.productName, action.name ?? target?.moduleName ?? null);
+      case "create_product_area":
+        ensureProductArea(target?.productName, action.name ?? target?.productAreaName ?? null);
         break;
       case "create_capability":
       case "apply_capability_template":
-        ensureCapability(target?.productName, target?.moduleName, action.name ?? target?.capabilityName ?? null);
+        ensureCapability(target?.productName, target?.productAreaName, action.name ?? target?.capabilityName ?? null);
         break;
       case "create_work_item": {
-        const capability = ensureCapability(target?.productName, target?.moduleName, target?.capabilityName ?? null);
+        const capability = ensureCapability(target?.productName, target?.productAreaName, target?.capabilityName ?? null);
         capability.children.push({
           id: `proposal-work-item-${capability.id}-${action.title ?? target?.workItemTitle ?? capability.children.length}`,
           label: action.title ?? target?.workItemTitle ?? "Proposed story/task",
@@ -1195,7 +1195,7 @@ function resolveVoiceNodeReference(
   if (["root", "product", "this product", "selected product", "root product"].includes(reference)) {
     return findAncestorNodeByType(selectedPath, "product") ?? nodes[0] ?? null;
   }
-  if (["this module", "selected module"].includes(reference)) {
+  if (["this product_area", "selected product_area"].includes(reference)) {
     return findAncestorNodeByType(selectedPath, "product area");
   }
   if (["this capability", "selected capability"].includes(reference)) {
@@ -1379,14 +1379,14 @@ function findRelevantPlanActions(plan: PlannerPlan | null, node: PlannerTreeNode
 
   const nodeType = getPlannerNodeType(node);
   return plan.actions.filter((action) => {
-    const target = (action as { target?: { productName?: string; moduleName?: string; capabilityName?: string; workItemTitle?: string } }).target;
+    const target = (action as { target?: { productName?: string; productAreaName?: string; capabilityName?: string; workItemTitle?: string } }).target;
     if (nodeType === "product") {
       return target?.productName === node.label;
     }
     if (nodeType === "product area") {
-      return action.type === "create_module"
-        ? action.name === node.label || target?.moduleName === node.label
-        : target?.moduleName === node.label;
+      return action.type === "create_product_area"
+        ? action.name === node.label || target?.productAreaName === node.label
+        : target?.productAreaName === node.label;
     }
     if (nodeType === "capability") {
       return action.type === "create_capability" || action.type === "apply_capability_template"
@@ -1416,9 +1416,9 @@ async function executePlannerAction(action: PlannerAction, context: ResolverCont
       });
       return [`Updated product "${updated.name}".`];
     }
-    case "create_module": {
+    case "create_product_area": {
       const product = findProduct(context, action.target?.productName);
-      const module = await createModule({
+      const product_area = await createProductArea({
         productId: product.id,
         name: action.name,
         description: action.description ?? "",
@@ -1429,13 +1429,13 @@ async function executePlannerAction(action: PlannerAction, context: ResolverCont
         implementationNotes: (action as { implementationNotes?: string }).implementationNotes,
         testGuidance: (action as { testGuidance?: string }).testGuidance,
       });
-      return [`Created product area "${module.name}" in "${product.name}".`];
+      return [`Created product area "${product_area.name}" in "${product.name}".`];
     }
-    case "update_module": {
+    case "update_product_area": {
       const product = findProduct(context, action.target?.productName);
-      const module = findModule(context, product, action.target?.moduleName);
-      const updated = await updateModule({
-        id: module.id,
+      const product_area = findProductArea(context, product, action.target?.productAreaName);
+      const updated = await updateProductArea({
+        id: product_area.id,
         name: action.fields.name,
         description: action.fields.description,
         purpose: action.fields.purpose,
@@ -1447,20 +1447,20 @@ async function executePlannerAction(action: PlannerAction, context: ResolverCont
       });
       return [`Updated capability "${updated.name}" in "${product.name}".`];
     }
-    case "delete_module": {
+    case "delete_product_area": {
       const product = findProduct(context, action.target?.productName);
-      const module = findModule(context, product, action.target?.moduleName);
-      await deleteModule(module.id);
-      return [`Deleted product area "${module.name}" from "${product.name}".`];
+      const product_area = findProductArea(context, product, action.target?.productAreaName);
+      await deleteProductArea(product_area.id);
+      return [`Deleted product area "${product_area.name}" from "${product.name}".`];
     }
     case "create_capability": {
       const product = findProduct(context, action.target?.productName);
-      const module = findModule(context, product, action.target?.moduleName);
+      const product_area = findProductArea(context, product, action.target?.productAreaName);
       const parentCapability = action.target?.capabilityName
-        ? findCapability(context, product, module.name, action.target.capabilityName)
+        ? findCapability(context, product, product_area.name, action.target.capabilityName)
         : null;
       const capability = await createCapability({
-        moduleId: module.id,
+        productAreaId: product_area.id,
         parentCapabilityId: parentCapability?.id,
         name: action.name,
         description: action.description ?? "",
@@ -1474,16 +1474,16 @@ async function executePlannerAction(action: PlannerAction, context: ResolverCont
         implementationNotes: (action as { implementationNotes?: string }).implementationNotes,
         testGuidance: (action as { testGuidance?: string }).testGuidance,
       });
-      return [`Created capability "${capability.name}" in "${module.name}".`];
+      return [`Created capability "${capability.name}" in "${product_area.name}".`];
     }
     case "apply_capability_template": {
       const product = findProduct(context, action.target?.productName);
-      const module = findModule(context, product, action.target?.moduleName);
+      const product_area = findProductArea(context, product, action.target?.productAreaName);
       const parentCapability = action.target?.capabilityName
-        ? findCapability(context, product, module.name, action.target.capabilityName)
+        ? findCapability(context, product, product_area.name, action.target.capabilityName)
         : null;
       const result = await applySemanticTemplate({
-        moduleId: module.id,
+        productAreaId: product_area.id,
         parentCapabilityId: parentCapability?.id,
         templateKind: action.templateKind,
         name: action.name,
@@ -1499,7 +1499,7 @@ async function executePlannerAction(action: PlannerAction, context: ResolverCont
     }
     case "convert_capability_kind": {
       const product = findProduct(context, action.target?.productName);
-      const capability = findCapability(context, product, action.target?.moduleName, action.target?.capabilityName);
+      const capability = findCapability(context, product, action.target?.productAreaName, action.target?.capabilityName);
       const result = await convertCapabilityKind({
         id: capability.id,
         nodeKind: action.nodeKind,
@@ -1509,7 +1509,7 @@ async function executePlannerAction(action: PlannerAction, context: ResolverCont
     }
     case "update_capability": {
       const product = findProduct(context, action.target?.productName);
-      const capability = findCapability(context, product, action.target?.moduleName, action.target?.capabilityName);
+      const capability = findCapability(context, product, action.target?.productAreaName, action.target?.capabilityName);
       const updated = await updateCapability({
         id: capability.id,
         name: action.fields.name,
@@ -1528,17 +1528,17 @@ async function executePlannerAction(action: PlannerAction, context: ResolverCont
     }
     case "delete_capability": {
       const product = findProduct(context, action.target?.productName);
-      const capability = findCapability(context, product, action.target?.moduleName, action.target?.capabilityName);
+      const capability = findCapability(context, product, action.target?.productAreaName, action.target?.capabilityName);
       await deleteCapability(capability.id);
       return [`Deleted capability "${capability.name}".`];
     }
     case "create_work_item": {
       const product = findProduct(context, action.target?.productName);
-      const module = action.target?.moduleName ? findModule(context, product, action.target.moduleName) : context.activeModuleId ? findModule(context, product, undefined) : null;
-      const capability = action.target?.capabilityName ? findCapability(context, product, action.target?.moduleName, action.target.capabilityName) : context.activeCapabilityId ? findCapability(context, product, module?.name, undefined) : null;
+      const product_area = action.target?.productAreaName ? findProductArea(context, product, action.target.productAreaName) : context.activeProductAreaId ? findProductArea(context, product, undefined) : null;
+      const capability = action.target?.capabilityName ? findCapability(context, product, action.target?.productAreaName, action.target.capabilityName) : context.activeCapabilityId ? findCapability(context, product, product_area?.name, undefined) : null;
       const workItem = await createWorkItem({
         productId: product.id,
-        moduleId: module?.id,
+        productAreaId: product_area?.id,
         capabilityId: capability?.id,
         title: action.title,
         problemStatement: action.problemStatement ?? action.description ?? "",
@@ -1936,7 +1936,7 @@ export function PlannerPage() {
   const queryClient = useQueryClient();
   const location = useLocation();
   const navigate = useNavigate();
-  const { activeProductId, activeModuleId, activeCapabilityId, activeWorkItemId, setActiveProduct } = useWorkspaceStore();
+  const { activeProductId, activeProductAreaId, activeCapabilityId, activeWorkItemId, setActiveProduct } = useWorkspaceStore();
   const [plannerView, setPlannerView] = useState<"conversation" | "draft" | "trace">("conversation");
   const [providerId, setProviderId] = useState("");
   const [modelName, setModelName] = useState("");
@@ -2122,7 +2122,7 @@ export function PlannerPage() {
     if (selectedProductId) {
       chips.push("product selected");
     }
-    if (activeModuleId) {
+    if (activeProductAreaId) {
       chips.push("product area selected");
     }
     if (activeCapabilityId) {
@@ -2132,7 +2132,7 @@ export function PlannerPage() {
       chips.push("story/task selected");
     }
     return chips;
-  }, [activeCapabilityId, activeModuleId, selectedProductId, activeWorkItemId, selectedDraftNodeId]);
+  }, [activeCapabilityId, activeProductAreaId, selectedProductId, activeWorkItemId, selectedDraftNodeId]);
   const composerScopeHint =
     "If you omit names, the planner first tries the selected design node, then the selected workspace scope, then asks follow-up questions if it still cannot resolve the target cleanly.";
 
@@ -2198,10 +2198,10 @@ export function PlannerPage() {
     productTrees,
     workItems,
     activeProductId: selectedProductId,
-    activeModuleId,
+    activeProductAreaId,
     activeCapabilityId,
     activeWorkItemId,
-  }), [activeCapabilityId, activeModuleId, selectedProductId, activeWorkItemId, productTrees, products, workItems]);
+  }), [activeCapabilityId, activeProductAreaId, selectedProductId, activeWorkItemId, productTrees, products, workItems]);
   const activeProductName = selectedProduct?.name ?? null;
 
   useEffect(() => {

@@ -16,10 +16,10 @@ struct ExampleProductSpec {
     vision: &'static str,
     goals: &'static [&'static str],
     tags: &'static [&'static str],
-    module: ExampleModuleSpec,
+    product_area: ExampleProductAreaSpec,
 }
 
-struct ExampleModuleSpec {
+struct ExampleProductAreaSpec {
     id: &'static str,
     name: &'static str,
     description: &'static str,
@@ -53,7 +53,7 @@ pub async fn initialize_example_catalog(pool: &SqlitePool) -> Result<(), AppErro
 
 pub async fn apply_semantic_template(
     pool: &SqlitePool,
-    module_id: &str,
+    product_area_id: &str,
     parent_capability_id: Option<&str>,
     template_kind: &str,
     name: &str,
@@ -87,7 +87,7 @@ pub async fn apply_semantic_template(
     let topic_node = product_repo::create_capability(
         pool,
         &uuid::Uuid::new_v4().to_string(),
-        module_id,
+        product_area_id,
         parent_capability_id,
         trimmed_name,
         &chapter_description,
@@ -125,7 +125,7 @@ pub async fn apply_semantic_template(
     let definition_node = product_repo::create_capability(
         pool,
         &uuid::Uuid::new_v4().to_string(),
-        module_id,
+        product_area_id,
         Some(&topic_node.id),
         &definition_label,
         &format!("Explain what {trimmed_name} is and when it should be used."),
@@ -143,7 +143,7 @@ pub async fn apply_semantic_template(
     let examples_node = product_repo::create_capability(
         pool,
         &uuid::Uuid::new_v4().to_string(),
-        module_id,
+        product_area_id,
         Some(&topic_node.id),
         &examples_label,
         &format!("Capture worked examples and expected behaviors for {trimmed_name}."),
@@ -161,7 +161,7 @@ pub async fn apply_semantic_template(
     let implementation_node = product_repo::create_capability(
         pool,
         &uuid::Uuid::new_v4().to_string(),
-        module_id,
+        product_area_id,
         Some(&topic_node.id),
         &implementation_label,
         &format!("Describe how {trimmed_name} should be implemented."),
@@ -179,7 +179,7 @@ pub async fn apply_semantic_template(
     let tests_node = product_repo::create_capability(
         pool,
         &uuid::Uuid::new_v4().to_string(),
-        module_id,
+        product_area_id,
         Some(&topic_node.id),
         &tests_label,
         &format!("Describe how {trimmed_name} should be validated."),
@@ -198,8 +198,8 @@ pub async fn apply_semantic_template(
     let implementation_work_item = work_item_repo::create_work_item(
         pool,
         &uuid::Uuid::new_v4().to_string(),
-        &resolve_product_id_for_module(pool, module_id).await?,
-        Some(module_id),
+        &resolve_product_id_for_product_area(pool, product_area_id).await?,
+        Some(product_area_id),
         Some(&implementation_node.id),
         Some(&implementation_node.id),
         Some("capability"),
@@ -219,8 +219,8 @@ pub async fn apply_semantic_template(
     let test_work_item = work_item_repo::create_work_item(
         pool,
         &uuid::Uuid::new_v4().to_string(),
-        &resolve_product_id_for_module(pool, module_id).await?,
-        Some(module_id),
+        &resolve_product_id_for_product_area(pool, product_area_id).await?,
+        Some(product_area_id),
         Some(&tests_node.id),
         Some(&tests_node.id),
         Some("capability"),
@@ -242,7 +242,7 @@ pub async fn apply_semantic_template(
         template_kind,
         parent_node_id: parent_capability_id
             .map(ToString::to_string)
-            .unwrap_or_else(|| module_id.to_string()),
+            .unwrap_or_else(|| product_area_id.to_string()),
         parent_node_type: if parent_capability_id.is_some() {
             HierarchyNodeType::Capability
         } else {
@@ -293,15 +293,15 @@ async fn seed_example_product(
         .await?;
     }
 
-    let module = &product.module;
-    if !record_exists(pool, "modules", module.id).await? {
-        product_repo::create_module(
+    let product_area = &product.product_area;
+    if !record_exists(pool, "product_areas", product_area.id).await? {
+        product_repo::create_product_area(
             pool,
-            module.id,
+            product_area.id,
             product.id,
-            module.name,
-            module.description,
-            module.purpose,
+            product_area.name,
+            product_area.description,
+            product_area.purpose,
             None,
             "",
             "",
@@ -317,7 +317,7 @@ async fn seed_example_product(
             pool,
             &bootstrap_work_item_id,
             product.id,
-            Some(module.id),
+            Some(product_area.id),
             None,
             None,
             None,
@@ -337,8 +337,8 @@ async fn seed_example_product(
         .await?;
     }
 
-    for capability in module.capabilities {
-        seed_example_capability(pool, product, module, capability).await?;
+    for capability in product_area.capabilities {
+        seed_example_capability(pool, product, product_area, capability).await?;
     }
 
     Ok(())
@@ -347,14 +347,14 @@ async fn seed_example_product(
 async fn seed_example_capability(
     pool: &SqlitePool,
     product: &ExampleProductSpec,
-    module: &ExampleModuleSpec,
+    product_area: &ExampleProductAreaSpec,
     capability: &ExampleCapabilitySpec,
 ) -> Result<(), AppError> {
     if !record_exists(pool, "capabilities", capability.id).await? {
         product_repo::create_capability(
             pool,
             capability.id,
-            module.id,
+            product_area.id,
             None,
             capability.name,
             &format!("{} capability for {}.", capability.name, product.name),
@@ -383,7 +383,7 @@ async fn seed_example_capability(
             product_repo::create_capability(
                 pool,
                 &outcome_id,
-                module.id,
+                product_area.id,
                 Some(capability.id),
                 outcome_name,
                 &format!(
@@ -414,7 +414,7 @@ async fn seed_example_capability(
                 pool,
                 &work_item_id,
                 product.id,
-                Some(module.id),
+                Some(product_area.id),
                 Some(&outcome_id),
                 None,
                 None,
@@ -441,15 +441,15 @@ async fn seed_example_capability(
     Ok(())
 }
 
-async fn resolve_product_id_for_module(
+async fn resolve_product_id_for_product_area(
     pool: &SqlitePool,
-    module_id: &str,
+    product_area_id: &str,
 ) -> Result<String, AppError> {
-    sqlx::query_scalar("SELECT product_id FROM modules WHERE id=?")
-        .bind(module_id)
+    sqlx::query_scalar("SELECT product_id FROM product_areas WHERE id=?")
+        .bind(product_area_id)
         .fetch_optional(pool)
         .await?
-        .ok_or_else(|| AppError::NotFound(format!("Module {module_id} not found")))
+        .ok_or_else(|| AppError::NotFound(format!("ProductArea {product_area_id} not found")))
 }
 
 async fn record_exists(pool: &SqlitePool, table: &str, id: &str) -> Result<bool, AppError> {
@@ -481,10 +481,10 @@ fn example_product_specs() -> Vec<ExampleProductSpec> {
             vision: "Ship calculator outcomes one by one and verify the full autonomous delivery loop.",
             goals: &["Validate coding agents against a familiar React app", "Exercise testing agents on incremental mathematical outcomes"],
             tags: &["react", "calculator", "testing_agents"],
-            module: ExampleModuleSpec {
-                id: "example-module-calculator-core",
+            product_area: ExampleProductAreaSpec {
+                id: "example-product_area-calculator-core",
                 name: "Calculator Core",
-                description: "Outcome-driven delivery module for calculator behavior and test coverage.",
+                description: "Outcome-driven delivery product_area for calculator behavior and test coverage.",
                 purpose: "Stress the workflow by implementing one calculator outcome at a time.",
                 capabilities: &[
                     ExampleCapabilitySpec {
@@ -537,8 +537,8 @@ fn example_product_specs() -> Vec<ExampleProductSpec> {
             vision: "Help a solo user manage household money through clear flows, ledgers, and forecast views.",
             goals: &["Test forms-heavy CRUD flows", "Exercise reconciliation, reporting, and dashboard agents"],
             tags: &["react", "finance", "dashboard"],
-            module: ExampleModuleSpec {
-                id: "example-module-budgeting-core",
+            product_area: ExampleProductAreaSpec {
+                id: "example-product_area-budgeting-core",
                 name: "Budget Operations",
                 description: "Core household finance workflows.",
                 purpose: "Model recurring bills, day-to-day transactions, and budget health.",
@@ -577,8 +577,8 @@ fn example_product_specs() -> Vec<ExampleProductSpec> {
             vision: "Generate and present book content dynamically while keeping chapter structure and reading UX coherent.",
             goals: &["Test AI-assisted content generation flows", "Validate hierarchical content rendering and reader state"],
             tags: &["ai", "reader", "content_generation"],
-            module: ExampleModuleSpec {
-                id: "example-module-ai-book-reader",
+            product_area: ExampleProductAreaSpec {
+                id: "example-product_area-ai-book-reader",
                 name: "Book Experience",
                 description: "Authoring, generation, and reading workflows for dynamic books.",
                 purpose: "Let a user define a book outline and consume generated chapters cleanly.",
@@ -617,8 +617,8 @@ fn example_product_specs() -> Vec<ExampleProductSpec> {
             vision: "Give operators a concise but powerful view into clusters, workloads, and incidents.",
             goals: &["Stress dense data tables and filters", "Exercise observability and action-oriented workflows"],
             tags: &["kubernetes", "dashboard", "operations"],
-            module: ExampleModuleSpec {
-                id: "example-module-kubernetes-dashboard",
+            product_area: ExampleProductAreaSpec {
+                id: "example-product_area-kubernetes-dashboard",
                 name: "Cluster Operations",
                 description: "Cluster monitoring and workload management.",
                 purpose: "Render operational data and enable guided actions from the same console.",
@@ -657,8 +657,8 @@ fn example_product_specs() -> Vec<ExampleProductSpec> {
             vision: "Help a solo user stay on top of mail without the weight of a full enterprise suite.",
             goals: &["Exercise message lists, thread views, and compose workflows", "Validate search and folder state"],
             tags: &["email", "productivity", "react"],
-            module: ExampleModuleSpec {
-                id: "example-module-email-client",
+            product_area: ExampleProductAreaSpec {
+                id: "example-product_area-email-client",
                 name: "Mailbox Experience",
                 description: "Inbox, compose, and thread management.",
                 purpose: "Model a practical communication workflow with rich list/detail patterns.",
@@ -697,8 +697,8 @@ fn example_product_specs() -> Vec<ExampleProductSpec> {
             vision: "Track delivery work visually while keeping planning and throughput transparent.",
             goals: &["Test drag-and-drop list behavior", "Exercise reporting from board state"],
             tags: &["kanban", "planning", "workflow"],
-            module: ExampleModuleSpec {
-                id: "example-module-kanban-board",
+            product_area: ExampleProductAreaSpec {
+                id: "example-product_area-kanban-board",
                 name: "Board Flow",
                 description: "Board interactions and throughput reporting.",
                 purpose: "Provide a list-based planning surface that is fast to refine.",
@@ -729,8 +729,8 @@ fn example_product_specs() -> Vec<ExampleProductSpec> {
             vision: "Turn recipe management into a practical weekly planning experience.",
             goals: &["Exercise nested forms and detail views", "Validate derived shopping list flows"],
             tags: &["planner", "recipes", "household"],
-            module: ExampleModuleSpec {
-                id: "example-module-recipe-planner",
+            product_area: ExampleProductAreaSpec {
+                id: "example-product_area-recipe-planner",
                 name: "Meal Planning",
                 description: "Recipe storage and weekly planning.",
                 purpose: "Translate saved recipes into a weekly plan and ingredient list.",
@@ -761,8 +761,8 @@ fn example_product_specs() -> Vec<ExampleProductSpec> {
             vision: "Help a user build consistency with lightweight daily feedback loops.",
             goals: &["Test time-based state and summaries", "Exercise compact mobile-friendly workflows"],
             tags: &["habits", "tracker", "personal"],
-            module: ExampleModuleSpec {
-                id: "example-module-habit-tracker",
+            product_area: ExampleProductAreaSpec {
+                id: "example-product_area-habit-tracker",
                 name: "Habit Engine",
                 description: "Daily check-in and progress workflows.",
                 purpose: "Support habit creation, completion logging, and streak reporting.",
@@ -793,8 +793,8 @@ fn example_product_specs() -> Vec<ExampleProductSpec> {
             vision: "Present structured technical documentation clearly and keep examples easy to discover.",
             goals: &["Exercise content tree rendering", "Validate search and detail panes"],
             tags: &["documentation", "portal", "search"],
-            module: ExampleModuleSpec {
-                id: "example-module-doc-portal",
+            product_area: ExampleProductAreaSpec {
+                id: "example-product_area-doc-portal",
                 name: "Docs Experience",
                 description: "Navigation, search, and content presentation.",
                 purpose: "Render structured documentation with fast lookup and readable layouts.",
@@ -825,8 +825,8 @@ fn example_product_specs() -> Vec<ExampleProductSpec> {
             vision: "Make incident handling visible, auditable, and faster to coordinate.",
             goals: &["Exercise high-signal dashboards and logs", "Validate approval and review workflows"],
             tags: &["incident_response", "operations", "coordination"],
-            module: ExampleModuleSpec {
-                id: "example-module-incident-center",
+            product_area: ExampleProductAreaSpec {
+                id: "example-product_area-incident-center",
                 name: "Incident Response",
                 description: "Incident lifecycle and responder coordination.",
                 purpose: "Capture incidents, coordinate responders, and track remediation to closure.",

@@ -1182,9 +1182,9 @@ mod tests {
         WorkItem {
             id: "wi-1".to_string(),
             product_id: Some("product-1".to_string()),
-            module_id: Some("module-1".to_string()),
+            product_area_id: Some("product_area-1".to_string()),
             capability_id: None,
-            source_node_id: Some("module-1".to_string()),
+            source_node_id: Some("product_area-1".to_string()),
             source_node_type: Some(HierarchyNodeType::ProductArea),
             parent_work_item_id: None,
             title: "Add external CLI launch buttons".to_string(),

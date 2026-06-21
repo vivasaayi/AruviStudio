@@ -424,7 +424,7 @@ export function WorkItemListPage() {
   const queryClient = useQueryClient();
   const {
     activeProductId,
-    activeModuleId,
+    activeProductAreaId,
     activeCapabilityId,
     activeNodeId,
     activeNodeType,
@@ -635,7 +635,7 @@ export function WorkItemListPage() {
     setActiveWorkflowRunId(null);
     setSelectedArtifactStage(null);
     setOpenOverflowWorkItemId(null);
-  }, [activeProductId, activeModuleId, activeCapabilityId]);
+  }, [activeProductId, activeProductAreaId, activeCapabilityId]);
 
   useEffect(() => {
     if (selectedWorkItem) {
@@ -792,7 +792,7 @@ export function WorkItemListPage() {
     mutationFn: () =>
       createWorkItem({
         productId: activeProductId || "",
-        moduleId: activeModuleId ?? undefined,
+        productAreaId: activeProductAreaId ?? undefined,
         capabilityId: activeCapabilityId ?? undefined,
         sourceNodeId: activeNodeId ?? undefined,
         sourceNodeType: activeNodeType ?? undefined,
@@ -1026,7 +1026,7 @@ export function WorkItemListPage() {
       }
       return createLocalWorkspace({
         productId: selectedWorkItemSummary.product_id ?? activeProductId,
-        moduleId: selectedWorkItemSummary.module_id ?? activeModuleId,
+        productAreaId: selectedWorkItemSummary.product_area_id ?? activeProductAreaId,
         workItemId: selectedWorkItemSummary.id,
       });
     },
@@ -1152,15 +1152,15 @@ export function WorkItemListPage() {
     () => (products ?? []).find((product: Product) => product.id === activeProductId) ?? null,
     [activeProductId, products],
   );
-  const activeModule = useMemo(
-    () => activeProductTree?.modules.find((moduleTree) => moduleTree.module.id === activeModuleId)?.module ?? null,
-    [activeModuleId, activeProductTree],
+  const activeProductArea = useMemo(
+    () => activeProductTree?.product_areas.find((productAreaTree) => productAreaTree.product_area.id === activeProductAreaId)?.product_area ?? null,
+    [activeProductAreaId, activeProductTree],
   );
   const activeCapability = useMemo(() => {
     if (!activeCapabilityId || !activeProductTree) {
       return null;
     }
-    const stack = [...activeProductTree.modules.flatMap((moduleTree) => moduleTree.features)];
+    const stack = [...activeProductTree.product_areas.flatMap((productAreaTree) => productAreaTree.features)];
     while (stack.length > 0) {
       const current = stack.pop();
       if (!current) {
@@ -1178,14 +1178,14 @@ export function WorkItemListPage() {
     if (activeProduct?.name) {
       parts.push(activeProduct.name);
     }
-    if (activeModule?.name) {
-      parts.push(activeModule.name);
+    if (activeProductArea?.name) {
+      parts.push(activeProductArea.name);
     }
     if (activeCapability?.name) {
       parts.push(activeCapability.name);
     }
     return parts.length > 0 ? parts.join(" / ") : "None selected";
-  }, [activeCapability?.name, activeModule?.name, activeProduct?.name]);
+  }, [activeCapability?.name, activeProductArea?.name, activeProduct?.name]);
   const workItemOwnerMap = useMemo(() => {
     const map = new Map<string, { badge: string; path: string; isRoot: boolean }>();
     if (!activeProduct) {
@@ -1196,8 +1196,8 @@ export function WorkItemListPage() {
     filteredWorkItems.forEach((workItem) => {
       const ownerNode = findHierarchyNode(
         roots,
-        workItem.source_node_id ?? workItem.capability_id ?? workItem.module_id,
-        workItem.source_node_type ?? (workItem.capability_id ? "capability" : workItem.module_id ? "product_area" : null),
+        workItem.source_node_id ?? workItem.capability_id ?? workItem.product_area_id,
+        workItem.source_node_type ?? (workItem.capability_id ? "capability" : workItem.product_area_id ? "product_area" : null),
       );
 
       if (ownerNode) {
@@ -1209,7 +1209,7 @@ export function WorkItemListPage() {
         return;
       }
 
-      if (workItem.module_id || workItem.capability_id || workItem.source_node_id) {
+      if (workItem.product_area_id || workItem.capability_id || workItem.source_node_id) {
         map.set(workItem.id, {
           badge: "Unknown Owner",
           path: activeProduct.name,
@@ -1410,8 +1410,8 @@ export function WorkItemListPage() {
       if (assignment.scope_type === "capability" && selectedWorkItemSummary.capability_id) {
         return assignment.scope_id === selectedWorkItemSummary.capability_id;
       }
-      if (assignment.scope_type === "product_area" && selectedWorkItemSummary.module_id) {
-        return assignment.scope_id === selectedWorkItemSummary.module_id;
+      if (assignment.scope_type === "product_area" && selectedWorkItemSummary.product_area_id) {
+        return assignment.scope_id === selectedWorkItemSummary.product_area_id;
       }
       if (assignment.scope_type === "product") {
         return assignment.scope_id === selectedWorkItemSummary.product_id;
@@ -1424,7 +1424,7 @@ export function WorkItemListPage() {
       : null;
 
     if (!matchedTeam) {
-      warnings.push("No team assignment found for capability/module/product scope. Fallback global agents will be used.");
+      warnings.push("No team assignment found for capability/product_area/product scope. Fallback global agents will be used.");
     } else {
       checks.push(`Team assignment resolved: ${matchedTeam.name}.`);
       if (!matchedTeam.enabled) {
@@ -1620,7 +1620,7 @@ export function WorkItemListPage() {
               <ScopeBreadcrumb
                 label="Current Scope"
                 productName={activeProduct?.name}
-                moduleName={activeModule?.name}
+                productAreaName={activeProductArea?.name}
                 capabilityName={activeCapability?.name}
               />
               <div style={styles.sectionTitle}>
@@ -2581,7 +2581,7 @@ export function WorkItemListPage() {
                 ? `Current ${getHierarchyNodeKindLabel(activeCapability.node_kind, { lowercase: true })}`
                 : activeCapabilityId
                   ? "Current node"
-                  : activeModuleId
+                  : activeProductAreaId
                     ? "Current product area"
                     : activeProductId
                       ? "Current product"

@@ -102,7 +102,7 @@ export function IDEPage() {
   } = useEditorStore();
   const {
     activeProductId,
-    activeModuleId,
+    activeProductAreaId,
     activeCapabilityId,
     activeWorkItemId,
     setActiveProduct,
@@ -157,9 +157,9 @@ export function IDEPage() {
   const { data: providers = [] } = useQuery({ queryKey: ["providers"], queryFn: listProviders });
   const { data: models = [] } = useQuery({ queryKey: ["model-definitions"], queryFn: listModelDefinitions });
   const { data: scopeResolvedRepo } = useQuery({
-    queryKey: ["ideScopeRepo", selectedProductId, activeModuleId],
-    queryFn: () => resolveRepositoryForScope({ productId: selectedProductId, moduleId: activeModuleId }),
-    enabled: !!selectedProductId || !!activeModuleId,
+    queryKey: ["ideScopeRepo", selectedProductId, activeProductAreaId],
+    queryFn: () => resolveRepositoryForScope({ productId: selectedProductId, productAreaId: activeProductAreaId }),
+    enabled: !!selectedProductId || !!activeProductAreaId,
     staleTime: 30000,
   });
   const { data: workItemResolvedRepo } = useQuery({
@@ -230,12 +230,12 @@ export function IDEPage() {
   const activeFileRepositoryId = rawActiveFile?.id.split(":")[0] ?? null;
   const activeFile = activeFileRepositoryId === selectedRepoId ? rawActiveFile : null;
   const activeProduct = products.find((product) => product.id === selectedProductId) ?? null;
-  const activeModule = activeProductTree?.modules.find((moduleTree) => moduleTree.module.id === activeModuleId)?.module ?? null;
+  const activeProductArea = activeProductTree?.product_areas.find((productAreaTree) => productAreaTree.product_area.id === activeProductAreaId)?.product_area ?? null;
   const activeCapability = React.useMemo(() => {
     if (!activeCapabilityId || !activeProductTree) {
       return null;
     }
-    const stack = [...activeProductTree.modules.flatMap((moduleTree) => moduleTree.features)];
+    const stack = [...activeProductTree.product_areas.flatMap((productAreaTree) => productAreaTree.features)];
     while (stack.length > 0) {
       const current = stack.pop();
       if (!current) continue;
@@ -372,7 +372,7 @@ export function IDEPage() {
     try {
       const provisioned = await createLocalWorkspace({
         productId: selectedProductId,
-        moduleId: activeModuleId,
+        productAreaId: activeProductAreaId,
         workItemId: activeWorkItemId,
       });
       await queryClient.invalidateQueries({ queryKey: ["repositories"] });
@@ -613,7 +613,7 @@ Rules:
         <ScopeBreadcrumb
           label="Product Scope"
           productName={activeProduct?.name}
-          moduleName={activeModule?.name}
+          productAreaName={activeProductArea?.name}
           capabilityName={activeCapability?.name}
         />
       </div>

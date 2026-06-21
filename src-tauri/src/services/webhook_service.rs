@@ -1222,7 +1222,7 @@ fn build_mobile_planner_system_prompt(
 Use MCP tools to inspect or update the product plan when the user asks for planning work. \
 Prefer the selected product when one is provided. Keep replies short enough for mobile.\n\
 Use the canonical hierarchy Product > Product Area > Capability > Feature, then Story > Task for delivery. \
-Do not describe product areas as modules.\n\
+Do not describe product areas as product_areas.\n\
 \n\
 Allowed MCP tools:\n\
 - catalog.products.list, catalog.products.get, catalog.products.get_tree\n\
@@ -3539,11 +3539,11 @@ const REMOTE_APP_HTML: &str = r##"<!doctype html>
         el.productStatus.textContent = "No product";
         return;
       }
-      const modules = tree.modules || [];
+      const product_areas = tree.product_areas || [];
       const roots = tree.roots || [];
       const nodeCount = countNodes(roots);
       el.productStatus.textContent = tree.product ? tree.product.name : "Loaded";
-      el.productMetrics.appendChild(renderMetric(modules.length, "Modules"));
+      el.productMetrics.appendChild(renderMetric(product_areas.length, "Product Areas"));
       el.productMetrics.appendChild(renderMetric(nodeCount, "Nodes"));
       el.productMetrics.appendChild(renderMetric(tree.product && tree.product.status ? tree.product.status : "active", "Status"));
 

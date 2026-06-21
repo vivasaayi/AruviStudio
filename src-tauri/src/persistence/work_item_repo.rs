@@ -52,7 +52,7 @@ async fn inherit_source_from_parent(
     AppError,
 > {
     let row = sqlx::query(
-        "SELECT module_id, capability_id, source_node_id, source_node_type FROM work_items WHERE id = ?",
+        "SELECT product_area_id, capability_id, source_node_id, source_node_type FROM work_items WHERE id = ?",
     )
     .bind(parent_work_item_id)
     .fetch_optional(pool)
@@ -63,7 +63,7 @@ async fn inherit_source_from_parent(
         .map(|value| parse_source_node_type(&value))
         .transpose()?;
     Ok((
-        row.get("module_id"),
+        row.get("product_area_id"),
         row.get("capability_id"),
         row.get("source_node_id"),
         source_node_type,
@@ -73,7 +73,7 @@ async fn inherit_source_from_parent(
 async fn resolve_source_scope(
     pool: &SqlitePool,
     product_id: &str,
-    module_id: Option<&str>,
+    product_area_id: Option<&str>,
     capability_id: Option<&str>,
     source_node_id: Option<&str>,
     source_node_type: Option<&str>,
@@ -87,7 +87,7 @@ async fn resolve_source_scope(
     ),
     AppError,
 > {
-    let mut resolved_module_id = module_id.map(str::to_owned);
+    let mut resolved_product_area_id = product_area_id.map(str::to_owned);
     let mut resolved_capability_id = capability_id.map(str::to_owned);
     let mut resolved_source_node_id = source_node_id.map(str::to_owned);
     let mut resolved_source_node_type = source_node_type.map(parse_source_node_type).transpose()?;
@@ -96,12 +96,12 @@ async fn resolve_source_scope(
         if let Some(capability_id) = resolved_capability_id.clone() {
             resolved_source_node_id = Some(capability_id);
             resolved_source_node_type = Some(HierarchyNodeType::Capability);
-        } else if let Some(module_id) = resolved_module_id.clone() {
-            resolved_source_node_id = Some(module_id);
+        } else if let Some(product_area_id) = resolved_product_area_id.clone() {
+            resolved_source_node_id = Some(product_area_id);
             resolved_source_node_type = Some(HierarchyNodeType::ProductArea);
         } else if let Some(parent_work_item_id) = parent_work_item_id {
             let inherited = inherit_source_from_parent(pool, parent_work_item_id).await?;
-            resolved_module_id = inherited.0;
+            resolved_product_area_id = inherited.0;
             resolved_capability_id = inherited.1;
             resolved_source_node_id = inherited.2;
             resolved_source_node_type = inherited.3;
@@ -113,23 +113,23 @@ async fn resolve_source_scope(
         resolved_source_node_type,
     ) {
         (Some(node_id), Some(HierarchyNodeType::ProductArea)) => {
-            let module_row = sqlx::query("SELECT product_id FROM modules WHERE id = ?")
+            let product_area_row = sqlx::query("SELECT product_id FROM product_areas WHERE id = ?")
                 .bind(node_id)
                 .fetch_optional(pool)
                 .await?
-                .ok_or_else(|| AppError::NotFound(format!("Module {node_id} not found")))?;
-            let scoped_product_id: String = module_row.get("product_id");
+                .ok_or_else(|| AppError::NotFound(format!("ProductArea {node_id} not found")))?;
+            let scoped_product_id: String = product_area_row.get("product_id");
             if scoped_product_id != product_id {
                 return Err(AppError::Validation(
                     "Work item source node must belong to the selected product.".to_string(),
                 ));
             }
-            resolved_module_id = Some(node_id.to_string());
+            resolved_product_area_id = Some(node_id.to_string());
             resolved_capability_id = None;
         }
         (Some(node_id), Some(HierarchyNodeType::Capability)) => {
             let capability_row = sqlx::query(
-                "SELECT c.module_id, m.product_id FROM capabilities c JOIN modules m ON m.id = c.module_id WHERE c.id = ?",
+                "SELECT c.product_area_id, m.product_id FROM capabilities c JOIN product_areas m ON m.id = c.product_area_id WHERE c.id = ?",
             )
             .bind(node_id)
             .fetch_optional(pool)
@@ -141,7 +141,7 @@ async fn resolve_source_scope(
                     "Work item source node must belong to the selected product.".to_string(),
                 ));
             }
-            resolved_module_id = Some(capability_row.get("module_id"));
+            resolved_product_area_id = Some(capability_row.get("product_area_id"));
             resolved_capability_id = Some(node_id.to_string());
         }
         (Some(_), None) => {
@@ -158,7 +158,7 @@ async fn resolve_source_scope(
     }
 
     Ok((
-        resolved_module_id,
+        resolved_product_area_id,
         resolved_capability_id,
         resolved_source_node_id,
         resolved_source_node_type,
@@ -169,7 +169,7 @@ pub async fn create_work_item(
     pool: &SqlitePool,
     id: &str,
     product_id: &str,
-    module_id: Option<&str>,
+    product_area_id: Option<&str>,
     capability_id: Option<&str>,
     source_node_id: Option<&str>,
     source_node_type: Option<&str>,
@@ -184,17 +184,17 @@ pub async fn create_work_item(
     complexity: &str,
 ) -> Result<WorkItem, AppError> {
     let work_item_type = normalize_work_item_type(work_item_type)?;
-    let (module_id, capability_id, source_node_id, source_node_type) = resolve_source_scope(
+    let (product_area_id, capability_id, source_node_id, source_node_type) = resolve_source_scope(
         pool,
         product_id,
-        module_id,
+        product_area_id,
         capability_id,
         source_node_id,
         source_node_type,
         parent_work_item_id,
     )
     .await?;
-    debug!(work_item_id = %id, product_id = %product_id, module_id = ?module_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, parent_work_item_id = ?parent_work_item_id, title = %title, "persist create_work_item");
+    debug!(work_item_id = %id, product_id = %product_id, product_area_id = ?product_area_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, parent_work_item_id = ?parent_work_item_id, title = %title, "persist create_work_item");
     let next_sort_order: i64 = if let Some(parent_id) = parent_work_item_id {
         sqlx::query_scalar("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM work_items WHERE parent_work_item_id = ?")
             .bind(parent_id)
@@ -209,23 +209,23 @@ pub async fn create_work_item(
             .fetch_one(pool)
             .await?
     } else {
-        sqlx::query_scalar("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM work_items WHERE product_id = ? AND module_id IS NULL AND capability_id IS NULL AND parent_work_item_id IS NULL")
+        sqlx::query_scalar("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM work_items WHERE product_id = ? AND product_area_id IS NULL AND capability_id IS NULL AND parent_work_item_id IS NULL")
             .bind(product_id)
             .fetch_one(pool)
             .await?
     };
     trace!(work_item_id = %id, sort_order = next_sort_order, "resolved work item sort order");
-    let result = sqlx::query_as::<_, WorkItem>("INSERT INTO work_items (id,product_id,module_id,capability_id,source_node_id,source_node_type,parent_work_item_id,title,problem_statement,description,acceptance_criteria,constraints,work_item_type,priority,complexity,sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id,product_id,module_id,capability_id,source_node_id,source_node_type,parent_work_item_id,title,problem_statement,description,acceptance_criteria,constraints,work_item_type,priority,complexity,status,repo_override_id,active_repo_id,branch_name,sort_order,created_at,updated_at")
-        .bind(id).bind(product_id).bind(&module_id).bind(&capability_id).bind(&source_node_id).bind(source_node_type).bind(parent_work_item_id).bind(title).bind(problem_statement).bind(description).bind(acceptance_criteria).bind(constraints).bind(&work_item_type).bind(priority).bind(complexity).bind(next_sort_order)
+    let result = sqlx::query_as::<_, WorkItem>("INSERT INTO work_items (id,product_id,product_area_id,capability_id,source_node_id,source_node_type,parent_work_item_id,title,problem_statement,description,acceptance_criteria,constraints,work_item_type,priority,complexity,sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id,product_id,product_area_id,capability_id,source_node_id,source_node_type,parent_work_item_id,title,problem_statement,description,acceptance_criteria,constraints,work_item_type,priority,complexity,status,repo_override_id,active_repo_id,branch_name,sort_order,created_at,updated_at")
+        .bind(id).bind(product_id).bind(&product_area_id).bind(&capability_id).bind(&source_node_id).bind(source_node_type).bind(parent_work_item_id).bind(title).bind(problem_statement).bind(description).bind(acceptance_criteria).bind(constraints).bind(&work_item_type).bind(priority).bind(complexity).bind(next_sort_order)
         .fetch_one(pool).await.map_err(|e| e.into());
     if let Err(err) = &result {
-        error!(work_item_id = %id, product_id = %product_id, module_id = ?module_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, parent_work_item_id = ?parent_work_item_id, error = %err, "persist create_work_item failed");
+        error!(work_item_id = %id, product_id = %product_id, product_area_id = ?product_area_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, parent_work_item_id = ?parent_work_item_id, error = %err, "persist create_work_item failed");
     }
     result
 }
 
 pub async fn get_work_item(pool: &SqlitePool, id: &str) -> Result<WorkItem, AppError> {
-    sqlx::query_as::<_, WorkItem>("SELECT id,product_id,module_id,capability_id,source_node_id,source_node_type,parent_work_item_id,title,problem_statement,description,acceptance_criteria,constraints,work_item_type,priority,complexity,status,repo_override_id,active_repo_id,branch_name,sort_order,created_at,updated_at FROM work_items WHERE id=?")
+    sqlx::query_as::<_, WorkItem>("SELECT id,product_id,product_area_id,capability_id,source_node_id,source_node_type,parent_work_item_id,title,problem_statement,description,acceptance_criteria,constraints,work_item_type,priority,complexity,status,repo_override_id,active_repo_id,branch_name,sort_order,created_at,updated_at FROM work_items WHERE id=?")
         .bind(id)
         .fetch_optional(pool).await?.ok_or_else(|| AppError::NotFound(format!("Work item {id} not found")))
 }
@@ -233,7 +233,7 @@ pub async fn get_work_item(pool: &SqlitePool, id: &str) -> Result<WorkItem, AppE
 pub async fn list_work_items(
     pool: &SqlitePool,
     product_id: Option<&str>,
-    module_id: Option<&str>,
+    product_area_id: Option<&str>,
     capability_id: Option<&str>,
     source_node_id: Option<&str>,
     source_node_type: Option<&str>,
@@ -242,7 +242,7 @@ pub async fn list_work_items(
     list_work_items_internal(
         pool,
         product_id,
-        module_id,
+        product_area_id,
         capability_id,
         source_node_id,
         source_node_type,
@@ -255,7 +255,7 @@ pub async fn list_work_items(
 pub async fn list_work_items_page(
     pool: &SqlitePool,
     product_id: Option<&str>,
-    module_id: Option<&str>,
+    product_area_id: Option<&str>,
     capability_id: Option<&str>,
     source_node_id: Option<&str>,
     source_node_type: Option<&str>,
@@ -270,7 +270,7 @@ pub async fn list_work_items_page(
     list_work_items_internal(
         pool,
         product_id,
-        module_id,
+        product_area_id,
         capability_id,
         source_node_id,
         source_node_type,
@@ -283,7 +283,7 @@ pub async fn list_work_items_page(
 async fn list_work_items_internal(
     pool: &SqlitePool,
     product_id: Option<&str>,
-    module_id: Option<&str>,
+    product_area_id: Option<&str>,
     capability_id: Option<&str>,
     source_node_id: Option<&str>,
     source_node_type: Option<&str>,
@@ -293,13 +293,13 @@ async fn list_work_items_internal(
     let normalized_source_node_type = source_node_type
         .map(normalize_source_node_type)
         .transpose()?;
-    trace!(product_id = ?product_id, module_id = ?module_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, status = ?status, page = ?page, "persist list_work_items");
-    let mut query = String::from("SELECT id,product_id,module_id,capability_id,source_node_id,source_node_type,parent_work_item_id,title,problem_statement,description,acceptance_criteria,constraints,work_item_type,priority,complexity,status,repo_override_id,active_repo_id,branch_name,sort_order,created_at,updated_at FROM work_items WHERE 1=1");
+    trace!(product_id = ?product_id, product_area_id = ?product_area_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, status = ?status, page = ?page, "persist list_work_items");
+    let mut query = String::from("SELECT id,product_id,product_area_id,capability_id,source_node_id,source_node_type,parent_work_item_id,title,problem_statement,description,acceptance_criteria,constraints,work_item_type,priority,complexity,status,repo_override_id,active_repo_id,branch_name,sort_order,created_at,updated_at FROM work_items WHERE 1=1");
     if product_id.is_some() {
         query.push_str(" AND product_id = ?");
     }
-    if module_id.is_some() {
-        query.push_str(" AND module_id = ?");
+    if product_area_id.is_some() {
+        query.push_str(" AND product_area_id = ?");
     }
     if capability_id.is_some() {
         query.push_str(" AND capability_id = ?");
@@ -322,7 +322,7 @@ async fn list_work_items_internal(
     if let Some(v) = product_id {
         q = q.bind(v);
     }
-    if let Some(v) = module_id {
+    if let Some(v) = product_area_id {
         q = q.bind(v);
     }
     if let Some(v) = capability_id {
@@ -431,7 +431,7 @@ pub async fn get_sub_work_items(
     parent_work_item_id: &str,
 ) -> Result<Vec<WorkItem>, AppError> {
     trace!(parent_work_item_id = %parent_work_item_id, "persist get_sub_work_items");
-    sqlx::query_as::<_, WorkItem>("SELECT id,product_id,module_id,capability_id,source_node_id,source_node_type,parent_work_item_id,title,problem_statement,description,acceptance_criteria,constraints,work_item_type,priority,complexity,status,repo_override_id,active_repo_id,branch_name,sort_order,created_at,updated_at FROM work_items WHERE parent_work_item_id=? ORDER BY sort_order")
+    sqlx::query_as::<_, WorkItem>("SELECT id,product_id,product_area_id,capability_id,source_node_id,source_node_type,parent_work_item_id,title,problem_statement,description,acceptance_criteria,constraints,work_item_type,priority,complexity,status,repo_override_id,active_repo_id,branch_name,sort_order,created_at,updated_at FROM work_items WHERE parent_work_item_id=? ORDER BY sort_order")
         .bind(parent_work_item_id)
         .fetch_all(pool).await.map_err(|e| e.into())
 }
@@ -658,9 +658,9 @@ mod tests {
     async fn create_work_item_resolves_capability_scope_and_story_type() {
         let pool = create_test_pool("normalize_scope").await;
         create_test_product(&pool, "product-normalize").await;
-        product_repo::create_module(
+        product_repo::create_product_area(
             &pool,
-            "module-normalize",
+            "product_area-normalize",
             "product-normalize",
             "Operations",
             "",
@@ -672,11 +672,11 @@ mod tests {
             "",
         )
         .await
-        .expect("module should be created");
+        .expect("product_area should be created");
         product_repo::create_capability(
             &pool,
             "capability-normalize",
-            "module-normalize",
+            "product_area-normalize",
             None,
             "Checkout",
             "",
@@ -714,7 +714,7 @@ mod tests {
         .await
         .expect("work item should be created");
 
-        assert_eq!(work_item.module_id.as_deref(), Some("module-normalize"));
+        assert_eq!(work_item.product_area_id.as_deref(), Some("product_area-normalize"));
         assert_eq!(
             work_item.capability_id.as_deref(),
             Some("capability-normalize")
@@ -737,9 +737,9 @@ mod tests {
     async fn create_child_work_item_inherits_parent_source_scope() {
         let pool = create_test_pool("inherit_scope").await;
         create_test_product(&pool, "product-inherit").await;
-        product_repo::create_module(
+        product_repo::create_product_area(
             &pool,
-            "module-inherit",
+            "product_area-inherit",
             "product-inherit",
             "Platform",
             "",
@@ -751,11 +751,11 @@ mod tests {
             "",
         )
         .await
-        .expect("module should be created");
+        .expect("product_area should be created");
         product_repo::create_capability(
             &pool,
             "capability-inherit",
-            "module-inherit",
+            "product_area-inherit",
             None,
             "Runtime",
             "",
@@ -815,7 +815,7 @@ mod tests {
         .expect("child work item should be created");
 
         assert_eq!(child.parent_work_item_id.as_deref(), Some("parent-story"));
-        assert_eq!(child.module_id.as_deref(), Some("module-inherit"));
+        assert_eq!(child.product_area_id.as_deref(), Some("product_area-inherit"));
         assert_eq!(child.capability_id.as_deref(), Some("capability-inherit"));
         assert_eq!(child.source_node_id.as_deref(), Some("capability-inherit"));
         assert!(matches!(
@@ -835,7 +835,7 @@ mod tests {
             "product-source-validation",
             None,
             None,
-            Some("module-missing-type"),
+            Some("product_area-missing-type"),
             None,
             None,
             "Invalid source",

@@ -7,10 +7,10 @@ type MockStorage = {
   clear: () => void;
 };
 
-type WorkspaceStoreModule = typeof import("./workspaceStore");
+type WorkspaceStoreProductArea = typeof import("./workspaceStore");
 
-let workspaceStoreModule: WorkspaceStoreModule;
-let initialState: ReturnType<WorkspaceStoreModule["useWorkspaceStore"]["getInitialState"]>;
+let workspaceStoreProductArea: WorkspaceStoreProductArea;
+let initialState: ReturnType<WorkspaceStoreProductArea["useWorkspaceStore"]["getInitialState"]>;
 
 function createMockStorage(): MockStorage {
   const data = new Map<string, string>();
@@ -34,40 +34,40 @@ beforeEach(async () => {
     value: createMockStorage(),
     configurable: true,
   });
-  workspaceStoreModule = await import("./workspaceStore");
-  initialState = workspaceStoreModule.useWorkspaceStore.getInitialState();
+  workspaceStoreProductArea = await import("./workspaceStore");
+  initialState = workspaceStoreProductArea.useWorkspaceStore.getInitialState();
 });
 
 afterEach(() => {
-  workspaceStoreModule.useWorkspaceStore.setState(initialState, true);
+  workspaceStoreProductArea.useWorkspaceStore.setState(initialState, true);
   globalThis.localStorage.clear();
 });
 
 describe("workspaceStore", () => {
-  it("resets downstream selection when product, module, and capability change", () => {
-    const store = workspaceStoreModule.useWorkspaceStore.getState();
+  it("resets downstream selection when product, product_area, and capability change", () => {
+    const store = workspaceStoreProductArea.useWorkspaceStore.getState();
 
     store.setActiveProduct("product-1");
-    expect(workspaceStoreModule.useWorkspaceStore.getState()).toMatchObject({
+    expect(workspaceStoreProductArea.useWorkspaceStore.getState()).toMatchObject({
       activeProductId: "product-1",
-      activeModuleId: null,
+      activeProductAreaId: null,
       activeCapabilityId: null,
       activeNodeId: null,
       activeNodeType: null,
       activeWorkItemId: null,
     });
 
-    store.setActiveModule("module-1");
-    expect(workspaceStoreModule.useWorkspaceStore.getState()).toMatchObject({
-      activeModuleId: "module-1",
+    store.setActiveProductArea("product_area-1");
+    expect(workspaceStoreProductArea.useWorkspaceStore.getState()).toMatchObject({
+      activeProductAreaId: "product_area-1",
       activeCapabilityId: null,
-      activeNodeId: "module-1",
+      activeNodeId: "product_area-1",
       activeNodeType: "product_area",
     });
 
     store.setActiveCapability("capability-1");
-    expect(workspaceStoreModule.useWorkspaceStore.getState()).toMatchObject({
-      activeModuleId: "module-1",
+    expect(workspaceStoreProductArea.useWorkspaceStore.getState()).toMatchObject({
+      activeProductAreaId: "product_area-1",
       activeCapabilityId: "capability-1",
       activeNodeId: "capability-1",
       activeNodeType: "capability",
@@ -75,59 +75,59 @@ describe("workspaceStore", () => {
   });
 
   it("applies explicit hierarchy selections and clears work-item focus", () => {
-    workspaceStoreModule.useWorkspaceStore.setState({
-      ...workspaceStoreModule.useWorkspaceStore.getState(),
+    workspaceStoreProductArea.useWorkspaceStore.setState({
+      ...workspaceStoreProductArea.useWorkspaceStore.getState(),
       activeWorkItemId: "work-item-1",
     });
 
-    workspaceStoreModule.useWorkspaceStore.getState().setActiveHierarchyNode({
+    workspaceStoreProductArea.useWorkspaceStore.getState().setActiveHierarchyNode({
       nodeId: "capability-2",
       nodeType: "capability",
-      moduleId: "module-2",
+      productAreaId: "product_area-2",
       capabilityId: "capability-2",
     });
 
-    expect(workspaceStoreModule.useWorkspaceStore.getState()).toMatchObject({
-      activeModuleId: "module-2",
+    expect(workspaceStoreProductArea.useWorkspaceStore.getState()).toMatchObject({
+      activeProductAreaId: "product_area-2",
       activeCapabilityId: "capability-2",
       activeNodeId: "capability-2",
       activeNodeType: "capability",
       activeWorkItemId: null,
     });
 
-    workspaceStoreModule.useWorkspaceStore.getState().setActiveHierarchyNode({
-      nodeId: "module-3",
+    workspaceStoreProductArea.useWorkspaceStore.getState().setActiveHierarchyNode({
+      nodeId: "product_area-3",
       nodeType: "product_area",
     });
 
-    expect(workspaceStoreModule.useWorkspaceStore.getState()).toMatchObject({
-      activeModuleId: "module-3",
+    expect(workspaceStoreProductArea.useWorkspaceStore.getState()).toMatchObject({
+      activeProductAreaId: "product_area-3",
       activeCapabilityId: null,
-      activeNodeId: "module-3",
+      activeNodeId: "product_area-3",
       activeNodeType: "product_area",
     });
   });
 
   it("tracks work-item, repo, and workspace selections and partializes persisted state", () => {
-    const store = workspaceStoreModule.useWorkspaceStore.getState();
+    const store = workspaceStoreProductArea.useWorkspaceStore.getState();
 
     store.setActiveWorkItem("work-item-2");
     store.setActiveRepo("repo-1");
     store.setActiveWorkspace("/tmp/workspace");
 
-    expect(workspaceStoreModule.useWorkspaceStore.getState()).toMatchObject({
+    expect(workspaceStoreProductArea.useWorkspaceStore.getState()).toMatchObject({
       activeWorkItemId: "work-item-2",
       activeRepoId: "repo-1",
       activeWorkspacePath: "/tmp/workspace",
     });
 
-    const persistApi = (workspaceStoreModule.useWorkspaceStore as typeof workspaceStoreModule.useWorkspaceStore & {
-      persist: { getOptions: () => { partialize?: (state: ReturnType<WorkspaceStoreModule["useWorkspaceStore"]["getState"]>) => unknown } };
+    const persistApi = (workspaceStoreProductArea.useWorkspaceStore as typeof workspaceStoreProductArea.useWorkspaceStore & {
+      persist: { getOptions: () => { partialize?: (state: ReturnType<WorkspaceStoreProductArea["useWorkspaceStore"]["getState"]>) => unknown } };
     }).persist;
 
-    expect(persistApi.getOptions().partialize?.(workspaceStoreModule.useWorkspaceStore.getState())).toEqual({
+    expect(persistApi.getOptions().partialize?.(workspaceStoreProductArea.useWorkspaceStore.getState())).toEqual({
       activeProductId: null,
-      activeModuleId: null,
+      activeProductAreaId: null,
       activeCapabilityId: null,
       activeNodeId: null,
       activeNodeType: null,

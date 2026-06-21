@@ -21,8 +21,8 @@ pub async fn create_work_item(
     state: State<'_, AppState>,
     product_id: Option<String>,
     productId: Option<String>,
-    module_id: Option<String>,
-    moduleId: Option<String>,
+    product_area_id: Option<String>,
+    productAreaId: Option<String>,
     capability_id: Option<String>,
     capabilityId: Option<String>,
     source_node_id: Option<String>,
@@ -44,7 +44,7 @@ pub async fn create_work_item(
     complexity: String,
 ) -> Result<WorkItem, AppError> {
     let product_id = resolve_required(product_id, productId, "product id")?;
-    let module_id = module_id.or(moduleId);
+    let product_area_id = product_area_id.or(productAreaId);
     let capability_id = capability_id.or(capabilityId);
     let source_node_id = source_node_id.or(sourceNodeId);
     let source_node_type = source_node_type.or(sourceNodeType);
@@ -64,13 +64,13 @@ pub async fn create_work_item(
     } else {
         work_item_type
     };
-    info!(product_id = %product_id, module_id = ?module_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, parent_work_item_id = ?parent_work_item_id, title = %title, "create_work_item requested");
+    info!(product_id = %product_id, product_area_id = ?product_area_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, parent_work_item_id = ?parent_work_item_id, title = %title, "create_work_item requested");
     let id = uuid::Uuid::new_v4().to_string();
     let result = work_item_repo::create_work_item(
         &state.db,
         &id,
         &product_id,
-        module_id.as_deref(),
+        product_area_id.as_deref(),
         capability_id.as_deref(),
         source_node_id.as_deref(),
         source_node_type.as_deref(),
@@ -90,7 +90,7 @@ pub async fn create_work_item(
             info!(work_item_id = %work_item.id, product_id = ?work_item.product_id, "create_work_item succeeded")
         }
         Err(err) => {
-            error!(work_item_id = %id, product_id = %product_id, module_id = ?module_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, parent_work_item_id = ?parent_work_item_id, error = %err, "create_work_item failed")
+            error!(work_item_id = %id, product_id = %product_id, product_area_id = ?product_area_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, parent_work_item_id = ?parent_work_item_id, error = %err, "create_work_item failed")
         }
     }
     result
@@ -105,7 +105,7 @@ pub async fn get_work_item(state: State<'_, AppState>, id: String) -> Result<Wor
 pub async fn list_work_items(
     state: State<'_, AppState>,
     product_id: Option<String>,
-    module_id: Option<String>,
+    product_area_id: Option<String>,
     capability_id: Option<String>,
     source_node_id: Option<String>,
     source_node_type: Option<String>,
@@ -113,11 +113,11 @@ pub async fn list_work_items(
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> Result<Vec<WorkItem>, AppError> {
-    debug!(product_id = ?product_id, module_id = ?module_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, status = ?status, limit = ?limit, offset = ?offset, "list_work_items requested");
+    debug!(product_id = ?product_id, product_area_id = ?product_area_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, status = ?status, limit = ?limit, offset = ?offset, "list_work_items requested");
     let result = work_item_repo::list_work_items_page(
         &state.db,
         product_id.as_deref(),
-        module_id.as_deref(),
+        product_area_id.as_deref(),
         capability_id.as_deref(),
         source_node_id.as_deref(),
         source_node_type.as_deref(),
@@ -127,7 +127,7 @@ pub async fn list_work_items(
     )
     .await;
     if let Err(err) = &result {
-        error!(product_id = ?product_id, module_id = ?module_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, status = ?status, limit = ?limit, offset = ?offset, error = %err, "list_work_items failed");
+        error!(product_id = ?product_id, product_area_id = ?product_area_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, status = ?status, limit = ?limit, offset = ?offset, error = %err, "list_work_items failed");
     }
     result
 }
@@ -283,7 +283,7 @@ mod tests {
         )
         .await
         .expect("product should be created");
-        let module = product_commands::create_module(
+        let product_area = product_commands::create_product_area(
             state.clone(),
             product.id.clone(),
             "Area".to_string(),
@@ -298,10 +298,10 @@ mod tests {
             None,
         )
         .await
-        .expect("module should be created");
+        .expect("product_area should be created");
         let capability = product_commands::create_capability(
             state.clone(),
-            module.id.clone(),
+            product_area.id.clone(),
             None,
             "Capability".to_string(),
             "".to_string(),
@@ -325,7 +325,7 @@ mod tests {
             None,
             Some(product.id.clone()),
             None,
-            Some(module.id.clone()),
+            Some(product_area.id.clone()),
             None,
             Some(capability.id.clone()),
             None,
@@ -350,7 +350,7 @@ mod tests {
         .expect("work item should be created");
 
         assert_eq!(work_item.product_id.as_deref(), Some(product.id.as_str()));
-        assert_eq!(work_item.module_id.as_deref(), Some(module.id.as_str()));
+        assert_eq!(work_item.product_area_id.as_deref(), Some(product_area.id.as_str()));
         assert_eq!(work_item.capability_id.as_deref(), Some(capability.id.as_str()));
         assert_eq!(work_item.problem_statement, "Problem from alias");
         assert_eq!(work_item.acceptance_criteria, "Acceptance from alias");

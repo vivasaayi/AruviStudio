@@ -6,7 +6,7 @@ import type {
   ProductDependencyStatus,
   ProductReference,
   ProductStrategyLink,
-  Module,
+  ProductArea,
   Capability,
   WorkItem,
   ProductWorkItemSummary,
@@ -292,8 +292,8 @@ export const createProductReference = (data: {
   });
 export const deleteProductReference = (id: string) => invoke<void>("delete_product_reference", { id });
 
-// Module commands
-export const createModule = (data: {
+// ProductArea commands
+export const createProductArea = (data: {
   productId: string;
   name: string;
   description: string;
@@ -304,7 +304,7 @@ export const createModule = (data: {
   implementationNotes?: string;
   testGuidance?: string;
 }) =>
-  invoke<Module>("create_module", {
+  invoke<ProductArea>("create_product_area", {
     productId: data.productId,
     product_id: data.productId,
     name: data.name,
@@ -319,9 +319,9 @@ export const createModule = (data: {
     testGuidance: data.testGuidance,
     test_guidance: data.testGuidance,
   });
-export const listModules = (productId: string) =>
-  invoke<Module[]>("list_modules", { productId, product_id: productId });
-export const updateModule = (data: {
+export const listProductAreas = (productId: string) =>
+  invoke<ProductArea[]>("list_product_areas", { productId, product_id: productId });
+export const updateProductArea = (data: {
   id: string;
   name?: string;
   description?: string;
@@ -332,7 +332,7 @@ export const updateModule = (data: {
   implementationNotes?: string;
   testGuidance?: string;
 }) =>
-  invoke<Module>("update_module", {
+  invoke<ProductArea>("update_product_area", {
     id: data.id,
     name: data.name,
     description: data.description,
@@ -346,9 +346,9 @@ export const updateModule = (data: {
     testGuidance: data.testGuidance,
     test_guidance: data.testGuidance,
   });
-export const deleteModule = (id: string) => invoke("delete_module", { id });
-export const reorderModules = (productId: string, orderedIds: string[]) =>
-  invoke("reorder_modules", {
+export const deleteProductArea = (id: string) => invoke("delete_product_area", { id });
+export const reorderProductAreas = (productId: string, orderedIds: string[]) =>
+  invoke("reorder_product_areas", {
     productId,
     product_id: productId,
     orderedIds,
@@ -357,7 +357,7 @@ export const reorderModules = (productId: string, orderedIds: string[]) =>
 
 // Capability commands
 export const createCapability = (data: {
-  moduleId: string;
+  productAreaId: string;
   parentCapabilityId?: string;
   name: string;
   description: string;
@@ -372,8 +372,8 @@ export const createCapability = (data: {
   testGuidance?: string;
 }) =>
   invoke<Capability>("create_capability", {
-    moduleId: data.moduleId,
-    module_id: data.moduleId,
+    productAreaId: data.productAreaId,
+    product_area_id: data.productAreaId,
     parentCapabilityId: data.parentCapabilityId,
     parent_capability_id: data.parentCapabilityId,
     name: data.name,
@@ -393,8 +393,8 @@ export const createCapability = (data: {
     testGuidance: data.testGuidance,
     test_guidance: data.testGuidance,
   });
-export const listCapabilities = (moduleId: string) =>
-  invoke<Capability[]>("list_capabilities", { moduleId, module_id: moduleId });
+export const listCapabilities = (productAreaId: string) =>
+  invoke<Capability[]>("list_capabilities", { productAreaId, product_area_id: productAreaId });
 export const updateCapability = (data: {
   id: string;
   name?: string;
@@ -427,14 +427,14 @@ export const updateCapability = (data: {
     test_guidance: data.testGuidance,
   });
 export const deleteCapability = (id: string) => invoke("delete_capability", { id });
-export const reorderCapabilities = (data: { moduleId: string; parentCapabilityId?: string; orderedIds: string[] }) =>
+export const reorderCapabilities = (data: { productAreaId: string; parentCapabilityId?: string; orderedIds: string[] }) =>
   invoke("reorder_capabilities", {
-    module_id: data.moduleId,
+    product_area_id: data.productAreaId,
     parent_capability_id: data.parentCapabilityId,
     ordered_ids: data.orderedIds,
   });
 export const applySemanticTemplate = (data: {
-  moduleId: string;
+  productAreaId: string;
   parentCapabilityId?: string;
   templateKind: "operator_chapter" | "technical_topic_book";
   name: string;
@@ -447,8 +447,8 @@ export const applySemanticTemplate = (data: {
   testGuidance?: string;
 }) =>
   invoke<SemanticTemplateApplicationResult>("apply_semantic_template", {
-    moduleId: data.moduleId,
-    module_id: data.moduleId,
+    productAreaId: data.productAreaId,
+    product_area_id: data.productAreaId,
     parentCapabilityId: data.parentCapabilityId,
     parent_capability_id: data.parentCapabilityId,
     templateKind: data.templateKind,
@@ -483,15 +483,15 @@ export const getProductTree = (productId: string) =>
 
 // Work item commands
 export const createWorkItem = (data: {
-  productId: string; moduleId?: string; capabilityId?: string; sourceNodeId?: string; sourceNodeType?: string; parentWorkItemId?: string;
+  productId: string; productAreaId?: string; capabilityId?: string; sourceNodeId?: string; sourceNodeType?: string; parentWorkItemId?: string;
   title: string; problemStatement: string; description: string; acceptanceCriteria: string;
   constraints: string; workItemType: string; priority: string; complexity: string;
 }) =>
   invoke<WorkItem>("create_work_item", {
     productId: data.productId,
     product_id: data.productId,
-    moduleId: data.moduleId,
-    module_id: data.moduleId,
+    productAreaId: data.productAreaId,
+    product_area_id: data.productAreaId,
     capabilityId: data.capabilityId,
     capability_id: data.capabilityId,
     sourceNodeId: data.sourceNodeId,
@@ -516,7 +516,7 @@ export const createWorkItem = (data: {
 export const getWorkItem = (id: string) => invoke<WorkItem>("get_work_item", { id });
 export const listWorkItems = (filters?: {
   productId?: string;
-  moduleId?: string;
+  productAreaId?: string;
   capabilityId?: string;
   sourceNodeId?: string;
   sourceNodeType?: string;
@@ -525,7 +525,7 @@ export const listWorkItems = (filters?: {
   offset?: number;
 }) =>
   invoke<WorkItem[]>("list_work_items", {
-    product_id: filters?.productId, module_id: filters?.moduleId,
+    product_id: filters?.productId, product_area_id: filters?.productAreaId,
     capability_id: filters?.capabilityId,
     source_node_id: filters?.sourceNodeId,
     source_node_type: filters?.sourceNodeType,
@@ -656,22 +656,22 @@ export const attachRepository = (data: { scopeType: "product" | "product_area"; 
     is_default: data.isDefault,
   });
 export const resolveRepositoryForWorkItem = (workItemId: string) => invoke<Repository | null>("resolve_repository_for_work_item", { work_item_id: workItemId });
-export const resolveRepositoryForScope = (data: { productId?: string | null; moduleId?: string | null }) =>
+export const resolveRepositoryForScope = (data: { productId?: string | null; productAreaId?: string | null }) =>
   invoke<Repository | null>("resolve_repository_for_scope", {
     product_id: data.productId ?? null,
-    module_id: data.moduleId ?? null,
+    product_area_id: data.productAreaId ?? null,
   });
 export const createLocalWorkspace = (data: {
   productId?: string | null;
-  moduleId?: string | null;
+  productAreaId?: string | null;
   workItemId?: string | null;
   preferredPath?: string | null;
 }) =>
   invoke<WorkspaceProvisionResult>("create_local_workspace", {
     productId: data.productId ?? null,
     product_id: data.productId ?? null,
-    moduleId: data.moduleId ?? null,
-    module_id: data.moduleId ?? null,
+    productAreaId: data.productAreaId ?? null,
+    product_area_id: data.productAreaId ?? null,
     workItemId: data.workItemId ?? null,
     work_item_id: data.workItemId ?? null,
     preferredPath: data.preferredPath ?? null,

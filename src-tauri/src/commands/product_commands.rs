@@ -1,6 +1,6 @@
 use crate::domain::bulk_import::{BulkImportJob, BulkImportJobStatus};
 use crate::domain::product::{
-    Capability, Module, NodeKindConversionResult, Product, ProductPlanResetResult,
+    Capability, ProductArea, NodeKindConversionResult, Product, ProductPlanResetResult,
     ProductReference, ProductTree, SemanticTemplateApplicationResult,
 };
 use crate::error::AppError;
@@ -141,7 +141,7 @@ pub async fn reset_product_plan(
 }
 
 #[tauri::command]
-pub async fn create_module(
+pub async fn create_product_area(
     state: State<'_, AppState>,
     product_id: String,
     name: String,
@@ -154,10 +154,10 @@ pub async fn create_module(
     implementationNotes: Option<String>,
     test_guidance: Option<String>,
     testGuidance: Option<String>,
-) -> Result<Module, AppError> {
-    info!(product_id = %product_id, module_name = %name, "create_module requested");
+) -> Result<ProductArea, AppError> {
+    info!(product_id = %product_id, product_area_name = %name, "create_product_area requested");
     let id = uuid::Uuid::new_v4().to_string();
-    let result = product_repo::create_module(
+    let result = product_repo::create_product_area(
         &state.db,
         &id,
         &product_id,
@@ -178,26 +178,26 @@ pub async fn create_module(
     )
     .await;
     match &result {
-        Ok(module) => {
-            info!(module_id = %module.id, product_id = %module.product_id, "create_module succeeded")
+        Ok(product_area) => {
+            info!(product_area_id = %product_area.id, product_id = %product_area.product_id, "create_product_area succeeded")
         }
         Err(err) => {
-            error!(module_id = %id, product_id = %product_id, error = %err, "create_module failed")
+            error!(product_area_id = %id, product_id = %product_id, error = %err, "create_product_area failed")
         }
     }
     result
 }
 
 #[tauri::command]
-pub async fn list_modules(
+pub async fn list_product_areas(
     state: State<'_, AppState>,
     product_id: String,
-) -> Result<Vec<Module>, AppError> {
-    product_repo::list_modules(&state.db, &product_id).await
+) -> Result<Vec<ProductArea>, AppError> {
+    product_repo::list_product_areas(&state.db, &product_id).await
 }
 
 #[tauri::command]
-pub async fn update_module(
+pub async fn update_product_area(
     state: State<'_, AppState>,
     id: String,
     name: Option<String>,
@@ -210,10 +210,10 @@ pub async fn update_module(
     implementationNotes: Option<String>,
     test_guidance: Option<String>,
     testGuidance: Option<String>,
-) -> Result<Module, AppError> {
-    info!(module_id = %id, "update_module requested");
-    debug!(module_id = %id, has_name = name.is_some(), has_description = description.is_some(), has_purpose = purpose.is_some(), has_node_kind = node_kind.is_some(), "update_module payload summary");
-    let result = product_repo::update_module(
+) -> Result<ProductArea, AppError> {
+    info!(product_area_id = %id, "update_product_area requested");
+    debug!(product_area_id = %id, has_name = name.is_some(), has_description = description.is_some(), has_purpose = purpose.is_some(), has_node_kind = node_kind.is_some(), "update_product_area payload summary");
+    let result = product_repo::update_product_area(
         &state.db,
         &id,
         name.as_deref(),
@@ -229,28 +229,28 @@ pub async fn update_module(
     )
     .await;
     match &result {
-        Ok(_) => info!(module_id = %id, "update_module succeeded"),
-        Err(err) => error!(module_id = %id, error = %err, "update_module failed"),
+        Ok(_) => info!(product_area_id = %id, "update_product_area succeeded"),
+        Err(err) => error!(product_area_id = %id, error = %err, "update_product_area failed"),
     }
     result
 }
 
 #[tauri::command]
-pub async fn delete_module(state: State<'_, AppState>, id: String) -> Result<(), AppError> {
-    product_repo::delete_module(&state.db, &id).await
+pub async fn delete_product_area(state: State<'_, AppState>, id: String) -> Result<(), AppError> {
+    product_repo::delete_product_area(&state.db, &id).await
 }
 
 #[tauri::command]
-pub async fn reorder_modules(
+pub async fn reorder_product_areas(
     state: State<'_, AppState>,
     product_id: String,
     ordered_ids: Vec<String>,
 ) -> Result<(), AppError> {
-    info!(product_id = %product_id, item_count = ordered_ids.len(), "reorder_modules requested");
-    let result = product_repo::reorder_modules(&state.db, &product_id, &ordered_ids).await;
+    info!(product_id = %product_id, item_count = ordered_ids.len(), "reorder_product_areas requested");
+    let result = product_repo::reorder_product_areas(&state.db, &product_id, &ordered_ids).await;
     match &result {
-        Ok(_) => info!(product_id = %product_id, "reorder_modules succeeded"),
-        Err(err) => error!(product_id = %product_id, error = %err, "reorder_modules failed"),
+        Ok(_) => info!(product_id = %product_id, "reorder_product_areas succeeded"),
+        Err(err) => error!(product_id = %product_id, error = %err, "reorder_product_areas failed"),
     }
     result
 }
@@ -258,7 +258,7 @@ pub async fn reorder_modules(
 #[tauri::command]
 pub async fn create_capability(
     state: State<'_, AppState>,
-    module_id: String,
+    product_area_id: String,
     parent_capability_id: Option<String>,
     name: String,
     description: String,
@@ -274,12 +274,12 @@ pub async fn create_capability(
     test_guidance: Option<String>,
     testGuidance: Option<String>,
 ) -> Result<Capability, AppError> {
-    info!(module_id = %module_id, parent_capability_id = ?parent_capability_id, capability_name = %name, "create_capability requested");
+    info!(product_area_id = %product_area_id, parent_capability_id = ?parent_capability_id, capability_name = %name, "create_capability requested");
     let id = uuid::Uuid::new_v4().to_string();
     let result = product_repo::create_capability(
         &state.db,
         &id,
-        &module_id,
+        &product_area_id,
         parent_capability_id.as_deref(),
         &name,
         &description,
@@ -302,10 +302,10 @@ pub async fn create_capability(
     .await;
     match &result {
         Ok(capability) => {
-            info!(capability_id = %capability.id, module_id = %capability.module_id, parent_capability_id = ?capability.parent_capability_id, "create_capability succeeded")
+            info!(capability_id = %capability.id, product_area_id = %capability.product_area_id, parent_capability_id = ?capability.parent_capability_id, "create_capability succeeded")
         }
         Err(err) => {
-            error!(capability_id = %id, module_id = %module_id, parent_capability_id = ?parent_capability_id, error = %err, "create_capability failed")
+            error!(capability_id = %id, product_area_id = %product_area_id, parent_capability_id = ?parent_capability_id, error = %err, "create_capability failed")
         }
     }
     result
@@ -314,9 +314,9 @@ pub async fn create_capability(
 #[tauri::command]
 pub async fn list_capabilities(
     state: State<'_, AppState>,
-    module_id: String,
+    product_area_id: String,
 ) -> Result<Vec<Capability>, AppError> {
-    product_repo::list_capabilities(&state.db, &module_id).await
+    product_repo::list_capabilities(&state.db, &product_area_id).await
 }
 
 #[tauri::command]
@@ -372,24 +372,24 @@ pub async fn delete_capability(state: State<'_, AppState>, id: String) -> Result
 #[tauri::command]
 pub async fn reorder_capabilities(
     state: State<'_, AppState>,
-    module_id: String,
+    product_area_id: String,
     parent_capability_id: Option<String>,
     ordered_ids: Vec<String>,
 ) -> Result<(), AppError> {
-    info!(module_id = %module_id, parent_capability_id = ?parent_capability_id, item_count = ordered_ids.len(), "reorder_capabilities requested");
+    info!(product_area_id = %product_area_id, parent_capability_id = ?parent_capability_id, item_count = ordered_ids.len(), "reorder_capabilities requested");
     let result = product_repo::reorder_capabilities(
         &state.db,
-        &module_id,
+        &product_area_id,
         parent_capability_id.as_deref(),
         &ordered_ids,
     )
     .await;
     match &result {
         Ok(_) => {
-            info!(module_id = %module_id, parent_capability_id = ?parent_capability_id, "reorder_capabilities succeeded")
+            info!(product_area_id = %product_area_id, parent_capability_id = ?parent_capability_id, "reorder_capabilities succeeded")
         }
         Err(err) => {
-            error!(module_id = %module_id, parent_capability_id = ?parent_capability_id, error = %err, "reorder_capabilities failed")
+            error!(product_area_id = %product_area_id, parent_capability_id = ?parent_capability_id, error = %err, "reorder_capabilities failed")
         }
     }
     result
@@ -462,8 +462,8 @@ pub async fn list_bulk_import_jobs(
 #[allow(non_snake_case)]
 pub async fn apply_semantic_template(
     state: State<'_, AppState>,
-    module_id: Option<String>,
-    moduleId: Option<String>,
+    product_area_id: Option<String>,
+    productAreaId: Option<String>,
     parent_capability_id: Option<String>,
     parentCapabilityId: Option<String>,
     template_kind: Option<String>,
@@ -479,15 +479,15 @@ pub async fn apply_semantic_template(
     test_guidance: Option<String>,
     testGuidance: Option<String>,
 ) -> Result<SemanticTemplateApplicationResult, AppError> {
-    let module_id = module_id
-        .or(moduleId)
-        .ok_or_else(|| AppError::Validation("missing module id".to_string()))?;
+    let product_area_id = product_area_id
+        .or(productAreaId)
+        .ok_or_else(|| AppError::Validation("missing product_area id".to_string()))?;
     let template_kind = template_kind
         .or(templateKind)
         .ok_or_else(|| AppError::Validation("missing template kind".to_string()))?;
     product_service::apply_semantic_template(
         &state.db,
-        &module_id,
+        &product_area_id,
         parent_capability_id.or(parentCapabilityId).as_deref(),
         &template_kind,
         &name,
@@ -581,8 +581,8 @@ mod tests {
     use tauri::test::MockRuntime;
 
     #[tokio::test]
-    async fn create_product_and_module_accepts_optional_alias_fields() {
-        let app: tauri::App<MockRuntime> = make_test_app("product_commands_create_module").await;
+    async fn create_product_and_product_area_accepts_optional_alias_fields() {
+        let app: tauri::App<MockRuntime> = make_test_app("product_commands_create_product_area").await;
         let state = app.state::<AppState>();
 
         let product = create_product(
@@ -602,7 +602,7 @@ mod tests {
         .await
         .expect("product should be created");
 
-        let module = create_module(
+        let product_area = create_product_area(
             state,
             product.id.clone(),
             "Area API".to_string(),
@@ -617,11 +617,11 @@ mod tests {
             Some("Use camelCase test guidance".to_string()),
         )
         .await
-        .expect("module should be created");
+        .expect("product_area should be created");
 
-        assert_eq!(module.node_kind.to_string(), "product_area");
-        assert_eq!(module.implementation_notes, "Use camelCase implementation notes");
-        assert_eq!(module.test_guidance, "Use camelCase test guidance");
+        assert_eq!(product_area.node_kind.to_string(), "product_area");
+        assert_eq!(product_area.implementation_notes, "Use camelCase implementation notes");
+        assert_eq!(product_area.test_guidance, "Use camelCase test guidance");
     }
 
     #[tokio::test]

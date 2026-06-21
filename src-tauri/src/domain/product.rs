@@ -131,7 +131,7 @@ impl std::fmt::Display for ProductInvestmentStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Module {
+pub struct ProductArea {
     pub id: String,
     pub product_id: String,
     pub node_kind: HierarchyNodeKind,
@@ -150,7 +150,7 @@ pub struct Module {
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Capability {
     pub id: String,
-    pub module_id: String,
+    pub product_area_id: String,
     pub parent_capability_id: Option<String>,
     pub level: i32,
     pub node_kind: HierarchyNodeKind,
@@ -234,13 +234,13 @@ impl std::fmt::Display for CapabilityStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProductTree {
     pub product: Product,
-    pub modules: Vec<ModuleTree>,
+    pub product_areas: Vec<ProductAreaTree>,
     pub roots: Vec<HierarchyTreeNode>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModuleTree {
-    pub module: Module,
+pub struct ProductAreaTree {
+    pub product_area: ProductArea,
     pub features: Vec<CapabilityTree>,
 }
 
@@ -348,7 +348,7 @@ pub struct HierarchyTreeNode {
     pub id: String,
     pub node_type: HierarchyNodeType,
     pub node_kind: HierarchyNodeKind,
-    pub module_id: String,
+    pub product_area_id: String,
     pub capability_id: Option<String>,
     pub parent_node_id: Option<String>,
     pub parent_node_type: Option<HierarchyNodeType>,

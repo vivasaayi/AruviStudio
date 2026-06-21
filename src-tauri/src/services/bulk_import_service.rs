@@ -42,7 +42,7 @@ struct CapabilityScope {
 #[derive(Debug, Clone)]
 struct WorkItemScope {
     product_id: String,
-    module_id: Option<String>,
+    product_area_id: Option<String>,
     capability_id: Option<String>,
     source_node_id: Option<String>,
     source_node_type: Option<String>,
@@ -172,7 +172,7 @@ struct ImportWorkItem {
     name: Option<String>,
     #[serde(default, alias = "product_id")]
     product_id: Option<String>,
-    #[serde(default, alias = "product_area_id", alias = "module_id")]
+    #[serde(default, alias = "product_area_id", alias = "product_area_id")]
     product_area_id: Option<String>,
     #[serde(default, alias = "capability_id")]
     capability_id: Option<String>,
@@ -468,7 +468,7 @@ fn prepare_json_import(
 
     let product_scope = WorkItemScope {
         product_id: product_id.clone(),
-        module_id: None,
+        product_area_id: None,
         capability_id: None,
         source_node_id: None,
         source_node_type: None,
@@ -601,7 +601,7 @@ fn push_product_area(
     }
     let area_scope = WorkItemScope {
         product_id: product_id.to_string(),
-        module_id: Some(id.clone()),
+        product_area_id: Some(id.clone()),
         capability_id: None,
         source_node_id: Some(id.clone()),
         source_node_type: Some("product_area".to_string()),
@@ -613,7 +613,7 @@ fn push_product_area(
 fn push_capability(
     ctx: &mut ImportBuildContext,
     product_id: &str,
-    module_id: &str,
+    product_area_id: &str,
     parent_capability_id: Option<&str>,
     level: i64,
     default_kind: &str,
@@ -632,11 +632,11 @@ fn push_capability(
     }
 
     let id = clean_option(capability.id).unwrap_or_else(new_id);
-    let sort_key = capability_sort_key(module_id, parent_capability_id);
+    let sort_key = capability_sort_key(product_area_id, parent_capability_id);
     let sort_order = next_sort(&mut ctx.capability_sort, &sort_key);
     ctx.rows.capabilities.push(BulkImportCapabilityRow {
         id: id.clone(),
-        module_id: module_id.to_string(),
+        product_area_id: product_area_id.to_string(),
         parent_capability_id: parent_capability_id.map(ToString::to_string),
         level,
         node_kind: node_kind.clone(),
@@ -666,7 +666,7 @@ fn push_capability(
         id.clone(),
         CapabilityScope {
             product_id: product_id.to_string(),
-            product_area_id: module_id.to_string(),
+            product_area_id: product_area_id.to_string(),
             capability_id: id.clone(),
         },
     );
@@ -683,7 +683,7 @@ fn push_capability(
             push_capability(
                 ctx,
                 product_id,
-                module_id,
+                product_area_id,
                 Some(&id),
                 level + 1,
                 "feature",
@@ -694,7 +694,7 @@ fn push_capability(
             push_capability(
                 ctx,
                 product_id,
-                module_id,
+                product_area_id,
                 Some(&id),
                 level + 1,
                 "feature",
@@ -705,7 +705,7 @@ fn push_capability(
 
     let work_scope = WorkItemScope {
         product_id: product_id.to_string(),
-        module_id: Some(module_id.to_string()),
+        product_area_id: Some(product_area_id.to_string()),
         capability_id: Some(id.clone()),
         source_node_id: Some(id.clone()),
         source_node_type: Some("capability".to_string()),
@@ -734,7 +734,7 @@ fn push_work_items(
         ctx.rows.work_items.push(BulkImportWorkItemRow {
             id: id.clone(),
             product_id: scope.product_id.clone(),
-            module_id: scope.module_id.clone(),
+            product_area_id: scope.product_area_id.clone(),
             capability_id: scope.capability_id.clone(),
             source_node_id: scope.source_node_id.clone(),
             source_node_type: scope.source_node_type.clone(),
@@ -789,7 +789,7 @@ fn resolve_work_item_scope(
             return Ok(WorkItemScope {
                 product_id: clean_ref(item.product_id.as_deref())
                     .unwrap_or_else(|| scope.product_id.clone()),
-                module_id: Some(scope.product_area_id.clone()),
+                product_area_id: Some(scope.product_area_id.clone()),
                 capability_id: Some(scope.capability_id.clone()),
                 source_node_id: Some(scope.capability_id.clone()),
                 source_node_type: Some("capability".to_string()),
@@ -799,7 +799,7 @@ fn resolve_work_item_scope(
             .unwrap_or_else(|| inherited_scope.product_id.clone());
         return Ok(WorkItemScope {
             product_id,
-            module_id: clean_ref(item.product_area_id.as_deref()),
+            product_area_id: clean_ref(item.product_area_id.as_deref()),
             capability_id: Some(feature_id.clone()),
             source_node_id: Some(feature_id),
             source_node_type: Some("capability".to_string()),
@@ -810,7 +810,7 @@ fn resolve_work_item_scope(
             return Ok(WorkItemScope {
                 product_id: clean_ref(item.product_id.as_deref())
                     .unwrap_or_else(|| scope.product_id.clone()),
-                module_id: Some(scope.product_area_id.clone()),
+                product_area_id: Some(scope.product_area_id.clone()),
                 capability_id: None,
                 source_node_id: Some(scope.product_area_id.clone()),
                 source_node_type: Some("product_area".to_string()),
@@ -819,7 +819,7 @@ fn resolve_work_item_scope(
         return Ok(WorkItemScope {
             product_id: clean_ref(item.product_id.as_deref())
                 .unwrap_or_else(|| inherited_scope.product_id.clone()),
-            module_id: Some(area_id.clone()),
+            product_area_id: Some(area_id.clone()),
             capability_id: None,
             source_node_id: Some(area_id),
             source_node_type: Some("product_area".to_string()),
@@ -831,7 +831,7 @@ fn resolve_work_item_scope(
         return Ok(WorkItemScope {
             product_id: clean_ref(item.product_id.as_deref())
                 .unwrap_or_else(|| inherited_scope.product_id.clone()),
-            module_id: inherited_scope.module_id.clone(),
+            product_area_id: inherited_scope.product_area_id.clone(),
             capability_id: if source_node_type == "capability" {
                 Some(source_node_id.clone())
             } else {
@@ -884,7 +884,7 @@ fn push_csv_product_area(
     let product_id = csv_field(record, &["product_id", "productId"])
         .or_else(|| request_product_id.map(ToString::to_string))
         .ok_or_else(|| csv_error(record, "missing product_id for product_area"))?;
-    let id = csv_field(record, &["id", "product_area_id", "module_id"]).unwrap_or_else(new_id);
+    let id = csv_field(record, &["id", "product_area_id", "product_area_id"]).unwrap_or_else(new_id);
     let area = ImportProductArea {
         id: Some(id),
         name: csv_field(record, &["name"]),
@@ -906,11 +906,11 @@ fn push_csv_capability(
     record: &CsvRecord,
     request_product_id: Option<&str>,
 ) -> Result<(), AppError> {
-    let module_id = csv_field(record, &["product_area_id", "module_id", "parent_id"])
+    let product_area_id = csv_field(record, &["product_area_id", "product_area_id", "parent_id"])
         .ok_or_else(|| csv_error(record, "missing product_area_id for capability"))?;
     let product_id = ctx
         .product_areas
-        .get(&module_id)
+        .get(&product_area_id)
         .map(|scope| scope.product_id.clone())
         .or_else(|| csv_field(record, &["product_id", "productId"]))
         .or_else(|| request_product_id.map(ToString::to_string))
@@ -935,7 +935,7 @@ fn push_csv_capability(
     push_capability(
         ctx,
         &product_id,
-        &module_id,
+        &product_area_id,
         None,
         0,
         "capability",
@@ -952,7 +952,7 @@ fn push_csv_feature(
     let parent_id = csv_field(record, &["capability_id", "parent_id"])
         .ok_or_else(|| csv_error(record, "missing capability_id for feature"))?;
     let parent_scope = ctx.capabilities.get(&parent_id).cloned();
-    let module_id = parent_scope
+    let product_area_id = parent_scope
         .as_ref()
         .map(|scope| scope.product_area_id.clone())
         .or_else(|| csv_field(record, &["product_area_id"]))
@@ -983,7 +983,7 @@ fn push_csv_feature(
     push_capability(
         ctx,
         &product_id,
-        &module_id,
+        &product_area_id,
         Some(&parent_id),
         1,
         "feature",
@@ -1010,7 +1010,7 @@ fn push_csv_work_item(
                 product_id: csv_field(record, &["product_id", "productId"])
                     .or_else(|| request_product_id.map(ToString::to_string))
                     .unwrap_or_default(),
-                module_id: csv_field(record, &["product_area_id", "module_id"]),
+                product_area_id: csv_field(record, &["product_area_id", "product_area_id"]),
                 capability_id: csv_field(record, &["feature_id", "capability_id"]),
                 source_node_id: csv_field(record, &["feature_id", "capability_id"]),
                 source_node_type: csv_field(record, &["feature_id", "capability_id"])
@@ -1021,7 +1021,7 @@ fn push_csv_work_item(
             product_id: csv_field(record, &["product_id", "productId"])
                 .or_else(|| request_product_id.map(ToString::to_string))
                 .unwrap_or_default(),
-            module_id: csv_field(record, &["product_area_id", "module_id"]),
+            product_area_id: csv_field(record, &["product_area_id", "product_area_id"]),
             capability_id: csv_field(record, &["feature_id", "capability_id"]),
             source_node_id: None,
             source_node_type: None,
@@ -1036,7 +1036,7 @@ fn push_csv_work_item(
         title: csv_field(record, &["title"]),
         name: csv_field(record, &["name"]),
         product_id: Some(inherited_scope.product_id.clone()),
-        product_area_id: inherited_scope.module_id.clone(),
+        product_area_id: inherited_scope.product_area_id.clone(),
         capability_id: inherited_scope.capability_id.clone(),
         feature_id: csv_field(record, &["feature_id"]),
         source_node_id: csv_field(record, &["source_node_id", "sourceNodeId"]),
@@ -1263,10 +1263,10 @@ fn next_sort(counters: &mut HashMap<String, i64>, key: &str) -> i64 {
     value
 }
 
-fn capability_sort_key(module_id: &str, parent_capability_id: Option<&str>) -> String {
+fn capability_sort_key(product_area_id: &str, parent_capability_id: Option<&str>) -> String {
     format!(
         "{}\u{1f}{}",
-        module_id,
+        product_area_id,
         parent_capability_id.unwrap_or_default()
     )
 }

@@ -76,7 +76,7 @@ pub async fn resolve_repository_for_work_item(
     pool: &SqlitePool,
     work_item_id: &str,
 ) -> Result<Option<Repository>, AppError> {
-    // Priority: explicit work item override -> active work item repo -> module attachment -> product attachment
+    // Priority: explicit work item override -> active work item repo -> product_area attachment -> product attachment
     let work_item = crate::persistence::work_item_repo::get_work_item(pool, work_item_id).await?;
     if let Some(ref repo_id) = work_item.repo_override_id {
         let repo = sqlx::query_as::<_, Repository>("SELECT id,name,local_path,remote_url,default_branch,auth_profile,created_at,updated_at FROM repositories WHERE id=?")
@@ -94,10 +94,10 @@ pub async fn resolve_repository_for_work_item(
             return Ok(repo);
         }
     }
-    if let Some(ref module_id) = work_item.module_id {
+    if let Some(ref product_area_id) = work_item.product_area_id {
         let repo = sqlx::query_as::<_, Repository>(
             "SELECT r.id,r.name,r.local_path,r.remote_url,r.default_branch,r.auth_profile,r.created_at,r.updated_at FROM repositories r JOIN repository_attachments ra ON r.id=ra.repository_id WHERE ra.scope_type='product_area' AND ra.scope_id=? AND ra.is_default=1 LIMIT 1")
-            .bind(module_id)
+            .bind(product_area_id)
             .fetch_optional(pool).await?;
         if repo.is_some() {
             return Ok(repo);
@@ -114,9 +114,9 @@ pub async fn resolve_repository_for_work_item(
 pub async fn resolve_repository_for_scope(
     pool: &SqlitePool,
     product_id: Option<&str>,
-    module_id: Option<&str>,
+    product_area_id: Option<&str>,
 ) -> Result<Option<Repository>, AppError> {
-    if let Some(module_id) = module_id {
+    if let Some(product_area_id) = product_area_id {
         let repo = sqlx::query_as::<_, Repository>(
             "SELECT r.id,r.name,r.local_path,r.remote_url,r.default_branch,r.auth_profile,r.created_at,r.updated_at
              FROM repositories r
@@ -124,7 +124,7 @@ pub async fn resolve_repository_for_scope(
              WHERE ra.scope_type='product_area' AND ra.scope_id=? AND ra.is_default=1
              LIMIT 1",
         )
-        .bind(module_id)
+        .bind(product_area_id)
         .fetch_optional(pool)
         .await?;
         if repo.is_some() {

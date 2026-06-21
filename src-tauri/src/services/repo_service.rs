@@ -10,7 +10,7 @@ const MAX_TREE_ENTRIES: usize = 10_000;
 const MAX_FILE_BYTES: usize = 2 * 1024 * 1024;
 const EXCLUDED_DIRECTORIES: [&str; 7] = [
     ".git",
-    "node_modules",
+    "node_product_areas",
     "dist",
     "build",
     "target",

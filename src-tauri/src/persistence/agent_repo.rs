@@ -283,7 +283,7 @@ pub async fn resolve_team_for_work_item(
             .as_deref()
             .map(|id| ("capability", id)),
         work_item
-            .module_id
+            .product_area_id
             .as_deref()
             .map(|id| ("product_area", id)),
         work_item.product_id.as_deref().map(|id| ("product", id)),

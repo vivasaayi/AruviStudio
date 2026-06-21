@@ -189,14 +189,14 @@ function flattenCapabilityOptions(features: CapabilityTree[], depth = 0): Array<
 function resolveScopeLabel(
   assignment: TeamAssignment,
   products: Product[],
-  modules: Array<{ id: string; name: string }>,
+  product_areas: Array<{ id: string; name: string }>,
   capabilities: Array<{ id: string; name: string }>,
 ) {
   if (assignment.scope_type === "product") {
     return products.find((product) => product.id === assignment.scope_id)?.name ?? assignment.scope_id;
   }
   if (assignment.scope_type === "product_area") {
-    return modules.find((module) => module.id === assignment.scope_id)?.name ?? assignment.scope_id;
+    return product_areas.find((product_area) => product_area.id === assignment.scope_id)?.name ?? assignment.scope_id;
   }
   return capabilities.find((capability) => capability.id === assignment.scope_id)?.name.trim() ?? assignment.scope_id;
 }
@@ -320,7 +320,7 @@ export function AgentRegistryPage() {
 
   const [assignmentProductId, setAssignmentProductId] = React.useState<string | null>(activeProductId);
   const [assignmentScopeType, setAssignmentScopeType] = React.useState<"product" | "product_area" | "capability">("product_area");
-  const [assignmentModuleId, setAssignmentModuleId] = React.useState<string>("");
+  const [assignmentProductAreaId, setAssignmentProductAreaId] = React.useState<string>("");
   const [assignmentCapabilityId, setAssignmentCapabilityId] = React.useState<string>("");
   const [assignmentError, setAssignmentError] = React.useState<string | null>(null);
 
@@ -419,15 +419,15 @@ export function AgentRegistryPage() {
   }, [selectedPolicy, selectedPolicyStage]);
 
   React.useEffect(() => {
-    const firstModuleId = assignmentTree?.modules[0]?.module.id ?? "";
-    if (!assignmentModuleId || !assignmentTree?.modules.some((entry) => entry.module.id === assignmentModuleId)) {
-      setAssignmentModuleId(firstModuleId);
+    const firstProductAreaId = assignmentTree?.product_areas[0]?.product_area.id ?? "";
+    if (!assignmentProductAreaId || !assignmentTree?.product_areas.some((entry) => entry.product_area.id === assignmentProductAreaId)) {
+      setAssignmentProductAreaId(firstProductAreaId);
     }
-  }, [assignmentTree, assignmentModuleId]);
+  }, [assignmentTree, assignmentProductAreaId]);
 
-  const currentModules = assignmentTree?.modules ?? [];
-  const currentModuleOptions = currentModules.map((entry) => entry.module);
-  const currentCapabilityOptions = currentModules.flatMap((entry) => flattenCapabilityOptions(entry.features));
+  const currentProductAreas = assignmentTree?.product_areas ?? [];
+  const currentProductAreaOptions = currentProductAreas.map((entry) => entry.product_area);
+  const currentCapabilityOptions = currentProductAreas.flatMap((entry) => flattenCapabilityOptions(entry.features));
 
   React.useEffect(() => {
     const availableCapabilityIds = currentCapabilityOptions.map((capability) => capability.id);
@@ -973,7 +973,7 @@ export function AgentRegistryPage() {
     }
     let scopeId = assignmentProductId ?? "";
     if (assignmentScopeType === "product_area") {
-      scopeId = assignmentModuleId;
+      scopeId = assignmentProductAreaId;
     }
     if (assignmentScopeType === "capability") {
       scopeId = assignmentCapabilityId;
@@ -1675,12 +1675,12 @@ export function AgentRegistryPage() {
           </div>
           {assignmentScopeType === "product_area" ? (
             <div style={styles.field}>
-              <label style={styles.label}>Module</label>
-              <select style={styles.select} value={assignmentModuleId} onChange={(e) => setAssignmentModuleId(e.target.value)}>
+              <label style={styles.label}>ProductArea</label>
+              <select style={styles.select} value={assignmentProductAreaId} onChange={(e) => setAssignmentProductAreaId(e.target.value)}>
                 <option value="">Select a product area</option>
-                {currentModuleOptions.map((module) => (
-                  <option key={module.id} value={module.id}>
-                    {module.name}
+                {currentProductAreaOptions.map((product_area) => (
+                  <option key={product_area.id} value={product_area.id}>
+                    {product_area.name}
                   </option>
                 ))}
               </select>
@@ -1732,7 +1732,7 @@ export function AgentRegistryPage() {
                   {resolveScopeLabel(
                     assignment,
                     products,
-                    currentModuleOptions.map((module) => ({ id: module.id, name: module.name })),
+                    currentProductAreaOptions.map((product_area) => ({ id: product_area.id, name: product_area.name })),
                     currentCapabilityOptions.map((capability) => ({ id: capability.id, name: capability.name })),
                   )}
                 </div>

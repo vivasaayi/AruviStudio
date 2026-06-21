@@ -222,10 +222,10 @@ mod tests {
         )
         .await
         .expect("product should be created");
-        let module = product_commands::create_module(
+        let product_area = product_commands::create_product_area(
             state.clone(),
             product.id.clone(),
-            "Approval Module".to_string(),
+            "Approval ProductArea".to_string(),
             "".to_string(),
             "".to_string(),
             Some("product_area".to_string()),
@@ -237,12 +237,12 @@ mod tests {
             None,
         )
         .await
-        .expect("module should be created");
+        .expect("product_area should be created");
         let work_item = work_item_commands::create_work_item(
             state,
             Some(product.id),
             None,
-            Some(module.id),
+            Some(product_area.id),
             None,
             None,
             None,

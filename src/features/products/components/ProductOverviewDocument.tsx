@@ -1,14 +1,14 @@
 import React, { useMemo, useState } from "react";
 import { countHierarchyNodes, countLeafNodes, getProductDirectWorkItems } from "../../../lib/hierarchyTree";
 import { getHierarchyNodeKindLabel } from "../../../lib/hierarchyLabels";
-import type { Capability, CapabilityTree, Module, ModuleTree, Product, ProductReference, ProductTree, WorkItem } from "../../../lib/types";
+import type { Capability, CapabilityTree, ProductArea, ProductAreaTree, Product, ProductReference, ProductTree, WorkItem } from "../../../lib/types";
 import {
   PRODUCT_DELIVERY_ID,
   PRODUCT_OVERVIEW_TOP_ID,
   buildScopedWorkItemTree,
   buildWorkItemMetrics,
   getCapabilitySectionId,
-  getModuleSectionId,
+  getProductAreaSectionId,
   getWorkItemPresentation,
   sortWorkItems,
   type WorkItemMetrics,
@@ -144,7 +144,7 @@ type ProductOverviewDocumentProps = {
   references?: ProductReference[];
   isLoading?: boolean;
   onEditProduct: () => void;
-  onEditModule: (module: Module) => void;
+  onEditProductArea: (product_area: ProductArea) => void;
   onEditCapability: (capability: Capability) => void;
   onOpenWorkItem: (workItem: WorkItem) => void;
   onPlanFromItem: (action: ProductOverviewPlannerAction) => void;
@@ -153,11 +153,11 @@ type ProductOverviewDocumentProps = {
 export type ProductOverviewPlannerAction =
   | { kind: "enhance_product"; product: Product }
   | { kind: "add_product_child"; product: Product }
-  | { kind: "enhance_module"; product: Product; module: Module }
-  | { kind: "add_module_child"; product: Product; module: Module }
-  | { kind: "enhance_capability"; product: Product; moduleName: string; capability: Capability }
-  | { kind: "add_capability_child"; product: Product; moduleName: string; capability: Capability }
-  | { kind: "add_capability_work_item"; product: Product; moduleName: string; capability: Capability }
+  | { kind: "enhance_product_area"; product: Product; product_area: ProductArea }
+  | { kind: "add_product_area_child"; product: Product; product_area: ProductArea }
+  | { kind: "enhance_capability"; product: Product; productAreaName: string; capability: Capability }
+  | { kind: "add_capability_child"; product: Product; productAreaName: string; capability: Capability }
+  | { kind: "add_capability_work_item"; product: Product; productAreaName: string; capability: Capability }
   | { kind: "enhance_work_item"; product: Product; workItem: WorkItem };
 
 export function ProductOverviewDocument({
@@ -169,7 +169,7 @@ export function ProductOverviewDocument({
   references = [],
   isLoading = false,
   onEditProduct,
-  onEditModule,
+  onEditProductArea,
   onEditCapability,
   onOpenWorkItem,
   onPlanFromItem,
@@ -297,7 +297,7 @@ export function ProductOverviewDocument({
           </section>
         ) : null}
 
-        {!isLoading && (tree?.modules.length ?? 0) === 0 ? (
+        {!isLoading && (tree?.product_areas.length ?? 0) === 0 ? (
           <section style={styles.section}>
             <div style={styles.sectionHeader}>
               <div style={styles.eyebrow}>Product</div>
@@ -310,16 +310,16 @@ export function ProductOverviewDocument({
         ) : null}
 
         {!isLoading ? (
-          (tree?.modules ?? []).map((moduleTree, index) => (
-            <ModuleChapter
-              key={moduleTree.module.id}
+          (tree?.product_areas ?? []).map((productAreaTree, index) => (
+            <ProductAreaChapter
+              key={productAreaTree.product_area.id}
               product={product}
               productName={product.name}
-              moduleTree={moduleTree}
+              productAreaTree={productAreaTree}
               chapterNumber={index + 1}
               allWorkItems={allWorkItems}
               references={bookReferences}
-              onEditModule={onEditModule}
+              onEditProductArea={onEditProductArea}
               onEditCapability={onEditCapability}
               onOpenWorkItem={onOpenWorkItem}
               onPlanFromItem={onPlanFromItem}
@@ -340,42 +340,42 @@ function MetricCard({ label, value }: { label: string; value: number }) {
   );
 }
 
-function ModuleChapter({
+function ProductAreaChapter({
   product,
   productName,
-  moduleTree,
+  productAreaTree,
   chapterNumber,
   allWorkItems,
   references,
-  onEditModule,
+  onEditProductArea,
   onEditCapability,
   onOpenWorkItem,
   onPlanFromItem,
 }: {
   product: Product;
   productName: string;
-  moduleTree: ModuleTree;
+  productAreaTree: ProductAreaTree;
   chapterNumber: number;
   allWorkItems: WorkItem[];
   references: ProductReference[];
-  onEditModule: (module: Module) => void;
+  onEditProductArea: (product_area: ProductArea) => void;
   onEditCapability: (capability: Capability) => void;
   onOpenWorkItem: (workItem: WorkItem) => void;
   onPlanFromItem: (action: ProductOverviewPlannerAction) => void;
 }) {
   const [isOpen, setIsOpen] = useState(true);
-  const rootLabel = getHierarchyNodeKindLabel(moduleTree.module.node_kind);
-  const moduleWorkItems = buildScopedWorkItemTree(
-    allWorkItems.filter((workItem) => workItem.module_id === moduleTree.module.id && !workItem.capability_id),
+  const rootLabel = getHierarchyNodeKindLabel(productAreaTree.product_area.node_kind);
+  const productAreaWorkItems = buildScopedWorkItemTree(
+    allWorkItems.filter((workItem) => workItem.product_area_id === productAreaTree.product_area.id && !workItem.capability_id),
   );
-  const metrics = useMemo(() => buildWorkItemMetrics(getModuleScopedWorkItems(moduleTree, allWorkItems)), [allWorkItems, moduleTree]);
-  const moduleReferences = useMemo(
-    () => filterReferencesForScope(references, getProductAreaReferenceScope(moduleTree.module.id)),
-    [moduleTree.module.id, references],
+  const metrics = useMemo(() => buildWorkItemMetrics(getProductAreaScopedWorkItems(productAreaTree, allWorkItems)), [allWorkItems, productAreaTree]);
+  const productAreaReferences = useMemo(
+    () => filterReferencesForScope(references, getProductAreaReferenceScope(productAreaTree.product_area.id)),
+    [productAreaTree.product_area.id, references],
   );
 
   return (
-    <section id={getModuleSectionId(moduleTree.module)} style={styles.detailsShell}>
+    <section id={getProductAreaSectionId(productAreaTree.product_area)} style={styles.detailsShell}>
       <div
         style={styles.summary}
         role="button"
@@ -392,15 +392,15 @@ function ModuleChapter({
         <span style={styles.summaryToggle}>{isOpen ? "▾" : "▸"}</span>
         <div style={styles.summaryLeft}>
           <div style={styles.chapterLabel}>{rootLabel} {chapterNumber}</div>
-          <h3 style={styles.chapterTitle}>{moduleTree.module.name}</h3>
+          <h3 style={styles.chapterTitle}>{productAreaTree.product_area.name}</h3>
           <div style={styles.chapterSubtitle}>
-            {moduleTree.module.description || moduleTree.module.purpose || `Document this ${rootLabel.toLowerCase()} so the product architecture stays readable.`}
+            {productAreaTree.product_area.description || productAreaTree.product_area.purpose || `Document this ${rootLabel.toLowerCase()} so the product architecture stays readable.`}
           </div>
-          <div style={styles.pathText}>{productName} / {moduleTree.module.name}</div>
+          <div style={styles.pathText}>{productName} / {productAreaTree.product_area.name}</div>
         </div>
         <div style={styles.summaryRight}>
           <div style={styles.summaryPillRow}>
-            <span style={styles.summaryPill}>{moduleTree.features.length} {moduleTree.features.length === 1 ? "child node" : "child nodes"}</span>
+            <span style={styles.summaryPill}>{productAreaTree.features.length} {productAreaTree.features.length === 1 ? "child node" : "child nodes"}</span>
             <MetricPills metrics={metrics} />
           </div>
           <div style={styles.nodeActionRow}>
@@ -409,7 +409,7 @@ function ModuleChapter({
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                onPlanFromItem({ kind: "enhance_module", product, module: moduleTree.module });
+                onPlanFromItem({ kind: "enhance_product_area", product, product_area: productAreaTree.product_area });
               }}
             >
               Improve Chapter
@@ -419,7 +419,7 @@ function ModuleChapter({
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                onPlanFromItem({ kind: "add_module_child", product, module: moduleTree.module });
+                onPlanFromItem({ kind: "add_product_area_child", product, product_area: productAreaTree.product_area });
               }}
             >
               Add Section
@@ -429,7 +429,7 @@ function ModuleChapter({
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                onEditModule(moduleTree.module);
+                onEditProductArea(productAreaTree.product_area);
               }}
             >
               Edit {rootLabel}
@@ -440,60 +440,60 @@ function ModuleChapter({
 
       {isOpen ? (
         <div style={styles.detailsBody}>
-          {moduleTree.module.purpose
-            || moduleTree.module.explanation
-            || moduleTree.module.examples
-            || moduleTree.module.implementation_notes
-            || moduleTree.module.test_guidance ? (
+          {productAreaTree.product_area.purpose
+            || productAreaTree.product_area.explanation
+            || productAreaTree.product_area.examples
+            || productAreaTree.product_area.implementation_notes
+            || productAreaTree.product_area.test_guidance ? (
             <div style={styles.noteGrid}>
-              {moduleTree.module.purpose ? (
+              {productAreaTree.product_area.purpose ? (
                 <div style={styles.noteCard}>
                   <div style={styles.noteHeading}>Purpose</div>
-                  <div style={styles.noteText}>{moduleTree.module.purpose}</div>
+                  <div style={styles.noteText}>{productAreaTree.product_area.purpose}</div>
                 </div>
               ) : null}
-              {moduleTree.module.explanation ? (
+              {productAreaTree.product_area.explanation ? (
                 <div style={styles.noteCard}>
                   <div style={styles.noteHeading}>Explanation</div>
-                  <div style={styles.noteText}>{moduleTree.module.explanation}</div>
+                  <div style={styles.noteText}>{productAreaTree.product_area.explanation}</div>
                 </div>
               ) : null}
-              {moduleTree.module.examples ? (
+              {productAreaTree.product_area.examples ? (
                 <div style={styles.noteCard}>
                   <div style={styles.noteHeading}>Examples</div>
-                  <div style={styles.noteText}>{moduleTree.module.examples}</div>
+                  <div style={styles.noteText}>{productAreaTree.product_area.examples}</div>
                 </div>
               ) : null}
-              {moduleTree.module.implementation_notes ? (
+              {productAreaTree.product_area.implementation_notes ? (
                 <div style={styles.noteCard}>
                   <div style={styles.noteHeading}>Implementation Notes</div>
-                  <div style={styles.noteText}>{moduleTree.module.implementation_notes}</div>
+                  <div style={styles.noteText}>{productAreaTree.product_area.implementation_notes}</div>
                 </div>
               ) : null}
-              {moduleTree.module.test_guidance ? (
+              {productAreaTree.product_area.test_guidance ? (
                 <div style={styles.noteCard}>
                   <div style={styles.noteHeading}>Test Guidance</div>
-                  <div style={styles.noteText}>{moduleTree.module.test_guidance}</div>
+                  <div style={styles.noteText}>{productAreaTree.product_area.test_guidance}</div>
                 </div>
               ) : null}
             </div>
           ) : null}
 
-          <ReferenceList references={moduleReferences} title={`${rootLabel} References`} />
+          <ReferenceList references={productAreaReferences} title={`${rootLabel} References`} />
 
-          {moduleWorkItems.length > 0 ? (
+          {productAreaWorkItems.length > 0 ? (
             <div>
               <div style={styles.sectionTitle}>Direct Work</div>
-              <WorkItemTree product={product} nodes={moduleWorkItems} onOpenWorkItem={onOpenWorkItem} onPlanFromItem={onPlanFromItem} />
+              <WorkItemTree product={product} nodes={productAreaWorkItems} onOpenWorkItem={onOpenWorkItem} onPlanFromItem={onPlanFromItem} />
             </div>
           ) : null}
 
-          {moduleTree.features.length > 0 ? (
-            moduleTree.features.map((capabilityTree, index) => (
+          {productAreaTree.features.length > 0 ? (
+            productAreaTree.features.map((capabilityTree, index) => (
               <CapabilityChapter
                 key={capabilityTree.capability.id}
                 product={product}
-                path={[productName, moduleTree.module.name]}
+                path={[productName, productAreaTree.product_area.name]}
                 capabilityTree={capabilityTree}
                 numbering={`${chapterNumber}.${index + 1}`}
                 allWorkItems={allWorkItems}
@@ -582,7 +582,7 @@ function CapabilityChapter({
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                onPlanFromItem({ kind: "enhance_capability", product, moduleName: path[1] ?? "", capability: capabilityTree.capability });
+                onPlanFromItem({ kind: "enhance_capability", product, productAreaName: path[1] ?? "", capability: capabilityTree.capability });
               }}
             >
               Improve Section
@@ -592,7 +592,7 @@ function CapabilityChapter({
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                onPlanFromItem({ kind: "add_capability_child", product, moduleName: path[1] ?? "", capability: capabilityTree.capability });
+                onPlanFromItem({ kind: "add_capability_child", product, productAreaName: path[1] ?? "", capability: capabilityTree.capability });
               }}
             >
               Add Child Section
@@ -602,7 +602,7 @@ function CapabilityChapter({
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                onPlanFromItem({ kind: "add_capability_work_item", product, moduleName: path[1] ?? "", capability: capabilityTree.capability });
+                onPlanFromItem({ kind: "add_capability_work_item", product, productAreaName: path[1] ?? "", capability: capabilityTree.capability });
               }}
             >
               Add Story
@@ -849,10 +849,10 @@ function collectCapabilityIds(capabilities: CapabilityTree[]): Set<string> {
   return ids;
 }
 
-function getModuleScopedWorkItems(moduleTree: ModuleTree, allWorkItems: WorkItem[]) {
-  const capabilityIds = collectCapabilityIds(moduleTree.features);
+function getProductAreaScopedWorkItems(productAreaTree: ProductAreaTree, allWorkItems: WorkItem[]) {
+  const capabilityIds = collectCapabilityIds(productAreaTree.features);
   return allWorkItems.filter(
-    (workItem) => workItem.module_id === moduleTree.module.id || (workItem.capability_id ? capabilityIds.has(workItem.capability_id) : false),
+    (workItem) => workItem.product_area_id === productAreaTree.product_area.id || (workItem.capability_id ? capabilityIds.has(workItem.capability_id) : false),
   );
 }
 

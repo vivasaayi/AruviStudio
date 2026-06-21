@@ -5,13 +5,13 @@ import {
   archiveProduct,
   createCapability,
   createLocalWorkspace,
-  createModule,
+  createProductArea,
   createProduct,
   createProductDependency,
   createProductReference,
   createWorkItem,
   deleteCapability,
-  deleteModule,
+  deleteProductArea,
   deleteProductReference,
   deleteWorkItem,
   getProductTree,
@@ -22,14 +22,14 @@ import {
   listProducts,
   listWorkItems,
   reorderCapabilities,
-  reorderModules,
+  reorderProductAreas,
   resetProductPlan,
   revealInFinder,
   resolveRepositoryForScope,
   setSetting,
   summarizeWorkItemsByProduct,
   updateCapability,
-  updateModule,
+  updateProductArea,
   updateProduct,
   updateWorkItem,
 } from "../../../lib/tauri";
@@ -63,7 +63,7 @@ import { useUIStore } from "../../../state/uiStore";
 import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
 import { ProductOverviewPage } from "./ProductOverviewPage";
 import { getProductAreaReferenceScope } from "../lib/productReferences";
-import type { CapabilityNode, CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ModuleTree, Product, ProductDependency, ProductDependencyKind, ProductReference, ProductTree, ProductWorkItemSummary, Repository, WorkItem } from "../../../lib/types";
+import type { CapabilityNode, CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ProductAreaTree, Product, ProductDependency, ProductDependencyKind, ProductReference, ProductTree, ProductWorkItemSummary, Repository, WorkItem } from "../../../lib/types";
 
 const HIDE_EXAMPLE_PRODUCTS_KEY = "catalog.hide_example_products";
 
@@ -262,10 +262,10 @@ const styles: Record<string, React.CSSProperties> = {
   managementTableRow: { display: "grid", gridTemplateColumns: "minmax(0, 1.5fr) 110px 110px 190px", gap: 10, padding: "12px", borderBottom: "1px solid #2d3139", alignItems: "center" },
   managementActions: { display: "flex", gap: 6, alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap" as const },
   inlineActionRow: { display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" as const },
-  moduleCard: { border: "1px solid #32353d", borderRadius: 12, backgroundColor: "#26292f", padding: 12, marginBottom: 10 },
-  moduleHeader: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" },
-  moduleName: { fontSize: 14, fontWeight: 700, color: "#f3f3f3", marginBottom: 4 },
-  moduleDesc: { fontSize: 12, color: "#8f96a3", lineHeight: 1.45, marginBottom: 8 },
+  productAreaCard: { border: "1px solid #32353d", borderRadius: 12, backgroundColor: "#26292f", padding: 12, marginBottom: 10 },
+  productAreaHeader: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" },
+  productAreaName: { fontSize: 14, fontWeight: 700, color: "#f3f3f3", marginBottom: 4 },
+  productAreaDesc: { fontSize: 12, color: "#8f96a3", lineHeight: 1.45, marginBottom: 8 },
   featureNode: { padding: "10px 12px", borderRadius: 10, backgroundColor: "#1b1d22", border: "1px solid #2d3139", marginTop: 8 },
   featureNodeActive: { padding: "10px 12px", borderRadius: 10, backgroundColor: "#1f2a35", border: "1px solid #0e639c", marginTop: 8 },
   featureTitle: { fontWeight: 700, color: "#e9eef8", fontSize: 12 },
@@ -364,43 +364,43 @@ export function ProductListPage() {
   const isProductDetailRoute = location.pathname.startsWith("/products/");
   const {
     activeProductId,
-    activeModuleId,
+    activeProductAreaId,
     activeCapabilityId,
     activeNodeId,
     activeNodeType,
     activeWorkItemId,
     activeWorkspacePath,
     setActiveProduct,
-    setActiveModule,
+    setActiveProductArea,
     setActiveCapability,
     setActiveHierarchyNode,
     setActiveWorkItem,
   } = useWorkspaceStore();
   const {
     productDialogMode,
-    moduleDialogMode,
+    productAreaDialogMode,
     capabilityDialogMode,
     productWorkspaceTab,
-    expandedModules,
+    expandedProductAreas,
     expandedCapabilities,
     closeProductDialog,
     openProductDialog,
-    closeModuleDialog,
-    openModuleDialog,
+    closeProductAreaDialog,
+    openProductAreaDialog,
     closeCapabilityDialog,
     openCapabilityDialog,
     setProductWorkspaceTab,
-    toggleModuleExpanded,
+    toggleProductAreaExpanded,
     toggleCapabilityExpanded,
-    setModuleExpanded,
+    setProductAreaExpanded,
     setCapabilityExpanded,
     setActiveView,
   } = useUIStore();
 
   const [productForm, setProductForm] = useState<ProductFormState>(emptyProductForm);
   const [productDraft, setProductDraft] = useState<ProductFormState>(emptyProductForm);
-  const [moduleForm, setModuleForm] = useState<{ name: string; description: string; purpose: string; nodeKind: HierarchyNodeKind }>({ name: "", description: "", purpose: "", nodeKind: "product_area" });
-  const [moduleDraft, setModuleDraft] = useState<{ name: string; description: string; purpose: string; nodeKind: HierarchyNodeKind }>({ name: "", description: "", purpose: "", nodeKind: "product_area" });
+  const [productAreaForm, setProductAreaForm] = useState<{ name: string; description: string; purpose: string; nodeKind: HierarchyNodeKind }>({ name: "", description: "", purpose: "", nodeKind: "product_area" });
+  const [productAreaDraft, setProductAreaDraft] = useState<{ name: string; description: string; purpose: string; nodeKind: HierarchyNodeKind }>({ name: "", description: "", purpose: "", nodeKind: "product_area" });
   const [capabilityForm, setCapabilityForm] = useState<{ name: string; description: string; acceptanceCriteria: string; technicalNotes: string; nodeKind: HierarchyNodeKind }>({ name: "", description: "", acceptanceCriteria: "", technicalNotes: "", nodeKind: "capability" });
   const [capabilityDraft, setCapabilityDraft] = useState<{ name: string; description: string; acceptanceCriteria: string; technicalNotes: string; nodeKind: HierarchyNodeKind }>({ name: "", description: "", acceptanceCriteria: "", technicalNotes: "", nodeKind: "capability" });
   const [referenceDraft, setReferenceDraft] = useState<{ title: string; referenceKind: ProductReference["reference_kind"]; uri: string; content: string }>({ title: "", referenceKind: "note", uri: "", content: "" });
@@ -409,9 +409,9 @@ export function ProductListPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [workspaceActionMsg, setWorkspaceActionMsg] = useState<string | null>(null);
   const [workspaceActionError, setWorkspaceActionError] = useState<string | null>(null);
-  const [draggedModuleId, setDraggedModuleId] = useState<string | null>(null);
-  const [draggedFeature, setDraggedFeature] = useState<null | { id: string; moduleId: string; parentCapabilityId?: string | null; siblingIds: string[] }>(null);
-  const [moduleOrderIds, setModuleOrderIds] = useState<string[]>([]);
+  const [draggedProductAreaId, setDraggedProductAreaId] = useState<string | null>(null);
+  const [draggedFeature, setDraggedFeature] = useState<null | { id: string; productAreaId: string; parentCapabilityId?: string | null; siblingIds: string[] }>(null);
+  const [productAreaOrderIds, setProductAreaOrderIds] = useState<string[]>([]);
   const [capabilityOrderMap, setFeatureOrderMap] = useState<Record<string, string[]>>({});
   const [productPageTab, setProductPageTab] = useState<"list" | "status" | "overview" | "design" | "dependencies">(() => isProductDetailRoute ? "design" : "list");
   const [productSearch, setProductSearch] = useState("");
@@ -541,8 +541,8 @@ export function ProductListPage() {
   });
 
   const { data: resolvedWorkspace } = useQuery<Repository | null>({
-    queryKey: ["productScopeRepo", selectedProductId, activeModuleId],
-    queryFn: () => resolveRepositoryForScope({ productId: selectedProductId, moduleId: activeModuleId }),
+    queryKey: ["productScopeRepo", selectedProductId, activeProductAreaId],
+    queryFn: () => resolveRepositoryForScope({ productId: selectedProductId, productAreaId: activeProductAreaId }),
     enabled: !!selectedProduct,
   });
   const effectiveWorkspacePath = resolvedWorkspace?.local_path ?? activeWorkspacePath ?? null;
@@ -712,7 +712,7 @@ export function ProductListPage() {
     setFormError(null);
     setWorkspaceActionMsg(null);
     setWorkspaceActionError(null);
-  }, [selectedProductId, activeModuleId, activeCapabilityId, setActiveWorkItem]);
+  }, [selectedProductId, activeProductAreaId, activeCapabilityId, setActiveWorkItem]);
 
   useEffect(() => {
     if (selectedProduct) {
@@ -731,52 +731,48 @@ export function ProductListPage() {
     if (!tree) {
       return;
     }
-    setModuleOrderIds(tree.modules.map((moduleTree) => moduleTree.module.id));
+    setProductAreaOrderIds(tree.product_areas.map((productAreaTree) => productAreaTree.product_area.id));
     const nextCapabilityMap: Record<string, string[]> = {};
-    tree.modules.forEach((moduleTree) => {
-      nextCapabilityMap[getCapabilityOrderKey(moduleTree.module.id, null)] = moduleTree.features.map((capabilityTree) => capabilityTree.capability.id);
-      seedCapabilityOrderMap(nextCapabilityMap, moduleTree.features);
+    tree.product_areas.forEach((productAreaTree) => {
+      nextCapabilityMap[getCapabilityOrderKey(productAreaTree.product_area.id, null)] = productAreaTree.features.map((capabilityTree) => capabilityTree.capability.id);
+      seedCapabilityOrderMap(nextCapabilityMap, productAreaTree.features);
     });
     setFeatureOrderMap(nextCapabilityMap);
   }, [tree]);
 
-  const selectedModule = useMemo(
-    () => tree?.modules.find((moduleTree) => moduleTree.module.id === activeModuleId)?.module ?? null,
-    [tree, activeModuleId],
+  const selectedProductArea = useMemo(
+    () => tree?.product_areas.find((productAreaTree) => productAreaTree.product_area.id === activeProductAreaId)?.product_area ?? null,
+    [tree, activeProductAreaId],
   );
   const selectedCapabilityTree = useMemo(
-    () => (tree ? findCapabilityTree(tree.modules, activeCapabilityId) : null),
+    () => (tree ? findCapabilityTree(tree.product_areas, activeCapabilityId) : null),
     [tree, activeCapabilityId],
   );
   const selectedCapability = selectedCapabilityTree?.capability ?? null;
-  const selectedModuleTree = useMemo(
-    () => tree?.modules.find((moduleTree) => moduleTree.module.id === activeModuleId) ?? null,
-    [tree, activeModuleId],
-  );
   const selectedCapabilityParentKind = useMemo(() => {
     if (!selectedCapability) {
-      return selectedModule?.node_kind ?? null;
+      return selectedProductArea?.node_kind ?? null;
     }
     if (!selectedCapability.parent_capability_id) {
-      return selectedModule?.node_kind ?? null;
+      return selectedProductArea?.node_kind ?? null;
     }
-    return findCapabilityTree(tree?.modules ?? [], selectedCapability.parent_capability_id)?.capability.node_kind ?? null;
-  }, [selectedCapability, selectedModule, tree]);
+    return findCapabilityTree(tree?.product_areas ?? [], selectedCapability.parent_capability_id)?.capability.node_kind ?? null;
+  }, [selectedCapability, selectedProductArea, tree]);
 
   useEffect(() => {
-    if (moduleDialogMode === "create") {
-      setModuleForm({ name: "", description: "", purpose: "", nodeKind: "product_area" });
+    if (productAreaDialogMode === "create") {
+      setProductAreaForm({ name: "", description: "", purpose: "", nodeKind: "product_area" });
       return;
     }
-    if (moduleDialogMode === "edit" && selectedModule) {
-      setModuleDraft({
-        name: selectedModule.name,
-        description: selectedModule.description,
-        purpose: selectedModule.purpose,
-        nodeKind: selectedModule.node_kind,
+    if (productAreaDialogMode === "edit" && selectedProductArea) {
+      setProductAreaDraft({
+        name: selectedProductArea.name,
+        description: selectedProductArea.description,
+        purpose: selectedProductArea.purpose,
+        nodeKind: selectedProductArea.node_kind,
       });
     }
-  }, [moduleDialogMode, selectedModule]);
+  }, [productAreaDialogMode, selectedProductArea]);
 
   useEffect(() => {
     if (capabilityDialogMode === "create") {
@@ -785,7 +781,7 @@ export function ProductListPage() {
         description: "",
         acceptanceCriteria: "",
         technicalNotes: "",
-        nodeKind: getDefaultChildNodeKind(selectedCapability?.node_kind ?? selectedModule?.node_kind),
+        nodeKind: getDefaultChildNodeKind(selectedCapability?.node_kind ?? selectedProductArea?.node_kind),
       });
       setFormError(null);
       return;
@@ -799,7 +795,7 @@ export function ProductListPage() {
         nodeKind: selectedCapability.node_kind,
       });
     }
-  }, [capabilityDialogMode, selectedCapability, selectedModule]);
+  }, [capabilityDialogMode, selectedCapability, selectedProductArea]);
 
   const invalidateHierarchy = async () => {
     await Promise.all([
@@ -879,31 +875,31 @@ export function ProductListPage() {
     onError: (error) => setFormError(String(error)),
   });
 
-  const createModuleMutation = useMutation({
-    mutationFn: () => createModule({ productId: selectedProductId!, ...moduleForm }),
-    onSuccess: async (createdModule) => {
+  const createProductAreaMutation = useMutation({
+    mutationFn: () => createProductArea({ productId: selectedProductId!, ...productAreaForm }),
+    onSuccess: async (createdProductArea) => {
       await invalidateHierarchy();
-      setModuleForm({ name: "", description: "", purpose: "", nodeKind: "product_area" });
+      setProductAreaForm({ name: "", description: "", purpose: "", nodeKind: "product_area" });
       setProductWorkspaceTab("structure");
-      setActiveModule(createdModule.id);
-      closeModuleDialog();
+      setActiveProductArea(createdProductArea.id);
+      closeProductAreaDialog();
     },
     onError: (error) => setFormError(String(error)),
   });
 
-  const updateModuleMutation = useMutation({
+  const updateProductAreaMutation = useMutation({
     mutationFn: () =>
-      updateModule({
-        id: activeModuleId!,
-        name: moduleDraft.name,
-        description: moduleDraft.description,
-        purpose: moduleDraft.purpose,
+      updateProductArea({
+        id: activeProductAreaId!,
+        name: productAreaDraft.name,
+        description: productAreaDraft.description,
+        purpose: productAreaDraft.purpose,
         nodeKind: "product_area",
       }),
-    onSuccess: async (updatedModule) => {
+    onSuccess: async (updatedProductArea) => {
       await invalidateHierarchy();
-      setActiveModule(updatedModule.id);
-      closeModuleDialog();
+      setActiveProductArea(updatedProductArea.id);
+      closeProductAreaDialog();
     },
     onError: (error) => setFormError(String(error)),
   });
@@ -911,7 +907,7 @@ export function ProductListPage() {
   const createCapabilityMutation = useMutation({
     mutationFn: () =>
       createCapability({
-        moduleId: activeModuleId ?? selectedCapability?.module_id ?? selectedModule?.id ?? "",
+        productAreaId: activeProductAreaId ?? selectedCapability?.product_area_id ?? selectedProductArea?.id ?? "",
         parentCapabilityId: activeCapabilityId ?? undefined,
         name: capabilityForm.name,
         description: capabilityForm.description,
@@ -928,7 +924,7 @@ export function ProductListPage() {
         description: "",
         acceptanceCriteria: "",
         technicalNotes: "",
-        nodeKind: getDefaultChildNodeKind(selectedCapability?.node_kind ?? selectedModule?.node_kind),
+        nodeKind: getDefaultChildNodeKind(selectedCapability?.node_kind ?? selectedProductArea?.node_kind),
       });
       setProductWorkspaceTab("structure");
       setActiveCapability(createdCapability.id);
@@ -982,7 +978,7 @@ export function ProductListPage() {
     onSuccess: async () => {
       await invalidateHierarchy();
       await invalidateTasks();
-      setActiveModule(null);
+      setActiveProductArea(null);
       setActiveCapability(null);
       setResetPlanCandidate(null);
       setResetPlanConfirmName("");
@@ -997,14 +993,14 @@ export function ProductListPage() {
   const deleteHierarchyMutation = useMutation({
     mutationFn: async (candidate: NonNullable<typeof deleteHierarchyCandidate>) => {
       if (candidate.kind === "product_area") {
-        await deleteModule(candidate.id);
+        await deleteProductArea(candidate.id);
         return;
       }
       await deleteCapability(candidate.id);
     },
     onSuccess: async () => {
       await invalidateHierarchy();
-      setActiveModule(null);
+      setActiveProductArea(null);
       setActiveCapability(null);
       setDeleteHierarchyCandidate(null);
       setDeleteHierarchyConfirmName("");
@@ -1014,13 +1010,13 @@ export function ProductListPage() {
     onError: (error) => setFormError(String(error)),
   });
 
-  const reorderModulesMutation = useMutation({
-    mutationFn: (orderedIds: string[]) => reorderModules(selectedProductId!, orderedIds),
+  const reorderProductAreasMutation = useMutation({
+    mutationFn: (orderedIds: string[]) => reorderProductAreas(selectedProductId!, orderedIds),
     onSuccess: async () => invalidateHierarchy(),
   });
 
   const reorderCapabilitiesMutation = useMutation({
-    mutationFn: (data: { moduleId: string; parentCapabilityId?: string; orderedIds: string[] }) => reorderCapabilities(data),
+    mutationFn: (data: { productAreaId: string; parentCapabilityId?: string; orderedIds: string[] }) => reorderCapabilities(data),
     onSuccess: async () => invalidateHierarchy(),
   });
 
@@ -1031,7 +1027,7 @@ export function ProductListPage() {
       }
       return createWorkItem({
         productId: selectedProductId,
-        moduleId: selectedManagementFeatureNode.module_id ?? undefined,
+        productAreaId: selectedManagementFeatureNode.product_area_id ?? undefined,
         capabilityId: selectedManagementFeatureNode.capability_id ?? undefined,
         sourceNodeId: selectedManagementFeatureNode.id,
         sourceNodeType: selectedManagementFeatureNode.node_type,
@@ -1090,7 +1086,7 @@ export function ProductListPage() {
       }
       return createWorkItem({
         productId: selectedProductId,
-        moduleId: selectedManagementFeatureNode.module_id ?? undefined,
+        productAreaId: selectedManagementFeatureNode.product_area_id ?? undefined,
         capabilityId: selectedManagementFeatureNode.capability_id ?? undefined,
         sourceNodeId: selectedManagementFeatureNode.id,
         sourceNodeType: selectedManagementFeatureNode.node_type,
@@ -1162,12 +1158,12 @@ export function ProductListPage() {
     mutationFn: () =>
       createLocalWorkspace({
         productId: selectedProductId,
-        moduleId: activeModuleId,
+        productAreaId: activeProductAreaId,
       }),
     onSuccess: async (provisioned) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["repositories"] }),
-        queryClient.invalidateQueries({ queryKey: ["productScopeRepo", selectedProductId, activeModuleId] }),
+        queryClient.invalidateQueries({ queryKey: ["productScopeRepo", selectedProductId, activeProductAreaId] }),
         queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] }),
         queryClient.invalidateQueries({ queryKey: ["sidebarProductTree", selectedProductId] }),
       ]);
@@ -1184,7 +1180,7 @@ export function ProductListPage() {
     },
   });
 
-  const capabilityCount = tree ? countCapabilities(tree.modules) : 0;
+  const capabilityCount = tree ? countCapabilities(tree.product_areas) : 0;
   const totalNodeCount = tree ? countHierarchyNodes(tree.roots) : 0;
   const selectedHierarchyNode = useMemo(
     () => (tree ? findHierarchyNode(tree.roots, activeNodeId, activeNodeType) : null),
@@ -1271,7 +1267,7 @@ export function ProductListPage() {
       .map(filterNode)
       .filter(Boolean) as HierarchyTreeNode[];
   }, [hasOutlineFilter, outlineKindFilter, outlineSearchTerm, tree]);
-  const selectedNodeKind = selectedHierarchyNode?.node_kind ?? selectedCapability?.node_kind ?? selectedModule?.node_kind ?? null;
+  const selectedNodeKind = selectedHierarchyNode?.node_kind ?? selectedCapability?.node_kind ?? selectedProductArea?.node_kind ?? null;
   const selectedNodeTitle = selectedHierarchyNode?.name ?? selectedProduct?.name ?? "Product";
   const selectedNodeSummary = selectedHierarchyNode?.summary
     || selectedHierarchyNode?.description
@@ -1282,8 +1278,8 @@ export function ProductListPage() {
     : [];
   const selectedNodeEntityLabel = selectedCapability
     ? getHierarchyNodeKindLabel(selectedCapability.node_kind)
-    : selectedModule
-      ? getHierarchyNodeKindLabel(selectedModule.node_kind)
+    : selectedProductArea
+      ? getHierarchyNodeKindLabel(selectedProductArea.node_kind)
       : "Product";
   const selectedAllowedChildKinds = selectedHierarchyNode ? selectedHierarchyNode.allowed_child_kinds : ROOT_NODE_KINDS;
   const selectedChildNodeKinds = selectedHierarchyNode ? selectedAllowedChildKinds : [];
@@ -1367,36 +1363,36 @@ export function ProductListPage() {
       : [selectedCapability.node_kind, ...allowedKinds]);
   }, [selectedCapability, selectedCapabilityParentKind]);
   const selectedCapabilityAllowedKindGroups = useMemo(
-    () => groupHierarchyNodeKinds(getAllowedChildNodeKinds(selectedCapability?.node_kind ?? selectedModule?.node_kind)),
-    [selectedCapability?.node_kind, selectedModule?.node_kind],
+    () => groupHierarchyNodeKinds(getAllowedChildNodeKinds(selectedCapability?.node_kind ?? selectedProductArea?.node_kind)),
+    [selectedCapability?.node_kind, selectedProductArea?.node_kind],
   );
   const editableCapabilityNodeKindGroups = useMemo(
     () => groupHierarchyNodeKinds(editableCapabilityNodeKinds),
     [editableCapabilityNodeKinds],
   );
-  const orderedModules = useMemo(() => {
+  const orderedProductAreas = useMemo(() => {
     if (!tree) {
       return [];
     }
-    return orderItemsByIds(tree.modules, moduleOrderIds, (moduleTree) => moduleTree.module.id);
-  }, [tree, moduleOrderIds]);
-  const productAreaModules = useMemo(
-    () => orderedModules.filter((moduleTree) => moduleTree.module.node_kind === "product_area"),
-    [orderedModules],
+    return orderItemsByIds(tree.product_areas, productAreaOrderIds, (productAreaTree) => productAreaTree.product_area.id);
+  }, [tree, productAreaOrderIds]);
+  const productAreaProductAreas = useMemo(
+    () => orderedProductAreas.filter((productAreaTree) => productAreaTree.product_area.node_kind === "product_area"),
+    [orderedProductAreas],
   );
   const selectedProductAreaTree = useMemo(
-    () => productAreaModules.find((moduleTree) => moduleTree.module.id === activeModuleId) ?? productAreaModules[0] ?? null,
-    [activeModuleId, productAreaModules],
+    () => productAreaProductAreas.find((productAreaTree) => productAreaTree.product_area.id === activeProductAreaId) ?? productAreaProductAreas[0] ?? null,
+    [activeProductAreaId, productAreaProductAreas],
   );
   const selectedProductAreaNode = useMemo(
-    () => selectedProductAreaTree ? tree?.roots.find((node) => node.id === selectedProductAreaTree.module.id) ?? null : null,
+    () => selectedProductAreaTree ? tree?.roots.find((node) => node.id === selectedProductAreaTree.product_area.id) ?? null : null,
     [selectedProductAreaTree, tree],
   );
   const managementCapabilities = useMemo(
     () => selectedProductAreaTree
       ? getOrderedCapabilityTrees(
           selectedProductAreaTree.features,
-          capabilityOrderMap[getCapabilityOrderKey(selectedProductAreaTree.module.id, null)],
+          capabilityOrderMap[getCapabilityOrderKey(selectedProductAreaTree.product_area.id, null)],
         ).filter((capabilityTree) => capabilityTree.capability.node_kind === "capability")
       : [],
     [capabilityOrderMap, selectedProductAreaTree],
@@ -1415,24 +1411,24 @@ export function ProductListPage() {
     () => selectedManagementCapabilityTree
       ? getOrderedCapabilityTrees(
           selectedManagementCapabilityTree.children,
-          capabilityOrderMap[getCapabilityOrderKey(selectedManagementCapabilityTree.capability.module_id, selectedManagementCapabilityTree.capability.id)],
+          capabilityOrderMap[getCapabilityOrderKey(selectedManagementCapabilityTree.capability.product_area_id, selectedManagementCapabilityTree.capability.id)],
         ).filter((capabilityTree) => capabilityTree.capability.node_kind === "feature")
       : [],
     [capabilityOrderMap, selectedManagementCapabilityTree],
   );
   const allManagementFeatures = useMemo(
-    () => productAreaModules.flatMap((moduleTree) =>
-      flattenCapabilityTreeList(moduleTree.features)
+    () => productAreaProductAreas.flatMap((productAreaTree) =>
+      flattenCapabilityTreeList(productAreaTree.features)
         .filter((capabilityTree) => capabilityTree.capability.node_kind === "feature")
         .map((capabilityTree) => ({
           capabilityTree,
-          productArea: moduleTree.module,
+          productArea: productAreaTree.product_area,
           parentCapability: capabilityTree.capability.parent_capability_id
-            ? findCapabilityTree(productAreaModules, capabilityTree.capability.parent_capability_id)?.capability ?? null
+            ? findCapabilityTree(productAreaProductAreas, capabilityTree.capability.parent_capability_id)?.capability ?? null
             : null,
         })),
     ),
-    [productAreaModules],
+    [productAreaProductAreas],
   );
   const selectedManagementFeature = useMemo(() => {
     const activeFeature = allManagementFeatures.find((entry) => entry.capabilityTree.capability.id === activeCapabilityId);
@@ -1593,7 +1589,7 @@ export function ProductListPage() {
         setActiveHierarchyNode({
           nodeId: node.id,
           nodeType: node.node_type,
-          moduleId: node.module_id,
+          productAreaId: node.product_area_id,
           capabilityId: node.capability_id,
         });
       },
@@ -1601,24 +1597,24 @@ export function ProductListPage() {
         setActiveHierarchyNode({
           nodeId: node.id,
           nodeType: node.node_type,
-          moduleId: node.module_id,
+          productAreaId: node.product_area_id,
           capabilityId: node.capability_id,
         });
         if (node.node_type === "product_area") {
-          const moduleMatch = tree.modules.find((moduleTree) => moduleTree.module.id === node.id)?.module;
-          if (!moduleMatch) {
+          const productAreaMatch = tree.product_areas.find((productAreaTree) => productAreaTree.product_area.id === node.id)?.product_area;
+          if (!productAreaMatch) {
             return;
           }
-          setModuleDraft({
-            name: moduleMatch.name,
-            description: moduleMatch.description,
-            purpose: moduleMatch.purpose,
-            nodeKind: moduleMatch.node_kind,
+          setProductAreaDraft({
+            name: productAreaMatch.name,
+            description: productAreaMatch.description,
+            purpose: productAreaMatch.purpose,
+            nodeKind: productAreaMatch.node_kind,
           });
-          useUIStore.getState().openModuleDialog("edit");
+          useUIStore.getState().openProductAreaDialog("edit");
           return;
         }
-        const capabilityMatch = findCapabilityTree(tree.modules, node.id)?.capability;
+        const capabilityMatch = findCapabilityTree(tree.product_areas, node.id)?.capability;
         if (!capabilityMatch) {
           return;
         }
@@ -1652,7 +1648,7 @@ export function ProductListPage() {
       return;
     }
     if (selectedHierarchyNode.node_type === "product_area") {
-      openModuleDialog("edit");
+      openProductAreaDialog("edit");
       return;
     }
     openCapabilityDialog("edit");
@@ -1660,7 +1656,7 @@ export function ProductListPage() {
 
   const openCreateInSelectedScope = () => {
     if (!selectedHierarchyNode) {
-      useUIStore.getState().openModuleDialog("create");
+      useUIStore.getState().openProductAreaDialog("create");
       return;
     }
     if (!canCreateChildCapability) {
@@ -1669,11 +1665,11 @@ export function ProductListPage() {
     useUIStore.getState().openCapabilityDialog("create");
   };
 
-  const selectProductArea = (moduleTree: ModuleTree) => {
+  const selectProductArea = (productAreaTree: ProductAreaTree) => {
     setActiveHierarchyNode({
-      nodeId: moduleTree.module.id,
+      nodeId: productAreaTree.product_area.id,
       nodeType: "product_area",
-      moduleId: moduleTree.module.id,
+      productAreaId: productAreaTree.product_area.id,
       capabilityId: null,
     });
   };
@@ -1682,13 +1678,13 @@ export function ProductListPage() {
     setActiveHierarchyNode({
       nodeId: capabilityTree.capability.id,
       nodeType: "capability",
-      moduleId: capabilityTree.capability.module_id,
+      productAreaId: capabilityTree.capability.product_area_id,
       capabilityId: capabilityTree.capability.id,
     });
   };
 
-  const openCreateCapabilityForArea = (moduleTree: ModuleTree) => {
-    selectProductArea(moduleTree);
+  const openCreateCapabilityForArea = (productAreaTree: ProductAreaTree) => {
+    selectProductArea(productAreaTree);
     setCapabilityForm({ name: "", description: "", acceptanceCriteria: "", technicalNotes: "", nodeKind: "capability" });
     openCapabilityDialog("create");
   };
@@ -1699,15 +1695,15 @@ export function ProductListPage() {
     openCapabilityDialog("create");
   };
 
-  const openEditProductArea = (moduleTree: ModuleTree) => {
-    selectProductArea(moduleTree);
-    setModuleDraft({
-      name: moduleTree.module.name,
-      description: moduleTree.module.description,
-      purpose: moduleTree.module.purpose,
-      nodeKind: moduleTree.module.node_kind,
+  const openEditProductArea = (productAreaTree: ProductAreaTree) => {
+    selectProductArea(productAreaTree);
+    setProductAreaDraft({
+      name: productAreaTree.product_area.name,
+      description: productAreaTree.product_area.description,
+      purpose: productAreaTree.product_area.purpose,
+      nodeKind: productAreaTree.product_area.node_kind,
     });
-    openModuleDialog("edit");
+    openProductAreaDialog("edit");
   };
 
   const openEditCapabilityNode = (capabilityTree: CapabilityTree) => {
@@ -1734,7 +1730,7 @@ export function ProductListPage() {
       setActiveHierarchyNode({
         nodeId: featureNode.id,
         nodeType: featureNode.node_type,
-        moduleId: featureNode.module_id,
+        productAreaId: featureNode.product_area_id,
         capabilityId: featureNode.capability_id,
       });
     }
@@ -1758,7 +1754,7 @@ export function ProductListPage() {
 
   const setOutlineNodeExpandedState = (node: HierarchyTreeNode, expanded: boolean) => {
     if (node.node_type === "product_area") {
-      setModuleExpanded(node.id, expanded);
+      setProductAreaExpanded(node.id, expanded);
       return;
     }
     setCapabilityExpanded(node.id, expanded);
@@ -1786,7 +1782,7 @@ export function ProductListPage() {
     setActiveHierarchyNode({
       nodeId: node.id,
       nodeType: node.node_type,
-      moduleId: node.module_id,
+      productAreaId: node.product_area_id,
       capabilityId: node.capability_id,
     });
     setProductWorkspaceTab("structure");
@@ -1800,7 +1796,7 @@ export function ProductListPage() {
   const editOutlineNode = (node: HierarchyTreeNode) => {
     openOutlineNode(node);
     if (node.node_type === "product_area") {
-      openModuleDialog("edit");
+      openProductAreaDialog("edit");
       return;
     }
     openCapabilityDialog("edit");
@@ -1949,7 +1945,7 @@ export function ProductListPage() {
     const isExpanded = hasOutlineFilter
       ? true
       : node.node_type === "product_area"
-        ? expandedModules[node.id] ?? true
+        ? expandedProductAreas[node.id] ?? true
         : expandedCapabilities[node.id] ?? true;
     return (
       <div key={nodeKey}>
@@ -1969,7 +1965,7 @@ export function ProductListPage() {
                 onClick={(event) => {
                   event.stopPropagation();
                   if (node.node_type === "product_area") {
-                    toggleModuleExpanded(node.id);
+                    toggleProductAreaExpanded(node.id);
                   } else {
                     toggleCapabilityExpanded(node.id);
                   }
@@ -2144,10 +2140,10 @@ export function ProductListPage() {
             <span>Product Areas</span>
             <div style={styles.managementActions}>
               <button style={styles.ghostBtn} onClick={() => requestResetProductPlan(selectedProduct!)}>Reset Plan</button>
-              <button style={styles.btn} onClick={() => openModuleDialog("create")}>+ Product Area</button>
+              <button style={styles.btn} onClick={() => openProductAreaDialog("create")}>+ Product Area</button>
             </div>
           </div>
-          {productAreaModules.length > 0 ? (
+          {productAreaProductAreas.length > 0 ? (
             <div style={styles.table}>
               <div style={styles.managementTableHeader}>
                 <div>Product Area</div>
@@ -2155,24 +2151,24 @@ export function ProductListPage() {
                 <div>Features</div>
                 <div>Actions</div>
               </div>
-              {productAreaModules.map((moduleTree) => (
-                <div key={moduleTree.module.id} style={styles.managementTableRow}>
+              {productAreaProductAreas.map((productAreaTree) => (
+                <div key={productAreaTree.product_area.id} style={styles.managementTableRow}>
                   <div>
-                    <div style={styles.rowPrimary}>{moduleTree.module.name}</div>
-                    <div style={styles.rowSecondary}>{moduleTree.module.description || moduleTree.module.purpose || "No description yet."}</div>
-                    {renderCopyableEntityId("Area ID", moduleTree.module.id)}
+                    <div style={styles.rowPrimary}>{productAreaTree.product_area.name}</div>
+                    <div style={styles.rowSecondary}>{productAreaTree.product_area.description || productAreaTree.product_area.purpose || "No description yet."}</div>
+                    {renderCopyableEntityId("Area ID", productAreaTree.product_area.id)}
                   </div>
-                  <div style={styles.rowCell}>{moduleTree.features.filter((node) => node.capability.node_kind === "capability").length}</div>
-                  <div style={styles.rowCell}>{flattenCapabilityTreeList(moduleTree.features).filter((node) => node.capability.node_kind === "feature").length}</div>
+                  <div style={styles.rowCell}>{productAreaTree.features.filter((node) => node.capability.node_kind === "capability").length}</div>
+                  <div style={styles.rowCell}>{flattenCapabilityTreeList(productAreaTree.features).filter((node) => node.capability.node_kind === "feature").length}</div>
                   <div style={styles.managementActions}>
                     <button style={styles.compactActionBtn} onClick={() => {
-                      selectProductArea(moduleTree);
+                      selectProductArea(productAreaTree);
                       setProductManagementTab("capabilities");
                     }}>Open</button>
-                    <button style={styles.compactActionBtn} onClick={() => openEditProductArea(moduleTree)}>Edit</button>
+                    <button style={styles.compactActionBtn} onClick={() => openEditProductArea(productAreaTree)}>Edit</button>
                     <button
                       style={styles.compactDangerBtn}
-                      onClick={() => requestDeleteHierarchyNode({ kind: "product_area", id: moduleTree.module.id, name: moduleTree.module.name })}
+                      onClick={() => requestDeleteHierarchyNode({ kind: "product_area", id: productAreaTree.product_area.id, name: productAreaTree.product_area.name })}
                     >
                       Delete
                     </button>
@@ -2193,25 +2189,25 @@ export function ProductListPage() {
               <div style={styles.controlLabel}>Product Areas</div>
             </div>
             <div style={styles.managementList}>
-              {productAreaModules.map((moduleTree) => (
+              {productAreaProductAreas.map((productAreaTree) => (
                 <div
-                  key={moduleTree.module.id}
-                  style={selectedProductAreaTree?.module.id === moduleTree.module.id ? styles.managementListButtonActive : styles.managementListButton}
-                  onClick={() => selectProductArea(moduleTree)}
-                  onKeyDown={(event) => handleManagementListKeyDown(event, () => selectProductArea(moduleTree))}
+                  key={productAreaTree.product_area.id}
+                  style={selectedProductAreaTree?.product_area.id === productAreaTree.product_area.id ? styles.managementListButtonActive : styles.managementListButton}
+                  onClick={() => selectProductArea(productAreaTree)}
+                  onKeyDown={(event) => handleManagementListKeyDown(event, () => selectProductArea(productAreaTree))}
                   role="button"
                   tabIndex={0}
                 >
-                  <div style={styles.rowPrimary}>{moduleTree.module.name}</div>
-                  <div style={styles.rowSecondary}>{moduleTree.features.length} child nodes</div>
-                  {renderCopyableEntityId("Area ID", moduleTree.module.id)}
+                  <div style={styles.rowPrimary}>{productAreaTree.product_area.name}</div>
+                  <div style={styles.rowSecondary}>{productAreaTree.features.length} child nodes</div>
+                  {renderCopyableEntityId("Area ID", productAreaTree.product_area.id)}
                 </div>
               ))}
             </div>
           </div>
           <div style={styles.managementPane}>
             <div style={styles.sectionTitle}>
-              <span>{selectedProductAreaTree?.module.name ?? "Capabilities"}</span>
+              <span>{selectedProductAreaTree?.product_area.name ?? "Capabilities"}</span>
               <button
                 style={styles.btn}
                 onClick={() => selectedProductAreaTree && openCreateCapabilityForArea(selectedProductAreaTree)}
@@ -2450,7 +2446,7 @@ export function ProductListPage() {
                 </div>
                 {selectedManagementTasks.length > 0 ? selectedManagementTasks.map((task) => (
                   <div key={task.id} style={styles.contextCard}>
-                    <div style={styles.moduleHeader}>
+                    <div style={styles.productAreaHeader}>
                       <div>
                         <div style={styles.contextTitle}>{task.title}</div>
                         <div style={styles.contextText}>{formatWorkItemMeta(task.status)} · {task.priority} · {formatWorkItemMeta(task.complexity)}</div>
@@ -2714,7 +2710,7 @@ export function ProductListPage() {
                           setActiveHierarchyNode({
                             nodeId: row.nodeId,
                             nodeType: row.nodeType,
-                            moduleId: row.moduleId ?? null,
+                            productAreaId: row.productAreaId ?? null,
                             capabilityId: row.capabilityId ?? null,
                           });
                           setProductPageTab("design");
@@ -3345,28 +3341,28 @@ export function ProductListPage() {
         </ModalShell>
       )}
 
-      {moduleDialogMode !== "closed" && (
+      {productAreaDialogMode !== "closed" && (
         <ModalShell
-          title={moduleDialogMode === "create"
-            ? `Create ${getHierarchyNodeKindLabel(moduleForm.nodeKind)}`
-            : `Edit ${selectedModule ? getHierarchyNodeKindLabel(selectedModule.node_kind) : "Product Area"}: ${selectedModule?.name ?? ""}`}
-          onClose={closeModuleDialog}
+          title={productAreaDialogMode === "create"
+            ? `Create ${getHierarchyNodeKindLabel(productAreaForm.nodeKind)}`
+            : `Edit ${selectedProductArea ? getHierarchyNodeKindLabel(selectedProductArea.node_kind) : "Product Area"}: ${selectedProductArea?.name ?? ""}`}
+          onClose={closeProductAreaDialog}
         >
-          {moduleDialogMode === "create" ? (
+          {productAreaDialogMode === "create" ? (
             <>
               <label style={styles.label}>Product Area Kind</label>
-              <select style={styles.input} value={moduleForm.nodeKind} onChange={(e) => setModuleForm({ ...moduleForm, nodeKind: e.target.value as HierarchyNodeKind })}>
+              <select style={styles.input} value={productAreaForm.nodeKind} onChange={(e) => setProductAreaForm({ ...productAreaForm, nodeKind: e.target.value as HierarchyNodeKind })}>
                 {(["product_area"] as HierarchyNodeKind[]).map((nodeKind) => (
                   <option key={nodeKind} value={nodeKind}>{getHierarchyNodeKindLabel(nodeKind)}</option>
                 ))}
               </select>
-              <div style={styles.contextText}>{getHierarchyNodeKindGuidance(moduleForm.nodeKind)}</div>
-              <label style={styles.label}>{getHierarchyNodeKindLabel(moduleForm.nodeKind)} Name</label>
-              <input style={styles.input} value={moduleForm.name} onChange={(e) => setModuleForm({ ...moduleForm, name: e.target.value })} />
+              <div style={styles.contextText}>{getHierarchyNodeKindGuidance(productAreaForm.nodeKind)}</div>
+              <label style={styles.label}>{getHierarchyNodeKindLabel(productAreaForm.nodeKind)} Name</label>
+              <input style={styles.input} value={productAreaForm.name} onChange={(e) => setProductAreaForm({ ...productAreaForm, name: e.target.value })} />
               <label style={styles.label}>Description</label>
-              <textarea style={styles.textarea} value={moduleForm.description} onChange={(e) => setModuleForm({ ...moduleForm, description: e.target.value })} />
+              <textarea style={styles.textarea} value={productAreaForm.description} onChange={(e) => setProductAreaForm({ ...productAreaForm, description: e.target.value })} />
               <label style={styles.label}>Purpose</label>
-              <input style={styles.input} value={moduleForm.purpose} onChange={(e) => setModuleForm({ ...moduleForm, purpose: e.target.value })} />
+              <input style={styles.input} value={productAreaForm.purpose} onChange={(e) => setProductAreaForm({ ...productAreaForm, purpose: e.target.value })} />
             </>
           ) : (
             <>
@@ -3375,24 +3371,24 @@ export function ProductListPage() {
                 <div style={styles.contextText}>{getHierarchyNodeKindGuidance("product_area")}</div>
               </div>
               <label style={styles.label}>Product Area Name</label>
-              <input style={styles.input} value={moduleDraft.name} onChange={(e) => setModuleDraft({ ...moduleDraft, name: e.target.value })} />
+              <input style={styles.input} value={productAreaDraft.name} onChange={(e) => setProductAreaDraft({ ...productAreaDraft, name: e.target.value })} />
               <label style={styles.label}>Description</label>
-              <textarea style={styles.textarea} value={moduleDraft.description} onChange={(e) => setModuleDraft({ ...moduleDraft, description: e.target.value })} />
+              <textarea style={styles.textarea} value={productAreaDraft.description} onChange={(e) => setProductAreaDraft({ ...productAreaDraft, description: e.target.value })} />
               <label style={styles.label}>Purpose</label>
-              <input style={styles.input} value={moduleDraft.purpose} onChange={(e) => setModuleDraft({ ...moduleDraft, purpose: e.target.value })} />
+              <input style={styles.input} value={productAreaDraft.purpose} onChange={(e) => setProductAreaDraft({ ...productAreaDraft, purpose: e.target.value })} />
             </>
           )}
           {formError && <div style={styles.errorText}>{formError}</div>}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <button style={styles.ghostBtn} onClick={closeModuleDialog}>Cancel</button>
+            <button style={styles.ghostBtn} onClick={closeProductAreaDialog}>Cancel</button>
             <button
               style={styles.btn}
-              onClick={() => (moduleDialogMode === "create" ? createModuleMutation.mutate() : updateModuleMutation.mutate())}
-              disabled={!(moduleDialogMode === "create" ? moduleForm.name : moduleDraft.name) || !selectedProductId}
+              onClick={() => (productAreaDialogMode === "create" ? createProductAreaMutation.mutate() : updateProductAreaMutation.mutate())}
+              disabled={!(productAreaDialogMode === "create" ? productAreaForm.name : productAreaDraft.name) || !selectedProductId}
             >
-              {moduleDialogMode === "create"
-                ? createModuleMutation.isPending ? "Saving..." : `Create ${getHierarchyNodeKindLabel(moduleForm.nodeKind)}`
-                : updateModuleMutation.isPending ? "Saving..." : "Save Product Area"}
+              {productAreaDialogMode === "create"
+                ? createProductAreaMutation.isPending ? "Saving..." : `Create ${getHierarchyNodeKindLabel(productAreaForm.nodeKind)}`
+                : updateProductAreaMutation.isPending ? "Saving..." : "Save Product Area"}
             </button>
           </div>
         </ModalShell>
@@ -3408,13 +3404,13 @@ export function ProductListPage() {
           {capabilityDialogMode === "create" ? (
             <>
               <label style={styles.label}>Parent Product Area</label>
-              <input style={styles.input} value={selectedModule?.name ?? ""} readOnly />
+              <input style={styles.input} value={selectedProductArea?.name ?? ""} readOnly />
               <label style={styles.label}>Parent Node</label>
               <input
                 style={styles.input}
                 value={selectedCapability?.name ?? ""}
                 readOnly
-                placeholder={`Create a top-level child under ${selectedModule?.name ?? "the selected product area"}`}
+                placeholder={`Create a top-level child under ${selectedProductArea?.name ?? "the selected product area"}`}
               />
               <label style={styles.label}>Node Kind</label>
               <select style={styles.input} value={capabilityForm.nodeKind} onChange={(e) => setCapabilityForm({ ...capabilityForm, nodeKind: e.target.value as HierarchyNodeKind })}>
@@ -3469,7 +3465,7 @@ export function ProductListPage() {
             <button
               style={styles.btn}
               onClick={() => (capabilityDialogMode === "create" ? createCapabilityMutation.mutate() : updateCapabilityMutation.mutate())}
-              disabled={!(capabilityDialogMode === "create" ? capabilityForm.name : capabilityDraft.name) || !activeModuleId}
+              disabled={!(capabilityDialogMode === "create" ? capabilityForm.name : capabilityDraft.name) || !activeProductAreaId}
             >
               {capabilityDialogMode === "create"
                 ? createCapabilityMutation.isPending ? "Saving..." : `Create ${getHierarchyNodeKindLabel(capabilityForm.nodeKind)}`
@@ -3487,7 +3483,7 @@ function renderCapabilityTreeNode(
   capabilityTree: CapabilityTree,
   context: {
     activeCapabilityId: string | null;
-    setActiveModule: (id: string | null) => void;
+    setActiveProductArea: (id: string | null) => void;
     setActiveCapability: (id: string | null) => void;
     onEdit: (capability: CapabilityNode) => void;
     onDropCapability: (targetCapability: CapabilityNode, siblingIds: string[]) => void;
@@ -3498,11 +3494,11 @@ function renderCapabilityTreeNode(
   },
   siblingIds: string[],
 ): React.ReactNode {
-  const { activeCapabilityId, setActiveModule, setActiveCapability, onEdit, onDropCapability, onDragCapabilityStart, onDragCapabilityEnd, draggedCapabilityId, capabilityOrderMap } = context;
+  const { activeCapabilityId, setActiveProductArea, setActiveCapability, onEdit, onDropCapability, onDragCapabilityStart, onDragCapabilityEnd, draggedCapabilityId, capabilityOrderMap } = context;
   const isActive = activeCapabilityId === capabilityTree.capability.id;
   const orderedChildren = getOrderedCapabilityTrees(
     capabilityTree.children,
-    capabilityOrderMap[getCapabilityOrderKey(capabilityTree.capability.module_id, capabilityTree.capability.id)],
+    capabilityOrderMap[getCapabilityOrderKey(capabilityTree.capability.product_area_id, capabilityTree.capability.id)],
   );
 
   return (
@@ -3521,7 +3517,7 @@ function renderCapabilityTreeNode(
         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
           <div
             onClick={() => {
-              setActiveModule(capabilityTree.capability.module_id);
+              setActiveProductArea(capabilityTree.capability.product_area_id);
               setActiveCapability(capabilityTree.capability.id);
             }}
             style={{ cursor: "pointer", flex: 1 }}
@@ -3540,7 +3536,7 @@ function renderCapabilityTreeNode(
         renderCapabilityTreeNode(
           child,
           context,
-          capabilityOrderMap[getCapabilityOrderKey(capabilityTree.capability.module_id, capabilityTree.capability.id)] ?? capabilityTree.children.map((item) => item.capability.id),
+          capabilityOrderMap[getCapabilityOrderKey(capabilityTree.capability.product_area_id, capabilityTree.capability.id)] ?? capabilityTree.children.map((item) => item.capability.id),
         ),
       )}
     </div>
@@ -3561,8 +3557,8 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
   );
 }
 
-function countCapabilities(modules: ModuleTree[]) {
-  return modules.reduce((total, moduleTree) => total + moduleTree.features.reduce((sum, capabilityTree) => sum + countCapabilityTree(capabilityTree), 0), 0);
+function countCapabilities(product_areas: ProductAreaTree[]) {
+  return product_areas.reduce((total, productAreaTree) => total + productAreaTree.features.reduce((sum, capabilityTree) => sum + countCapabilityTree(capabilityTree), 0), 0);
 }
 
 function countCapabilityTree(capabilityTree: CapabilityTree): number {
@@ -3580,13 +3576,13 @@ function getHierarchyDeleteLabel(kind: "product_area" | "capability" | "feature"
   }
 }
 
-function findCapabilityTree(modules: ModuleTree[], capabilityId: string | null): CapabilityTree | null {
+function findCapabilityTree(product_areas: ProductAreaTree[], capabilityId: string | null): CapabilityTree | null {
   if (!capabilityId) {
     return null;
   }
 
-  for (const moduleTree of modules) {
-    for (const capabilityTree of moduleTree.features) {
+  for (const productAreaTree of product_areas) {
+    for (const capabilityTree of productAreaTree.features) {
       const found = searchCapabilityTree(capabilityTree, capabilityId);
       if (found) {
         return found;
@@ -3630,13 +3626,13 @@ function moveId(ids: string[], id: string, direction: -1 | 1): string[] {
 function addCapabilityToTree(tree: ProductTree, capability: CapabilityNode): ProductTree {
   return {
     ...tree,
-    modules: tree.modules.map((moduleTree) =>
-      moduleTree.module.id === capability.module_id
+    product_areas: tree.product_areas.map((productAreaTree) =>
+      productAreaTree.product_area.id === capability.product_area_id
         ? {
-            ...moduleTree,
-            features: insertCapabilityTree(moduleTree.features, capability),
+            ...productAreaTree,
+            features: insertCapabilityTree(productAreaTree.features, capability),
           }
-        : moduleTree,
+        : productAreaTree,
     ),
   };
 }
@@ -3653,13 +3649,13 @@ function insertCapabilityTree(nodes: CapabilityTree[], capability: CapabilityNod
   );
 }
 
-function getCapabilityOrderKey(moduleId: string, parentCapabilityId: string | null) {
-  return `${moduleId}:${parentCapabilityId ?? "root"}`;
+function getCapabilityOrderKey(productAreaId: string, parentCapabilityId: string | null) {
+  return `${productAreaId}:${parentCapabilityId ?? "root"}`;
 }
 
 function seedCapabilityOrderMap(target: Record<string, string[]>, nodes: CapabilityTree[]) {
   nodes.forEach((node) => {
-    target[getCapabilityOrderKey(node.capability.module_id, node.capability.id)] = node.children.map((child) => child.capability.id);
+    target[getCapabilityOrderKey(node.capability.product_area_id, node.capability.id)] = node.children.map((child) => child.capability.id);
     seedCapabilityOrderMap(target, node.children);
   });
 }
@@ -3742,7 +3738,7 @@ interface StatusRow {
   productId: string | null;
   nodeId?: string;
   nodeType?: HierarchyTreeNode["node_type"];
-  moduleId?: string;
+  productAreaId?: string;
   capabilityId?: string | null;
   level: number;
   name: string;
@@ -3830,7 +3826,7 @@ function pushNodeStatusRows(
     productId: product.id,
     nodeId: node.id,
     nodeType: node.node_type,
-    moduleId: node.module_id,
+    productAreaId: node.product_area_id,
     capabilityId: node.capability_id,
     level,
     name: node.name,

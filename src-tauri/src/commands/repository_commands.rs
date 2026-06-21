@@ -152,12 +152,12 @@ pub async fn resolve_repository_for_work_item(
 pub async fn resolve_repository_for_scope(
     state: State<'_, AppState>,
     product_id: Option<String>,
-    module_id: Option<String>,
+    product_area_id: Option<String>,
 ) -> Result<Option<Repository>, AppError> {
     repository_repo::resolve_repository_for_scope(
         &state.db,
         product_id.as_deref(),
-        module_id.as_deref(),
+        product_area_id.as_deref(),
     )
     .await
 }
@@ -399,8 +399,8 @@ pub async fn create_local_workspace(
     state: State<'_, AppState>,
     product_id: Option<String>,
     productId: Option<String>,
-    module_id: Option<String>,
-    moduleId: Option<String>,
+    product_area_id: Option<String>,
+    productAreaId: Option<String>,
     work_item_id: Option<String>,
     workItemId: Option<String>,
     preferred_path: Option<String>,
@@ -409,7 +409,7 @@ pub async fn create_local_workspace(
     create_local_workspace_for_scope(
         state.inner(),
         product_id.or(productId),
-        module_id.or(moduleId),
+        product_area_id.or(productAreaId),
         work_item_id.or(workItemId),
         preferred_path.or(preferredPath),
     )
@@ -419,7 +419,7 @@ pub async fn create_local_workspace(
 pub(crate) async fn create_local_workspace_for_scope(
     state: &AppState,
     product_id: Option<String>,
-    module_id: Option<String>,
+    product_area_id: Option<String>,
     work_item_id: Option<String>,
     preferred_path: Option<String>,
 ) -> Result<WorkspaceProvisionResult, AppError> {
@@ -436,44 +436,44 @@ pub(crate) async fn create_local_workspace_for_scope(
             AppError::Validation("Selected work item has no product scope".to_string())
         })?;
         let product = crate::persistence::product_repo::get_product(&state.db, &product_id).await?;
-        let module_name = if let Some(module_id) = work_item.module_id.as_deref() {
-            Some(resolve_module_name(&state.db, module_id).await?)
+        let product_area_name = if let Some(product_area_id) = work_item.product_area_id.as_deref() {
+            Some(resolve_product_area_name(&state.db, product_area_id).await?)
         } else {
             None
         };
         (
             product_id,
-            work_item.module_id.clone(),
+            work_item.product_area_id.clone(),
             product.name,
-            module_name,
+            product_area_name,
             Some(work_item.id),
         )
     } else {
         let product_id =
             product_id.ok_or_else(|| AppError::Validation("missing product id".to_string()))?;
         let product = crate::persistence::product_repo::get_product(&state.db, &product_id).await?;
-        let module_name = if let Some(module_id) = module_id.as_deref() {
-            Some(resolve_module_name(&state.db, module_id).await?)
+        let product_area_name = if let Some(product_area_id) = product_area_id.as_deref() {
+            Some(resolve_product_area_name(&state.db, product_area_id).await?)
         } else {
             None
         };
-        (product_id, module_id, product.name, module_name, None)
+        (product_id, product_area_id, product.name, product_area_name, None)
     };
 
-    let (product_id, module_id, product_name, module_name, maybe_work_item_id) = scope;
+    let (product_id, product_area_id, product_name, product_area_name, maybe_work_item_id) = scope;
 
     let workspace_root: PathBuf = preferred_path
         .map(PathBuf::from)
         .unwrap_or_else(default_workspace_root);
-    let folder_name = module_name
+    let folder_name = product_area_name
         .as_ref()
-        .map(|module| format!("{}-{}", slugify(&product_name), slugify(module)))
+        .map(|product_area| format!("{}-{}", slugify(&product_name), slugify(product_area)))
         .unwrap_or_else(|| slugify(&product_name));
     let workspace_path = workspace_root.join(folder_name);
     std::fs::create_dir_all(&workspace_path)?;
 
     let readme = format!("# {}\n\nWorkspace prepared by AruviStudio.\n", product_name);
-    let gitignore = "node_modules/\ndist/\nbuild/\ncoverage/\n.env\n.DS_Store\n";
+    let gitignore = "node_product_areas/\ndist/\nbuild/\ncoverage/\n.env\n.DS_Store\n";
     std::fs::write(workspace_path.join("README.md"), readme)?;
     std::fs::write(workspace_path.join(".gitignore"), gitignore)?;
     std::fs::create_dir_all(workspace_path.join("tests"))?;
@@ -505,8 +505,8 @@ pub(crate) async fn create_local_workspace_for_scope(
         .await?
     };
 
-    let (attached_scope_type, attached_scope_id) = if let Some(module_id) = module_id.as_deref() {
-        ("product_area".to_string(), module_id.to_string())
+    let (attached_scope_type, attached_scope_id) = if let Some(product_area_id) = product_area_id.as_deref() {
+        ("product_area".to_string(), product_area_id.to_string())
     } else {
         ("product".to_string(), product_id.clone())
     };
@@ -839,9 +839,9 @@ fn default_workspace_root() -> PathBuf {
         .join("AruviStudioWorkspaces")
 }
 
-async fn resolve_module_name(db: &sqlx::SqlitePool, module_id: &str) -> Result<String, AppError> {
-    sqlx::query_scalar::<_, String>("SELECT name FROM modules WHERE id = ?")
-        .bind(module_id)
+async fn resolve_product_area_name(db: &sqlx::SqlitePool, product_area_id: &str) -> Result<String, AppError> {
+    sqlx::query_scalar::<_, String>("SELECT name FROM product_areas WHERE id = ?")
+        .bind(product_area_id)
         .fetch_one(db)
         .await
         .map_err(|error| error.into())
@@ -918,10 +918,10 @@ mod tests {
     use tauri::Manager;
     use tauri::test::MockRuntime;
 
-    async fn create_work_item_with_module(
+    async fn create_work_item_with_product_area(
         state: State<'_, AppState>,
         product_name: &str,
-        module_name: &str,
+        product_area_name: &str,
         title: &str,
     ) -> (String, String, String) {
         let product = product_commands::create_product(
@@ -940,10 +940,10 @@ mod tests {
         )
         .await
         .expect("product should be created");
-        let module = product_commands::create_module(
+        let product_area = product_commands::create_product_area(
             state.clone(),
             product.id.clone(),
-            module_name.to_string(),
+            product_area_name.to_string(),
             "".to_string(),
             "".to_string(),
             Some("product_area".to_string()),
@@ -955,12 +955,12 @@ mod tests {
             None,
         )
         .await
-        .expect("module should be created");
+        .expect("product_area should be created");
         let work_item = work_item_commands::create_work_item(
             state,
             Some(product.id.clone()),
             None,
-            Some(module.id.clone()),
+            Some(product_area.id.clone()),
             None,
             None,
             None,
@@ -985,17 +985,17 @@ mod tests {
         .await
         .expect("work item should be created");
 
-        (product.id, module.id, work_item.id)
+        (product.id, product_area.id, work_item.id)
     }
 
     #[tokio::test]
-    async fn repository_resolution_prefers_module_attachment_over_product_attachment() {
+    async fn repository_resolution_prefers_product_area_attachment_over_product_attachment() {
         let app: tauri::App<MockRuntime> = make_test_app("repository_commands_resolve").await;
         let state = app.state::<AppState>();
-        let (product_id, module_id, work_item_id) = create_work_item_with_module(
+        let (product_id, product_area_id, work_item_id) = create_work_item_with_product_area(
             state.clone(),
             "Repository Product",
-            "Repository Module",
+            "Repository ProductArea",
             "Repository Work Item",
         )
         .await;
@@ -1009,15 +1009,15 @@ mod tests {
         )
         .await
         .expect("product repo should be created");
-        let module_repo = register_repository(
+        let product_area_repo = register_repository(
             state.clone(),
-            "Module Repo".to_string(),
-            "/tmp/module-repo".to_string(),
+            "ProductArea Repo".to_string(),
+            "/tmp/product_area-repo".to_string(),
             "".to_string(),
             "develop".to_string(),
         )
         .await
-        .expect("module repo should be created");
+        .expect("product_area repo should be created");
 
         attach_repository(
             state.clone(),
@@ -1031,12 +1031,12 @@ mod tests {
         attach_repository(
             state.clone(),
             "product_area".to_string(),
-            module_id.clone(),
-            module_repo.id.clone(),
+            product_area_id.clone(),
+            product_area_repo.id.clone(),
             true,
         )
         .await
-        .expect("module attachment should be created");
+        .expect("product_area attachment should be created");
 
         let resolved_for_product = resolve_repository_for_scope(
             state.clone(),
@@ -1049,7 +1049,7 @@ mod tests {
         let resolved_for_scope = resolve_repository_for_scope(
             state.clone(),
             Some(product_id),
-            Some(module_id),
+            Some(product_area_id),
         )
         .await
         .expect("product area scope should resolve")
@@ -1060,18 +1060,18 @@ mod tests {
             .expect("work item repo should exist");
 
         assert_eq!(resolved_for_product.id, product_repo.id);
-        assert_eq!(resolved_for_scope.id, module_repo.id);
-        assert_eq!(resolved_for_work_item.id, module_repo.id);
+        assert_eq!(resolved_for_scope.id, product_area_repo.id);
+        assert_eq!(resolved_for_work_item.id, product_area_repo.id);
     }
 
     #[tokio::test]
     async fn updating_repository_propagates_new_default_branch_to_assigned_work_items() {
         let app: tauri::App<MockRuntime> = make_test_app("repository_commands_update").await;
         let state = app.state::<AppState>();
-        let (_, _, work_item_id) = create_work_item_with_module(
+        let (_, _, work_item_id) = create_work_item_with_product_area(
             state.clone(),
             "Workspace Product",
-            "Workspace Module",
+            "Workspace ProductArea",
             "Workspace Work Item",
         )
         .await;

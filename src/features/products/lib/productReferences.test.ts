@@ -42,13 +42,13 @@ const productTree: ProductTree = {
     created_at: "",
     updated_at: "",
   },
-  modules: [],
+  product_areas: [],
   roots: [
     {
-      id: "module-1",
+      id: "product_area-1",
       node_type: "product_area",
       node_kind: "product_area",
-      module_id: "module-1",
+      product_area_id: "product_area-1",
       capability_id: null,
       parent_node_id: null,
       parent_node_type: null,
@@ -63,9 +63,9 @@ const productTree: ProductTree = {
           id: "capability-1",
           node_type: "capability",
           node_kind: "capability",
-          module_id: "module-1",
+          product_area_id: "product_area-1",
           capability_id: "capability-1",
-          parent_node_id: "module-1",
+          parent_node_id: "product_area-1",
           parent_node_type: "product_area",
           depth: 1,
           name: "Capability One",
@@ -78,7 +78,7 @@ const productTree: ProductTree = {
               id: "feature-1",
               node_type: "capability",
               node_kind: "feature",
-              module_id: "module-1",
+              product_area_id: "product_area-1",
               capability_id: "feature-1",
               parent_node_id: "capability-1",
               parent_node_type: "capability",
@@ -101,7 +101,7 @@ describe("productReferences", () => {
   it("derives product-area and capability scopes from frontend entities", () => {
     const capability: Capability = {
       id: "capability-1",
-      module_id: "module-1",
+      product_area_id: "product_area-1",
       parent_capability_id: null,
       level: 0,
       node_kind: "capability",
@@ -121,9 +121,9 @@ describe("productReferences", () => {
       updated_at: "",
     };
 
-    expect(getProductAreaReferenceScope("module-1")).toEqual({
+    expect(getProductAreaReferenceScope("product_area-1")).toEqual({
       scopeType: "product_area",
-      scopeId: "module-1",
+      scopeId: "product_area-1",
     });
     expect(getCapabilityReferenceScope(capability)).toEqual({
       scopeType: "capability",
@@ -138,20 +138,20 @@ describe("productReferences", () => {
   it("filters references for exact scopes and product-book inclusion", () => {
     const references = [
       makeReference({ id: "product-ref", scope_type: "product", scope_id: "product-1" }),
-      makeReference({ id: "module-ref", scope_type: "product_area", scope_id: "module-1" }),
+      makeReference({ id: "product_area-ref", scope_type: "product_area", scope_id: "product_area-1" }),
       makeReference({ id: "cap-ref", scope_type: "capability", scope_id: "capability-1" }),
       makeReference({ id: "feature-ref", scope_type: "feature", scope_id: "feature-1" }),
       makeReference({ id: "other-product-ref", scope_type: "product", scope_id: "product-2" }),
     ];
 
     expect(
-      filterReferencesForScope(references, { scopeType: "product_area", scopeId: "module-1" }).map(
+      filterReferencesForScope(references, { scopeType: "product_area", scopeId: "product_area-1" }).map(
         (reference) => reference.id,
       ),
-    ).toEqual(["module-ref"]);
+    ).toEqual(["product_area-ref"]);
     expect(filterReferencesForProductBook("product-1", productTree, references).map((reference) => reference.id)).toEqual([
       "product-ref",
-      "module-ref",
+      "product_area-ref",
       "cap-ref",
       "feature-ref",
     ]);

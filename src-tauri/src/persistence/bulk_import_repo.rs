@@ -284,7 +284,7 @@ pub async fn upsert_product_areas(
         let mut tx = pool.begin().await?;
         for row in chunk {
             sqlx::query(
-                "INSERT INTO modules (
+                "INSERT INTO product_areas (
                     id, product_id, node_kind, name, description, purpose, explanation,
                     examples, implementation_notes, test_guidance, sort_order
                  )
@@ -342,13 +342,13 @@ pub async fn upsert_capabilities(
         for row in chunk {
             sqlx::query(
                 "INSERT INTO capabilities (
-                    id, module_id, parent_capability_id, level, node_kind, sort_order,
+                    id, product_area_id, parent_capability_id, level, node_kind, sort_order,
                     name, description, acceptance_criteria, explanation, examples,
                     priority, risk, technical_notes, implementation_notes, test_guidance
                  )
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(id) DO UPDATE SET
-                    module_id=excluded.module_id,
+                    product_area_id=excluded.product_area_id,
                     parent_capability_id=excluded.parent_capability_id,
                     level=excluded.level,
                     node_kind=excluded.node_kind,
@@ -366,7 +366,7 @@ pub async fn upsert_capabilities(
                     updated_at=datetime('now')",
             )
             .bind(&row.id)
-            .bind(&row.module_id)
+            .bind(&row.product_area_id)
             .bind(row.parent_capability_id.as_deref())
             .bind(row.level)
             .bind(&row.node_kind)
@@ -423,7 +423,7 @@ pub async fn upsert_work_items(
         for row in chunk {
             sqlx::query(
                 "INSERT INTO work_items (
-                    id, product_id, module_id, capability_id, source_node_id, source_node_type,
+                    id, product_id, product_area_id, capability_id, source_node_id, source_node_type,
                     parent_work_item_id, title, problem_statement, description,
                     acceptance_criteria, constraints, work_item_type, priority, complexity,
                     status, sort_order
@@ -431,7 +431,7 @@ pub async fn upsert_work_items(
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(id) DO UPDATE SET
                     product_id=excluded.product_id,
-                    module_id=excluded.module_id,
+                    product_area_id=excluded.product_area_id,
                     capability_id=excluded.capability_id,
                     source_node_id=excluded.source_node_id,
                     source_node_type=excluded.source_node_type,
@@ -450,7 +450,7 @@ pub async fn upsert_work_items(
             )
             .bind(&row.id)
             .bind(&row.product_id)
-            .bind(row.module_id.as_deref())
+            .bind(row.product_area_id.as_deref())
             .bind(row.capability_id.as_deref())
             .bind(row.source_node_id.as_deref())
             .bind(row.source_node_type.as_deref())

@@ -21,9 +21,9 @@ const capabilityNode: HierarchyTreeNode = {
   id: "capability-a",
   node_type: "capability",
   node_kind: "capability",
-  module_id: "module-a",
+  product_area_id: "product_area-a",
   capability_id: "capability-a",
-  parent_node_id: "module-a",
+  parent_node_id: "product_area-a",
   parent_node_type: "product_area",
   depth: 1,
   name: "Capability A",
@@ -34,11 +34,11 @@ const capabilityNode: HierarchyTreeNode = {
   children: [],
 };
 
-const moduleNode: HierarchyTreeNode = {
-  id: "module-a",
+const productAreaNode: HierarchyTreeNode = {
+  id: "product_area-a",
   node_type: "product_area",
   node_kind: "product_area",
-  module_id: "module-a",
+  product_area_id: "product_area-a",
   capability_id: null,
   parent_node_id: null,
   parent_node_type: null,
@@ -51,10 +51,10 @@ const moduleNode: HierarchyTreeNode = {
   children: [capabilityNode],
 };
 
-const secondModuleNode: HierarchyTreeNode = {
-  ...moduleNode,
-  id: "module-b",
-  module_id: "module-b",
+const secondProductAreaNode: HierarchyTreeNode = {
+  ...productAreaNode,
+  id: "product_area-b",
+  product_area_id: "product_area-b",
   name: "Area B",
   path: ["Area B"],
   children: [],
@@ -78,15 +78,15 @@ const productTree: ProductTree = {
     created_at: "",
     updated_at: "",
   },
-  modules: [],
-  roots: [moduleNode, secondModuleNode],
+  product_areas: [],
+  roots: [productAreaNode, secondProductAreaNode],
 };
 
 function makeWorkItem(overrides: Partial<WorkItem> = {}): WorkItem {
   return {
     id: "work-item",
     product_id: "product-1",
-    module_id: null,
+    product_area_id: null,
     capability_id: null,
     source_node_id: null,
     source_node_type: null,
@@ -113,22 +113,22 @@ function makeWorkItem(overrides: Partial<WorkItem> = {}): WorkItem {
 describe("hierarchyTree", () => {
   it("derives stable owner keys from explicit and legacy scope fields", () => {
     expect(getWorkItemOwnerKey(makeWorkItem())).toBe("product");
-    expect(getWorkItemOwnerKey(makeWorkItem({ module_id: "module-a" }))).toBe("product_area:module-a");
+    expect(getWorkItemOwnerKey(makeWorkItem({ product_area_id: "product_area-a" }))).toBe("product_area:product_area-a");
     expect(getWorkItemOwnerKey(makeWorkItem({ capability_id: "capability-a" }))).toBe(
       "capability:capability-a",
     );
     expect(
       getWorkItemOwnerKey(
-        makeWorkItem({ source_node_id: "module-a", source_node_type: "product_area" }),
+        makeWorkItem({ source_node_id: "product_area-a", source_node_type: "product_area" }),
       ),
-    ).toBe("product_area:module-a");
+    ).toBe("product_area:product_area-a");
   });
 
   it("finds nodes, paths, and counts across a nested tree", () => {
-    expect(getHierarchyNodeKey(moduleNode)).toBe("product_area:module-a");
+    expect(getHierarchyNodeKey(productAreaNode)).toBe("product_area:product_area-a");
     expect(countHierarchyNodes(productTree.roots)).toBe(3);
     expect(countLeafNodes(productTree.roots)).toBe(2);
-    expect(countDescendantNodes(moduleNode)).toBe(1);
+    expect(countDescendantNodes(productAreaNode)).toBe(1);
     expect(findHierarchyNode(productTree.roots, "capability-a", "capability")).toEqual(
       capabilityNode,
     );
@@ -137,15 +137,15 @@ describe("hierarchyTree", () => {
       findHierarchyNodePath(productTree.roots, "capability-a", "capability").map(
         (node) => node.id,
       ),
-    ).toEqual(["module-a", "capability-a"]);
+    ).toEqual(["product_area-a", "capability-a"]);
     expect(findHierarchyNodePath(productTree.roots, "missing")).toEqual([]);
   });
 
   it("groups work items by direct and subtree ownership", () => {
     const productItem = makeWorkItem({ id: "product-item" });
-    const moduleItem = makeWorkItem({
-      id: "module-item",
-      source_node_id: "module-a",
+    const productAreaItem = makeWorkItem({
+      id: "product_area-item",
+      source_node_id: "product_area-a",
       source_node_type: "product_area",
     });
     const capabilityItem = makeWorkItem({
@@ -153,30 +153,30 @@ describe("hierarchyTree", () => {
       source_node_id: "capability-a",
       source_node_type: "capability",
     });
-    const workItems = [productItem, moduleItem, capabilityItem];
+    const workItems = [productItem, productAreaItem, capabilityItem];
 
     expect(isDirectProductWorkItem(productItem)).toBe(true);
     expect(getProductDirectWorkItems(workItems).map((item) => item.id)).toEqual(["product-item"]);
-    expect(getDirectWorkItemsForNode(moduleNode, workItems).map((item) => item.id)).toEqual([
-      "module-item",
+    expect(getDirectWorkItemsForNode(productAreaNode, workItems).map((item) => item.id)).toEqual([
+      "product_area-item",
     ]);
-    expect(getSubtreeWorkItemsForNode(moduleNode, workItems).map((item) => item.id)).toEqual([
-      "module-item",
+    expect(getSubtreeWorkItemsForNode(productAreaNode, workItems).map((item) => item.id)).toEqual([
+      "product_area-item",
       "capability-item",
     ]);
   });
 
   it("resolves section ids and direct child collections", () => {
     expect(getHierarchyNodeSectionId(null)).toBe("product-overview-top");
-    expect(getHierarchyNodeSectionId(moduleNode)).toBe("product-area-module-a");
+    expect(getHierarchyNodeSectionId(productAreaNode)).toBe("product-area-product_area-a");
     expect(getHierarchyNodeSectionId(capabilityNode)).toBe("capability-capability-a");
     expect(getDirectChildNodes(productTree, null).map((node) => node.id)).toEqual([
-      "module-a",
-      "module-b",
+      "product_area-a",
+      "product_area-b",
     ]);
-    expect(getDirectChildNodes(productTree, moduleNode).map((node) => node.id)).toEqual([
+    expect(getDirectChildNodes(productTree, productAreaNode).map((node) => node.id)).toEqual([
       "capability-a",
     ]);
-    expect(getDirectChildNodes(undefined, moduleNode)).toEqual([]);
+    expect(getDirectChildNodes(undefined, productAreaNode)).toEqual([]);
   });
 });

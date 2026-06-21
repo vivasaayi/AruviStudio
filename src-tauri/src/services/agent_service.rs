@@ -191,7 +191,7 @@ impl AgentService {
         matches!(
             name,
             ".git"
-                | "node_modules"
+                | "node_product_areas"
                 | "target"
                 | "dist"
                 | "build"
@@ -642,12 +642,12 @@ impl AgentService {
         // Stage-specific context
         match stage_name {
             "requirement_analysis" => {
-                // Include product/module/capability hierarchy if available
+                // Include product/product_area/capability hierarchy if available
                 if let Some(product_id) = &work_item.product_id {
                     context.insert("product_id".to_string(), product_id.clone());
                 }
-                if let Some(module_id) = &work_item.module_id {
-                    context.insert("module_id".to_string(), module_id.clone());
+                if let Some(product_area_id) = &work_item.product_area_id {
+                    context.insert("product_area_id".to_string(), product_area_id.clone());
                 }
                 if let Some(capability_id) = &work_item.capability_id {
                     context.insert("capability_id".to_string(), capability_id.clone());
@@ -2682,7 +2682,7 @@ mod tests {
     fn generated_repository_paths_are_not_allowed() {
         let boundaries = AgentExecutionBoundaries::default();
         assert!(!AgentService::is_repo_relative_path_allowed(
-            "node_modules/react/index.js",
+            "node_product_areas/react/index.js",
             &boundaries
         ));
         assert!(!AgentService::is_repo_relative_path_allowed(
@@ -2795,11 +2795,11 @@ mod tests {
         )
         .await
         .expect("failed to create product");
-        let module = product_repo::create_module(
+        let product_area = product_repo::create_product_area(
             &pool,
-            "test-module",
+            "test-product_area",
             &product.id,
-            "Core Module",
+            "Core ProductArea",
             "desc",
             "purpose",
             None,
@@ -2809,7 +2809,7 @@ mod tests {
             "",
         )
         .await
-        .expect("failed to create module");
+        .expect("failed to create product_area");
 
         let repo_dir = temp_root.join("repo");
         std::fs::create_dir_all(&repo_dir).expect("failed to create local repository directory");
@@ -2831,7 +2831,7 @@ mod tests {
             &pool,
             "test-work-item",
             &product.id,
-            Some(&module.id),
+            Some(&product_area.id),
             None,
             None,
             None,

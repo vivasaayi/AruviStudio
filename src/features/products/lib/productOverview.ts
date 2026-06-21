@@ -1,5 +1,5 @@
 import { countHierarchyNodes, countLeafNodes, getHierarchyNodeSectionId, getProductDirectWorkItems } from "../../../lib/hierarchyTree";
-import type { Capability, CapabilityTree, HierarchyTreeNode, Module, ModuleTree, Product, ProductReference, ProductTree, WorkItem } from "../../../lib/types";
+import type { Capability, CapabilityTree, HierarchyTreeNode, ProductArea, ProductAreaTree, Product, ProductReference, ProductTree, WorkItem } from "../../../lib/types";
 import { getCapabilityHierarchyLabel, getHierarchyNodeKindLabel } from "../../../lib/hierarchyLabels";
 import { filterReferencesForProductBook, filterReferencesForScope, getCapabilityReferenceScope, getProductAreaReferenceScope, getReferenceKindLabel } from "./productReferences";
 
@@ -80,8 +80,8 @@ export function buildScopedWorkItemTree(workItems: WorkItem[]): WorkItemNode[] {
   return roots.map(materialize);
 }
 
-export function countCapabilities(modules: ModuleTree[]) {
-  return modules.reduce((total, moduleTree) => total + moduleTree.features.reduce((sum, capabilityTree) => sum + countCapabilityTree(capabilityTree), 0), 0);
+export function countCapabilities(product_areas: ProductAreaTree[]) {
+  return product_areas.reduce((total, productAreaTree) => total + productAreaTree.features.reduce((sum, capabilityTree) => sum + countCapabilityTree(capabilityTree), 0), 0);
 }
 
 export function countCapabilityTree(capabilityTree: CapabilityTree): number {
@@ -164,8 +164,8 @@ export function getWorkItemPresentation(status: WorkItem["status"]): WorkItemPre
   }
 }
 
-export function getModuleSectionId(module: Module) {
-  return `product-area-${module.id}`;
+export function getProductAreaSectionId(product_area: ProductArea) {
+  return `product-area-${product_area.id}`;
 }
 
 export function getCapabilitySectionId(capability: Capability) {
@@ -917,8 +917,8 @@ export function buildProductOverviewHtml({
           </section>
         ` : ""}
 
-        ${(tree?.modules ?? []).length > 0
-          ? (tree?.modules ?? []).map((moduleTree, index) => renderModuleHtml(moduleTree, index + 1, allWorkItems, bookReferences)).join("")
+        ${(tree?.product_areas ?? []).length > 0
+          ? (tree?.product_areas ?? []).map((productAreaTree, index) => renderProductAreaHtml(productAreaTree, index + 1, allWorkItems, bookReferences)).join("")
           : `
             <section class="section">
               <div class="section-header">
@@ -1108,7 +1108,7 @@ export function buildProductOverviewBookHtml({
         padding-top: 14px;
       }
 
-      .toc-module {
+      .toc-product_area {
         display: flex;
         justify-content: space-between;
         gap: 18px;
@@ -1118,14 +1118,14 @@ export function buildProductOverviewBookHtml({
         font-weight: 700;
       }
 
-      .toc-module a,
+      .toc-product_area a,
       .toc-capability a,
       .inline-link {
         color: inherit;
         text-decoration: none;
       }
 
-      .toc-module a:hover,
+      .toc-product_area a:hover,
       .toc-capability a:hover,
       .inline-link:hover {
         color: var(--accent);
@@ -1429,8 +1429,8 @@ export function buildProductOverviewBookHtml({
         </section>
       ` : ""}
 
-      ${(tree?.modules ?? []).length > 0
-        ? (tree?.modules ?? []).map((moduleTree, index) => renderBookModuleHtml(moduleTree, index + 1, allWorkItems)).join("")
+      ${(tree?.product_areas ?? []).length > 0
+        ? (tree?.product_areas ?? []).map((productAreaTree, index) => renderBookProductAreaHtml(productAreaTree, index + 1, allWorkItems)).join("")
         : `
           <section class="page">
             <div class="chapter-kicker">Catalog</div>
@@ -1494,10 +1494,10 @@ function collectCapabilityIds(capabilities: CapabilityTree[]): Set<string> {
   return ids;
 }
 
-function getModuleScopedWorkItems(moduleTree: ModuleTree, allWorkItems: WorkItem[]) {
-  const capabilityIds = collectCapabilityIds(moduleTree.features);
+function getProductAreaScopedWorkItems(productAreaTree: ProductAreaTree, allWorkItems: WorkItem[]) {
+  const capabilityIds = collectCapabilityIds(productAreaTree.features);
   return allWorkItems.filter(
-    (workItem) => workItem.module_id === moduleTree.module.id || (workItem.capability_id ? capabilityIds.has(workItem.capability_id) : false),
+    (workItem) => workItem.product_area_id === productAreaTree.product_area.id || (workItem.capability_id ? capabilityIds.has(workItem.capability_id) : false),
   );
 }
 
@@ -1506,49 +1506,49 @@ function getCapabilityScopedWorkItems(capabilityTree: CapabilityTree, allWorkIte
   return allWorkItems.filter((workItem) => workItem.capability_id ? capabilityIds.has(workItem.capability_id) : false);
 }
 
-function renderModuleHtml(moduleTree: ModuleTree, chapterNumber: number, allWorkItems: WorkItem[], references: ProductReference[]): string {
-  const moduleScopedItems = getModuleScopedWorkItems(moduleTree, allWorkItems);
-  const moduleMetrics = buildWorkItemMetrics(moduleScopedItems);
-  const directModuleWorkItems = buildScopedWorkItemTree(
-    allWorkItems.filter((workItem) => workItem.module_id === moduleTree.module.id && !workItem.capability_id),
+function renderProductAreaHtml(productAreaTree: ProductAreaTree, chapterNumber: number, allWorkItems: WorkItem[], references: ProductReference[]): string {
+  const productAreaScopedItems = getProductAreaScopedWorkItems(productAreaTree, allWorkItems);
+  const productAreaMetrics = buildWorkItemMetrics(productAreaScopedItems);
+  const directProductAreaWorkItems = buildScopedWorkItemTree(
+    allWorkItems.filter((workItem) => workItem.product_area_id === productAreaTree.product_area.id && !workItem.capability_id),
   );
-  const rootKindLabel = getHierarchyNodeKindLabel(moduleTree.module.node_kind);
-  const moduleReferences = filterReferencesForScope(references, getProductAreaReferenceScope(moduleTree.module.id));
+  const rootKindLabel = getHierarchyNodeKindLabel(productAreaTree.product_area.node_kind);
+  const productAreaReferences = filterReferencesForScope(references, getProductAreaReferenceScope(productAreaTree.product_area.id));
 
   return `
-    <section class="chapter" id="${getModuleSectionId(moduleTree.module)}">
+    <section class="chapter" id="${getProductAreaSectionId(productAreaTree.product_area)}">
       <details open>
         <summary>
           <div class="chapter-header">
             <div>
               <div class="chapter-kicker">${escapeHtml(rootKindLabel)} ${chapterNumber}</div>
-              <h3>${escapeHtml(moduleTree.module.name)}</h3>
-              <p>${toHtmlParagraph(moduleTree.module.description || moduleTree.module.purpose || "Document this product area so the product architecture remains readable.")}</p>
+              <h3>${escapeHtml(productAreaTree.product_area.name)}</h3>
+              <p>${toHtmlParagraph(productAreaTree.product_area.description || productAreaTree.product_area.purpose || "Document this product area so the product architecture remains readable.")}</p>
             </div>
             <div class="count-row">
-              <span class="count-pill">${moduleTree.features.length} ${moduleTree.features.length === 1 ? "child node" : "child nodes"}</span>
-              ${renderMetricSummaryPills(moduleMetrics)}
+              <span class="count-pill">${productAreaTree.features.length} ${productAreaTree.features.length === 1 ? "child node" : "child nodes"}</span>
+              ${renderMetricSummaryPills(productAreaMetrics)}
             </div>
           </div>
         </summary>
         <div class="chapter-body">
           <div class="info-grid">
-            ${renderNoteCardHtml("Purpose", moduleTree.module.purpose)}
-            ${renderNoteCardHtml("Explanation", moduleTree.module.explanation)}
-            ${renderNoteCardHtml("Examples", moduleTree.module.examples)}
-            ${renderNoteCardHtml("Implementation Notes", moduleTree.module.implementation_notes)}
-            ${renderNoteCardHtml("Test Guidance", moduleTree.module.test_guidance)}
+            ${renderNoteCardHtml("Purpose", productAreaTree.product_area.purpose)}
+            ${renderNoteCardHtml("Explanation", productAreaTree.product_area.explanation)}
+            ${renderNoteCardHtml("Examples", productAreaTree.product_area.examples)}
+            ${renderNoteCardHtml("Implementation Notes", productAreaTree.product_area.implementation_notes)}
+            ${renderNoteCardHtml("Test Guidance", productAreaTree.product_area.test_guidance)}
           </div>
-          ${renderReferenceListHtml(moduleReferences)}
-          ${directModuleWorkItems.length > 0 ? `
+          ${renderReferenceListHtml(productAreaReferences)}
+          ${directProductAreaWorkItems.length > 0 ? `
             <div class="section-header" style="margin-bottom: 12px;">
               <div class="eyebrow">Direct Work</div>
               <h3 style="font-size: 20px;">Chapter Delivery</h3>
             </div>
-            ${renderWorkItemTreeHtml(directModuleWorkItems)}
+            ${renderWorkItemTreeHtml(directProductAreaWorkItems)}
           ` : ""}
-          ${moduleTree.features.length > 0
-            ? moduleTree.features.map((capabilityTree, index) => renderCapabilityHtml(capabilityTree, `${chapterNumber}.${index + 1}`, allWorkItems, references)).join("")
+          ${productAreaTree.features.length > 0
+            ? productAreaTree.features.map((capabilityTree, index) => renderCapabilityHtml(capabilityTree, `${chapterNumber}.${index + 1}`, allWorkItems, references)).join("")
             : `<p class="muted-line">No capabilities defined for this product area yet.</p>`}
         </div>
       </details>
@@ -1685,7 +1685,7 @@ function renderBookContentsHtml(tree: ProductTree | undefined, hasProductLevelWo
 
   blocks.push(`
     <div class="toc-group">
-      <div class="toc-module">
+      <div class="toc-product_area">
         <a href="#${PRODUCT_OVERVIEW_TOP_ID}" class="inline-link">Title Page</a>
         <span>1</span>
       </div>
@@ -1695,7 +1695,7 @@ function renderBookContentsHtml(tree: ProductTree | undefined, hasProductLevelWo
   if (hasProductLevelWorkItems) {
     blocks.push(`
       <div class="toc-group">
-        <div class="toc-module">
+        <div class="toc-product_area">
           <a href="#${PRODUCT_DELIVERY_ID}" class="inline-link">Product Delivery Themes</a>
           <span>Prelude</span>
         </div>
@@ -1717,7 +1717,7 @@ function renderBookContentsNode(node: HierarchyTreeNode, numbering: string): str
 
   return `
     <div class="toc-group">
-      <div class="toc-module">
+      <div class="toc-product_area">
         <a href="#${getHierarchyNodeSectionId(node)}" class="inline-link">${escapeHtml(numbering)}. ${escapeHtml(node.name)}</a>
         <span>${node.children.length > 0 ? node.children.length : ""}</span>
       </div>
@@ -1748,64 +1748,64 @@ function countCapabilityTreeList(capabilities: CapabilityTree[]) {
   return capabilities.reduce((total, capabilityTree) => total + countCapabilityTree(capabilityTree), 0);
 }
 
-function renderBookModuleHtml(moduleTree: ModuleTree, chapterNumber: number, allWorkItems: WorkItem[]): string {
-  const moduleScopedItems = getModuleScopedWorkItems(moduleTree, allWorkItems);
-  const metrics = buildWorkItemMetrics(moduleScopedItems);
-  const directModuleWorkItems = buildScopedWorkItemTree(
-    allWorkItems.filter((workItem) => workItem.module_id === moduleTree.module.id && !workItem.capability_id),
+function renderBookProductAreaHtml(productAreaTree: ProductAreaTree, chapterNumber: number, allWorkItems: WorkItem[]): string {
+  const productAreaScopedItems = getProductAreaScopedWorkItems(productAreaTree, allWorkItems);
+  const metrics = buildWorkItemMetrics(productAreaScopedItems);
+  const directProductAreaWorkItems = buildScopedWorkItemTree(
+    allWorkItems.filter((workItem) => workItem.product_area_id === productAreaTree.product_area.id && !workItem.capability_id),
   );
-  const rootKindLabel = getHierarchyNodeKindLabel(moduleTree.module.node_kind);
-  const childCountLabel = moduleTree.features.length === 1 ? "child node" : "child nodes";
+  const rootKindLabel = getHierarchyNodeKindLabel(productAreaTree.product_area.node_kind);
+  const childCountLabel = productAreaTree.features.length === 1 ? "child node" : "child nodes";
 
   return `
-    <section class="page page-break" id="${getModuleSectionId(moduleTree.module)}">
+    <section class="page page-break" id="${getProductAreaSectionId(productAreaTree.product_area)}">
       <div class="chapter-kicker">${escapeHtml(rootKindLabel)} ${chapterNumber}</div>
-      <h2 class="chapter-title">${escapeHtml(moduleTree.module.name)}</h2>
-      <div class="chapter-intro">${toHtmlParagraph(moduleTree.module.description || moduleTree.module.purpose || "This chapter describes the product area's role inside the product.")}</div>
+      <h2 class="chapter-title">${escapeHtml(productAreaTree.product_area.name)}</h2>
+      <div class="chapter-intro">${toHtmlParagraph(productAreaTree.product_area.description || productAreaTree.product_area.purpose || "This chapter describes the product area's role inside the product.")}</div>
       <div class="chapter-stats">
-        <span class="stat-pill">${moduleTree.features.length} ${childCountLabel}</span>
+        <span class="stat-pill">${productAreaTree.features.length} ${childCountLabel}</span>
         <span class="stat-pill">${metrics.done} done</span>
         <span class="stat-pill">${metrics.wip} active</span>
         <span class="stat-pill">${metrics.tbd} planned</span>
       </div>
-      ${moduleTree.module.purpose ? `
+      ${productAreaTree.product_area.purpose ? `
         <div class="note-block">
           <div class="note-label">Purpose</div>
-          <div class="note-copy">${toHtmlParagraph(moduleTree.module.purpose)}</div>
+          <div class="note-copy">${toHtmlParagraph(productAreaTree.product_area.purpose)}</div>
         </div>
       ` : ""}
-      ${moduleTree.module.explanation ? `
+      ${productAreaTree.product_area.explanation ? `
         <div class="note-block">
           <div class="note-label">Explanation</div>
-          <div class="note-copy">${toHtmlParagraph(moduleTree.module.explanation)}</div>
+          <div class="note-copy">${toHtmlParagraph(productAreaTree.product_area.explanation)}</div>
         </div>
       ` : ""}
-      ${moduleTree.module.examples ? `
+      ${productAreaTree.product_area.examples ? `
         <div class="note-block">
           <div class="note-label">Examples</div>
-          <div class="note-copy">${toHtmlParagraph(moduleTree.module.examples)}</div>
+          <div class="note-copy">${toHtmlParagraph(productAreaTree.product_area.examples)}</div>
         </div>
       ` : ""}
-      ${moduleTree.module.implementation_notes ? `
+      ${productAreaTree.product_area.implementation_notes ? `
         <div class="note-block">
           <div class="note-label">Implementation Notes</div>
-          <div class="note-copy">${toHtmlParagraph(moduleTree.module.implementation_notes)}</div>
+          <div class="note-copy">${toHtmlParagraph(productAreaTree.product_area.implementation_notes)}</div>
         </div>
       ` : ""}
-      ${moduleTree.module.test_guidance ? `
+      ${productAreaTree.product_area.test_guidance ? `
         <div class="note-block">
           <div class="note-label">Test Guidance</div>
-          <div class="note-copy">${toHtmlParagraph(moduleTree.module.test_guidance)}</div>
+          <div class="note-copy">${toHtmlParagraph(productAreaTree.product_area.test_guidance)}</div>
         </div>
       ` : ""}
-      ${directModuleWorkItems.length > 0 ? `
+      ${directProductAreaWorkItems.length > 0 ? `
         <div class="section-block">
           <div class="section-kicker">Direct Delivery Notes</div>
-          ${renderBookWorkItemList(directModuleWorkItems)}
+          ${renderBookWorkItemList(directProductAreaWorkItems)}
         </div>
       ` : ""}
-      ${moduleTree.features.length > 0
-        ? moduleTree.features.map((capabilityTree, index) => renderBookCapabilityHtml(capabilityTree, `${chapterNumber}.${index + 1}`, allWorkItems)).join("")
+      ${productAreaTree.features.length > 0
+        ? productAreaTree.features.map((capabilityTree, index) => renderBookCapabilityHtml(capabilityTree, `${chapterNumber}.${index + 1}`, allWorkItems)).join("")
         : `<div class="section-block"><div class="body-copy">No capabilities are defined for this product area yet.</div></div>`}
       <div class="footer-note">End of chapter ${chapterNumber}.</div>
     </section>

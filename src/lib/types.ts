@@ -88,7 +88,7 @@ export interface ProductReference {
   updated_at: string;
 }
 
-export interface Module {
+export interface ProductArea {
   id: string;
   product_id: string;
   node_kind: HierarchyNodeKind;
@@ -106,7 +106,7 @@ export interface Module {
 
 export interface Capability {
   id: string;
-  module_id: string;
+  product_area_id: string;
   parent_capability_id: string | null;
   level: number;
   node_kind: HierarchyNodeKind;
@@ -129,7 +129,7 @@ export interface Capability {
 export interface WorkItem {
   id: string;
   product_id: string;
-  module_id: string | null;
+  product_area_id: string | null;
   capability_id: string | null;
   source_node_id: string | null;
   source_node_type: HierarchyNodeType | null;
@@ -462,12 +462,12 @@ export interface Finding {
 
 export interface ProductTree {
   product: Product;
-  modules: ModuleTree[];
+  product_areas: ProductAreaTree[];
   roots: HierarchyTreeNode[];
 }
 
-export interface ModuleTree {
-  module: Module;
+export interface ProductAreaTree {
+  product_area: ProductArea;
   features: CapabilityTree[];
 }
 
@@ -480,7 +480,7 @@ export interface HierarchyTreeNode {
   id: string;
   node_type: HierarchyNodeType;
   node_kind: HierarchyNodeKind;
-  module_id: string;
+  product_area_id: string;
   capability_id: string | null;
   parent_node_id: string | null;
   parent_node_type: HierarchyNodeType | null;
@@ -559,7 +559,7 @@ export interface ChatCompletionResponse {
 
 export interface PlannerTarget {
   productName?: string;
-  moduleName?: string;
+  productAreaName?: string;
   capabilityName?: string;
   workItemTitle?: string;
 }

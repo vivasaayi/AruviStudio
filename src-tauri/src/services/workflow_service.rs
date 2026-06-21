@@ -1366,11 +1366,11 @@ mod tests {
         )
         .await
         .expect("failed to create product");
-        let module = product_repo::create_module(
+        let product_area = product_repo::create_product_area(
             &pool,
-            "workflow-module",
+            "workflow-product_area",
             &product.id,
-            "Delivery Module",
+            "Delivery ProductArea",
             "desc",
             "purpose",
             None,
@@ -1380,13 +1380,13 @@ mod tests {
             "",
         )
         .await
-        .expect("failed to create module");
+        .expect("failed to create product_area");
 
         let work_item = work_item_repo::create_work_item(
             &pool,
             "workflow-work-item",
             &product.id,
-            Some(&module.id),
+            Some(&product_area.id),
             None,
             None,
             None,
@@ -1591,11 +1591,11 @@ mod tests {
         )
         .await
         .expect("failed to create product");
-        let module = product_repo::create_module(
+        let product_area = product_repo::create_product_area(
             &pool,
-            "workflow-auto-approval-module",
+            "workflow-auto-approval-product_area",
             &product.id,
-            "Delivery Module",
+            "Delivery ProductArea",
             "desc",
             "purpose",
             None,
@@ -1605,13 +1605,13 @@ mod tests {
             "",
         )
         .await
-        .expect("failed to create module");
+        .expect("failed to create product_area");
 
         let work_item = work_item_repo::create_work_item(
             &pool,
             "workflow-auto-approval-work-item",
             &product.id,
-            Some(&module.id),
+            Some(&product_area.id),
             None,
             None,
             None,
@@ -1765,11 +1765,11 @@ mod tests {
         )
         .await
         .expect("failed to create product");
-        let module = product_repo::create_module(
+        let product_area = product_repo::create_product_area(
             &pool,
-            "workflow-plan-rejection-module",
+            "workflow-plan-rejection-product_area",
             &product.id,
-            "Delivery Module",
+            "Delivery ProductArea",
             "desc",
             "purpose",
             None,
@@ -1779,13 +1779,13 @@ mod tests {
             "",
         )
         .await
-        .expect("failed to create module");
+        .expect("failed to create product_area");
 
         let work_item = work_item_repo::create_work_item(
             &pool,
             "workflow-plan-rejection-work-item",
             &product.id,
-            Some(&module.id),
+            Some(&product_area.id),
             None,
             None,
             None,
@@ -1932,11 +1932,11 @@ mod tests {
         )
         .await
         .expect("failed to create product");
-        let module = product_repo::create_module(
+        let product_area = product_repo::create_product_area(
             &pool,
-            "workflow-auto-test-review-module",
+            "workflow-auto-test-review-product_area",
             &product.id,
-            "Delivery Module",
+            "Delivery ProductArea",
             "desc",
             "purpose",
             None,
@@ -1946,13 +1946,13 @@ mod tests {
             "",
         )
         .await
-        .expect("failed to create module");
+        .expect("failed to create product_area");
 
         let work_item = work_item_repo::create_work_item(
             &pool,
             "workflow-auto-test-review-work-item",
             &product.id,
-            Some(&module.id),
+            Some(&product_area.id),
             None,
             None,
             None,
@@ -2102,11 +2102,11 @@ mod tests {
         )
         .await
         .expect("failed to create product");
-        let module = product_repo::create_module(
+        let product_area = product_repo::create_product_area(
             &pool,
-            "workflow-recovery-module",
+            "workflow-recovery-product_area",
             &product.id,
-            "Delivery Module",
+            "Delivery ProductArea",
             "desc",
             "purpose",
             None,
@@ -2116,13 +2116,13 @@ mod tests {
             "",
         )
         .await
-        .expect("failed to create module");
+        .expect("failed to create product_area");
 
         let work_item = work_item_repo::create_work_item(
             &pool,
             "workflow-recovery-work-item",
             &product.id,
-            Some(&module.id),
+            Some(&product_area.id),
             None,
             None,
             None,
@@ -2266,12 +2266,12 @@ mod tests {
         .await
         .expect("failed to create Calculator product");
 
-        let module = product_repo::create_module(
+        let product_area = product_repo::create_product_area(
             &pool,
-            "calculator-module",
+            "calculator-product_area",
             &product.id,
             "Calculator Engine",
-            "Core capability delivery module for calculator behavior.",
+            "Core capability delivery product_area for calculator behavior.",
             "Implement and validate calculator functionality end-to-end.",
             None,
             "",
@@ -2280,13 +2280,13 @@ mod tests {
             "",
         )
         .await
-        .expect("failed to create calculator module");
+        .expect("failed to create calculator product_area");
 
         let bootstrap_work_item = work_item_repo::create_work_item(
             &pool,
             "work-item-bootstrap-initialize-repo",
             &product.id,
-            Some(&module.id),
+            Some(&product_area.id),
             None,
             None,
             None,
@@ -2326,7 +2326,7 @@ mod tests {
             let capability = product_repo::create_capability(
                 &pool,
                 &format!("capability-{capability_slug}"),
-                &module.id,
+                &product_area.id,
                 None,
                 capability_name,
                 &format!("{capability_name} capability for calculator outcomes"),
@@ -2348,7 +2348,7 @@ mod tests {
                 let outcome_capability = product_repo::create_capability(
                     &pool,
                     &format!("capability-{capability_slug}-{outcome_slug}"),
-                    &module.id,
+                    &product_area.id,
                     Some(&capability.id),
                     outcome,
                     &format!("{outcome} outcome for {capability_name}"),
@@ -2370,7 +2370,7 @@ mod tests {
                     &pool,
                     &work_item_id,
                     &product.id,
-                    Some(&module.id),
+                    Some(&product_area.id),
                     Some(&outcome_capability.id),
                     None,
                     None,
@@ -2541,7 +2541,7 @@ mod tests {
         )?;
         std::fs::write(
             repo_dir.join(".gitignore"),
-            "node_modules/\ndist/\nbuild/\ncoverage/\n",
+            "node_product_areas/\ndist/\nbuild/\ncoverage/\n",
         )?;
         std::fs::write(repo_dir.join("tests/.gitkeep"), "")?;
 

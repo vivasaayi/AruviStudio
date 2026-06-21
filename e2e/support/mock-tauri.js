@@ -33,7 +33,7 @@
     };
   }
 
-  function createModule(id, productId, nodeKind, name, description, purpose, sortOrder) {
+  function createProductArea(id, productId, nodeKind, name, description, purpose, sortOrder) {
     return {
       id,
       product_id: productId,
@@ -47,10 +47,10 @@
     };
   }
 
-  function createCapability(id, moduleId, parentCapabilityId, level, nodeKind, name, description, acceptanceCriteria, sortOrder) {
+  function createCapability(id, productAreaId, parentCapabilityId, level, nodeKind, name, description, acceptanceCriteria, sortOrder) {
     return {
       id,
-      module_id: moduleId,
+      product_area_id: productAreaId,
       parent_capability_id: parentCapabilityId,
       level,
       node_kind: nodeKind,
@@ -74,7 +74,7 @@
   function createWorkItem(
     id,
     productId,
-    moduleId,
+    productAreaId,
     capabilityId,
     sourceNodeId,
     sourceNodeType,
@@ -88,7 +88,7 @@
     return {
       id,
       product_id: productId,
-      module_id: moduleId,
+      product_area_id: productAreaId,
       capability_id: capabilityId,
       source_node_id: sourceNodeId,
       source_node_type: sourceNodeType,
@@ -117,8 +117,8 @@
   function createState() {
     const calculatorProductId = "example-product-calculator";
     const wifiProductId = "example-product-wifi-platform";
-    const coreMathModuleId = "calc-core-math-engine";
-    const wifiModuleId = "wifi-connectivity";
+    const coreMathProductAreaId = "calc-core-math-engine";
+    const wifiProductAreaId = "wifi-connectivity";
     const expressionCapabilityId = "calc-expression-evaluation";
     const featureCapabilityId = "calc-scientific-mode-feature";
     const securePairingCapabilityId = "wifi-secure-pairing";
@@ -177,9 +177,9 @@
           ["example_product", "seeded_catalog", "platform", "connectivity"],
         ),
       ],
-      modules: [
-        createModule(
-          coreMathModuleId,
+      product_areas: [
+        createProductArea(
+          coreMathProductAreaId,
           calculatorProductId,
           "product_area",
           "Core Math Engine",
@@ -187,8 +187,8 @@
           "Coordinate the parser, evaluator, and delivery work attached to the engine.",
           0,
         ),
-        createModule(
-          wifiModuleId,
+        createProductArea(
+          wifiProductAreaId,
           wifiProductId,
           "product_area",
           "Connectivity Services",
@@ -200,7 +200,7 @@
       capabilities: [
         createCapability(
           expressionCapabilityId,
-          coreMathModuleId,
+          coreMathProductAreaId,
           null,
           0,
           "capability",
@@ -211,7 +211,7 @@
         ),
         createCapability(
           featureCapabilityId,
-          coreMathModuleId,
+          coreMathProductAreaId,
           expressionCapabilityId,
           1,
           "feature",
@@ -222,7 +222,7 @@
         ),
         createCapability(
           securePairingCapabilityId,
-          wifiModuleId,
+          wifiProductAreaId,
           null,
           0,
           "capability",
@@ -321,9 +321,9 @@
         createWorkItem(
           "work-item-calc-parser-errors",
           calculatorProductId,
-          coreMathModuleId,
+          coreMathProductAreaId,
           null,
-          coreMathModuleId,
+          coreMathProductAreaId,
           "product_area",
           "Refine parser error surfaces",
           "Improve direct engine-level error messages for malformed expressions.",
@@ -335,7 +335,7 @@
         createWorkItem(
           "work-item-calc-precedence",
           calculatorProductId,
-          coreMathModuleId,
+          coreMathProductAreaId,
           expressionCapabilityId,
           expressionCapabilityId,
           "capability",
@@ -349,7 +349,7 @@
         createWorkItem(
           "work-item-calc-feature-checklist",
           calculatorProductId,
-          coreMathModuleId,
+          coreMathProductAreaId,
           featureCapabilityId,
           featureCapabilityId,
           "capability",
@@ -363,7 +363,7 @@
         createWorkItem(
           multiTaskStoryId,
           calculatorProductId,
-          coreMathModuleId,
+          coreMathProductAreaId,
           featureCapabilityId,
           featureCapabilityId,
           "capability",
@@ -378,7 +378,7 @@
           ...createWorkItem(
             "work-item-calc-feature-multi-task-one",
             calculatorProductId,
-            coreMathModuleId,
+            coreMathProductAreaId,
             featureCapabilityId,
             featureCapabilityId,
             "capability",
@@ -395,7 +395,7 @@
           ...createWorkItem(
             "work-item-calc-feature-multi-task-two",
             calculatorProductId,
-            coreMathModuleId,
+            coreMathProductAreaId,
             featureCapabilityId,
             featureCapabilityId,
             "capability",
@@ -436,62 +436,62 @@
     if (!product) {
       return null;
     }
-    const modules = state.modules
+    const product_areas = state.product_areas
       .filter((entry) => entry.product_id === productId)
       .sort((a, b) => a.sort_order - b.sort_order)
-      .map((moduleEntry) => ({
-        module: moduleEntry,
-        features: buildCapabilityChildren(moduleEntry.id, null),
+      .map((productAreaEntry) => ({
+        product_area: productAreaEntry,
+        features: buildCapabilityChildren(productAreaEntry.id, null),
       }));
-    return { product, modules, roots: buildHierarchyRoots(productId) };
+    return { product, product_areas, roots: buildHierarchyRoots(productId) };
   }
 
-  function buildCapabilityChildren(moduleId, parentCapabilityId) {
+  function buildCapabilityChildren(productAreaId, parentCapabilityId) {
     const state = getState();
     return state.capabilities
-      .filter((entry) => entry.module_id === moduleId && entry.parent_capability_id === parentCapabilityId)
+      .filter((entry) => entry.product_area_id === productAreaId && entry.parent_capability_id === parentCapabilityId)
       .sort((a, b) => a.sort_order - b.sort_order)
       .map((capability) => ({
         capability,
-        children: buildCapabilityChildren(moduleId, capability.id),
+        children: buildCapabilityChildren(productAreaId, capability.id),
       }));
   }
 
   function buildHierarchyRoots(productId) {
     const state = getState();
-    return state.modules
+    return state.product_areas
       .filter((entry) => entry.product_id === productId)
       .sort((a, b) => a.sort_order - b.sort_order)
-      .map((moduleEntry) => ({
-        id: moduleEntry.id,
+      .map((productAreaEntry) => ({
+        id: productAreaEntry.id,
         node_type: "product_area",
-        node_kind: moduleEntry.node_kind,
-        module_id: moduleEntry.id,
+        node_kind: productAreaEntry.node_kind,
+        product_area_id: productAreaEntry.id,
         capability_id: null,
         parent_node_id: null,
         parent_node_type: null,
         depth: 0,
-        name: moduleEntry.name,
-        description: moduleEntry.description,
-        summary: moduleEntry.purpose,
-        path: [moduleEntry.name],
+        name: productAreaEntry.name,
+        description: productAreaEntry.description,
+        summary: productAreaEntry.purpose,
+        path: [productAreaEntry.name],
         allowed_child_kinds: ROOT_ALLOWED_CHILD_KINDS,
-        children: buildHierarchyCapabilityNodes(moduleEntry.id, null, [moduleEntry.name], 1),
+        children: buildHierarchyCapabilityNodes(productAreaEntry.id, null, [productAreaEntry.name], 1),
       }));
   }
 
-  function buildHierarchyCapabilityNodes(moduleId, parentCapabilityId, parentPath, depth) {
+  function buildHierarchyCapabilityNodes(productAreaId, parentCapabilityId, parentPath, depth) {
     const state = getState();
     return state.capabilities
-      .filter((entry) => entry.module_id === moduleId && entry.parent_capability_id === parentCapabilityId)
+      .filter((entry) => entry.product_area_id === productAreaId && entry.parent_capability_id === parentCapabilityId)
       .sort((a, b) => a.sort_order - b.sort_order)
       .map((capability) => ({
         id: capability.id,
         node_type: "capability",
         node_kind: capability.node_kind,
-        module_id: moduleId,
+        product_area_id: productAreaId,
         capability_id: capability.id,
-        parent_node_id: parentCapabilityId ?? moduleId,
+        parent_node_id: parentCapabilityId ?? productAreaId,
         parent_node_type: parentCapabilityId ? "capability" : "product_area",
         depth,
         name: capability.name,
@@ -499,7 +499,7 @@
         summary: capability.description,
         path: [...parentPath, capability.name],
         allowed_child_kinds: capability.node_kind === "feature" ? [] : NESTED_ALLOWED_CHILD_KINDS,
-        children: buildHierarchyCapabilityNodes(moduleId, capability.id, [...parentPath, capability.name], depth + 1),
+        children: buildHierarchyCapabilityNodes(productAreaId, capability.id, [...parentPath, capability.name], depth + 1),
       }));
   }
 
@@ -509,7 +509,7 @@
       if (filters?.productId && item.product_id !== filters.productId) {
         return false;
       }
-      if (filters?.moduleId && item.module_id !== filters.moduleId) {
+      if (filters?.productAreaId && item.product_area_id !== filters.productAreaId) {
         return false;
       }
       if (filters?.capabilityId && item.capability_id !== filters.capabilityId) {
@@ -540,7 +540,7 @@
     const workItem = {
       id,
       product_id: getArg(args, "productId", "product_id"),
-      module_id: getArg(args, "moduleId", "module_id") ?? null,
+      product_area_id: getArg(args, "productAreaId", "product_area_id") ?? null,
       capability_id: getArg(args, "capabilityId", "capability_id") ?? null,
       source_node_id: getArg(args, "sourceNodeId", "source_node_id") ?? null,
       source_node_type: getArg(args, "sourceNodeType", "source_node_type") ?? null,
@@ -840,28 +840,28 @@
           : findDraftNodeById(session, findDraftNodeById(session, findDraftNodeById(session, selectedNode?.parentId)?.parentId)?.parentId);
 
     const resolvedProduct = productNode ?? ensureSelectedProductDraft(session);
-    const notificationsModule = createDraftNode(session, "product_area", "Notifications & Messaging", resolvedProduct.id, {
+    const notificationsProductArea = createDraftNode(session, "product_area", "Notifications & Messaging", resolvedProduct.id, {
       description: "Coordinates outbound email, SMS, and WhatsApp notifications across reservations and guest service workflows.",
     });
-    const preferencesCapability = createDraftNode(session, "capability", "Guest Notification Preferences", notificationsModule.id, {
+    const preferencesCapability = createDraftNode(session, "capability", "Guest Notification Preferences", notificationsProductArea.id, {
       description: "Manage channel preferences, consent, and notification eligibility per guest.",
     });
     createDraftNode(session, "work_item", "Build Notification Preferences UI", preferencesCapability.id, {
       description: "Add settings UI for guest-facing or staff-managed notification preferences and opt-in capture.",
     });
-    session.selected_draft_node_id = notificationsModule.id;
+    session.selected_draft_node_id = notificationsProductArea.id;
     return {
-      selectedNodeId: notificationsModule.id,
+      selectedNodeId: notificationsProductArea.id,
       actions: [
         {
-          type: "create_module",
+          type: "create_product_area",
           target: { productName: resolvedProduct.label },
-          name: notificationsModule.label,
-          description: notificationsModule.data.description,
+          name: notificationsProductArea.label,
+          description: notificationsProductArea.data.description,
         },
         {
           type: "create_capability",
-          target: { productName: resolvedProduct.label, moduleName: notificationsModule.label },
+          target: { productName: resolvedProduct.label, productAreaName: notificationsProductArea.label },
           name: preferencesCapability.label,
           description: preferencesCapability.data.description,
         },
@@ -870,15 +870,15 @@
     };
   }
 
-  function enhanceSelectedModule(session, selectedNode) {
-    const moduleNode = selectedNode?.type === "product_area" ? selectedNode : null;
-    if (!moduleNode) {
+  function enhanceSelectedProductArea(session, selectedNode) {
+    const productAreaNode = selectedNode?.type === "product_area" ? selectedNode : null;
+    if (!productAreaNode) {
       return null;
     }
-    const capabilityA = createDraftNode(session, "capability", "Outbound Delivery Tracking", moduleNode.id, {
+    const capabilityA = createDraftNode(session, "capability", "Outbound Delivery Tracking", productAreaNode.id, {
       description: "Track send attempts, delivery outcomes, and failed notification retries across channels.",
     });
-    const capabilityB = createDraftNode(session, "capability", "Template & Trigger Rules", moduleNode.id, {
+    const capabilityB = createDraftNode(session, "capability", "Template & Trigger Rules", productAreaNode.id, {
       description: "Define message templates and the workflow events that trigger them.",
     });
     session.selected_draft_node_id = capabilityA.id;
@@ -887,18 +887,18 @@
       actions: [
         {
           type: "create_capability",
-          target: { moduleName: moduleNode.label },
+          target: { productAreaName: productAreaNode.label },
           name: capabilityA.label,
           description: capabilityA.data.description,
         },
         {
           type: "create_capability",
-          target: { moduleName: moduleNode.label },
+          target: { productAreaName: productAreaNode.label },
           name: capabilityB.label,
           description: capabilityB.data.description,
         },
       ],
-      message: `I enhanced ${moduleNode.label} with delivery tracking and trigger/template capabilities so the product area is operationally useful, not just a placeholder.`,
+      message: `I enhanced ${productAreaNode.label} with delivery tracking and trigger/template capabilities so the product area is operationally useful, not just a placeholder.`,
     };
   }
 
@@ -969,13 +969,13 @@
 
     if (!session.has_draft_plan && (normalizedInput.includes("design") || normalizedInput.includes("product area") || normalizedInput.includes("product"))) {
       const product = ensureSelectedProductDraft(session, args);
-      const actions = product.children.map((moduleId) => {
-          const moduleNode = session.draftNodes[moduleId];
+      const actions = product.children.map((productAreaId) => {
+          const productAreaNode = session.draftNodes[productAreaId];
           return {
-            type: "create_module",
+            type: "create_product_area",
             target: { productName: product.label },
-            name: moduleNode.label,
-            description: moduleNode.data.description,
+            name: productAreaNode.label,
+            description: productAreaNode.data.description,
           };
         });
       return createPlannerResponse(
@@ -991,7 +991,7 @@
     }
 
     if ((normalizedInput.includes("enhance") || normalizedInput.includes("expand")) && selectedNode?.type === "product_area") {
-      const result = enhanceSelectedModule(session, selectedNode);
+      const result = enhanceSelectedProductArea(session, selectedNode);
       return createPlannerResponse(session, result.message, result.actions, ["Updated the design plan."], result.selectedNodeId);
     }
 
@@ -1054,37 +1054,37 @@
       return product;
     }
 
-    function upsertModule(node, product) {
-      let module = state.modules.find((entry) => entry.product_id === product.id && entry.name === node.label);
-      if (!module) {
-        module = {
+    function upsertProductArea(node, product) {
+      let product_area = state.product_areas.find((entry) => entry.product_id === product.id && entry.name === node.label);
+      if (!product_area) {
+        product_area = {
           id: nextId("product-area"),
           product_id: product.id,
           name: node.label,
           description: node.data.description || "",
           purpose: node.data.description || "",
-          sort_order: state.modules.filter((entry) => entry.product_id === product.id).length,
+          sort_order: state.product_areas.filter((entry) => entry.product_id === product.id).length,
           created_at: FIXED_TIMESTAMP,
           updated_at: FIXED_TIMESTAMP,
         };
-        state.modules.push(module);
+        state.product_areas.push(product_area);
       } else {
-        module.description = node.data.description || module.description;
-        module.purpose = node.data.description || module.purpose;
-        module.updated_at = FIXED_TIMESTAMP;
+        product_area.description = node.data.description || product_area.description;
+        product_area.purpose = node.data.description || product_area.purpose;
+        product_area.updated_at = FIXED_TIMESTAMP;
       }
-      return module;
+      return product_area;
     }
 
-    function upsertCapability(node, module, level, parentCapabilityId) {
-      let capability = state.capabilities.find((entry) => entry.module_id === module.id && entry.name === node.label && entry.parent_capability_id === parentCapabilityId);
+    function upsertCapability(node, product_area, level, parentCapabilityId) {
+      let capability = state.capabilities.find((entry) => entry.product_area_id === product_area.id && entry.name === node.label && entry.parent_capability_id === parentCapabilityId);
       if (!capability) {
         capability = {
           id: nextId("capability"),
-          module_id: module.id,
+          product_area_id: product_area.id,
           parent_capability_id: parentCapabilityId,
           level,
-          sort_order: state.capabilities.filter((entry) => entry.module_id === module.id && entry.parent_capability_id === parentCapabilityId).length,
+          sort_order: state.capabilities.filter((entry) => entry.product_area_id === product_area.id && entry.parent_capability_id === parentCapabilityId).length,
           name: node.label,
           description: node.data.description || "",
           acceptance_criteria: node.data.acceptanceCriteria || "",
@@ -1103,13 +1103,13 @@
       return capability;
     }
 
-    function upsertWorkItem(node, product, module, capability, parentWorkItemId) {
+    function upsertWorkItem(node, product, product_area, capability, parentWorkItemId) {
       let workItem = state.workItems.find((entry) => entry.capability_id === capability.id && entry.title === node.label && entry.parent_work_item_id === parentWorkItemId);
       if (!workItem) {
         workItem = {
           id: nextId("work-item"),
           product_id: product.id,
-          module_id: module.id,
+          product_area_id: product_area.id,
           capability_id: capability.id,
           parent_work_item_id: parentWorkItemId,
           title: node.label,
@@ -1151,20 +1151,20 @@
       }
 
       if (node.type === "product_area" && context.product) {
-        const module = upsertModule(node, context.product);
-        node.children.forEach((childId) => walk(childId, { product: context.product, module }));
+        const product_area = upsertProductArea(node, context.product);
+        node.children.forEach((childId) => walk(childId, { product: context.product, product_area }));
         return;
       }
 
-      if (node.type === "capability" && context.product && context.module) {
-        const capability = upsertCapability(node, context.module, context.capability ? context.capability.level + 1 : 0, context.capability?.id ?? null);
-        node.children.forEach((childId) => walk(childId, { product: context.product, module: context.module, capability }));
+      if (node.type === "capability" && context.product && context.product_area) {
+        const capability = upsertCapability(node, context.product_area, context.capability ? context.capability.level + 1 : 0, context.capability?.id ?? null);
+        node.children.forEach((childId) => walk(childId, { product: context.product, product_area: context.product_area, capability }));
         return;
       }
 
-      if (node.type === "work_item" && context.product && context.module && context.capability) {
-        const workItem = upsertWorkItem(node, context.product, context.module, context.capability, context.workItem?.id ?? null);
-        node.children.forEach((childId) => walk(childId, { product: context.product, module: context.module, capability: context.capability, workItem }));
+      if (node.type === "work_item" && context.product && context.product_area && context.capability) {
+        const workItem = upsertWorkItem(node, context.product, context.product_area, context.capability, context.workItem?.id ?? null);
+        node.children.forEach((childId) => walk(childId, { product: context.product, product_area: context.product_area, capability: context.capability, workItem }));
       }
     }
 
@@ -1346,16 +1346,16 @@
     }
 
     const product = ensureSelectedProductDraft(session, args);
-    const plannerModule = createDraftNode(session, "product_area", "Interactive Planner", product.id, {
+    const plannerProductArea = createDraftNode(session, "product_area", "Interactive Planner", product.id, {
       description: "Conversational planning, design staging, approval flow, and trace inspection.",
     });
-    const repoModule = createDraftNode(session, "product_area", "Repository Intelligence", product.id, {
+    const repoProductArea = createDraftNode(session, "product_area", "Repository Intelligence", product.id, {
       description: "Repository registration, reverse engineering, and code-aware planning expansion.",
     });
-    const plannerCapability = createDraftNode(session, "capability", "Draft Tree Editing", plannerModule.id, {
+    const plannerCapability = createDraftNode(session, "capability", "Draft Tree Editing", plannerProductArea.id, {
       description: "Select, rename, expand, and refine staged design nodes before approval.",
     });
-    createDraftNode(session, "work_item", "Add repo analysis entrypoint", repoModule.id, {
+    createDraftNode(session, "work_item", "Add repo analysis entrypoint", repoProductArea.id, {
       description: "Let users register a repository and stage a reverse-engineered planning tree.",
     });
     createDraftNode(session, "work_item", "Improve design tree ergonomics", plannerCapability.id, {
@@ -1367,16 +1367,16 @@
       `I analyzed the ${repository.name} repository and staged repository-informed product areas under ${product.label} so you can refine them before approval.`,
       [
         {
-          type: "create_module",
+          type: "create_product_area",
           target: { productName: product.label },
-          name: plannerModule.label,
-          description: plannerModule.data.description,
+          name: plannerProductArea.label,
+          description: plannerProductArea.data.description,
         },
         {
-          type: "create_module",
+          type: "create_product_area",
           target: { productName: product.label },
-          name: repoModule.label,
-          description: repoModule.data.description,
+          name: repoProductArea.label,
+          description: repoProductArea.data.description,
         },
       ],
       ["Updated the design plan from repository analysis."],
@@ -1845,11 +1845,11 @@
         case "get_product":
         case "update_product":
         case "archive_product":
-        case "create_module":
-        case "list_modules":
-        case "update_module":
-        case "delete_module":
-        case "reorder_modules":
+        case "create_product_area":
+        case "list_product_areas":
+        case "update_product_area":
+        case "delete_product_area":
+        case "reorder_product_areas":
         case "create_capability":
         case "list_capabilities":
         case "update_capability":

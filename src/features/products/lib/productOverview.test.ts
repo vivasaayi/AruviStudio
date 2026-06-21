@@ -11,18 +11,18 @@ import {
   countCapabilities,
   countCapabilityTree,
   getCapabilitySectionId,
-  getModuleSectionId,
+  getProductAreaSectionId,
   getWorkItemPresentation,
   sortWorkItems,
 } from "./productOverview";
-import type { Capability, CapabilityTree, Module, ModuleTree, ProductTree, WorkItem } from "../../../lib/types";
+import type { Capability, CapabilityTree, ProductArea, ProductAreaTree, ProductTree, WorkItem } from "../../../lib/types";
 import type { ProductReference } from "../../../lib/types";
 
 function makeWorkItem(overrides: Partial<WorkItem> = {}): WorkItem {
   return {
     id: "work-item",
     product_id: "product-1",
-    module_id: null,
+    product_area_id: null,
     capability_id: null,
     source_node_id: null,
     source_node_type: null,
@@ -49,7 +49,7 @@ function makeWorkItem(overrides: Partial<WorkItem> = {}): WorkItem {
 function makeCapability(overrides: Partial<Capability> = {}): Capability {
   return {
     id: "capability-1",
-    module_id: "module-1",
+    product_area_id: "product_area-1",
     parent_capability_id: null,
     level: 0,
     node_kind: "capability",
@@ -71,8 +71,8 @@ function makeCapability(overrides: Partial<Capability> = {}): Capability {
   };
 }
 
-const moduleRecord: Module = {
-  id: "module-1",
+const productAreaRecord: ProductArea = {
+  id: "product_area-1",
   product_id: "product-1",
   node_kind: "product_area",
   name: "Area One",
@@ -102,8 +102,8 @@ const nestedCapabilityTree: CapabilityTree = {
   ],
 };
 
-const moduleTree: ModuleTree = {
-  module: moduleRecord,
+const productAreaTree: ProductAreaTree = {
+  product_area: productAreaRecord,
   features: [nestedCapabilityTree],
 };
 
@@ -125,13 +125,13 @@ const productTree: ProductTree = {
     created_at: "",
     updated_at: "",
   },
-  modules: [moduleTree],
+  product_areas: [productAreaTree],
   roots: [
     {
-      id: "module-1",
+      id: "product_area-1",
       node_type: "product_area",
       node_kind: "product_area",
-      module_id: "module-1",
+      product_area_id: "product_area-1",
       capability_id: null,
       parent_node_id: null,
       parent_node_type: null,
@@ -146,9 +146,9 @@ const productTree: ProductTree = {
           id: "capability-root",
           node_type: "capability",
           node_kind: "capability",
-          module_id: "module-1",
+          product_area_id: "product_area-1",
           capability_id: "capability-root",
-          parent_node_id: "module-1",
+          parent_node_id: "product_area-1",
           parent_node_type: "product_area",
           depth: 1,
           name: "Capability Root",
@@ -203,7 +203,7 @@ describe("productOverview helpers", () => {
 
   it("computes hierarchy and work-item metrics for overview summaries", () => {
     expect(countCapabilityTree(nestedCapabilityTree)).toBe(2);
-    expect(countCapabilities([moduleTree])).toBe(2);
+    expect(countCapabilities([productAreaTree])).toBe(2);
     expect(
       buildWorkItemMetrics([
         makeWorkItem({ status: "done" }),
@@ -225,7 +225,7 @@ describe("productOverview helpers", () => {
     expect(getWorkItemPresentation("failed").bucket).toBe("blocked");
     expect(getWorkItemPresentation("ready_for_review").label).toBe("WIP");
     expect(getWorkItemPresentation("approved").toneClass).toBe("is-tbd");
-    expect(getModuleSectionId(moduleRecord)).toBe("product-area-module-1");
+    expect(getProductAreaSectionId(productAreaRecord)).toBe("product-area-product_area-1");
     expect(getCapabilitySectionId(makeCapability({ id: "capability-root" }))).toBe(
       "capability-capability-root",
     );
@@ -235,7 +235,7 @@ describe("productOverview helpers", () => {
     expect(buildProductOverviewToc(productTree, true)).toEqual([
       { id: PRODUCT_OVERVIEW_TOP_ID, title: "Overview", level: 0 },
       { id: PRODUCT_DELIVERY_ID, title: "Product Delivery", level: 0 },
-      { id: "product-area-module-1", title: "1. Area One", level: 0 },
+      { id: "product-area-product_area-1", title: "1. Area One", level: 0 },
       { id: "capability-capability-root", title: "1.1. Capability Root", level: 1 },
     ]);
   });
@@ -259,10 +259,10 @@ describe("productOverview helpers", () => {
           status: "in_progress",
         }),
         makeWorkItem({
-          id: "module-item",
-          module_id: "module-1",
-          title: "Module Story",
-          description: "Module summary",
+          id: "product_area-item",
+          product_area_id: "product_area-1",
+          title: "ProductArea Story",
+          description: "ProductArea summary",
           status: "done",
         }),
         makeWorkItem({
@@ -292,9 +292,9 @@ describe("productOverview helpers", () => {
           uri: "https://example.com/doc?a=1&b=2",
         }),
         makeReference({
-          id: "module-ref",
+          id: "product_area-ref",
           scope_type: "product_area",
-          scope_id: "module-1",
+          scope_id: "product_area-1",
           title: "Area Spec",
           reference_kind: "architecture",
         }),
@@ -335,9 +335,9 @@ describe("productOverview helpers", () => {
       },
       tree: {
         ...productTree,
-        modules: [
+        product_areas: [
           {
-            module: moduleRecord,
+            product_area: productAreaRecord,
             features: [],
           },
         ],

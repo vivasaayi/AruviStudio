@@ -44,20 +44,20 @@ const styles: Record<string, React.CSSProperties> = {
 
 export function ScopeBreadcrumb({
   productName,
-  moduleName,
+  productAreaName,
   capabilityName,
   path,
   label = "Scope",
 }: {
   productName: string | null | undefined;
-  moduleName?: string | null | undefined;
+  productAreaName?: string | null | undefined;
   capabilityName?: string | null | undefined;
   path?: string[] | null | undefined;
   label?: string;
 }) {
   const crumbs = (path && path.length > 0
     ? path
-    : [productName, moduleName, capabilityName].filter(Boolean)) as string[];
+    : [productName, productAreaName, capabilityName].filter(Boolean)) as string[];
 
   if (crumbs.length === 0) {
     return null;

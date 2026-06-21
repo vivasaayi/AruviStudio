@@ -6,7 +6,7 @@ use super::product::HierarchyNodeType;
 pub struct WorkItem {
     pub id: String,
     pub product_id: Option<String>,
-    pub module_id: Option<String>,
+    pub product_area_id: Option<String>,
     pub capability_id: Option<String>,
     pub source_node_id: Option<String>,
     pub source_node_type: Option<HierarchyNodeType>,

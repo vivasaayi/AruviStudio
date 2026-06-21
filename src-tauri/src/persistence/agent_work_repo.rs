@@ -33,7 +33,7 @@ struct MaterializedCapability {
 #[derive(Debug, Clone)]
 struct MaterializedFeature {
     item: AgentWorkItem,
-    module_id: String,
+    product_area_id: String,
     capability_id: String,
     feature_id: String,
     work_item_id: String,
@@ -129,8 +129,8 @@ fn parse_conflict_zones(item: &AgentWorkItem) -> Result<Vec<String>, AppError> {
         .filter(|zone| !zone.is_empty())
         .collect::<Vec<_>>();
     if zones.is_empty() {
-        if !item.module.trim().is_empty() {
-            zones.push(format!("module:{}", item.module.trim()));
+        if !item.product_area.trim().is_empty() {
+            zones.push(format!("product_area:{}", item.product_area.trim()));
         } else if let Some(service) = item.service_or_domain.as_deref() {
             if !service.trim().is_empty() {
                 zones.push(format!("service:{}", service.trim()));
@@ -226,11 +226,11 @@ fn normalize_catalog_key(value: &str) -> String {
 }
 
 fn materialized_area_label(item: &AgentWorkItem) -> String {
-    let module = item.module.trim();
-    if module.is_empty() {
+    let product_area = item.product_area.trim();
+    if product_area.is_empty() {
         "Imported Agent Work".to_string()
     } else {
-        module.to_string()
+        product_area.to_string()
     }
 }
 
@@ -422,7 +422,7 @@ pub async fn upsert_item(
     run_id: &str,
     feature_id: &str,
     work_item_id: Option<&str>,
-    module: &str,
+    product_area: &str,
     service_or_domain: Option<&str>,
     priority: Option<&str>,
     release_phase: Option<&str>,
@@ -440,13 +440,13 @@ pub async fn upsert_item(
     let metadata_json = json_object_string(metadata)?;
     sqlx::query(
         "INSERT INTO agent_work_items (
-            id, run_id, feature_id, work_item_id, module, service_or_domain, priority,
+            id, run_id, feature_id, work_item_id, product_area, service_or_domain, priority,
             release_phase, title, description, status, batch_id, agent, commit_sha,
             conflict_zones_json, metadata_json
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(run_id, feature_id) DO UPDATE SET
             work_item_id=COALESCE(excluded.work_item_id, agent_work_items.work_item_id),
-            module=excluded.module,
+            product_area=excluded.product_area,
             service_or_domain=excluded.service_or_domain,
             priority=excluded.priority,
             release_phase=excluded.release_phase,
@@ -464,7 +464,7 @@ pub async fn upsert_item(
     .bind(run_id)
     .bind(feature_id)
     .bind(work_item_id)
-    .bind(module)
+    .bind(product_area)
     .bind(service_or_domain)
     .bind(priority)
     .bind(release_phase)
@@ -487,7 +487,7 @@ pub async fn get_item(
     feature_id: &str,
 ) -> Result<AgentWorkItem, AppError> {
     sqlx::query_as::<_, AgentWorkItem>(
-        "SELECT id,run_id,feature_id,work_item_id,module,service_or_domain,priority,release_phase,title,description,status,batch_id,agent,commit_sha,claim_token,lease_expires_at,heartbeat_at,conflict_zones_json,metadata_json,created_at,updated_at
+        "SELECT id,run_id,feature_id,work_item_id,product_area,service_or_domain,priority,release_phase,title,description,status,batch_id,agent,commit_sha,claim_token,lease_expires_at,heartbeat_at,conflict_zones_json,metadata_json,created_at,updated_at
          FROM agent_work_items WHERE run_id=? AND feature_id=?",
     )
     .bind(run_id)
@@ -511,7 +511,7 @@ pub async fn list_items(
         (Some(status), Some(agent)) => {
             let status = normalize_status(status)?;
             sqlx::query_as::<_, AgentWorkItem>(
-                "SELECT id,run_id,feature_id,work_item_id,module,service_or_domain,priority,release_phase,title,description,status,batch_id,agent,commit_sha,claim_token,lease_expires_at,heartbeat_at,conflict_zones_json,metadata_json,created_at,updated_at
+                "SELECT id,run_id,feature_id,work_item_id,product_area,service_or_domain,priority,release_phase,title,description,status,batch_id,agent,commit_sha,claim_token,lease_expires_at,heartbeat_at,conflict_zones_json,metadata_json,created_at,updated_at
                  FROM agent_work_items WHERE run_id=? AND status=? AND agent=? ORDER BY feature_id LIMIT ? OFFSET ?",
             )
             .bind(run_id)
@@ -526,7 +526,7 @@ pub async fn list_items(
         (Some(status), None) => {
             let status = normalize_status(status)?;
             sqlx::query_as::<_, AgentWorkItem>(
-                "SELECT id,run_id,feature_id,work_item_id,module,service_or_domain,priority,release_phase,title,description,status,batch_id,agent,commit_sha,claim_token,lease_expires_at,heartbeat_at,conflict_zones_json,metadata_json,created_at,updated_at
+                "SELECT id,run_id,feature_id,work_item_id,product_area,service_or_domain,priority,release_phase,title,description,status,batch_id,agent,commit_sha,claim_token,lease_expires_at,heartbeat_at,conflict_zones_json,metadata_json,created_at,updated_at
                  FROM agent_work_items WHERE run_id=? AND status=? ORDER BY feature_id LIMIT ? OFFSET ?",
             )
             .bind(run_id)
@@ -538,7 +538,7 @@ pub async fn list_items(
             .map_err(AppError::from)
         }
         (None, Some(agent)) => sqlx::query_as::<_, AgentWorkItem>(
-            "SELECT id,run_id,feature_id,work_item_id,module,service_or_domain,priority,release_phase,title,description,status,batch_id,agent,commit_sha,claim_token,lease_expires_at,heartbeat_at,conflict_zones_json,metadata_json,created_at,updated_at
+            "SELECT id,run_id,feature_id,work_item_id,product_area,service_or_domain,priority,release_phase,title,description,status,batch_id,agent,commit_sha,claim_token,lease_expires_at,heartbeat_at,conflict_zones_json,metadata_json,created_at,updated_at
              FROM agent_work_items WHERE run_id=? AND agent=? ORDER BY feature_id LIMIT ? OFFSET ?",
         )
         .bind(run_id)
@@ -549,7 +549,7 @@ pub async fn list_items(
         .await
         .map_err(AppError::from),
         (None, None) => sqlx::query_as::<_, AgentWorkItem>(
-            "SELECT id,run_id,feature_id,work_item_id,module,service_or_domain,priority,release_phase,title,description,status,batch_id,agent,commit_sha,claim_token,lease_expires_at,heartbeat_at,conflict_zones_json,metadata_json,created_at,updated_at
+            "SELECT id,run_id,feature_id,work_item_id,product_area,service_or_domain,priority,release_phase,title,description,status,batch_id,agent,commit_sha,claim_token,lease_expires_at,heartbeat_at,conflict_zones_json,metadata_json,created_at,updated_at
              FROM agent_work_items WHERE run_id=? ORDER BY feature_id LIMIT ? OFFSET ?",
         )
         .bind(run_id)
@@ -606,10 +606,10 @@ pub async fn materialize_catalog(
     }
 
     let items = sqlx::query_as::<_, AgentWorkItem>(
-        "SELECT id,run_id,feature_id,work_item_id,module,service_or_domain,priority,release_phase,title,description,status,batch_id,agent,commit_sha,claim_token,lease_expires_at,heartbeat_at,conflict_zones_json,metadata_json,created_at,updated_at
+        "SELECT id,run_id,feature_id,work_item_id,product_area,service_or_domain,priority,release_phase,title,description,status,batch_id,agent,commit_sha,claim_token,lease_expires_at,heartbeat_at,conflict_zones_json,metadata_json,created_at,updated_at
          FROM agent_work_items
          WHERE run_id=?
-         ORDER BY module, service_or_domain, release_phase, feature_id",
+         ORDER BY product_area, service_or_domain, release_phase, feature_id",
     )
     .bind(run_id)
     .fetch_all(pool)
@@ -629,21 +629,21 @@ pub async fn materialize_catalog(
         });
     }
 
-    let module_rows = sqlx::query(
-        "SELECT id, name, sort_order FROM modules WHERE product_id=? ORDER BY sort_order",
+    let product_area_rows = sqlx::query(
+        "SELECT id, name, sort_order FROM product_areas WHERE product_id=? ORDER BY sort_order",
     )
     .bind(&resolved_product_id)
     .fetch_all(pool)
     .await?;
-    let mut modules_by_key: HashMap<String, String> = HashMap::new();
-    let mut max_module_sort_order = -1_i64;
-    for row in module_rows {
+    let mut product_areas_by_key: HashMap<String, String> = HashMap::new();
+    let mut max_product_area_sort_order = -1_i64;
+    for row in product_area_rows {
         let id: String = row.get("id");
         let name: String = row.get("name");
         let sort_order: i64 = row.get("sort_order");
-        max_module_sort_order = max_module_sort_order.max(sort_order);
-        modules_by_key.insert(normalize_catalog_key(&id), id.clone());
-        modules_by_key.insert(normalize_catalog_key(&name), id);
+        max_product_area_sort_order = max_product_area_sort_order.max(sort_order);
+        product_areas_by_key.insert(normalize_catalog_key(&id), id.clone());
+        product_areas_by_key.insert(normalize_catalog_key(&name), id);
     }
 
     let mut area_labels = items
@@ -655,38 +655,38 @@ pub async fn materialize_catalog(
 
     let mut areas: HashMap<String, MaterializedArea> = HashMap::new();
     let mut area_rows_to_insert = Vec::new();
-    let mut next_module_sort_order = max_module_sort_order + 1;
+    let mut next_product_area_sort_order = max_product_area_sort_order + 1;
     for area_label in area_labels {
         let key = normalize_catalog_key(&area_label);
-        if let Some(module_id) = modules_by_key.get(&key) {
+        if let Some(product_area_id) = product_areas_by_key.get(&key) {
             areas.insert(
                 key,
                 MaterializedArea {
-                    id: module_id.clone(),
+                    id: product_area_id.clone(),
                     created: false,
                 },
             );
             continue;
         }
-        let module_id =
+        let product_area_id =
             stable_materialized_id("agentwork-area", &[&resolved_product_id, &area_label]);
         areas.insert(
             key.clone(),
             MaterializedArea {
-                id: module_id.clone(),
+                id: product_area_id.clone(),
                 created: true,
             },
         );
-        modules_by_key.insert(key, module_id.clone());
-        area_rows_to_insert.push((module_id, area_label, next_module_sort_order));
-        next_module_sort_order += 1;
+        product_areas_by_key.insert(key, product_area_id.clone());
+        area_rows_to_insert.push((product_area_id, area_label, next_product_area_sort_order));
+        next_product_area_sort_order += 1;
     }
 
     for chunk in area_rows_to_insert.chunks(MATERIALIZE_BATCH_SIZE) {
         let mut tx = pool.begin().await?;
-        for (module_id, area_label, sort_order) in chunk {
+        for (product_area_id, area_label, sort_order) in chunk {
             sqlx::query(
-                "INSERT INTO modules (
+                "INSERT INTO product_areas (
                     id, product_id, node_kind, name, description, purpose, explanation,
                     examples, implementation_notes, test_guidance, sort_order
                  )
@@ -700,7 +700,7 @@ pub async fn materialize_catalog(
                     sort_order=excluded.sort_order,
                     updated_at=datetime('now')",
             )
-            .bind(module_id)
+            .bind(product_area_id)
             .bind(&resolved_product_id)
             .bind(area_label)
             .bind(format!(
@@ -715,38 +715,38 @@ pub async fn materialize_catalog(
     }
 
     let existing_capability_rows = sqlx::query(
-        "SELECT c.id, c.module_id, c.name, c.sort_order
+        "SELECT c.id, c.product_area_id, c.name, c.sort_order
          FROM capabilities c
-         JOIN modules m ON m.id=c.module_id
+         JOIN product_areas m ON m.id=c.product_area_id
          WHERE m.product_id=? AND c.parent_capability_id IS NULL",
     )
     .bind(&resolved_product_id)
     .fetch_all(pool)
     .await?;
     let mut capabilities_by_key: HashMap<(String, String), (String, i64)> = HashMap::new();
-    let mut max_capability_sort_order_by_module: HashMap<String, i64> = HashMap::new();
+    let mut max_capability_sort_order_by_product_area: HashMap<String, i64> = HashMap::new();
     for row in existing_capability_rows {
         let id: String = row.get("id");
-        let module_id: String = row.get("module_id");
+        let product_area_id: String = row.get("product_area_id");
         let name: String = row.get("name");
         let sort_order: i64 = row.get("sort_order");
-        max_capability_sort_order_by_module
-            .entry(module_id.clone())
+        max_capability_sort_order_by_product_area
+            .entry(product_area_id.clone())
             .and_modify(|current| *current = (*current).max(sort_order))
             .or_insert(sort_order);
-        capabilities_by_key.insert((module_id, normalize_catalog_key(&name)), (id, sort_order));
+        capabilities_by_key.insert((product_area_id, normalize_catalog_key(&name)), (id, sort_order));
     }
 
     let mut capability_specs = items
         .iter()
         .map(|item| {
             let area_key = normalize_catalog_key(&materialized_area_label(item));
-            let module_id = areas
+            let product_area_id = areas
                 .get(&area_key)
                 .expect("area must be materialized")
                 .id
                 .clone();
-            (module_id, materialized_capability_label(item))
+            (product_area_id, materialized_capability_label(item))
         })
         .collect::<Vec<_>>();
     capability_specs.sort_by(|a, b| {
@@ -758,8 +758,8 @@ pub async fn materialize_catalog(
 
     let mut capabilities: HashMap<(String, String), MaterializedCapability> = HashMap::new();
     let mut capability_rows_to_upsert = Vec::new();
-    for (module_id, capability_label) in capability_specs {
-        let key = (module_id.clone(), normalize_catalog_key(&capability_label));
+    for (product_area_id, capability_label) in capability_specs {
+        let key = (product_area_id.clone(), normalize_catalog_key(&capability_label));
         if let Some((capability_id, sort_order)) = capabilities_by_key.get(&key) {
             capabilities.insert(
                 key,
@@ -770,19 +770,19 @@ pub async fn materialize_catalog(
             );
             capability_rows_to_upsert.push((
                 capability_id.clone(),
-                module_id,
+                product_area_id,
                 capability_label,
                 *sort_order,
                 false,
             ));
             continue;
         }
-        let sort_order = max_capability_sort_order_by_module
-            .entry(module_id.clone())
+        let sort_order = max_capability_sort_order_by_product_area
+            .entry(product_area_id.clone())
             .and_modify(|current| *current += 1)
             .or_insert(0);
         let capability_id =
-            stable_materialized_id("agentwork-cap", &[run_id, &module_id, &capability_label]);
+            stable_materialized_id("agentwork-cap", &[run_id, &product_area_id, &capability_label]);
         capabilities.insert(
             key,
             MaterializedCapability {
@@ -792,7 +792,7 @@ pub async fn materialize_catalog(
         );
         capability_rows_to_upsert.push((
             capability_id,
-            module_id,
+            product_area_id,
             capability_label,
             *sort_order,
             true,
@@ -801,19 +801,19 @@ pub async fn materialize_catalog(
 
     for chunk in capability_rows_to_upsert.chunks(MATERIALIZE_BATCH_SIZE) {
         let mut tx = pool.begin().await?;
-        for (capability_id, module_id, capability_label, sort_order, created) in chunk {
+        for (capability_id, product_area_id, capability_label, sort_order, created) in chunk {
             if !*created && !capability_id.starts_with("agentwork-cap-") {
                 continue;
             }
             sqlx::query(
                 "INSERT INTO capabilities (
-                    id, module_id, parent_capability_id, level, node_kind, sort_order,
+                    id, product_area_id, parent_capability_id, level, node_kind, sort_order,
                     name, description, acceptance_criteria, explanation, examples,
                     priority, risk, status, technical_notes, implementation_notes, test_guidance
                  )
                  VALUES (?, ?, NULL, 0, 'capability', ?, ?, ?, ?, '', '', 'medium', 'medium', 'draft', ?, '', '')
                  ON CONFLICT(id) DO UPDATE SET
-                    module_id=excluded.module_id,
+                    product_area_id=excluded.product_area_id,
                     parent_capability_id=NULL,
                     level=0,
                     node_kind='capability',
@@ -825,7 +825,7 @@ pub async fn materialize_catalog(
                     updated_at=datetime('now')",
             )
             .bind(capability_id)
-            .bind(module_id)
+            .bind(product_area_id)
             .bind(*sort_order)
             .bind(capability_label)
             .bind(format!(
@@ -847,13 +847,13 @@ pub async fn materialize_catalog(
     let mut materialized_features = Vec::with_capacity(items.len());
     for item in items {
         let area_key = normalize_catalog_key(&materialized_area_label(&item));
-        let module_id = areas
+        let product_area_id = areas
             .get(&area_key)
             .expect("area must be materialized")
             .id
             .clone();
         let capability_key = (
-            module_id.clone(),
+            product_area_id.clone(),
             normalize_catalog_key(&materialized_capability_label(&item)),
         );
         let capability_id = capabilities
@@ -872,7 +872,7 @@ pub async fn materialize_catalog(
         });
         materialized_features.push(MaterializedFeature {
             item,
-            module_id,
+            product_area_id,
             capability_id,
             feature_id: catalog_feature_id,
             work_item_id,
@@ -889,13 +889,13 @@ pub async fn materialize_catalog(
             let status = map_capability_status(&feature.item.status);
             sqlx::query(
                 "INSERT INTO capabilities (
-                    id, module_id, parent_capability_id, level, node_kind, sort_order,
+                    id, product_area_id, parent_capability_id, level, node_kind, sort_order,
                     name, description, acceptance_criteria, explanation, examples,
                     priority, risk, status, technical_notes, implementation_notes, test_guidance
                  )
                  VALUES (?, ?, ?, 1, 'feature', ?, ?, ?, ?, '', '', ?, 'medium', ?, ?, '', '')
                  ON CONFLICT(id) DO UPDATE SET
-                    module_id=excluded.module_id,
+                    product_area_id=excluded.product_area_id,
                     parent_capability_id=excluded.parent_capability_id,
                     level=1,
                     node_kind='feature',
@@ -909,7 +909,7 @@ pub async fn materialize_catalog(
                     updated_at=datetime('now')",
             )
             .bind(&feature.feature_id)
-            .bind(&feature.module_id)
+            .bind(&feature.product_area_id)
             .bind(&feature.capability_id)
             .bind(feature.sort_order)
             .bind(&title)
@@ -942,7 +942,7 @@ pub async fn materialize_catalog(
                 let work_item_status = map_work_item_status(&feature.item.status);
                 sqlx::query(
                     "INSERT INTO work_items (
-                        id, product_id, module_id, capability_id, source_node_id, source_node_type,
+                        id, product_id, product_area_id, capability_id, source_node_id, source_node_type,
                         parent_work_item_id, title, problem_statement, description,
                         acceptance_criteria, constraints, work_item_type, priority, complexity,
                         status, sort_order
@@ -950,7 +950,7 @@ pub async fn materialize_catalog(
                      VALUES (?, ?, ?, ?, ?, 'capability', NULL, ?, ?, ?, ?, ?, 'story', ?, 'medium', ?, 0)
                      ON CONFLICT(id) DO UPDATE SET
                         product_id=excluded.product_id,
-                        module_id=excluded.module_id,
+                        product_area_id=excluded.product_area_id,
                         capability_id=excluded.capability_id,
                         source_node_id=excluded.source_node_id,
                         source_node_type='capability',
@@ -969,7 +969,7 @@ pub async fn materialize_catalog(
                 )
                 .bind(&feature.work_item_id)
                 .bind(&resolved_product_id)
-                .bind(&feature.module_id)
+                .bind(&feature.product_area_id)
                 .bind(&feature.feature_id)
                 .bind(&feature.feature_id)
                 .bind(&title)
@@ -1155,7 +1155,7 @@ pub async fn link_catalog_work_items(
     let feature_metadata_rows = sqlx::query(
         "SELECT c.id, c.technical_notes
          FROM capabilities c
-         JOIN modules m ON m.id=c.module_id
+         JOIN product_areas m ON m.id=c.product_area_id
          WHERE m.product_id=? AND c.node_kind='feature' AND c.technical_notes LIKE '%Roadmap feature id:%'",
     )
     .bind(&resolved_product_id)
@@ -1319,7 +1319,7 @@ pub async fn list_ready_items(
     let limit = limit.clamp(1, 1000);
     let offset = offset.max(0);
     sqlx::query_as::<_, AgentWorkItem>(
-        "SELECT id,run_id,feature_id,work_item_id,module,service_or_domain,priority,release_phase,title,description,status,batch_id,agent,commit_sha,claim_token,lease_expires_at,heartbeat_at,conflict_zones_json,metadata_json,created_at,updated_at
+        "SELECT id,run_id,feature_id,work_item_id,product_area,service_or_domain,priority,release_phase,title,description,status,batch_id,agent,commit_sha,claim_token,lease_expires_at,heartbeat_at,conflict_zones_json,metadata_json,created_at,updated_at
          FROM agent_work_items item
          WHERE item.run_id=? AND item.status='pending'
            AND NOT EXISTS (
@@ -1465,7 +1465,7 @@ pub async fn claim_next_item(
         .await?;
 
         let candidates = sqlx::query_as::<_, AgentWorkItem>(
-            "SELECT id,run_id,feature_id,work_item_id,module,service_or_domain,priority,release_phase,title,description,status,batch_id,agent,commit_sha,claim_token,lease_expires_at,heartbeat_at,conflict_zones_json,metadata_json,created_at,updated_at
+            "SELECT id,run_id,feature_id,work_item_id,product_area,service_or_domain,priority,release_phase,title,description,status,batch_id,agent,commit_sha,claim_token,lease_expires_at,heartbeat_at,conflict_zones_json,metadata_json,created_at,updated_at
              FROM agent_work_items
              WHERE run_id=? AND status='pending'
                AND NOT EXISTS (
@@ -1630,7 +1630,7 @@ async fn get_item_with_conn(
     feature_id: &str,
 ) -> Result<AgentWorkItem, AppError> {
     sqlx::query_as::<_, AgentWorkItem>(
-        "SELECT id,run_id,feature_id,work_item_id,module,service_or_domain,priority,release_phase,title,description,status,batch_id,agent,commit_sha,claim_token,lease_expires_at,heartbeat_at,conflict_zones_json,metadata_json,created_at,updated_at
+        "SELECT id,run_id,feature_id,work_item_id,product_area,service_or_domain,priority,release_phase,title,description,status,batch_id,agent,commit_sha,claim_token,lease_expires_at,heartbeat_at,conflict_zones_json,metadata_json,created_at,updated_at
          FROM agent_work_items WHERE run_id=? AND feature_id=?",
     )
     .bind(run_id)
@@ -1842,7 +1842,7 @@ pub async fn requeue_expired_items(
     details: Option<&str>,
 ) -> Result<Vec<AgentWorkItem>, AppError> {
     let expired = sqlx::query_as::<_, AgentWorkItem>(
-        "SELECT id,run_id,feature_id,work_item_id,module,service_or_domain,priority,release_phase,title,description,status,batch_id,agent,commit_sha,claim_token,lease_expires_at,heartbeat_at,conflict_zones_json,metadata_json,created_at,updated_at
+        "SELECT id,run_id,feature_id,work_item_id,product_area,service_or_domain,priority,release_phase,title,description,status,batch_id,agent,commit_sha,claim_token,lease_expires_at,heartbeat_at,conflict_zones_json,metadata_json,created_at,updated_at
          FROM agent_work_items
          WHERE run_id=?
            AND status IN ('claimed','in_progress')
@@ -2487,14 +2487,14 @@ pub async fn import_legacy_checkpoint(
     }
 
     let feature_rows = sqlx::query(
-        "SELECT feature_id, module, service_or_domain, priority, release_phase, status, batch_id, agent, commit_sha
+        "SELECT feature_id, product_area, service_or_domain, priority, release_phase, status, batch_id, agent, commit_sha
          FROM feature_progress",
     )
     .fetch_all(&legacy_pool)
     .await?;
     for row in &feature_rows {
         let feature_id: String = row.get("feature_id");
-        let module: String = row.get("module");
+        let product_area: String = row.get("product_area");
         let service_or_domain: Option<String> = row.get("service_or_domain");
         let priority: Option<String> = row.get("priority");
         let release_phase: Option<String> = row.get("release_phase");
@@ -2507,7 +2507,7 @@ pub async fn import_legacy_checkpoint(
             &imported_run_id,
             &feature_id,
             None,
-            &module,
+            &product_area,
             service_or_domain.as_deref(),
             priority.as_deref(),
             release_phase.as_deref(),
@@ -2677,7 +2677,7 @@ mod tests {
             None,
             None,
             None,
-            Some(serde_json::json!(["module:calculator-core"])),
+            Some(serde_json::json!(["product_area:calculator-core"])),
             None,
         )
         .await
@@ -2697,7 +2697,7 @@ mod tests {
             None,
             None,
             None,
-            Some(serde_json::json!(["module:calculator-core"])),
+            Some(serde_json::json!(["product_area:calculator-core"])),
             None,
         )
         .await
@@ -2718,7 +2718,7 @@ mod tests {
         assert_eq!(first_claim.item.feature_id, "01-01");
         assert_eq!(
             first_claim.conflict_zones,
-            vec!["module:calculator-core".to_string()]
+            vec!["product_area:calculator-core".to_string()]
         );
 
         let blocked_claim = claim_next_item(
@@ -2726,7 +2726,7 @@ mod tests {
             "run-test",
             "agent-b",
             Some("batch-b"),
-            Some("same module"),
+            Some("same product_area"),
             Some(300),
         )
         .await
@@ -2901,7 +2901,7 @@ mod tests {
         )
         .await
         .expect("product should be created");
-        product_repo::create_module(
+        product_repo::create_product_area(
             &pool,
             "existing-area",
             "product-mayyam-test",
@@ -2965,9 +2965,9 @@ mod tests {
         let tree = product_repo::get_product_tree(&pool, "product-mayyam-test")
             .await
             .expect("tree should load");
-        assert_eq!(tree.modules.len(), 1);
-        assert_eq!(tree.modules[0].features.len(), 1);
-        assert_eq!(tree.modules[0].features[0].children.len(), 1);
+        assert_eq!(tree.product_areas.len(), 1);
+        assert_eq!(tree.product_areas[0].features.len(), 1);
+        assert_eq!(tree.product_areas[0].features[0].children.len(), 1);
 
         let visible_work_items = work_item_repo::list_work_items(
             &pool,
@@ -3012,7 +3012,7 @@ mod tests {
         )
         .await
         .expect("product should be created");
-        product_repo::create_module(
+        product_repo::create_product_area(
             &pool,
             "area-link-test",
             "product-link-test",
@@ -3029,7 +3029,7 @@ mod tests {
         .expect("area should be created");
         sqlx::query(
             "INSERT INTO capabilities (
-                id, module_id, parent_capability_id, level, node_kind, sort_order, name, status
+                id, product_area_id, parent_capability_id, level, node_kind, sort_order, name, status
              )
              VALUES ('cap-link-test', 'area-link-test', NULL, 0, 'capability', 0, 'Checkout', 'draft')",
         )
@@ -3038,7 +3038,7 @@ mod tests {
         .expect("capability should be inserted");
         sqlx::query(
             "INSERT INTO capabilities (
-                id, module_id, parent_capability_id, level, node_kind, sort_order, name, status,
+                id, product_area_id, parent_capability_id, level, node_kind, sort_order, name, status,
                 technical_notes
              )
              VALUES (
@@ -3051,7 +3051,7 @@ mod tests {
         .expect("feature should be inserted");
         sqlx::query(
             "INSERT INTO work_items (
-                id, product_id, module_id, capability_id, source_node_id, source_node_type,
+                id, product_id, product_area_id, capability_id, source_node_id, source_node_type,
                 title, work_item_type, status
              )
              VALUES (

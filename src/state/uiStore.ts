@@ -3,29 +3,29 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 interface UIState {
   productDialogMode: "closed" | "create" | "edit";
-  moduleDialogMode: "closed" | "create" | "edit";
+  productAreaDialogMode: "closed" | "create" | "edit";
   capabilityDialogMode: "closed" | "create" | "edit";
   workItemCreateDialogOpen: boolean;
   productWorkspaceTab: "book" | "structure" | "delivery";
   workItemWorkspaceTab: "backlog" | "detail" | "review" | "external_cli";
-  expandedModules: Record<string, boolean>;
+  expandedProductAreas: Record<string, boolean>;
   expandedCapabilities: Record<string, boolean>;
   showHierarchyWorkItems: boolean;
   productPickerCollapsed: boolean;
   activeView: "portfolio" | "products" | "product-overview" | "work-items" | "planner" | "chat" | "voice-chat" | "calls" | "ide" | "repositories" | "agents" | "models" | "settings";
   openProductDialog: (mode: "create" | "edit") => void;
   closeProductDialog: () => void;
-  openModuleDialog: (mode: "create" | "edit") => void;
-  closeModuleDialog: () => void;
+  openProductAreaDialog: (mode: "create" | "edit") => void;
+  closeProductAreaDialog: () => void;
   openCapabilityDialog: (mode: "create" | "edit") => void;
   closeCapabilityDialog: () => void;
   openWorkItemCreateDialog: () => void;
   closeWorkItemCreateDialog: () => void;
   setProductWorkspaceTab: (tab: "book" | "structure" | "delivery") => void;
   setWorkItemWorkspaceTab: (tab: "backlog" | "detail" | "review" | "external_cli") => void;
-  toggleModuleExpanded: (id: string) => void;
+  toggleProductAreaExpanded: (id: string) => void;
   toggleCapabilityExpanded: (id: string) => void;
-  setModuleExpanded: (id: string, expanded: boolean) => void;
+  setProductAreaExpanded: (id: string, expanded: boolean) => void;
   setCapabilityExpanded: (id: string, expanded: boolean) => void;
   toggleHierarchyWorkItems: () => void;
   toggleProductPickerCollapsed: () => void;
@@ -36,29 +36,29 @@ export const useUIStore = create<UIState>()(
   persist(
     (set) => ({
       productDialogMode: "closed",
-      moduleDialogMode: "closed",
+      productAreaDialogMode: "closed",
       capabilityDialogMode: "closed",
       workItemCreateDialogOpen: false,
       productWorkspaceTab: "book",
       workItemWorkspaceTab: "backlog",
-      expandedModules: {},
+      expandedProductAreas: {},
       expandedCapabilities: {},
       showHierarchyWorkItems: false,
       productPickerCollapsed: false,
       activeView: "planner",
       openProductDialog: (mode) => set({ productDialogMode: mode, activeView: "products" }),
       closeProductDialog: () => set({ productDialogMode: "closed" }),
-      openModuleDialog: (mode) => set({ moduleDialogMode: mode, activeView: "products", productWorkspaceTab: "structure" }),
-      closeModuleDialog: () => set({ moduleDialogMode: "closed" }),
+      openProductAreaDialog: (mode) => set({ productAreaDialogMode: mode, activeView: "products", productWorkspaceTab: "structure" }),
+      closeProductAreaDialog: () => set({ productAreaDialogMode: "closed" }),
       openCapabilityDialog: (mode) => set({ capabilityDialogMode: mode, activeView: "products", productWorkspaceTab: "structure" }),
       closeCapabilityDialog: () => set({ capabilityDialogMode: "closed" }),
       openWorkItemCreateDialog: () => set({ workItemCreateDialogOpen: true, activeView: "work-items", workItemWorkspaceTab: "backlog" }),
       closeWorkItemCreateDialog: () => set({ workItemCreateDialogOpen: false }),
       setProductWorkspaceTab: (tab) => set({ productWorkspaceTab: tab }),
       setWorkItemWorkspaceTab: (tab) => set({ workItemWorkspaceTab: tab }),
-      toggleModuleExpanded: (id) => set((s) => ({ expandedModules: { ...s.expandedModules, [id]: !(s.expandedModules[id] ?? true) } })),
+      toggleProductAreaExpanded: (id) => set((s) => ({ expandedProductAreas: { ...s.expandedProductAreas, [id]: !(s.expandedProductAreas[id] ?? true) } })),
       toggleCapabilityExpanded: (id) => set((s) => ({ expandedCapabilities: { ...s.expandedCapabilities, [id]: !(s.expandedCapabilities[id] ?? true) } })),
-      setModuleExpanded: (id, expanded) => set((s) => ({ expandedModules: { ...s.expandedModules, [id]: expanded } })),
+      setProductAreaExpanded: (id, expanded) => set((s) => ({ expandedProductAreas: { ...s.expandedProductAreas, [id]: expanded } })),
       setCapabilityExpanded: (id, expanded) => set((s) => ({ expandedCapabilities: { ...s.expandedCapabilities, [id]: expanded } })),
       toggleHierarchyWorkItems: () => set((s) => ({ showHierarchyWorkItems: !s.showHierarchyWorkItems })),
       toggleProductPickerCollapsed: () => set((s) => ({ productPickerCollapsed: !s.productPickerCollapsed })),
@@ -85,7 +85,7 @@ export const useUIStore = create<UIState>()(
       partialize: (state) => ({
         productWorkspaceTab: state.productWorkspaceTab,
         workItemWorkspaceTab: state.workItemWorkspaceTab,
-        expandedModules: state.expandedModules,
+        expandedProductAreas: state.expandedProductAreas,
         expandedCapabilities: state.expandedCapabilities,
         showHierarchyWorkItems: state.showHierarchyWorkItems,
         productPickerCollapsed: state.productPickerCollapsed,

@@ -11,8 +11,8 @@ export function getWorkItemOwnerKey(workItem: WorkItem) {
   if (workItem.capability_id) {
     return `capability:${workItem.capability_id}`;
   }
-  if (workItem.module_id) {
-    return `product_area:${workItem.module_id}`;
+  if (workItem.product_area_id) {
+    return `product_area:${workItem.product_area_id}`;
   }
   return "product";
 }

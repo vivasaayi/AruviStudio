@@ -14,7 +14,7 @@ import {
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
 import { ProductOverviewDocument, type ProductOverviewPlannerAction } from "../components/ProductOverviewDocument";
-import type { Capability, Module, Product, ProductReference, ProductTree, ProductWorkItemSummary, WorkItem } from "../../../lib/types";
+import type { Capability, ProductArea, Product, ProductReference, ProductTree, ProductWorkItemSummary, WorkItem } from "../../../lib/types";
 import {
   BOOK_EXPORT_TRIM_PRESETS,
   buildProductOverviewBookBundle,
@@ -43,13 +43,13 @@ const styles: Record<string, React.CSSProperties> = {
 
 export function ProductOverviewPage() {
   const navigate = useNavigate();
-  const { activeProductId, setActiveProduct, setActiveModule, setActiveCapability, setActiveWorkItem } = useWorkspaceStore();
+  const { activeProductId, setActiveProduct, setActiveProductArea, setActiveCapability, setActiveWorkItem } = useWorkspaceStore();
   const {
     setActiveView,
     setProductWorkspaceTab,
     setWorkItemWorkspaceTab,
     openProductDialog,
-    openModuleDialog,
+    openProductAreaDialog,
     openCapabilityDialog,
   } = useUIStore();
   const [exportPath, setExportPath] = React.useState<string | null>(null);
@@ -243,17 +243,17 @@ export function ProductOverviewPage() {
     openProductDialog("edit");
   };
 
-  const editModule = (module: Module) => {
+  const editProductArea = (product_area: ProductArea) => {
     if (!selectedProductId) {
       return;
     }
     setActiveProduct(selectedProductId);
-    setActiveModule(module.id);
+    setActiveProductArea(product_area.id);
     setActiveCapability(null);
     setProductWorkspaceTab("structure");
     setActiveView("products");
     navigate(`/products/${selectedProductId}`);
-    openModuleDialog("edit");
+    openProductAreaDialog("edit");
   };
 
   const editCapability = (capability: Capability) => {
@@ -261,7 +261,7 @@ export function ProductOverviewPage() {
       return;
     }
     setActiveProduct(selectedProductId);
-    setActiveModule(capability.module_id);
+    setActiveProductArea(capability.product_area_id);
     setActiveCapability(capability.id);
     setProductWorkspaceTab("structure");
     setActiveView("products");
@@ -271,7 +271,7 @@ export function ProductOverviewPage() {
 
   const openWorkItem = (workItem: WorkItem) => {
     setActiveProduct(workItem.product_id);
-    setActiveModule(workItem.module_id ?? null);
+    setActiveProductArea(workItem.product_area_id ?? null);
     setActiveCapability(workItem.capability_id ?? null);
     setActiveWorkItem(workItem.id);
     setWorkItemWorkspaceTab("detail");
@@ -293,31 +293,31 @@ export function ProductOverviewPage() {
       case "add_product_child":
         prompt = `Add a useful product area under product "${product.name}". Stage the new product area with its initial capabilities and starter stories.`;
         break;
-      case "enhance_module":
-        setActiveModule(action.module.id);
-        prompt = `Enhance product area "${action.module.name}" in product "${product.name}". Add or revise child capabilities, features, stories, and tasks so this branch is execution-ready.`;
+      case "enhance_product_area":
+        setActiveProductArea(action.product_area.id);
+        prompt = `Enhance product area "${action.product_area.name}" in product "${product.name}". Add or revise child capabilities, features, stories, and tasks so this branch is execution-ready.`;
         break;
-      case "add_module_child":
-        setActiveModule(action.module.id);
-        prompt = `Add child capabilities under product area "${action.module.name}" in product "${product.name}". Include concise descriptions, acceptance criteria, and starter stories where helpful.`;
+      case "add_product_area_child":
+        setActiveProductArea(action.product_area.id);
+        prompt = `Add child capabilities under product area "${action.product_area.name}" in product "${product.name}". Include concise descriptions, acceptance criteria, and starter stories where helpful.`;
         break;
       case "enhance_capability":
-        setActiveModule(action.capability.module_id);
+        setActiveProductArea(action.capability.product_area_id);
         setActiveCapability(action.capability.id);
-        prompt = `Enhance ${action.capability.node_kind.replace(/_/g, " ")} "${action.capability.name}" under "${action.moduleName}" in product "${product.name}". Improve its description, acceptance criteria, technical notes, and missing child structure.`;
+        prompt = `Enhance ${action.capability.node_kind.replace(/_/g, " ")} "${action.capability.name}" under "${action.productAreaName}" in product "${product.name}". Improve its description, acceptance criteria, technical notes, and missing child structure.`;
         break;
       case "add_capability_child":
-        setActiveModule(action.capability.module_id);
+        setActiveProductArea(action.capability.product_area_id);
         setActiveCapability(action.capability.id);
         prompt = `Add child nodes under "${action.capability.name}" in product "${product.name}". Stage concrete features with clear descriptions and acceptance criteria.`;
         break;
       case "add_capability_work_item":
-        setActiveModule(action.capability.module_id);
+        setActiveProductArea(action.capability.product_area_id);
         setActiveCapability(action.capability.id);
         prompt = `Add delivery stories and tasks under "${action.capability.name}" in product "${product.name}". Make each story specific, testable, and scoped to this branch.`;
         break;
       case "enhance_work_item":
-        setActiveModule(action.workItem.module_id ?? null);
+        setActiveProductArea(action.workItem.product_area_id ?? null);
         setActiveCapability(action.workItem.capability_id ?? null);
         setActiveWorkItem(action.workItem.id);
         prompt = `Enhance story "${action.workItem.title}" in product "${product.name}". Improve the problem statement, acceptance criteria, constraints, and split it into tasks if needed.`;
@@ -437,7 +437,7 @@ export function ProductOverviewPage() {
           references={productReferences}
           isLoading={treeLoading || summariesLoading || referencesLoading}
           onEditProduct={editProduct}
-          onEditModule={editModule}
+          onEditProductArea={editProductArea}
           onEditCapability={editCapability}
           onOpenWorkItem={openWorkItem}
           onPlanFromItem={planFromItem}
