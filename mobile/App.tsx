@@ -14,16 +14,11 @@ import {
   Switch,
   Text,
   TextInput,
-  TurboModuleRegistry,
   View,
 } from "react-native";
 import {
   AudioModule,
-  AudioQuality,
-  IOSOutputFormat,
-  RecordingPresets,
   setAudioModeAsync,
-  type RecordingOptions,
   useAudioRecorder,
   useAudioRecorderState,
 } from "expo-audio";
@@ -34,6 +29,46 @@ import { WebView } from "react-native-webview";
 import { initWhisper, type WhisperContext } from "whisper.rn";
 import { PlannerMobileClient } from "./src/api/client";
 import type { HierarchyTreeNode, MobilePlannerToolTraceEntry, ModelCall, Product, ProductTree, ProductTreeSummary } from "./src/types";
+import {
+  buildRemoteScript,
+  buildRemoteVoiceSubmitScript,
+  getLoopbackFallbackBaseUrl,
+  isNetworkRequestFailure,
+  normalizeBaseUrlForDisplay,
+  parseConnectionUrl,
+  type ConnectionValues,
+} from "./src/lib/mobileConnection";
+import {
+  buildModelCallSessions,
+  compactJson,
+  describeError,
+  formatBytes,
+  formatDurationMs,
+  formatInteger,
+  formatPlannerToolTrace,
+  formatSourceKind,
+  type ModelCallSessionSummary,
+} from "./src/lib/mobileFormatters";
+import {
+  assertWhisperNativeModuleAvailable,
+  normalizeWhisperLanguage,
+  parseInstalledWhisperModels,
+  whisperModelDirectory,
+  WHISPER_MODELS,
+  VOICE_RECORDING_OPTIONS,
+  type InstalledWhisperModel,
+  type WhisperModelOption,
+} from "./src/lib/mobileVoice";
+import {
+  countLeafNodes,
+  countTreeNodes,
+  findProductNode,
+  findProductNodePath,
+  flattenProductNodes,
+  formatNodeKind,
+  getNodeSummary,
+  productViewNeedsTree,
+} from "./src/lib/productTree";
 
 type ActiveTab = "planner" | "products" | "voice" | "models" | "calls" | "activity";
 type ProductExploreTab = "map" | "work" | "search" | "overview";
@@ -71,437 +106,8 @@ const STORAGE_KEYS = {
   installedWhisperModels: "aruvi.mobile.installed_whisper_models",
 };
 
-type WhisperModelOption = {
-  id: string;
-  label: string;
-  fileName: string;
-  sizeLabel: string;
-  description: string;
-  url: string;
-};
-
-type InstalledWhisperModel = {
-  id: string;
-  uri: string;
-  fileName: string;
-  installedAt: string;
-  sizeBytes?: number;
-};
-
-const WHISPER_MODELS: WhisperModelOption[] = [
-  {
-    id: "tiny-en-q5_1",
-    label: "Whisper tiny.en Q5",
-    fileName: "ggml-tiny.en-q5_1.bin",
-    sizeLabel: "31 MB",
-    description: "Fastest install and best first test for phone voice chat.",
-    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en-q5_1.bin",
-  },
-  {
-    id: "tiny-en",
-    label: "Whisper tiny.en",
-    fileName: "ggml-tiny.en.bin",
-    sizeLabel: "75 MB",
-    description: "Small English model with better quality than the quantized tiny file.",
-    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin",
-  },
-  {
-    id: "base-en-q5_1",
-    label: "Whisper base.en Q5",
-    fileName: "ggml-base.en-q5_1.bin",
-    sizeLabel: "57 MB",
-    description: "Better accuracy while staying reasonable for mobile storage.",
-    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin",
-  },
-];
-
-const VOICE_RECORDING_OPTIONS: RecordingOptions = Platform.OS === "ios"
-  ? {
-      extension: ".wav",
-      sampleRate: 16000,
-      numberOfChannels: 1,
-      bitRate: 256000,
-      android: RecordingPresets.HIGH_QUALITY.android,
-      ios: {
-        extension: ".wav",
-        outputFormat: IOSOutputFormat.LINEARPCM,
-        audioQuality: AudioQuality.MAX,
-        sampleRate: 16000,
-        linearPCMBitDepth: 16,
-        linearPCMIsBigEndian: false,
-        linearPCMIsFloat: false,
-      },
-      web: {
-        mimeType: "audio/wav",
-      },
-    }
-  : RecordingPresets.HIGH_QUALITY;
-
-function formatBytes(bytes?: number) {
-  if (!bytes || bytes <= 0) return "";
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${Math.round(bytes / (1024 * 1024))} MB`;
-}
-
-function formatInteger(value?: number | null) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "n/a";
-  return new Intl.NumberFormat().format(value);
-}
-
-function formatDurationMs(value?: number | null) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "n/a";
-  if (value < 1000) return `${Math.max(0, Math.round(value))}ms`;
-  const totalSeconds = Math.round(value / 1000);
-  const mins = Math.floor(totalSeconds / 60);
-  const secs = totalSeconds % 60;
-  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
-}
-
-function formatSourceKind(value: string) {
-  return value
-    .split("_")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-type ModelCallSessionSummary = {
-  key: string;
-  label: string;
-  sessionId: string | null;
-  sourceId: string | null;
-  status: string;
-  calls: ModelCall[];
-  callCount: number;
-  endedAt: string;
-  providerLine: string;
-  modelLine: string;
-  tokenCountInput: number | null;
-  tokenCountOutput: number | null;
-  durationMs: number | null;
-};
-
-function modelCallSourceLabel(call: ModelCall) {
-  return call.source_label || formatSourceKind(call.source_kind);
-}
-
-function modelCallSessionKey(call: ModelCall) {
-  if (call.session_id) return `session:${call.session_id}`;
-  if (call.workflow_run_id) return `workflow:${call.workflow_run_id}`;
-  if (call.agent_run_id) return `agent-run:${call.agent_run_id}`;
-  if (call.source_id) return `source:${call.source_kind}:${call.source_id}`;
-  return `call:${call.id}`;
-}
-
-function finiteTotal(values: Array<number | null | undefined>) {
-  let total = 0;
-  let hasValue = false;
-  values.forEach((value) => {
-    if (value !== null && value !== undefined && Number.isFinite(value)) {
-      total += value;
-      hasValue = true;
-    }
-  });
-  return hasValue ? total : null;
-}
-
-function sessionStatus(calls: ModelCall[]) {
-  if (calls.some((call) => call.status === "failed")) return "failed";
-  if (calls.every((call) => call.status === "completed")) return "completed";
-  return calls[0]?.status ?? "unknown";
-}
-
-function buildModelCallSessions(calls: ModelCall[]): ModelCallSessionSummary[] {
-  const grouped = new Map<string, ModelCall[]>();
-  calls.forEach((call) => {
-    const key = modelCallSessionKey(call);
-    grouped.set(key, [...(grouped.get(key) ?? []), call]);
-  });
-
-  return Array.from(grouped.entries())
-    .map(([key, groupedCalls]) => {
-      const orderedCalls = [...groupedCalls].sort(
-        (a, b) => a.call_index - b.call_index || a.created_at.localeCompare(b.created_at),
-      );
-      const latestCall = orderedCalls.reduce((latest, call) => (
-        call.created_at > latest.created_at ? call : latest
-      ), orderedCalls[0]);
-      const providers = Array.from(
-        new Set(orderedCalls.map((call) => call.provider_name || call.provider_id).filter(Boolean)),
-      );
-      const models = Array.from(new Set(orderedCalls.map((call) => call.model_name).filter(Boolean)));
-      return {
-        key,
-        label: modelCallSourceLabel(latestCall),
-        sessionId: latestCall.session_id,
-        sourceId: latestCall.source_id,
-        status: sessionStatus(orderedCalls),
-        calls: orderedCalls,
-        callCount: orderedCalls.length,
-        endedAt: latestCall.created_at,
-        providerLine: providers.length > 1 ? `${providers.length} providers` : providers[0] ?? "n/a",
-        modelLine: models.length > 1 ? `${models.length} models` : models[0] ?? "n/a",
-        tokenCountInput: finiteTotal(orderedCalls.map((call) => call.token_count_input)),
-        tokenCountOutput: finiteTotal(orderedCalls.map((call) => call.token_count_output)),
-        durationMs: finiteTotal(orderedCalls.map((call) => call.duration_ms)),
-      };
-    })
-    .sort((a, b) => b.endedAt.localeCompare(a.endedAt));
-}
-
-function parseInstalledWhisperModels(raw: string | null): Record<string, InstalledWhisperModel> {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as Record<string, InstalledWhisperModel>;
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function normalizeWhisperLanguage(locale: string) {
-  const normalized = locale.trim().toLowerCase();
-  if (!normalized) return "auto";
-  return normalized.split(/[-_]/)[0] || "auto";
-}
-
-function whisperModelDirectory() {
-  if (!FileSystem.documentDirectory) {
-    throw new Error("App document storage is unavailable on this device.");
-  }
-  return `${FileSystem.documentDirectory}models/whisper/`;
-}
-
-function describeError(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  if (typeof error === "string") {
-    return error;
-  }
-  if (error && typeof error === "object") {
-    const errorRecord = error as Record<string, unknown>;
-    const directMessage = errorRecord.message ?? errorRecord.error ?? errorRecord.description ?? errorRecord.reason;
-    if (typeof directMessage === "string" && directMessage.trim()) {
-      return directMessage;
-    }
-    try {
-      return JSON.stringify(errorRecord);
-    } catch {
-      return Object.prototype.toString.call(error);
-    }
-  }
-  return String(error);
-}
-
-function compactJson(value: unknown, maxLength = 220) {
-  if (value === null || value === undefined) return "";
-  let rendered = "";
-  try {
-    rendered = typeof value === "string" ? value : JSON.stringify(value);
-  } catch {
-    rendered = String(value);
-  }
-  return rendered.length > maxLength ? `${rendered.slice(0, maxLength - 1)}...` : rendered;
-}
-
-function formatPlannerToolTrace(entry: MobilePlannerToolTraceEntry) {
-  const action = entry.tool_name.split(".").slice(-2).join(".");
-  return `${entry.step}. ${action}${entry.error ? " failed" : " completed"}`;
-}
-
-function assertWhisperNativeModuleAvailable() {
-  if (!TurboModuleRegistry.get("RNWhisper")) {
-    throw new Error(
-      "On-device Whisper is not available in this app build. Rebuild and reinstall the Expo dev app after installing whisper.rn.",
-    );
-  }
-}
-
-type ConnectionValues = {
-  baseUrl?: string;
-  token?: string;
-  providerId?: string;
-  modelName?: string;
-  locale?: string;
-};
-
-function parseConnectionUrl(url: string): ConnectionValues | null {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "aruvi-planner-mobile:") {
-      return null;
-    }
-    const params = parsed.searchParams;
-    const values: ConnectionValues = {
-      baseUrl: params.get("baseUrl") || params.get("base_url") || undefined,
-      token: params.get("token") || undefined,
-      providerId: params.get("providerId") || params.get("provider_id") || undefined,
-      modelName: params.get("modelName") || params.get("model_name") || undefined,
-      locale: params.get("locale") || undefined,
-    };
-    return Object.values(values).some(Boolean) ? values : null;
-  } catch {
-    return null;
-  }
-}
-
-function buildRemoteScript(payload: {
-  token: string;
-  provider: string;
-  model: string;
-  locale: string;
-  activeTab: ActiveTab;
-}) {
-  return `
-    (function () {
-      try {
-        var config = ${JSON.stringify(payload)};
-        if (config.token) window.localStorage.setItem("aruvi.remote.token", config.token);
-        else window.localStorage.removeItem("aruvi.remote.token");
-        if (config.provider) window.localStorage.setItem("aruvi.remote.provider", config.provider);
-        else window.localStorage.removeItem("aruvi.remote.provider");
-        if (config.model) window.localStorage.setItem("aruvi.remote.model", config.model);
-        else window.localStorage.removeItem("aruvi.remote.model");
-        if (config.locale) window.localStorage.setItem("aruvi.remote.locale", config.locale);
-        else window.localStorage.removeItem("aruvi.remote.locale");
-        window.localStorage.setItem("aruvi.remote.active_tab", config.activeTab);
-
-        var styleId = "aruvi-native-shell-style";
-        var style = document.getElementById(styleId);
-        if (!style) {
-          style = document.createElement("style");
-          style.id = styleId;
-          style.textContent = [
-            ".topbar,.tabbar{display:none!important}",
-            ".shell{min-height:100vh!important;display:block!important}",
-            ".main{padding:10px 10px 14px 10px!important}",
-            ".tab-panel.active{display:block!important}",
-            "body{background:#101214!important}"
-          ].join("");
-          document.head.appendChild(style);
-        }
-
-        var activate = function () {
-          var button = document.querySelector('.tab-button[data-tab="' + config.activeTab + '"]');
-          if (button) button.click();
-        };
-        activate();
-        window.setTimeout(activate, 150);
-        window.setTimeout(activate, 500);
-      } catch (error) {}
-    })();
-    true;
-  `;
-}
-
-function buildRemoteVoiceSubmitScript(transcript: string) {
-  return `
-    (function () {
-      try {
-        var transcript = ${JSON.stringify(transcript)};
-        var voiceTab = document.querySelector('.tab-button[data-tab="voice"]');
-        if (voiceTab) voiceTab.click();
-        var composer = document.getElementById("voiceComposer");
-        if (composer) {
-          composer.value = transcript;
-          composer.dispatchEvent(new Event("input", { bubbles: true }));
-        }
-        var sendButton = document.getElementById("voiceSendButton");
-        if (sendButton) sendButton.click();
-      } catch (error) {}
-    })();
-    true;
-  `;
-}
-
 function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.round(Math.random() * 100000)}`;
-}
-
-function normalizeBaseUrlForDisplay(value: string) {
-  return value.trim().replace(/\/+$/, "");
-}
-
-function isLoopbackHost(hostname: string) {
-  return ["localhost", "127.0.0.1", "::1"].includes(hostname.toLowerCase());
-}
-
-function getLoopbackFallbackBaseUrl(value: string) {
-  try {
-    const parsed = new URL(normalizeBaseUrlForDisplay(value));
-    if (isLoopbackHost(parsed.hostname)) return null;
-    parsed.hostname = "127.0.0.1";
-    return normalizeBaseUrlForDisplay(parsed.toString());
-  } catch {
-    return null;
-  }
-}
-
-function isNetworkRequestFailure(error: unknown) {
-  return describeError(error).toLowerCase().includes("network request failed");
-}
-
-type FlatProductNode = {
-  node: HierarchyTreeNode;
-  pathLabel: string;
-};
-
-function productViewNeedsTree(mode: ProductExploreTab) {
-  return mode === "map" || mode === "search";
-}
-
-function formatNodeKind(value?: string | null) {
-  return String(value ?? "node").replace(/_/g, " ");
-}
-
-function getNodeSummary(node: HierarchyTreeNode) {
-  return node.summary || node.description || "No summary yet.";
-}
-
-function countTreeNodes(nodes: HierarchyTreeNode[]): number {
-  return nodes.reduce((total, node) => total + 1 + countTreeNodes(node.children ?? []), 0);
-}
-
-function countLeafNodes(nodes: HierarchyTreeNode[]): number {
-  return nodes.reduce((total, node) => {
-    const children = node.children ?? [];
-    if (!children.length) return total + 1;
-    return total + countLeafNodes(children);
-  }, 0);
-}
-
-function flattenProductNodes(nodes: HierarchyTreeNode[], parentPath: string[] = []): FlatProductNode[] {
-  return nodes.flatMap((node) => {
-    const path = [...parentPath, node.name];
-    return [
-      {
-        node,
-        pathLabel: path.join(" / "),
-      },
-      ...flattenProductNodes(node.children ?? [], path),
-    ];
-  });
-}
-
-function findProductNode(nodes: HierarchyTreeNode[], nodeId: string | null): HierarchyTreeNode | null {
-  if (!nodeId) return null;
-  for (const node of nodes) {
-    if (node.id === nodeId) return node;
-    const childMatch = findProductNode(node.children ?? [], nodeId);
-    if (childMatch) return childMatch;
-  }
-  return null;
-}
-
-function findProductNodePath(nodes: HierarchyTreeNode[], nodeId: string | null): HierarchyTreeNode[] {
-  if (!nodeId) return [];
-  for (const node of nodes) {
-    if (node.id === nodeId) return [node];
-    const childPath = findProductNodePath(node.children ?? [], nodeId);
-    if (childPath.length) return [node, ...childPath];
-  }
-  return [];
 }
 
 export default function App() {
