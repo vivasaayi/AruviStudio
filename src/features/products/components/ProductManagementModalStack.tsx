@@ -6,19 +6,11 @@ import type {
   WorkItemDraftState,
 } from "../lib/productListPageState";
 import {
-  DeleteHierarchyNodeModal,
-  DeleteManagementWorkItemModal,
-  ManagementWorkItemFormModal,
-} from "./ProductManagementDeliveryModals";
-import {
   CapabilityFormModal,
   ProductAreaFormModal,
 } from "./ProductManagementHierarchyModals";
-import {
-  DeleteProductModal,
-  ProductFormModal,
-  ResetProductPlanModal,
-} from "./ProductManagementProductModals";
+import { ProductManagementDeliveryModalStack } from "./ProductManagementDeliveryModalStack";
+import { ProductManagementProductModalStack } from "./ProductManagementProductModalStack";
 
 type ProductAreaFormState = {
   name: string;
@@ -51,7 +43,7 @@ type DeleteWorkItemCandidate = {
   kind: "story" | "task";
 };
 
-type ProductManagementModalStackProps = {
+export type ProductManagementModalStackProps = {
   productDialogMode: "closed" | "create" | "edit";
   productForm: ProductFormState;
   productDraft: ProductFormState;
@@ -238,116 +230,78 @@ export function ProductManagementModalStack({
 }: ProductManagementModalStackProps) {
   return (
     <>
-      {productDialogMode !== "closed" && (
-        <ProductFormModal
-          mode={productDialogMode}
-          productForm={productForm}
-          productDraft={productDraft}
-          setProductForm={setProductForm}
-          setProductDraft={setProductDraft}
-          formError={formError}
-          isCreatePending={isCreateProductPending}
-          isUpdatePending={isUpdateProductPending}
-          onClose={onCloseProductDialog}
-          onSubmit={onSubmitProduct}
-        />
-      )}
+      <ProductManagementProductModalStack
+        productDialogMode={productDialogMode}
+        productForm={productForm}
+        productDraft={productDraft}
+        setProductForm={setProductForm}
+        setProductDraft={setProductDraft}
+        isCreateProductPending={isCreateProductPending}
+        isUpdateProductPending={isUpdateProductPending}
+        onCloseProductDialog={onCloseProductDialog}
+        onSubmitProduct={onSubmitProduct}
+        deleteProductCandidate={deleteProductCandidate}
+        deleteConfirmName={deleteConfirmName}
+        deleteConfirmArchive={deleteConfirmArchive}
+        deleteProductReady={deleteProductReady}
+        isArchiveProductPending={isArchiveProductPending}
+        onCloseDeleteProduct={onCloseDeleteProduct}
+        onDeleteConfirmNameChange={onDeleteConfirmNameChange}
+        onDeleteConfirmArchiveChange={onDeleteConfirmArchiveChange}
+        onArchiveProduct={onArchiveProduct}
+        resetPlanCandidate={resetPlanCandidate}
+        resetPlanConfirmName={resetPlanConfirmName}
+        resetPlanConfirmTree={resetPlanConfirmTree}
+        resetPlanDeleteDelivery={resetPlanDeleteDelivery}
+        resetPlanReady={resetPlanReady}
+        isResetPlanPending={isResetPlanPending}
+        onCloseResetPlan={onCloseResetPlan}
+        onResetPlanConfirmNameChange={onResetPlanConfirmNameChange}
+        onResetPlanConfirmTreeChange={onResetPlanConfirmTreeChange}
+        onResetPlanDeleteDeliveryChange={onResetPlanDeleteDeliveryChange}
+        onResetPlan={onResetPlan}
+        formError={formError}
+      />
 
-      {deleteProductCandidate && (
-        <DeleteProductModal
-          product={deleteProductCandidate}
-          confirmName={deleteConfirmName}
-          confirmArchive={deleteConfirmArchive}
-          isReady={deleteProductReady}
-          isPending={isArchiveProductPending}
-          formError={formError}
-          onClose={onCloseDeleteProduct}
-          onConfirmNameChange={onDeleteConfirmNameChange}
-          onConfirmArchiveChange={onDeleteConfirmArchiveChange}
-          onArchive={onArchiveProduct}
-        />
-      )}
-
-      {resetPlanCandidate && (
-        <ResetProductPlanModal
-          product={resetPlanCandidate}
-          confirmName={resetPlanConfirmName}
-          confirmTree={resetPlanConfirmTree}
-          deleteDelivery={resetPlanDeleteDelivery}
-          isReady={resetPlanReady}
-          isPending={isResetPlanPending}
-          formError={formError}
-          onClose={onCloseResetPlan}
-          onConfirmNameChange={onResetPlanConfirmNameChange}
-          onConfirmTreeChange={onResetPlanConfirmTreeChange}
-          onDeleteDeliveryChange={onResetPlanDeleteDeliveryChange}
-          onReset={onResetPlan}
-        />
-      )}
-
-      {deleteHierarchyCandidate && (
-        <DeleteHierarchyNodeModal
-          candidate={deleteHierarchyCandidate}
-          confirmName={deleteHierarchyConfirmName}
-          confirmChecked={deleteHierarchyConfirmChecked}
-          isReady={deleteHierarchyReady}
-          isPending={isDeleteHierarchyPending}
-          formError={formError}
-          onClose={onCloseDeleteHierarchy}
-          onConfirmNameChange={onDeleteHierarchyConfirmNameChange}
-          onConfirmCheckedChange={onDeleteHierarchyConfirmCheckedChange}
-          onDelete={onDeleteHierarchy}
-        />
-      )}
-
-      {deleteWorkItemCandidate && (
-        <DeleteManagementWorkItemModal
-          candidate={deleteWorkItemCandidate}
-          confirmName={deleteWorkItemConfirmName}
-          confirmChecked={deleteWorkItemConfirmChecked}
-          isReady={deleteWorkItemReady}
-          isPending={isDeleteWorkItemPending}
-          formError={formError}
-          onClose={onCloseDeleteWorkItem}
-          onConfirmNameChange={onDeleteWorkItemConfirmNameChange}
-          onConfirmCheckedChange={onDeleteWorkItemConfirmCheckedChange}
-          onDelete={onDeleteWorkItem}
-        />
-      )}
-
-      {storyDialogMode !== "closed" && (
-        <ManagementWorkItemFormModal
-          kind="story"
-          mode={storyDialogMode}
-          contextLabel="Feature"
-          contextTitle={selectedFeatureTitle}
-          draft={storyDraft}
-          setDraft={setStoryDraft}
-          canSubmit={canSubmitStory}
-          isCreatePending={isCreateStoryPending}
-          isUpdatePending={isUpdateStoryPending}
-          formError={formError}
-          onClose={onCloseStoryDialog}
-          onSubmit={onSubmitStory}
-        />
-      )}
-
-      {taskDialogMode !== "closed" && (
-        <ManagementWorkItemFormModal
-          kind="task"
-          mode={taskDialogMode}
-          contextLabel="Story"
-          contextTitle={selectedStoryTitle}
-          draft={taskDraft}
-          setDraft={setTaskDraft}
-          canSubmit={canSubmitTask}
-          isCreatePending={isCreateTaskPending}
-          isUpdatePending={isUpdateTaskPending}
-          formError={formError}
-          onClose={onCloseTaskDialog}
-          onSubmit={onSubmitTask}
-        />
-      )}
+      <ProductManagementDeliveryModalStack
+        deleteHierarchyCandidate={deleteHierarchyCandidate}
+        deleteHierarchyConfirmName={deleteHierarchyConfirmName}
+        deleteHierarchyConfirmChecked={deleteHierarchyConfirmChecked}
+        deleteHierarchyReady={deleteHierarchyReady}
+        isDeleteHierarchyPending={isDeleteHierarchyPending}
+        onCloseDeleteHierarchy={onCloseDeleteHierarchy}
+        onDeleteHierarchyConfirmNameChange={onDeleteHierarchyConfirmNameChange}
+        onDeleteHierarchyConfirmCheckedChange={onDeleteHierarchyConfirmCheckedChange}
+        onDeleteHierarchy={onDeleteHierarchy}
+        deleteWorkItemCandidate={deleteWorkItemCandidate}
+        deleteWorkItemConfirmName={deleteWorkItemConfirmName}
+        deleteWorkItemConfirmChecked={deleteWorkItemConfirmChecked}
+        deleteWorkItemReady={deleteWorkItemReady}
+        isDeleteWorkItemPending={isDeleteWorkItemPending}
+        onCloseDeleteWorkItem={onCloseDeleteWorkItem}
+        onDeleteWorkItemConfirmNameChange={onDeleteWorkItemConfirmNameChange}
+        onDeleteWorkItemConfirmCheckedChange={onDeleteWorkItemConfirmCheckedChange}
+        onDeleteWorkItem={onDeleteWorkItem}
+        storyDialogMode={storyDialogMode}
+        selectedFeatureTitle={selectedFeatureTitle}
+        storyDraft={storyDraft}
+        setStoryDraft={setStoryDraft}
+        canSubmitStory={canSubmitStory}
+        isCreateStoryPending={isCreateStoryPending}
+        isUpdateStoryPending={isUpdateStoryPending}
+        onCloseStoryDialog={onCloseStoryDialog}
+        onSubmitStory={onSubmitStory}
+        taskDialogMode={taskDialogMode}
+        selectedStoryTitle={selectedStoryTitle}
+        taskDraft={taskDraft}
+        setTaskDraft={setTaskDraft}
+        canSubmitTask={canSubmitTask}
+        isCreateTaskPending={isCreateTaskPending}
+        isUpdateTaskPending={isUpdateTaskPending}
+        onCloseTaskDialog={onCloseTaskDialog}
+        onSubmitTask={onSubmitTask}
+        formError={formError}
+      />
 
       {productAreaDialogMode !== "closed" && (
         <ProductAreaFormModal
