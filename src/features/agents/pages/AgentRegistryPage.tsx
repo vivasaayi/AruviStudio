@@ -1,5 +1,5 @@
 import React from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   addTeamMember,
   assignTeamScope,
@@ -12,19 +12,6 @@ import {
   deleteWorkflowStagePolicy,
   linkSkillToAgent,
   linkSkillToTeam,
-  listAgentModelBindings,
-  listAgentDefinitions,
-  listModelDefinitions,
-  listAgentSkillLinks,
-  listAgentTeams,
-  listProductAreas,
-  listProductCapabilities,
-  listProducts,
-  listSkills,
-  listTeamAssignments,
-  listTeamMemberships,
-  listTeamSkillLinks,
-  listWorkflowStagePolicies,
   removeTeamAssignment,
   removeTeamMember,
   unlinkSkillFromAgent,
@@ -38,9 +25,7 @@ import {
 import type {
   AgentDefinition,
   AgentTeam,
-  Capability,
   Product,
-  ProductArea,
   Skill,
 } from "../../../lib/types";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
@@ -50,22 +35,17 @@ import { AgentRegistryHeader } from "../components/AgentRegistryHeader";
 import { AgentRoutingTab } from "../components/AgentRoutingTab";
 import { AgentSkillsTab } from "../components/AgentSkillsTab";
 import { AgentTeamsTab } from "../components/AgentTeamsTab";
+import { useAgentRegistryViewModel } from "../hooks/useAgentRegistryViewModel";
 import { styles } from "../lib/agentRegistryPageStyles";
 import {
   blankAgentDraft,
   blankSkillDraft,
   blankTeamDraft,
-  buildCapabilityOptions,
-  buildTeamMembershipsByTeam,
-  countAssignmentsByType,
-  filterUnassignedAgents,
   formatUiError,
   parseAgentDraft,
   parsePolicyDraft,
   parseSkillDraft,
   parseTeamDraft,
-  selectEntityById,
-  selectPolicyByStage,
   workflowStageOptions,
   type AgentDraft,
   type AgentTab,
@@ -116,26 +96,38 @@ export function AgentRegistryPage() {
   const [assignmentCapabilityId, setAssignmentCapabilityId] = React.useState<string>("");
   const [assignmentError, setAssignmentError] = React.useState<string | null>(null);
 
-  const { data: agents = [], isLoading: agentsLoading } = useQuery({ queryKey: ["agents"], queryFn: listAgentDefinitions });
-  const { data: agentModelBindings = [] } = useQuery({ queryKey: ["agent-model-bindings"], queryFn: listAgentModelBindings });
-  const { data: modelDefinitions = [] } = useQuery({ queryKey: ["model-definitions"], queryFn: listModelDefinitions });
-  const { data: teams = [], isLoading: teamsLoading } = useQuery({ queryKey: ["agent-teams"], queryFn: listAgentTeams });
-  const { data: memberships = [] } = useQuery({ queryKey: ["agent-team-memberships"], queryFn: listTeamMemberships });
-  const { data: assignments = [] } = useQuery({ queryKey: ["agent-team-assignments"], queryFn: listTeamAssignments });
-  const { data: skills = [] } = useQuery({ queryKey: ["skills"], queryFn: listSkills });
-  const { data: agentSkillLinks = [] } = useQuery({ queryKey: ["agent-skill-links"], queryFn: listAgentSkillLinks });
-  const { data: teamSkillLinks = [] } = useQuery({ queryKey: ["team-skill-links"], queryFn: listTeamSkillLinks });
-  const { data: routingPolicies = [] } = useQuery({ queryKey: ["workflow-stage-policies"], queryFn: listWorkflowStagePolicies });
-  const { data: products = [] } = useQuery({ queryKey: ["products"], queryFn: listProducts });
-  const { data: assignmentProductAreas = [] } = useQuery<ProductArea[]>({
-    queryKey: ["agent-assignment-product-areas", assignmentProductId],
-    queryFn: () => listProductAreas(assignmentProductId as string),
-    enabled: Boolean(assignmentProductId),
-  });
-  const { data: assignmentCapabilities = [] } = useQuery<Capability[]>({
-    queryKey: ["agent-assignment-capabilities", assignmentProductId],
-    queryFn: () => listProductCapabilities(assignmentProductId as string),
-    enabled: Boolean(assignmentProductId) && assignmentScopeType === "capability",
+  const {
+    agents,
+    agentsLoading,
+    agentModelBindings,
+    modelDefinitions,
+    teams,
+    teamsLoading,
+    memberships,
+    assignments,
+    skills,
+    agentSkillLinks,
+    teamSkillLinks,
+    routingPolicies,
+    products,
+    currentProductAreaOptions,
+    currentCapabilityOptions,
+    selectedAgent,
+    selectedTeam,
+    selectedSkill,
+    selectedPolicy,
+    selectedTeamMemberships,
+    selectedTeamAssignments,
+    assignmentCounts,
+    teamMembershipsByTeam,
+    unassignedAgents,
+  } = useAgentRegistryViewModel({
+    selectedAgentId,
+    selectedTeamId,
+    selectedSkillId,
+    selectedPolicyStage,
+    assignmentProductId,
+    assignmentScopeType,
   });
 
   React.useEffect(() => {
@@ -164,11 +156,6 @@ export function AgentRegistryPage() {
       setAssignmentProductId(activeProductId);
     }
   }, [activeProductId, assignmentProductId]);
-
-  const selectedAgent = selectEntityById(agents, selectedAgentId);
-  const selectedTeam = selectEntityById(teams, selectedTeamId);
-  const selectedSkill = selectEntityById(skills, selectedSkillId);
-  const selectedPolicy = selectPolicyByStage(routingPolicies, selectedPolicyStage);
 
   React.useEffect(() => {
     if (selectedAgent) {
@@ -216,17 +203,11 @@ export function AgentRegistryPage() {
   }, [selectedPolicy, selectedPolicyStage]);
 
   React.useEffect(() => {
-    const firstProductAreaId = assignmentProductAreas[0]?.id ?? "";
-    if (!assignmentProductAreaId || !assignmentProductAreas.some((entry) => entry.id === assignmentProductAreaId)) {
+    const firstProductAreaId = currentProductAreaOptions[0]?.id ?? "";
+    if (!assignmentProductAreaId || !currentProductAreaOptions.some((entry) => entry.id === assignmentProductAreaId)) {
       setAssignmentProductAreaId(firstProductAreaId);
     }
-  }, [assignmentProductAreaId, assignmentProductAreas]);
-
-  const currentProductAreaOptions = assignmentProductAreas;
-  const currentCapabilityOptions = React.useMemo(
-    () => buildCapabilityOptions(assignmentCapabilities),
-    [assignmentCapabilities],
-  );
+  }, [assignmentProductAreaId, currentProductAreaOptions]);
 
   React.useEffect(() => {
     const availableCapabilityIds = currentCapabilityOptions.map((capability) => capability.id);
@@ -234,18 +215,6 @@ export function AgentRegistryPage() {
       setAssignmentCapabilityId(currentCapabilityOptions[0]?.id ?? "");
     }
   }, [assignmentCapabilityId, currentCapabilityOptions]);
-
-  const selectedTeamMemberships = memberships.filter((membership) => membership.team_id === selectedTeamId);
-  const selectedTeamAssignments = assignments.filter((assignment) => assignment.team_id === selectedTeamId);
-  const assignmentCounts = countAssignmentsByType(assignments);
-  const teamMembershipsByTeam = React.useMemo(
-    () => buildTeamMembershipsByTeam(memberships),
-    [memberships],
-  );
-  const unassignedAgents = React.useMemo(
-    () => filterUnassignedAgents(agents, memberships),
-    [agents, memberships],
-  );
 
   const invalidateAgentData = () => invalidateAgentRegistryData(queryClient);
 
