@@ -9,6 +9,7 @@ pub mod audit_service;
 pub mod bulk_import_builder;
 pub mod bulk_import_context;
 pub mod bulk_import_csv;
+pub mod bulk_import_csv_builder;
 pub mod bulk_import_document;
 pub mod bulk_import_normalization;
 pub mod bulk_import_schema;
