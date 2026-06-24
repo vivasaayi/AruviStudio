@@ -26,69 +26,19 @@ import {
   startModelChatStream,
   writeRepositoryFile,
 } from "../../../lib/tauri";
-import type { ChatMessagePayload, RepositoryTreeNode } from "../../../lib/types";
-
-type LocalChatMessage = ChatMessagePayload & { id: string };
-type CopilotMode = "chat" | "patch";
-
-interface PatchProposalItem {
-  path: string;
-  patch: string;
-  base_sha256?: string | null;
-  description?: string;
-}
-
-interface CopilotPatchProposal {
-  summary: string;
-  patches: PatchProposalItem[];
-  raw: string;
-}
-
-const styles: Record<string, React.CSSProperties> = {
-  page: { display: "flex", flexDirection: "column", height: "100%", margin: -12 },
-  header: { padding: "10px 12px 12px", borderBottom: "1px solid #d9e0ea", backgroundColor: "#f8fafc" },
-  headerTop: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 10 },
-  title: { margin: 0, fontSize: 20, fontWeight: 750, color: "#111827" },
-  subtitle: { marginTop: 4, fontSize: 12, color: "#6b7280" },
-  productPicker: { minWidth: 280, display: "flex", flexDirection: "column", gap: 4 },
-  workspace: { flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "280px 1fr 360px", gap: 10, padding: 10 },
-  panel: { border: "1px solid #d9e0ea", borderRadius: 12, backgroundColor: "#ffffff", minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" },
-  panelHeader: { padding: "10px 12px", borderBottom: "1px solid #d9e0ea", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  panelTitle: { fontSize: 12, fontWeight: 800, textTransform: "uppercase" as const, letterSpacing: 1, color: "#6b7280" },
-  controlRow: { display: "flex", gap: 8, alignItems: "center" },
-  select: { width: "100%", padding: "8px 10px", backgroundColor: "#ffffff", border: "1px solid #cfd8e3", color: "#111827", borderRadius: 8, fontSize: 13 },
-  input: { width: "100%", padding: "8px 10px", backgroundColor: "#ffffff", border: "1px solid #cfd8e3", color: "#111827", borderRadius: 8, fontSize: 13, boxSizing: "border-box" as const },
-  button: { border: "none", backgroundColor: "#2563eb", color: "#ffffff", borderRadius: 8, padding: "7px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
-  buttonGhost: { border: "1px solid #cfd8e3", backgroundColor: "#f8fafc", color: "#111827", borderRadius: 8, padding: "7px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
-  leftBody: { padding: 10, overflowY: "auto" as const, display: "flex", flexDirection: "column", gap: 8, minHeight: 0 },
-  treeNode: { border: "1px solid transparent", borderRadius: 8, padding: "6px 8px", cursor: "pointer", backgroundColor: "#ffffff", color: "#1f2937", fontSize: 12 },
-  treeNodeActive: { border: "1px solid #2563eb", borderRadius: 8, padding: "6px 8px", cursor: "pointer", backgroundColor: "#eff6ff", color: "#111827", fontSize: 12 },
-  treeDirRow: { display: "flex", alignItems: "center", gap: 6, fontWeight: 700 },
-  treeFileRow: { display: "flex", alignItems: "center", gap: 6 },
-  treeMeta: { fontSize: 10, color: "#6b7280", marginTop: 2 },
-  treeChildren: { marginLeft: 14, marginTop: 6, display: "flex", flexDirection: "column", gap: 6, borderLeft: "1px solid #d9e0ea", paddingLeft: 8 },
-  editorPanel: { display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" },
-  editorHeader: { padding: "8px 12px", borderBottom: "1px solid #d9e0ea", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, backgroundColor: "#f8fafc" },
-  editorPath: { fontSize: 12, color: "#4b5563", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
-  editorBody: { flex: 1, minHeight: 0, backgroundColor: "#ffffff" },
-  placeholder: { height: "100%", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", color: "#6b7280", fontSize: 13, gap: 6 },
-  label: { fontSize: 11, color: "#6b7280", fontWeight: 700 },
-  section: { padding: "10px 12px", borderBottom: "1px solid #d9e0ea", display: "flex", flexDirection: "column", gap: 8 },
-  chatBody: { flex: 1, minHeight: 0, overflowY: "auto" as const, padding: 10, display: "flex", flexDirection: "column", gap: 8, backgroundColor: "#f8fafc" },
-  bubbleUser: { alignSelf: "flex-end", maxWidth: "85%", backgroundColor: "#2563eb", color: "#fff", borderRadius: 10, padding: "8px 10px", whiteSpace: "pre-wrap" as const, fontSize: 13 },
-  bubbleAssistant: { alignSelf: "flex-start", maxWidth: "88%", backgroundColor: "#ffffff", color: "#111827", border: "1px solid #d9e0ea", borderRadius: 10, padding: "8px 10px", whiteSpace: "pre-wrap" as const, fontSize: 13 },
-  chatComposer: { borderTop: "1px solid #d9e0ea", padding: 10, display: "flex", flexDirection: "column", gap: 8 },
-  textarea: { width: "100%", minHeight: 90, padding: "9px 10px", backgroundColor: "#ffffff", border: "1px solid #cfd8e3", color: "#111827", borderRadius: 8, resize: "vertical" as const, fontSize: 13, boxSizing: "border-box" as const },
-  status: { fontSize: 11, color: "#6b7280" },
-  error: { fontSize: 12, color: "#dc2626" },
-  segmented: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 },
-  modeButton: { border: "1px solid #cfd8e3", backgroundColor: "#f8fafc", color: "#374151", borderRadius: 8, padding: "6px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
-  modeButtonActive: { border: "1px solid #2563eb", backgroundColor: "#dbeafe", color: "#111827", borderRadius: 8, padding: "6px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
-  patchPanel: { border: "1px solid #d9e0ea", borderRadius: 8, padding: 8, backgroundColor: "#f8fafc", display: "flex", flexDirection: "column", gap: 6 },
-  patchPath: { fontSize: 12, fontWeight: 700, color: "#111827" },
-  patchMeta: { fontSize: 11, color: "#6b7280" },
-  patchSnippet: { fontSize: 11, fontFamily: "JetBrains Mono, Menlo, Monaco, monospace", backgroundColor: "#f3f4f6", color: "#111827", border: "1px solid #d1d5db", borderRadius: 6, padding: 6, whiteSpace: "pre-wrap" as const, maxHeight: 110, overflow: "auto" as const },
-};
+import type { RepositoryTreeNode } from "../../../lib/types";
+import {
+  detectLanguage,
+  filterTreeNodes,
+  formatBytes,
+  normalizePath,
+  parsePatchProposal,
+  truncateForContext,
+  type CopilotMode,
+  type CopilotPatchProposal,
+  type LocalChatMessage,
+} from "../lib/idePageModel";
+import { styles } from "../lib/idePageStyles";
 
 export function IDEPage() {
   const queryClient = useQueryClient();
@@ -933,142 +883,4 @@ function TreeNode(props: {
       )}
     </div>
   );
-}
-
-function filterTreeNodes(nodes: RepositoryTreeNode[], rawFilter: string): RepositoryTreeNode[] {
-  const filter = rawFilter.trim().toLowerCase();
-  if (!filter) {
-    return nodes;
-  }
-
-  const filtered: RepositoryTreeNode[] = [];
-  for (const node of nodes) {
-    if (node.node_type === "file") {
-      if (
-        node.name.toLowerCase().includes(filter) ||
-        node.relative_path.toLowerCase().includes(filter)
-      ) {
-        filtered.push(node);
-      }
-      continue;
-    }
-
-    const children = filterTreeNodes(node.children, filter);
-    if (
-      node.name.toLowerCase().includes(filter) ||
-      node.relative_path.toLowerCase().includes(filter) ||
-      children.length > 0
-    ) {
-      filtered.push({
-        ...node,
-        children,
-      });
-    }
-  }
-  return filtered;
-}
-
-function normalizePath(path: string): string {
-  return path.replace(/\/+$/, "");
-}
-
-function truncateForContext(content: string, maxChars: number): string {
-  if (content.length <= maxChars) {
-    return content;
-  }
-  const headLength = Math.floor(maxChars * 0.7);
-  const tailLength = Math.max(0, maxChars - headLength);
-  return `${content.slice(0, headLength)}\n\n...<truncated for context budget>...\n\n${content.slice(
-    Math.max(content.length - tailLength, 0),
-  )}`;
-}
-
-function formatBytes(size: number): string {
-  if (size < 1024) {
-    return `${size} B`;
-  }
-  if (size < 1024 * 1024) {
-    return `${(size / 1024).toFixed(1)} KB`;
-  }
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function detectLanguage(path: string): string {
-  const extension = path.split(".").pop()?.toLowerCase() ?? "";
-  const map: Record<string, string> = {
-    ts: "typescript",
-    tsx: "typescript",
-    js: "javascript",
-    jsx: "javascript",
-    json: "json",
-    rs: "rust",
-    py: "python",
-    md: "markdown",
-    html: "html",
-    css: "css",
-    scss: "scss",
-    yml: "yaml",
-    yaml: "yaml",
-    toml: "toml",
-    sql: "sql",
-    sh: "shell",
-    zsh: "shell",
-    go: "go",
-    java: "java",
-    kt: "kotlin",
-    swift: "swift",
-  };
-  return map[extension] ?? "plaintext";
-}
-
-function parsePatchProposal(text: string): CopilotPatchProposal | null {
-  const payload = extractJsonObject(text);
-  if (!payload) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(payload) as {
-      type?: string;
-      summary?: string;
-      patches?: Array<{ path?: string; patch?: string; base_sha256?: string | null; baseSha256?: string | null; description?: string }>;
-    };
-    if (parsed.type !== "patch_proposal" || !Array.isArray(parsed.patches) || parsed.patches.length === 0) {
-      return null;
-    }
-    const patches = parsed.patches
-      .map((entry) => ({
-        path: (entry.path ?? "").trim(),
-        patch: entry.patch ?? "",
-        base_sha256: entry.base_sha256 ?? entry.baseSha256 ?? null,
-        description: entry.description,
-      }))
-      .filter((entry) => entry.path.length > 0 && entry.patch.trim().length > 0);
-    if (patches.length === 0) {
-      return null;
-    }
-    return {
-      summary: parsed.summary?.trim() || "Patch proposal generated.",
-      patches,
-      raw: payload,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function extractJsonObject(text: string): string | null {
-  const fencedMatch = text.match(/```json\s*([\s\S]*?)```/i);
-  if (fencedMatch?.[1]) {
-    return fencedMatch[1].trim();
-  }
-  const trimmed = text.trim();
-  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
-    return trimmed;
-  }
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start >= 0 && end > start) {
-    return trimmed.slice(start, end + 1);
-  }
-  return null;
 }
