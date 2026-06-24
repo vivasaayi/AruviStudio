@@ -28,6 +28,7 @@ import {
   updatePlannerSession,
 } from "../../../lib/tauri";
 import { blobToBase64, speakInBrowser, startWavCapture, type ActiveAudioCapture } from "../../shared/voice";
+import { PlannerAssistantMessage } from "../components/PlannerAssistantMessage";
 import { PlannerHeader } from "../components/PlannerHeader";
 import { PlannerRepositoryModal } from "../components/PlannerRepositoryModal";
 import { PlannerSidebar } from "../components/PlannerSidebar";
@@ -42,14 +43,11 @@ import {
   SPEECH_NATIVE_VOICE_KEY,
   SPEECH_PROVIDER_KEY,
   SPEECH_REVIEW_BEFORE_SEND_KEY,
-  FormattedPlannerText,
   PlannerComposer,
   SelectableTreeNodeView,
-  TreeNodeView,
   buildDesignReviewPacketHtml,
   buildDraftValidation,
   buildProductAreaOnlyTree,
-  buildProposalTreeNodes,
   buildSuggestedPrompts,
   buildWorkItemTreeNodes,
   buildWorkItemTreeReport,
@@ -1585,89 +1583,6 @@ export function PlannerPage() {
     }
   };
 
-  const renderAssistantMessage = (message: PlannerMessage) => {
-    if (message.kind === "proposal" && message.plan) {
-      const proposalTreeNodes = buildProposalTreeNodes(message.plan);
-      return (
-        <>
-          <FormattedPlannerText content={message.content} />
-          <div style={styles.card}>
-            <div style={styles.cardTitle}>Proposed Changes</div>
-            {message.plan.actions.map((action, index) => {
-              const summary = summarizeAction(action);
-              const symbolStyle = summary.tone === "add"
-                ? styles.diffSymbolAdd
-                : summary.tone === "update"
-                  ? styles.diffSymbolUpdate
-                  : styles.diffSymbolWarn;
-              return (
-                <div key={`${action.type}-${index}`} style={styles.diffRow}>
-                  <div style={symbolStyle}>{summary.symbol}</div>
-                  <div>
-                    <div style={styles.diffPrimary}>{summary.title}</div>
-                    {summary.detail ? <div style={styles.diffSecondary}>{summary.detail}</div> : null}
-                  </div>
-                </div>
-              );
-            })}
-            {proposalTreeNodes.length > 0 ? (
-              <div style={styles.cardSection}>
-                <div style={styles.cardTitle}>Proposed Design</div>
-                <div style={styles.treePanel}>
-                  {proposalTreeNodes.map((node) => (
-                    <TreeNodeView key={node.id} node={node} />
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            {message.treeNodes && message.treeNodes.length > 0 ? (
-              <div style={styles.cardSection}>
-                <div style={styles.cardTitle}>Current Design</div>
-                <div style={styles.treePanel}>
-                  {message.treeNodes.map((node) => (
-                    <TreeNodeView key={node.id} node={node} />
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            <div style={styles.inlineButtonRow}>
-              <button style={styles.btnGhost} onClick={() => void exportDesignReviewPacket()} disabled={isExportingDesignPacket}>
-                {isExportingDesignPacket ? "Generating Packet..." : "Generate Review Packet"}
-              </button>
-              <button style={styles.btn} onClick={confirmPendingPlan} disabled={isPlannerBusy || (!pendingPlan && draftTreeNodes.length === 0)}>
-                {draftTreeNodes.length > 0 ? "Apply Design" : "Confirm Proposal"}
-              </button>
-              <button style={styles.btnGhost} onClick={dismissPendingPlan} disabled={!pendingPlan && draftTreeNodes.length === 0}>
-                {draftTreeNodes.length > 0 ? "Clear Design" : "Dismiss"}
-              </button>
-            </div>
-            {designPacketPath ? (
-              <div style={{ ...styles.helper, marginTop: 8 }}>
-                Packet exported: {designPacketPath}
-              </div>
-            ) : null}
-            {designPacketError ? <div style={styles.error}>{designPacketError}</div> : null}
-          </div>
-        </>
-      );
-    }
-
-    if (message.kind === "tree" && message.treeNodes) {
-      return (
-        <>
-          <FormattedPlannerText content={message.content} />
-          <div style={styles.treePanel}>
-            {message.treeNodes.map((node) => (
-              <TreeNodeView key={node.id} node={node} />
-            ))}
-          </div>
-        </>
-      );
-    }
-
-    return <FormattedPlannerText content={message.content} />;
-  };
-
   const plannerSidebar = (
     <PlannerSidebar
       isCompactScreen={isCompactScreen}
@@ -2137,7 +2052,20 @@ export function PlannerPage() {
                 ) : null}
                 {messages.map((message) => (
                   <div key={message.id} style={message.role === "user" ? styles.bubbleUser : styles.bubbleAssistant}>
-                    {message.role === "assistant" ? renderAssistantMessage(message) : message.content}
+                    {message.role === "assistant" ? (
+                      <PlannerAssistantMessage
+                        message={message}
+                        isExportingDesignPacket={isExportingDesignPacket}
+                        onExportDesignReviewPacket={() => void exportDesignReviewPacket()}
+                        onConfirmPendingPlan={confirmPendingPlan}
+                        onDismissPendingPlan={dismissPendingPlan}
+                        isPlannerBusy={isPlannerBusy}
+                        pendingPlan={pendingPlan}
+                        draftTreeNodes={draftTreeNodes}
+                        designPacketPath={designPacketPath}
+                        designPacketError={designPacketError}
+                      />
+                    ) : message.content}
                     {message.meta ? <span style={styles.bubbleMeta}>{message.meta}</span> : null}
                   </div>
                 ))}
