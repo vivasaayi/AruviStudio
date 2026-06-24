@@ -1,7 +1,7 @@
 import { countHierarchyNodes, getProductDirectWorkItems } from "../../../lib/hierarchyTree";
-import type { CapabilityTree, HierarchyTreeNode, Product, ProductReference, ProductTree, WorkItem } from "../../../lib/types";
+import type { CapabilityTree, Product, ProductReference, ProductTree, WorkItem } from "../../../lib/types";
 import { getHierarchyNodeKindLabel } from "../../../lib/hierarchyLabels";
-import { filterReferencesForScope, getCapabilityReferenceScope, getProductAreaReferenceScope, getReferenceKindLabel } from "./productReferences";
+import { filterReferencesForScope, getCapabilityReferenceScope, getProductAreaReferenceScope } from "./productReferences";
 import {
   PRODUCT_DELIVERY_ID,
   PRODUCT_OVERVIEW_TOP_ID,
@@ -39,6 +39,12 @@ import {
   type BookTocNode,
   type IndexEntry,
 } from "./bookExportToc";
+import {
+  buildReferenceAtlas,
+  filterBookReferences,
+  renderBookReferencesHtml,
+  type ReferenceAtlasEntry,
+} from "./bookExportReferences";
 export {
   BOOK_EXPORT_TRIM_PRESETS,
   getBookExportTrimPreset,
@@ -48,15 +54,6 @@ export {
   type ProductOverviewBookBundle,
   type ProductOverviewBookOptions,
 } from "./bookExportOptions";
-
-type ReferenceAtlasEntry = {
-  id: string;
-  kindLabel: string;
-  pathLabel: string;
-  title: string;
-  summary: string;
-  uri: string;
-};
 
 export function buildProductOverviewBookHtml(
   input: { product: Product; tree?: ProductTree; workItems?: WorkItem[]; references?: ProductReference[] },
@@ -1054,70 +1051,4 @@ function renderNoteBlock(label: string, text: string) {
       <div class="note-copy">${renderRichTextHtml(text)}</div>
     </div>
   `;
-}
-
-function renderBookReferencesHtml(references: ProductReference[]): string {
-  if (references.length === 0) {
-    return "";
-  }
-
-  return `
-    <div class="reference-list">
-      ${references.map((reference) => `
-        <div class="reference-item">
-          <div class="meta-label">${escapeHtml(getReferenceKindLabel(reference.reference_kind))}</div>
-          <h3 style="margin-top: 6px;">${escapeHtml(reference.title)}</h3>
-          ${reference.content ? `<div class="note-copy">${renderRichTextHtml(reference.content)}</div>` : ""}
-          ${reference.uri ? `<a class="reference-uri" href="${escapeHtml(reference.uri)}">${escapeHtml(reference.uri)}</a>` : ""}
-        </div>
-      `).join("")}
-    </div>
-  `;
-}
-
-function filterBookReferences(
-  product: Product,
-  tree: ProductTree | undefined,
-  references: ProductReference[],
-): ProductReference[] {
-  const scopeLabels = buildReferenceScopeLabels(product, tree);
-  return references.filter((reference) => scopeLabels.has(getReferenceScopeKey(reference)));
-}
-
-function buildReferenceAtlas(
-  product: Product,
-  tree: ProductTree | undefined,
-  references: ProductReference[],
-): ReferenceAtlasEntry[] {
-  const scopeLabels = buildReferenceScopeLabels(product, tree);
-  return references.map((reference) => ({
-    id: reference.id,
-    kindLabel: getReferenceKindLabel(reference.reference_kind),
-    pathLabel: scopeLabels.get(getReferenceScopeKey(reference)) ?? `${reference.scope_type} / ${reference.scope_id}`,
-    title: reference.title,
-    summary: reference.content,
-    uri: reference.uri,
-  }));
-}
-
-function buildReferenceScopeLabels(product: Product, tree: ProductTree | undefined): Map<string, string> {
-  const scopeLabels = new Map<string, string>();
-  scopeLabels.set(`product:${product.id}`, product.name);
-
-  const visit = (node: HierarchyTreeNode) => {
-    if (node.node_type === "product_area") {
-      scopeLabels.set(`product_area:${node.id}`, node.path.join(" / "));
-    } else if (node.capability_id) {
-      const scopeType = node.node_kind === "feature" ? "feature" : "capability";
-      scopeLabels.set(`${scopeType}:${node.capability_id}`, node.path.join(" / "));
-    }
-    node.children.forEach(visit);
-  };
-
-  (tree?.roots ?? []).forEach(visit);
-  return scopeLabels;
-}
-
-function getReferenceScopeKey(reference: ProductReference) {
-  return `${reference.scope_type}:${reference.scope_id}`;
 }
