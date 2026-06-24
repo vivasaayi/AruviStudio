@@ -112,7 +112,7 @@ pub fn run() {
             commands::repository_commands::attach_repository,
             commands::repository_commands::resolve_repository_for_work_item,
             commands::repository_commands::resolve_repository_for_scope,
-            commands::repository_commands::create_local_workspace,
+            commands::repository_commands::workspace::create_local_workspace,
             commands::repository_commands::browse_for_repository_path,
             commands::repository_commands::reveal_in_finder,
             commands::repository_commands::exports::export_product_overview_html,
