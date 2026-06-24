@@ -2,13 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
-  addPlannerDraftChild,
   createPlannerSession,
-  deletePlannerDraftNode,
-  renamePlannerDraftNode,
   revealInFinder,
   speakTextNatively,
-  submitPlannerTurn,
   submitPlannerVoiceTurn,
   transcribeAudio,
 } from "../../../lib/tauri";
@@ -27,11 +23,11 @@ import { usePlannerMutationResultHandler } from "../hooks/usePlannerMutationResu
 import { usePlannerPendingPlanActions } from "../hooks/usePlannerPendingPlanActions";
 import { usePlannerRepositoryModalState } from "../hooks/usePlannerRepositoryModalState";
 import { usePlannerSpeechSettingsState } from "../hooks/usePlannerSpeechSettingsState";
+import { usePlannerTurnMutations } from "../hooks/usePlannerTurnMutations";
 import { usePlannerWindowWidth } from "../hooks/usePlannerWindowWidth";
 import { styles } from "../lib/plannerPageStyles";
 import {
   DEFAULT_ASSISTANT_OPENING,
-  formatDraftChildTypeLabel,
   getPlannerNodeType,
   getPlannerVoiceViewCommand,
   isCollapseDraftVoiceCommand,
@@ -41,10 +37,8 @@ import {
   normalize,
   parseVoiceNodeReference,
   resolveVoiceNodeReference,
-  type DraftEditOperation,
   type PendingPlan,
   type PlannerMessage,
-  type PlannerMutationResult,
   type PlannerTreeNode,
   mapPlannerResponseToMutationResult,
 } from "../lib/plannerPageModel";
@@ -283,93 +277,25 @@ export function PlannerPage() {
     speakAssistantReply,
   });
 
-  const processMutation = useMutation<PlannerMutationResult, Error, string>({
-    mutationFn: async (input: string) => {
-      const userInput = input.trim();
-      if (!selectedProductId) {
-        throw new Error("Select a product before planning.");
-      }
-      let activeSessionId = sessionId;
-      if (!activeSessionId) {
-        const session = await createPlannerSession({
-          providerId: providerId || undefined,
-          modelName: modelName || undefined,
-        });
-        activeSessionId = session.session_id;
-        setSessionId(session.session_id);
-      }
-
-      const response = await submitPlannerTurn({
-        sessionId: activeSessionId,
-        userInput,
-        selectedDraftNodeId,
-        productId: selectedProductId,
-      });
-
-      return mapPlannerResponseToMutationResult(response, userInput);
-    },
-    onSuccess: handlePlannerMutationSuccess,
-    onError: (error, userInput) => {
-      setPendingVoiceTranscript(null);
-      setEditableVoiceTranscript("");
-      setVoiceActivity(null);
-      setIsVoiceSubmitting(false);
-      setLatestTraceEvents([]);
-      setMessages((current) => [
-        ...current,
-        { id: makeId(), role: "user", content: userInput, kind: "text" },
-        { id: makeId(), role: "assistant", content: error instanceof Error ? error.message : String(error), meta: "Planner error", kind: "error" },
-      ]);
-    },
-  });
-
-  const draftEditMutation = useMutation<PlannerMutationResult, Error, DraftEditOperation>({
-    mutationFn: async (operation) => {
-      if (!sessionId) {
-        throw new Error("Planner session is not ready.");
-      }
-      switch (operation.kind) {
-        case "rename": {
-          const response = await renamePlannerDraftNode({
-            sessionId,
-            nodeId: operation.nodeId,
-            name: operation.name,
-          });
-          return mapPlannerResponseToMutationResult(
-            response,
-            `Rename this node to "${operation.name}".`,
-          );
-        }
-        case "add_child": {
-          const response = await addPlannerDraftChild({
-            sessionId,
-            parentNodeId: operation.parentNodeId,
-            childType: operation.childType,
-            name: operation.name,
-            summary: operation.summary,
-          });
-          return mapPlannerResponseToMutationResult(
-            response,
-            `Add a ${formatDraftChildTypeLabel(operation.childType).toLowerCase()} called "${operation.name}".`,
-          );
-        }
-        case "delete": {
-          const response = await deletePlannerDraftNode({
-            sessionId,
-            nodeId: operation.nodeId,
-          });
-          return mapPlannerResponseToMutationResult(
-            response,
-            "Delete this node from the staged design.",
-          );
-        }
-      }
-    },
-    onSuccess: handlePlannerMutationSuccess,
-    onError: (error) => {
-      setDraftEditError(error instanceof Error ? error.message : String(error));
-      setDraftEditMessage(null);
-    },
+  const {
+    processMutation,
+    draftEditMutation,
+  } = usePlannerTurnMutations({
+    selectedProductId,
+    sessionId,
+    setSessionId,
+    providerId,
+    modelName,
+    selectedDraftNodeId,
+    setPendingVoiceTranscript,
+    setEditableVoiceTranscript,
+    setVoiceActivity,
+    setIsVoiceSubmitting,
+    setLatestTraceEvents,
+    setMessages,
+    setDraftEditError,
+    setDraftEditMessage,
+    onPlannerMutationSuccess: handlePlannerMutationSuccess,
   });
 
   const transcribeAudioMutation = useMutation<string, Error, { audioBytesBase64: string; mimeType: string }>({
