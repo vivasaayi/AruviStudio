@@ -71,6 +71,27 @@ import { ProductManagementWorkItemFeatureSelector } from "../components/ProductM
 import { ProductCatalogTab } from "../components/ProductCatalogTab";
 import { ProductStatusTab } from "../components/ProductStatusTab";
 import { ScopedRefreshButton } from "../components/ScopedRefreshButton";
+import { ProductManagementModalShell as ModalShell } from "../components/ProductManagementModalShell";
+import { styles } from "../lib/productListPageStyles";
+import {
+  HIDE_EXAMPLE_PRODUCTS_KEY,
+  PRODUCT_MANAGEMENT_STORY_PAGE_SIZE,
+  SUB_WORK_ITEM_PAGE_SIZE,
+  emptyProductForm,
+  emptyWorkItemDraft,
+  parseBooleanSetting,
+  productHealthOptions,
+  productInvestmentOptions,
+  productLifecycleOptions,
+  productToForm,
+  referenceKindOptions,
+  workItemComplexityOptions,
+  workItemPriorityOptions,
+  workItemStatusOptions,
+  workItemToDraft,
+  type ProductFormState,
+  type WorkItemDraftState,
+} from "../lib/productListPageState";
 import { refreshScopedProductQueries } from "../lib/productQueryRefresh";
 import {
   getProductManagementRefreshLabel,
@@ -106,236 +127,11 @@ import {
   seedCapabilityOrderMap,
 } from "../lib/productHierarchyHelpers";
 import { formatWorkItemMeta } from "../lib/workItemDisplay";
-import type { CapabilityNode, CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ProductAreaTree, Product, ProductDependency, ProductDependencyKind, ProductReference, ProductTree, ProductTreeSummary, ProductWorkItemSummary, Repository, WorkItem, WorkItemScopeSummary } from "../../../lib/types";
+import type { CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ProductAreaTree, Product, ProductDependency, ProductDependencyKind, ProductReference, ProductTree, ProductTreeSummary, ProductWorkItemSummary, Repository, WorkItem, WorkItemScopeSummary } from "../../../lib/types";
 
-const HIDE_EXAMPLE_PRODUCTS_KEY = "catalog.hide_example_products";
-const SUB_WORK_ITEM_PAGE_SIZE = 500;
-const PRODUCT_MANAGEMENT_STORY_PAGE_SIZE = 100;
 
-type ProductFormState = {
-  name: string;
-  description: string;
-  vision: string;
-  goals: string;
-  tags: string;
-  lifecycle: Product["lifecycle"];
-  health: Product["health"];
-  ownerLabel: string;
-  investmentStatus: Product["investment_status"];
-  roadmap: string;
-  evidence: string;
-};
 
-const emptyProductForm: ProductFormState = {
-  name: "",
-  description: "",
-  vision: "",
-  goals: "",
-  tags: "",
-  lifecycle: "incubating",
-  health: "unknown",
-  ownerLabel: "",
-  investmentStatus: "evaluate",
-  roadmap: "",
-  evidence: "",
-};
 
-function productToForm(product: Product): ProductFormState {
-  return {
-    name: product.name,
-    description: product.description,
-    vision: product.vision,
-    goals: product.goals.join(", "),
-    tags: product.tags.join(", "),
-    lifecycle: product.lifecycle,
-    health: product.health,
-    ownerLabel: product.owner_label,
-    investmentStatus: product.investment_status,
-    roadmap: product.roadmap,
-    evidence: product.evidence,
-  };
-}
-
-const productLifecycleOptions: Product["lifecycle"][] = ["idea", "incubating", "active", "maturing", "sunsetting", "retired"];
-const productHealthOptions: Product["health"][] = ["unknown", "healthy", "watch", "at_risk", "blocked"];
-const productInvestmentOptions: Product["investment_status"][] = ["evaluate", "invest", "maintain", "pause", "retire"];
-const referenceKindOptions: ProductReference["reference_kind"][] = ["note", "external_doc", "architecture", "customer_evidence", "regulatory", "design_packet", "standard", "other"];
-
-type WorkItemDraftState = {
-  title: string;
-  problemStatement: string;
-  description: string;
-  acceptanceCriteria: string;
-  constraints: string;
-  status: WorkItem["status"];
-  priority: WorkItem["priority"];
-  complexity: WorkItem["complexity"];
-};
-
-const emptyWorkItemDraft: WorkItemDraftState = {
-  title: "",
-  problemStatement: "",
-  description: "",
-  acceptanceCriteria: "",
-  constraints: "",
-  status: "draft",
-  priority: "medium",
-  complexity: "medium",
-};
-
-const workItemStatusOptions: WorkItem["status"][] = ["draft", "ready_for_review", "approved", "in_planning", "in_progress", "in_validation", "waiting_human_review", "done", "blocked", "failed", "cancelled"];
-const workItemPriorityOptions: WorkItem["priority"][] = ["critical", "high", "medium", "low"];
-const workItemComplexityOptions: WorkItem["complexity"][] = ["trivial", "low", "medium", "high", "very_high"];
-
-function workItemToDraft(workItem: WorkItem): WorkItemDraftState {
-  return {
-    title: workItem.title,
-    problemStatement: workItem.problem_statement,
-    description: workItem.description,
-    acceptanceCriteria: workItem.acceptance_criteria,
-    constraints: workItem.constraints,
-    status: workItem.status,
-    priority: workItem.priority,
-    complexity: workItem.complexity,
-  };
-}
-
-const styles = {
-  page: { display: "flex", flexDirection: "column", height: "100%", gap: 8 },
-  header: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 },
-  titleBlock: { display: "flex", flexDirection: "column", gap: 3 },
-  title: { fontSize: 18, fontWeight: 800, color: "#f3f3f3", margin: 0 },
-  subtitle: { fontSize: 12, color: "#8f96a3" },
-  workspace: { display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 8, minHeight: 0, flex: 1 },
-  panel: { backgroundColor: "#212327", border: "1px solid #32353d", borderRadius: 12, minHeight: 0, overflow: "hidden" },
-  panelInner: { padding: 10, height: "100%", overflow: "auto" },
-  tabBar: { display: "flex", gap: 8, marginBottom: 14, borderBottom: "1px solid #32353d", paddingBottom: 10 },
-  tab: { padding: "7px 12px", fontSize: 12, fontWeight: 700, borderRadius: 8, border: "1px solid #3b4049", backgroundColor: "#2c3139", color: "#cfd6e4", cursor: "pointer" },
-  tabActive: { padding: "7px 12px", fontSize: 12, fontWeight: 700, borderRadius: 8, border: "1px solid #0e639c", backgroundColor: "#173247", color: "#ffffff", cursor: "pointer" },
-  pageTabs: { display: "flex", gap: 6, padding: 3, border: "1px solid #32353d", borderRadius: 10, backgroundColor: "#1b1d22", flexWrap: "wrap" as const },
-  pageTabGroup: { display: "flex", gap: 5, alignItems: "center", border: "1px solid #2d3139", borderRadius: 8, padding: 4, flexWrap: "wrap" as const },
-  pageTabGroupLabel: { fontSize: 10, color: "#8f96a3", fontWeight: 800, textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "0 4px" },
-  pageTabProductSelect: { minWidth: 190, padding: "6px 9px", backgroundColor: "#181a1f", border: "1px solid #3c4048", borderRadius: 8, color: "#e0e0e0", fontSize: 12 },
-  pageTab: { padding: "6px 10px", fontSize: 12, fontWeight: 800, borderRadius: 8, border: "1px solid transparent", backgroundColor: "transparent", color: "#aeb7c6", cursor: "pointer" },
-  pageTabActive: { padding: "6px 10px", fontSize: 12, fontWeight: 800, borderRadius: 8, border: "1px solid #0e639c", backgroundColor: "#173247", color: "#ffffff", cursor: "pointer" },
-  tabRefreshSlot: { marginLeft: "auto", display: "flex", alignItems: "center" },
-  btn: { padding: "7px 12px", fontSize: 12, backgroundColor: "#0e639c", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" },
-  ghostBtn: { padding: "6px 10px", fontSize: 12, backgroundColor: "#2c3139", color: "#e0e0e0", border: "1px solid #3b4049", borderRadius: 8, cursor: "pointer" },
-  btnDanger: { padding: "5px 10px", fontSize: 12, backgroundColor: "#6c2020", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" },
-  compactActionBtn: { padding: "5px 8px", minHeight: 30, fontSize: 11, backgroundColor: "#2c3139", color: "#e0e0e0", border: "1px solid #3b4049", borderRadius: 7, cursor: "pointer", whiteSpace: "nowrap" as const },
-  compactDangerBtn: { padding: "5px 8px", minHeight: 30, fontSize: 11, backgroundColor: "#6c2020", color: "#fff", border: "1px solid #8a2b2b", borderRadius: 7, cursor: "pointer", whiteSpace: "nowrap" as const },
-  copyIdRow: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" as const, marginTop: 6 },
-  copyIdLabel: { fontSize: 10, color: "#8f96a3", fontWeight: 800, textTransform: "uppercase" as const },
-  copyIdValue: { fontSize: 11, color: "#b7c4d6", fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace", overflowWrap: "anywhere" as const },
-  copyIdButton: { padding: "2px 6px", minHeight: 22, fontSize: 10, fontWeight: 800, backgroundColor: "#1b1d22", color: "#cfd6e4", border: "1px solid #3b4049", borderRadius: 6, cursor: "pointer" },
-  toolbar: { display: "grid", gridTemplateColumns: "minmax(260px, 1fr) repeat(4, minmax(120px, 160px)) auto", gap: 10, alignItems: "end", marginBottom: 10 },
-  toolbarCompact: { display: "flex", gap: 10, flexWrap: "wrap" as const, alignItems: "flex-end", marginBottom: 12 },
-  statusToolbar: { display: "grid", gridTemplateColumns: "minmax(220px, 360px) 150px 180px minmax(360px, 1fr)", gap: 10, alignItems: "end", marginBottom: 10 },
-  statusMetrics: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 },
-  statusMetric: { border: "1px solid #32353d", borderRadius: 8, backgroundColor: "#26292f", padding: "8px 10px", minHeight: 52 },
-  statusMetricValue: { fontSize: 18, fontWeight: 800, color: "#f3f3f3", lineHeight: 1.1 },
-  statusMetricHelp: { fontSize: 10, color: "#8f96a3", marginTop: 3, lineHeight: 1.3 },
-  toggleRow: { display: "flex", gap: 12, flexWrap: "wrap" as const, alignItems: "center", marginBottom: 12 },
-  checkboxLabel: { display: "flex", gap: 6, alignItems: "center", fontSize: 12, color: "#cfd6e4" },
-  controlLabel: { fontSize: 11, color: "#8f96a3", textTransform: "uppercase" as const, fontWeight: 800, letterSpacing: "0.06em", marginBottom: 4 },
-  select: { width: "100%", padding: "9px 12px", backgroundColor: "#181a1f", border: "1px solid #3c4048", borderRadius: 8, color: "#e0e0e0", fontSize: 13, boxSizing: "border-box" as const },
-  workspaceWithOutline: { display: "grid", gridTemplateColumns: "minmax(280px, 360px) minmax(0, 1fr)", gap: 12, minHeight: 0 },
-  outlinePanel: { border: "1px solid #32353d", borderRadius: 12, backgroundColor: "#1b1d22", padding: 12, minHeight: 0, overflow: "auto" },
-  outlineSummary: { border: "1px solid #32353d", borderRadius: 10, backgroundColor: "#26292f", padding: 12, marginBottom: 12 },
-  outlineTitle: { fontSize: 14, fontWeight: 800, color: "#f3f3f3", marginBottom: 4 },
-  outlineMeta: { fontSize: 11, color: "#8f96a3", lineHeight: 1.45 },
-  outlineControls: { display: "grid", gridTemplateColumns: "1fr", gap: 8, marginBottom: 10 },
-  outlineToolRow: { display: "flex", gap: 6, flexWrap: "wrap" as const },
-  outlineRecent: { border: "1px solid #32353d", borderRadius: 10, backgroundColor: "#26292f", padding: 8, marginBottom: 10 },
-  outlineRecentBtn: { width: "100%", textAlign: "left" as const, padding: "7px 8px", borderRadius: 8, border: "1px solid #3b4049", backgroundColor: "#1b1d22", color: "#d8e1ef", cursor: "pointer", fontSize: 11, marginTop: 6 },
-  outlineTree: { display: "flex", flexDirection: "column", gap: 6 },
-  outlineNode: { borderRadius: 8, border: "1px solid #303640", backgroundColor: "#26292f", color: "#ced4de", padding: "8px 10px" },
-  outlineNodeActive: { borderRadius: 8, border: "1px solid #0e639c", backgroundColor: "#1f2a35", color: "#ffffff", padding: "8px 10px" },
-  outlineNodeHeader: { display: "flex", alignItems: "flex-start", gap: 8 },
-  outlineToggle: { width: 20, height: 20, borderRadius: 6, border: "1px solid #38404d", backgroundColor: "#181a1f", color: "#cfd6e4", fontSize: 10, cursor: "pointer", flexShrink: 0 },
-  outlineNodeBody: { flex: 1, minWidth: 0, cursor: "pointer" },
-  outlineNodeTitle: { fontSize: 12, fontWeight: 700, color: "#e9eef8" },
-  outlineNodeMeta: { fontSize: 10, color: "#8f96a3", marginTop: 3, lineHeight: 1.4 },
-  outlineChildWrap: { marginLeft: 12, paddingLeft: 8, borderLeft: "1px solid #2c3139", display: "flex", flexDirection: "column", gap: 6, marginTop: 6 },
-  outlineActionRow: { display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" },
-  outlineActionBtn: { padding: "3px 6px", borderRadius: 6, border: "1px solid #3b4049", backgroundColor: "#2c3139", color: "#e0e0e0", fontSize: 10, fontWeight: 700, cursor: "pointer" },
-  outlineTask: { borderRadius: 8, border: "1px solid #2c3139", backgroundColor: "#1a1d22", color: "#d8dde6", cursor: "pointer", padding: "7px 9px" },
-  hero: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) 220px", gap: 10, marginBottom: 12 },
-  heroCard: { backgroundColor: "#26292f", borderRadius: 12, border: "1px solid #32353d", padding: 14 },
-  heroName: { fontSize: 24, fontWeight: 800, color: "#ffffff", marginBottom: 6 },
-  heroDesc: { fontSize: 13, color: "#aab2bf", lineHeight: 1.45 },
-  metricGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 },
-  metricCard: { backgroundColor: "#26292f", borderRadius: 12, border: "1px solid #32353d", padding: 12 },
-  metricLabel: { fontSize: 10, color: "#8f96a3", textTransform: "uppercase" as const, marginBottom: 4 },
-  metricValue: { fontSize: 20, fontWeight: 700, color: "#f3f3f3" },
-  section: { marginTop: 14 },
-  sectionTitle: { fontSize: 13, fontWeight: 700, color: "#d8dde6", marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" },
-  contextCard: { border: "1px solid #32353d", borderRadius: 12, padding: 12, backgroundColor: "#26292f", marginBottom: 10 },
-  contextTitle: { fontSize: 13, fontWeight: 700, color: "#f3f3f3", marginBottom: 6 },
-  contextText: { fontSize: 12, color: "#aab2bf", lineHeight: 1.5 },
-  contextLabel: { fontSize: 11, color: "#8f96a3", textTransform: "uppercase" as const, marginBottom: 4 },
-  workItemDetailGrid: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, marginTop: 10 },
-  managementTabs: { display: "flex", gap: 8, paddingBottom: 10, borderBottom: "1px solid #32353d", marginBottom: 12, flexWrap: "wrap" as const },
-  managementLayout: { display: "grid", gridTemplateColumns: "minmax(220px, 300px) minmax(0, 1fr)", gap: 12, minHeight: 0 },
-  managementThreePane: { display: "grid", gridTemplateColumns: "minmax(220px, 280px) minmax(240px, 340px) minmax(0, 1fr)", gap: 12, minHeight: 0 },
-  managementPane: { border: "1px solid #32353d", borderRadius: 12, backgroundColor: "#1b1d22", padding: 10, minHeight: 0 },
-  managementPaneHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 },
-  managementList: { display: "flex", flexDirection: "column", gap: 6 },
-  managementListButton: { textAlign: "left" as const, border: "1px solid #303640", borderRadius: 8, backgroundColor: "#26292f", color: "#d8e1ef", padding: "8px 10px", cursor: "pointer" },
-  managementListButtonActive: { textAlign: "left" as const, border: "1px solid #0e639c", borderRadius: 8, backgroundColor: "#1f2a35", color: "#ffffff", padding: "8px 10px", cursor: "pointer" },
-  managementItemSelect: { width: "100%", textAlign: "left" as const, border: "none", backgroundColor: "transparent", color: "inherit", padding: 0, cursor: "pointer" },
-  managementTableHeader: { display: "grid", gridTemplateColumns: "minmax(0, 1.5fr) 110px 110px 190px", gap: 10, padding: "10px 12px", borderBottom: "1px solid #32353d", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" as const, color: "#8f96a3" },
-  managementTableRow: { display: "grid", gridTemplateColumns: "minmax(0, 1.5fr) 110px 110px 190px", gap: 10, padding: "12px", borderBottom: "1px solid #2d3139", alignItems: "center" },
-  managementActions: { display: "flex", gap: 6, alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap" as const },
-  inlineActionRow: { display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" as const },
-  productAreaCard: { border: "1px solid #32353d", borderRadius: 12, backgroundColor: "#26292f", padding: 12, marginBottom: 10 },
-  productAreaHeader: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" },
-  productAreaName: { fontSize: 14, fontWeight: 700, color: "#f3f3f3", marginBottom: 4 },
-  productAreaDesc: { fontSize: 12, color: "#8f96a3", lineHeight: 1.45, marginBottom: 8 },
-  featureNode: { padding: "10px 12px", borderRadius: 10, backgroundColor: "#1b1d22", border: "1px solid #2d3139", marginTop: 8 },
-  featureNodeActive: { padding: "10px 12px", borderRadius: 10, backgroundColor: "#1f2a35", border: "1px solid #0e639c", marginTop: 8 },
-  featureTitle: { fontWeight: 700, color: "#e9eef8", fontSize: 12 },
-  featureMeta: { fontSize: 11, color: "#8f96a3", marginTop: 4 },
-  childWrap: { marginLeft: 16 },
-  inlineMeta: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 },
-  badge: { fontSize: 11, padding: "3px 8px", borderRadius: 999, backgroundColor: "#163d2f", color: "#59d6b2" },
-  badgeMuted: { fontSize: 11, padding: "3px 8px", borderRadius: 999, backgroundColor: "#2a3140", color: "#a9c4f5" },
-  badgeKind: { fontSize: 11, padding: "3px 8px", borderRadius: 999, backgroundColor: "#223147", color: "#8fc8ff", border: "1px solid #38506f" },
-  taskRow: { border: "1px solid #32353d", borderRadius: 10, padding: 10, backgroundColor: "#26292f", marginBottom: 8, cursor: "pointer" },
-  taskTitle: { fontSize: 12, fontWeight: 700, color: "#f3f3f3" },
-  taskMeta: { fontSize: 11, color: "#8f96a3", marginTop: 4 },
-  metricHelp: { fontSize: 11, color: "#8f96a3", marginTop: 6 },
-  chipRow: { display: "flex", gap: 6, flexWrap: "wrap" as const, marginTop: 8 },
-  empty: { textAlign: "center" as const, color: "#666", padding: 32, fontSize: 14 },
-  dropTarget: { outline: "1px dashed #0e639c", outlineOffset: 2 },
-  dragHandle: { fontSize: 13, color: "#8f96a3", cursor: "grab", userSelect: "none" as const, padding: "2px 4px" },
-  modalBackdrop: { position: "fixed", inset: 0, backgroundColor: "rgba(8, 10, 14, 0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, zIndex: 40 },
-  modal: { width: "min(720px, 100%)", maxHeight: "80vh", backgroundColor: "#212327", border: "1px solid #32353d", borderRadius: 14, overflow: "hidden", boxShadow: "0 24px 60px rgba(0,0,0,0.45)" },
-  modalHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "14px 16px", borderBottom: "1px solid #32353d" },
-  modalTitle: { fontSize: 14, fontWeight: 800, color: "#f3f3f3" },
-  modalBody: { padding: 16, maxHeight: "calc(80vh - 61px)", overflow: "auto" },
-  formRow: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 },
-  input: { width: "100%", padding: "9px 12px", backgroundColor: "#181a1f", border: "1px solid #3c4048", borderRadius: 8, color: "#e0e0e0", fontSize: 13, marginBottom: 10, boxSizing: "border-box" as const },
-  textarea: { width: "100%", padding: "9px 12px", backgroundColor: "#181a1f", border: "1px solid #3c4048", borderRadius: 8, color: "#e0e0e0", fontSize: 13, marginBottom: 10, minHeight: 84, resize: "vertical" as const, boxSizing: "border-box" as const },
-  label: { fontSize: 12, color: "#999", display: "block", marginBottom: 4 },
-  errorText: { fontSize: 12, color: "#ff7b72", marginBottom: 10 },
-  table: { border: "1px solid #32353d", borderRadius: 12, overflow: "hidden", backgroundColor: "#26292f" },
-  tableHeader: { display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) 110px 90px 110px", gap: 10, padding: "10px 12px", borderBottom: "1px solid #32353d", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" as const, color: "#8f96a3" },
-  tableRow: { display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) 110px 90px 110px", gap: 10, padding: "12px", borderBottom: "1px solid #2d3139", alignItems: "center" },
-  productTableHeader: { display: "grid", gridTemplateColumns: "minmax(360px, 1.9fr) 86px 112px 142px 142px 210px", gap: 12, padding: "9px 14px", borderBottom: "1px solid #32353d", fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" as const, color: "#8f96a3" },
-  productTableRow: { display: "grid", gridTemplateColumns: "minmax(360px, 1.9fr) 86px 112px 142px 142px 210px", gap: 12, padding: "12px 14px", borderBottom: "1px solid #2d3139", alignItems: "center", minHeight: 112 },
-  productCell: { minWidth: 0 },
-  productDescription: { fontSize: 12, color: "#8f96a3", marginTop: 4, maxWidth: 720, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const, lineHeight: 1.35 },
-  productMetaCell: { fontSize: 12, color: "#cfd6e4", lineHeight: 1.35, minWidth: 0 },
-  productActions: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 6, alignItems: "center" },
-  statusTableHeader: { display: "grid", gridTemplateColumns: "minmax(260px, 1.9fr) 58px 110px 120px 115px 150px", gap: 8, padding: "8px 10px", borderBottom: "1px solid #32353d", fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" as const, color: "#8f96a3" },
-  statusTableRow: { display: "grid", gridTemplateColumns: "minmax(260px, 1.9fr) 58px 110px 120px 115px 150px", gap: 8, padding: "8px 10px", borderBottom: "1px solid #2d3139", alignItems: "center" },
-  progressTrack: { height: 6, borderRadius: 999, backgroundColor: "#171a20", border: "1px solid #303640", overflow: "hidden" },
-  progressFill: { height: "100%", borderRadius: 999, backgroundColor: "#4ec9b0" },
-  rowPrimary: { fontSize: 13, fontWeight: 700, color: "#f3f3f3" },
-  rowSecondary: { fontSize: 12, color: "#8f96a3", marginTop: 4 },
-  rowCell: { fontSize: 12, color: "#cfd6e4" },
-} satisfies Record<string, React.CSSProperties>;
 
 export function ProductListPage() {
   const queryClient = useQueryClient();
@@ -2975,100 +2771,4 @@ export function ProductListPage() {
 
     </div>
   );
-}
-
-function renderCapabilityTreeNode(
-  capabilityTree: CapabilityTree,
-  context: {
-    activeCapabilityId: string | null;
-    setActiveProductArea: (id: string | null) => void;
-    setActiveCapability: (id: string | null) => void;
-    onEdit: (capability: CapabilityNode) => void;
-    onDropCapability: (targetCapability: CapabilityNode, siblingIds: string[]) => void;
-    onDragCapabilityStart: (capability: CapabilityNode, siblingIds: string[]) => void;
-    onDragCapabilityEnd: () => void;
-    draggedCapabilityId: string | null;
-    capabilityOrderMap: Record<string, string[]>;
-  },
-  siblingIds: string[],
-): React.ReactNode {
-  const { activeCapabilityId, setActiveProductArea, setActiveCapability, onEdit, onDropCapability, onDragCapabilityStart, onDragCapabilityEnd, draggedCapabilityId, capabilityOrderMap } = context;
-  const isActive = activeCapabilityId === capabilityTree.capability.id;
-  const orderedChildren = getOrderedCapabilityTrees(
-    capabilityTree.children,
-    capabilityOrderMap[getCapabilityOrderKey(capabilityTree.capability.product_area_id, capabilityTree.capability.id)],
-  );
-
-  return (
-    <div key={capabilityTree.capability.id} style={styles.childWrap}>
-      <div
-        style={{
-          ...(isActive ? styles.featureNodeActive : styles.featureNode),
-          ...(draggedCapabilityId === capabilityTree.capability.id ? styles.dropTarget : null),
-        }}
-        draggable
-        onDragStart={() => onDragCapabilityStart(capabilityTree.capability, siblingIds)}
-        onDragEnd={onDragCapabilityEnd}
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={() => onDropCapability(capabilityTree.capability, siblingIds)}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
-          <div
-            onClick={() => {
-              setActiveProductArea(capabilityTree.capability.product_area_id);
-              setActiveCapability(capabilityTree.capability.id);
-            }}
-            style={{ cursor: "pointer", flex: 1 }}
-          >
-            <div style={styles.featureTitle}>{capabilityTree.capability.name}</div>
-            <div style={styles.featureMeta}>{capabilityTree.capability.status} · {capabilityTree.capability.priority} priority</div>
-            <div style={styles.featureMeta}>{capabilityTree.capability.description || "No description yet."}</div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={styles.dragHandle} title="Drag to reorder">::</span>
-            <button style={styles.ghostBtn} onClick={() => onEdit(capabilityTree.capability)}>Edit</button>
-          </div>
-        </div>
-      </div>
-      {orderedChildren.map((child) =>
-        renderCapabilityTreeNode(
-          child,
-          context,
-          capabilityOrderMap[getCapabilityOrderKey(capabilityTree.capability.product_area_id, capabilityTree.capability.id)] ?? capabilityTree.children.map((item) => item.capability.id),
-        ),
-      )}
-    </div>
-  );
-}
-
-function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  return (
-    <div style={styles.modalBackdrop} onClick={onClose}>
-      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-        <div style={styles.modalHeader}>
-          <div style={styles.modalTitle}>{title}</div>
-          <button style={styles.ghostBtn} onClick={onClose}>Close</button>
-        </div>
-        <div style={styles.modalBody}>{children}</div>
-      </div>
-    </div>
-  );
-}
-
-function parseBooleanSetting(value: string | null | undefined, fallback: boolean) {
-  if (value == null) return fallback;
-  switch (value.trim().toLowerCase()) {
-    case "1":
-    case "true":
-    case "yes":
-    case "on":
-      return true;
-    case "0":
-    case "false":
-    case "no":
-    case "off":
-      return false;
-    default:
-      return fallback;
-  }
 }
