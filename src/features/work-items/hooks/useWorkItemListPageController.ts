@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
@@ -9,11 +8,12 @@ import { useWorkItemCrudMutations } from "./useWorkItemCrudMutations";
 import { useWorkItemListPageState } from "./useWorkItemListPageState";
 import { useWorkItemPageSync } from "./useWorkItemPageSync";
 import { useWorkItemReviewSignals } from "./useWorkItemReviewSignals";
+import { useWorkItemResolvedRepository } from "./useWorkItemResolvedRepository";
 import { useWorkItemScopeData } from "./useWorkItemScopeData";
 import { useWorkItemScopeDisplay } from "./useWorkItemScopeDisplay";
+import { useWorkItemTaskInvalidation } from "./useWorkItemTaskInvalidation";
 import { useWorkItemWorkspaceAssignment } from "./useWorkItemWorkspaceAssignment";
 import { useWorkItemWorkspaceQueries } from "./useWorkItemWorkspaceQueries";
-import type { Repository } from "../../../lib/types";
 
 export function useWorkItemListPageController() {
   const queryClient = useQueryClient();
@@ -132,24 +132,14 @@ export function useWorkItemListPageController() {
     setSelectedExternalCliRunId,
   });
 
-  const invalidateTasks = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: workItemsScopeQueryKey, refetchType: "none" }),
-      queryClient.invalidateQueries({ queryKey: ["sidebarWorkItems", activeProductId] }),
-      queryClient.invalidateQueries({ queryKey: ["productWorkItemSummary"] }),
-      queryClient.invalidateQueries({ queryKey: ["workItem", selectedWorkItemId] }),
-      queryClient.invalidateQueries({ queryKey: ["latestWorkflowRun", selectedWorkItemId] }),
-      queryClient.invalidateQueries({ queryKey: ["workflowHistory", workflowRunId] }),
-      queryClient.invalidateQueries({ queryKey: ["agentRunsForWorkflow", workflowRunId] }),
-      queryClient.invalidateQueries({ queryKey: ["agentModelCallsForWorkflow", workflowRunId] }),
-      queryClient.invalidateQueries({ queryKey: ["externalCliRunsForWorkItem", selectedWorkItemId] }),
-      queryClient.invalidateQueries({ queryKey: ["externalCliRunEvents"] }),
-      queryClient.invalidateQueries({ queryKey: ["artifacts", selectedWorkItemId] }),
-      queryClient.invalidateQueries({ queryKey: ["findings", selectedWorkItemId] }),
-      queryClient.refetchQueries({ queryKey: workItemsQueryKey, type: "active" }),
-      queryClient.refetchQueries({ queryKey: ["sidebarWorkItems", activeProductId], type: "active" }),
-    ]);
-  };
+  const invalidateTasks = useWorkItemTaskInvalidation({
+    queryClient,
+    activeProductId,
+    selectedWorkItemId,
+    workflowRunId,
+    workItemsScopeQueryKey,
+    workItemsQueryKey,
+  });
 
   const {
     createMutation,
@@ -202,18 +192,13 @@ export function useWorkItemListPageController() {
     setWorkItemWorkspaceTab,
     invalidateTasks,
   });
-  const selectedWorkItemSummary = useMemo(
-    () => selectedWorkItem ?? filteredWorkItems.find((workItem) => workItem.id === selectedWorkItemId) ?? null,
-    [filteredWorkItems, selectedWorkItem, selectedWorkItemId],
-  );
-  const repositoryFromWorkItem = useMemo(() => {
-    const repositoryId = selectedWorkItemSummary?.repo_override_id ?? selectedWorkItemSummary?.active_repo_id;
-    if (!repositoryId) {
-      return null;
-    }
-    return repositories.find((repository: Repository) => repository.id === repositoryId) ?? null;
-  }, [repositories, selectedWorkItemSummary?.active_repo_id, selectedWorkItemSummary?.repo_override_id]);
-  const resolvedRepository = resolvedRepositoryFromQuery ?? repositoryFromWorkItem ?? null;
+  const { selectedWorkItemSummary, resolvedRepository } = useWorkItemResolvedRepository({
+    filteredWorkItems,
+    repositories,
+    resolvedRepositoryFromQuery,
+    selectedWorkItem,
+    selectedWorkItemId,
+  });
   const {
     createWorkspace,
     isCreateWorkspacePending,
