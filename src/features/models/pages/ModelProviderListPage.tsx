@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   browseForLocalModelFile,
@@ -16,82 +16,14 @@ import {
   deleteModelDefinition,
 } from "../../../lib/tauri";
 import type { ModelDefinition, ModelProvider } from "../../../lib/types";
-
-const SPEECH_PROVIDER_KEY = "speech.transcription_provider_id";
-const SPEECH_MODEL_KEY = "speech.transcription_model_name";
-const LEGACY_WHISPER_PLACEHOLDER_PATH = "/absolute/path/to/ggml-base.en.bin";
-
-const styles: Record<string, React.CSSProperties> = {
-  page: { maxWidth: 960, margin: "0 auto" },
-  header: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 },
-  title: { fontSize: 20, fontWeight: 600, color: "#e0e0e0" },
-  btn: { padding: "6px 16px", fontSize: 13, backgroundColor: "#0e639c", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" },
-  btnTest: { padding: "4px 10px", fontSize: 12, backgroundColor: "#2d6a3f", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" },
-  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 16 },
-  card: { backgroundColor: "#252526", borderRadius: 8, padding: 16, border: "1px solid #333" },
-  name: { fontSize: 15, fontWeight: 600, color: "#e0e0e0", marginBottom: 4 },
-  type: { fontSize: 13, color: "#569cd6", marginBottom: 8 },
-  url: { fontSize: 12, color: "#888", fontFamily: "monospace", marginBottom: 12, wordBreak: "break-all" as const },
-  cardFooter: { display: "flex", justifyContent: "space-between", alignItems: "center" },
-  badge: { fontSize: 11, padding: "2px 8px", borderRadius: 10, display: "inline-block" },
-  empty: { textAlign: "center" as const, color: "#666", padding: 40, fontSize: 14 },
-  form: { backgroundColor: "#252526", padding: 20, borderRadius: 8, marginBottom: 24, border: "1px solid #333" },
-  sectionTitle: { fontSize: 16, fontWeight: 600, color: "#e0e0e0", marginBottom: 12 },
-  input: { width: "100%", padding: "8px 12px", backgroundColor: "#1e1e1e", border: "1px solid #444", borderRadius: 4, color: "#e0e0e0", fontSize: 13, marginBottom: 12, boxSizing: "border-box" as const },
-  select: { width: "100%", padding: "8px 12px", backgroundColor: "#1e1e1e", border: "1px solid #444", borderRadius: 4, color: "#e0e0e0", fontSize: 13, marginBottom: 12 },
-  label: { fontSize: 12, color: "#999", display: "block", marginBottom: 4 },
-  testResult: { fontSize: 12, marginTop: 8, padding: 8, borderRadius: 4 },
-  subGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 },
-  modelCard: { backgroundColor: "#1f2228", borderRadius: 8, padding: 14, border: "1px solid #333" },
-  modelName: { fontSize: 14, fontWeight: 600, color: "#e0e0e0", marginBottom: 4 },
-  modelMeta: { fontSize: 12, color: "#999", marginBottom: 6 },
-  feedbackSuccess: { color: "#4ec9b0", fontSize: 12, marginTop: 8 },
-  feedbackError: { color: "#f44747", fontSize: 12, marginTop: 8 },
-  modalBackdrop: { position: "fixed", inset: 0, backgroundColor: "rgba(8, 10, 14, 0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, zIndex: 50 },
-  modal: { width: "min(860px, 100%)", maxHeight: "86vh", backgroundColor: "#252526", border: "1px solid #333", borderRadius: 12, overflow: "hidden", boxShadow: "0 24px 60px rgba(0,0,0,0.45)" },
-  modalHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid #333" },
-  modalTitle: { fontSize: 16, fontWeight: 600, color: "#e0e0e0" },
-  modalBody: { padding: 16, overflow: "auto", maxHeight: "calc(86vh - 56px)" },
-  managedGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 },
-  managedCard: { backgroundColor: "#1f2228", borderRadius: 10, padding: 14, border: "1px solid #333" },
-  managedTitle: { fontSize: 14, fontWeight: 700, color: "#eef3fb", marginBottom: 6 },
-  managedMeta: { fontSize: 12, color: "#9aa0a6", lineHeight: 1.5, marginBottom: 8 },
-  managedBadgeRow: { display: "flex", gap: 8, flexWrap: "wrap" as const, marginBottom: 10 },
-  managedBadge: { fontSize: 11, padding: "3px 8px", borderRadius: 999, backgroundColor: "#24364d", color: "#d7e8fb", fontWeight: 700 },
-};
-
-const MANAGED_LOCAL_MODELS = [
-  {
-    id: "whisper-tiny-en",
-    displayName: "Whisper Tiny English",
-    providerName: "Whisper.cpp Tiny.en (Local)",
-    modelName: "whisper-tiny.en",
-    fileName: "ggml-tiny.en.bin",
-    downloadUrl: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin?download=true",
-    sizeLabel: "75 MiB",
-    notes: "Fastest local transcription option for lightweight desktop voice testing.",
-  },
-  {
-    id: "whisper-base-en",
-    displayName: "Whisper Base English",
-    providerName: "Whisper.cpp Base.en (Local)",
-    modelName: "whisper-base.en",
-    fileName: "ggml-base.en.bin",
-    downloadUrl: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin?download=true",
-    sizeLabel: "142 MiB",
-    notes: "Best default local speech-to-text model for desktop voice planning and chat.",
-  },
-  {
-    id: "whisper-small-en",
-    displayName: "Whisper Small English",
-    providerName: "Whisper.cpp Small.en (Local)",
-    modelName: "whisper-small.en",
-    fileName: "ggml-small.en.bin",
-    downloadUrl: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin?download=true",
-    sizeLabel: "466 MiB",
-    notes: "Higher accuracy local transcription model when you can trade more disk and latency.",
-  },
-] as const;
+import {
+  LEGACY_WHISPER_PLACEHOLDER_PATH,
+  MANAGED_LOCAL_MODELS,
+  SPEECH_MODEL_KEY,
+  SPEECH_PROVIDER_KEY,
+} from "../lib/modelProviderConstants";
+import { splitCommaSeparated } from "../lib/modelProviderFormUtils";
+import { styles } from "../lib/modelProviderPageStyles";
 
 export function ModelProviderListPage() {
   const queryClient = useQueryClient();
@@ -695,11 +627,4 @@ export function ModelProviderListPage() {
       )}
     </div>
   );
-}
-
-function splitCommaSeparated(value: string): string[] {
-  return value
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
 }
