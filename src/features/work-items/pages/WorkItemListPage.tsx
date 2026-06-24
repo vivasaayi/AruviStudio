@@ -22,7 +22,6 @@ import {
   listAgentRunsForWorkflow,
   listCapabilities,
   invokeExternalCliForWorkItem,
-  listExternalCliRunEvents,
   listExternalCliRunsForWorkItem,
   listAgentModelBindings,
   listAgentTeams,
@@ -61,35 +60,20 @@ import { WorkItemReviewSummaryCards } from "../components/WorkItemReviewSummaryC
 import { WorkItemReviewWorkflowCard } from "../components/WorkItemReviewWorkflowCard";
 import { WorkItemWorkspaceReadinessCard } from "../components/WorkItemWorkspaceReadinessCard";
 import { WorkItemWorkspaceAssignmentPanel } from "../components/WorkItemWorkspaceAssignmentPanel";
+import { useWorkItemReviewSignals } from "../hooks/useWorkItemReviewSignals";
 import { styles } from "../lib/workItemListPageStyles";
 import {
   BACKLOG_OVERSCAN_ROWS,
   BACKLOG_ROW_ESTIMATED_HEIGHT,
-  EXTERNAL_CLI_TRACE_LIMIT,
   SUB_WORK_ITEM_PAGE_SIZE,
-  WORKFLOW_DAG_LANES,
-  WORKFLOW_DAG_NODES,
   WORK_ITEM_PAGE_SIZE,
-  buildWorkflowLaneStatusById,
   buildCapabilityPath,
-  filterArtifactsForWorkflowStages,
-  filterWorkflowHistoryForStages,
-  findLatestAgentRunForStage,
-  formatExternalCliTerminal,
-  formatWorkflowElapsedLabel,
-  getRunningAgentRunStartMs,
-  groupArtifactsByAgentRunId,
-  groupModelCallsByAgentRunId,
-  isWorkflowRunStale,
   orderWorkItemsByIds,
-  summarizeModelUsage,
   workItemBranchName,
   type ExternalCliProvider,
   type WorkspaceBranchMode,
 } from "../lib/workItemListPageHelpers";
-import { buildWorkItemWorkflowReadiness } from "../lib/workItemWorkflowReadiness";
 import type {
-  ExternalCliRunEvent,
   Approval,
   Artifact,
   Finding,
@@ -328,7 +312,6 @@ export function WorkItemListPage() {
     refetchInterval: 4000,
   });
   const activeWorkflowStage = latestWorkflowRun?.current_stage ?? null;
-  const selectedDagNodeId = selectedArtifactStage ?? WORKFLOW_DAG_NODES.find((node) => node.actualStageIds.includes(activeWorkflowStage ?? ""))?.id ?? "draft";
   const { data: agentRuns } = useQuery({
     queryKey: ["agentRunsForWorkflow", workflowRunId],
     queryFn: () => listAgentRunsForWorkflow(workflowRunId!),
@@ -405,61 +388,6 @@ export function WorkItemListPage() {
   useEffect(() => {
     setSelectedArtifactStage(null);
   }, [selectedWorkItemId]);
-
-  const latestAgentRunForActiveStage = useMemo(
-    () => findLatestAgentRunForStage(agentRuns, activeWorkflowStage),
-    [agentRuns, activeWorkflowStage],
-  );
-
-  const runningSinceMs = useMemo(
-    () => getRunningAgentRunStartMs(latestAgentRunForActiveStage),
-    [latestAgentRunForActiveStage],
-  );
-
-  const workflowElapsedLabel = useMemo(
-    () => formatWorkflowElapsedLabel(runningSinceMs),
-    [runningSinceMs],
-  );
-
-  const isStaleRun = useMemo(
-    () => isWorkflowRunStale(runningSinceMs, latestWorkflowRun?.status),
-    [runningSinceMs, latestWorkflowRun?.status],
-  );
-
-  const selectedDagNode = useMemo(
-    () => WORKFLOW_DAG_NODES.find((node) => node.id === selectedDagNodeId) ?? WORKFLOW_DAG_NODES[0],
-    [selectedDagNodeId],
-  );
-  const focusedStageNames = useMemo(
-    () => selectedDagNode.actualStageIds,
-    [selectedDagNode],
-  );
-  const stageRuns = useMemo(
-    () => (agentRuns ?? []).filter((run) => focusedStageNames.includes(run.stage)),
-    [agentRuns, focusedStageNames],
-  );
-  const stageArtifactsForFocusedStage = useMemo(
-    () =>
-      filterArtifactsForWorkflowStages(artifacts, focusedStageNames, workflowRunId),
-    [artifacts, workflowRunId, focusedStageNames],
-  );
-  const stageHistoryForFocusedStage = useMemo(
-    () =>
-      filterWorkflowHistoryForStages(workflowHistory, focusedStageNames),
-    [workflowHistory, focusedStageNames],
-  );
-  const artifactsByAgentRunId = useMemo(
-    () => groupArtifactsByAgentRunId(stageArtifactsForFocusedStage),
-    [stageArtifactsForFocusedStage],
-  );
-  const modelCallsByAgentRunId = useMemo(
-    () => groupModelCallsByAgentRunId(agentModelCalls),
-    [agentModelCalls],
-  );
-  const workflowModelUsage = useMemo(
-    () => summarizeModelUsage(agentModelCalls ?? [], agentRuns ?? []),
-    [agentModelCalls, agentRuns],
-  );
 
   const invalidateTasks = async () => {
     await Promise.all([
@@ -853,6 +781,54 @@ export function WorkItemListPage() {
     return repositories.find((repository: Repository) => repository.id === repositoryId) ?? null;
   }, [repositories, selectedWorkItemSummary?.active_repo_id, selectedWorkItemSummary?.repo_override_id]);
   const resolvedRepository = resolvedRepositoryFromQuery ?? repositoryFromWorkItem ?? null;
+  const {
+    selectedDagNodeId,
+    workflowElapsedLabel,
+    isStaleRun,
+    selectedDagNode,
+    stageRuns,
+    artifactsByAgentRunId,
+    modelCallsByAgentRunId,
+    workflowModelUsage,
+    completedStages,
+    dagNodeById,
+    laneStatusById,
+    latestApproval,
+    latestArtifact,
+    latestExternalCliRun,
+    activeExternalCliRunId,
+    activeExternalCliRun,
+    externalCliRunEvents,
+    latestExternalCliEvent,
+    externalCliTerminalOutput,
+    findingSeverityCounts,
+    topArtifactTypes,
+    workflowReadiness,
+    stageHistoryForFocusedStage,
+  } = useWorkItemReviewSignals({
+    selectedArtifactStage,
+    activeWorkflowStage,
+    latestWorkflowRun,
+    workflowRunId,
+    workflowHistory,
+    agentRuns,
+    agentModelCalls,
+    artifacts,
+    approvals,
+    findings,
+    externalCliRuns,
+    selectedExternalCliRunId,
+    selectedWorkItem: selectedWorkItemSummary,
+    teamAssignments,
+    agentTeams,
+    teamMemberships,
+    agentDefinitions,
+    workflowPolicies,
+    modelBindings,
+    modelDefinitions,
+    providers,
+    resolvedRepository,
+  });
   const activeProduct = useMemo(
     () => (products ?? []).find((product: Product) => product.id === activeProductId) ?? null,
     [activeProductId, products],
@@ -1047,95 +1023,7 @@ export function WorkItemListPage() {
     return map;
   }, [backlogWorkflowRunQueries, backlogWindow.items]);
   const stageLabel = activeWorkflowStage ? activeWorkflowStage.replace(/_/g, " ") : null;
-  const completedStages = useMemo(
-    () => new Set((workflowHistory ?? []).map((entry) => entry.to_stage)),
-    [workflowHistory],
-  );
-  const dagNodeById = useMemo(
-    () => new Map(WORKFLOW_DAG_NODES.map((node) => [node.id, node])),
-    [],
-  );
-  const laneStatusById = useMemo(
-    () => buildWorkflowLaneStatusById({
-      lanes: WORKFLOW_DAG_LANES,
-      nodes: WORKFLOW_DAG_NODES,
-      completedStages,
-      activeWorkflowStage,
-      workflowStatus: latestWorkflowRun?.status,
-    }),
-    [activeWorkflowStage, completedStages, latestWorkflowRun?.status],
-  );
-  const latestApproval = useMemo(
-    () => (approvals ?? []).slice().sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null,
-    [approvals],
-  );
-  const latestArtifact = useMemo(
-    () => (artifacts ?? []).slice().sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null,
-    [artifacts],
-  );
-  const latestExternalCliRun = useMemo(
-    () => (externalCliRuns ?? []).slice().sort((a, b) => b.started_at.localeCompare(a.started_at))[0] ?? null,
-    [externalCliRuns],
-  );
-  const activeExternalCliRunId = selectedExternalCliRunId ?? latestExternalCliRun?.id ?? null;
-  const activeExternalCliRun = useMemo(
-    () => (externalCliRuns ?? []).find((run) => run.id === activeExternalCliRunId) ?? latestExternalCliRun,
-    [activeExternalCliRunId, externalCliRuns, latestExternalCliRun],
-  );
-  const { data: externalCliRunEvents } = useQuery({
-    queryKey: ["externalCliRunEvents", activeExternalCliRunId, EXTERNAL_CLI_TRACE_LIMIT],
-    queryFn: () => listExternalCliRunEvents(activeExternalCliRunId!, EXTERNAL_CLI_TRACE_LIMIT),
-    enabled: !!activeExternalCliRunId,
-    refetchInterval: activeExternalCliRun?.status === "running" ? 1000 : 4000,
-  });
-  const latestExternalCliEvent = useMemo(
-    () => (externalCliRunEvents ?? []).slice().sort((a, b) => a.sequence - b.sequence).slice(-1)[0] ?? null,
-    [externalCliRunEvents],
-  );
-  const externalCliTerminalOutput = useMemo(
-    () => formatExternalCliTerminal(externalCliRunEvents ?? []),
-    [externalCliRunEvents],
-  );
   const externalCliProviderInFlight = externalCliMutation.isPending ? externalCliMutation.variables : null;
-  const findingSeverityCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const finding of findings ?? []) {
-      counts.set(finding.severity, (counts.get(finding.severity) ?? 0) + 1);
-    }
-    return counts;
-  }, [findings]);
-  const topArtifactTypes = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const artifact of artifacts ?? []) {
-      counts.set(artifact.artifact_type, (counts.get(artifact.artifact_type) ?? 0) + 1);
-    }
-    return Array.from(counts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3);
-  }, [artifacts]);
-  const workflowReadiness = useMemo(() => buildWorkItemWorkflowReadiness({
-    selectedWorkItem: selectedWorkItemSummary,
-    teamAssignments,
-    agentTeams,
-    teamMemberships,
-    agentDefinitions,
-    workflowPolicies,
-    modelBindings,
-    modelDefinitions,
-    providers,
-    resolvedRepository,
-  }), [
-    selectedWorkItemSummary,
-    teamAssignments,
-    agentTeams,
-    teamMemberships,
-    agentDefinitions,
-    workflowPolicies,
-    modelBindings,
-    modelDefinitions,
-    providers,
-    resolvedRepository,
-  ]);
 
   const renderWorkspaceAssignmentPanel = () => (
     <WorkItemWorkspaceAssignmentPanel
