@@ -15,6 +15,7 @@ pub mod bulk_import_normalization;
 pub mod bulk_import_schema;
 pub mod bulk_import_service;
 pub mod channel_service;
+pub mod channel_twilio;
 pub mod docker_service;
 pub mod external_cli_events;
 pub mod external_cli_finalization;
