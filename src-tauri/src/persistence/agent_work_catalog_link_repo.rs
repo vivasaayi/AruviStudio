@@ -1,6 +1,8 @@
 use crate::domain::agent_work::AgentWorkCatalogLinkResult;
 use crate::error::AppError;
-use crate::persistence::agent_work_catalog_repo::{map_capability_status, map_work_item_status};
+use crate::persistence::agent_work_catalog_materialization::{
+    map_capability_status, map_work_item_status,
+};
 use crate::persistence::agent_work_repo::{append_event, get_run, AppendAgentWorkEventInput};
 use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;

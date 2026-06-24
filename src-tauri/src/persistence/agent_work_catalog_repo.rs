@@ -2,139 +2,15 @@ use crate::domain::agent_work::{
     AgentWorkCatalogLinkResult, AgentWorkItem, AgentWorkMaterializationResult,
 };
 use crate::error::AppError;
+use crate::persistence::agent_work_catalog_materialization::{
+    map_agent_priority, map_capability_status, map_work_item_status, materialized_area_label,
+    materialized_capability_label, materialized_description, materialized_title,
+    normalize_catalog_key, stable_materialized_id, MaterializedArea, MaterializedCapability,
+    MaterializedFeature, MATERIALIZE_BATCH_SIZE,
+};
 use crate::persistence::agent_work_repo::{append_event, get_run, AppendAgentWorkEventInput};
-use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;
-use std::fmt::Write;
-
-const MATERIALIZE_BATCH_SIZE: usize = 1_000;
-
-#[derive(Debug, Clone)]
-struct MaterializedArea {
-    id: String,
-    created: bool,
-}
-
-#[derive(Debug, Clone)]
-struct MaterializedCapability {
-    id: String,
-    created: bool,
-}
-
-#[derive(Debug, Clone)]
-struct MaterializedFeature {
-    item: AgentWorkItem,
-    product_area_id: String,
-    capability_id: String,
-    feature_id: String,
-    work_item_id: String,
-    sort_order: i64,
-}
-
-fn stable_materialized_id(prefix: &str, parts: &[&str]) -> String {
-    let mut hasher = Sha256::new();
-    for part in parts {
-        hasher.update(part.len().to_string().as_bytes());
-        hasher.update([0]);
-        hasher.update(part.as_bytes());
-        hasher.update([0xff]);
-    }
-    let digest = hasher.finalize();
-    let mut suffix = String::new();
-    for byte in digest.iter().take(12) {
-        let _ = write!(&mut suffix, "{byte:02x}");
-    }
-    format!("{prefix}-{suffix}")
-}
-
-fn normalize_catalog_key(value: &str) -> String {
-    value
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_ascii_lowercase()
-}
-
-fn materialized_area_label(item: &AgentWorkItem) -> String {
-    let product_area = item.product_area.trim();
-    if product_area.is_empty() {
-        "Imported Agent Work".to_string()
-    } else {
-        product_area.to_string()
-    }
-}
-
-fn materialized_capability_label(item: &AgentWorkItem) -> String {
-    item.service_or_domain
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .or_else(|| {
-            item.release_phase
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-        })
-        .unwrap_or("Imported Agent Work")
-        .to_string()
-}
-
-fn materialized_title(item: &AgentWorkItem) -> String {
-    let title = item.title.trim();
-    if title.is_empty() {
-        item.feature_id.clone()
-    } else {
-        title.to_string()
-    }
-}
-
-fn materialized_description(item: &AgentWorkItem) -> String {
-    let description = item.description.trim();
-    if description.is_empty() {
-        format!(
-            "Materialized from agent-work feature {} in run {}.",
-            item.feature_id, item.run_id
-        )
-    } else {
-        description.to_string()
-    }
-}
-
-fn map_agent_priority(priority: Option<&str>) -> &'static str {
-    match priority
-        .map(str::trim)
-        .unwrap_or_default()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "p0" | "critical" => "critical",
-        "p1" | "high" => "high",
-        "p2" | "medium" => "medium",
-        "p3" | "low" => "low",
-        _ => "medium",
-    }
-}
-
-pub(crate) fn map_capability_status(status: &str) -> &'static str {
-    match status {
-        "committed" => "done",
-        "claimed" | "in_progress" | "implemented" | "tests_passed" => "in_progress",
-        "skipped" | "cancelled" => "archived",
-        _ => "draft",
-    }
-}
-
-pub(crate) fn map_work_item_status(status: &str) -> &'static str {
-    match status {
-        "committed" => "done",
-        "claimed" | "in_progress" => "in_progress",
-        "implemented" | "tests_passed" => "in_validation",
-        "blocked" => "blocked",
-        "skipped" | "cancelled" => "cancelled",
-        _ => "draft",
-    }
-}
 
 pub async fn materialize_catalog(
     pool: &SqlitePool,
