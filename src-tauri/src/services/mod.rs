@@ -6,6 +6,7 @@ pub mod agent_service;
 pub mod approval_service;
 pub mod artifact_service;
 pub mod audit_service;
+pub mod bulk_import_builder;
 pub mod bulk_import_csv;
 pub mod bulk_import_document;
 pub mod bulk_import_normalization;
