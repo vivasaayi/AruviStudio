@@ -8,7 +8,6 @@ import {
   createPlannerSession,
   deletePlannerDraftNode,
   exportProductOverviewHtml,
-  getSetting,
   getProductTree,
   listRepositories,
   listModelDefinitions,
@@ -36,17 +35,12 @@ import { PlannerHeader } from "../components/PlannerHeader";
 import { PlannerRepositoryModal } from "../components/PlannerRepositoryModal";
 import { PlannerSidebar } from "../components/PlannerSidebar";
 import { PlannerTraceView } from "../components/PlannerTraceView";
+import { usePlannerWindowWidth } from "../hooks/usePlannerWindowWidth";
 import { styles } from "../lib/plannerPageStyles";
+import { loadPlannerSpeechSettings } from "../lib/plannerSpeechSettings";
 import {
   DEFAULT_ASSISTANT_OPENING,
   PLANNER_WORK_ITEM_PAGE_SIZE,
-  SPEECH_AUTO_SPEAK_REPLIES_KEY,
-  SPEECH_ENABLE_MIC_KEY,
-  SPEECH_LOCALE_KEY,
-  SPEECH_MODEL_KEY,
-  SPEECH_NATIVE_VOICE_KEY,
-  SPEECH_PROVIDER_KEY,
-  SPEECH_REVIEW_BEFORE_SEND_KEY,
   buildPlannerComposerScopeChips,
   buildPlannerModelPickerOptions,
   buildPlannerMutationMessages,
@@ -154,7 +148,7 @@ export function PlannerPage() {
   const [speechNativeVoiceSetting, setSpeechNativeVoiceSetting] = useState("");
   const [reviewVoiceBeforeSend, setReviewVoiceBeforeSend] = useState(false);
   const [showRepoModal, setShowRepoModal] = useState(false);
-  const [windowWidth, setWindowWidth] = useState<number>(() => (typeof window === "undefined" ? 1440 : window.innerWidth));
+  const windowWidth = usePlannerWindowWidth();
   const [showCompactTools, setShowCompactTools] = useState(false);
   const audioCaptureRef = useRef<ActiveAudioCapture | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -318,15 +312,6 @@ export function PlannerPage() {
   }, [draftTreeNodes.length, pendingPlan, selectedProduct, selectedProductId, sessionId]);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return undefined;
-    }
-    const onResize = () => setWindowWidth(window.innerWidth);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  useEffect(() => {
     if (!providerId && providers.length > 0) {
       setProviderId(providers[0].id);
     }
@@ -340,38 +325,30 @@ export function PlannerPage() {
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([
-      getSetting(SPEECH_PROVIDER_KEY),
-      getSetting(SPEECH_MODEL_KEY),
-      getSetting(SPEECH_LOCALE_KEY),
-      getSetting(SPEECH_NATIVE_VOICE_KEY),
-      getSetting(SPEECH_ENABLE_MIC_KEY),
-      getSetting(SPEECH_AUTO_SPEAK_REPLIES_KEY),
-      getSetting(SPEECH_REVIEW_BEFORE_SEND_KEY),
-    ]).then(([providerSetting, modelSetting, localeSetting, nativeVoiceSetting, micEnabledSetting, autoSpeakSetting, reviewBeforeSendSetting]) => {
+    void loadPlannerSpeechSettings().then((settings) => {
       if (cancelled) {
         return;
       }
-      if (providerSetting) {
-        setSpeechProviderSetting(providerSetting);
+      if (settings.provider) {
+        setSpeechProviderSetting(settings.provider);
       }
-      if (modelSetting) {
-        setSpeechModelSetting(modelSetting);
+      if (settings.model) {
+        setSpeechModelSetting(settings.model);
       }
-      if (localeSetting) {
-        setSpeechLocaleSetting(localeSetting);
+      if (settings.locale) {
+        setSpeechLocaleSetting(settings.locale);
       }
-      if (nativeVoiceSetting) {
-        setSpeechNativeVoiceSetting(nativeVoiceSetting);
+      if (settings.nativeVoice) {
+        setSpeechNativeVoiceSetting(settings.nativeVoice);
       }
-      if (typeof micEnabledSetting === "string") {
-        setVoiceEnabled(micEnabledSetting.trim().toLowerCase() !== "false");
+      if (typeof settings.micEnabled === "boolean") {
+        setVoiceEnabled(settings.micEnabled);
       }
-      if (typeof autoSpeakSetting === "string") {
-        setAutoSpeak(autoSpeakSetting.trim().toLowerCase() === "true");
+      if (typeof settings.autoSpeak === "boolean") {
+        setAutoSpeak(settings.autoSpeak);
       }
-      if (typeof reviewBeforeSendSetting === "string") {
-        setReviewVoiceBeforeSend(reviewBeforeSendSetting.trim().toLowerCase() === "true");
+      if (typeof settings.reviewBeforeSend === "boolean") {
+        setReviewVoiceBeforeSend(settings.reviewBeforeSend);
       }
     }).catch(() => {});
     return () => {
