@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
@@ -9,8 +9,6 @@ import { WorkItemExternalCliTab } from "../components/WorkItemExternalCliTab";
 import {
   WorkItemCreateModal,
   WorkItemEditModal,
-  type WorkItemCreateFormState,
-  type WorkItemEditDraftState,
 } from "../components/WorkItemFormModals";
 import { WorkItemReviewSummaryCards } from "../components/WorkItemReviewSummaryCards";
 import { WorkItemReviewWorkflowCard } from "../components/WorkItemReviewWorkflowCard";
@@ -20,6 +18,7 @@ import { useWorkItemActionMutations } from "../hooks/useWorkItemActionMutations"
 import { useWorkItemBacklogApprovalActions } from "../hooks/useWorkItemBacklogApprovalActions";
 import { useWorkItemBacklogView } from "../hooks/useWorkItemBacklogView";
 import { useWorkItemCrudMutations } from "../hooks/useWorkItemCrudMutations";
+import { useWorkItemListPageState } from "../hooks/useWorkItemListPageState";
 import { useWorkItemPageSync } from "../hooks/useWorkItemPageSync";
 import { useWorkItemReviewSignals } from "../hooks/useWorkItemReviewSignals";
 import { useWorkItemScopeData } from "../hooks/useWorkItemScopeData";
@@ -30,7 +29,6 @@ import { useWorkItemWorkspaceQueries } from "../hooks/useWorkItemWorkspaceQuerie
 import { styles } from "../lib/workItemListPageStyles";
 import type {
   Approval,
-  Artifact,
   Finding,
   WorkItem,
   Repository,
@@ -54,45 +52,20 @@ export function WorkItemListPage() {
   } = useWorkspaceStore();
   const { workItemWorkspaceTab, setWorkItemWorkspaceTab, workItemCreateDialogOpen, openWorkItemCreateDialog, closeWorkItemCreateDialog, setActiveView } = useUIStore();
 
-  const [statusFilter, setStatusFilter] = useState("");
-  const [workItemPageIndex, setWorkItemPageIndex] = useState(0);
-  const backlogViewportRef = useRef<HTMLDivElement | null>(null);
-  const [backlogScrollTop, setBacklogScrollTop] = useState(0);
-  const [backlogViewportHeight, setBacklogViewportHeight] = useState(520);
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [isEditingWorkItem, setIsEditingWorkItem] = useState(false);
-  const [draggedWorkItemId, setDraggedWorkItemId] = useState<string | null>(null);
-  const [workItemOrderIds, setWorkItemOrderIds] = useState<string[]>([]);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [actionInfo, setActionInfo] = useState<string | null>(null);
-  const [activeWorkflowRunId, setActiveWorkflowRunId] = useState<string | null>(null);
-  const [selectedExternalCliRunId, setSelectedExternalCliRunId] = useState<string | null>(null);
-  const [selectedArtifactStage, setSelectedArtifactStage] = useState<string | null>(null);
-  const [artifactModalArtifact, setArtifactModalArtifact] = useState<Artifact | null>(null);
-  const [openOverflowWorkItemId, setOpenOverflowWorkItemId] = useState<string | null>(null);
-  const [selectedBacklogItemIds, setSelectedBacklogItemIds] = useState<string[]>([]);
-  const [pendingRowActionIds, setPendingRowActionIds] = useState<string[]>([]);
-  const [bulkActionInFlight, setBulkActionInFlight] = useState<"approve" | "reject" | null>(null);
-  const [createForm, setCreateForm] = useState<WorkItemCreateFormState>({
-    title: "",
-    problemStatement: "",
-    description: "",
-    acceptanceCriteria: "",
-    constraints: "",
-    workItemType: "story",
-    priority: "medium",
-    complexity: "medium",
-    parentWorkItemId: null as string | null,
-  });
-  const [workItemDraft, setWorkItemDraft] = useState<WorkItemEditDraftState>({
-    title: "",
-    description: "",
-    status: "draft",
-    problemStatement: "",
-    acceptanceCriteria: "",
-    constraints: "",
-  });
+  const {
+    statusFilter, setStatusFilter, workItemPageIndex, setWorkItemPageIndex,
+    backlogViewportRef, backlogScrollTop, setBacklogScrollTop,
+    backlogViewportHeight, setBacklogViewportHeight, showCreateForm, setShowCreateForm,
+    isEditingWorkItem, setIsEditingWorkItem, draggedWorkItemId, setDraggedWorkItemId,
+    workItemOrderIds, setWorkItemOrderIds, formError, setFormError,
+    actionError, setActionError, actionInfo, setActionInfo,
+    activeWorkflowRunId, setActiveWorkflowRunId, selectedExternalCliRunId,
+    setSelectedExternalCliRunId, selectedArtifactStage, setSelectedArtifactStage,
+    artifactModalArtifact, setArtifactModalArtifact, openOverflowWorkItemId,
+    setOpenOverflowWorkItemId, selectedBacklogItemIds, setSelectedBacklogItemIds,
+    pendingRowActionIds, setPendingRowActionIds, bulkActionInFlight,
+    setBulkActionInFlight, createForm, setCreateForm, workItemDraft, setWorkItemDraft,
+  } = useWorkItemListPageState();
 
   const {
     products,
