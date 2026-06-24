@@ -29,6 +29,7 @@ import {
 } from "../../../lib/tauri";
 import { blobToBase64, speakInBrowser, startWavCapture, type ActiveAudioCapture } from "../../shared/voice";
 import { PlannerAssistantMessage } from "../components/PlannerAssistantMessage";
+import { PlannerDraftSidePanel } from "../components/PlannerDraftSidePanel";
 import { PlannerHeader } from "../components/PlannerHeader";
 import { PlannerRepositoryModal } from "../components/PlannerRepositoryModal";
 import { PlannerSidebar } from "../components/PlannerSidebar";
@@ -70,7 +71,6 @@ import {
   normalize,
   resolveVoiceNodeReference,
   slugifyPacketName,
-  summarizeAction,
   type DraftEditOperation,
   type DraftValidationSummary,
   type ExecutionResult,
@@ -1745,243 +1745,39 @@ export function PlannerPage() {
                   />
                 </div>
 
-                <div style={styles.draftWorkspaceSide}>
-                  <div style={styles.sideCard}>
-                    <div style={styles.label}>Selected Node</div>
-                    {selectedDraftNode ? (
-                      <>
-                        <div style={styles.cardTitle}>{selectedDraftNode.label}</div>
-                        <div style={styles.helper}>Type: {getPlannerNodeType(selectedDraftNode)}</div>
-                        {selectedDraftNode.summary ? <div style={{ ...styles.helper, marginTop: 8 }}>{selectedDraftNode.summary}</div> : null}
-                        {selectedDraftNode.source || selectedDraftNode.confidence ? (
-                          <div style={styles.chipRow}>
-                            {selectedDraftNode.source ? <div style={styles.chip}>source: {selectedDraftNode.source.replace("_", " ")}</div> : null}
-                            {selectedDraftNode.confidence ? <div style={styles.chip}>{selectedDraftNode.confidence} confidence</div> : null}
-                          </div>
-                        ) : null}
-                        {selectedDraftNodePath.length > 0 ? (
-                          <div style={styles.pathText}>
-                            Path: {selectedDraftNodePath.map((node) => node.label).join(" / ")}
-                          </div>
-                        ) : null}
-                        {selectedDraftNode.evidence && selectedDraftNode.evidence.length > 0 ? (
-                          <>
-                            <div style={styles.sectionDivider} />
-                            <div style={styles.label}>Evidence</div>
-                            <div style={styles.list}>
-                              {selectedDraftNode.evidence.map((line: string) => (
-                                <div key={line} style={styles.listItem}>
-                                  <div style={styles.listItemMeta}>{line}</div>
-                                </div>
-                              ))}
-                            </div>
-                          </>
-                        ) : null}
-                        <div style={styles.sectionDivider} />
-                        <div style={styles.label}>Edit Node</div>
-                        <div style={styles.fieldGroup}>
-                          <input
-                            data-testid="draft-node-rename-input"
-                            style={styles.input}
-                            value={renameDraftName}
-                            onChange={(event) => setRenameDraftName(event.target.value)}
-                            placeholder="Rename this node"
-                          />
-                          <div style={styles.inlineButtonRow}>
-                            <button
-                              data-testid="draft-node-rename-save"
-                              style={styles.mutedButton}
-                              onClick={() => {
-                                void renameSelectedDraftNode();
-                              }}
-                              disabled={!renameDraftName.trim() || isPlannerBusy}
-                            >
-                              Save Name
-                            </button>
-                            <button
-                              data-testid="draft-node-delete"
-                              style={styles.btnDanger}
-                              onClick={() => {
-                                void deleteSelectedDraftNode();
-                              }}
-                              disabled={isPlannerBusy}
-                            >
-                              Delete Node
-                            </button>
-                          </div>
-                        </div>
-                        <div style={styles.sectionDivider} />
-                        <div style={styles.label}>Add Child</div>
-                        {allowedDraftChildTypes.length > 0 ? (
-                          <div style={styles.fieldGroup}>
-                            <select
-                              data-testid="draft-node-add-child-type"
-                              style={styles.select}
-                              value={draftChildType}
-                              onChange={(event) => setDraftChildType(event.target.value as PlannerDraftChildType)}
-                            >
-                              {allowedDraftChildTypes.map((option: PlannerDraftChildType) => (
-                                <option key={option} value={option}>
-                                  {formatDraftChildTypeLabel(option)}
-                                </option>
-                              ))}
-                            </select>
-                            <input
-                              data-testid="draft-node-add-child-name"
-                              style={styles.input}
-                              value={draftChildName}
-                              onChange={(event) => setDraftChildName(event.target.value)}
-                              placeholder={`Name the new ${formatDraftChildTypeLabel(draftChildType).toLowerCase()}`}
-                            />
-                            <textarea
-                              data-testid="draft-node-add-child-summary"
-                              style={styles.compactTextarea}
-                              value={draftChildSummary}
-                              onChange={(event) => setDraftChildSummary(event.target.value)}
-                              placeholder="Optional summary or brief description"
-                            />
-                            <button
-                              data-testid="draft-node-add-child-save"
-                              style={styles.btnGhost}
-                              onClick={() => {
-                                void addChildToSelectedDraftNode();
-                              }}
-                              disabled={!draftChildName.trim() || isPlannerBusy}
-                            >
-                              Add {formatDraftChildTypeLabel(draftChildType)}
-                            </button>
-                          </div>
-                        ) : (
-                          <div style={styles.helper}>
-                            This node is a leaf in the staged hierarchy. Use rename or delete, or select a higher branch to add more structure.
-                          </div>
-                        )}
-                        {draftEditMessage ? <div style={styles.success}>{draftEditMessage}</div> : null}
-                        {draftEditError ? <div style={styles.error}>{draftEditError}</div> : null}
-                        <div style={styles.sectionDivider} />
-                        <div style={styles.label}>Suggested Next Prompts</div>
-                        <div style={styles.promptList}>
-                          {selectedDraftNodePrompts.map((prompt) => (
-                            <button key={prompt} style={styles.promptButton} onClick={() => applyPromptSuggestion(prompt)}>
-                              {prompt}
-                            </button>
-                          ))}
-                        </div>
-                        <div style={styles.sectionDivider} />
-                        <div style={styles.label}>Recent AI Changes For This Node</div>
-                        {selectedNodeRecentActions.length > 0 ? (
-                          <div style={styles.list}>
-                            {selectedNodeRecentActions.map((action, index) => {
-                              const summary = summarizeAction(action);
-                              const symbolStyle = summary.tone === "add"
-                                ? styles.diffSymbolAdd
-                                : summary.tone === "update"
-                                  ? styles.diffSymbolUpdate
-                                  : styles.diffSymbolWarn;
-                              return (
-                                <div key={`${action.type}-${index}`} style={styles.diffRow}>
-                                  <div style={symbolStyle}>{summary.symbol}</div>
-                                  <div>
-                                    <div style={styles.diffPrimary}>{summary.title}</div>
-                                    <div style={styles.diffSecondary}>{summary.detail}</div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <div style={styles.helper}>
-                            No recent planner operations are directly tied to this node yet.
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <div style={styles.helper}>
-                        Select a node in the tree to anchor follow-up planning turns to that part of the design.
-                      </div>
-                    )}
-                  </div>
-
-                  <div style={styles.sideCard}>
-                    <div style={styles.label}>Design Validation</div>
-                    <div style={styles.helper}>
-                      Structural checks for the staged tree before you apply it into the real catalog.
-                    </div>
-                    <div style={styles.issueList}>
-                      {draftValidation.issues.slice(0, 6).map((issue, index) => {
-                        const issueStyle = issue.tone === "ok"
-                          ? styles.issueCardOk
-                          : styles.issueCardWarn;
-                        return (
-                          <div key={`${issue.title}-${index}`} style={issueStyle}>
-                            <div style={styles.issueTitle}>{issue.title}</div>
-                            <div style={styles.issueDetail}>{issue.detail}</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div style={styles.sideCard}>
-                    <div style={styles.label}>Design Review Packet</div>
-                    <div style={styles.helper}>
-                      Generate a reviewable HTML packet with architecture diagrams, feature changes, risks, work breakdown, and the approval-ready change set before applying anything.
-                    </div>
-                    <div style={styles.inlineButtonRow}>
-                      <button style={styles.btnGhost} onClick={() => void exportDesignReviewPacket()} disabled={isExportingDesignPacket}>
-                        {isExportingDesignPacket ? "Generating..." : "Generate Packet"}
-                      </button>
-                      {designPacketPath ? (
-                        <button style={styles.btnGhost} onClick={() => void revealInFinder(designPacketPath)}>
-                          Reveal Packet
-                        </button>
-                      ) : null}
-                      <button data-testid="draft-commit" style={styles.btn} onClick={confirmPendingPlan} disabled={draftTreeNodes.length === 0 || isPlannerBusy}>
-                        Apply Design
-                      </button>
-                      <button style={styles.btnGhost} onClick={() => setPlannerView("conversation")}>
-                        Back to Chat
-                      </button>
-                      <button style={styles.btnDanger} onClick={dismissPendingPlan} disabled={draftTreeNodes.length === 0}>
-                        Clear Design
-                      </button>
-                    </div>
-                    {designPacketPath ? <div style={{ ...styles.success, marginTop: 10 }}>Packet exported to {designPacketPath}</div> : null}
-                    {designPacketError ? <div style={{ ...styles.error, marginTop: 10 }}>{designPacketError}</div> : null}
-                  </div>
-
-                  <div style={styles.sideCard}>
-                    <div style={styles.label}>Latest Design Ops</div>
-                    {latestDraftPlan ? (
-                      <>
-                        <div style={styles.helper}>{latestDraftPlan.assistant_response}</div>
-                        <div style={styles.list}>
-                          {latestDraftPlan.actions.slice(0, 8).map((action, index) => {
-                            const summary = summarizeAction(action);
-                            const symbolStyle = summary.tone === "add"
-                              ? styles.diffSymbolAdd
-                              : summary.tone === "update"
-                                ? styles.diffSymbolUpdate
-                                : styles.diffSymbolWarn;
-                            return (
-                              <div key={`${action.type}-${index}`} style={styles.diffRow}>
-                                <div style={symbolStyle}>{summary.symbol}</div>
-                                <div>
-                                  <div style={styles.diffPrimary}>{summary.title}</div>
-                                  <div style={styles.diffSecondary}>{summary.detail}</div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </>
-                    ) : (
-                      <div style={styles.helper}>
-                        No pending proposal snapshot. Use the chat to add structure, then review and keep refining the staged tree here.
-                      </div>
-                    )}
-                  </div>
-                </div>
+                <PlannerDraftSidePanel
+                  selectedDraftNode={selectedDraftNode}
+                  selectedDraftNodePath={selectedDraftNodePath}
+                  renameDraftName={renameDraftName}
+                  onRenameDraftNameChange={setRenameDraftName}
+                  onRenameSelectedDraftNode={() => void renameSelectedDraftNode()}
+                  onDeleteSelectedDraftNode={() => void deleteSelectedDraftNode()}
+                  isPlannerBusy={isPlannerBusy}
+                  allowedDraftChildTypes={allowedDraftChildTypes}
+                  draftChildType={draftChildType}
+                  onDraftChildTypeChange={setDraftChildType}
+                  draftChildName={draftChildName}
+                  onDraftChildNameChange={setDraftChildName}
+                  draftChildSummary={draftChildSummary}
+                  onDraftChildSummaryChange={setDraftChildSummary}
+                  onAddChildToSelectedDraftNode={() => void addChildToSelectedDraftNode()}
+                  draftEditMessage={draftEditMessage}
+                  draftEditError={draftEditError}
+                  selectedDraftNodePrompts={selectedDraftNodePrompts}
+                  onApplyPromptSuggestion={applyPromptSuggestion}
+                  selectedNodeRecentActions={selectedNodeRecentActions}
+                  draftValidation={draftValidation}
+                  isExportingDesignPacket={isExportingDesignPacket}
+                  onExportDesignReviewPacket={() => void exportDesignReviewPacket()}
+                  designPacketPath={designPacketPath}
+                  onRevealDesignPacket={(path) => void revealInFinder(path)}
+                  designPacketError={designPacketError}
+                  onConfirmPendingPlan={confirmPendingPlan}
+                  draftTreeNodeCount={draftTreeNodes.length}
+                  onBackToChat={() => setPlannerView("conversation")}
+                  onDismissPendingPlan={dismissPendingPlan}
+                  latestDraftPlan={latestDraftPlan}
+                />
               </div>
             ) : plannerView === "trace" ? (
               <div style={styles.draftWorkspaceMain}>
