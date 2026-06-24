@@ -1,18 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  approveWorkItem,
-  approveWorkItemPlan,
-  approveWorkItemTestReview,
-  handleWorkflowUserAction,
-  invokeExternalCliForWorkItem,
-  rejectWorkItemPlan,
-  reorderWorkItems,
-  markWorkflowRunFailed,
-  rejectWorkItem,
-  restartWorkflowRun,
-  startWorkItemWorkflow,
-} from "../../../lib/tauri";
+import { useQueryClient } from "@tanstack/react-query";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
 import { WorkItemArtifactModal } from "../components/WorkItemArtifactModal";
@@ -29,6 +16,7 @@ import { WorkItemReviewSummaryCards } from "../components/WorkItemReviewSummaryC
 import { WorkItemReviewWorkflowCard } from "../components/WorkItemReviewWorkflowCard";
 import { WorkItemWorkspaceReadinessCard } from "../components/WorkItemWorkspaceReadinessCard";
 import { WorkItemWorkspaceAssignmentPanel } from "../components/WorkItemWorkspaceAssignmentPanel";
+import { useWorkItemActionMutations } from "../hooks/useWorkItemActionMutations";
 import { useWorkItemBacklogApprovalActions } from "../hooks/useWorkItemBacklogApprovalActions";
 import { useWorkItemBacklogView } from "../hooks/useWorkItemBacklogView";
 import { useWorkItemCrudMutations } from "../hooks/useWorkItemCrudMutations";
@@ -40,7 +28,6 @@ import { useWorkItemWorkspaceEditor } from "../hooks/useWorkItemWorkspaceEditor"
 import { useWorkItemWorkspaceMutations } from "../hooks/useWorkItemWorkspaceMutations";
 import { useWorkItemWorkspaceQueries } from "../hooks/useWorkItemWorkspaceQueries";
 import { styles } from "../lib/workItemListPageStyles";
-import type { ExternalCliProvider } from "../lib/workItemListPageHelpers";
 import type {
   Approval,
   Artifact,
@@ -242,162 +229,28 @@ export function WorkItemListPage() {
     invalidateTasks,
   });
 
-  const approveMutation = useMutation({
-    mutationFn: () => approveWorkItem(selectedWorkItemId!, "Approved from story workspace"),
-    onSuccess: async () => {
-      setActionError(null);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["approvals", selectedWorkItemId] }),
-        invalidateTasks(),
-      ]);
-    },
-    onError: (error) => setActionError(String(error)),
-  });
-  const rejectMutation = useMutation({
-    mutationFn: () => rejectWorkItem(selectedWorkItemId!, "Rejected from story workspace"),
-    onSuccess: async () => {
-      setActionError(null);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["approvals", selectedWorkItemId] }),
-        invalidateTasks(),
-      ]);
-    },
-    onError: (error) => setActionError(String(error)),
-  });
-  const workflowMutation = useMutation({
-    mutationFn: () => startWorkItemWorkflow(selectedWorkItemId!),
-    onSuccess: async (workflowRunId) => {
-      setActiveWorkflowRunId(workflowRunId);
-      setActionError(null);
-      await invalidateTasks();
-      setWorkItemWorkspaceTab("review");
-    },
-    onError: (error) => setActionError(String(error)),
-  });
-  const externalCliMutation = useMutation({
-    mutationFn: (provider: ExternalCliProvider) => {
-      if (!selectedWorkItemId) {
-        throw new Error("No story selected.");
-      }
-      return invokeExternalCliForWorkItem({ workItemId: selectedWorkItemId, provider });
-    },
-    onSuccess: async (run) => {
-      setActionError(null);
-      setSelectedExternalCliRunId(run.id);
-      setActionInfo(`${run.label} started. Follow progress in External CLI.`);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["externalCliRunsForWorkItem", selectedWorkItemId] }),
-        queryClient.invalidateQueries({ queryKey: ["externalCliRunEvents", run.id] }),
-        queryClient.invalidateQueries({ queryKey: ["artifacts", selectedWorkItemId] }),
-      ]);
-      setWorkItemWorkspaceTab("external_cli");
-    },
-    onError: (error) => setActionError(String(error)),
-  });
-  const planApprovalMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedWorkItemId || !workflowRunId) {
-        throw new Error("No workflow run available for plan approval.");
-      }
-      await approveWorkItemPlan(selectedWorkItemId, "Plan approved from story workspace");
-      await handleWorkflowUserAction({
-        workflowRunId,
-        action: "approve",
-        notes: "Plan approved from story workspace",
-      });
-    },
-    onSuccess: async () => {
-      setActionError(null);
-      await invalidateTasks();
-    },
-    onError: (error) => setActionError(String(error)),
-  });
-  const planRejectMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedWorkItemId || !workflowRunId) {
-        throw new Error("No workflow run available for plan rejection.");
-      }
-      await rejectWorkItemPlan(selectedWorkItemId, "Plan rejected from story workspace");
-      await handleWorkflowUserAction({
-        workflowRunId,
-        action: "reject",
-        notes: "Plan rejected from story workspace",
-      });
-    },
-    onSuccess: async () => {
-      setActionError(null);
-      await invalidateTasks();
-    },
-    onError: (error) => setActionError(String(error)),
-  });
-  const testReviewApproveMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedWorkItemId || !workflowRunId) {
-        throw new Error("No workflow run available for test review.");
-      }
-      await approveWorkItemTestReview(selectedWorkItemId, "Test review approved from story workspace");
-      await handleWorkflowUserAction({
-        workflowRunId,
-        action: "approve",
-        notes: "Test review approved from story workspace",
-      });
-    },
-    onSuccess: async () => {
-      setActionError(null);
-      await invalidateTasks();
-    },
-    onError: (error) => setActionError(String(error)),
-  });
-  const testReviewRejectMutation = useMutation({
-    mutationFn: async () => {
-      if (!workflowRunId) {
-        throw new Error("No workflow run available for test review rejection.");
-      }
-      await handleWorkflowUserAction({
-        workflowRunId,
-        action: "reject",
-        notes: "Test review rejected from story workspace",
-      });
-    },
-    onSuccess: async () => {
-      setActionError(null);
-      await invalidateTasks();
-    },
-    onError: (error) => setActionError(String(error)),
-  });
-  const failWorkflowRunMutation = useMutation({
-    mutationFn: async () => {
-      if (!workflowRunId) {
-        throw new Error("No workflow run available.");
-      }
-      await markWorkflowRunFailed(
-        workflowRunId,
-        "Marked failed from story review due to stale execution",
-      );
-    },
-    onSuccess: async () => {
-      setActionError(null);
-      await invalidateTasks();
-    },
-    onError: (error) => setActionError(String(error)),
-  });
-  const restartWorkflowMutation = useMutation({
-    mutationFn: async () => {
-      if (!workflowRunId) {
-        throw new Error("No workflow run available.");
-      }
-      return restartWorkflowRun(workflowRunId);
-    },
-    onSuccess: async (newWorkflowRunId) => {
-      setActiveWorkflowRunId(newWorkflowRunId);
-      setActionError(null);
-      await invalidateTasks();
-    },
-    onError: (error) => setActionError(String(error)),
-  });
-  const reorderWorkItemsMutation = useMutation({
-    mutationFn: (orderedIds: string[]) => reorderWorkItems(orderedIds),
-    onSuccess: async () => invalidateTasks(),
+  const {
+    approveMutation,
+    rejectMutation,
+    workflowMutation,
+    externalCliMutation,
+    planApprovalMutation,
+    planRejectMutation,
+    testReviewApproveMutation,
+    testReviewRejectMutation,
+    failWorkflowRunMutation,
+    restartWorkflowMutation,
+    reorderWorkItemsMutation,
+  } = useWorkItemActionMutations({
+    queryClient,
+    selectedWorkItemId,
+    workflowRunId,
+    setActiveWorkflowRunId,
+    setSelectedExternalCliRunId,
+    setActionError,
+    setActionInfo,
+    setWorkItemWorkspaceTab,
+    invalidateTasks,
   });
   const selectedWorkItemSummary = useMemo(
     () => selectedWorkItem ?? filteredWorkItems.find((workItem) => workItem.id === selectedWorkItemId) ?? null,
