@@ -23,6 +23,7 @@ import { usePlannerDraftActions } from "../hooks/usePlannerDraftActions";
 import { usePlannerDraftEditorState } from "../hooks/usePlannerDraftEditorState";
 import { usePlannerPageLifecycle } from "../hooks/usePlannerPageLifecycle";
 import { usePlannerPageViewModel } from "../hooks/usePlannerPageViewModel";
+import { usePlannerMutationResultHandler } from "../hooks/usePlannerMutationResultHandler";
 import { usePlannerPendingPlanActions } from "../hooks/usePlannerPendingPlanActions";
 import { usePlannerRepositoryModalState } from "../hooks/usePlannerRepositoryModalState";
 import { usePlannerSpeechSettingsState } from "../hooks/usePlannerSpeechSettingsState";
@@ -30,10 +31,7 @@ import { usePlannerWindowWidth } from "../hooks/usePlannerWindowWidth";
 import { styles } from "../lib/plannerPageStyles";
 import {
   DEFAULT_ASSISTANT_OPENING,
-  buildPlannerMutationMessages,
-  findTreeNodePath,
   formatDraftChildTypeLabel,
-  getPlannerMutationSpeechText,
   getPlannerNodeType,
   getPlannerVoiceViewCommand,
   isCollapseDraftVoiceCommand,
@@ -266,56 +264,24 @@ export function PlannerPage() {
     }
   };
 
-  const handlePlannerMutationSuccess = (result: PlannerMutationResult) => {
-    setPendingVoiceTranscript(null);
-    setEditableVoiceTranscript("");
-    setVoiceActivity(null);
-    setIsVoiceSubmitting(false);
-    setLatestTraceEvents(result.traceEvents ?? []);
-    setMessages((current) => buildPlannerMutationMessages(current, result, makeId));
-
-    if (result.draftTreeNodes) {
-      setDraftTreeNodes(result.draftTreeNodes);
-      if (result.draftTreeNodes.length > 0) {
-        setPlannerView("draft");
-      }
-    }
-    if (result.selectedDraftNodeId !== undefined) {
-      setSelectedDraftNodeId(result.selectedDraftNodeId ?? null);
-      const treeForPath = result.draftTreeNodes ?? draftTreeNodes;
-      if (result.selectedDraftNodeId && treeForPath.length > 0) {
-        const pathIds = findTreeNodePath(treeForPath, result.selectedDraftNodeId).map((node) => node.id);
-        setExpandedDraftNodeIds((current) => Array.from(new Set([...current, ...pathIds])));
-      }
-    }
-
-    if (result.mode === "confirmation_required") {
-      setPendingPlan({ sourceText: result.userInput, plan: result.plan });
-    } else if (result.mode === "draft_updated") {
-      setPendingPlan(null);
-    } else if (result.mode === "session_updated") {
-      // Preserve the currently staged plan while updating draft selection or voice-driven session state.
-    } else if (result.mode === "failed") {
-      setPendingPlan(null);
-      setPlannerView("trace");
-    } else {
-      setPendingPlan(null);
-      if (result.mode === "executed" && !result.draftTreeNodes?.length) {
-        setDraftTreeNodes([]);
-        setSelectedDraftNodeId(null);
-      }
-      void queryClient.invalidateQueries({ queryKey: ["products"] });
-      void queryClient.invalidateQueries({ queryKey: ["plannerWorkItems", selectedProductId] });
-      void queryClient.invalidateQueries({ queryKey: ["sidebarWorkItems"] });
-      void queryClient.invalidateQueries({ queryKey: ["productTree", selectedProductId] });
-      void queryClient.invalidateQueries({ queryKey: ["plannerProductAreas", selectedProductId] });
-      void queryClient.invalidateQueries({ queryKey: ["plannerProductTree", selectedProductId] });
-    }
-
-    if (autoSpeak) {
-      void speakAssistantReply(getPlannerMutationSpeechText(result));
-    }
-  };
+  const handlePlannerMutationSuccess = usePlannerMutationResultHandler({
+    queryClient,
+    selectedProductId,
+    draftTreeNodes,
+    setPendingVoiceTranscript,
+    setEditableVoiceTranscript,
+    setVoiceActivity,
+    setIsVoiceSubmitting,
+    setLatestTraceEvents,
+    setMessages,
+    setDraftTreeNodes,
+    setPlannerView,
+    setSelectedDraftNodeId,
+    setExpandedDraftNodeIds,
+    setPendingPlan,
+    autoSpeak,
+    speakAssistantReply,
+  });
 
   const processMutation = useMutation<PlannerMutationResult, Error, string>({
     mutationFn: async (input: string) => {
