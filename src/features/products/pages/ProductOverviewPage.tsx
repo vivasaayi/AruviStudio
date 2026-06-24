@@ -1,30 +1,11 @@
-import React, { useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import React from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  exportProductOverviewEpub,
-  exportProductOverviewHtml,
-  exportProductOverviewPdf,
-  getProductTree,
-  listCapabilities,
-  listProductAreas,
-  listProductReferences,
-  listProducts,
-  revealInFinder,
-  summarizeProductTree,
-  summarizeWorkItemsByProduct,
-} from "../../../lib/tauri";
+import { revealInFinder } from "../../../lib/tauri";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
-import { ProductOverviewDocument, type ProductOverviewPlannerAction } from "../components/ProductOverviewDocument";
-import type { Capability, CapabilityTree, HierarchyTreeNode, ProductArea, ProductAreaTree, Product, ProductReference, ProductTree, ProductTreeSummary, ProductWorkItemSummary, WorkItem } from "../../../lib/types";
-import {
-  BOOK_EXPORT_TRIM_PRESETS,
-  buildProductOverviewBookBundle,
-  getBookExportTrimPreset,
-  type BookExportTrimPresetId,
-} from "../lib/bookExport";
-import { buildProductOverviewHtml, type WorkItemMetrics } from "../lib/productOverview";
+import { ProductOverviewDocument } from "../components/ProductOverviewDocument";
+import { BOOK_EXPORT_TRIM_PRESETS, type BookExportTrimPresetId } from "../lib/bookExport";
+import { useProductOverviewPageController } from "../hooks/useProductOverviewPageController";
 
 const styles: Record<string, React.CSSProperties> = {
   page: { display: "flex", flexDirection: "column", gap: 8, minHeight: "100%", width: "100%" },
@@ -55,300 +36,49 @@ export function ProductOverviewPage() {
     openProductAreaDialog,
     openCapabilityDialog,
   } = useUIStore();
-  const [exportPath, setExportPath] = React.useState<string | null>(null);
-  const [exportError, setExportError] = React.useState<string | null>(null);
-  const [isExporting, setIsExporting] = React.useState(false);
-  const [bookTrimPresetId, setBookTrimPresetId] = React.useState<BookExportTrimPresetId>(BOOK_EXPORT_TRIM_PRESETS[0].id);
-
-  const { data: products = [], isLoading: productsLoading } = useQuery<Product[]>({
-    queryKey: ["products"],
-    queryFn: listProducts,
+  const {
+    bookTrimPresetId,
+    editCapability,
+    editProduct,
+    editProductArea,
+    exportError,
+    exportHtml,
+    exportPath,
+    goToProductWorkspace,
+    isExporting,
+    loadProductAreaTree,
+    openWorkItem,
+    overviewMetrics,
+    planFromItem,
+    productReferences,
+    products,
+    productsLoading,
+    referencesLoading,
+    runBookArtifactExport,
+    selectedProduct,
+    selectedProductId,
+    selectedProductWorkItemSummary,
+    selectProduct,
+    setBookTrimPresetId,
+    summariesLoading,
+    tree,
+    treeLoading,
+    treeSummary,
+    workItems,
+  } = useProductOverviewPageController({
+    activeProductId,
+    setActiveProduct,
+    setActiveProductArea,
+    setActiveCapability,
+    setActiveWorkItem,
+    setActiveView,
+    setProductWorkspaceTab,
+    setWorkItemWorkspaceTab,
+    openProductDialog,
+    openProductAreaDialog,
+    openCapabilityDialog,
+    navigate,
   });
-
-  const visibleActiveProductId = products.some((product) => product.id === activeProductId)
-    ? activeProductId
-    : null;
-  const selectedProductId = visibleActiveProductId ?? products[0]?.id ?? null;
-  const selectedProduct = products.find((product) => product.id === selectedProductId) ?? null;
-
-  useEffect(() => {
-    if (productsLoading) {
-      return;
-    }
-    if (activeProductId !== selectedProductId) {
-      setActiveProduct(selectedProductId);
-    }
-  }, [activeProductId, productsLoading, selectedProductId, setActiveProduct]);
-
-  const { data: productAreas = [], isLoading: productAreasLoading } = useQuery<ProductArea[]>({
-    queryKey: ["productOverviewProductAreas", selectedProductId],
-    queryFn: () => listProductAreas(selectedProductId!),
-    enabled: !!selectedProduct,
-  });
-  const { data: treeSummary, isLoading: treeSummaryLoading } = useQuery<ProductTreeSummary>({
-    queryKey: ["productTreeSummary", selectedProductId],
-    queryFn: () => summarizeProductTree(selectedProductId!),
-    enabled: !!selectedProduct,
-  });
-  const tree = React.useMemo(
-    () => selectedProduct ? buildProductAreaOnlyTree(selectedProduct, productAreas) : undefined,
-    [productAreas, selectedProduct],
-  );
-  const treeLoading = productAreasLoading || treeSummaryLoading;
-  const loadProductAreaTree = React.useCallback(async (productArea: ProductArea): Promise<ProductAreaTree> => {
-    const capabilities = await listCapabilities(productArea.id);
-    return {
-      product_area: productArea,
-      features: buildCapabilityTrees(capabilities),
-    };
-  }, []);
-
-  const { data: productWorkItemSummaries = [], isLoading: summariesLoading } = useQuery<ProductWorkItemSummary[]>({
-    queryKey: ["productWorkItemSummary"],
-    queryFn: summarizeWorkItemsByProduct,
-    enabled: !!selectedProduct,
-  });
-  const selectedProductWorkItemSummary = React.useMemo(
-    () => productWorkItemSummaries.find((summary) => summary.product_id === selectedProductId) ?? null,
-    [productWorkItemSummaries, selectedProductId],
-  );
-  const overviewMetrics = React.useMemo<WorkItemMetrics>(() => {
-    const total = selectedProductWorkItemSummary?.total_count ?? 0;
-    const done = selectedProductWorkItemSummary?.done_count ?? 0;
-    const blocked = selectedProductWorkItemSummary?.blocked_count ?? 0;
-    const active = selectedProductWorkItemSummary?.active_count ?? 0;
-    const wip = Math.max(0, active - blocked);
-    const tbd = Math.max(0, total - done - active);
-    return {
-      total,
-      done,
-      wip,
-      tbd,
-      blocked,
-      completion: total > 0 ? Math.round((done / total) * 100) : 0,
-    };
-  }, [selectedProductWorkItemSummary]);
-  const workItems = React.useMemo<WorkItem[]>(() => [], []);
-
-  const { data: productReferences = [], isLoading: referencesLoading } = useQuery<ProductReference[]>({
-    queryKey: ["productOverviewPageReferences"],
-    queryFn: () => listProductReferences(),
-    enabled: !!selectedProduct,
-  });
-
-  useEffect(() => {
-    if (treeLoading || summariesLoading) {
-      return;
-    }
-    if (typeof window === "undefined") {
-      return;
-    }
-    const hash = window.location.hash.replace(/^#/, "");
-    if (!hash) {
-      return;
-    }
-    requestAnimationFrame(() => {
-      document.getElementById(hash)?.scrollIntoView({ block: "start" });
-    });
-  }, [selectedProductId, treeLoading, summariesLoading, tree, overviewMetrics.total]);
-
-  const goToProductWorkspace = () => {
-    setActiveView("products");
-    navigate("/products");
-  };
-
-  const exportHtml = async () => {
-    await runExport("overview", buildProductOverviewHtml);
-  };
-
-  const runExport = async (
-    variant: "overview" | "book",
-    builder: (input: { product: Product; tree?: ProductTree; workItems?: WorkItem[]; references?: ProductReference[] }) => string,
-  ) => {
-    if (!selectedProduct) {
-      return;
-    }
-
-    try {
-      setIsExporting(true);
-      setExportError(null);
-      const exportTree = await getProductTree(selectedProduct.id);
-      const html = builder({
-        product: selectedProduct,
-        tree: exportTree,
-        workItems,
-        references: productReferences,
-      });
-      const path = await exportProductOverviewHtml({
-        fileName: `${slugify(selectedProduct.name)}-${variant}.html`,
-        html,
-      });
-      setExportPath(path);
-    } catch (error) {
-      setExportPath(null);
-      setExportError(String(error));
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
-  const runBookArtifactExport = async (format: "html" | "pdf" | "epub") => {
-    if (!selectedProduct) {
-      return;
-    }
-
-    const trimPreset = getBookExportTrimPreset(bookTrimPresetId);
-
-    try {
-      setIsExporting(true);
-      setExportError(null);
-      const exportTree = await getProductTree(selectedProduct.id);
-      const bundle = buildProductOverviewBookBundle(
-        {
-          product: selectedProduct,
-          tree: exportTree,
-          workItems,
-          references: productReferences,
-        },
-        {
-          trimPreset,
-          renderMode: format === "html" ? "web" : format === "pdf" ? "print" : "epub",
-        },
-      );
-
-      let path: string;
-      if (format === "html") {
-        path = await exportProductOverviewHtml({
-          fileName: `${slugify(selectedProduct.name)}-book.html`,
-          html: bundle.html,
-        });
-      } else if (format === "pdf") {
-        path = await exportProductOverviewPdf({
-          fileName: `${slugify(selectedProduct.name)}-book.pdf`,
-          html: bundle.html,
-          pageWidth: trimPreset.pageWidth,
-          pageHeight: trimPreset.pageHeight,
-          marginTop: trimPreset.marginTop,
-          marginRight: trimPreset.marginRight,
-          marginBottom: trimPreset.marginBottom,
-          marginLeft: trimPreset.marginLeft,
-          headerTitle: selectedProduct.name,
-          headerRight: trimPreset.label,
-        });
-      } else {
-        path = await exportProductOverviewEpub({
-          fileName: `${slugify(selectedProduct.name)}-book.epub`,
-          title: selectedProduct.name,
-          html: bundle.html,
-          tocItems: bundle.tocItems,
-          author: "Aruvi Studio",
-          language: "en",
-        });
-      }
-
-      setExportPath(path);
-    } catch (error) {
-      setExportPath(null);
-      setExportError(String(error));
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
-  const editProduct = () => {
-    if (!selectedProductId) {
-      return;
-    }
-    setActiveProduct(selectedProductId);
-    setActiveView("products");
-    navigate(`/products/${selectedProductId}`);
-    openProductDialog("edit");
-  };
-
-  const editProductArea = (product_area: ProductArea) => {
-    if (!selectedProductId) {
-      return;
-    }
-    setActiveProduct(selectedProductId);
-    setActiveProductArea(product_area.id);
-    setActiveCapability(null);
-    setProductWorkspaceTab("structure");
-    setActiveView("products");
-    navigate(`/products/${selectedProductId}`);
-    openProductAreaDialog("edit");
-  };
-
-  const editCapability = (capability: Capability) => {
-    if (!selectedProductId) {
-      return;
-    }
-    setActiveProduct(selectedProductId);
-    setActiveProductArea(capability.product_area_id);
-    setActiveCapability(capability.id);
-    setProductWorkspaceTab("structure");
-    setActiveView("products");
-    navigate(`/products/${selectedProductId}`);
-    openCapabilityDialog("edit");
-  };
-
-  const openWorkItem = (workItem: WorkItem) => {
-    setActiveProduct(workItem.product_id);
-    setActiveProductArea(workItem.product_area_id ?? null);
-    setActiveCapability(workItem.capability_id ?? null);
-    setActiveWorkItem(workItem.id);
-    setWorkItemWorkspaceTab("detail");
-    setActiveView("work-items");
-    navigate(`/work-items/${workItem.id}`);
-  };
-
-  const planFromItem = (action: ProductOverviewPlannerAction) => {
-    const product = action.product;
-    let prompt: string;
-
-    setActiveProduct(product.id);
-    setActiveWorkItem(null);
-
-    switch (action.kind) {
-      case "enhance_product":
-        prompt = `Enhance product "${product.name}". Review the current product management tree, identify missing product areas, capabilities, features, stories, and tasks, then stage a concrete improvement plan.`;
-        break;
-      case "add_product_child":
-        prompt = `Add a useful product area under product "${product.name}". Stage the new product area with its initial capabilities and starter stories.`;
-        break;
-      case "enhance_product_area":
-        setActiveProductArea(action.product_area.id);
-        prompt = `Enhance product area "${action.product_area.name}" in product "${product.name}". Add or revise child capabilities, features, stories, and tasks so this branch is execution-ready.`;
-        break;
-      case "add_product_area_child":
-        setActiveProductArea(action.product_area.id);
-        prompt = `Add child capabilities under product area "${action.product_area.name}" in product "${product.name}". Include concise descriptions, acceptance criteria, and starter stories where helpful.`;
-        break;
-      case "enhance_capability":
-        setActiveProductArea(action.capability.product_area_id);
-        setActiveCapability(action.capability.id);
-        prompt = `Enhance ${action.capability.node_kind.replace(/_/g, " ")} "${action.capability.name}" under "${action.productAreaName}" in product "${product.name}". Improve its description, acceptance criteria, technical notes, and missing child structure.`;
-        break;
-      case "add_capability_child":
-        setActiveProductArea(action.capability.product_area_id);
-        setActiveCapability(action.capability.id);
-        prompt = `Add child nodes under "${action.capability.name}" in product "${product.name}". Stage concrete features with clear descriptions and acceptance criteria.`;
-        break;
-      case "add_capability_work_item":
-        setActiveProductArea(action.capability.product_area_id);
-        setActiveCapability(action.capability.id);
-        prompt = `Add delivery stories and tasks under "${action.capability.name}" in product "${product.name}". Make each story specific, testable, and scoped to this branch.`;
-        break;
-      case "enhance_work_item":
-        setActiveProductArea(action.workItem.product_area_id ?? null);
-        setActiveCapability(action.workItem.capability_id ?? null);
-        setActiveWorkItem(action.workItem.id);
-        prompt = `Enhance story "${action.workItem.title}" in product "${product.name}". Improve the problem statement, acceptance criteria, constraints, and split it into tasks if needed.`;
-        break;
-    }
-
-    setActiveView("planner");
-    navigate("/planner", { state: { plannerPrompt: prompt, plannerView: "conversation" } });
-  };
 
   if (!productsLoading && products.length === 0) {
     return (
@@ -378,7 +108,7 @@ export function ProductOverviewPage() {
             <select
               style={styles.select}
               value={selectedProductId ?? ""}
-              onChange={(event) => setActiveProduct(event.target.value || null)}
+              onChange={(event) => selectProduct(event.target.value || null)}
               disabled={products.length === 0}
             >
               {products.map((product) => (
@@ -475,64 +205,4 @@ export function ProductOverviewPage() {
       )}
     </div>
   );
-}
-
-function slugify(value: string) {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    || "product";
-}
-
-function buildProductAreaOnlyTree(product: Product, productAreas: ProductArea[]): ProductTree {
-  const productAreaTrees = productAreas.map((product_area) => ({
-    product_area,
-    features: [],
-  }));
-
-  return {
-    product,
-    product_areas: productAreaTrees,
-    roots: productAreas.map(productAreaToHierarchyRoot),
-  };
-}
-
-function productAreaToHierarchyRoot(productArea: ProductArea): HierarchyTreeNode {
-  return {
-    id: productArea.id,
-    node_type: "product_area",
-    node_kind: productArea.node_kind,
-    product_area_id: productArea.id,
-    capability_id: null,
-    parent_node_id: null,
-    parent_node_type: null,
-    depth: 0,
-    name: productArea.name,
-    description: productArea.description,
-    summary: productArea.description || productArea.purpose,
-    path: [productArea.name],
-    allowed_child_kinds: ["capability"],
-    children: [],
-  };
-}
-
-function buildCapabilityTrees(capabilities: Capability[]): CapabilityTree[] {
-  const childrenByParent = new Map<string, Capability[]>();
-  capabilities.forEach((capability) => {
-    const parentKey = capability.parent_capability_id ?? "";
-    const siblings = childrenByParent.get(parentKey) ?? [];
-    siblings.push(capability);
-    childrenByParent.set(parentKey, siblings);
-  });
-
-  const sortCapabilities = (items: Capability[]) =>
-    [...items].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
-  const buildTree = (capability: Capability): CapabilityTree => ({
-    capability,
-    children: sortCapabilities(childrenByParent.get(capability.id) ?? []).map(buildTree),
-  });
-
-  return sortCapabilities(childrenByParent.get("") ?? []).map(buildTree);
 }
