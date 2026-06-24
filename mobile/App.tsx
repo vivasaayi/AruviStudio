@@ -1,13 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Keyboard,
   Linking,
   Platform,
-  Pressable,
   SafeAreaView,
-  Text,
   View,
 } from "react-native";
 import {
@@ -23,9 +20,11 @@ import { WebView } from "react-native-webview";
 import { initWhisper, type WhisperContext } from "whisper.rn";
 import { PlannerMobileClient } from "./src/api/client";
 import { MobileAppHeader } from "./src/components/MobileAppHeader";
+import { MobileBottomTabs, MOBILE_TABS, type MobileTabId } from "./src/components/MobileBottomTabs";
 import { MobileCallsScreen } from "./src/components/MobileCallsScreen";
 import { MobileModelManager } from "./src/components/MobileModelManager";
 import { MobileProductExplorer, type ProductExploreTab } from "./src/components/MobileProductExplorer";
+import { MobileRemoteWebView } from "./src/components/MobileRemoteWebView";
 import { MobileVoiceScreen } from "./src/components/MobileVoiceScreen";
 import type { MobilePlannerToolTraceEntry, ModelCall, Product, ProductTree, ProductTreeSummary } from "./src/types";
 import {
@@ -62,7 +61,7 @@ import {
 } from "./src/lib/productTree";
 import { styles } from "./src/styles/appStyles";
 
-type ActiveTab = "planner" | "products" | "voice" | "models" | "calls" | "activity";
+type ActiveTab = MobileTabId;
 type ConnectionStatus = "unchecked" | "checking" | "connected" | "offline";
 type VoiceMode = "assistant" | "planner";
 type VoiceMessage = {
@@ -74,15 +73,6 @@ type VoiceMessage = {
 type VoicePromptSource = "typed" | "recording";
 type ChatCompletionBody = Parameters<PlannerMobileClient["runChatCompletion"]>[0];
 type PlannerChatTurnBody = Parameters<PlannerMobileClient["submitMobilePlannerChatTurn"]>[1];
-
-const TABS: Array<{ id: ActiveTab; label: string }> = [
-  { id: "planner", label: "Planner" },
-  { id: "products", label: "Products" },
-  { id: "voice", label: "Voice" },
-  { id: "models", label: "Models" },
-  { id: "calls", label: "Calls" },
-  { id: "activity", label: "Activity" },
-];
 
 const STORAGE_KEYS = {
   baseUrl: "aruvi.mobile.base_url",
@@ -364,7 +354,7 @@ export default function App() {
       if (savedProviderId) setProviderId(savedProviderId);
       if (savedModelName) setModelName(savedModelName);
       if (savedLocale) setLocale(savedLocale);
-      if (TABS.some((tab) => tab.id === savedActiveTab)) {
+      if (MOBILE_TABS.some((tab) => tab.id === savedActiveTab)) {
         setActiveTab(savedActiveTab as ActiveTab);
       } else if (savedActiveTab === "chat") {
         setActiveTab("voice");
@@ -1280,49 +1270,16 @@ export default function App() {
               describeError={describeError}
             />
           ) : (
-            <WebView
-              ref={webViewRef}
-              key={`${remoteUrl}-${webReloadKey}`}
-              source={{ uri: remoteUrl }}
-              style={styles.webView}
-              injectedJavaScriptBeforeContentLoaded={remoteBootstrapScript}
-              onLoadEnd={() => webViewRef.current?.injectJavaScript(remoteBootstrapScript)}
-              javaScriptEnabled
-              domStorageEnabled
-              allowsInlineMediaPlayback
-              mediaCapturePermissionGrantType="grantIfSameHostElsePrompt"
-              startInLoadingState
-              renderLoading={() => (
-                <View style={styles.loading}>
-                  <ActivityIndicator color="#7bc8ff" />
-                </View>
-              )}
-              renderError={(_, __, description) => (
-                <View style={styles.errorPanel}>
-                  <Text style={styles.errorTitle}>Remote UI unavailable</Text>
-                  <Text style={styles.errorText}>{description}</Text>
-                </View>
-              )}
+            <MobileRemoteWebView
+              webViewRef={webViewRef}
+              remoteUrl={remoteUrl}
+              reloadKey={webReloadKey}
+              bootstrapScript={remoteBootstrapScript}
             />
           )}
         </View>
 
-        {!isVoiceKeyboardOpen ? (
-          <View style={styles.bottomTabs}>
-            {TABS.map((tab) => (
-              <Pressable
-                key={tab.id}
-                style={[styles.tabItem, activeTab === tab.id && styles.tabItemActive]}
-                onPress={() => switchTab(tab.id)}
-              >
-                <View style={[styles.tabIndicator, activeTab === tab.id && styles.tabIndicatorActive]} />
-                <Text style={[styles.tabText, activeTab === tab.id && styles.tabTextActive]} numberOfLines={1}>
-                  {tab.label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        ) : null}
+        <MobileBottomTabs activeTab={activeTab} isHidden={isVoiceKeyboardOpen} onSwitchTab={switchTab} />
       </View>
     </SafeAreaView>
   );
