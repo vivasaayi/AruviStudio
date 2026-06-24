@@ -4,7 +4,6 @@ import { useLocation, useNavigate } from "react-router-dom";
 import {
   archiveProduct,
   createCapability,
-  createLocalWorkspace,
   createProductArea,
   createProduct,
   createProductDependency,
@@ -21,8 +20,6 @@ import {
   reorderCapabilities,
   reorderProductAreas,
   resetProductPlan,
-  revealInFinder,
-  resolveRepositoryForScope,
   setSetting,
   summarizeProductTree,
   summarizeWorkItemsByProduct,
@@ -32,11 +29,7 @@ import {
   updateProduct,
   updateWorkItem,
 } from "../../../lib/tauri";
-import {
-  findHierarchyNode,
-  flattenHierarchyNodes,
-  getHierarchyNodeSectionId,
-} from "../../../lib/hierarchyTree";
+import { findHierarchyNode, flattenHierarchyNodes } from "../../../lib/hierarchyTree";
 import {
   getAllowedChildNodeKinds,
   getDefaultChildNodeKind,
@@ -46,7 +39,6 @@ import {
 } from "../../../lib/hierarchyLabels";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
-import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
 import { CopyableEntityId } from "../components/CopyableEntityId";
 import { ProductManagementConsole } from "../components/ProductManagementConsole";
 import { ProductManagementModalStack } from "../components/ProductManagementModalStack";
@@ -111,7 +103,7 @@ import {
   selectManagementFeature,
   selectManagementStory,
 } from "../lib/productManagementSelection";
-import type { CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ProductAreaTree, Product, ProductTree, ProductTreeSummary, ProductWorkItemSummary, Repository, WorkItem, WorkItemScopeSummary } from "../../../lib/types";
+import type { CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ProductAreaTree, Product, ProductTree, ProductTreeSummary, ProductWorkItemSummary, WorkItem, WorkItemScopeSummary } from "../../../lib/types";
 
 
 
@@ -126,10 +118,7 @@ export function ProductListPage() {
     activeProductId,
     activeProductAreaId,
     activeCapabilityId,
-    activeNodeId,
-    activeNodeType,
     activeWorkItemId,
-    activeWorkspacePath,
     setActiveProduct,
     setActiveProductArea,
     setActiveCapability,
@@ -140,7 +129,6 @@ export function ProductListPage() {
     productDialogMode,
     productAreaDialogMode,
     capabilityDialogMode,
-    productWorkspaceTab,
     closeProductDialog,
     openProductDialog,
     closeProductAreaDialog,
@@ -159,8 +147,6 @@ export function ProductListPage() {
   const [capabilityDraft, setCapabilityDraft] = useState<{ name: string; description: string; acceptanceCriteria: string; technicalNotes: string; nodeKind: HierarchyNodeKind }>({ name: "", description: "", acceptanceCriteria: "", technicalNotes: "", nodeKind: "capability" });
   const [productManagementTab, setProductManagementTab] = useState<ProductManagementTab>("areas");
   const [formError, setFormError] = useState<string | null>(null);
-  const [workspaceActionMsg, setWorkspaceActionMsg] = useState<string | null>(null);
-  const [workspaceActionError, setWorkspaceActionError] = useState<string | null>(null);
   const [draggedProductAreaId, setDraggedProductAreaId] = useState<string | null>(null);
   const [draggedFeature, setDraggedFeature] = useState<null | { id: string; productAreaId: string; parentCapabilityId?: string | null; siblingIds: string[] }>(null);
   const [productAreaOrderIds, setProductAreaOrderIds] = useState<string[]>([]);
@@ -279,13 +265,6 @@ export function ProductListPage() {
     enabled: productPageTab === "status" || (!!selectedProduct && productPageTab === "design"),
   });
 
-  const { data: resolvedWorkspace } = useQuery<Repository | null>({
-    queryKey: ["productScopeRepo", selectedProductId, activeProductAreaId],
-    queryFn: () => resolveRepositoryForScope({ productId: selectedProductId, productAreaId: activeProductAreaId }),
-    enabled: !!selectedProduct && productPageTab === "design",
-  });
-  const effectiveWorkspacePath = resolvedWorkspace?.local_path ?? activeWorkspacePath ?? null;
-
   const productTreeById = useMemo(() => {
     const map = new Map<string, ProductTree>();
     (products ?? []).forEach((product, index) => {
@@ -371,18 +350,6 @@ export function ProductListPage() {
     }
   };
 
-  const openWorkspaceInIde = () => {
-    if (resolvedWorkspace) {
-      useWorkspaceStore.getState().setActiveRepo(resolvedWorkspace.id);
-      useWorkspaceStore.getState().setActiveWorkspace(resolvedWorkspace.local_path);
-    } else if (effectiveWorkspacePath) {
-      useWorkspaceStore.getState().setActiveWorkspace(effectiveWorkspacePath);
-    }
-    setWorkspaceActionError(null);
-    setActiveView("ide");
-    navigate("/ide");
-  };
-
   useEffect(() => {
     if (!activeProductId && products?.[0]?.id) {
       setActiveProduct(products[0].id);
@@ -392,8 +359,6 @@ export function ProductListPage() {
   useEffect(() => {
     setActiveWorkItem(null);
     setFormError(null);
-    setWorkspaceActionMsg(null);
-    setWorkspaceActionError(null);
   }, [selectedProductId, activeProductAreaId, activeCapabilityId, setActiveWorkItem]);
 
   useEffect(() => {
@@ -842,36 +807,6 @@ export function ProductListPage() {
     onError: (error) => setFormError(String(error)),
   });
 
-  const createWorkspaceMutation = useMutation({
-    mutationFn: () =>
-      createLocalWorkspace({
-        productId: selectedProductId,
-        productAreaId: activeProductAreaId,
-      }),
-    onSuccess: async (provisioned) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["repositories"] }),
-        queryClient.invalidateQueries({ queryKey: ["productScopeRepo", selectedProductId, activeProductAreaId] }),
-        queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] }),
-        queryClient.invalidateQueries({ queryKey: ["sidebarProductTree", selectedProductId] }),
-      ]);
-      setWorkspaceActionError(null);
-      setWorkspaceActionMsg(`Workspace ready at ${provisioned.created_path}. Opening IDE.`);
-      setActiveView("ide");
-      navigate("/ide");
-      useWorkspaceStore.getState().setActiveWorkspace(provisioned.created_path);
-      useWorkspaceStore.getState().setActiveRepo(provisioned.repository.id);
-    },
-    onError: (error) => {
-      setWorkspaceActionMsg(null);
-      setWorkspaceActionError(String(error));
-    },
-  });
-
-  const selectedHierarchyNode = useMemo(
-    () => (tree ? findHierarchyNode(tree.roots, activeNodeId, activeNodeType) : null),
-    [tree, activeNodeId, activeNodeType],
-  );
   const allTreeNodes = useMemo(() => (tree ? flattenHierarchyNodes(tree.roots) : []), [tree]);
   const selectedCapabilityOptions = useMemo(
     () => buildCapabilityOptionsFromNodes(allTreeNodes),
@@ -1029,30 +964,6 @@ export function ProductListPage() {
   const activeProductPageRefreshLabel = getProductPageRefreshLabel(productPageTab);
   const activeProductPageRefreshDisabled = isProductPageRefreshDisabled(productPageTab, selectedProductId);
   const productManagementRefreshLabel = getProductManagementRefreshLabel(productManagementTab);
-
-  const openSelectedSectionInBook = () => {
-    if (!selectedProductId) {
-      return;
-    }
-    setActiveProduct(selectedProductId);
-    setActiveView("product-overview");
-    navigate(`/product-overview#${getHierarchyNodeSectionId(selectedHierarchyNode)}`);
-  };
-
-  const editSelectedScope = () => {
-    if (!selectedProduct) {
-      return;
-    }
-    if (!selectedHierarchyNode) {
-      openProductDialog("edit");
-      return;
-    }
-    if (selectedHierarchyNode.node_type === "product_area") {
-      openProductAreaDialog("edit");
-      return;
-    }
-    openCapabilityDialog("edit");
-  };
 
   const selectProductArea = (productAreaTree: ProductAreaTree) => {
     setActiveHierarchyNode({
