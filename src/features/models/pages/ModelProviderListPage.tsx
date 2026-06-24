@@ -24,6 +24,10 @@ import {
 } from "../lib/modelProviderConstants";
 import { splitCommaSeparated } from "../lib/modelProviderFormUtils";
 import { styles } from "../lib/modelProviderPageStyles";
+import { ManagedLocalSpeechModelsPanel } from "../components/ManagedLocalSpeechModelsPanel";
+import { ModelProviderGrid } from "../components/ModelProviderGrid";
+import { ModelProviderQuickStartPanel } from "../components/ModelProviderQuickStartPanel";
+import { RegisteredModelGrid } from "../components/RegisteredModelGrid";
 
 export function ModelProviderListPage() {
   const queryClient = useQueryClient();
@@ -260,6 +264,29 @@ export function ModelProviderListPage() {
     (provider) => !(provider.provider_type === "local_runtime" && provider.base_url === LEGACY_WHISPER_PLACEHOLDER_PATH),
   );
 
+  const startEditingProvider = (provider: ModelProvider) => {
+    setEditingProvider(provider);
+    setProviderEditForm({
+      name: provider.name,
+      providerType: provider.provider_type,
+      baseUrl: provider.base_url,
+      authSecretRef: "",
+      enabled: provider.enabled,
+    });
+  };
+
+  const startEditingModel = (model: ModelDefinition) => {
+    setEditingModel(model);
+    setModelEditForm({
+      providerId: model.provider_id,
+      name: model.name,
+      contextWindow: model.context_window ? String(model.context_window) : "",
+      capabilityTags: model.capability_tags.join(", "),
+      notes: model.notes,
+      enabled: model.enabled,
+    });
+  };
+
   return (
     <div style={styles.page}>
       <div style={styles.header}>
@@ -291,77 +318,16 @@ export function ModelProviderListPage() {
       {providerError && <div style={styles.feedbackError}>{providerError}</div>}
       {modelSuccess && <div style={styles.feedbackSuccess}>{modelSuccess}</div>}
       {modelError && <div style={styles.feedbackError}>{modelError}</div>}
-      <div style={{ ...styles.form, marginBottom: 18 }}>
-        <div style={{ ...styles.title, fontSize: 16, marginBottom: 10 }}>Quick Start</div>
-        <div style={{ color: "#9aa0a6", fontSize: 13, lineHeight: 1.5, marginBottom: 14 }}>
-          Use DeepSeek hosted first if you want a quick end-to-end path. For fully local desktop voice, use the managed Whisper installs below instead of creating manual placeholder providers.
-        </div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button style={styles.btn} onClick={() => applyPreset("deepseek")}>Use DeepSeek Hosted</button>
-          <button style={{ ...styles.btn, backgroundColor: "#2c3139" }} onClick={() => applyPreset("lm_studio")}>Use LM Studio Local</button>
-        </div>
-      </div>
-      <div style={{ ...styles.form, marginBottom: 18 }}>
-        <div style={{ ...styles.title, fontSize: 16, marginBottom: 10 }}>Managed Local Speech Models</div>
-        <div style={{ color: "#9aa0a6", fontSize: 13, lineHeight: 1.5, marginBottom: 14 }}>
-          Install Whisper models into AruviStudio-managed storage, or register an existing local model file without typing absolute paths by hand.
-        </div>
-        <div style={styles.managedGrid}>
-          {MANAGED_LOCAL_MODELS.map((entry) => {
-            const installedProvider = (providers ?? []).find((provider) => provider.name === entry.providerName);
-            const installedModel = (modelDefinitions ?? []).find(
-              (model) => model.provider_id === installedProvider?.id && model.name === entry.modelName,
-            );
-            const isInstalled = Boolean(installedProvider && installedModel);
-            const isBusy = installLocalModelMutation.isPending || registerLocalModelMutation.isPending;
-
-            return (
-              <div key={entry.id} style={styles.managedCard}>
-                <div style={styles.managedTitle}>{entry.displayName}</div>
-                <div style={styles.managedBadgeRow}>
-                  <span style={styles.managedBadge}>{entry.sizeLabel}</span>
-                  <span style={styles.managedBadge}>speech_to_text</span>
-                  <span style={styles.managedBadge}>{isInstalled ? "installed" : "not installed"}</span>
-                </div>
-                <div style={styles.managedMeta}>{entry.notes}</div>
-                {installedProvider ? (
-                  <div style={{ ...styles.managedMeta, fontFamily: "monospace" }}>
-                    Provider path: {installedProvider.base_url}
-                  </div>
-                ) : null}
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-                  <button
-                    style={styles.btn}
-                    onClick={() => installLocalModelMutation.mutate(entry)}
-                    disabled={isBusy}
-                  >
-                    {installLocalModelMutation.isPending ? "Installing..." : isInstalled ? "Reinstall / Reuse" : "Install & Register"}
-                  </button>
-                  <button
-                    style={{ ...styles.btn, backgroundColor: "#2c3139" }}
-                    onClick={() => registerLocalModelMutation.mutate(entry)}
-                    disabled={isBusy}
-                  >
-                    Use Existing File
-                  </button>
-                  {installedProvider && installedModel ? (
-                    <button
-                      style={{ ...styles.btn, backgroundColor: "#355c2b" }}
-                      onClick={() => void applySpeechSettings(installedProvider.id, installedModel.name)}
-                      disabled={isBusy}
-                    >
-                      Use for Speech
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <div style={{ color: "#8f96a3", fontSize: 12, marginTop: 12 }}>
-          This release manages local Whisper models for speech. Local in-app hosting for GGUF chat/coding models is the next runtime step after speech.
-        </div>
-      </div>
+      <ModelProviderQuickStartPanel onApplyPreset={applyPreset} />
+      <ManagedLocalSpeechModelsPanel
+        providers={providers ?? []}
+        modelDefinitions={modelDefinitions ?? []}
+        isBusy={installLocalModelMutation.isPending || registerLocalModelMutation.isPending}
+        isInstallPending={installLocalModelMutation.isPending}
+        onInstall={(entry) => installLocalModelMutation.mutate(entry)}
+        onRegister={(entry) => registerLocalModelMutation.mutate(entry)}
+        onUseForSpeech={(providerId, modelName) => void applySpeechSettings(providerId, modelName)}
+      />
       {showForm && (
         <div style={styles.modalBackdrop}>
           <div style={styles.modal}>
@@ -477,73 +443,18 @@ export function ModelProviderListPage() {
       )}
       {isLoading ? (<div style={styles.empty}>Loading providers...</div>) : visibleProviders.length > 0 ? (
         <>
-          <div style={styles.grid}>
-            {visibleProviders.map((p: ModelProvider) => (
-              <div key={p.id} style={styles.card}>
-                <div style={styles.name}>{p.name}</div><div style={styles.type}>{p.provider_type}</div><div style={styles.url}>{p.base_url}</div>
-                <div style={styles.cardFooter}>
-                  <span style={{ ...styles.badge, backgroundColor: p.enabled ? "#1b3a2d" : "#3a1b1b", color: p.enabled ? "#4ec9b0" : "#f44747" }}>{p.enabled ? "Enabled" : "Disabled"}</span>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button style={{ ...styles.btnTest, backgroundColor: "#2c3139" }} onClick={() => {
-                      setEditingProvider(p);
-                      setProviderEditForm({
-                        name: p.name,
-                        providerType: p.provider_type,
-                        baseUrl: p.base_url,
-                        authSecretRef: "",
-                        enabled: p.enabled,
-                      });
-                    }}>Edit</button>
-                    <button style={styles.btnTest} onClick={() => testConnectivity(p.id)}>Test Connection</button>
-                  </div>
-                </div>
-                {testResults[p.id] && <div style={{ ...styles.testResult, backgroundColor: testResults[p.id].status === "success" ? "#1b3a2d" : testResults[p.id].status === "error" ? "#3a1b1b" : "#2a2a2a", color: testResults[p.id].status === "success" ? "#4ec9b0" : testResults[p.id].status === "error" ? "#f44747" : "#888" }}>{testResults[p.id].message}</div>}
-              </div>
-            ))}
-          </div>
-          <div style={{ ...styles.form, marginTop: 18 }}>
-            <div style={styles.sectionTitle}>Registered Models</div>
-            {modelDefinitions && modelDefinitions.length > 0 ? (
-              <div style={styles.subGrid}>
-                {modelDefinitions.map((model: ModelDefinition) => {
-                  const provider = visibleProviders.find((entry) => entry.id === model.provider_id)
-                    ?? (providers ?? []).find((entry) => entry.id === model.provider_id);
-                  return (
-                    <div key={model.id} style={styles.modelCard}>
-                      <div style={styles.modelName}>{model.name}</div>
-                      <div style={styles.modelMeta}>{provider?.name ?? "Unknown provider"}</div>
-                      <div style={styles.modelMeta}>Context: {model.context_window ?? "not set"}</div>
-                      <div style={styles.modelMeta}>Tags: {model.capability_tags.length > 0 ? model.capability_tags.join(", ") : "none"}</div>
-                      {model.notes ? <div style={styles.modelMeta}>{model.notes}</div> : null}
-                      <span style={{ ...styles.badge, backgroundColor: model.enabled ? "#1b3a2d" : "#3a1b1b", color: model.enabled ? "#4ec9b0" : "#f44747" }}>
-                        {model.enabled ? "Enabled" : "Disabled"}
-                      </span>
-                      <div style={{ marginTop: 8 }}>
-                        <button
-                          style={{ ...styles.btnTest, backgroundColor: "#2c3139" }}
-                          onClick={() => {
-                            setEditingModel(model);
-                            setModelEditForm({
-                              providerId: model.provider_id,
-                              name: model.name,
-                              contextWindow: model.context_window ? String(model.context_window) : "",
-                              capabilityTags: model.capability_tags.join(", "),
-                              notes: model.notes,
-                              enabled: model.enabled,
-                            });
-                          }}
-                        >
-                          Edit
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div style={styles.empty}>No model definitions yet. Add one so agents can be bound to a concrete model.</div>
-            )}
-          </div>
+          <ModelProviderGrid
+            providers={visibleProviders}
+            testResults={testResults}
+            onEditProvider={startEditingProvider}
+            onTestProvider={(providerId) => void testConnectivity(providerId)}
+          />
+          <RegisteredModelGrid
+            models={modelDefinitions ?? []}
+            visibleProviders={visibleProviders}
+            providers={providers ?? []}
+            onEditModel={startEditingModel}
+          />
         </>
       ) : (<div style={styles.empty}>No providers configured. Add DeepSeek (hosted) for a fast end-to-end path or LM Studio for local runs.</div>)}
 
