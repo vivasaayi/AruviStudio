@@ -27,6 +27,7 @@ import * as SecureStore from "expo-secure-store";
 import { WebView } from "react-native-webview";
 import { initWhisper, type WhisperContext } from "whisper.rn";
 import { PlannerMobileClient } from "./src/api/client";
+import { MobileModelManager } from "./src/components/MobileModelManager";
 import type { HierarchyTreeNode, MobilePlannerToolTraceEntry, ModelCall, Product, ProductTree, ProductTreeSummary } from "./src/types";
 import {
   buildRemoteScript,
@@ -41,7 +42,6 @@ import {
   buildModelCallSessions,
   compactJson,
   describeError,
-  formatBytes,
   formatDurationMs,
   formatInteger,
   formatPlannerToolTrace,
@@ -1806,92 +1806,6 @@ export default function App() {
     );
   };
 
-  const renderModelManager = () => (
-    <ScrollView style={styles.modelPage} contentContainerStyle={styles.modelPageContent}>
-      <View style={styles.modelHeader}>
-        <Text style={styles.sectionTitle}>Speech Model</Text>
-        <Text style={styles.sectionText}>
-          Install a Whisper model on this phone for private speech-to-text. Voice recording uses the selected local model.
-        </Text>
-      </View>
-
-      <View style={styles.runtimePanel}>
-        <Text style={styles.panelLabel}>On-device transcription</Text>
-        <Text style={styles.modelStatusText}>{speechModelDescription}</Text>
-      </View>
-
-      <View style={styles.modelStatusPanel}>
-        <View style={styles.modelStatusRow}>
-          <Text style={styles.modelStatusText}>{modelInstallStatus}</Text>
-          {modelInstallProgress !== null ? (
-            <Text style={styles.progressText}>{modelInstallProgress}%</Text>
-          ) : null}
-        </View>
-        {modelInstallProgress !== null ? (
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${Math.min(100, Math.max(0, modelInstallProgress))}%` }]} />
-          </View>
-        ) : null}
-      </View>
-
-      <View style={styles.modelList}>
-        {WHISPER_MODELS.map((model) => {
-          const installedModel = installedWhisperModels[model.id];
-          const isSelected = selectedWhisperModel.id === model.id;
-          const isBusy = modelInstallBusyId === model.id;
-          return (
-            <Pressable
-              key={model.id}
-              style={[styles.modelCard, isSelected && styles.modelCardSelected]}
-              onPress={() => void selectWhisperModel(model.id)}
-            >
-              <View style={styles.modelCardHeader}>
-                <View style={styles.modelTitleBlock}>
-                  <Text style={styles.modelTitle}>{model.label}</Text>
-                  <Text style={styles.modelMeta}>
-                    {model.sizeLabel}
-                    {installedModel?.sizeBytes ? ` installed ${formatBytes(installedModel.sizeBytes)}` : ""}
-                  </Text>
-                </View>
-                <Text style={[styles.installBadge, installedModel && styles.installBadgeActive]}>
-                  {installedModel ? "Installed" : "Not installed"}
-                </Text>
-              </View>
-              <Text style={styles.modelDescription}>{model.description}</Text>
-              <View style={styles.modelActions}>
-                <Pressable
-                  style={[styles.smallButton, isSelected && styles.smallButtonActive]}
-                  onPress={() => void selectWhisperModel(model.id)}
-                >
-                  <Text style={[styles.smallButtonText, isSelected && styles.smallButtonTextActive]}>
-                    {isSelected ? "Selected" : "Select"}
-                  </Text>
-                </Pressable>
-                {installedModel ? (
-                  <Pressable style={styles.smallButton} onPress={() => void removeWhisperModel(model)}>
-                    <Text style={styles.smallButtonText}>Remove</Text>
-                  </Pressable>
-                ) : (
-                  <Pressable
-                    style={[styles.smallButton, styles.smallButtonPrimary, isBusy && styles.buttonDisabled]}
-                    onPress={() => void installWhisperModel(model)}
-                    disabled={Boolean(modelInstallBusyId)}
-                  >
-                    <Text style={styles.smallButtonPrimaryText}>{isBusy ? "Installing" : "Install"}</Text>
-                  </Pressable>
-                )}
-              </View>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      <Pressable style={styles.sourceButton} onPress={() => void Linking.openURL(selectedWhisperModel.url)}>
-        <Text style={styles.sourceButtonText}>Open selected model source</Text>
-      </Pressable>
-    </ScrollView>
-  );
-
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.shell}>
@@ -1998,7 +1912,17 @@ export default function App() {
           {activeTab === "voice" ? (
             renderVoiceScreen()
           ) : activeTab === "models" ? (
-            renderModelManager()
+            <MobileModelManager
+              speechModelDescription={speechModelDescription}
+              modelInstallStatus={modelInstallStatus}
+              modelInstallProgress={modelInstallProgress}
+              installedWhisperModels={installedWhisperModels}
+              selectedWhisperModel={selectedWhisperModel}
+              modelInstallBusyId={modelInstallBusyId}
+              onSelectWhisperModel={selectWhisperModel}
+              onInstallWhisperModel={installWhisperModel}
+              onRemoveWhisperModel={removeWhisperModel}
+            />
           ) : activeTab === "calls" ? (
             renderCallsScreen()
           ) : activeTab === "products" ? (
