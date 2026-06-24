@@ -1,19 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   SafeAreaView,
   View,
 } from "react-native";
 import {
-  AudioModule,
-  setAudioModeAsync,
   useAudioRecorder,
   useAudioRecorderState,
 } from "expo-audio";
 import * as Speech from "expo-speech";
 import * as SecureStore from "expo-secure-store";
 import { WebView } from "react-native-webview";
-import { PlannerMobileClient } from "./src/api/client";
 import { MobileAppHeader } from "./src/components/MobileAppHeader";
 import { MobileBottomTabs, type MobileTabId } from "./src/components/MobileBottomTabs";
 import { MobileCallsScreen } from "./src/components/MobileCallsScreen";
@@ -28,58 +24,29 @@ import { useMobileModelCallsController } from "./src/hooks/useMobileModelCallsCo
 import { useMobilePlannerChatController } from "./src/hooks/useMobilePlannerChatController";
 import { useMobileProductPlannerController } from "./src/hooks/useMobileProductPlannerController";
 import { useMobileProductsController } from "./src/hooks/useMobileProductsController";
+import { useMobileVoiceController } from "./src/hooks/useMobileVoiceController";
 import { useMobileWhisperController } from "./src/hooks/useMobileWhisperController";
-import type { MobilePlannerToolTraceEntry } from "./src/types";
 import {
   buildRemoteScript,
-  buildRemoteVoiceSubmitScript,
-  getLoopbackFallbackBaseUrl,
-  isNetworkRequestFailure,
-  normalizeBaseUrlForDisplay,
 } from "./src/lib/mobileConnection";
 import { describeError } from "./src/lib/mobileFormatters";
 import { MOBILE_STORAGE_KEYS } from "./src/lib/mobileStorageKeys";
 import {
-  normalizeWhisperLanguage,
-  WHISPER_MODELS,
   VOICE_RECORDING_OPTIONS,
 } from "./src/lib/mobileVoice";
 import { styles } from "./src/styles/appStyles";
 
 type ActiveTab = MobileTabId;
-type VoiceMode = "assistant" | "planner";
-type VoiceMessage = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  toolTrace?: MobilePlannerToolTraceEntry[];
-};
-type VoicePromptSource = "typed" | "recording";
-
-function createId(prefix: string) {
-  return `${prefix}-${Date.now()}-${Math.round(Math.random() * 100000)}`;
-}
 
 export default function App() {
   const webViewRef = useRef<WebView>(null);
   const audioRecorder = useAudioRecorder(VOICE_RECORDING_OPTIONS);
   const recorderState = useAudioRecorderState(audioRecorder, 250);
   const [activeTab, setActiveTab] = useState<ActiveTab>("planner");
-  const [voiceMode, setVoiceMode] = useState<VoiceMode>("assistant");
   const [readReplies, setReadReplies] = useState(true);
   const [isSetupOpen, setIsSetupOpen] = useState(false);
-  const [isVoiceBusy, setIsVoiceBusy] = useState(false);
   const [nativeVoiceStatus, setNativeVoiceStatus] = useState("Ready");
-  const [lastVoiceTranscript, setLastVoiceTranscript] = useState("");
-  const [voiceDraft, setVoiceDraft] = useState("");
   const keyboardHeight = useKeyboardHeight();
-  const [voiceMessages, setVoiceMessages] = useState<VoiceMessage[]>([
-    {
-      id: "assistant-welcome",
-      role: "assistant",
-      content: "Ready when you are. Tap the mic and speak naturally.",
-    },
-  ]);
   const {
     baseUrl,
     setBaseUrl,
@@ -101,8 +68,6 @@ export default function App() {
     saveConnection,
     applyFallbackBaseUrl,
   } = useMobileConnectionController();
-
-  type ChatCompletionBody = Parameters<typeof mobileClient.runChatCompletion>[0];
 
   const productsController = useMobileProductsController({
     mobileClient,
@@ -155,7 +120,6 @@ export default function App() {
 
   const {
     selectedWhisperModel,
-    selectedWhisperModelId,
     setSelectedWhisperModelId,
     installedWhisperModels,
     setVerifiedInstalledModels,
@@ -173,14 +137,6 @@ export default function App() {
     installedModelsStorageKey: MOBILE_STORAGE_KEYS.installedWhisperModels,
     selectedModelStorageKey: MOBILE_STORAGE_KEYS.selectedWhisperModelId,
     onStatusChange: setNativeVoiceStatus,
-  });
-
-  useMobileAppPreferences({
-    setActiveTab,
-    setVoiceMode,
-    setReadReplies,
-    setSelectedWhisperModelId,
-    setVerifiedInstalledModels,
   });
 
   const {
@@ -207,29 +163,6 @@ export default function App() {
     });
   }, [activeTab, locale, modelName, providerId, token]);
 
-  useEffect(() => {
-    void setAudioModeAsync({
-      allowsRecording: true,
-      playsInSilentMode: true,
-    });
-
-    return () => {
-      void Speech.stop();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === "products" && token.trim() && !products.length && !isProductLoading) {
-      void loadProducts(selectedProductId);
-    }
-  }, [activeTab, isProductLoading, products.length, selectedProductId, token]);
-
-  useEffect(() => {
-    if (activeTab === "calls" && token.trim() && !modelCalls.length && !isModelCallsLoading) {
-      void loadModelCalls();
-    }
-  }, [activeTab, isModelCallsLoading, modelCalls.length, token]);
-
   const switchTab = (nextTab: ActiveTab) => {
     setActiveTab(nextTab);
     void SecureStore.setItemAsync(MOBILE_STORAGE_KEYS.activeTab, nextTab);
@@ -244,12 +177,6 @@ export default function App() {
     );
   };
 
-  const switchVoiceMode = (nextMode: VoiceMode) => {
-    setVoiceMode(nextMode);
-    void SecureStore.setItemAsync(MOBILE_STORAGE_KEYS.voiceMode, nextMode);
-    setNativeVoiceStatus(nextMode === "planner" ? "Planner chat ready" : "Ready");
-  };
-
   const setReadRepliesPreference = async (nextValue: boolean) => {
     setReadReplies(nextValue);
     await SecureStore.setItemAsync(MOBILE_STORAGE_KEYS.readReplies, nextValue ? "true" : "false");
@@ -259,19 +186,61 @@ export default function App() {
     }
   };
 
-  const speakAssistantReply = (text: string) => {
-    if (!readReplies || !text.trim()) return;
-    const language = normalizeWhisperLanguage(locale);
-    void Speech.stop();
-    setNativeVoiceStatus("Reading reply...");
-    Speech.speak(text, {
-      language: language === "auto" ? undefined : language,
-      rate: 0.95,
-      onDone: () => setNativeVoiceStatus("Reply ready"),
-      onStopped: () => setNativeVoiceStatus("Reply ready"),
-      onError: () => setNativeVoiceStatus("Reply ready"),
-    });
-  };
+  const {
+    voiceMode,
+    setVoiceMode,
+    isVoiceBusy,
+    setIsVoiceBusy,
+    voiceDraft,
+    setVoiceDraft,
+    voiceMessages,
+    speechModelDescription,
+    speechModelLabel,
+    voiceComposerStatus,
+    switchVoiceMode,
+    speakAssistantReply,
+    submitVoicePrompt,
+    toggleNativeVoiceRecording,
+  } = useMobileVoiceController({
+    mobileClient,
+    baseUrl,
+    token,
+    providerId,
+    modelName,
+    locale,
+    readReplies,
+    canUseLocalSpeech,
+    activeLocalWhisperModelId: activeLocalWhisperModel?.id ?? null,
+    audioRecorder,
+    isRecorderRecording: recorderState.isRecording,
+    setNativeVoiceStatus,
+    submitPlannerPrompt,
+    transcribeRecording: transcribeWithLocalWhisper,
+    setConnectionStatus,
+    applyFallbackBaseUrl,
+    switchTab: (nextTab) => switchTab(nextTab),
+    describeError,
+  });
+
+  useMobileAppPreferences({
+    setActiveTab,
+    setVoiceMode,
+    setReadReplies,
+    setSelectedWhisperModelId,
+    setVerifiedInstalledModels,
+  });
+
+  useEffect(() => {
+    if (activeTab === "products" && token.trim() && !products.length && !isProductLoading) {
+      void loadProducts(selectedProductId);
+    }
+  }, [activeTab, isProductLoading, products.length, selectedProductId, token]);
+
+  useEffect(() => {
+    if (activeTab === "calls" && token.trim() && !modelCalls.length && !isModelCallsLoading) {
+      void loadModelCalls();
+    }
+  }, [activeTab, isModelCallsLoading, modelCalls.length, token]);
 
   const {
     productPlannerDraft,
@@ -304,194 +273,10 @@ export default function App() {
     describeError,
   });
 
-  const runChatCompletionWithFallback = async (body: ChatCompletionBody) => {
-    try {
-      const response = await mobileClient.runChatCompletion(body);
-      setConnectionStatus("connected");
-      return response;
-    } catch (error) {
-      const fallbackBaseUrl = getLoopbackFallbackBaseUrl(baseUrl);
-      if (isNetworkRequestFailure(error) && fallbackBaseUrl) {
-        try {
-          const response = await new PlannerMobileClient(fallbackBaseUrl, token.trim()).runChatCompletion(body);
-          await applyFallbackBaseUrl(fallbackBaseUrl);
-          return response;
-        } catch {
-          throw new Error(
-            `Cannot reach Aruvi at ${normalizeBaseUrlForDisplay(baseUrl)} or ${fallbackBaseUrl}. Check Settings base URL and that the desktop bridge is running.`,
-          );
-        }
-      }
-      throw error;
-    }
-  };
-
-  const submitVoicePrompt = async (prompt: string, source: VoicePromptSource = "typed") => {
-    const trimmed = prompt.trim();
-    if (!trimmed) return;
-    if (!token.trim()) {
-      Alert.alert("Setup required", "Save a mobile API token before using chat.");
-      return;
-    }
-
-    const userMessage: VoiceMessage = {
-      id: createId("voice-user"),
-      role: "user",
-      content: trimmed,
-    };
-    const history = voiceMessages
-      .filter((message) => message.id !== "assistant-welcome")
-      .slice(-18);
-    setVoiceMessages((current) => [...current.filter((message) => message.id !== "assistant-welcome"), userMessage]);
-    setVoiceDraft("");
-    setNativeVoiceStatus(
-      voiceMode === "planner"
-        ? "Planning with MCP..."
-        : source === "recording"
-          ? "Sending voice prompt..."
-          : "Thinking...",
-    );
-    setIsVoiceBusy(true);
-
-    try {
-      const assistantResult = voiceMode === "planner"
-        ? await submitPlannerPrompt(trimmed)
-        : await runChatCompletionWithFallback({
-            provider_id: providerId.trim() || undefined,
-            model_name: modelName.trim() || undefined,
-            messages: [
-              {
-                role: "system",
-                content: "You are Aruvi Studio's mobile voice assistant. Reply conversationally in one or two short sentences for spoken playback.",
-              },
-              ...history.map((message) => ({
-                role: message.role,
-                content: message.content,
-              })),
-              {
-                role: "user",
-                content: trimmed,
-              },
-            ],
-            temperature: 0.7,
-            max_tokens: 4096,
-          }).then((response) => ({
-            content: response.content.trim() || "(empty response)",
-            toolTrace: undefined,
-          }));
-      const assistantText = assistantResult.content;
-      const assistantMessage: VoiceMessage = {
-        id: createId("voice-assistant"),
-        role: "assistant",
-        content: assistantText,
-        toolTrace: assistantResult.toolTrace,
-      };
-      setVoiceMessages((current) => [...current, assistantMessage].slice(-24));
-      if (readReplies) {
-        speakAssistantReply(assistantText);
-      } else {
-        setNativeVoiceStatus("Reply ready");
-      }
-    } catch (error) {
-      const message = describeError(error);
-      const title = source === "recording" ? "Voice failed" : "Chat failed";
-      setNativeVoiceStatus(`${title}: ${message}`);
-      Alert.alert(title, message);
-    } finally {
-      setIsVoiceBusy(false);
-    }
-  };
-
-  const transcribeNativeRecording = async (uri: string) => {
-    return await transcribeWithLocalWhisper(uri);
-  };
-
-  const stopNativeVoiceRecording = async () => {
-    try {
-      setIsVoiceBusy(true);
-      setNativeVoiceStatus("Stopping...");
-      await audioRecorder.stop();
-      const recordingUri = audioRecorder.uri ?? audioRecorder.getStatus().url;
-      if (!recordingUri) {
-        throw new Error("Recording did not produce an audio file.");
-      }
-      setNativeVoiceStatus("Transcribing...");
-      const transcript = await transcribeNativeRecording(recordingUri);
-      if (!transcript) {
-        setLastVoiceTranscript("");
-        setNativeVoiceStatus("No speech detected");
-        return;
-      }
-      setLastVoiceTranscript(transcript);
-      setVoiceDraft(transcript);
-      setNativeVoiceStatus("Sending...");
-      await submitVoicePrompt(transcript, "recording");
-    } catch (error) {
-      const message = describeError(error);
-      setNativeVoiceStatus(message);
-      Alert.alert("Voice failed", message);
-    } finally {
-      setIsVoiceBusy(false);
-    }
-  };
-
-  const startNativeVoiceRecording = async () => {
-    if (!token.trim()) {
-      Alert.alert("Setup required", "Save a mobile API token before using voice chat.");
-      return;
-    }
-    if (!canUseLocalSpeech) {
-      Alert.alert("Install model first", "Install an on-device Whisper model before using voice recording.");
-      switchTab("models");
-      return;
-    }
-    try {
-      setIsVoiceBusy(true);
-      void Speech.stop();
-      const permission = await AudioModule.requestRecordingPermissionsAsync();
-      if (!permission.granted) {
-        throw new Error("Microphone permission was denied.");
-      }
-      await setAudioModeAsync({
-        allowsRecording: true,
-        playsInSilentMode: true,
-      });
-      await audioRecorder.prepareToRecordAsync();
-      audioRecorder.record();
-      setLastVoiceTranscript("");
-      setNativeVoiceStatus("Listening...");
-    } catch (error) {
-      const message = describeError(error);
-      setNativeVoiceStatus(message);
-      Alert.alert("Voice failed", message);
-    } finally {
-      setIsVoiceBusy(false);
-    }
-  };
-
-  const toggleNativeVoiceRecording = async () => {
-    if (recorderState.isRecording) {
-      await stopNativeVoiceRecording();
-    } else {
-      await startNativeVoiceRecording();
-    }
-  };
-
   const shouldShowSetup = isSetupOpen || !token.trim();
   const nativeVoiceButtonDisabled = isVoiceBusy || !token.trim();
-  const speechModelDescription = canUseLocalSpeech
-    ? `Using ${WHISPER_MODELS.find((model) => model.id === activeLocalWhisperModel?.id)?.label ?? "Whisper"} on this phone for speech-to-text.`
-    : "Type a message, or install Whisper to use the mic.";
-  const speechModelLabel = canUseLocalSpeech
-    ? `On-device ${WHISPER_MODELS.find((model) => model.id === activeLocalWhisperModel?.id)?.label ?? "Whisper"}`
-    : "Install Whisper";
   const plannerRuntimeLabel = modelName.trim() || providerId.trim() || "Planner model";
   const plannerContextLabel = plannerContextProductName ? `Context: ${plannerContextProductName}` : "Context: not selected";
-  const voiceComposerStatus = token.trim()
-    ? canUseLocalSpeech
-      ? speechModelLabel
-      : "Text chat ready"
-    : "Setup required";
   const connectionText = !token.trim()
     ? "Setup required"
     : connectionStatus === "connected"
