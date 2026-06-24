@@ -1,6 +1,7 @@
 pub mod agent_model_binding_repo;
 pub mod agent_repo;
 pub mod agent_run_repo;
+pub mod agent_skill_repo;
 pub mod agent_work_batch_repo;
 pub mod agent_work_catalog_link_repo;
 pub mod agent_work_catalog_materialization;
