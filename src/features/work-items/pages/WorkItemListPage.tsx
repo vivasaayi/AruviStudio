@@ -49,6 +49,7 @@ import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
 import { WorkItemArtifactModal } from "../components/WorkItemArtifactModal";
 import { WorkItemBacklogTab } from "../components/WorkItemBacklogTab";
+import { WorkItemDetailTab } from "../components/WorkItemDetailTab";
 import { WorkItemExternalCliTab } from "../components/WorkItemExternalCliTab";
 import {
   WorkItemCreateModal,
@@ -61,7 +62,6 @@ import { styles } from "../lib/workItemListPageStyles";
 import {
   BACKLOG_OVERSCAN_ROWS,
   BACKLOG_ROW_ESTIMATED_HEIGHT,
-  EXTERNAL_CLI_PROVIDERS,
   EXTERNAL_CLI_TRACE_LIMIT,
   SUB_WORK_ITEM_PAGE_SIZE,
   WORKFLOW_DAG_LANES,
@@ -69,12 +69,10 @@ import {
   WORKFLOW_DAG_NODES,
   WORK_ITEM_PAGE_SIZE,
   buildCapabilityPath,
-  describeWorkItemRuntime,
   formatDurationMs,
   formatExternalCliTerminal,
   formatInteger,
   getArtifactFileName,
-  getWorkItemExecutionSteps,
   orderWorkItemsByIds,
   parseSqliteUtcTimestamp,
   summarizeModelUsage,
@@ -1403,158 +1401,40 @@ export function WorkItemListPage() {
           )}
 
           {workItemWorkspaceTab === "detail" && (
-            selectedWorkItemSummary ? (
-              <>
-                <div style={styles.detailTitle}>{selectedWorkItemSummary.title}</div>
-                <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-                  <button
-                    style={styles.btn}
-                    disabled={workflowReadiness.blockers.length > 0 || workflowMutation.isPending}
-                    onClick={() => workflowMutation.mutate()}
-                  >
-                    {workflowMutation.isPending ? "Starting..." : "Start Workflow"}
-                  </button>
-                  <button style={{ ...styles.btn, backgroundColor: "#2d6a3f" }} onClick={() => approveMutation.mutate()}>Approve</button>
-                  <button style={styles.btnDanger} onClick={() => rejectMutation.mutate()}>Reject</button>
-                  {workflowRunId && (
-                    <button
-                      style={styles.btn}
-                      onClick={() => restartWorkflowMutation.mutate()}
-                      disabled={restartWorkflowMutation.isPending}
-                    >
-                      {restartWorkflowMutation.isPending ? "Restarting..." : "Restart Workflow"}
-                    </button>
-                  )}
-                  <button style={styles.ghostBtn} onClick={() => setIsEditingWorkItem(true)}>
-                    Edit Story
-                  </button>
-                  <button
-                    style={styles.ghostBtn}
-                    onClick={() => {
-                      setCreateForm((current) => ({ ...current, parentWorkItemId: selectedWorkItemSummary.id }));
-                      openWorkItemCreateDialog();
-                    }}
-                  >
-                    + New Task
-                  </button>
-                  {EXTERNAL_CLI_PROVIDERS.map((entry) => (
-                    <button
-                      key={entry.provider}
-                      style={styles.ghostBtn}
-                      onClick={() => externalCliMutation.mutate(entry.provider)}
-                      disabled={!resolvedRepository || externalCliMutation.isPending}
-                      title={!resolvedRepository ? "Attach a workspace before launching an external CLI." : `Run ${entry.label}`}
-                    >
-                      {externalCliProviderInFlight === entry.provider ? "Running..." : `Run ${entry.label}`}
-                    </button>
-                  ))}
-                  {latestExternalCliRun ? (
-                    <button
-                      style={styles.ghostBtn}
-                      onClick={() => {
-                        setSelectedExternalCliRunId(latestExternalCliRun.id);
-                        setWorkItemWorkspaceTab("external_cli");
-                      }}
-                    >
-                      CLI: {latestExternalCliRun.status}
-                    </button>
-                  ) : null}
-                </div>
-                {actionError && <div style={styles.errorText}>{actionError}</div>}
-                {actionInfo && <div style={{ ...styles.smallText, color: "#4ec9b0", marginBottom: 10 }}>{actionInfo}</div>}
-                <div style={styles.readinessCard}>
-                  <div style={styles.readinessHeading}>Workflow Readiness Check</div>
-                  {workflowReadiness.blockers.length === 0 && workflowReadiness.warnings.length === 0 ? (
-                    <div style={{ ...styles.readinessItem, ...styles.readinessOk }}>Ready to start.</div>
-                  ) : null}
-                  {workflowReadiness.blockers.map((item) => (
-                    <div key={`blocker-${item}`} style={styles.readinessItem}>
-                      <span style={styles.readinessBlocker}>Blocker:</span> {item}
-                    </div>
-                  ))}
-                  {workflowReadiness.warnings.map((item) => (
-                    <div key={`warn-${item}`} style={styles.readinessItem}>
-                      <span style={styles.readinessWarn}>Warning:</span> {item}
-                    </div>
-                  ))}
-                  {workflowReadiness.checks.map((item) => (
-                    <div key={`ok-${item}`} style={styles.readinessItem}>
-                      <span style={styles.readinessOk}>OK:</span> {item}
-                    </div>
-                  ))}
-                </div>
-                <div style={styles.detailCard}>
-                  <div style={styles.detailLabel}>Workspace Readiness</div>
-                  {resolvedRepository ? (
-                    <>
-                      <div style={styles.detailValue}>{resolvedRepository.name}</div>
-                      <div style={styles.smallText}>{resolvedRepository.local_path}</div>
-                      <div style={styles.smallText}>
-                        {resolvedRepository.remote_url
-                          ? `Remote configured: ${resolvedRepository.remote_url}`
-                          : "Remote: not configured"}
-                      </div>
-                      <div style={styles.smallText}>Branch: {selectedWorkItemSummary.branch_name || resolvedRepository.default_branch}</div>
-                      <div style={styles.smallText}>
-                        Source: {selectedWorkItemSummary.repo_override_id ? "story override" : "scope default"}
-                      </div>
-                      <div style={styles.smallText}>Version history: enabled</div>
-                      {renderWorkspaceAssignmentPanel()}
-                    </>
-                  ) : (
-                    <>
-                      <div style={styles.warning}>
-                        No workspace is attached to the current story scope.
-                      </div>
-                      <div style={styles.smallText}>
-                        Create the workspace here and AruviStudio will enable version history and attach it automatically.
-                      </div>
-                      <div style={{ marginTop: 10 }}>
-                        <button
-                          style={styles.btn}
-                          onClick={() => createWorkspaceMutation.mutate()}
-                          disabled={createWorkspaceMutation.isPending}
-                        >
-                          {createWorkspaceMutation.isPending ? "Creating Workspace..." : "Create Workspace"}
-                        </button>
-                      </div>
-                      {renderWorkspaceAssignmentPanel()}
-                    </>
-                  )}
-                </div>
-
-                <>
-                  <div style={styles.detailCard}>
-                    <div style={styles.detailLabel}>Description</div>
-                    <div style={styles.detailValue}>{selectedWorkItemSummary.description || "No description yet."}</div>
-                  </div>
-                  <div style={styles.detailCard}>
-                    <div style={styles.detailLabel}>Execution Steps</div>
-                    <div style={styles.list}>
-                      {getWorkItemExecutionSteps(selectedWorkItemSummary, resolvedRepository?.name ?? null).map((step, index) => (
-                        <div key={`${selectedWorkItemSummary.id}-step-${index}`} style={styles.listItem}>
-                          <div style={styles.detailValue}>{index + 1}. {step}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div style={styles.row}>
-                    <div style={styles.detailCard}><div style={styles.detailLabel}>Story Status</div><div style={styles.detailValue}>{selectedWorkItemSummary.status.replace(/_/g, " ")}</div></div>
-                    <div style={styles.detailCard}><div style={styles.detailLabel}>Workflow Status</div><div style={styles.detailValue}>{describeWorkItemRuntime(selectedWorkItemSummary, latestWorkflowRun ?? null).detail}</div></div>
-                  </div>
-                  <div style={styles.row}>
-                    <div style={styles.detailCard}><div style={styles.detailLabel}>Priority</div><div style={styles.detailValue}>{selectedWorkItemSummary.priority}</div></div>
-                    <div style={styles.detailCard}><div style={styles.detailLabel}>Type</div><div style={styles.detailValue}>{selectedWorkItemSummary.work_item_type}</div></div>
-                  </div>
-                  <div style={styles.detailCard}><div style={styles.detailLabel}>Complexity</div><div style={styles.detailValue}>{selectedWorkItemSummary.complexity}</div></div>
-                  {selectedWorkItemSummary.problem_statement && <div style={styles.detailCard}><div style={styles.detailLabel}>Problem Statement</div><div style={styles.detailValue}>{selectedWorkItemSummary.problem_statement}</div></div>}
-                  {selectedWorkItemSummary.acceptance_criteria && <div style={styles.detailCard}><div style={styles.detailLabel}>Acceptance Criteria</div><div style={styles.detailValue}>{selectedWorkItemSummary.acceptance_criteria}</div></div>}
-                  {selectedWorkItemSummary.constraints && <div style={styles.detailCard}><div style={styles.detailLabel}>Constraints</div><div style={styles.detailValue}>{selectedWorkItemSummary.constraints}</div></div>}
-                </>
-              </>
-            ) : (
-              <div style={styles.empty}>Select a story from the queue to refine it.</div>
-            )
+            <WorkItemDetailTab
+              workItem={selectedWorkItemSummary}
+              workflowReadiness={workflowReadiness}
+              isWorkflowPending={workflowMutation.isPending}
+              onStartWorkflow={() => workflowMutation.mutate()}
+              onApprove={() => approveMutation.mutate()}
+              onReject={() => rejectMutation.mutate()}
+              workflowRunId={workflowRunId}
+              isRestartWorkflowPending={restartWorkflowMutation.isPending}
+              onRestartWorkflow={() => restartWorkflowMutation.mutate()}
+              onEditStory={() => setIsEditingWorkItem(true)}
+              onCreateTask={() => {
+                if (!selectedWorkItemSummary) {
+                  return;
+                }
+                setCreateForm((current) => ({ ...current, parentWorkItemId: selectedWorkItemSummary.id }));
+                openWorkItemCreateDialog();
+              }}
+              resolvedRepository={resolvedRepository}
+              isExternalCliPending={externalCliMutation.isPending}
+              externalCliProviderInFlight={externalCliProviderInFlight}
+              onRunExternalCli={(provider) => externalCliMutation.mutate(provider)}
+              latestExternalCliRun={latestExternalCliRun}
+              onOpenExternalCliRun={(runId) => {
+                setSelectedExternalCliRunId(runId);
+                setWorkItemWorkspaceTab("external_cli");
+              }}
+              actionError={actionError}
+              actionInfo={actionInfo}
+              workspaceAssignmentPanel={renderWorkspaceAssignmentPanel()}
+              isCreateWorkspacePending={createWorkspaceMutation.isPending}
+              onCreateWorkspace={() => createWorkspaceMutation.mutate()}
+              latestWorkflowRun={latestWorkflowRun}
+            />
           )}
 
           {workItemWorkspaceTab === "external_cli" && (
