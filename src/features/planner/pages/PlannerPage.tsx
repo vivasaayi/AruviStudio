@@ -2,10 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
-  createPlannerSession,
   revealInFinder,
   speakTextNatively,
-  submitPlannerVoiceTurn,
   transcribeAudio,
 } from "../../../lib/tauri";
 import { blobToBase64, speakInBrowser, startWavCapture, type ActiveAudioCapture } from "../../shared/voice";
@@ -24,23 +22,15 @@ import { usePlannerPendingPlanActions } from "../hooks/usePlannerPendingPlanActi
 import { usePlannerRepositoryModalState } from "../hooks/usePlannerRepositoryModalState";
 import { usePlannerSpeechSettingsState } from "../hooks/usePlannerSpeechSettingsState";
 import { usePlannerTurnMutations } from "../hooks/usePlannerTurnMutations";
+import { usePlannerVoiceTranscriptHandler } from "../hooks/usePlannerVoiceTranscriptHandler";
 import { usePlannerWindowWidth } from "../hooks/usePlannerWindowWidth";
 import { styles } from "../lib/plannerPageStyles";
 import {
   DEFAULT_ASSISTANT_OPENING,
-  getPlannerNodeType,
-  getPlannerVoiceViewCommand,
-  isCollapseDraftVoiceCommand,
-  isDraftWideVoiceTarget,
-  isExpandDraftVoiceCommand,
   makeId,
-  normalize,
-  parseVoiceNodeReference,
-  resolveVoiceNodeReference,
   type PendingPlan,
   type PlannerMessage,
   type PlannerTreeNode,
-  mapPlannerResponseToMutationResult,
 } from "../lib/plannerPageModel";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import type { PlannerTraceEvent } from "../../../lib/types";
@@ -213,23 +203,6 @@ export function PlannerPage() {
     isCompactScreen,
     setShowCompactTools,
   });
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.__ARUVI_E2E__) {
-      return;
-    }
-    window.__ARUVI_E2E__.runPlannerVoiceTranscript = async (transcript: string) => {
-      const handled = await handleVoiceTranscript(transcript);
-      if (!handled) {
-        setDraft((current) => (current ? `${current.trim()} ${transcript.trim()}` : transcript.trim()));
-      }
-    };
-    return () => {
-      if (window.__ARUVI_E2E__) {
-        delete window.__ARUVI_E2E__.runPlannerVoiceTranscript;
-      }
-    };
-  }, [draftTreeNodes, handleVoiceTranscript, selectedDraftNodeId, latestTraceEvents, pendingPlan, autoSpeak]);
 
   useEffect(() => {
     if (!voiceEnabled) {
@@ -531,122 +504,6 @@ export function PlannerPage() {
     setPlannerView,
   });
 
-  function appendVoiceCommandFeedback(transcript: string, reply: string) {
-    setPendingVoiceTranscript(null);
-    setEditableVoiceTranscript("");
-    setVoiceActivity(null);
-    setMessages((current) => [
-      ...current,
-      { id: makeId(), role: "user", content: transcript, kind: "text" },
-      { id: makeId(), role: "assistant", content: reply, meta: "Voice command", kind: "text" },
-    ]);
-    if (autoSpeak) {
-      void speakAssistantReply(reply);
-    }
-  }
-
-  async function handleVoiceTranscript(transcript: string) {
-    const spoken = transcript.trim();
-    if (!spoken) {
-      return true;
-    }
-    const normalizedTranscript = normalize(spoken);
-
-    const viewCommand = getPlannerVoiceViewCommand(normalizedTranscript);
-
-    if (viewCommand === "draft") {
-      if (draftTreeNodes.length === 0) {
-        appendVoiceCommandFeedback(spoken, "There is no staged design tree yet.");
-      } else {
-        setPlannerView("draft");
-        appendVoiceCommandFeedback(spoken, "Opened the design review.");
-      }
-      return true;
-    }
-
-    if (viewCommand === "trace") {
-      if (latestTraceEvents.length === 0) {
-        appendVoiceCommandFeedback(spoken, "There is no planner trace available yet.");
-      } else {
-        setPlannerView("trace");
-        appendVoiceCommandFeedback(spoken, "Opened the latest planner trace.");
-      }
-      return true;
-    }
-
-    if (viewCommand === "conversation") {
-      setPlannerView("conversation");
-      appendVoiceCommandFeedback(spoken, "Switched back to the planner conversation.");
-      return true;
-    }
-
-    if (!selectedProductId) {
-      appendVoiceCommandFeedback(spoken, "Select a product before planning. Create products in the Products page, then return here to design.");
-      return true;
-    }
-
-    if (isExpandDraftVoiceCommand(normalizedTranscript)) {
-      setPlannerView("draft");
-      expandAllDraftNodes();
-      appendVoiceCommandFeedback(spoken, "Expanded the staged design tree.");
-      return true;
-    }
-
-    if (isCollapseDraftVoiceCommand(normalizedTranscript)) {
-      collapseAllDraftNodes();
-      appendVoiceCommandFeedback(spoken, "Collapsed the staged design tree.");
-      return true;
-    }
-
-    const collapseMatch = normalizedTranscript.match(/^(collapse|close)\s+(.+)$/);
-    if (normalizedTranscript.startsWith("expand ") || normalizedTranscript.startsWith("open ")) {
-      const targetText = spoken.replace(/^(expand|open)\s+/i, "").trim();
-      if (isDraftWideVoiceTarget(targetText)) {
-        setPlannerView("draft");
-        expandAllDraftNodes();
-        appendVoiceCommandFeedback(spoken, "Expanded the staged design tree.");
-        return true;
-      }
-    }
-
-    if (collapseMatch) {
-      const targetText = collapseMatch[2];
-      if (isDraftWideVoiceTarget(targetText)) {
-        collapseAllDraftNodes();
-        appendVoiceCommandFeedback(spoken, "Collapsed the staged design tree.");
-        return true;
-      }
-      const { explicitType, reference } = parseVoiceNodeReference(targetText);
-      const targetNode = resolveVoiceNodeReference(draftTreeNodes, selectedDraftNodePath, reference, explicitType);
-      if (!targetNode) {
-        appendVoiceCommandFeedback(spoken, `I could not find a design node matching "${targetText}".`);
-        return true;
-      }
-      setExpandedDraftNodeIds((current) => current.filter((nodeId) => nodeId !== targetNode.id));
-      appendVoiceCommandFeedback(spoken, `Collapsed ${getPlannerNodeType(targetNode)} "${targetNode.label}".`);
-      return true;
-    }
-
-    let activeSessionId = sessionId;
-    if (!activeSessionId) {
-      const session = await createPlannerSession({
-        providerId: providerId || undefined,
-        modelName: modelName || undefined,
-      });
-      activeSessionId = session.session_id;
-      setSessionId(session.session_id);
-    }
-
-    const response = await submitPlannerVoiceTurn({
-      sessionId: activeSessionId,
-      transcript: spoken,
-      selectedDraftNodeId,
-      productId: selectedProductId,
-    });
-    handlePlannerMutationSuccess(mapPlannerResponseToMutationResult(response, spoken));
-    return true;
-  }
-
   const {
     toggleDraftNodeExpanded,
     expandAllDraftNodes,
@@ -673,6 +530,46 @@ export function PlannerPage() {
     setDraftEditMessage,
     draftEditMutation,
   });
+
+  const handleVoiceTranscript = usePlannerVoiceTranscriptHandler({
+    autoSpeak,
+    draftTreeNodes,
+    latestTraceEvents,
+    selectedProductId,
+    sessionId,
+    setSessionId,
+    providerId,
+    modelName,
+    selectedDraftNodeId,
+    selectedDraftNodePath,
+    setPendingVoiceTranscript,
+    setEditableVoiceTranscript,
+    setVoiceActivity,
+    setMessages,
+    setPlannerView,
+    setExpandedDraftNodeIds,
+    expandAllDraftNodes,
+    collapseAllDraftNodes,
+    onPlannerMutationSuccess: handlePlannerMutationSuccess,
+    speakAssistantReply,
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.__ARUVI_E2E__) {
+      return;
+    }
+    window.__ARUVI_E2E__.runPlannerVoiceTranscript = async (transcript: string) => {
+      const handled = await handleVoiceTranscript(transcript);
+      if (!handled) {
+        setDraft((current) => (current ? `${current.trim()} ${transcript.trim()}` : transcript.trim()));
+      }
+    };
+    return () => {
+      if (window.__ARUVI_E2E__) {
+        delete window.__ARUVI_E2E__.runPlannerVoiceTranscript;
+      }
+    };
+  }, [handleVoiceTranscript]);
 
   const plannerComposer = (
     <PlannerComposerPanel
