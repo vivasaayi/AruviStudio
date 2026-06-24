@@ -70,10 +70,18 @@ import {
   WORKFLOW_DAG_LANES,
   WORKFLOW_DAG_NODES,
   WORK_ITEM_PAGE_SIZE,
+  buildWorkflowLaneStatusById,
   buildCapabilityPath,
+  filterArtifactsForWorkflowStages,
+  filterWorkflowHistoryForStages,
+  findLatestAgentRunForStage,
   formatExternalCliTerminal,
+  formatWorkflowElapsedLabel,
+  getRunningAgentRunStartMs,
+  groupArtifactsByAgentRunId,
+  groupModelCallsByAgentRunId,
+  isWorkflowRunStale,
   orderWorkItemsByIds,
-  parseSqliteUtcTimestamp,
   summarizeModelUsage,
   workItemBranchName,
   type ExternalCliProvider,
@@ -82,7 +90,6 @@ import {
 import { buildWorkItemWorkflowReadiness } from "../lib/workItemWorkflowReadiness";
 import type {
   ExternalCliRunEvent,
-  ModelCall,
   Approval,
   Artifact,
   Finding,
@@ -399,31 +406,25 @@ export function WorkItemListPage() {
     setSelectedArtifactStage(null);
   }, [selectedWorkItemId]);
 
-  const latestAgentRunForActiveStage = useMemo(() => {
-    if (!activeWorkflowStage || !agentRuns?.length) return null;
-    return [...agentRuns]
-      .reverse()
-      .find((run) => run.stage === activeWorkflowStage) ?? null;
-  }, [agentRuns, activeWorkflowStage]);
+  const latestAgentRunForActiveStage = useMemo(
+    () => findLatestAgentRunForStage(agentRuns, activeWorkflowStage),
+    [agentRuns, activeWorkflowStage],
+  );
 
-  const runningSinceMs = useMemo(() => {
-    if (!latestAgentRunForActiveStage || latestAgentRunForActiveStage.status !== "running") return null;
-    return parseSqliteUtcTimestamp(latestAgentRunForActiveStage.started_at);
-  }, [latestAgentRunForActiveStage]);
+  const runningSinceMs = useMemo(
+    () => getRunningAgentRunStartMs(latestAgentRunForActiveStage),
+    [latestAgentRunForActiveStage],
+  );
 
-  const workflowElapsedLabel = useMemo(() => {
-    if (!runningSinceMs) return null;
-    const elapsedMs = Date.now() - runningSinceMs;
-    if (elapsedMs < 0) return null;
-    const mins = Math.floor(elapsedMs / 60000);
-    const secs = Math.floor((elapsedMs % 60000) / 1000);
-    return `${mins}m ${secs}s`;
-  }, [runningSinceMs]);
+  const workflowElapsedLabel = useMemo(
+    () => formatWorkflowElapsedLabel(runningSinceMs),
+    [runningSinceMs],
+  );
 
-  const isStaleRun = useMemo(() => {
-    if (!runningSinceMs || latestWorkflowRun?.status !== "running") return false;
-    return Date.now() - runningSinceMs > 7 * 60 * 1000;
-  }, [runningSinceMs, latestWorkflowRun?.status]);
+  const isStaleRun = useMemo(
+    () => isWorkflowRunStale(runningSinceMs, latestWorkflowRun?.status),
+    [runningSinceMs, latestWorkflowRun?.status],
+  );
 
   const selectedDagNode = useMemo(
     () => WORKFLOW_DAG_NODES.find((node) => node.id === selectedDagNodeId) ?? WORKFLOW_DAG_NODES[0],
@@ -439,49 +440,22 @@ export function WorkItemListPage() {
   );
   const stageArtifactsForFocusedStage = useMemo(
     () =>
-      (artifacts ?? []).filter((artifact) => {
-        if (workflowRunId && artifact.workflow_run_id !== workflowRunId) {
-          return false;
-        }
-        if (focusedStageNames.some((stageName) => artifact.artifact_type.startsWith(`${stageName}_`))) return true;
-        if (focusedStageNames.includes("coding")) {
-          return artifact.artifact_type === "coding_tool_trace" || artifact.artifact_type === "coding_applied_files";
-        }
-        return false;
-      }),
+      filterArtifactsForWorkflowStages(artifacts, focusedStageNames, workflowRunId),
     [artifacts, workflowRunId, focusedStageNames],
   );
   const stageHistoryForFocusedStage = useMemo(
     () =>
-      (workflowHistory ?? []).filter(
-        (entry) =>
-          focusedStageNames.includes(entry.from_stage) || focusedStageNames.includes(entry.to_stage),
-      ),
+      filterWorkflowHistoryForStages(workflowHistory, focusedStageNames),
     [workflowHistory, focusedStageNames],
   );
-  const artifactsByAgentRunId = useMemo(() => {
-    const map = new Map<string, Artifact[]>();
-    for (const artifact of stageArtifactsForFocusedStage) {
-      if (!artifact.agent_run_id) continue;
-      const list = map.get(artifact.agent_run_id) ?? [];
-      list.push(artifact);
-      map.set(artifact.agent_run_id, list);
-    }
-    return map;
-  }, [stageArtifactsForFocusedStage]);
-  const modelCallsByAgentRunId = useMemo(() => {
-    const map = new Map<string, ModelCall[]>();
-    for (const call of agentModelCalls ?? []) {
-      if (!call.agent_run_id) continue;
-      const list = map.get(call.agent_run_id) ?? [];
-      list.push(call);
-      map.set(call.agent_run_id, list);
-    }
-    for (const calls of map.values()) {
-      calls.sort((a, b) => a.call_index - b.call_index || a.created_at.localeCompare(b.created_at));
-    }
-    return map;
-  }, [agentModelCalls]);
+  const artifactsByAgentRunId = useMemo(
+    () => groupArtifactsByAgentRunId(stageArtifactsForFocusedStage),
+    [stageArtifactsForFocusedStage],
+  );
+  const modelCallsByAgentRunId = useMemo(
+    () => groupModelCallsByAgentRunId(agentModelCalls),
+    [agentModelCalls],
+  );
   const workflowModelUsage = useMemo(
     () => summarizeModelUsage(agentModelCalls ?? [], agentRuns ?? []),
     [agentModelCalls, agentRuns],
@@ -1081,37 +1055,16 @@ export function WorkItemListPage() {
     () => new Map(WORKFLOW_DAG_NODES.map((node) => [node.id, node])),
     [],
   );
-  const laneStatusById = useMemo(() => {
-    const map = new Map<string, { done: number; active: number; pending: number; failed: number }>();
-    for (const lane of WORKFLOW_DAG_LANES) {
-      let done = 0;
-      let active = 0;
-      let pending = 0;
-      let failed = 0;
-      for (const nodeId of lane.nodeIds) {
-        const node = dagNodeById.get(nodeId);
-        if (!node) continue;
-        if (node.actualStageIds.length === 0) {
-          pending += 1;
-          continue;
-        }
-        const hasFailed = node.actualStageIds.some((stageId) => stageId === "failed" || (latestWorkflowRun?.status === "failed" && activeWorkflowStage === stageId));
-        const isActive = node.actualStageIds.includes(activeWorkflowStage ?? "");
-        const isDone = node.actualStageIds.every((stageId) => completedStages.has(stageId) || stageId === "done");
-        if (hasFailed) {
-          failed += 1;
-        } else if (isActive) {
-          active += 1;
-        } else if (isDone) {
-          done += 1;
-        } else {
-          pending += 1;
-        }
-      }
-      map.set(lane.id, { done, active, pending, failed });
-    }
-    return map;
-  }, [activeWorkflowStage, completedStages, dagNodeById, latestWorkflowRun?.status]);
+  const laneStatusById = useMemo(
+    () => buildWorkflowLaneStatusById({
+      lanes: WORKFLOW_DAG_LANES,
+      nodes: WORKFLOW_DAG_NODES,
+      completedStages,
+      activeWorkflowStage,
+      workflowStatus: latestWorkflowRun?.status,
+    }),
+    [activeWorkflowStage, completedStages, latestWorkflowRun?.status],
+  );
   const latestApproval = useMemo(
     () => (approvals ?? []).slice().sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null,
     [approvals],
