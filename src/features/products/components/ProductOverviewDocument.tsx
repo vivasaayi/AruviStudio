@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { countHierarchyNodes, countLeafNodes, getProductDirectWorkItems } from "../../../lib/hierarchyTree";
 import { getHierarchyNodeKindLabel } from "../../../lib/hierarchyLabels";
 import type { Capability, CapabilityTree, ProductArea, ProductAreaTree, Product, ProductReference, ProductTree, WorkItem } from "../../../lib/types";
@@ -12,9 +12,11 @@ import {
   sortWorkItems,
   type WorkItemMetrics,
 } from "../lib/productOverview";
-import { filterReferencesForProductBook, filterReferencesForScope, getCapabilityReferenceScope, getProductAreaReferenceScope, getReferenceKindLabel } from "../lib/productReferences";
+import { filterReferencesForProductBook, filterReferencesForScope, getCapabilityReferenceScope, getProductAreaReferenceScope } from "../lib/productReferences";
+import { getCapabilityScopedWorkItems, getProductAreaScopedWorkItems } from "../lib/productOverviewScopedWorkItems";
 import { MetricPills, WorkItemTree } from "./ProductOverviewDelivery";
 import { styles } from "./ProductOverviewDocument.styles";
+import { ReferenceList } from "./ProductOverviewReferences";
 
 type ProductOverviewDocumentProps = {
   product: Product;
@@ -638,51 +640,4 @@ function CapabilityChapter({
       ) : null}
     </div>
   );
-}
-
-function ReferenceList({ references, title }: { references: ProductReference[]; title: string }) {
-  if (references.length === 0) {
-    return null;
-  }
-
-  return (
-    <div>
-      <div style={styles.sectionTitle}>{title}</div>
-      <div style={styles.referenceList}>
-        {references.map((reference) => (
-          <div key={reference.id} style={styles.referenceCard}>
-            <div style={styles.noteHeading}>{getReferenceKindLabel(reference.reference_kind)}</div>
-            <h5 style={styles.referenceTitle}>{reference.title}</h5>
-            {reference.content ? <div style={{ ...styles.noteText, marginTop: 8 }}>{reference.content}</div> : null}
-            {reference.uri ? (
-              <a style={styles.referenceUri} href={reference.uri} target="_blank" rel="noreferrer">
-                {reference.uri}
-              </a>
-            ) : null}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function collectCapabilityIds(capabilities: CapabilityTree[]): Set<string> {
-  const ids = new Set<string>();
-  capabilities.forEach((capabilityTree) => {
-    ids.add(capabilityTree.capability.id);
-    collectCapabilityIds(capabilityTree.children).forEach((id) => ids.add(id));
-  });
-  return ids;
-}
-
-function getProductAreaScopedWorkItems(productAreaTree: ProductAreaTree, allWorkItems: WorkItem[]) {
-  const capabilityIds = collectCapabilityIds(productAreaTree.features);
-  return allWorkItems.filter(
-    (workItem) => workItem.product_area_id === productAreaTree.product_area.id || (workItem.capability_id ? capabilityIds.has(workItem.capability_id) : false),
-  );
-}
-
-function getCapabilityScopedWorkItems(capabilityTree: CapabilityTree, allWorkItems: WorkItem[]) {
-  const capabilityIds = collectCapabilityIds([capabilityTree]);
-  return allWorkItems.filter((workItem) => workItem.capability_id ? capabilityIds.has(workItem.capability_id) : false);
 }
