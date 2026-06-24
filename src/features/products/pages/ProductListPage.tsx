@@ -8,11 +8,9 @@ import {
   createProductArea,
   createProduct,
   createProductDependency,
-  createProductReference,
   createWorkItem,
   deleteCapability,
   deleteProductArea,
-  deleteProductReference,
   deleteWorkItem,
   getProductTree,
   getSubWorkItems,
@@ -95,7 +93,6 @@ import {
   emptyWorkItemDraft,
   parseBooleanSetting,
   productToForm,
-  referenceKindOptions,
   workItemToDraft,
   type ProductDependencyDraft,
   type ProductFormState,
@@ -134,7 +131,7 @@ import {
   orderItemsByIds,
   seedCapabilityOrderMap,
 } from "../lib/productHierarchyHelpers";
-import type { CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ProductAreaTree, Product, ProductReference, ProductTree, ProductTreeSummary, ProductWorkItemSummary, Repository, WorkItem, WorkItemScopeSummary } from "../../../lib/types";
+import type { CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ProductAreaTree, Product, ProductTree, ProductTreeSummary, ProductWorkItemSummary, Repository, WorkItem, WorkItemScopeSummary } from "../../../lib/types";
 
 
 
@@ -186,8 +183,6 @@ export function ProductListPage() {
   const [productAreaDraft, setProductAreaDraft] = useState<{ name: string; description: string; purpose: string; nodeKind: HierarchyNodeKind }>({ name: "", description: "", purpose: "", nodeKind: "product_area" });
   const [capabilityForm, setCapabilityForm] = useState<{ name: string; description: string; acceptanceCriteria: string; technicalNotes: string; nodeKind: HierarchyNodeKind }>({ name: "", description: "", acceptanceCriteria: "", technicalNotes: "", nodeKind: "capability" });
   const [capabilityDraft, setCapabilityDraft] = useState<{ name: string; description: string; acceptanceCriteria: string; technicalNotes: string; nodeKind: HierarchyNodeKind }>({ name: "", description: "", acceptanceCriteria: "", technicalNotes: "", nodeKind: "capability" });
-  const [referenceDraft, setReferenceDraft] = useState<{ title: string; referenceKind: ProductReference["reference_kind"]; uri: string; content: string }>({ title: "", referenceKind: "note", uri: "", content: "" });
-  const [structureViewMode, setStructureViewMode] = useState<"children" | "references">("children");
   const [productManagementTab, setProductManagementTab] = useState<ProductManagementTab>("areas");
   const [formError, setFormError] = useState<string | null>(null);
   const [workspaceActionMsg, setWorkspaceActionMsg] = useState<string | null>(null);
@@ -1040,34 +1035,6 @@ export function ProductListPage() {
       : [],
     [productReferences, selectedReferenceScope],
   );
-  const createProductReferenceMutation = useMutation({
-    mutationFn: () => {
-      if (!selectedReferenceScope) {
-        throw new Error("Select a product management scope before adding a reference.");
-      }
-      return createProductReference({
-        scopeType: selectedReferenceScope.scopeType,
-        scopeId: selectedReferenceScope.scopeId,
-        title: referenceDraft.title.trim(),
-        referenceKind: referenceDraft.referenceKind,
-        uri: referenceDraft.uri.trim(),
-        content: referenceDraft.content.trim(),
-      });
-    },
-    onSuccess: async () => {
-      setReferenceDraft({ title: "", referenceKind: "note", uri: "", content: "" });
-      setFormError(null);
-      await queryClient.invalidateQueries({ queryKey: ["product-references"] });
-    },
-    onError: (error) => setFormError(String(error)),
-  });
-  const deleteProductReferenceMutation = useMutation({
-    mutationFn: (id: string) => deleteProductReference(id),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["product-references"] });
-    },
-    onError: (error) => setFormError(String(error)),
-  });
   const selectedMetricCards = selectedHierarchyNode
     ? [
         { label: "Direct Children", value: selectedDirectChildren.length, help: `${selectedDirectChildren.length} immediate child ${selectedDirectChildren.length === 1 ? "node" : "nodes"}` },
@@ -1516,102 +1483,6 @@ export function ProductListPage() {
       </div>
     );
   };
-
-  const renderReferencesPanel = () => (
-    <div style={styles.section}>
-      <div style={styles.sectionTitle}>
-        <span>References</span>
-        <span style={styles.badgeMuted}>{selectedReferences.length}</span>
-      </div>
-      <div style={styles.contextCard}>
-        <div style={styles.contextLabel}>Attached Context</div>
-        <div style={styles.contextTitle}>{selectedNodeTitle}</div>
-        <div style={styles.contextText}>
-          References stay with product management scopes and are available as context for product owner, builder, and agent work.
-        </div>
-        <div style={styles.chipRow}>
-          <span style={styles.badgeKind}>{selectedReferenceScope?.scopeType.replace("_", " ") ?? "product"}</span>
-          <span style={styles.badgeMuted}>{selectedScopePath.join(" / ") || selectedProduct?.name}</span>
-        </div>
-      </div>
-      <div style={styles.contextCard}>
-        <div style={styles.formRow}>
-          <div>
-            <label style={styles.label}>Title</label>
-            <input
-              style={styles.input}
-              value={referenceDraft.title}
-              onChange={(event) => setReferenceDraft({ ...referenceDraft, title: event.target.value })}
-              placeholder="Architecture note, standard, evidence packet"
-            />
-          </div>
-          <div>
-            <label style={styles.label}>Kind</label>
-            <select
-              style={styles.select}
-              value={referenceDraft.referenceKind}
-              onChange={(event) => setReferenceDraft({ ...referenceDraft, referenceKind: event.target.value as ProductReference["reference_kind"] })}
-            >
-              {referenceKindOptions.map((kind) => (
-                <option key={kind} value={kind}>{kind.replace("_", " ")}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <label style={styles.label}>URI</label>
-        <input
-          style={styles.input}
-          value={referenceDraft.uri}
-          onChange={(event) => setReferenceDraft({ ...referenceDraft, uri: event.target.value })}
-          placeholder="https://..., repo path, or document id"
-        />
-        <label style={styles.label}>Notes</label>
-        <textarea
-          style={styles.textarea}
-          value={referenceDraft.content}
-          onChange={(event) => setReferenceDraft({ ...referenceDraft, content: event.target.value })}
-          placeholder="Relevant context, constraints, or evidence"
-        />
-        {formError && <div style={styles.errorText}>{formError}</div>}
-        <button
-          style={styles.btn}
-          onClick={() => createProductReferenceMutation.mutate()}
-          disabled={!selectedReferenceScope || !referenceDraft.title.trim() || createProductReferenceMutation.isPending}
-        >
-          {createProductReferenceMutation.isPending ? "Adding..." : "Add Reference"}
-        </button>
-      </div>
-      {selectedReferences.length > 0 ? (
-        <div style={styles.table}>
-          <div style={styles.tableHeader}>
-            <div>Title</div>
-            <div>Kind</div>
-            <div>URI</div>
-            <div>Action</div>
-          </div>
-          {selectedReferences.map((reference) => (
-            <div key={reference.id} style={styles.tableRow}>
-              <div>
-                <div style={styles.rowPrimary}>{reference.title}</div>
-                {reference.content ? <div style={styles.rowSecondary}>{reference.content}</div> : null}
-              </div>
-              <div style={styles.rowCell}>{reference.reference_kind.replace("_", " ")}</div>
-              <div style={styles.rowCell}>{reference.uri || "None"}</div>
-              <button
-                style={styles.ghostBtn}
-                onClick={() => deleteProductReferenceMutation.mutate(reference.id)}
-                disabled={deleteProductReferenceMutation.isPending}
-              >
-                Delete
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div style={styles.empty}>No references are attached to this scope yet.</div>
-      )}
-    </div>
-  );
 
   const renderOutlineNode = (node: HierarchyTreeNode, depth = 0): React.ReactNode => {
     const nodeKey = getHierarchyNodeKey(node);
