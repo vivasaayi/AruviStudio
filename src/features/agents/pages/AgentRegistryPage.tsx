@@ -11,6 +11,7 @@ import { AgentRegistryHeader } from "../components/AgentRegistryHeader";
 import { AgentRoutingTab } from "../components/AgentRoutingTab";
 import { AgentSkillsTab } from "../components/AgentSkillsTab";
 import { AgentTeamsTab } from "../components/AgentTeamsTab";
+import { useAgentModelBindingActions } from "../hooks/useAgentModelBindingActions";
 import { useAgentRegistryMutations } from "../hooks/useAgentRegistryMutations";
 import { useAgentRegistryPageSync } from "../hooks/useAgentRegistryPageSync";
 import { useAgentRegistryViewModel } from "../hooks/useAgentRegistryViewModel";
@@ -197,6 +198,17 @@ export function AgentRegistryPage() {
     setAssignmentError,
   });
 
+  const {
+    bindAllAgentsToDeepSeek,
+    bindCodingAgentsToDeepSeek,
+  } = useAgentModelBindingActions({
+    agents,
+    modelDefinitions,
+    bindAgentModelMutation,
+    setAgentFeedback,
+    setAgentError,
+  });
+
   const handleSaveAgent = async () => {
     setAgentError(null);
     setAgentFeedback(null);
@@ -247,78 +259,6 @@ export function AgentRegistryPage() {
         agentId: selectedAgent.id,
         modelId: selectedAgentModelId,
       });
-    } catch {
-      // Mutation handler sets feedback.
-    }
-  };
-
-  const handleBindCodingAgentsToDeepSeek = async () => {
-    setAgentError(null);
-    setAgentFeedback(null);
-    const deepSeekModel =
-      modelDefinitions.find((model) => model.name.toLowerCase().includes("deepseek-coder")) ??
-      modelDefinitions.find((model) => model.name.toLowerCase().includes("deepseek"));
-    if (!deepSeekModel) {
-      setAgentError("No DeepSeek model definition found. Add one in the Models tab first.");
-      return;
-    }
-
-    const codingAgents = agents.filter((agent) => {
-      const role = agent.role.toLowerCase();
-      return agent.enabled && (role.includes("coding") || role.includes("developer"));
-    });
-
-    if (codingAgents.length === 0) {
-      setAgentError("No enabled coding/developer agents found.");
-      return;
-    }
-
-    try {
-      await Promise.all(
-        codingAgents.map((agent) =>
-          bindAgentModelMutation.mutateAsync({
-            agentId: agent.id,
-            modelId: deepSeekModel.id,
-          }),
-        ),
-      );
-      setAgentFeedback(`Bound ${codingAgents.length} coding agents to ${deepSeekModel.name}.`);
-    } catch {
-      // Mutation handler sets feedback.
-    }
-  };
-
-  const handleBindAllAgentsToDeepSeek = async () => {
-    setAgentError(null);
-    setAgentFeedback(null);
-    const deepSeekModel =
-      modelDefinitions.find((model) => model.enabled && model.name.toLowerCase().includes("deepseek-coder")) ??
-      modelDefinitions.find((model) => model.enabled && model.name.toLowerCase().includes("deepseek"));
-    if (!deepSeekModel) {
-      setAgentError("No DeepSeek model definition found. Add one in the Models tab first.");
-      return;
-    }
-
-    const enabledAgents = agents.filter(
-      (agent) => agent.enabled && agent.employment_status === "active",
-    );
-
-    if (enabledAgents.length === 0) {
-      setAgentError("No active enabled agents found.");
-      return;
-    }
-
-    try {
-      await Promise.all(
-        enabledAgents.map((agent) =>
-          bindAgentModelMutation.mutateAsync({
-            agentId: agent.id,
-            modelId: deepSeekModel.id,
-          }),
-        ),
-      );
-      setAgentFeedback(`Bound ${enabledAgents.length} enabled agents to ${deepSeekModel.name}.`);
-      setAgentError(null);
     } catch {
       // Mutation handler sets feedback.
     }
@@ -478,8 +418,8 @@ export function AgentRegistryPage() {
         setAgentError(null);
         setAgentFeedback(null);
       }}
-      onBindAllAgentsToDeepSeek={handleBindAllAgentsToDeepSeek}
-      onBindCodingAgentsToDeepSeek={handleBindCodingAgentsToDeepSeek}
+      onBindAllAgentsToDeepSeek={bindAllAgentsToDeepSeek}
+      onBindCodingAgentsToDeepSeek={bindCodingAgentsToDeepSeek}
       onExpandedTeamsChange={setExpandedTeams}
       onSelectTeam={(teamId) => {
         setSelectedTeamId(teamId);
