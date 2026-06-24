@@ -1,9 +1,9 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
-import { ProductManagementConsole } from "../components/ProductManagementConsole";
+import { ProductManagementConsolePanel } from "../components/ProductManagementConsolePanel";
 import { ProductManagementModalStack } from "../components/ProductManagementModalStack";
 import { ProductPageTabs } from "../components/ProductPageTabs";
 import { ProductWorkspacePanel } from "../components/ProductWorkspacePanel";
@@ -13,11 +13,11 @@ import { useProductHierarchyMutations } from "../hooks/useProductHierarchyMutati
 import { useProductManagementSelection } from "../hooks/useProductManagementSelection";
 import { useProductManagementWorkItemMutations } from "../hooks/useProductManagementWorkItemMutations";
 import { useProductPageActions } from "../hooks/useProductPageActions";
+import { useProductPageRefreshActions } from "../hooks/useProductPageRefreshActions";
 import { useProductPageSync } from "../hooks/useProductPageSync";
 import { useProductPageViewModel } from "../hooks/useProductPageViewModel";
 import { styles } from "../lib/productListPageStyles";
 import {
-  HIDE_EXAMPLE_PRODUCTS_KEY,
   emptyProductDependencyDraft,
   emptyProductForm,
   emptyWorkItemDraft,
@@ -27,13 +27,7 @@ import {
   type ProductFormState,
   type WorkItemDraftState,
 } from "../lib/productListPageState";
-import { refreshScopedProductQueries } from "../lib/productQueryRefresh";
 import {
-  getProductManagementRefreshLabel,
-  getProductManagementRefreshQueryKeys,
-  getProductPageRefreshLabel,
-  getProductPageRefreshQueryKeys,
-  isProductPageRefreshDisabled,
   type ProductManagementTab,
   type ProductPageTab,
 } from "../lib/productRefreshScopes";
@@ -333,29 +327,21 @@ export function ProductListPage() {
     setManagementStoryPageIndex,
     setFormError,
   });
-  const refreshProductManagementTabQueries = async () => {
-    await refreshScopedProductQueries(queryClient, getProductManagementRefreshQueryKeys({
-      selectedProductId,
-      productManagementTab,
-      selectedManagementStoryIdForTasks,
-    }));
-  };
-
-  const refreshActiveProductPageTab = async () => {
-    await refreshScopedProductQueries(queryClient, getProductPageRefreshQueryKeys({
-      productPageTab,
-      selectedProductId,
-      statusGroupBy,
-      statusProductId,
-      hideExampleProductsKey: HIDE_EXAMPLE_PRODUCTS_KEY,
-      productManagementTab,
-      selectedManagementStoryIdForTasks,
-    }));
-  };
-
-  const activeProductPageRefreshLabel = getProductPageRefreshLabel(productPageTab);
-  const activeProductPageRefreshDisabled = isProductPageRefreshDisabled(productPageTab, selectedProductId);
-  const productManagementRefreshLabel = getProductManagementRefreshLabel(productManagementTab);
+  const {
+    activeProductPageRefreshLabel,
+    activeProductPageRefreshDisabled,
+    productManagementRefreshLabel,
+    refreshActiveProductPageTab,
+    refreshProductManagementTabQueries,
+  } = useProductPageRefreshActions({
+    queryClient,
+    productPageTab,
+    selectedProductId,
+    statusGroupBy,
+    statusProductId,
+    productManagementTab,
+    selectedManagementStoryIdForTasks,
+  });
 
   const {
     selectProductArea,
@@ -432,61 +418,6 @@ export function ProductListPage() {
   const deleteManagementWorkItemReady = !!deleteWorkItemCandidate
     && deleteWorkItemConfirmName.trim() === deleteWorkItemCandidate.workItem.title
     && deleteWorkItemConfirmChecked;
-
-  const productManagementConsole = (
-    <ProductManagementConsole
-      selectedProduct={selectedProduct}
-      activeTab={productManagementTab}
-      onTabChange={setProductManagementTab}
-      refreshLabel={productManagementRefreshLabel}
-      onRefresh={refreshProductManagementTabQueries}
-      refreshDisabled={!selectedProductId}
-      renderCopyableEntityId={renderCopyableEntityId}
-      productAreas={productAreaProductAreas}
-      onResetProductPlan={requestResetProductPlan}
-      onCreateProductArea={() => openProductAreaDialog("create")}
-      onSelectProductArea={selectProductArea}
-      onEditProductArea={openEditProductArea}
-      onDeleteHierarchyNode={requestDeleteHierarchyNode}
-      selectedProductAreaTree={selectedProductAreaTree}
-      capabilities={managementCapabilities}
-      productTree={tree}
-      selectedProductId={selectedProductId}
-      scopeSummaryIndex={scopeSummaryIndex}
-      onCreateCapability={openCreateCapabilityForArea}
-      onSelectCapability={selectCapabilityForManagement}
-      onEditCapability={openEditCapabilityNode}
-      selectedCapabilityTree={selectedManagementCapabilityTree}
-      features={managementFeatures}
-      onCreateFeature={openCreateFeatureForCapability}
-      allFeatures={allManagementFeatures}
-      selectedFeature={selectedManagementFeature}
-      onSelectFeature={(entry) => {
-        selectCapabilityForManagement(entry.capabilityTree);
-        setSelectedManagementStoryId(null);
-      }}
-      stories={featureStories}
-      selectedStory={selectedManagementStory}
-      canCreateStory={!!selectedManagementFeatureNode}
-      storyPageIndex={managementStoryPageIndex}
-      hasNextStoryPage={managementFeatureWorkItemPage?.has_more ?? false}
-      onPreviousStoryPage={() => setManagementStoryPageIndex((current) => Math.max(0, current - 1))}
-      onNextStoryPage={() => setManagementStoryPageIndex((current) => current + 1)}
-      onCreateStory={openCreateStoryDialog}
-      onOpenBuilder={() => openFeatureInBuilder(selectedManagementFeatureNode)}
-      onSelectStory={(story) => {
-        setSelectedManagementStoryId(story.id);
-        setActiveWorkItem(story.id);
-      }}
-      onEditStory={openEditStoryDialog}
-      onDeleteStory={(story) => requestDeleteWorkItem(story, "story")}
-      tasks={selectedManagementTasks}
-      onOpenStory={openStoryInBuilder}
-      onCreateTask={openCreateTaskDialog}
-      onEditTask={openEditTaskDialog}
-      onDeleteTask={(task) => requestDeleteWorkItem(task, "task")}
-    />
-  );
 
   return (
     <div style={styles.page}>
@@ -583,7 +514,51 @@ export function ProductListPage() {
         capabilityLabelById={capabilityLabelById}
         isCreatingDependency={createProductDependencyMutation.isPending}
         onCreateDependency={() => createProductDependencyMutation.mutate()}
-        productManagementConsole={productManagementConsole}
+        productManagementConsole={(
+          <ProductManagementConsolePanel
+            selectedProduct={selectedProduct}
+            productManagementTab={productManagementTab}
+            onProductManagementTabChange={setProductManagementTab}
+            refreshLabel={productManagementRefreshLabel}
+            onRefresh={refreshProductManagementTabQueries}
+            selectedProductId={selectedProductId}
+            renderCopyableEntityId={renderCopyableEntityId}
+            productAreaProductAreas={productAreaProductAreas}
+            onResetProductPlan={requestResetProductPlan}
+            onCreateProductArea={() => openProductAreaDialog("create")}
+            onSelectProductArea={selectProductArea}
+            onEditProductArea={openEditProductArea}
+            onDeleteHierarchyNode={requestDeleteHierarchyNode}
+            selectedProductAreaTree={selectedProductAreaTree}
+            managementCapabilities={managementCapabilities}
+            productTree={tree}
+            scopeSummaryIndex={scopeSummaryIndex}
+            onCreateCapability={openCreateCapabilityForArea}
+            onSelectCapabilityForManagement={selectCapabilityForManagement}
+            onEditCapabilityNode={openEditCapabilityNode}
+            selectedManagementCapabilityTree={selectedManagementCapabilityTree}
+            managementFeatures={managementFeatures}
+            onCreateFeature={openCreateFeatureForCapability}
+            allManagementFeatures={allManagementFeatures}
+            selectedManagementFeature={selectedManagementFeature}
+            setSelectedManagementStoryId={setSelectedManagementStoryId}
+            featureStories={featureStories}
+            selectedManagementStory={selectedManagementStory}
+            selectedManagementFeatureNode={selectedManagementFeatureNode}
+            managementStoryPageIndex={managementStoryPageIndex}
+            hasNextStoryPage={managementFeatureWorkItemPage?.has_more ?? false}
+            setManagementStoryPageIndex={setManagementStoryPageIndex}
+            onCreateStory={openCreateStoryDialog}
+            onOpenFeatureInBuilder={openFeatureInBuilder}
+            setActiveWorkItem={setActiveWorkItem}
+            onOpenStoryInBuilder={openStoryInBuilder}
+            onEditStory={openEditStoryDialog}
+            onCreateTask={openCreateTaskDialog}
+            onEditTask={openEditTaskDialog}
+            onRequestDeleteWorkItem={requestDeleteWorkItem}
+            selectedManagementTasks={selectedManagementTasks}
+          />
+        )}
       />
 
       <ProductManagementModalStack
