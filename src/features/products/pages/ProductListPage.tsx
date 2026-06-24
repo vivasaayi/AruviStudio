@@ -57,23 +57,10 @@ import { ProductOverviewPage } from "./ProductOverviewPage";
 import { CopyableEntityId } from "../components/CopyableEntityId";
 import { ProductManagementConsole } from "../components/ProductManagementConsole";
 import { ProductCatalogTab } from "../components/ProductCatalogTab";
-import {
-  CapabilityFormModal,
-  ProductAreaFormModal,
-} from "../components/ProductManagementHierarchyModals";
 import { ProductDependenciesTab } from "../components/ProductDependenciesTab";
+import { ProductManagementModalStack } from "../components/ProductManagementModalStack";
 import { ProductPageTabs } from "../components/ProductPageTabs";
 import { ProductStatusTab } from "../components/ProductStatusTab";
-import {
-  DeleteHierarchyNodeModal,
-  DeleteManagementWorkItemModal,
-  ManagementWorkItemFormModal,
-} from "../components/ProductManagementDeliveryModals";
-import {
-  DeleteProductModal,
-  ProductFormModal,
-  ResetProductPlanModal,
-} from "../components/ProductManagementProductModals";
 import { styles } from "../lib/productListPageStyles";
 import {
   HIDE_EXAMPLE_PRODUCTS_KEY,
@@ -1606,153 +1593,98 @@ export function ProductListPage() {
         </div>
       </div>
 
-      {productDialogMode !== "closed" && (
-        <ProductFormModal
-          mode={productDialogMode}
-          productForm={productForm}
-          productDraft={productDraft}
-          setProductForm={setProductForm}
-          setProductDraft={setProductDraft}
-          formError={formError}
-          isCreatePending={createProductMutation.isPending}
-          isUpdatePending={updateProductMutation.isPending}
-          onClose={closeProductDialog}
-          onSubmit={() => (productDialogMode === "create" ? createProductMutation.mutate() : updateProductMutation.mutate())}
-        />
-      )}
-
-      {deleteProductCandidate && (
-        <DeleteProductModal
-          product={deleteProductCandidate}
-          confirmName={deleteConfirmName}
-          confirmArchive={deleteConfirmArchive}
-          isReady={deleteConfirmationReady}
-          isPending={archiveMutation.isPending}
-          formError={formError}
-          onClose={() => setDeleteProductCandidate(null)}
-          onConfirmNameChange={setDeleteConfirmName}
-          onConfirmArchiveChange={setDeleteConfirmArchive}
-          onArchive={(productId) => archiveMutation.mutate(productId)}
-        />
-      )}
-
-      {resetPlanCandidate && (
-        <ResetProductPlanModal
-          product={resetPlanCandidate}
-          confirmName={resetPlanConfirmName}
-          confirmTree={resetPlanConfirmTree}
-          deleteDelivery={resetPlanDeleteDelivery}
-          isReady={resetPlanReady}
-          isPending={resetProductPlanMutation.isPending}
-          formError={formError}
-          onClose={() => setResetPlanCandidate(null)}
-          onConfirmNameChange={setResetPlanConfirmName}
-          onConfirmTreeChange={setResetPlanConfirmTree}
-          onDeleteDeliveryChange={setResetPlanDeleteDelivery}
-          onReset={(data) => resetProductPlanMutation.mutate(data)}
-        />
-      )}
-
-      {deleteHierarchyCandidate && (
-        <DeleteHierarchyNodeModal
-          candidate={deleteHierarchyCandidate}
-          confirmName={deleteHierarchyConfirmName}
-          confirmChecked={deleteHierarchyConfirmChecked}
-          isReady={deleteHierarchyReady}
-          isPending={deleteHierarchyMutation.isPending}
-          formError={formError}
-          onClose={() => setDeleteHierarchyCandidate(null)}
-          onConfirmNameChange={setDeleteHierarchyConfirmName}
-          onConfirmCheckedChange={setDeleteHierarchyConfirmChecked}
-          onDelete={(candidate) => deleteHierarchyMutation.mutate(candidate)}
-        />
-      )}
-
-      {deleteWorkItemCandidate && (
-        <DeleteManagementWorkItemModal
-          candidate={deleteWorkItemCandidate}
-          confirmName={deleteWorkItemConfirmName}
-          confirmChecked={deleteWorkItemConfirmChecked}
-          isReady={deleteManagementWorkItemReady}
-          isPending={deleteManagementWorkItemMutation.isPending}
-          formError={formError}
-          onClose={() => setDeleteWorkItemCandidate(null)}
-          onConfirmNameChange={setDeleteWorkItemConfirmName}
-          onConfirmCheckedChange={setDeleteWorkItemConfirmChecked}
-          onDelete={(candidate) => deleteManagementWorkItemMutation.mutate(candidate)}
-        />
-      )}
-
-      {storyDialogMode !== "closed" && (
-        <ManagementWorkItemFormModal
-          kind="story"
-          mode={storyDialogMode}
-          contextLabel="Feature"
-          contextTitle={selectedManagementFeature?.capabilityTree.capability.name ?? "No feature selected"}
-          draft={storyDraft}
-          setDraft={setStoryDraft}
-          canSubmit={!!selectedManagementFeatureNode}
-          isCreatePending={createManagementStoryMutation.isPending}
-          isUpdatePending={updateManagementStoryMutation.isPending}
-          formError={formError}
-          onClose={() => setStoryDialogMode("closed")}
-          onSubmit={() => storyDialogMode === "edit" ? updateManagementStoryMutation.mutate() : createManagementStoryMutation.mutate()}
-        />
-      )}
-
-      {taskDialogMode !== "closed" && (
-        <ManagementWorkItemFormModal
-          kind="task"
-          mode={taskDialogMode}
-          contextLabel="Story"
-          contextTitle={selectedManagementStory?.title ?? "No story selected"}
-          draft={taskDraft}
-          setDraft={setTaskDraft}
-          canSubmit={!!selectedManagementStory}
-          isCreatePending={createManagementTaskMutation.isPending}
-          isUpdatePending={updateManagementTaskMutation.isPending}
-          formError={formError}
-          onClose={() => setTaskDialogMode("closed")}
-          onSubmit={() => taskDialogMode === "edit" ? updateManagementTaskMutation.mutate() : createManagementTaskMutation.mutate()}
-        />
-      )}
-
-      {productAreaDialogMode !== "closed" && (
-        <ProductAreaFormModal
-          mode={productAreaDialogMode}
-          selectedProductArea={selectedProductArea}
-          form={productAreaForm}
-          draft={productAreaDraft}
-          setForm={setProductAreaForm}
-          setDraft={setProductAreaDraft}
-          formError={formError}
-          selectedProductId={selectedProductId}
-          isCreatePending={createProductAreaMutation.isPending}
-          isUpdatePending={updateProductAreaMutation.isPending}
-          onClose={closeProductAreaDialog}
-          onSubmit={() => productAreaDialogMode === "create" ? createProductAreaMutation.mutate() : updateProductAreaMutation.mutate()}
-        />
-      )}
-
-      {capabilityDialogMode !== "closed" && (
-        <CapabilityFormModal
-          mode={capabilityDialogMode}
-          selectedProductArea={selectedProductArea}
-          selectedCapability={selectedCapability}
-          form={capabilityForm}
-          draft={capabilityDraft}
-          setForm={setCapabilityForm}
-          setDraft={setCapabilityDraft}
-          createKindGroups={selectedCapabilityAllowedKindGroups}
-          editKindGroups={editableCapabilityNodeKindGroups}
-          formError={formError}
-          activeProductAreaId={activeProductAreaId}
-          isCreatePending={createCapabilityMutation.isPending}
-          isUpdatePending={updateCapabilityMutation.isPending}
-          onClose={closeCapabilityDialog}
-          onSubmit={() => capabilityDialogMode === "create" ? createCapabilityMutation.mutate() : updateCapabilityMutation.mutate()}
-        />
-      )}
+      <ProductManagementModalStack
+        productDialogMode={productDialogMode}
+        productForm={productForm}
+        productDraft={productDraft}
+        setProductForm={setProductForm}
+        setProductDraft={setProductDraft}
+        isCreateProductPending={createProductMutation.isPending}
+        isUpdateProductPending={updateProductMutation.isPending}
+        onCloseProductDialog={closeProductDialog}
+        onSubmitProduct={() => (productDialogMode === "create" ? createProductMutation.mutate() : updateProductMutation.mutate())}
+        deleteProductCandidate={deleteProductCandidate}
+        deleteConfirmName={deleteConfirmName}
+        deleteConfirmArchive={deleteConfirmArchive}
+        deleteProductReady={deleteConfirmationReady}
+        isArchiveProductPending={archiveMutation.isPending}
+        onCloseDeleteProduct={() => setDeleteProductCandidate(null)}
+        onDeleteConfirmNameChange={setDeleteConfirmName}
+        onDeleteConfirmArchiveChange={setDeleteConfirmArchive}
+        onArchiveProduct={(productId) => archiveMutation.mutate(productId)}
+        resetPlanCandidate={resetPlanCandidate}
+        resetPlanConfirmName={resetPlanConfirmName}
+        resetPlanConfirmTree={resetPlanConfirmTree}
+        resetPlanDeleteDelivery={resetPlanDeleteDelivery}
+        resetPlanReady={resetPlanReady}
+        isResetPlanPending={resetProductPlanMutation.isPending}
+        onCloseResetPlan={() => setResetPlanCandidate(null)}
+        onResetPlanConfirmNameChange={setResetPlanConfirmName}
+        onResetPlanConfirmTreeChange={setResetPlanConfirmTree}
+        onResetPlanDeleteDeliveryChange={setResetPlanDeleteDelivery}
+        onResetPlan={(data) => resetProductPlanMutation.mutate(data)}
+        deleteHierarchyCandidate={deleteHierarchyCandidate}
+        deleteHierarchyConfirmName={deleteHierarchyConfirmName}
+        deleteHierarchyConfirmChecked={deleteHierarchyConfirmChecked}
+        deleteHierarchyReady={deleteHierarchyReady}
+        isDeleteHierarchyPending={deleteHierarchyMutation.isPending}
+        onCloseDeleteHierarchy={() => setDeleteHierarchyCandidate(null)}
+        onDeleteHierarchyConfirmNameChange={setDeleteHierarchyConfirmName}
+        onDeleteHierarchyConfirmCheckedChange={setDeleteHierarchyConfirmChecked}
+        onDeleteHierarchy={(candidate) => deleteHierarchyMutation.mutate(candidate)}
+        deleteWorkItemCandidate={deleteWorkItemCandidate}
+        deleteWorkItemConfirmName={deleteWorkItemConfirmName}
+        deleteWorkItemConfirmChecked={deleteWorkItemConfirmChecked}
+        deleteWorkItemReady={deleteManagementWorkItemReady}
+        isDeleteWorkItemPending={deleteManagementWorkItemMutation.isPending}
+        onCloseDeleteWorkItem={() => setDeleteWorkItemCandidate(null)}
+        onDeleteWorkItemConfirmNameChange={setDeleteWorkItemConfirmName}
+        onDeleteWorkItemConfirmCheckedChange={setDeleteWorkItemConfirmChecked}
+        onDeleteWorkItem={(candidate) => deleteManagementWorkItemMutation.mutate(candidate)}
+        storyDialogMode={storyDialogMode}
+        selectedFeatureTitle={selectedManagementFeature?.capabilityTree.capability.name ?? "No feature selected"}
+        storyDraft={storyDraft}
+        setStoryDraft={setStoryDraft}
+        canSubmitStory={!!selectedManagementFeatureNode}
+        isCreateStoryPending={createManagementStoryMutation.isPending}
+        isUpdateStoryPending={updateManagementStoryMutation.isPending}
+        onCloseStoryDialog={() => setStoryDialogMode("closed")}
+        onSubmitStory={() => storyDialogMode === "edit" ? updateManagementStoryMutation.mutate() : createManagementStoryMutation.mutate()}
+        taskDialogMode={taskDialogMode}
+        selectedStoryTitle={selectedManagementStory?.title ?? "No story selected"}
+        taskDraft={taskDraft}
+        setTaskDraft={setTaskDraft}
+        canSubmitTask={!!selectedManagementStory}
+        isCreateTaskPending={createManagementTaskMutation.isPending}
+        isUpdateTaskPending={updateManagementTaskMutation.isPending}
+        onCloseTaskDialog={() => setTaskDialogMode("closed")}
+        onSubmitTask={() => taskDialogMode === "edit" ? updateManagementTaskMutation.mutate() : createManagementTaskMutation.mutate()}
+        productAreaDialogMode={productAreaDialogMode}
+        selectedProductArea={selectedProductArea}
+        productAreaForm={productAreaForm}
+        productAreaDraft={productAreaDraft}
+        setProductAreaForm={setProductAreaForm}
+        setProductAreaDraft={setProductAreaDraft}
+        selectedProductId={selectedProductId}
+        isCreateProductAreaPending={createProductAreaMutation.isPending}
+        isUpdateProductAreaPending={updateProductAreaMutation.isPending}
+        onCloseProductAreaDialog={closeProductAreaDialog}
+        onSubmitProductArea={() => productAreaDialogMode === "create" ? createProductAreaMutation.mutate() : updateProductAreaMutation.mutate()}
+        capabilityDialogMode={capabilityDialogMode}
+        selectedCapability={selectedCapability}
+        capabilityForm={capabilityForm}
+        capabilityDraft={capabilityDraft}
+        setCapabilityForm={setCapabilityForm}
+        setCapabilityDraft={setCapabilityDraft}
+        createKindGroups={selectedCapabilityAllowedKindGroups}
+        editKindGroups={editableCapabilityNodeKindGroups}
+        activeProductAreaId={activeProductAreaId}
+        isCreateCapabilityPending={createCapabilityMutation.isPending}
+        isUpdateCapabilityPending={updateCapabilityMutation.isPending}
+        onCloseCapabilityDialog={closeCapabilityDialog}
+        onSubmitCapability={() => capabilityDialogMode === "create" ? createCapabilityMutation.mutate() : updateCapabilityMutation.mutate()}
+        formError={formError}
+      />
 
     </div>
   );
