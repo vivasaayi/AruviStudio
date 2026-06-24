@@ -7,18 +7,14 @@ import {
   createProductArea,
   createProduct,
   createProductDependency,
-  createWorkItem,
   deleteCapability,
   deleteProductArea,
-  deleteWorkItem,
-  getSubWorkItems,
   reorderCapabilities,
   reorderProductAreas,
   resetProductPlan,
   updateCapability,
   updateProductArea,
   updateProduct,
-  updateWorkItem,
 } from "../../../lib/tauri";
 import {
   getDefaultChildNodeKind,
@@ -33,13 +29,13 @@ import { ProductWorkspacePanel } from "../components/ProductWorkspacePanel";
 import { useProductCatalogControls } from "../hooks/useProductCatalogControls";
 import { useProductHierarchySelectionState } from "../hooks/useProductHierarchySelectionState";
 import { useProductManagementSelection } from "../hooks/useProductManagementSelection";
+import { useProductManagementWorkItemMutations } from "../hooks/useProductManagementWorkItemMutations";
 import { useProductPageActions } from "../hooks/useProductPageActions";
 import { useProductPageSync } from "../hooks/useProductPageSync";
 import { useProductPageViewModel } from "../hooks/useProductPageViewModel";
 import { styles } from "../lib/productListPageStyles";
 import {
   HIDE_EXAMPLE_PRODUCTS_KEY,
-  SUB_WORK_ITEM_PAGE_SIZE,
   emptyProductDependencyDraft,
   emptyProductForm,
   emptyWorkItemDraft,
@@ -421,151 +417,6 @@ export function ProductListPage() {
     onSuccess: async () => invalidateHierarchy(),
   });
 
-  const createManagementStoryMutation = useMutation({
-    mutationFn: () => {
-      if (!selectedProductId || !selectedManagementFeatureNode) {
-        throw new Error("Select a feature before adding a story.");
-      }
-      return createWorkItem({
-        productId: selectedProductId,
-        productAreaId: selectedManagementFeatureNode.product_area_id ?? undefined,
-        capabilityId: selectedManagementFeatureNode.capability_id ?? undefined,
-        sourceNodeId: selectedManagementFeatureNode.id,
-        sourceNodeType: selectedManagementFeatureNode.node_type,
-        title: storyDraft.title.trim(),
-        problemStatement: storyDraft.problemStatement.trim(),
-        description: storyDraft.description.trim(),
-        acceptanceCriteria: storyDraft.acceptanceCriteria.trim(),
-        constraints: storyDraft.constraints.trim(),
-        workItemType: "story",
-        priority: storyDraft.priority,
-        complexity: storyDraft.complexity,
-      });
-    },
-    onSuccess: async (createdStory) => {
-      await invalidateTasks();
-      setSelectedManagementStoryId(createdStory.id);
-      setActiveWorkItem(createdStory.id);
-      setStoryDraft(emptyWorkItemDraft);
-      setStoryDialogMode("closed");
-      setFormError(null);
-    },
-    onError: (error) => setFormError(String(error)),
-  });
-
-  const updateManagementStoryMutation = useMutation({
-    mutationFn: () => {
-      if (!editingStory) {
-        throw new Error("Select a story before editing.");
-      }
-      return updateWorkItem({
-        id: editingStory.id,
-        title: storyDraft.title.trim(),
-        status: storyDraft.status,
-        problemStatement: storyDraft.problemStatement.trim(),
-        description: storyDraft.description.trim(),
-        acceptanceCriteria: storyDraft.acceptanceCriteria.trim(),
-        constraints: storyDraft.constraints.trim(),
-      });
-    },
-    onSuccess: async (updatedStory) => {
-      await invalidateTasks();
-      setSelectedManagementStoryId(updatedStory.id);
-      setActiveWorkItem(updatedStory.id);
-      setEditingStory(null);
-      setStoryDraft(emptyWorkItemDraft);
-      setStoryDialogMode("closed");
-      setFormError(null);
-    },
-    onError: (error) => setFormError(String(error)),
-  });
-
-  const createManagementTaskMutation = useMutation({
-    mutationFn: () => {
-      if (!selectedProductId || !selectedManagementFeatureNode || !selectedManagementStory) {
-        throw new Error("Select a story before adding a task.");
-      }
-      return createWorkItem({
-        productId: selectedProductId,
-        productAreaId: selectedManagementFeatureNode.product_area_id ?? undefined,
-        capabilityId: selectedManagementFeatureNode.capability_id ?? undefined,
-        sourceNodeId: selectedManagementFeatureNode.id,
-        sourceNodeType: selectedManagementFeatureNode.node_type,
-        parentWorkItemId: selectedManagementStory.id,
-        title: taskDraft.title.trim(),
-        problemStatement: taskDraft.problemStatement.trim(),
-        description: taskDraft.description.trim(),
-        acceptanceCriteria: taskDraft.acceptanceCriteria.trim(),
-        constraints: taskDraft.constraints.trim(),
-        workItemType: "task",
-        priority: taskDraft.priority,
-        complexity: taskDraft.complexity,
-      });
-    },
-    onSuccess: async () => {
-      await invalidateTasks();
-      setTaskDraft(emptyWorkItemDraft);
-      setTaskDialogMode("closed");
-      setFormError(null);
-    },
-    onError: (error) => setFormError(String(error)),
-  });
-
-  const updateManagementTaskMutation = useMutation({
-    mutationFn: () => {
-      if (!editingTask) {
-        throw new Error("Select a task before editing.");
-      }
-      return updateWorkItem({
-        id: editingTask.id,
-        title: taskDraft.title.trim(),
-        status: taskDraft.status,
-        problemStatement: taskDraft.problemStatement.trim(),
-        description: taskDraft.description.trim(),
-        acceptanceCriteria: taskDraft.acceptanceCriteria.trim(),
-        constraints: taskDraft.constraints.trim(),
-      });
-    },
-    onSuccess: async () => {
-      await invalidateTasks();
-      setEditingTask(null);
-      setTaskDraft(emptyWorkItemDraft);
-      setTaskDialogMode("closed");
-      setFormError(null);
-    },
-    onError: (error) => setFormError(String(error)),
-  });
-
-  const deleteManagementWorkItemMutation = useMutation({
-    mutationFn: async (candidate: { workItem: WorkItem; kind: "story" | "task" }) => {
-      if (candidate.kind === "story") {
-        for (;;) {
-          const childTasks = await getSubWorkItems(candidate.workItem.id, {
-            limit: SUB_WORK_ITEM_PAGE_SIZE,
-            offset: 0,
-          });
-          if (childTasks.length === 0) {
-            break;
-          }
-          await Promise.all(childTasks.map((workItem) => deleteWorkItem(workItem.id)));
-          if (childTasks.length < SUB_WORK_ITEM_PAGE_SIZE) {
-            break;
-          }
-        }
-      }
-      await deleteWorkItem(candidate.workItem.id);
-    },
-    onSuccess: async () => {
-      await invalidateTasks();
-      setDeleteWorkItemCandidate(null);
-      setDeleteWorkItemConfirmName("");
-      setDeleteWorkItemConfirmChecked(false);
-      setSelectedManagementStoryId(null);
-      setFormError(null);
-    },
-    onError: (error) => setFormError(String(error)),
-  });
-
   const {
     selectedCapabilityOptions,
     dependencyTargetCapabilityOptions,
@@ -607,6 +458,34 @@ export function ProductListPage() {
     managementStoryPageIndex,
     productPageTab,
     productManagementTab,
+  });
+  const {
+    createManagementStoryMutation,
+    updateManagementStoryMutation,
+    createManagementTaskMutation,
+    updateManagementTaskMutation,
+    deleteManagementWorkItemMutation,
+  } = useProductManagementWorkItemMutations({
+    selectedProductId,
+    selectedManagementFeatureNode,
+    selectedManagementStory,
+    setSelectedManagementStoryId,
+    setActiveWorkItem,
+    storyDraft,
+    setStoryDraft,
+    taskDraft,
+    setTaskDraft,
+    editingStory,
+    setEditingStory,
+    editingTask,
+    setEditingTask,
+    setStoryDialogMode,
+    setTaskDialogMode,
+    setDeleteWorkItemCandidate,
+    setDeleteWorkItemConfirmName,
+    setDeleteWorkItemConfirmChecked,
+    setFormError,
+    invalidateTasks,
   });
   useProductPageSync({
     isLoading,
