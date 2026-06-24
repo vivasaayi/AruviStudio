@@ -12,9 +12,19 @@ import {
   updateStrategyNode,
 } from "../../../lib/tauri";
 import type { Product, ProductDependency, ProductStrategyLink, StrategyNode, StrategyNodeKind } from "../../../lib/types";
+import {
+  buildStrategyTree,
+  collectDescendantIds,
+  collectStrategySubtreeIds,
+  countProductsForStrategy,
+  findTreeNode,
+  formatPortfolioError,
+  getChildKind,
+  strategyKindLabels,
+  type StrategyTreeNode,
+} from "../lib/portfolioStrategyTree";
 
 type PortfolioTab = "summary" | "manage";
-type StrategyTreeNode = StrategyNode & { children: StrategyTreeNode[] };
 type StrategyDialogMode = "closed" | "create" | "edit";
 type StrategyFormState = {
   parentNodeId: string;
@@ -86,12 +96,6 @@ const styles: Record<string, React.CSSProperties> = {
   modalBody: { padding: 15, maxHeight: "calc(84vh - 58px)", overflow: "auto" },
 };
 
-const strategyKindLabels: Record<StrategyNodeKind, string> = {
-  strategic_product_area: "Strategic Product Area",
-  domain: "Domain",
-  sub_domain: "Sub Domain",
-};
-
 export function PortfolioPage() {
   const queryClient = useQueryClient();
   const { data: products = [], isLoading: productsLoading } = useQuery({ queryKey: ["products"], queryFn: listProducts });
@@ -153,7 +157,7 @@ export function PortfolioPage() {
       closeStrategyDialog();
       await invalidateStrategy();
     },
-    onError: (error) => setFormError(formatError(error)),
+    onError: (error) => setFormError(formatPortfolioError(error)),
   });
 
   const updateStrategyMutation = useMutation({
@@ -171,7 +175,7 @@ export function PortfolioPage() {
       closeStrategyDialog();
       await invalidateStrategy();
     },
-    onError: (error) => setFormError(formatError(error)),
+    onError: (error) => setFormError(formatPortfolioError(error)),
   });
 
   const deleteStrategyMutation = useMutation({
@@ -186,7 +190,7 @@ export function PortfolioPage() {
       setFormError(null);
       await invalidateStrategy();
     },
-    onError: (error) => setFormError(formatError(error)),
+    onError: (error) => setFormError(formatPortfolioError(error)),
   });
 
   const linkProductMutation = useMutation({
@@ -200,7 +204,7 @@ export function PortfolioPage() {
       setFormError(null);
       await invalidateStrategy();
     },
-    onError: (error) => setFormError(formatError(error)),
+    onError: (error) => setFormError(formatPortfolioError(error)),
   });
 
   const unlinkProductMutation = useMutation({
@@ -212,7 +216,7 @@ export function PortfolioPage() {
       setFormError(null);
       await invalidateStrategy();
     },
-    onError: (error) => setFormError(formatError(error)),
+    onError: (error) => setFormError(formatPortfolioError(error)),
   });
 
   const productLabel = (productId: string) => products.find((product) => product.id === productId)?.name ?? "Unknown product";
@@ -708,73 +712,4 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
       </div>
     </div>
   );
-}
-
-function buildStrategyTree(nodes: StrategyNode[]): StrategyTreeNode[] {
-  const byId = new Map<string, StrategyTreeNode>();
-  nodes.forEach((node) => byId.set(node.id, { ...node, children: [] }));
-  const roots: StrategyTreeNode[] = [];
-  byId.forEach((node) => {
-    if (node.parent_node_id && byId.has(node.parent_node_id)) {
-      byId.get(node.parent_node_id)!.children.push(node);
-      return;
-    }
-    roots.push(node);
-  });
-  const sortNodes = (items: StrategyTreeNode[]) => {
-    items.sort((left, right) => left.sort_order - right.sort_order || left.name.localeCompare(right.name));
-    items.forEach((item) => sortNodes(item.children));
-  };
-  sortNodes(roots);
-  return roots;
-}
-
-function findTreeNode(nodes: StrategyTreeNode[], id: string): StrategyTreeNode | null {
-  for (const node of nodes) {
-    if (node.id === id) {
-      return node;
-    }
-    const found = findTreeNode(node.children, id);
-    if (found) {
-      return found;
-    }
-  }
-  return null;
-}
-
-function collectStrategySubtreeIds(nodes: StrategyTreeNode[], targetId: string): string[] {
-  const target = findTreeNode(nodes, targetId);
-  return target ? collectIds(target) : [];
-}
-
-function collectIds(node: StrategyTreeNode): string[] {
-  return [node.id, ...node.children.flatMap(collectIds)];
-}
-
-function collectDescendantIds(nodes: StrategyNode[], nodeId: string): string[] {
-  const children = nodes.filter((node) => node.parent_node_id === nodeId);
-  return children.flatMap((child) => [child.id, ...collectDescendantIds(nodes, child.id)]);
-}
-
-function countProductsForStrategy(node: StrategyTreeNode | null, links: ProductStrategyLink[]): number {
-  if (!node) {
-    return 0;
-  }
-  const ids = new Set(collectIds(node));
-  return links.filter((link) => ids.has(link.strategy_node_id)).length;
-}
-
-function getChildKind(kind: StrategyNodeKind): StrategyNodeKind | null {
-  switch (kind) {
-    case "strategic_product_area":
-      return "domain";
-    case "domain":
-      return "sub_domain";
-    case "sub_domain":
-      return null;
-  }
-}
-
-function formatError(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
 }
