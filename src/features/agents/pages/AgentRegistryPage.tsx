@@ -73,6 +73,7 @@ import {
   type SkillDraft,
   type TeamDraft,
 } from "../lib/agentRegistryPageModel";
+import { invalidateAgentRegistryData } from "../lib/agentRegistryQueries";
 
 export function AgentRegistryPage() {
   const queryClient = useQueryClient();
@@ -246,24 +247,7 @@ export function AgentRegistryPage() {
     [agents, memberships],
   );
 
-  const invalidateAgentData = React.useCallback(async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["agents"] }),
-      queryClient.invalidateQueries({ queryKey: ["agent-teams"] }),
-      queryClient.invalidateQueries({ queryKey: ["agent-team-memberships"] }),
-      queryClient.invalidateQueries({ queryKey: ["agent-team-assignments"] }),
-      queryClient.invalidateQueries({ queryKey: ["agent-model-bindings"] }),
-      queryClient.invalidateQueries({ queryKey: ["skills"] }),
-      queryClient.invalidateQueries({ queryKey: ["agent-skill-links"] }),
-      queryClient.invalidateQueries({ queryKey: ["team-skill-links"] }),
-      queryClient.invalidateQueries({ queryKey: ["workflow-stage-policies"] }),
-      queryClient.invalidateQueries({ queryKey: ["model-definitions"] }),
-      queryClient.refetchQueries({ queryKey: ["agents"], type: "active" }),
-      queryClient.refetchQueries({ queryKey: ["agent-teams"], type: "active" }),
-      queryClient.refetchQueries({ queryKey: ["agent-team-memberships"], type: "active" }),
-      queryClient.refetchQueries({ queryKey: ["agent-team-assignments"], type: "active" }),
-    ]);
-  }, [queryClient]);
+  const invalidateAgentData = () => invalidateAgentRegistryData(queryClient);
 
   const createAgentMutation = useMutation({
     mutationFn: createAgentDefinition,
