@@ -62,6 +62,7 @@ pub mod webhook_mobile_api;
 pub mod webhook_mobile_chat;
 pub mod webhook_mobile_model;
 pub mod webhook_mobile_planner_chat;
+pub mod webhook_mobile_planner_chat_support;
 pub mod webhook_mobile_planner_tools;
 pub mod webhook_model_telemetry;
 pub mod webhook_remote_app;
