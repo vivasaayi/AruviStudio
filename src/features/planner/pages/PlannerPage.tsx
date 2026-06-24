@@ -28,6 +28,7 @@ import {
   updatePlannerSession,
 } from "../../../lib/tauri";
 import { blobToBase64, speakInBrowser, startWavCapture, type ActiveAudioCapture } from "../../shared/voice";
+import { PlannerRepositoryModal } from "../components/PlannerRepositoryModal";
 import { styles } from "../lib/plannerPageStyles";
 import {
   DEFAULT_ASSISTANT_OPENING,
@@ -2323,73 +2324,22 @@ export function PlannerPage() {
       </div>
 
       {showRepoModal ? (
-        <div style={styles.modalOverlay} onClick={() => setShowRepoModal(false)}>
-          <div style={styles.modalCard} onClick={(event) => event.stopPropagation()}>
-            <div style={styles.modalHeader}>
-              <div>
-                <div style={styles.modalTitle}>Reverse Engineer Repository</div>
-                <div style={styles.helper}>
-                  Point the planner at an existing repository and let the model infer a staged product area, capability, feature, story, and task tree from the codebase.
-                </div>
-              </div>
-              <button style={styles.btnGhost} onClick={() => setShowRepoModal(false)}>
-                Close
-              </button>
-            </div>
-            <label style={styles.label}>Registered Repository</label>
-            <select
-              style={styles.select}
-              value={selectedRepositoryId}
-              onChange={(event) => setSelectedRepositoryId(event.target.value)}
-            >
-              <option value="">Select a repository</option>
-              {repositories.map((repository) => (
-                <option key={repository.id} value={repository.id}>
-                  {repository.name}
-                </option>
-              ))}
-            </select>
-            <div style={{ height: 10 }} />
-            <label style={styles.label}>Add Existing Repo Path</label>
-            <input
-              style={styles.input}
-              value={repositoryPathDraft}
-              onChange={(event) => setRepositoryPathDraft(event.target.value)}
-              placeholder="/absolute/path/to/repository"
-            />
-            <div style={styles.inlineButtonRow}>
-              <button style={styles.btnGhost} onClick={() => void browseRepositoryPathForPlanner()}>
-                Browse Path
-              </button>
-              <button
-                style={styles.btnGhost}
-                onClick={() => void registerRepositoryForPlanner()}
-                disabled={!repositoryPathDraft.trim()}
-              >
-                Register Repo
-              </button>
-              <button
-                style={styles.btn}
-                onClick={() => void analyzeSelectedRepository()}
-                disabled={!selectedRepositoryId || !selectedProductId || isPlannerBusy || !providerId || !modelName}
-              >
-                Analyze Repo Into Design
-              </button>
-            </div>
-            {!selectedProductId ? (
-              <div style={{ ...styles.helper, marginTop: 10 }}>
-                Select a product in the Planner toolbar before analyzing a repository.
-              </div>
-            ) : null}
-            {!providerId || !modelName ? (
-              <div style={{ ...styles.helper, marginTop: 10 }}>
-                Configure a planner model first. Repository reverse engineering depends on the selected LLM.
-              </div>
-            ) : null}
-            {repoAnalysisMessage ? <div style={{ ...styles.success, marginTop: 10 }}>{repoAnalysisMessage}</div> : null}
-            {repoAnalysisError ? <div style={{ ...styles.error, marginTop: 10 }}>{repoAnalysisError}</div> : null}
-          </div>
-        </div>
+        <PlannerRepositoryModal
+          repositories={repositories}
+          selectedRepositoryId={selectedRepositoryId}
+          repositoryPathDraft={repositoryPathDraft}
+          isProductSelected={!!selectedProductId}
+          isPlannerBusy={isPlannerBusy}
+          hasPlannerModel={!!providerId && !!modelName}
+          repoAnalysisMessage={repoAnalysisMessage}
+          repoAnalysisError={repoAnalysisError}
+          onClose={() => setShowRepoModal(false)}
+          onSelectedRepositoryIdChange={setSelectedRepositoryId}
+          onRepositoryPathDraftChange={setRepositoryPathDraft}
+          onBrowseRepositoryPath={() => void browseRepositoryPathForPlanner()}
+          onRegisterRepository={() => void registerRepositoryForPlanner()}
+          onAnalyzeRepository={() => void analyzeSelectedRepository()}
+        />
       ) : null}
     </div>
   );
