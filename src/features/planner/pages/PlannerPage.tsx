@@ -65,10 +65,15 @@ import {
   formatDraftChildTypeLabel,
   getAllowedDraftChildTypes,
   getPlannerNodeType,
+  getPlannerVoiceViewCommand,
   getReportTreeProductName,
+  isCollapseDraftVoiceCommand,
+  isDraftWideVoiceTarget,
+  isExpandDraftVoiceCommand,
   isInformationalOnly,
   makeId,
   normalize,
+  parseVoiceNodeReference,
   resolveVoiceNodeReference,
   slugifyPacketName,
   type DraftEditOperation,
@@ -1288,29 +1293,6 @@ export function PlannerPage() {
     }
   }
 
-  function parseVoiceNodeReference(
-    spokenRemainder: string,
-  ): { explicitType?: string; reference: string } {
-    const trimmed = spokenRemainder.trim();
-    const prefixes: Array<{ prefix: string; type: string }> = [
-      { prefix: "work item ", type: "work item" },
-      { prefix: "work-item ", type: "work item" },
-      { prefix: "capability ", type: "capability" },
-      { prefix: "product area ", type: "product area" },
-      { prefix: "product ", type: "product" },
-      { prefix: "node ", type: "node" },
-    ];
-    for (const option of prefixes) {
-      if (trimmed === option.prefix.trim()) {
-        return { explicitType: option.type, reference: `selected ${option.type}` };
-      }
-      if (trimmed.startsWith(option.prefix)) {
-        return { explicitType: option.type, reference: trimmed.slice(option.prefix.length).trim() };
-      }
-    }
-    return { reference: trimmed };
-  }
-
   async function handleVoiceTranscript(transcript: string) {
     const spoken = transcript.trim();
     if (!spoken) {
@@ -1318,20 +1300,9 @@ export function PlannerPage() {
     }
     const normalizedTranscript = normalize(spoken);
 
-    if ([
-      "view draft",
-      "open draft",
-      "show draft",
-      "show draft tree",
-      "view draft tree",
-      "view design",
-      "open design",
-      "show design",
-      "show design tree",
-      "view design tree",
-      "open workspace",
-      "show workspace",
-    ].includes(normalizedTranscript)) {
+    const viewCommand = getPlannerVoiceViewCommand(normalizedTranscript);
+
+    if (viewCommand === "draft") {
       if (draftTreeNodes.length === 0) {
         appendVoiceCommandFeedback(spoken, "There is no staged design tree yet.");
       } else {
@@ -1341,7 +1312,7 @@ export function PlannerPage() {
       return true;
     }
 
-    if (["view trace", "show trace", "open trace"].includes(normalizedTranscript)) {
+    if (viewCommand === "trace") {
       if (latestTraceEvents.length === 0) {
         appendVoiceCommandFeedback(spoken, "There is no planner trace available yet.");
       } else {
@@ -1351,7 +1322,7 @@ export function PlannerPage() {
       return true;
     }
 
-    if (["view conversation", "open conversation", "show conversation", "back to chat", "view chat"].includes(normalizedTranscript)) {
+    if (viewCommand === "conversation") {
       setPlannerView("conversation");
       appendVoiceCommandFeedback(spoken, "Switched back to the planner conversation.");
       return true;
@@ -1362,14 +1333,14 @@ export function PlannerPage() {
       return true;
     }
 
-    if (["expand draft", "expand the draft", "expand tree", "expand all", "open all branches"].includes(normalizedTranscript)) {
+    if (isExpandDraftVoiceCommand(normalizedTranscript)) {
       setPlannerView("draft");
       expandAllDraftNodes();
       appendVoiceCommandFeedback(spoken, "Expanded the staged design tree.");
       return true;
     }
 
-    if (["collapse draft", "collapse the draft", "collapse tree", "collapse all"].includes(normalizedTranscript)) {
+    if (isCollapseDraftVoiceCommand(normalizedTranscript)) {
       collapseAllDraftNodes();
       appendVoiceCommandFeedback(spoken, "Collapsed the staged design tree.");
       return true;
@@ -1378,7 +1349,7 @@ export function PlannerPage() {
     const collapseMatch = normalizedTranscript.match(/^(collapse|close)\s+(.+)$/);
     if (normalizedTranscript.startsWith("expand ") || normalizedTranscript.startsWith("open ")) {
       const targetText = spoken.replace(/^(expand|open)\s+/i, "").trim();
-      if (["draft", "tree", "all"].includes(normalize(targetText))) {
+      if (isDraftWideVoiceTarget(targetText)) {
         setPlannerView("draft");
         expandAllDraftNodes();
         appendVoiceCommandFeedback(spoken, "Expanded the staged design tree.");
@@ -1388,7 +1359,7 @@ export function PlannerPage() {
 
     if (collapseMatch) {
       const targetText = collapseMatch[2];
-      if (["draft", "tree", "all"].includes(normalize(targetText))) {
+      if (isDraftWideVoiceTarget(targetText)) {
         collapseAllDraftNodes();
         appendVoiceCommandFeedback(spoken, "Collapsed the staged design tree.");
         return true;
