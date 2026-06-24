@@ -1,5 +1,5 @@
 import type { ProductListPageController } from "../hooks/useProductListPageController";
-import { ProductManagementConsolePanel } from "./ProductManagementConsolePanel";
+import { ProductManagementConsoleHost } from "./ProductManagementConsoleHost";
 import { ProductManagementModalStack } from "./ProductManagementModalStack";
 import { ProductPageTabs } from "./ProductPageTabs";
 import { ProductWorkspacePanel } from "./ProductWorkspacePanel";
@@ -12,7 +12,6 @@ type ProductListPageBodyProps = {
 export function ProductListPageBody({ controller }: ProductListPageBodyProps) {
   const {
     activeProductAreaId,
-    allManagementFeatures,
     allProductTags,
     archiveMutation,
     capabilityDialogMode,
@@ -48,40 +47,21 @@ export function ProductListPageBody({ controller }: ProductListPageBodyProps) {
     dependencyTargetCapabilityOptions,
     editProductFromList,
     editableCapabilityNodeKindGroups,
-    featureStories,
     formError,
     includeDefaultProductsInCatalog,
     isLoading,
-    managementCapabilities,
-    managementFeatureWorkItemPage,
-    managementFeatures,
-    managementStoryPageIndex,
     openCapabilityDialog,
-    openCreateCapabilityForArea,
-    openCreateFeatureForCapability,
-    openCreateStoryDialog,
-    openCreateTaskDialog,
-    openEditCapabilityNode,
-    openEditProductArea,
-    openEditStoryDialog,
-    openEditTaskDialog,
-    openFeatureInBuilder,
     openProductDependencies,
     openProductDesign,
     openProductDialog,
-    openProductAreaDialog,
     openProductOverview,
     openProductStatus,
-    openStoryInBuilder,
     productAreaDialogMode,
     productAreaDraft,
     productAreaForm,
-    productAreaProductAreas,
     productDialogMode,
     productDraft,
     productForm,
-    productManagementRefreshLabel,
-    productManagementTab,
     productNameById,
     productPageTab,
     productSearch,
@@ -93,34 +73,24 @@ export function ProductListPageBody({ controller }: ProductListPageBodyProps) {
     products,
     renderCopyableEntityId,
     requestArchiveProduct,
-    requestDeleteHierarchyNode,
-    requestDeleteWorkItem,
-    requestResetProductPlan,
     resetPlanCandidate,
     resetPlanConfirmName,
     resetPlanConfirmTree,
     resetPlanDeleteDelivery,
     resetPlanReady,
     resetProductPlanMutation,
-    scopeSummaryIndex,
-    selectCapabilityForManagement,
-    selectProductArea,
     selectedCapability,
     selectedCapabilityAllowedKindGroups,
     selectedCapabilityOptions,
-    selectedManagementCapabilityTree,
     selectedManagementFeature,
     selectedManagementFeatureNode,
     selectedManagementStory,
-    selectedManagementTasks,
     selectedProduct,
     selectedProductArea,
-    selectedProductAreaTree,
     selectedProductDependencies,
     selectedProductId,
     setActiveHierarchyNode,
     setActiveProduct,
-    setActiveWorkItem,
     setCapabilityDraft,
     setCapabilityForm,
     setDeleteConfirmArchive,
@@ -133,12 +103,10 @@ export function ProductListPageBody({ controller }: ProductListPageBodyProps) {
     setDeleteWorkItemConfirmChecked,
     setDeleteWorkItemConfirmName,
     setDependencyDraft,
-    setManagementStoryPageIndex,
     setProductAreaDraft,
     setProductAreaForm,
     setProductDraft,
     setProductForm,
-    setProductManagementTab,
     setProductPageTab,
     setProductSearch,
     setProductSort,
@@ -149,7 +117,6 @@ export function ProductListPageBody({ controller }: ProductListPageBodyProps) {
     setResetPlanConfirmName,
     setResetPlanConfirmTree,
     setResetPlanDeleteDelivery,
-    setSelectedManagementStoryId,
     setShowCustomProductsInTable,
     setShowDefaultProductsInTable,
     setStatusDepth,
@@ -170,7 +137,6 @@ export function ProductListPageBody({ controller }: ProductListPageBodyProps) {
     storyDraft,
     taskDialogMode,
     taskDraft,
-    tree,
     updateCapabilityMutation,
     updateDefaultProductVisibility,
     updateManagementStoryMutation,
@@ -180,7 +146,6 @@ export function ProductListPageBody({ controller }: ProductListPageBodyProps) {
     activeProductPageRefreshLabel,
     activeProductPageRefreshDisabled,
     refreshActiveProductPageTab,
-    refreshProductManagementTabQueries,
   } = controller;
 
   return (
@@ -278,51 +243,7 @@ export function ProductListPageBody({ controller }: ProductListPageBodyProps) {
         capabilityLabelById={capabilityLabelById}
         isCreatingDependency={createProductDependencyMutation.isPending}
         onCreateDependency={() => createProductDependencyMutation.mutate()}
-        productManagementConsole={(
-          <ProductManagementConsolePanel
-            selectedProduct={selectedProduct}
-            productManagementTab={productManagementTab}
-            onProductManagementTabChange={setProductManagementTab}
-            refreshLabel={productManagementRefreshLabel}
-            onRefresh={refreshProductManagementTabQueries}
-            selectedProductId={selectedProductId}
-            renderCopyableEntityId={renderCopyableEntityId}
-            productAreaProductAreas={productAreaProductAreas}
-            onResetProductPlan={requestResetProductPlan}
-            onCreateProductArea={() => openProductAreaDialog("create")}
-            onSelectProductArea={selectProductArea}
-            onEditProductArea={openEditProductArea}
-            onDeleteHierarchyNode={requestDeleteHierarchyNode}
-            selectedProductAreaTree={selectedProductAreaTree}
-            managementCapabilities={managementCapabilities}
-            productTree={tree}
-            scopeSummaryIndex={scopeSummaryIndex}
-            onCreateCapability={openCreateCapabilityForArea}
-            onSelectCapabilityForManagement={selectCapabilityForManagement}
-            onEditCapabilityNode={openEditCapabilityNode}
-            selectedManagementCapabilityTree={selectedManagementCapabilityTree}
-            managementFeatures={managementFeatures}
-            onCreateFeature={openCreateFeatureForCapability}
-            allManagementFeatures={allManagementFeatures}
-            selectedManagementFeature={selectedManagementFeature}
-            setSelectedManagementStoryId={setSelectedManagementStoryId}
-            featureStories={featureStories}
-            selectedManagementStory={selectedManagementStory}
-            selectedManagementFeatureNode={selectedManagementFeatureNode}
-            managementStoryPageIndex={managementStoryPageIndex}
-            hasNextStoryPage={managementFeatureWorkItemPage?.has_more ?? false}
-            setManagementStoryPageIndex={setManagementStoryPageIndex}
-            onCreateStory={openCreateStoryDialog}
-            onOpenFeatureInBuilder={openFeatureInBuilder}
-            setActiveWorkItem={setActiveWorkItem}
-            onOpenStoryInBuilder={openStoryInBuilder}
-            onEditStory={openEditStoryDialog}
-            onCreateTask={openCreateTaskDialog}
-            onEditTask={openEditTaskDialog}
-            onRequestDeleteWorkItem={requestDeleteWorkItem}
-            selectedManagementTasks={selectedManagementTasks}
-          />
-        )}
+        productManagementConsole={<ProductManagementConsoleHost controller={controller} />}
       />
 
       <ProductManagementModalStack
