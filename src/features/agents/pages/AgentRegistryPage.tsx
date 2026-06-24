@@ -56,13 +56,17 @@ import {
   blankAgentDraft,
   blankSkillDraft,
   blankTeamDraft,
+  buildCapabilityOptions,
+  buildTeamMembershipsByTeam,
   countAssignmentsByType,
-  formatCapabilityOptionName,
+  filterUnassignedAgents,
   formatUiError,
   parseAgentDraft,
   parsePolicyDraft,
   parseSkillDraft,
   parseTeamDraft,
+  selectEntityById,
+  selectPolicyByStage,
   workflowStageOptions,
   type AgentDraft,
   type AgentTab,
@@ -161,10 +165,10 @@ export function AgentRegistryPage() {
     }
   }, [activeProductId, assignmentProductId]);
 
-  const selectedAgent = agents.find((agent) => agent.id === selectedAgentId) ?? null;
-  const selectedTeam = teams.find((team) => team.id === selectedTeamId) ?? null;
-  const selectedSkill = skills.find((skill) => skill.id === selectedSkillId) ?? null;
-  const selectedPolicy = routingPolicies.find((policy) => policy.stage_name === selectedPolicyStage) ?? null;
+  const selectedAgent = selectEntityById(agents, selectedAgentId);
+  const selectedTeam = selectEntityById(teams, selectedTeamId);
+  const selectedSkill = selectEntityById(skills, selectedSkillId);
+  const selectedPolicy = selectPolicyByStage(routingPolicies, selectedPolicyStage);
 
   React.useEffect(() => {
     if (selectedAgent) {
@@ -220,7 +224,7 @@ export function AgentRegistryPage() {
 
   const currentProductAreaOptions = assignmentProductAreas;
   const currentCapabilityOptions = React.useMemo(
-    () => assignmentCapabilities.map((capability) => ({ id: capability.id, name: formatCapabilityOptionName(capability) })),
+    () => buildCapabilityOptions(assignmentCapabilities),
     [assignmentCapabilities],
   );
 
@@ -234,18 +238,14 @@ export function AgentRegistryPage() {
   const selectedTeamMemberships = memberships.filter((membership) => membership.team_id === selectedTeamId);
   const selectedTeamAssignments = assignments.filter((assignment) => assignment.team_id === selectedTeamId);
   const assignmentCounts = countAssignmentsByType(assignments);
-  const teamMembershipsByTeam = React.useMemo(() => {
-    const next = new Map<string, typeof memberships>();
-    memberships.forEach((membership) => {
-      const current = next.get(membership.team_id) ?? [];
-      next.set(membership.team_id, [...current, membership]);
-    });
-    return next;
-  }, [memberships]);
-  const unassignedAgents = React.useMemo(() => {
-    const assignedAgentIds = new Set(memberships.map((membership) => membership.agent_id));
-    return agents.filter((agent) => !assignedAgentIds.has(agent.id));
-  }, [agents, memberships]);
+  const teamMembershipsByTeam = React.useMemo(
+    () => buildTeamMembershipsByTeam(memberships),
+    [memberships],
+  );
+  const unassignedAgents = React.useMemo(
+    () => filterUnassignedAgents(agents, memberships),
+    [agents, memberships],
+  );
 
   const invalidateAgentData = React.useCallback(async () => {
     await Promise.all([

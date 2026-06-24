@@ -1,6 +1,7 @@
 import type {
   AgentDefinition,
   AgentTeam,
+  AgentTeamMembership,
   Capability,
   Product,
   Skill,
@@ -142,6 +143,32 @@ export function countAssignmentsByType(assignments: TeamAssignment[]) {
 
 export function formatCapabilityOptionName(capability: Capability) {
   return `${"  ".repeat(Math.max(0, capability.level))}${capability.name}`;
+}
+
+export function selectEntityById<T extends { id: string }>(items: T[], selectedId: string | null): T | null {
+  return items.find((item) => item.id === selectedId) ?? null;
+}
+
+export function selectPolicyByStage(policies: WorkflowStagePolicy[], selectedStage: string): WorkflowStagePolicy | null {
+  return policies.find((policy) => policy.stage_name === selectedStage) ?? null;
+}
+
+export function buildCapabilityOptions(capabilities: Capability[]): Array<{ id: string; name: string }> {
+  return capabilities.map((capability) => ({ id: capability.id, name: formatCapabilityOptionName(capability) }));
+}
+
+export function buildTeamMembershipsByTeam(memberships: AgentTeamMembership[]): Map<string, AgentTeamMembership[]> {
+  const next = new Map<string, AgentTeamMembership[]>();
+  memberships.forEach((membership) => {
+    const current = next.get(membership.team_id) ?? [];
+    next.set(membership.team_id, [...current, membership]);
+  });
+  return next;
+}
+
+export function filterUnassignedAgents(agents: AgentDefinition[], memberships: AgentTeamMembership[]): AgentDefinition[] {
+  const assignedAgentIds = new Set(memberships.map((membership) => membership.agent_id));
+  return agents.filter((agent) => !assignedAgentIds.has(agent.id));
 }
 
 export function resolveScopeLabel(
