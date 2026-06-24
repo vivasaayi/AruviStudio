@@ -9,3 +9,4 @@ export * from "./plannerReviewPacket";
 export * from "./plannerResponseMapping";
 export * from "./plannerVoiceCommands";
 export * from "./plannerMutationMessages";
+export * from "./plannerViewModel";

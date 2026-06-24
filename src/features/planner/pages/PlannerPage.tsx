@@ -47,9 +47,12 @@ import {
   SPEECH_PROVIDER_KEY,
   SPEECH_REVIEW_BEFORE_SEND_KEY,
   PlannerComposer,
+  PLANNER_COMPOSER_SCOPE_HINT,
+  buildPlannerComposerScopeChips,
   buildPlannerMutationMessages,
   buildDesignReviewPacketHtml,
   buildDraftValidation,
+  buildPlannerStatusSummary,
   buildProductAreaOnlyTree,
   buildSuggestedPrompts,
   buildWorkItemTreeNodes,
@@ -243,50 +246,18 @@ export function PlannerPage() {
     }
     return null;
   }, [messages]);
-  const plannerStatusSummary = useMemo(() => {
-    if (voiceActivity) {
-      return {
-        title: voiceActivity,
-        detail: pendingVoiceTranscript
-          ? reviewVoiceBeforeSend
-            ? "The transcript is ready for review before it becomes a planner turn."
-            : "The transcript is being sent to the planner."
-          : "Voice capture is in progress.",
-      };
-    }
-    if (pendingVoiceTranscript && reviewVoiceBeforeSend) {
-      return {
-        title: "Voice transcript ready",
-        detail: "Review or edit the transcript, then send it to the planner.",
-      };
-    }
-    if (draftTreeNodes.length > 0) {
-      return {
-        title: `Design active: ${draftValidation.counts.product} product, ${draftValidation.counts["product area"]} product area, ${draftValidation.counts.capability} capability/feature, ${draftValidation.counts["work item"]} story/task`,
-        detail: selectedDraftNode
-          ? `Selected node: ${selectedDraftNode.label}.`
-          : "Select a node and keep refining before apply.",
-      };
-    }
-    if (pendingPlan) {
-      return {
-        title: "Proposal waiting for confirmation",
-        detail: `${pendingPlan.plan.actions.length} proposed changes are ready for review.`,
-      };
-    }
-    if (latestAssistantMessage) {
-      return {
-        title: latestAssistantMessage.meta ?? "Planner ready",
-        detail: latestAssistantMessage.content.split("\n")[0] || "Describe the product area, capability, feature, story, or task you want.",
-      };
-    }
-    return {
-      title: "Planner ready",
-      detail: "Describe the product area, capability, feature, story, or task you want to stage.",
-    };
-  }, [
+  const plannerStatusSummary = useMemo(() => buildPlannerStatusSummary({
+    voiceActivity,
+    pendingVoiceTranscript,
+    reviewVoiceBeforeSend,
+    draftTreeNodeCount: draftTreeNodes.length,
+    draftValidation,
+    selectedDraftNode,
+    pendingPlan,
+    latestAssistantMessage,
+  }), [
     draftTreeNodes.length,
-    draftValidation.counts,
+    draftValidation,
     latestAssistantMessage,
     pendingPlan,
     pendingVoiceTranscript,
@@ -294,27 +265,13 @@ export function PlannerPage() {
     selectedDraftNode,
     voiceActivity,
   ]);
-  const composerScopeChips = useMemo(() => {
-    const chips: string[] = [];
-    if (selectedDraftNodeId) {
-      chips.push("design node selected");
-    }
-    if (selectedProductId) {
-      chips.push("product selected");
-    }
-    if (activeProductAreaId) {
-      chips.push("product area selected");
-    }
-    if (activeCapabilityId) {
-      chips.push("capability selected");
-    }
-    if (activeWorkItemId) {
-      chips.push("story/task selected");
-    }
-    return chips;
-  }, [activeCapabilityId, activeProductAreaId, selectedProductId, activeWorkItemId, selectedDraftNodeId]);
-  const composerScopeHint =
-    "If you omit names, the planner first tries the selected design node, then the selected workspace scope, then asks follow-up questions if it still cannot resolve the target cleanly.";
+  const composerScopeChips = useMemo(() => buildPlannerComposerScopeChips({
+    selectedDraftNodeId,
+    selectedProductId,
+    activeProductAreaId,
+    activeCapabilityId,
+    activeWorkItemId,
+  }), [activeCapabilityId, activeProductAreaId, selectedProductId, activeWorkItemId, selectedDraftNodeId]);
 
   const modelOptions = useMemo(
     () => models.filter((model) => model.provider_id === providerId && model.enabled),
@@ -1439,7 +1396,7 @@ export function PlannerPage() {
                     voiceActivity={voiceActivity}
                     composerRef={composerRef}
                     scopeChips={composerScopeChips}
-                    scopeHint={composerScopeHint}
+                    scopeHint={PLANNER_COMPOSER_SCOPE_HINT}
                     isProductSelected={Boolean(selectedProductId)}
                   />
                 </div>
@@ -1528,7 +1485,7 @@ export function PlannerPage() {
                 voiceActivity={voiceActivity}
                 composerRef={composerRef}
                 scopeChips={composerScopeChips}
-                scopeHint={composerScopeHint}
+                scopeHint={PLANNER_COMPOSER_SCOPE_HINT}
                 isProductSelected={Boolean(selectedProductId)}
               />
             ) : null}
