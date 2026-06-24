@@ -12,24 +12,18 @@ import {
   getWorkflowHistory,
   handleWorkflowUserAction,
   getSubWorkItems,
-  getWorkItem,
   getWorkItemApprovals,
   listWorkItemArtifacts,
   listWorkItemFindings,
-  listWorkItemsPage,
   listAgentDefinitions,
   listAgentModelCallsForWorkflow,
   listAgentRunsForWorkflow,
-  listCapabilities,
   invokeExternalCliForWorkItem,
   listExternalCliRunsForWorkItem,
   listAgentModelBindings,
   listAgentTeams,
   listModelDefinitions,
-  listProducts,
-  listProductAreas,
   listProviders,
-  listRepositories,
   listTeamAssignments,
   listTeamMemberships,
   listWorkflowStagePolicies,
@@ -61,6 +55,7 @@ import { WorkItemReviewWorkflowCard } from "../components/WorkItemReviewWorkflow
 import { WorkItemWorkspaceReadinessCard } from "../components/WorkItemWorkspaceReadinessCard";
 import { WorkItemWorkspaceAssignmentPanel } from "../components/WorkItemWorkspaceAssignmentPanel";
 import { useWorkItemReviewSignals } from "../hooks/useWorkItemReviewSignals";
+import { useWorkItemScopeData } from "../hooks/useWorkItemScopeData";
 import { styles } from "../lib/workItemListPageStyles";
 import {
   BACKLOG_OVERSCAN_ROWS,
@@ -81,8 +76,6 @@ import type {
   WorkItemPage,
   WorkflowRun,
   Product,
-  ProductArea,
-  Capability,
   Repository,
 } from "../../../lib/types";
 
@@ -148,13 +141,29 @@ export function WorkItemListPage() {
     constraints: "",
   });
 
-  const { data: products, isLoading: productsLoading } = useQuery({
-    queryKey: ["products"],
-    queryFn: () => listProducts(),
+  const {
+    products,
+    productsLoading,
+    selectedProductId,
+    workItemsScopeQueryKey,
+    workItemsQueryKey,
+    workItemPage,
+    isLoading,
+    productAreaById,
+    capabilityById,
+    repositories,
+    filteredWorkItems,
+    selectedWorkItemId,
+    selectedWorkItem,
+  } = useWorkItemScopeData({
+    activeProductId,
+    activeProductAreaId,
+    activeNodeId,
+    activeNodeType,
+    activeWorkItemId,
+    statusFilter,
+    workItemPageIndex,
   });
-  const selectedProductId = (products ?? []).some((product) => product.id === activeProductId)
-    ? activeProductId
-    : ((products ?? [])[0]?.id ?? null);
 
   useEffect(() => {
     if (productsLoading) {
@@ -190,77 +199,6 @@ export function WorkItemListPage() {
     return () => window.removeEventListener("resize", updateViewportHeight);
   }, [workItemWorkspaceTab, selectedProductId, activeNodeId, activeNodeType, statusFilter, workItemPageIndex]);
 
-  const workItemsScopeQueryKey = ["workItems", selectedProductId, activeNodeId, activeNodeType, statusFilter] as const;
-  const workItemsQueryKey = [...workItemsScopeQueryKey, workItemPageIndex] as const;
-  const { data: workItemPage, isLoading } = useQuery({
-    queryKey: workItemsQueryKey,
-    queryFn: () =>
-      listWorkItemsPage({
-        productId: selectedProductId ?? undefined,
-        sourceNodeId: activeNodeId ?? undefined,
-        sourceNodeType: activeNodeType ?? undefined,
-        status: statusFilter || undefined,
-        limit: WORK_ITEM_PAGE_SIZE,
-        offset: workItemPageIndex * WORK_ITEM_PAGE_SIZE,
-      }),
-    enabled: !!selectedProductId,
-  });
-  const workItems = workItemPage?.items ?? [];
-  const { data: activeProductAreas = [] } = useQuery<ProductArea[]>({
-    queryKey: ["workItemProductAreas", selectedProductId],
-    queryFn: () => listProductAreas(selectedProductId!),
-    enabled: !!selectedProductId,
-  });
-  const productAreaById = useMemo(
-    () => new Map(activeProductAreas.map((productArea) => [productArea.id, productArea])),
-    [activeProductAreas],
-  );
-  const productAreaIdsForCapabilityLookup = useMemo(() => {
-    const ids = new Set<string>();
-    if (activeProductAreaId && productAreaById.has(activeProductAreaId)) {
-      ids.add(activeProductAreaId);
-    }
-    workItems.forEach((workItem) => {
-      if (workItem.product_area_id && productAreaById.has(workItem.product_area_id)) {
-        ids.add(workItem.product_area_id);
-      }
-    });
-    return Array.from(ids).sort();
-  }, [activeProductAreaId, productAreaById, workItems]);
-  const productAreaCapabilityQueries = useQueries({
-    queries: productAreaIdsForCapabilityLookup.map((productAreaId) => ({
-      queryKey: ["workItemProductAreaCapabilities", productAreaId],
-      queryFn: () => listCapabilities(productAreaId),
-      enabled: !!selectedProductId,
-    })),
-  });
-  const activeCapabilities = useMemo<Capability[]>(
-    () => productAreaCapabilityQueries.flatMap((query) => query.data ?? []),
-    [productAreaCapabilityQueries],
-  );
-  const capabilityById = useMemo(
-    () => new Map(activeCapabilities.map((capability) => [capability.id, capability])),
-    [activeCapabilities],
-  );
-  const { data: repositories = [] } = useQuery({ queryKey: ["repositories"], queryFn: listRepositories });
-  const filteredWorkItems = useMemo(() => {
-    if (!selectedProductId) {
-      return [];
-    }
-    return workItems.filter((workItem) => workItem.product_id === selectedProductId);
-  }, [selectedProductId, workItems]);
-
-  const selectedWorkItemId = useMemo(() => {
-    const activeIdInScope = activeWorkItemId && filteredWorkItems.some((workItem) => workItem.id === activeWorkItemId)
-      ? activeWorkItemId
-      : null;
-    return activeIdInScope ?? filteredWorkItems[0]?.id ?? null;
-  }, [activeWorkItemId, filteredWorkItems]);
-  const { data: selectedWorkItem } = useQuery({
-    queryKey: ["workItem", selectedWorkItemId],
-    queryFn: () => getWorkItem(selectedWorkItemId!),
-    enabled: !!selectedWorkItemId,
-  });
   const { data: latestWorkflowRun } = useQuery({
     queryKey: ["latestWorkflowRun", selectedWorkItemId],
     queryFn: () => getLatestWorkflowRunForWorkItem(selectedWorkItemId!),
