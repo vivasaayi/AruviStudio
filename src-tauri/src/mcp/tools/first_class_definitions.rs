@@ -2,6 +2,7 @@ use super::definitions::ToolDefinition;
 
 mod agent_work;
 mod agent_work_catalog;
+mod agent_work_items;
 mod catalog;
 mod repositories;
 mod work_items;
