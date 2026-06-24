@@ -1,4 +1,4 @@
-import { useProductHierarchyMutations } from "./useProductHierarchyMutations";
+import { useProductListPageHierarchyMutations } from "./useProductListPageHierarchyMutations";
 import { useProductListPageData } from "./useProductListPageData";
 import { useProductListPageManagement } from "./useProductListPageManagement";
 import { useProductPageActions } from "./useProductPageActions";
@@ -126,44 +126,19 @@ export function useProductListPageController() {
     reorderProductAreasMutation,
     reorderCapabilitiesMutation,
     invalidateTasks,
-  } = useProductHierarchyMutations({
-    queryClient,
-    selectedProductId,
+  } = useProductListPageHierarchyMutations({
     activeProductAreaId,
     activeCapabilityId,
-    selectedProductArea,
-    selectedCapability,
-    productForm,
-    setProductForm,
-    productDraft,
-    productAreaForm,
-    setProductAreaForm,
-    productAreaDraft,
-    capabilityForm,
-    setCapabilityForm,
-    capabilityDraft,
-    dependencyDraft,
-    setDependencyDraft,
-    statusProductId,
-    setStatusProductId,
     closeProductDialog,
     closeProductAreaDialog,
     closeCapabilityDialog,
+    data: pageData,
+    queryClient,
+    state: pageState,
     setProductWorkspaceTab,
     setActiveProduct,
     setActiveProductArea,
     setActiveCapability,
-    setDeleteProductCandidate,
-    setDeleteConfirmName,
-    setDeleteConfirmArchive,
-    setResetPlanCandidate,
-    setResetPlanConfirmName,
-    setResetPlanConfirmTree,
-    setResetPlanDeleteDelivery,
-    setDeleteHierarchyCandidate,
-    setDeleteHierarchyConfirmName,
-    setDeleteHierarchyConfirmChecked,
-    setFormError,
   });
 
   const {
