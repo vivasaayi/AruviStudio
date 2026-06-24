@@ -1,7 +1,6 @@
 import { useProductHierarchyMutations } from "./useProductHierarchyMutations";
 import { useProductListPageData } from "./useProductListPageData";
-import { useProductManagementSelection } from "./useProductManagementSelection";
-import { useProductManagementWorkItemMutations } from "./useProductManagementWorkItemMutations";
+import { useProductListPageManagement } from "./useProductListPageManagement";
 import { useProductPageActions } from "./useProductPageActions";
 import { useProductListPageState } from "./useProductListPageState";
 import { useProductPageRefreshActions } from "./useProductPageRefreshActions";
@@ -22,6 +21,13 @@ export function useProductListPageController() {
     setActiveHierarchyNode,
     setActiveWorkItem,
   } = workspace;
+  const pageData = useProductListPageData({
+    activeProductId,
+    activeProductAreaId,
+    activeCapabilityId,
+    queryClient,
+    state: pageState,
+  });
   const {
     productDialogMode,
     productAreaDialogMode,
@@ -104,13 +110,7 @@ export function useProductListPageController() {
     statusSummary,
     tree,
     updateDefaultProductVisibility,
-  } = useProductListPageData({
-    activeProductId,
-    activeProductAreaId,
-    activeCapabilityId,
-    queryClient,
-    state: pageState,
-  });
+  } = pageData;
 
   const {
     createProductMutation,
@@ -188,52 +188,18 @@ export function useProductListPageController() {
     selectedManagementStory,
     selectedManagementStoryIdForTasks,
     selectedManagementTasks,
-  } = useProductManagementSelection({
-    tree,
-    productTreeById,
-    productDependencies,
-    products,
-    selectedProductId,
-    selectedProductArea,
-    selectedCapability,
-    selectedCapabilityParentKind,
-    dependencyDependsOnProductId: dependencyDraft.dependsOnProductId,
-    productAreaOrderIds,
-    capabilityOrderMap,
-    activeProductAreaId,
-    activeCapabilityId,
-    activeWorkItemId,
-    selectedManagementStoryId,
-    managementStoryPageIndex,
-    productPageTab,
-    productManagementTab,
-  });
-  const {
     createManagementStoryMutation,
     updateManagementStoryMutation,
     createManagementTaskMutation,
     updateManagementTaskMutation,
     deleteManagementWorkItemMutation,
-  } = useProductManagementWorkItemMutations({
-    selectedProductId,
-    selectedManagementFeatureNode,
-    selectedManagementStory,
-    setSelectedManagementStoryId,
+  } = useProductListPageManagement({
+    activeProductAreaId,
+    activeCapabilityId,
+    activeWorkItemId,
+    data: pageData,
+    state: pageState,
     setActiveWorkItem,
-    storyDraft,
-    setStoryDraft,
-    taskDraft,
-    setTaskDraft,
-    editingStory,
-    setEditingStory,
-    editingTask,
-    setEditingTask,
-    setStoryDialogMode,
-    setTaskDialogMode,
-    setDeleteWorkItemCandidate,
-    setDeleteWorkItemConfirmName,
-    setDeleteWorkItemConfirmChecked,
-    setFormError,
     invalidateTasks,
   });
   useProductPageSync({
