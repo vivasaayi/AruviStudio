@@ -3,6 +3,9 @@ use crate::domain::bulk_import::{
     BulkImportWorkItemRow,
 };
 use crate::error::AppError;
+use crate::services::bulk_import_context::{
+    CapabilityScope, ImportBuildContext, ProductAreaScope, WorkItemScope,
+};
 use crate::services::bulk_import_csv::{
     csv_error, csv_field, csv_list_field, normalize_record_type, parse_csv_records, CsvRecord,
 };
@@ -15,46 +18,11 @@ use crate::services::bulk_import_normalization::{
     work_item_sort_key, COMPLEXITIES, PRIORITIES, PRODUCT_HEALTHS, PRODUCT_INVESTMENT_STATUSES,
     PRODUCT_LIFECYCLES, RISKS, WORK_ITEM_STATUSES,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 pub(super) struct PreparedImport {
     pub(super) rows: BulkImportRows,
     pub(super) required_existing_product_ids: HashSet<String>,
-}
-
-#[derive(Debug, Clone)]
-struct ProductAreaScope {
-    product_id: String,
-    product_area_id: String,
-}
-
-#[derive(Debug, Clone)]
-struct CapabilityScope {
-    product_id: String,
-    product_area_id: String,
-    capability_id: String,
-}
-
-#[derive(Debug, Clone)]
-struct WorkItemScope {
-    product_id: String,
-    product_area_id: Option<String>,
-    capability_id: Option<String>,
-    source_node_id: Option<String>,
-    source_node_type: Option<String>,
-}
-
-#[derive(Default)]
-struct ImportBuildContext {
-    rows: BulkImportRows,
-    referenced_product_ids: HashSet<String>,
-    imported_product_ids: HashSet<String>,
-    product_areas: HashMap<String, ProductAreaScope>,
-    capabilities: HashMap<String, CapabilityScope>,
-    work_items: HashMap<String, WorkItemScope>,
-    product_area_sort: HashMap<String, i64>,
-    capability_sort: HashMap<String, i64>,
-    work_item_sort: HashMap<String, i64>,
 }
 
 pub(super) fn prepare_json_import(
