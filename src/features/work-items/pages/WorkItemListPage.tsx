@@ -13,7 +13,6 @@ import {
 import { WorkItemReviewSummaryCards } from "../components/WorkItemReviewSummaryCards";
 import { WorkItemReviewWorkflowCard } from "../components/WorkItemReviewWorkflowCard";
 import { WorkItemWorkspaceReadinessCard } from "../components/WorkItemWorkspaceReadinessCard";
-import { WorkItemWorkspaceAssignmentPanel } from "../components/WorkItemWorkspaceAssignmentPanel";
 import { useWorkItemActionMutations } from "../hooks/useWorkItemActionMutations";
 import { useWorkItemBacklogApprovalActions } from "../hooks/useWorkItemBacklogApprovalActions";
 import { useWorkItemBacklogView } from "../hooks/useWorkItemBacklogView";
@@ -23,14 +22,10 @@ import { useWorkItemPageSync } from "../hooks/useWorkItemPageSync";
 import { useWorkItemReviewSignals } from "../hooks/useWorkItemReviewSignals";
 import { useWorkItemScopeData } from "../hooks/useWorkItemScopeData";
 import { useWorkItemScopeDisplay } from "../hooks/useWorkItemScopeDisplay";
-import { useWorkItemWorkspaceEditor } from "../hooks/useWorkItemWorkspaceEditor";
-import { useWorkItemWorkspaceMutations } from "../hooks/useWorkItemWorkspaceMutations";
+import { useWorkItemWorkspaceAssignment } from "../hooks/useWorkItemWorkspaceAssignment";
 import { useWorkItemWorkspaceQueries } from "../hooks/useWorkItemWorkspaceQueries";
 import { styles } from "../lib/workItemListPageStyles";
 import type {
-  Approval,
-  Finding,
-  WorkItem,
   Repository,
 } from "../../../lib/types";
 
@@ -238,39 +233,21 @@ export function WorkItemListPage() {
   }, [repositories, selectedWorkItemSummary?.active_repo_id, selectedWorkItemSummary?.repo_override_id]);
   const resolvedRepository = resolvedRepositoryFromQuery ?? repositoryFromWorkItem ?? null;
   const {
-    isEditingWorkspace,
-    setIsEditingWorkspace,
-    workspaceRepositoryId,
-    workspaceBranchMode,
-    setWorkspaceBranchMode,
-    workspaceBranchName,
-    setWorkspaceBranchName,
-    branchPreview,
-    openWorkspaceEditor,
-    selectWorkspaceRepository,
-  } = useWorkItemWorkspaceEditor({
-    repositories,
-    selectedWorkItem: selectedWorkItemSummary,
-    resolvedRepository,
-  });
-  const {
-    createWorkspaceMutation,
-    assignWorkspaceMutation,
-    clearWorkspaceOverrideMutation,
-  } = useWorkItemWorkspaceMutations({
+    createWorkspace,
+    isCreateWorkspacePending,
+    workspaceAssignmentPanel,
+  } = useWorkItemWorkspaceAssignment({
     queryClient,
     activeProductId,
     activeProductAreaId,
     selectedWorkItemId,
     selectedWorkItem: selectedWorkItemSummary,
     repositories,
-    workspaceRepositoryId,
-    branchPreview,
+    resolvedRepository,
     workItemsScopeQueryKey,
     workItemsQueryKey,
     setActionError,
     setActionInfo,
-    setIsEditingWorkspace,
     setActiveView,
     invalidateTasks,
   });
@@ -375,31 +352,6 @@ export function WorkItemListPage() {
   const stageLabel = activeWorkflowStage ? activeWorkflowStage.replace(/_/g, " ") : null;
   const externalCliProviderInFlight = externalCliMutation.isPending ? externalCliMutation.variables : null;
 
-  const renderWorkspaceAssignmentPanel = () => (
-    <WorkItemWorkspaceAssignmentPanel
-      isEditing={isEditingWorkspace}
-      repositories={repositories}
-      workspaceRepositoryId={workspaceRepositoryId}
-      workspaceBranchMode={workspaceBranchMode}
-      workspaceBranchName={workspaceBranchName}
-      currentBranch={selectedWorkItemSummary?.branch_name || resolvedRepository?.default_branch || "not set"}
-      branchPreview={branchPreview}
-      hasWorkspaceOverride={!!selectedWorkItemSummary?.repo_override_id}
-      isAssignPending={assignWorkspaceMutation.isPending}
-      isClearPending={clearWorkspaceOverrideMutation.isPending}
-      onOpenEditor={() => {
-        setActionError(null);
-        openWorkspaceEditor();
-      }}
-      onClearOverride={() => clearWorkspaceOverrideMutation.mutate()}
-      onRepositoryIdChange={selectWorkspaceRepository}
-      onBranchModeChange={setWorkspaceBranchMode}
-      onBranchNameChange={setWorkspaceBranchName}
-      onSave={() => assignWorkspaceMutation.mutate()}
-      onCancel={() => setIsEditingWorkspace(false)}
-    />
-  );
-
   return (
     <div style={styles.page}>
       <div style={styles.header}>
@@ -498,9 +450,9 @@ export function WorkItemListPage() {
               }}
               actionError={actionError}
               actionInfo={actionInfo}
-              workspaceAssignmentPanel={renderWorkspaceAssignmentPanel()}
-              isCreateWorkspacePending={createWorkspaceMutation.isPending}
-              onCreateWorkspace={() => createWorkspaceMutation.mutate()}
+              workspaceAssignmentPanel={workspaceAssignmentPanel}
+              isCreateWorkspacePending={isCreateWorkspacePending}
+              onCreateWorkspace={createWorkspace}
               latestWorkflowRun={latestWorkflowRun}
             />
           )}
@@ -531,9 +483,9 @@ export function WorkItemListPage() {
               <WorkItemWorkspaceReadinessCard
                 resolvedRepository={resolvedRepository}
                 selectedWorkItem={selectedWorkItemSummary}
-                workspaceAssignmentPanel={renderWorkspaceAssignmentPanel()}
-                isCreateWorkspacePending={createWorkspaceMutation.isPending}
-                onCreateWorkspace={() => createWorkspaceMutation.mutate()}
+                workspaceAssignmentPanel={workspaceAssignmentPanel}
+                isCreateWorkspacePending={isCreateWorkspacePending}
+                onCreateWorkspace={createWorkspace}
               />
               <div style={styles.sectionTitle}>Review Signals</div>
               <WorkItemReviewWorkflowCard
