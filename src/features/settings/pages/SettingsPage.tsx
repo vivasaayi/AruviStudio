@@ -19,6 +19,10 @@ import {
 } from "../../../lib/tauri";
 import type { DatabaseHealth, McpBridgeStatus, MobileBridgeStatus, ModelDefinition, ModelProvider } from "../../../lib/types";
 import {
+  McpBridgeStatusCard,
+  MobileBridgeStatusCard,
+} from "../components/SettingsBridgeStatusCards";
+import {
   AUTO_APPROVE_PLAN_KEY,
   AUTO_APPROVE_TEST_REVIEW_KEY,
   AUTO_START_AFTER_APPROVAL_KEY,
@@ -459,45 +463,7 @@ export function SettingsPage() {
         <div style={{ ...styles.desc, marginTop: 8 }}>
           Aruvi hosts MCP on the same embedded HTTP bridge as the mobile companion, so the bind host and port below also control the MCP endpoint agents connect to.
         </div>
-        <div style={styles.healthCard}>
-          <div style={{ ...styles.label, marginBottom: 8 }}>Embedded MCP Status</div>
-          {mcpBridgeStatus ? (
-            <>
-              <div style={styles.healthGrid}>
-                <div>
-                  <div style={styles.healthLabel}>Bind Scope</div>
-                  <div style={styles.healthValue}>{mcpBridgeStatus.bind_scope}</div>
-                </div>
-                <div>
-                  <div style={styles.healthLabel}>Auth Mode</div>
-                  <div style={styles.healthValue}>{mcpBridgeStatus.auth_mode}</div>
-                </div>
-              </div>
-              <div style={{ ...styles.desc, marginBottom: 8 }}>
-                {mcpBridgeStatus.guidance}
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <div style={styles.healthLabel}>Local MCP Endpoint</div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
-                  <div style={{ ...styles.codeBox, flex: 1 }}>{mcpBridgeStatus.endpoint_url}</div>
-                  <button style={{ ...styles.btn, marginLeft: 0 }} onClick={() => copyText(mcpBridgeStatus.endpoint_url)}>Copy</button>
-                </div>
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <div style={styles.healthLabel}>LAN MCP Endpoint</div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
-                  <div style={{ ...styles.codeBox, flex: 1 }}>{mcpBridgeStatus.lan_endpoint_url ?? "Keep bind host on 127.0.0.1 for local-only agent access, or switch to 0.0.0.0 and restart for same-LAN clients."}</div>
-                  {mcpBridgeStatus.lan_endpoint_url && <button style={{ ...styles.btn, marginLeft: 0 }} onClick={() => copyText(mcpBridgeStatus.lan_endpoint_url!)}>Copy</button>}
-                </div>
-              </div>
-              <div style={styles.desc}>
-                Token configured: {mcpBridgeStatus.token_configured ? "yes" : "no"}. Requests allowed: {mcpBridgeStatus.requests_allowed ? "yes" : "no"}. Origin policy: {mcpBridgeStatus.origin_policy} {mcpBridgeStatus.env_overrides_settings ? "Environment variables currently override these settings. " : ""}{mcpBridgeStatus.bind_changes_require_restart ? "Restart AruviStudio after changing bind host or port." : ""}
-              </div>
-            </>
-          ) : (
-            <div style={styles.desc}>Loading MCP bridge status…</div>
-          )}
-        </div>
+        <McpBridgeStatusCard status={mcpBridgeStatus} onCopy={(value) => void copyText(value)} />
       </div>
       <div style={styles.section}>
         <div style={styles.sectionTitle}>Mobile Companion</div>
@@ -516,45 +482,7 @@ export function SettingsPage() {
         <div style={{ ...styles.desc, marginTop: 8 }}>
           The phone client uses the same planner and speech APIs as the desktop UI. To reach the desktop from an iPhone, expose the webhook server on a reachable host and connect with this token.
         </div>
-        <div style={styles.healthCard}>
-          <div style={{ ...styles.label, marginBottom: 8 }}>LAN Ready Status</div>
-          {mobileBridgeStatus ? (
-            <>
-              <div style={styles.healthGrid}>
-                <div>
-                  <div style={styles.healthLabel}>Bind Scope</div>
-                  <div style={styles.healthValue}>{mobileBridgeStatus.bind_scope}</div>
-                </div>
-                <div>
-                  <div style={styles.healthLabel}>Detected Mac LAN IP</div>
-                  <div style={styles.healthValue}>{mobileBridgeStatus.detected_lan_ip ?? "Unavailable"}</div>
-                </div>
-              </div>
-              <div style={{ ...styles.desc, marginBottom: 8 }}>
-                {mobileBridgeStatus.guidance}
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <div style={styles.healthLabel}>Desktop Base URL</div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
-                  <div style={{ ...styles.codeBox, flex: 1 }}>{mobileBridgeStatus.desktop_base_url}</div>
-                  <button style={{ ...styles.btn, marginLeft: 0 }} onClick={() => copyText(mobileBridgeStatus.desktop_base_url)}>Copy</button>
-                </div>
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <div style={styles.healthLabel}>Phone Base URL</div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
-                  <div style={{ ...styles.codeBox, flex: 1 }}>{mobileBridgeStatus.phone_base_url ?? "Set bind host to 0.0.0.0 and restart to enable same-LAN access."}</div>
-                  {mobileBridgeStatus.phone_base_url && <button style={{ ...styles.btn, marginLeft: 0 }} onClick={() => copyText(mobileBridgeStatus.phone_base_url!)}>Copy</button>}
-                </div>
-              </div>
-              <div style={styles.desc}>
-                Bind host source: {mobileBridgeStatus.host_source}. Port source: {mobileBridgeStatus.port_source}. {mobileBridgeStatus.env_overrides_settings ? "Environment variables currently override these settings. " : ""}{mobileBridgeStatus.bind_changes_require_restart ? "Restart AruviStudio after changing bind host or port." : ""}
-              </div>
-            </>
-          ) : (
-            <div style={styles.desc}>Loading mobile bridge status…</div>
-          )}
-        </div>
+        <MobileBridgeStatusCard status={mobileBridgeStatus} onCopy={(value) => void copyText(value)} />
       </div>
       <div style={styles.section}>
         <div style={styles.sectionTitle}>Twilio</div>
