@@ -72,6 +72,16 @@ import { ProductCatalogTab } from "../components/ProductCatalogTab";
 import { ProductStatusTab } from "../components/ProductStatusTab";
 import { ScopedRefreshButton } from "../components/ScopedRefreshButton";
 import { ProductManagementModalShell as ModalShell } from "../components/ProductManagementModalShell";
+import {
+  DeleteHierarchyNodeModal,
+  DeleteManagementWorkItemModal,
+  ManagementWorkItemFormModal,
+} from "../components/ProductManagementDeliveryModals";
+import {
+  DeleteProductModal,
+  ProductFormModal,
+  ResetProductPlanModal,
+} from "../components/ProductManagementProductModals";
 import { styles } from "../lib/productListPageStyles";
 import {
   HIDE_EXAMPLE_PRODUCTS_KEY,
@@ -80,14 +90,8 @@ import {
   emptyProductForm,
   emptyWorkItemDraft,
   parseBooleanSetting,
-  productHealthOptions,
-  productInvestmentOptions,
-  productLifecycleOptions,
   productToForm,
   referenceKindOptions,
-  workItemComplexityOptions,
-  workItemPriorityOptions,
-  workItemStatusOptions,
   workItemToDraft,
   type ProductFormState,
   type WorkItemDraftState,
@@ -121,12 +125,10 @@ import {
   findCapabilityTree,
   flattenCapabilityTreeList,
   getCapabilityOrderKey,
-  getHierarchyDeleteLabel,
   getOrderedCapabilityTrees,
   orderItemsByIds,
   seedCapabilityOrderMap,
 } from "../lib/productHierarchyHelpers";
-import { formatWorkItemMeta } from "../lib/workItemDisplay";
 import type { CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ProductAreaTree, Product, ProductDependency, ProductDependencyKind, ProductReference, ProductTree, ProductTreeSummary, ProductWorkItemSummary, Repository, WorkItem, WorkItemScopeSummary } from "../../../lib/types";
 
 
@@ -2160,479 +2162,114 @@ export function ProductListPage() {
       </div>
 
       {productDialogMode !== "closed" && (
-        <ModalShell title={productDialogMode === "create" ? "Create Product" : "Edit Product"} onClose={closeProductDialog}>
-          <label style={styles.label}>Name</label>
-          <input
-            style={styles.input}
-            value={productDialogMode === "create" ? productForm.name : productDraft.name}
-            onChange={(e) => (productDialogMode === "create" ? setProductForm({ ...productForm, name: e.target.value }) : setProductDraft({ ...productDraft, name: e.target.value }))}
-          />
-          <label style={styles.label}>Description</label>
-          <textarea
-            style={styles.textarea}
-            value={productDialogMode === "create" ? productForm.description : productDraft.description}
-            onChange={(e) => (productDialogMode === "create" ? setProductForm({ ...productForm, description: e.target.value }) : setProductDraft({ ...productDraft, description: e.target.value }))}
-          />
-          <label style={styles.label}>Vision</label>
-          <textarea
-            style={styles.textarea}
-            value={productDialogMode === "create" ? productForm.vision : productDraft.vision}
-            onChange={(e) => (productDialogMode === "create" ? setProductForm({ ...productForm, vision: e.target.value }) : setProductDraft({ ...productDraft, vision: e.target.value }))}
-          />
-          <div style={styles.formRow}>
-            <div>
-              <label style={styles.label}>Goals (comma-separated)</label>
-              <input
-                style={styles.input}
-                value={productDialogMode === "create" ? productForm.goals : productDraft.goals}
-                onChange={(e) => (productDialogMode === "create" ? setProductForm({ ...productForm, goals: e.target.value }) : setProductDraft({ ...productDraft, goals: e.target.value }))}
-              />
-            </div>
-            <div>
-              <label style={styles.label}>Tags (comma-separated)</label>
-              <input
-                style={styles.input}
-                value={productDialogMode === "create" ? productForm.tags : productDraft.tags}
-                onChange={(e) => (productDialogMode === "create" ? setProductForm({ ...productForm, tags: e.target.value }) : setProductDraft({ ...productDraft, tags: e.target.value }))}
-              />
-            </div>
-          </div>
-          <div style={styles.formRow}>
-            <div>
-              <label style={styles.label}>Lifecycle</label>
-              <select
-                style={styles.select}
-                value={productDialogMode === "create" ? productForm.lifecycle : productDraft.lifecycle}
-                onChange={(e) => (productDialogMode === "create"
-                  ? setProductForm({ ...productForm, lifecycle: e.target.value as Product["lifecycle"] })
-                  : setProductDraft({ ...productDraft, lifecycle: e.target.value as Product["lifecycle"] }))}
-              >
-                {productLifecycleOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={styles.label}>Health</label>
-              <select
-                style={styles.select}
-                value={productDialogMode === "create" ? productForm.health : productDraft.health}
-                onChange={(e) => (productDialogMode === "create"
-                  ? setProductForm({ ...productForm, health: e.target.value as Product["health"] })
-                  : setProductDraft({ ...productDraft, health: e.target.value as Product["health"] }))}
-              >
-                {productHealthOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-              </select>
-            </div>
-          </div>
-          <div style={styles.formRow}>
-            <div>
-              <label style={styles.label}>Owner / Hat</label>
-              <input
-                style={styles.input}
-                value={productDialogMode === "create" ? productForm.ownerLabel : productDraft.ownerLabel}
-                onChange={(e) => (productDialogMode === "create" ? setProductForm({ ...productForm, ownerLabel: e.target.value }) : setProductDraft({ ...productDraft, ownerLabel: e.target.value }))}
-              />
-            </div>
-            <div>
-              <label style={styles.label}>Investment</label>
-              <select
-                style={styles.select}
-                value={productDialogMode === "create" ? productForm.investmentStatus : productDraft.investmentStatus}
-                onChange={(e) => (productDialogMode === "create"
-                  ? setProductForm({ ...productForm, investmentStatus: e.target.value as Product["investment_status"] })
-                  : setProductDraft({ ...productDraft, investmentStatus: e.target.value as Product["investment_status"] }))}
-              >
-                {productInvestmentOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-              </select>
-            </div>
-          </div>
-          <label style={styles.label}>Roadmap</label>
-          <textarea
-            style={styles.textarea}
-            value={productDialogMode === "create" ? productForm.roadmap : productDraft.roadmap}
-            onChange={(e) => (productDialogMode === "create" ? setProductForm({ ...productForm, roadmap: e.target.value }) : setProductDraft({ ...productDraft, roadmap: e.target.value }))}
-          />
-          <label style={styles.label}>Evidence</label>
-          <textarea
-            style={styles.textarea}
-            value={productDialogMode === "create" ? productForm.evidence : productDraft.evidence}
-            onChange={(e) => (productDialogMode === "create" ? setProductForm({ ...productForm, evidence: e.target.value }) : setProductDraft({ ...productDraft, evidence: e.target.value }))}
-          />
-          {formError && <div style={styles.errorText}>{formError}</div>}
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <button style={styles.ghostBtn} onClick={closeProductDialog}>Cancel</button>
-            <button
-              style={styles.btn}
-              onClick={() => (productDialogMode === "create" ? createProductMutation.mutate() : updateProductMutation.mutate())}
-              disabled={!(productDialogMode === "create" ? productForm.name : productDraft.name)}
-            >
-              {productDialogMode === "create"
-                ? createProductMutation.isPending ? "Creating..." : "Create Product"
-                : updateProductMutation.isPending ? "Saving..." : "Save Product"}
-            </button>
-          </div>
-        </ModalShell>
+        <ProductFormModal
+          mode={productDialogMode}
+          productForm={productForm}
+          productDraft={productDraft}
+          setProductForm={setProductForm}
+          setProductDraft={setProductDraft}
+          formError={formError}
+          isCreatePending={createProductMutation.isPending}
+          isUpdatePending={updateProductMutation.isPending}
+          onClose={closeProductDialog}
+          onSubmit={() => (productDialogMode === "create" ? createProductMutation.mutate() : updateProductMutation.mutate())}
+        />
       )}
 
       {deleteProductCandidate && (
-        <ModalShell title={`Delete Product: ${deleteProductCandidate.name}`} onClose={() => setDeleteProductCandidate(null)}>
-          <div style={styles.contextCard}>
-            <div style={styles.contextLabel}>Double Confirmation</div>
-            <div style={styles.contextTitle}>This will archive the product and remove it from active product workflows.</div>
-            <div style={styles.contextText}>
-              The current backend exposes archive as the supported product removal operation. Type the product name and confirm the archive action to continue.
-            </div>
-          </div>
-          <label style={styles.label}>Type product name</label>
-          <input
-            style={styles.input}
-            value={deleteConfirmName}
-            onChange={(event) => setDeleteConfirmName(event.target.value)}
-            placeholder={deleteProductCandidate.name}
-          />
-          <label style={styles.checkboxLabel}>
-            <input
-              type="checkbox"
-              checked={deleteConfirmArchive}
-              onChange={(event) => setDeleteConfirmArchive(event.target.checked)}
-            />
-            I understand this product will be archived.
-          </label>
-          {formError && <div style={{ ...styles.errorText, marginTop: 10 }}>{formError}</div>}
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
-            <button style={styles.ghostBtn} onClick={() => setDeleteProductCandidate(null)}>Cancel</button>
-            <button
-              style={styles.btnDanger}
-              onClick={() => archiveMutation.mutate(deleteProductCandidate.id)}
-              disabled={!deleteConfirmationReady || archiveMutation.isPending}
-            >
-              {archiveMutation.isPending ? "Archiving..." : "Delete Product"}
-            </button>
-          </div>
-        </ModalShell>
+        <DeleteProductModal
+          product={deleteProductCandidate}
+          confirmName={deleteConfirmName}
+          confirmArchive={deleteConfirmArchive}
+          isReady={deleteConfirmationReady}
+          isPending={archiveMutation.isPending}
+          formError={formError}
+          onClose={() => setDeleteProductCandidate(null)}
+          onConfirmNameChange={setDeleteConfirmName}
+          onConfirmArchiveChange={setDeleteConfirmArchive}
+          onArchive={(productId) => archiveMutation.mutate(productId)}
+        />
       )}
 
       {resetPlanCandidate && (
-        <ModalShell title={`Reset Product Plan: ${resetPlanCandidate.name}`} onClose={() => setResetPlanCandidate(null)}>
-          <div style={styles.contextCard}>
-            <div style={styles.contextLabel}>Double Confirm</div>
-            <div style={styles.contextTitle}>This removes the current product management tree.</div>
-            <div style={styles.contextText}>
-              Product areas, capabilities, and features will be deleted so this product can be replanned from a clean management tree.
-              Delivery stories and tasks are preserved unless you explicitly include them below.
-            </div>
-          </div>
-          <label style={styles.label}>Type the product name to confirm</label>
-          <input
-            style={styles.input}
-            value={resetPlanConfirmName}
-            onChange={(event) => setResetPlanConfirmName(event.target.value)}
-            placeholder={resetPlanCandidate.name}
-          />
-          <label style={styles.checkboxLabel}>
-            <input
-              type="checkbox"
-              checked={resetPlanConfirmTree}
-              onChange={(event) => setResetPlanConfirmTree(event.target.checked)}
-            />
-            I understand the product areas, capabilities, and features will be deleted.
-          </label>
-          <label style={styles.checkboxLabel}>
-            <input
-              type="checkbox"
-              checked={resetPlanDeleteDelivery}
-              onChange={(event) => setResetPlanDeleteDelivery(event.target.checked)}
-            />
-            Also delete existing delivery stories, tasks, and agent-work import ledger rows for this product.
-          </label>
-          {formError && <div style={styles.errorText}>{formError}</div>}
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <button style={styles.ghostBtn} onClick={() => setResetPlanCandidate(null)}>Cancel</button>
-            <button
-              style={styles.btnDanger}
-              onClick={() => resetProductPlanMutation.mutate({ productId: resetPlanCandidate.id, deleteDelivery: resetPlanDeleteDelivery })}
-              disabled={!resetPlanReady || resetProductPlanMutation.isPending}
-            >
-              {resetProductPlanMutation.isPending ? "Resetting..." : "Reset Plan"}
-            </button>
-          </div>
-        </ModalShell>
+        <ResetProductPlanModal
+          product={resetPlanCandidate}
+          confirmName={resetPlanConfirmName}
+          confirmTree={resetPlanConfirmTree}
+          deleteDelivery={resetPlanDeleteDelivery}
+          isReady={resetPlanReady}
+          isPending={resetProductPlanMutation.isPending}
+          formError={formError}
+          onClose={() => setResetPlanCandidate(null)}
+          onConfirmNameChange={setResetPlanConfirmName}
+          onConfirmTreeChange={setResetPlanConfirmTree}
+          onDeleteDeliveryChange={setResetPlanDeleteDelivery}
+          onReset={(data) => resetProductPlanMutation.mutate(data)}
+        />
       )}
 
       {deleteHierarchyCandidate && (
-        <ModalShell title={`Delete ${getHierarchyDeleteLabel(deleteHierarchyCandidate.kind)}: ${deleteHierarchyCandidate.name}`} onClose={() => setDeleteHierarchyCandidate(null)}>
-          <div style={styles.contextCard}>
-            <div style={styles.contextLabel}>Double Confirm</div>
-            <div style={styles.contextTitle}>This deletes the selected {getHierarchyDeleteLabel(deleteHierarchyCandidate.kind).toLowerCase()}.</div>
-            <div style={styles.contextText}>
-              Child hierarchy under this node will also be removed. Related delivery stories may be detached by the database if they reference this scope.
-            </div>
-          </div>
-          <label style={styles.label}>Type the name to confirm</label>
-          <input
-            style={styles.input}
-            value={deleteHierarchyConfirmName}
-            onChange={(event) => setDeleteHierarchyConfirmName(event.target.value)}
-            placeholder={deleteHierarchyCandidate.name}
-          />
-          <label style={styles.checkboxLabel}>
-            <input
-              type="checkbox"
-              checked={deleteHierarchyConfirmChecked}
-              onChange={(event) => setDeleteHierarchyConfirmChecked(event.target.checked)}
-            />
-            I understand this hierarchy node and its child hierarchy will be deleted.
-          </label>
-          {formError && <div style={styles.errorText}>{formError}</div>}
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <button style={styles.ghostBtn} onClick={() => setDeleteHierarchyCandidate(null)}>Cancel</button>
-            <button
-              style={styles.btnDanger}
-              onClick={() => deleteHierarchyMutation.mutate(deleteHierarchyCandidate)}
-              disabled={!deleteHierarchyReady || deleteHierarchyMutation.isPending}
-            >
-              {deleteHierarchyMutation.isPending ? "Deleting..." : `Delete ${getHierarchyDeleteLabel(deleteHierarchyCandidate.kind)}`}
-            </button>
-          </div>
-        </ModalShell>
+        <DeleteHierarchyNodeModal
+          candidate={deleteHierarchyCandidate}
+          confirmName={deleteHierarchyConfirmName}
+          confirmChecked={deleteHierarchyConfirmChecked}
+          isReady={deleteHierarchyReady}
+          isPending={deleteHierarchyMutation.isPending}
+          formError={formError}
+          onClose={() => setDeleteHierarchyCandidate(null)}
+          onConfirmNameChange={setDeleteHierarchyConfirmName}
+          onConfirmCheckedChange={setDeleteHierarchyConfirmChecked}
+          onDelete={(candidate) => deleteHierarchyMutation.mutate(candidate)}
+        />
       )}
 
       {deleteWorkItemCandidate && (
-        <ModalShell title={`Delete ${deleteWorkItemCandidate.kind}: ${deleteWorkItemCandidate.workItem.title}`} onClose={() => setDeleteWorkItemCandidate(null)}>
-          <div style={styles.contextCard}>
-            <div style={styles.contextLabel}>Double Confirm</div>
-            <div style={styles.contextTitle}>This deletes the selected {deleteWorkItemCandidate.kind}.</div>
-            <div style={styles.contextText}>
-              {deleteWorkItemCandidate.kind === "story"
-                ? "Tasks under this story will also be deleted."
-                : "This task will be removed from the selected story."}
-            </div>
-          </div>
-          <label style={styles.label} htmlFor="delete-work-item-confirm-title">Type the title to confirm</label>
-          <input
-            id="delete-work-item-confirm-title"
-            style={styles.input}
-            value={deleteWorkItemConfirmName}
-            onChange={(event) => setDeleteWorkItemConfirmName(event.target.value)}
-            placeholder={deleteWorkItemCandidate.workItem.title}
-          />
-          <label style={styles.checkboxLabel}>
-            <input
-              type="checkbox"
-              checked={deleteWorkItemConfirmChecked}
-              onChange={(event) => setDeleteWorkItemConfirmChecked(event.target.checked)}
-            />
-            I understand this story/task will be deleted.
-          </label>
-          {formError && <div style={styles.errorText}>{formError}</div>}
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <button style={styles.ghostBtn} onClick={() => setDeleteWorkItemCandidate(null)}>Cancel</button>
-            <button
-              style={styles.btnDanger}
-              onClick={() => deleteManagementWorkItemMutation.mutate(deleteWorkItemCandidate)}
-              disabled={!deleteManagementWorkItemReady || deleteManagementWorkItemMutation.isPending}
-            >
-              {deleteManagementWorkItemMutation.isPending ? "Deleting..." : `Delete ${deleteWorkItemCandidate.kind}`}
-            </button>
-          </div>
-        </ModalShell>
+        <DeleteManagementWorkItemModal
+          candidate={deleteWorkItemCandidate}
+          confirmName={deleteWorkItemConfirmName}
+          confirmChecked={deleteWorkItemConfirmChecked}
+          isReady={deleteManagementWorkItemReady}
+          isPending={deleteManagementWorkItemMutation.isPending}
+          formError={formError}
+          onClose={() => setDeleteWorkItemCandidate(null)}
+          onConfirmNameChange={setDeleteWorkItemConfirmName}
+          onConfirmCheckedChange={setDeleteWorkItemConfirmChecked}
+          onDelete={(candidate) => deleteManagementWorkItemMutation.mutate(candidate)}
+        />
       )}
 
       {storyDialogMode !== "closed" && (
-        <ModalShell title={storyDialogMode === "edit" ? "Edit Story" : "Add Story"} onClose={() => setStoryDialogMode("closed")}>
-          <div style={styles.contextCard}>
-            <div style={styles.contextLabel}>Feature</div>
-            <div style={styles.contextTitle}>{selectedManagementFeature?.capabilityTree.capability.name ?? "No feature selected"}</div>
-          </div>
-          <label style={styles.label} htmlFor="management-story-title">Story title</label>
-          <input
-            id="management-story-title"
-            style={styles.input}
-            value={storyDraft.title}
-            onChange={(event) => setStoryDraft((draft) => ({ ...draft, title: event.target.value }))}
-          />
-          <div style={styles.formRow}>
-            <div>
-              <label style={styles.label} htmlFor="management-story-status">Status</label>
-              <select
-                id="management-story-status"
-                style={styles.input}
-                value={storyDraft.status}
-                onChange={(event) => setStoryDraft((draft) => ({ ...draft, status: event.target.value as WorkItem["status"] }))}
-              >
-                {workItemStatusOptions.map((status) => <option key={status} value={status}>{formatWorkItemMeta(status)}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={styles.label} htmlFor="management-story-priority">Priority</label>
-              <select
-                id="management-story-priority"
-                style={styles.input}
-                value={storyDraft.priority}
-                onChange={(event) => setStoryDraft((draft) => ({ ...draft, priority: event.target.value as WorkItem["priority"] }))}
-                disabled={storyDialogMode === "edit"}
-              >
-                {workItemPriorityOptions.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
-              </select>
-            </div>
-          </div>
-          <label style={styles.label} htmlFor="management-story-problem">Problem Statement</label>
-          <textarea
-            id="management-story-problem"
-            style={styles.textarea}
-            value={storyDraft.problemStatement}
-            onChange={(event) => setStoryDraft((draft) => ({ ...draft, problemStatement: event.target.value }))}
-          />
-          <label style={styles.label} htmlFor="management-story-description">Description</label>
-          <textarea
-            id="management-story-description"
-            style={styles.textarea}
-            value={storyDraft.description}
-            onChange={(event) => setStoryDraft((draft) => ({ ...draft, description: event.target.value }))}
-          />
-          <label style={styles.label} htmlFor="management-story-acceptance-criteria">Acceptance Criteria</label>
-          <textarea
-            id="management-story-acceptance-criteria"
-            style={styles.textarea}
-            value={storyDraft.acceptanceCriteria}
-            onChange={(event) => setStoryDraft((draft) => ({ ...draft, acceptanceCriteria: event.target.value }))}
-          />
-          <div style={styles.formRow}>
-            <div>
-              <label style={styles.label} htmlFor="management-story-constraints">Constraints</label>
-              <textarea
-                id="management-story-constraints"
-                style={styles.textarea}
-                value={storyDraft.constraints}
-                onChange={(event) => setStoryDraft((draft) => ({ ...draft, constraints: event.target.value }))}
-              />
-            </div>
-            <div>
-              <label style={styles.label} htmlFor="management-story-complexity">Complexity</label>
-              <select
-                id="management-story-complexity"
-                style={styles.input}
-                value={storyDraft.complexity}
-                onChange={(event) => setStoryDraft((draft) => ({ ...draft, complexity: event.target.value as WorkItem["complexity"] }))}
-                disabled={storyDialogMode === "edit"}
-              >
-                {workItemComplexityOptions.map((complexity) => <option key={complexity} value={complexity}>{formatWorkItemMeta(complexity)}</option>)}
-              </select>
-              {storyDialogMode === "edit" && <div style={styles.contextText}>Priority and complexity are currently set when the story is created.</div>}
-            </div>
-          </div>
-          {formError && <div style={styles.errorText}>{formError}</div>}
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <button style={styles.ghostBtn} onClick={() => setStoryDialogMode("closed")}>Cancel</button>
-            <button
-              style={styles.btn}
-              onClick={() => storyDialogMode === "edit" ? updateManagementStoryMutation.mutate() : createManagementStoryMutation.mutate()}
-              disabled={!selectedManagementFeatureNode || !storyDraft.title.trim() || createManagementStoryMutation.isPending || updateManagementStoryMutation.isPending}
-            >
-              {createManagementStoryMutation.isPending || updateManagementStoryMutation.isPending
-                ? "Saving..."
-                : storyDialogMode === "edit" ? "Save Story" : "Add Story"}
-            </button>
-          </div>
-        </ModalShell>
+        <ManagementWorkItemFormModal
+          kind="story"
+          mode={storyDialogMode}
+          contextLabel="Feature"
+          contextTitle={selectedManagementFeature?.capabilityTree.capability.name ?? "No feature selected"}
+          draft={storyDraft}
+          setDraft={setStoryDraft}
+          canSubmit={!!selectedManagementFeatureNode}
+          isCreatePending={createManagementStoryMutation.isPending}
+          isUpdatePending={updateManagementStoryMutation.isPending}
+          formError={formError}
+          onClose={() => setStoryDialogMode("closed")}
+          onSubmit={() => storyDialogMode === "edit" ? updateManagementStoryMutation.mutate() : createManagementStoryMutation.mutate()}
+        />
       )}
 
       {taskDialogMode !== "closed" && (
-        <ModalShell title={taskDialogMode === "edit" ? "Edit Task" : "Add Task"} onClose={() => setTaskDialogMode("closed")}>
-          <div style={styles.contextCard}>
-            <div style={styles.contextLabel}>Story</div>
-            <div style={styles.contextTitle}>{selectedManagementStory?.title ?? "No story selected"}</div>
-          </div>
-          <label style={styles.label} htmlFor="management-task-title">Task title</label>
-          <input
-            id="management-task-title"
-            style={styles.input}
-            value={taskDraft.title}
-            onChange={(event) => setTaskDraft((draft) => ({ ...draft, title: event.target.value }))}
-          />
-          <div style={styles.formRow}>
-            <div>
-              <label style={styles.label} htmlFor="management-task-status">Status</label>
-              <select
-                id="management-task-status"
-                style={styles.input}
-                value={taskDraft.status}
-                onChange={(event) => setTaskDraft((draft) => ({ ...draft, status: event.target.value as WorkItem["status"] }))}
-              >
-                {workItemStatusOptions.map((status) => <option key={status} value={status}>{formatWorkItemMeta(status)}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={styles.label} htmlFor="management-task-priority">Priority</label>
-              <select
-                id="management-task-priority"
-                style={styles.input}
-                value={taskDraft.priority}
-                onChange={(event) => setTaskDraft((draft) => ({ ...draft, priority: event.target.value as WorkItem["priority"] }))}
-                disabled={taskDialogMode === "edit"}
-              >
-                {workItemPriorityOptions.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
-              </select>
-            </div>
-          </div>
-          <label style={styles.label} htmlFor="management-task-problem">Problem Statement</label>
-          <textarea
-            id="management-task-problem"
-            style={styles.textarea}
-            value={taskDraft.problemStatement}
-            onChange={(event) => setTaskDraft((draft) => ({ ...draft, problemStatement: event.target.value }))}
-          />
-          <label style={styles.label} htmlFor="management-task-description">Description</label>
-          <textarea
-            id="management-task-description"
-            style={styles.textarea}
-            value={taskDraft.description}
-            onChange={(event) => setTaskDraft((draft) => ({ ...draft, description: event.target.value }))}
-          />
-          <label style={styles.label} htmlFor="management-task-acceptance-criteria">Acceptance Criteria</label>
-          <textarea
-            id="management-task-acceptance-criteria"
-            style={styles.textarea}
-            value={taskDraft.acceptanceCriteria}
-            onChange={(event) => setTaskDraft((draft) => ({ ...draft, acceptanceCriteria: event.target.value }))}
-          />
-          <div style={styles.formRow}>
-            <div>
-              <label style={styles.label} htmlFor="management-task-constraints">Constraints</label>
-              <textarea
-                id="management-task-constraints"
-                style={styles.textarea}
-                value={taskDraft.constraints}
-                onChange={(event) => setTaskDraft((draft) => ({ ...draft, constraints: event.target.value }))}
-              />
-            </div>
-            <div>
-              <label style={styles.label} htmlFor="management-task-complexity">Complexity</label>
-              <select
-                id="management-task-complexity"
-                style={styles.input}
-                value={taskDraft.complexity}
-                onChange={(event) => setTaskDraft((draft) => ({ ...draft, complexity: event.target.value as WorkItem["complexity"] }))}
-                disabled={taskDialogMode === "edit"}
-              >
-                {workItemComplexityOptions.map((complexity) => <option key={complexity} value={complexity}>{formatWorkItemMeta(complexity)}</option>)}
-              </select>
-              {taskDialogMode === "edit" && <div style={styles.contextText}>Priority and complexity are currently set when the task is created.</div>}
-            </div>
-          </div>
-          {formError && <div style={styles.errorText}>{formError}</div>}
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <button style={styles.ghostBtn} onClick={() => setTaskDialogMode("closed")}>Cancel</button>
-            <button
-              style={styles.btn}
-              onClick={() => taskDialogMode === "edit" ? updateManagementTaskMutation.mutate() : createManagementTaskMutation.mutate()}
-              disabled={!selectedManagementStory || !taskDraft.title.trim() || createManagementTaskMutation.isPending || updateManagementTaskMutation.isPending}
-            >
-              {createManagementTaskMutation.isPending || updateManagementTaskMutation.isPending
-                ? "Saving..."
-                : taskDialogMode === "edit" ? "Save Task" : "Add Task"}
-            </button>
-          </div>
-        </ModalShell>
+        <ManagementWorkItemFormModal
+          kind="task"
+          mode={taskDialogMode}
+          contextLabel="Story"
+          contextTitle={selectedManagementStory?.title ?? "No story selected"}
+          draft={taskDraft}
+          setDraft={setTaskDraft}
+          canSubmit={!!selectedManagementStory}
+          isCreatePending={createManagementTaskMutation.isPending}
+          isUpdatePending={updateManagementTaskMutation.isPending}
+          formError={formError}
+          onClose={() => setTaskDialogMode("closed")}
+          onSubmit={() => taskDialogMode === "edit" ? updateManagementTaskMutation.mutate() : createManagementTaskMutation.mutate()}
+        />
       )}
 
       {productAreaDialogMode !== "closed" && (
