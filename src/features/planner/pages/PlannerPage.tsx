@@ -49,6 +49,7 @@ import {
   PlannerComposer,
   PLANNER_COMPOSER_SCOPE_HINT,
   buildPlannerComposerScopeChips,
+  buildPlannerModelPickerOptions,
   buildPlannerMutationMessages,
   buildDesignReviewPacketHtml,
   buildDraftValidation,
@@ -79,6 +80,7 @@ import {
   normalize,
   parseVoiceNodeReference,
   resolveVoiceNodeReference,
+  resolvePlannerSpeechModelSelection,
   slugifyPacketName,
   type DraftEditOperation,
   type DraftValidationSummary,
@@ -94,7 +96,6 @@ import {
 } from "../lib/plannerPageModel";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import type {
-  ModelDefinition,
   PlannerDraftChildType,
   PlannerTraceEvent,
   Product,
@@ -278,57 +279,16 @@ export function PlannerPage() {
     [models, providerId],
   );
   const plannerModelPickerOptions = useMemo(
-    () =>
-      models
-        .filter((model) => model.enabled)
-        .map((model) => {
-          const provider = providers.find((entry) => entry.id === model.provider_id);
-          return {
-            value: `${model.provider_id}::${model.name}`,
-            label: `${provider?.name ?? "Unknown Provider"} / ${model.name}`,
-          };
-        }),
+    () => buildPlannerModelPickerOptions(models, providers),
     [models, providers],
   );
   const plannerModelPickerValue = providerId && modelName ? `${providerId}::${modelName}` : "";
-  const speechModelSelection = useMemo(() => {
-    const looksLikeSpeechModel = (model: ModelDefinition) =>
-      model.capability_tags.some((tag) => ["speech_to_text", "transcription", "audio"].includes(tag))
-      || /whisper|transcrib/i.test(model.name);
-
-    if (speechProviderSetting || speechModelSetting) {
-      if (speechProviderSetting && speechModelSetting) {
-        return { providerId: speechProviderSetting, modelName: speechModelSetting, source: "settings" as const };
-      }
-      if (speechProviderSetting) {
-        const providerSpeechModel = models.find((model) => model.enabled && model.provider_id === speechProviderSetting && looksLikeSpeechModel(model));
-        return {
-          providerId: speechProviderSetting,
-          modelName: providerSpeechModel?.name ?? speechModelSetting ?? "whisper-1",
-          source: "settings" as const,
-        };
-      }
-      const namedSpeechModel = models.find((model) => model.enabled && model.name === speechModelSetting);
-      if (namedSpeechModel) {
-        return { providerId: namedSpeechModel.provider_id, modelName: namedSpeechModel.name, source: "settings" as const };
-      }
-    }
-
-    const sameProvider = models.find((model) => model.enabled && model.provider_id === providerId && looksLikeSpeechModel(model));
-    if (sameProvider) {
-      return { providerId: sameProvider.provider_id, modelName: sameProvider.name, source: "planner" as const };
-    }
-
-    const anySpeechModel = models.find((model) => model.enabled && looksLikeSpeechModel(model));
-    if (anySpeechModel) {
-      return { providerId: anySpeechModel.provider_id, modelName: anySpeechModel.name, source: "auto" as const };
-    }
-
-    if (providerId) {
-      return { providerId, modelName: "whisper-1", source: "fallback" as const };
-    }
-    return null;
-  }, [models, providerId, speechModelSetting, speechProviderSetting]);
+  const speechModelSelection = useMemo(() => resolvePlannerSpeechModelSelection({
+    models,
+    providerId,
+    speechProviderSetting,
+    speechModelSetting,
+  }), [models, providerId, speechModelSetting, speechProviderSetting]);
 
   const context = useMemo<ResolverContext>(() => ({
     products,
