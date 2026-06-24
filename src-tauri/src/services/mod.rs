@@ -52,6 +52,7 @@ pub mod planner_response;
 pub mod planner_service;
 pub mod planner_session;
 pub mod planner_text_turn;
+pub mod planner_text_turn_response;
 pub mod planner_tool_loop;
 pub mod planner_turn_policy;
 pub mod planner_types;

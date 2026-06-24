@@ -11,6 +11,10 @@ use crate::services::planner_session::{
     append_conversation, get_or_load_session, persist_draft_state, persist_pending_plan,
     PlannerConversationEntry, PlannerService,
 };
+use crate::services::planner_text_turn_response::{
+    clarification_response, planner_error_response, proposal_response, selection_required_response,
+    session_draft_tree_nodes,
+};
 use crate::services::planner_tool_loop::{run_tool_loop, PlannerToolLoopInput};
 use crate::services::planner_turn_policy::{
     has_draft_mutations, heuristic_plan, is_informational_only, requires_confirmation,
@@ -91,20 +95,13 @@ pub async fn submit_planner_turn(
                         "Draft commit failed",
                         error.to_string(),
                     );
-                    return Ok(PlannerTurnResponse {
+                    return Ok(planner_error_response(
                         session_id,
-                        status: "error".to_string(),
-                        assistant_message: error.to_string(),
-                        pending_plan: session.pending_plan.clone(),
-                        tree_nodes: None,
-                        draft_tree_nodes: session.draft_plan.as_ref().map(|draft| {
-                            build_draft_tree_nodes(draft, session.selected_draft_node_id.as_deref())
-                        }),
-                        selected_draft_node_id: session.selected_draft_node_id.clone(),
-                        execution_lines: vec![],
-                        execution_errors: vec![error.to_string()],
-                        trace_events: trace,
-                    });
+                        &session,
+                        error.to_string(),
+                        None,
+                        trace,
+                    ));
                 }
             };
             append_conversation(&state.db, &session_id, "user", &user_input).await?;
@@ -146,18 +143,7 @@ pub async fn submit_planner_turn(
     }
 
     if selected_product.is_none() && session.draft_plan.is_none() {
-        return Ok(PlannerTurnResponse {
-            session_id,
-            status: "clarification".to_string(),
-            assistant_message: "Select a product before planning. Create the product in Products first, then return to Planner.".to_string(),
-            pending_plan: session.pending_plan.clone(),
-            tree_nodes: None,
-            draft_tree_nodes: None,
-            selected_draft_node_id: session.selected_draft_node_id.clone(),
-            execution_lines: vec![],
-            execution_errors: vec![],
-            trace_events: trace,
-        });
+        return Ok(selection_required_response(session_id, &session, trace));
     }
 
     if let Some(product) = selected_product.as_ref() {
@@ -204,20 +190,13 @@ pub async fn submit_planner_turn(
                     "Planner tool loop failed",
                     error.to_string(),
                 );
-                return Ok(PlannerTurnResponse {
+                return Ok(planner_error_response(
                     session_id,
-                    status: "error".to_string(),
-                    assistant_message: error.to_string(),
-                    pending_plan: session.pending_plan.clone(),
-                    tree_nodes: None,
-                    draft_tree_nodes: session.draft_plan.as_ref().map(|draft| {
-                        build_draft_tree_nodes(draft, session.selected_draft_node_id.as_deref())
-                    }),
-                    selected_draft_node_id: session.selected_draft_node_id.clone(),
-                    execution_lines: vec![],
-                    execution_errors: vec![error.to_string()],
-                    trace_events: trace,
-                });
+                    &session,
+                    error.to_string(),
+                    None,
+                    trace,
+                ));
             }
         }
     } else {
@@ -257,9 +236,7 @@ pub async fn submit_planner_turn(
         None
     };
 
-    let draft_tree_nodes = session.draft_plan.as_ref().map(|draft_plan| {
-        build_draft_tree_nodes(draft_plan, session.selected_draft_node_id.as_deref())
-    });
+    let draft_tree_nodes = session_draft_tree_nodes(&session);
 
     append_conversation(&state.db, &session_id, "user", &user_input).await?;
     session.conversation.push(PlannerConversationEntry {
@@ -287,20 +264,13 @@ pub async fn submit_planner_turn(
                     "Draft mutation failed",
                     error.to_string(),
                 );
-                return Ok(PlannerTurnResponse {
+                return Ok(planner_error_response(
                     session_id,
-                    status: "error".to_string(),
-                    assistant_message: error.to_string(),
-                    pending_plan: session.pending_plan.clone(),
+                    &session,
+                    error.to_string(),
                     tree_nodes,
-                    draft_tree_nodes: session.draft_plan.as_ref().map(|draft| {
-                        build_draft_tree_nodes(draft, session.selected_draft_node_id.as_deref())
-                    }),
-                    selected_draft_node_id: session.selected_draft_node_id.clone(),
-                    execution_lines: vec![],
-                    execution_errors: vec![error.to_string()],
-                    trace_events: trace,
-                });
+                    trace,
+                ));
             }
         };
         let updated_draft_tree_nodes = Some(build_draft_tree_nodes(
@@ -330,18 +300,16 @@ pub async fn submit_planner_turn(
         });
         let mut service = planner_service.lock().await;
         service.save_session(&session_id, session.clone());
-        return Ok(PlannerTurnResponse {
+        return Ok(proposal_response(
             session_id,
-            status: "proposal".to_string(),
-            assistant_message: plan.assistant_response.clone(),
-            pending_plan: Some(plan),
+            plan.assistant_response.clone(),
+            plan,
             tree_nodes,
-            draft_tree_nodes: updated_draft_tree_nodes,
-            selected_draft_node_id: session.selected_draft_node_id.clone(),
-            execution_lines: vec!["Updated the design plan.".to_string()],
-            execution_errors: vec![],
-            trace_events: trace,
-        });
+            updated_draft_tree_nodes,
+            session.selected_draft_node_id.clone(),
+            vec!["Updated the design plan.".to_string()],
+            trace,
+        ));
     }
 
     if requires_confirmation(&plan) {
@@ -361,18 +329,16 @@ pub async fn submit_planner_turn(
         let selected_draft_node_id = session.selected_draft_node_id.clone();
         let mut service = planner_service.lock().await;
         service.save_session(&session_id, session);
-        return Ok(PlannerTurnResponse {
+        return Ok(proposal_response(
             session_id,
-            status: "proposal".to_string(),
-            assistant_message: plan.assistant_response.clone(),
-            pending_plan: Some(plan),
+            plan.assistant_response.clone(),
+            plan,
             tree_nodes,
             draft_tree_nodes,
             selected_draft_node_id,
-            execution_lines: vec![],
-            execution_errors: vec![],
-            trace_events: trace,
-        });
+            vec![],
+            trace,
+        ));
     }
 
     if plan.actions.is_empty() {
@@ -389,18 +355,15 @@ pub async fn submit_planner_turn(
         let selected_draft_node_id = session.selected_draft_node_id.clone();
         let mut service = planner_service.lock().await;
         service.save_session(&session_id, session);
-        return Ok(PlannerTurnResponse {
+        return Ok(clarification_response(
             session_id,
-            status: "clarification".to_string(),
             assistant_message,
             pending_plan,
             tree_nodes,
             draft_tree_nodes,
             selected_draft_node_id,
-            execution_lines: vec![],
-            execution_errors: vec![],
-            trace_events: trace,
-        });
+            trace,
+        ));
     }
 
     push_trace(
