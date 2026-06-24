@@ -45,6 +45,7 @@ import type {
   Skill,
 } from "../../../lib/types";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
+import { AgentRegistryHeader } from "../components/AgentRegistryHeader";
 import { AgentRoutingTab } from "../components/AgentRoutingTab";
 import { AgentSkillsTab } from "../components/AgentSkillsTab";
 import { styles } from "../lib/agentRegistryPageStyles";
@@ -1593,46 +1594,14 @@ export function AgentRegistryPage() {
 
   return (
     <div style={styles.page}>
-      <div style={styles.headerRow}>
-        <div style={styles.titleWrap}>
-          <h1 style={styles.title}>Agent Management</h1>
-          <div style={styles.subtitle}>
-            Model the company explicitly: hire agents into specialist roles, organize them into teams, assign ownership by scope, and manage reusable skills as a real catalog.
-          </div>
-        </div>
-      </div>
-
-      <div style={styles.summaryRow}>
-        <div style={styles.statCard}>
-          <div style={styles.statLabel}>Agents</div>
-          <div style={styles.statValue}>{agents.length}</div>
-        </div>
-        <div style={styles.statCard}>
-          <div style={styles.statLabel}>Teams</div>
-          <div style={styles.statValue}>{teams.length}</div>
-        </div>
-        <div style={styles.statCard}>
-          <div style={styles.statLabel}>Assignments</div>
-          <div style={styles.statValue}>{assignments.length}</div>
-        </div>
-        <div style={styles.statCard}>
-          <div style={styles.statLabel}>Skills</div>
-          <div style={styles.statValue}>{skills.length}</div>
-        </div>
-      </div>
-
-      <div style={styles.tabRow}>
-        {(["agents", "teams", "assignments", "skills", "routing"] as AgentTab[]).map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            style={{ ...styles.tab, ...(activeTab === tab ? styles.tabActive : {}) }}
-            onClick={() => setActiveTab(tab)}
-          >
-            {tab === "agents" ? "Agents" : tab === "teams" ? "Teams" : tab === "assignments" ? "Assignments" : tab === "skills" ? "Skills" : "Routing"}
-          </button>
-        ))}
-      </div>
+      <AgentRegistryHeader
+        activeTab={activeTab}
+        agentCount={agents.length}
+        teamCount={teams.length}
+        assignmentCount={assignments.length}
+        skillCount={skills.length}
+        onActiveTabChange={setActiveTab}
+      />
 
       {activeTab === "agents" ? renderAgentTab() : null}
       {activeTab === "teams" ? renderTeamTab() : null}
