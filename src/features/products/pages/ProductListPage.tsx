@@ -58,13 +58,7 @@ import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
 import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
 import { ProductOverviewPage } from "./ProductOverviewPage";
-import { ProductManagementAreasTab } from "../components/ProductManagementAreasTab";
-import { ProductManagementCapabilitiesTab } from "../components/ProductManagementCapabilitiesTab";
-import { ProductManagementFeaturesTab } from "../components/ProductManagementFeaturesTab";
-import { ProductManagementHeader } from "../components/ProductManagementHeader";
-import { ProductManagementStoryDetailPane } from "../components/ProductManagementStoryDetailPane";
-import { ProductManagementStoriesPane } from "../components/ProductManagementStoriesPane";
-import { ProductManagementWorkItemFeatureSelector } from "../components/ProductManagementWorkItemFeatureSelector";
+import { ProductManagementConsole } from "../components/ProductManagementConsole";
 import { ProductCatalogTab } from "../components/ProductCatalogTab";
 import {
   CapabilityFormModal,
@@ -1656,133 +1650,59 @@ export function ProductListPage() {
     && deleteWorkItemConfirmName.trim() === deleteWorkItemCandidate.workItem.title
     && deleteWorkItemConfirmChecked;
 
-  const renderProductManagementConsole = () => (
-    <div>
-      <ProductManagementHeader
-        selectedProduct={selectedProduct}
-        activeTab={productManagementTab}
-        onTabChange={setProductManagementTab}
-        refreshLabel={productManagementRefreshLabel}
-        onRefresh={refreshProductManagementTabQueries}
-        refreshDisabled={!selectedProductId}
-        renderCopyableEntityId={renderCopyableEntityId}
-        styles={styles}
-      />
-
-      {productManagementTab === "areas" && (
-        <ProductManagementAreasTab
-          selectedProduct={selectedProduct}
-          productAreas={productAreaProductAreas}
-          onResetProductPlan={requestResetProductPlan}
-          onCreateProductArea={() => openProductAreaDialog("create")}
-          onOpenProductArea={(productAreaTree) => {
-            selectProductArea(productAreaTree);
-            setProductManagementTab("capabilities");
-          }}
-          onEditProductArea={openEditProductArea}
-          onDeleteProductArea={(productAreaTree) => requestDeleteHierarchyNode({
-            kind: "product_area",
-            id: productAreaTree.product_area.id,
-            name: productAreaTree.product_area.name,
-          })}
-          renderCopyableEntityId={renderCopyableEntityId}
-          styles={styles}
-        />
-      )}
-
-      {productManagementTab === "capabilities" && (
-        <ProductManagementCapabilitiesTab
-          productAreas={productAreaProductAreas}
-          selectedProductAreaTree={selectedProductAreaTree}
-          capabilities={managementCapabilities}
-          productTree={tree}
-          selectedProductId={selectedProductId}
-          scopeSummaryIndex={scopeSummaryIndex}
-          onSelectProductArea={selectProductArea}
-          onCreateCapability={openCreateCapabilityForArea}
-          onOpenCapability={(capabilityTree) => {
-            selectCapabilityForManagement(capabilityTree);
-            setProductManagementTab("features");
-          }}
-          onEditCapability={openEditCapabilityNode}
-          onDeleteCapability={(capabilityTree) => requestDeleteHierarchyNode({
-            kind: "capability",
-            id: capabilityTree.capability.id,
-            name: capabilityTree.capability.name,
-          })}
-          renderCopyableEntityId={renderCopyableEntityId}
-          styles={styles}
-        />
-      )}
-
-      {productManagementTab === "features" && (
-        <ProductManagementFeaturesTab
-          capabilities={managementCapabilities}
-          selectedCapabilityTree={selectedManagementCapabilityTree}
-          features={managementFeatures}
-          productTree={tree}
-          selectedProductId={selectedProductId}
-          scopeSummaryIndex={scopeSummaryIndex}
-          onSelectCapability={selectCapabilityForManagement}
-          onCreateFeature={openCreateFeatureForCapability}
-          onOpenFeatureStories={(featureTree) => {
-            selectCapabilityForManagement(featureTree);
-            setProductManagementTab("work_items");
-          }}
-          onEditFeature={openEditCapabilityNode}
-          onDeleteFeature={(featureTree) => requestDeleteHierarchyNode({
-            kind: "feature",
-            id: featureTree.capability.id,
-            name: featureTree.capability.name,
-          })}
-          renderCopyableEntityId={renderCopyableEntityId}
-          styles={styles}
-        />
-      )}
-
-      {productManagementTab === "work_items" && (
-        <div style={styles.managementThreePane}>
-          <ProductManagementWorkItemFeatureSelector
-            features={allManagementFeatures}
-            selectedFeature={selectedManagementFeature}
-            onSelectFeature={(entry) => {
-              selectCapabilityForManagement(entry.capabilityTree);
-              setSelectedManagementStoryId(null);
-            }}
-            renderCopyableEntityId={renderCopyableEntityId}
-            styles={styles}
-          />
-          <ProductManagementStoriesPane
-            stories={featureStories}
-            selectedStory={selectedManagementStory}
-            canCreateStory={!!selectedManagementFeatureNode}
-            storyPageIndex={managementStoryPageIndex}
-            hasNextStoryPage={managementFeatureWorkItemPage?.has_more ?? false}
-            onPreviousStoryPage={() => setManagementStoryPageIndex((current) => Math.max(0, current - 1))}
-            onNextStoryPage={() => setManagementStoryPageIndex((current) => current + 1)}
-            onCreateStory={openCreateStoryDialog}
-            onOpenBuilder={() => openFeatureInBuilder(selectedManagementFeatureNode)}
-            onSelectStory={(story) => {
-              setSelectedManagementStoryId(story.id);
-              setActiveWorkItem(story.id);
-            }}
-            onEditStory={openEditStoryDialog}
-            onDeleteStory={(story) => requestDeleteWorkItem(story, "story")}
-            styles={styles}
-          />
-          <ProductManagementStoryDetailPane
-            selectedStory={selectedManagementStory}
-            tasks={selectedManagementTasks}
-            onEditStory={openEditStoryDialog}
-            onOpenStory={openStoryInBuilder}
-            onCreateTask={openCreateTaskDialog}
-            onEditTask={openEditTaskDialog}
-            onDeleteTask={(task) => requestDeleteWorkItem(task, "task")}
-            styles={styles}
-          />
-        </div>
-      )}
-    </div>
+  const productManagementConsole = (
+    <ProductManagementConsole
+      selectedProduct={selectedProduct}
+      activeTab={productManagementTab}
+      onTabChange={setProductManagementTab}
+      refreshLabel={productManagementRefreshLabel}
+      onRefresh={refreshProductManagementTabQueries}
+      refreshDisabled={!selectedProductId}
+      renderCopyableEntityId={renderCopyableEntityId}
+      productAreas={productAreaProductAreas}
+      onResetProductPlan={requestResetProductPlan}
+      onCreateProductArea={() => openProductAreaDialog("create")}
+      onSelectProductArea={selectProductArea}
+      onEditProductArea={openEditProductArea}
+      onDeleteHierarchyNode={requestDeleteHierarchyNode}
+      selectedProductAreaTree={selectedProductAreaTree}
+      capabilities={managementCapabilities}
+      productTree={tree}
+      selectedProductId={selectedProductId}
+      scopeSummaryIndex={scopeSummaryIndex}
+      onCreateCapability={openCreateCapabilityForArea}
+      onSelectCapability={selectCapabilityForManagement}
+      onEditCapability={openEditCapabilityNode}
+      selectedCapabilityTree={selectedManagementCapabilityTree}
+      features={managementFeatures}
+      onCreateFeature={openCreateFeatureForCapability}
+      allFeatures={allManagementFeatures}
+      selectedFeature={selectedManagementFeature}
+      onSelectFeature={(entry) => {
+        selectCapabilityForManagement(entry.capabilityTree);
+        setSelectedManagementStoryId(null);
+      }}
+      stories={featureStories}
+      selectedStory={selectedManagementStory}
+      canCreateStory={!!selectedManagementFeatureNode}
+      storyPageIndex={managementStoryPageIndex}
+      hasNextStoryPage={managementFeatureWorkItemPage?.has_more ?? false}
+      onPreviousStoryPage={() => setManagementStoryPageIndex((current) => Math.max(0, current - 1))}
+      onNextStoryPage={() => setManagementStoryPageIndex((current) => current + 1)}
+      onCreateStory={openCreateStoryDialog}
+      onOpenBuilder={() => openFeatureInBuilder(selectedManagementFeatureNode)}
+      onSelectStory={(story) => {
+        setSelectedManagementStoryId(story.id);
+        setActiveWorkItem(story.id);
+      }}
+      onEditStory={openEditStoryDialog}
+      onDeleteStory={(story) => requestDeleteWorkItem(story, "story")}
+      tasks={selectedManagementTasks}
+      onOpenStory={openStoryInBuilder}
+      onCreateTask={openCreateTaskDialog}
+      onEditTask={openEditTaskDialog}
+      onDeleteTask={(task) => requestDeleteWorkItem(task, "task")}
+    />
   );
 
   return (
@@ -1925,7 +1845,7 @@ export function ProductListPage() {
                 <div style={styles.empty}>Select a product before editing dependencies.</div>
               )
             ) : selectedProduct ? (
-              renderProductManagementConsole()
+              productManagementConsole
             ) : (
               <div style={styles.empty}>
                 {isLoading
