@@ -7,8 +7,6 @@ import {
   confirmPlannerPlan,
   createPlannerSession,
   deletePlannerDraftNode,
-  exportProductOverviewHtml,
-  getProductTree,
   browseForRepositoryPath,
   registerRepository,
   analyzeRepositoryForPlanner,
@@ -26,6 +24,7 @@ import { PlannerHeader } from "../components/PlannerHeader";
 import { PlannerPageContent } from "../components/PlannerPageContent";
 import { PlannerRepositoryModal } from "../components/PlannerRepositoryModal";
 import { PlannerSidebar } from "../components/PlannerSidebar";
+import { usePlannerDesignPacketExport } from "../hooks/usePlannerDesignPacketExport";
 import { usePlannerDraftEditorState } from "../hooks/usePlannerDraftEditorState";
 import { usePlannerPageViewModel } from "../hooks/usePlannerPageViewModel";
 import { usePlannerSpeechSettingsState } from "../hooks/usePlannerSpeechSettingsState";
@@ -34,7 +33,6 @@ import { styles } from "../lib/plannerPageStyles";
 import {
   DEFAULT_ASSISTANT_OPENING,
   buildPlannerMutationMessages,
-  buildDesignReviewPacketHtml,
   buildWorkItemTreeNodes,
   buildWorkItemTreeReport,
   collectTreeNodeIds,
@@ -56,7 +54,6 @@ import {
   normalize,
   parseVoiceNodeReference,
   resolveVoiceNodeReference,
-  slugifyPacketName,
   type DraftEditOperation,
   type ExecutionResult,
   type PendingPlan,
@@ -68,12 +65,7 @@ import {
   mapPlannerResponseToMutationResult,
 } from "../lib/plannerPageModel";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
-import type {
-  PlannerTraceEvent,
-  Product,
-  ProductTree,
-  WorkItem,
-} from "../../../lib/types";
+import type { PlannerTraceEvent } from "../../../lib/types";
 
 
 export function PlannerPage() {
@@ -98,9 +90,6 @@ export function PlannerPage() {
   const [repositoryPathDraft, setRepositoryPathDraft] = useState("");
   const [repoAnalysisMessage, setRepoAnalysisMessage] = useState<string | null>(null);
   const [repoAnalysisError, setRepoAnalysisError] = useState<string | null>(null);
-  const [designPacketPath, setDesignPacketPath] = useState<string | null>(null);
-  const [designPacketError, setDesignPacketError] = useState<string | null>(null);
-  const [isExportingDesignPacket, setIsExportingDesignPacket] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isVoiceSubmitting, setIsVoiceSubmitting] = useState(false);
@@ -196,6 +185,26 @@ export function PlannerPage() {
     selectedDraftNode,
     selectedDraftNodeId,
     allowedDraftChildTypes,
+  });
+  const {
+    designPacketPath,
+    designPacketError,
+    isExportingDesignPacket,
+    exportDesignReviewPacket,
+  } = usePlannerDesignPacketExport({
+    queryClient,
+    selectedProductId,
+    productTrees,
+    activeProductName,
+    products,
+    workItems,
+    plannerWorkItemsHasMore,
+    draftTreeNodes,
+    latestDraftPlan,
+    draftValidation,
+    selectedDraftNode,
+    latestAssistantMessage,
+    onAppendMessage: setMessages,
   });
 
   useEffect(() => {
@@ -844,59 +853,6 @@ export function PlannerPage() {
       setRepoAnalysisMessage("Repository analysis staged a design update.");
     } catch {
       // Error state is handled by the mutation.
-    }
-  };
-
-  const exportDesignReviewPacket = async () => {
-    if (isExportingDesignPacket) {
-      return;
-    }
-    const packetRootName = draftTreeNodes[0]?.label ?? activeProductName ?? "Design Review Packet";
-    try {
-      setIsExportingDesignPacket(true);
-      setDesignPacketError(null);
-      const exportProductTrees = selectedProductId
-        ? [
-            await queryClient.fetchQuery({
-              queryKey: ["plannerProductTree", selectedProductId],
-              queryFn: () => getProductTree(selectedProductId),
-            }),
-          ]
-        : productTrees;
-      const html = buildDesignReviewPacketHtml({
-        title: packetRootName,
-        generatedAt: new Date().toLocaleString(),
-        activeProductName,
-        currentProducts: products,
-        currentProductTrees: exportProductTrees,
-        currentWorkItems: workItems,
-        currentWorkItemsHasMore: plannerWorkItemsHasMore,
-        draftTreeNodes,
-        plan: latestDraftPlan,
-        validation: draftValidation,
-        selectedNode: selectedDraftNode,
-        latestAssistantText: latestAssistantMessage?.content ?? null,
-      });
-      const path = await exportProductOverviewHtml({
-        fileName: `${slugifyPacketName(packetRootName)}-design-review-packet.html`,
-        html,
-      });
-      setDesignPacketPath(path);
-      setMessages((current) => [
-        ...current,
-        {
-          id: makeId(),
-          role: "assistant",
-          content: `Generated a design review packet for "${packetRootName}".\n${path}`,
-          meta: "Design packet exported",
-          kind: "text",
-        },
-      ]);
-    } catch (error) {
-      setDesignPacketPath(null);
-      setDesignPacketError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsExportingDesignPacket(false);
     }
   };
 
