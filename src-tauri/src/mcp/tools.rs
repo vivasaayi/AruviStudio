@@ -5,6 +5,7 @@ use serde_json::{json, Value};
 
 mod action_args;
 mod agent_work;
+mod agent_work_lifecycle;
 mod agents;
 mod catalog;
 mod channels;
