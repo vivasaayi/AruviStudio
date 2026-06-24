@@ -26,8 +26,9 @@ import { MobileModelManager } from "./src/components/MobileModelManager";
 import { MobileProductExplorer } from "./src/components/MobileProductExplorer";
 import { MobileRemoteWebView } from "./src/components/MobileRemoteWebView";
 import { MobileVoiceScreen } from "./src/components/MobileVoiceScreen";
+import { useMobileModelCallsController } from "./src/hooks/useMobileModelCallsController";
 import { useMobileProductsController } from "./src/hooks/useMobileProductsController";
-import type { MobilePlannerToolTraceEntry, ModelCall } from "./src/types";
+import type { MobilePlannerToolTraceEntry } from "./src/types";
 import {
   buildRemoteScript,
   buildRemoteVoiceSubmitScript,
@@ -37,10 +38,7 @@ import {
   parseConnectionUrl,
   type ConnectionValues,
 } from "./src/lib/mobileConnection";
-import {
-  buildModelCallSessions,
-  describeError,
-} from "./src/lib/mobileFormatters";
+import { describeError } from "./src/lib/mobileFormatters";
 import {
   assertWhisperNativeModuleAvailable,
   normalizeWhisperLanguage,
@@ -128,12 +126,6 @@ export default function App() {
       content: "Ready when you are. Tap the mic and speak naturally.",
     },
   ]);
-  const [modelCalls, setModelCalls] = useState<ModelCall[]>([]);
-  const [selectedModelCallSessionKey, setSelectedModelCallSessionKey] = useState<string | null>(null);
-  const [selectedModelCall, setSelectedModelCall] = useState<ModelCall | null>(null);
-  const [isModelCallsLoading, setIsModelCallsLoading] = useState(false);
-  const [modelCallsError, setModelCallsError] = useState<string | null>(null);
-
   const remoteUrl = useMemo(() => {
     const trimmed = normalizeBaseUrlForDisplay(baseUrl);
     return trimmed ? `${trimmed}/remote` : "about:blank";
@@ -176,6 +168,21 @@ export default function App() {
     setProductSearchQuery,
     setIsProductPickerOpen,
   } = productsController;
+
+  const {
+    modelCalls,
+    selectedModelCallSessionKey,
+    selectedModelCall,
+    isModelCallsLoading,
+    modelCallsError,
+    loadModelCalls,
+    setSelectedModelCallSessionKey,
+    setSelectedModelCall,
+  } = useMobileModelCallsController({
+    mobileClient,
+    token,
+    describeError,
+  });
 
   const selectedWhisperModel = useMemo(() => {
     return WHISPER_MODELS.find((model) => model.id === selectedWhisperModelId) ?? WHISPER_MODELS[0];
@@ -405,37 +412,6 @@ export default function App() {
       Alert.alert("Save failed", describeError(error));
     } finally {
       setIsSaving(false);
-    }
-  };
-
-  const loadModelCalls = async () => {
-    if (!token.trim()) {
-      setModelCallsError("Save a mobile API token before loading calls.");
-      return;
-    }
-    try {
-      setIsModelCallsLoading(true);
-      setModelCallsError(null);
-      const calls = await mobileClient.listModelCalls(100);
-      const sessions = buildModelCallSessions(calls);
-      setModelCalls(calls);
-      setSelectedModelCallSessionKey((current) => {
-        const nextSessionKey = current && sessions.some((session) => session.key === current)
-          ? current
-          : sessions[0]?.key ?? null;
-        const nextSession = sessions.find((session) => session.key === nextSessionKey) ?? null;
-        setSelectedModelCall((selectedCall) => {
-          if (!nextSession) return null;
-          return nextSession.calls.find((call) => call.id === selectedCall?.id)
-            ?? nextSession.calls[nextSession.calls.length - 1]
-            ?? null;
-        });
-        return nextSessionKey;
-      });
-    } catch (error) {
-      setModelCallsError(describeError(error));
-    } finally {
-      setIsModelCallsLoading(false);
     }
   };
 
