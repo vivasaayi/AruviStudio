@@ -35,7 +35,6 @@ import {
 import {
   findHierarchyNode,
   flattenHierarchyNodes,
-  getDirectWorkItemsForNode,
   getHierarchyNodeSectionId,
 } from "../../../lib/hierarchyTree";
 import {
@@ -98,12 +97,20 @@ import {
 } from "../lib/productStatusSummary";
 import {
   findCapabilityTree,
-  flattenCapabilityTreeList,
   getCapabilityOrderKey,
   getOrderedCapabilityTrees,
   orderItemsByIds,
   seedCapabilityOrderMap,
 } from "../lib/productHierarchyHelpers";
+import {
+  buildAllManagementFeatures,
+  buildFeatureStories,
+  buildManagementFeatures,
+  buildSelectedManagementTasks,
+  selectManagementCapabilityTree,
+  selectManagementFeature,
+  selectManagementStory,
+} from "../lib/productManagementSelection";
 import type { CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ProductAreaTree, Product, ProductTree, ProductTreeSummary, ProductWorkItemSummary, Repository, WorkItem, WorkItemScopeSummary } from "../../../lib/types";
 
 
@@ -930,46 +937,26 @@ export function ProductListPage() {
       : [],
     [capabilityOrderMap, selectedProductAreaTree],
   );
-  const selectedManagementCapabilityTree = useMemo(() => {
-    const selectedTopLevelCapability = managementCapabilities.find((capabilityTree) => capabilityTree.capability.id === activeCapabilityId);
-    if (selectedTopLevelCapability) {
-      return selectedTopLevelCapability;
-    }
-    if (selectedCapability?.parent_capability_id) {
-      return managementCapabilities.find((capabilityTree) => capabilityTree.capability.id === selectedCapability.parent_capability_id) ?? managementCapabilities[0] ?? null;
-    }
-    return managementCapabilities[0] ?? null;
-  }, [activeCapabilityId, managementCapabilities, selectedCapability?.parent_capability_id]);
+  const selectedManagementCapabilityTree = useMemo(
+    () => selectManagementCapabilityTree(
+      managementCapabilities,
+      activeCapabilityId,
+      selectedCapability?.parent_capability_id,
+    ),
+    [activeCapabilityId, managementCapabilities, selectedCapability?.parent_capability_id],
+  );
   const managementFeatures = useMemo(
-    () => selectedManagementCapabilityTree
-      ? getOrderedCapabilityTrees(
-          selectedManagementCapabilityTree.children,
-          capabilityOrderMap[getCapabilityOrderKey(selectedManagementCapabilityTree.capability.product_area_id, selectedManagementCapabilityTree.capability.id)],
-        ).filter((capabilityTree) => capabilityTree.capability.node_kind === "feature")
-      : [],
+    () => buildManagementFeatures(selectedManagementCapabilityTree, capabilityOrderMap),
     [capabilityOrderMap, selectedManagementCapabilityTree],
   );
   const allManagementFeatures = useMemo(
-    () => productAreaProductAreas.flatMap((productAreaTree) =>
-      flattenCapabilityTreeList(productAreaTree.features)
-        .filter((capabilityTree) => capabilityTree.capability.node_kind === "feature")
-        .map((capabilityTree) => ({
-          capabilityTree,
-          productArea: productAreaTree.product_area,
-          parentCapability: capabilityTree.capability.parent_capability_id
-            ? findCapabilityTree(productAreaProductAreas, capabilityTree.capability.parent_capability_id)?.capability ?? null
-            : null,
-        })),
-    ),
+    () => buildAllManagementFeatures(productAreaProductAreas),
     [productAreaProductAreas],
   );
-  const selectedManagementFeature = useMemo(() => {
-    const activeFeature = allManagementFeatures.find((entry) => entry.capabilityTree.capability.id === activeCapabilityId);
-    if (activeFeature) {
-      return activeFeature;
-    }
-    return allManagementFeatures[0] ?? null;
-  }, [activeCapabilityId, allManagementFeatures]);
+  const selectedManagementFeature = useMemo(
+    () => selectManagementFeature(allManagementFeatures, activeCapabilityId),
+    [activeCapabilityId, allManagementFeatures],
+  );
   const selectedManagementFeatureNode = useMemo(
     () => selectedManagementFeature ? findHierarchyNode(tree?.roots ?? [], selectedManagementFeature.capabilityTree.capability.id, "capability") : null,
     [selectedManagementFeature, tree],
@@ -993,18 +980,12 @@ export function ProductListPage() {
     enabled: !!selectedProductId && !!selectedManagementFeatureNode && productPageTab === "design" && productManagementTab === "work_items",
   });
   const managementFeatureWorkItems = managementFeatureWorkItemPage?.items ?? [];
-  const featureStories = useMemo(() => {
-    if (!selectedManagementFeatureNode) {
-      return [];
-    }
-    return getDirectWorkItemsForNode(selectedManagementFeatureNode, managementFeatureWorkItems)
-      .filter((workItem) => !workItem.parent_work_item_id);
-  }, [managementFeatureWorkItems, selectedManagementFeatureNode]);
+  const featureStories = useMemo(
+    () => buildFeatureStories(selectedManagementFeatureNode, managementFeatureWorkItems),
+    [managementFeatureWorkItems, selectedManagementFeatureNode],
+  );
   const selectedManagementStory = useMemo(
-    () => featureStories.find((workItem) => workItem.id === selectedManagementStoryId)
-      ?? featureStories.find((workItem) => workItem.id === activeWorkItemId)
-      ?? featureStories[0]
-      ?? null,
+    () => selectManagementStory(featureStories, selectedManagementStoryId, activeWorkItemId),
     [activeWorkItemId, featureStories, selectedManagementStoryId],
   );
   const selectedManagementStoryIdForTasks = selectedManagementStory?.id ?? null;
@@ -1018,19 +999,11 @@ export function ProductListPage() {
     enabled: !!selectedManagementStoryIdForTasks,
   });
   const selectedManagementTasks = useMemo(
-    () => {
-      if (!selectedManagementStory) {
-        return [];
-      }
-      const taskMap = new Map<string, WorkItem>();
-      selectedManagementStoryTasks
-        .filter((workItem) => workItem.parent_work_item_id === selectedManagementStory.id)
-        .forEach((workItem) => taskMap.set(workItem.id, workItem));
-      managementFeatureWorkItems
-        .filter((workItem) => workItem.parent_work_item_id === selectedManagementStory.id)
-        .forEach((workItem) => taskMap.set(workItem.id, workItem));
-      return Array.from(taskMap.values()).sort((a, b) => a.sort_order - b.sort_order || a.title.localeCompare(b.title));
-    },
+    () => buildSelectedManagementTasks(
+      selectedManagementStory,
+      selectedManagementStoryTasks,
+      managementFeatureWorkItems,
+    ),
     [managementFeatureWorkItems, selectedManagementStory, selectedManagementStoryTasks],
   );
   const refreshProductManagementTabQueries = async () => {
