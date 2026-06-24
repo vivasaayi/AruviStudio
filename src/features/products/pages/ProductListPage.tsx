@@ -16,7 +16,6 @@ import {
   getSubWorkItems,
   getSetting,
   listProductDependencies,
-  listProductReferences,
   listProducts,
   listWorkItemsPage,
   reorderCapabilities,
@@ -34,11 +33,8 @@ import {
   updateWorkItem,
 } from "../../../lib/tauri";
 import {
-  countDescendantNodes,
-  countHierarchyNodes,
   findHierarchyNode,
   flattenHierarchyNodes,
-  getDirectChildNodes,
   getDirectWorkItemsForNode,
   getHierarchyNodeSectionId,
 } from "../../../lib/hierarchyTree";
@@ -47,7 +43,6 @@ import {
   getDefaultChildNodeKind,
   groupHierarchyNodeKinds,
   getHierarchyChildLabel,
-  getHierarchyNodeKindLabel,
   orderHierarchyNodeKinds,
 } from "../../../lib/hierarchyLabels";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
@@ -84,7 +79,6 @@ import {
   type ProductPageTab,
   type ProductStatusGroupBy,
 } from "../lib/productRefreshScopes";
-import { getProductAreaReferenceScope } from "../lib/productReferences";
 import {
   buildProductCatalogRows,
   getProductCatalogTags,
@@ -98,7 +92,6 @@ import {
   buildWorkItemScopeSummaryIndex,
 } from "../lib/productStatusSummary";
 import {
-  countCapabilities,
   findCapabilityTree,
   flattenCapabilityTreeList,
   getCapabilityOrderKey,
@@ -206,11 +199,6 @@ export function ProductListPage() {
     queryKey: ["product-dependencies"],
     queryFn: listProductDependencies,
     enabled: productPageTab === "design" || productPageTab === "dependencies",
-  });
-  const { data: productReferences = [] } = useQuery({
-    queryKey: ["product-references"],
-    queryFn: () => listProductReferences(),
-    enabled: productPageTab === "design",
   });
   const { data: hideExampleProductsSetting } = useQuery({
     queryKey: ["setting", HIDE_EXAMPLE_PRODUCTS_KEY],
@@ -868,17 +856,11 @@ export function ProductListPage() {
     },
   });
 
-  const capabilityCount = tree ? countCapabilities(tree.product_areas) : 0;
-  const totalNodeCount = tree ? countHierarchyNodes(tree.roots) : 0;
   const selectedHierarchyNode = useMemo(
     () => (tree ? findHierarchyNode(tree.roots, activeNodeId, activeNodeType) : null),
     [tree, activeNodeId, activeNodeType],
   );
   const allTreeNodes = useMemo(() => (tree ? flattenHierarchyNodes(tree.roots) : []), [tree]);
-  const canonicalManagementNodeCount = useMemo(
-    () => allTreeNodes.filter((node) => node.node_kind === "product_area" || node.node_kind === "capability" || node.node_kind === "feature").length,
-    [allTreeNodes],
-  );
   const selectedCapabilityOptions = useMemo(
     () => allTreeNodes
       .filter((node) => node.node_type === "capability")
@@ -911,44 +893,6 @@ export function ProductListPage() {
       .forEach((node) => map.set(node.id, node.path.join(" / ")));
     return map;
   }, [allTreeNodes, productTreeById]);
-  const selectedDirectChildren = useMemo(
-    () => getDirectChildNodes(tree, selectedHierarchyNode),
-    [tree, selectedHierarchyNode],
-  );
-  const selectedReferenceScope = useMemo(() => {
-    if (!selectedProductId) {
-      return null;
-    }
-    if (selectedHierarchyNode?.node_type === "product_area") {
-      return getProductAreaReferenceScope(selectedHierarchyNode.id);
-    }
-    if (selectedHierarchyNode?.node_type === "capability" && selectedHierarchyNode.capability_id) {
-      return {
-        scopeType: selectedHierarchyNode.node_kind === "feature" ? "feature" as const : "capability" as const,
-        scopeId: selectedHierarchyNode.capability_id,
-      };
-    }
-    return { scopeType: "product" as const, scopeId: selectedProductId };
-  }, [selectedHierarchyNode, selectedProductId]);
-  const selectedReferences = useMemo(
-    () => selectedReferenceScope
-      ? productReferences.filter((reference) => reference.scope_type === selectedReferenceScope.scopeType && reference.scope_id === selectedReferenceScope.scopeId)
-      : [],
-    [productReferences, selectedReferenceScope],
-  );
-  const selectedMetricCards = selectedHierarchyNode
-    ? [
-        { label: "Direct Children", value: selectedDirectChildren.length, help: `${selectedDirectChildren.length} immediate child ${selectedDirectChildren.length === 1 ? "node" : "nodes"}` },
-        { label: "Subtree Nodes", value: countDescendantNodes(selectedHierarchyNode) + 1, help: "Selected node plus all nested descendants" },
-        { label: "References", value: selectedReferences.length, help: "Attached context for this management scope" },
-        { label: "Dependencies", value: selectedProductDependencies.length, help: "Cross-product dependencies for this product" },
-      ]
-    : [
-        { label: "Product Areas", value: tree?.roots.filter((node) => node.node_kind === "product_area").length ?? 0, help: "Top-level product management areas" },
-        { label: "Management Nodes", value: canonicalManagementNodeCount, help: "Product areas, capabilities, and features" },
-        { label: "References", value: selectedReferences.length, help: "Attached product context" },
-        { label: "Dependencies", value: selectedProductDependencies.length, help: "Cross-product dependencies" },
-      ];
   const editableCapabilityNodeKinds = useMemo(() => {
     if (!selectedCapability) {
       return [] as HierarchyNodeKind[];
@@ -1119,66 +1063,6 @@ export function ProductListPage() {
   const activeProductPageRefreshLabel = getProductPageRefreshLabel(productPageTab);
   const activeProductPageRefreshDisabled = isProductPageRefreshDisabled(productPageTab, selectedProductId);
   const productManagementRefreshLabel = getProductManagementRefreshLabel(productManagementTab);
-
-  const structureRows = useMemo(() => {
-    if (!tree) {
-      return [];
-    }
-    return selectedDirectChildren.map((node) => ({
-      id: node.id,
-      name: node.name,
-      subtitle: node.summary || node.description || getHierarchyNodeKindLabel(node.node_kind),
-      type: getHierarchyNodeKindLabel(node.node_kind, { lowercase: true }),
-      directChildren: node.children.length,
-      references: productReferences.filter((reference) => {
-        const scopeType = node.node_type === "product_area" ? "product_area" : node.node_kind === "feature" ? "feature" : "capability";
-        const scopeId = node.node_type === "capability" && node.capability_id ? node.capability_id : node.id;
-        return reference.scope_type === scopeType && reference.scope_id === scopeId;
-      }).length,
-      onSelect: () => {
-        setActiveHierarchyNode({
-          nodeId: node.id,
-          nodeType: node.node_type,
-          productAreaId: node.product_area_id,
-          capabilityId: node.capability_id,
-        });
-      },
-      onEdit: () => {
-        setActiveHierarchyNode({
-          nodeId: node.id,
-          nodeType: node.node_type,
-          productAreaId: node.product_area_id,
-          capabilityId: node.capability_id,
-        });
-        if (node.node_type === "product_area") {
-          const productAreaMatch = tree.product_areas.find((productAreaTree) => productAreaTree.product_area.id === node.id)?.product_area;
-          if (!productAreaMatch) {
-            return;
-          }
-          setProductAreaDraft({
-            name: productAreaMatch.name,
-            description: productAreaMatch.description,
-            purpose: productAreaMatch.purpose,
-            nodeKind: productAreaMatch.node_kind,
-          });
-          useUIStore.getState().openProductAreaDialog("edit");
-          return;
-        }
-        const capabilityMatch = findCapabilityTree(tree.product_areas, node.id)?.capability;
-        if (!capabilityMatch) {
-          return;
-        }
-        setCapabilityDraft({
-          name: capabilityMatch.name,
-          description: capabilityMatch.description,
-          acceptanceCriteria: capabilityMatch.acceptance_criteria,
-          technicalNotes: capabilityMatch.technical_notes,
-          nodeKind: capabilityMatch.node_kind,
-        });
-        useUIStore.getState().openCapabilityDialog("edit");
-      },
-    }));
-  }, [productReferences, selectedDirectChildren, selectedProductId, setActiveHierarchyNode, tree]);
 
   const openSelectedSectionInBook = () => {
     if (!selectedProductId) {
