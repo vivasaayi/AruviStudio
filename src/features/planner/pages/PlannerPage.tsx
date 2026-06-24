@@ -13,7 +13,6 @@ import {
   submitPlannerTurn,
   submitPlannerVoiceTurn,
   transcribeAudio,
-  updatePlannerSession,
 } from "../../../lib/tauri";
 import { blobToBase64, speakInBrowser, startWavCapture, type ActiveAudioCapture } from "../../shared/voice";
 import { PlannerComposerPanel } from "../components/PlannerComposerPanel";
@@ -23,6 +22,7 @@ import { PlannerRepositoryModal } from "../components/PlannerRepositoryModal";
 import { PlannerSidebar } from "../components/PlannerSidebar";
 import { usePlannerDesignPacketExport } from "../hooks/usePlannerDesignPacketExport";
 import { usePlannerDraftEditorState } from "../hooks/usePlannerDraftEditorState";
+import { usePlannerPageLifecycle } from "../hooks/usePlannerPageLifecycle";
 import { usePlannerPageViewModel } from "../hooks/usePlannerPageViewModel";
 import { usePlannerRepositoryModalState } from "../hooks/usePlannerRepositoryModalState";
 import { usePlannerSpeechSettingsState } from "../hooks/usePlannerSpeechSettingsState";
@@ -200,38 +200,39 @@ export function PlannerPage() {
     onAppendMessage: setMessages,
   });
 
-  useEffect(() => {
-    if (activePlannerProductRef.current === selectedProductId) {
-      return;
-    }
-    const previousProductId = activePlannerProductRef.current;
-    activePlannerProductRef.current = selectedProductId;
-    if (previousProductId === null && !sessionId && draftTreeNodes.length === 0 && !pendingPlan) {
-      return;
-    }
-    setPendingPlan(null);
-    setDraftTreeNodes([]);
-    setSelectedDraftNodeId(null);
-    setExpandedDraftNodeIds([]);
-    setLatestTraceEvents([]);
-    setSessionId(null);
-    setPlannerView("conversation");
-    setMessages([
-      {
-        id: makeId(),
-        role: "assistant",
-        content: selectedProduct
-          ? `Planning is now scoped to ${selectedProduct.name}. Describe what you want to design or change inside this product.`
-          : "Select a product first. Create products in the Products page, then return here to design structure and work.",
-      },
-    ]);
-  }, [draftTreeNodes.length, pendingPlan, selectedProduct, selectedProductId, sessionId]);
-
-  useEffect(() => {
-    if (!providerId && providers.length > 0) {
-      setProviderId(providers[0].id);
-    }
-  }, [providerId, providers]);
+  usePlannerPageLifecycle({
+    selectedProductId,
+    selectedProduct,
+    sessionId,
+    setSessionId,
+    draftTreeNodes,
+    setDraftTreeNodes,
+    selectedDraftNodeId,
+    setSelectedDraftNodeId,
+    setExpandedDraftNodeIds,
+    setLatestTraceEvents,
+    pendingPlan,
+    setPendingPlan,
+    plannerView,
+    setPlannerView,
+    setMessages,
+    providerId,
+    setProviderId,
+    providers,
+    modelName,
+    setModelName,
+    modelOptions,
+    transcriptRef,
+    messages,
+    location,
+    navigate,
+    setDraft,
+    composerRef,
+    consumedRoutePromptRef,
+    activePlannerProductRef,
+    isCompactScreen,
+    setShowCompactTools,
+  });
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.__ARUVI_E2E__) {
@@ -249,102 +250,6 @@ export function PlannerPage() {
       }
     };
   }, [draftTreeNodes, handleVoiceTranscript, selectedDraftNodeId, latestTraceEvents, pendingPlan, autoSpeak]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const ensureSession = async () => {
-      if (sessionId) {
-        return;
-      }
-      try {
-        const session = await createPlannerSession({
-          providerId: providerId || undefined,
-          modelName: modelName || undefined,
-        });
-        if (!cancelled) {
-          setSessionId(session.session_id);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setMessages((current) => [
-            ...current,
-            { id: makeId(), role: "assistant", content: String(error), meta: "Planner error", kind: "error" },
-          ]);
-        }
-      }
-    };
-    void ensureSession();
-    return () => {
-      cancelled = true;
-    };
-  }, [modelName, providerId, sessionId]);
-
-  useEffect(() => {
-    if (!providerId) {
-      return;
-    }
-    if (!modelName || !modelOptions.some((entry) => entry.name === modelName)) {
-      setModelName(modelOptions[0]?.name ?? "");
-    }
-  }, [modelName, modelOptions, providerId]);
-
-  useEffect(() => {
-    if (!sessionId) {
-      return;
-    }
-    void updatePlannerSession({
-      sessionId,
-      providerId: providerId || undefined,
-      modelName: modelName || undefined,
-    });
-  }, [modelName, providerId, sessionId]);
-
-  useEffect(() => {
-    transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight });
-  }, [messages]);
-
-  useEffect(() => {
-    const state = location.state as { plannerPrompt?: string; plannerView?: "conversation" | "draft" | "trace" } | null;
-    const prompt = state?.plannerPrompt?.trim();
-    if (!prompt || consumedRoutePromptRef.current === prompt) {
-      return;
-    }
-    consumedRoutePromptRef.current = prompt;
-    setDraft(prompt);
-    setPlannerView(state?.plannerView ?? "conversation");
-    composerRef.current?.focus();
-    navigate(location.pathname, { replace: true, state: null });
-  }, [location.pathname, location.state, navigate]);
-
-  useEffect(() => {
-    if (draftTreeNodes.length === 0 && plannerView === "draft") {
-      setPlannerView("conversation");
-    }
-  }, [draftTreeNodes.length, plannerView]);
-
-  useEffect(() => {
-    if (!isCompactScreen) {
-      setShowCompactTools(false);
-    }
-  }, [isCompactScreen]);
-
-  useEffect(() => {
-    const allNodeIds = collectTreeNodeIds(draftTreeNodes);
-    if (allNodeIds.length === 0) {
-      setExpandedDraftNodeIds([]);
-      return;
-    }
-    setExpandedDraftNodeIds((current) => {
-      const currentSet = new Set(current.filter((nodeId) => allNodeIds.includes(nodeId)));
-      if (currentSet.size === 0) {
-        return allNodeIds;
-      }
-      if (selectedDraftNodeId && !currentSet.has(selectedDraftNodeId)) {
-        currentSet.add(selectedDraftNodeId);
-      }
-      return Array.from(currentSet);
-    });
-  }, [draftTreeNodes, selectedDraftNodeId]);
 
   useEffect(() => {
     if (!voiceEnabled) {
