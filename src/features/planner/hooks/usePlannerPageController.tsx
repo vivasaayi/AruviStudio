@@ -12,7 +12,7 @@ import { usePlannerPageViewModel } from "./usePlannerPageViewModel";
 import { usePlannerPageCoreState } from "./usePlannerPageCoreState";
 import { usePlannerMutationResultHandler } from "./usePlannerMutationResultHandler";
 import { usePlannerPendingPlanActions } from "./usePlannerPendingPlanActions";
-import { usePlannerRepositoryModalState } from "./usePlannerRepositoryModalState";
+import { usePlannerRepositoryAnalysis } from "./usePlannerRepositoryAnalysis";
 import { usePlannerSpeechSettingsState } from "./usePlannerSpeechSettingsState";
 import { usePlannerTurnMutations } from "./usePlannerTurnMutations";
 import { usePlannerVoiceCapture } from "./usePlannerVoiceCapture";
@@ -264,10 +264,6 @@ export function usePlannerPageController() {
     onPlannerMutationSuccess: handlePlannerMutationSuccess,
   });
 
-  const basePlannerBusy =
-    processMutation.isPending ||
-    draftEditMutation.isPending ||
-    isVoiceCaptureBusy;
   const {
     showRepoModal,
     setShowRepoModal,
@@ -281,17 +277,19 @@ export function usePlannerPageController() {
     browseRepositoryPathForPlanner,
     registerRepositoryForPlanner,
     analyzeSelectedRepository,
-  } = usePlannerRepositoryModalState({
+    isPlannerBusy,
+  } = usePlannerRepositoryAnalysis({
+    draftEditMutation,
+    handlePlannerMutationSuccess,
+    isVoiceCaptureBusy,
+    plannerBusyRef,
+    processMutation,
     queryClient,
     repositories,
     sessionId,
     selectedDraftNodeId,
     selectedProductId,
-    isPlannerBusy: basePlannerBusy,
-    onAnalysisSuccess: handlePlannerMutationSuccess,
   });
-  const isPlannerBusy = basePlannerBusy || isRepositoryAnalysisPending;
-  plannerBusyRef.current = isPlannerBusy;
 
   const { send } = usePlannerComposerSubmit({
     draft,
