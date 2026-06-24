@@ -59,6 +59,7 @@ import {
 } from "../components/WorkItemFormModals";
 import { WorkItemReviewSummaryCards } from "../components/WorkItemReviewSummaryCards";
 import { WorkItemReviewWorkflowCard } from "../components/WorkItemReviewWorkflowCard";
+import { WorkItemWorkspaceReadinessCard } from "../components/WorkItemWorkspaceReadinessCard";
 import { WorkItemWorkspaceAssignmentPanel } from "../components/WorkItemWorkspaceAssignmentPanel";
 import { styles } from "../lib/workItemListPageStyles";
 import {
@@ -1456,45 +1457,13 @@ export function WorkItemListPage() {
 
           {workItemWorkspaceTab === "review" && (
             <>
-              <div style={styles.detailCard}>
-                <div style={styles.detailLabel}>Workspace Readiness</div>
-                {resolvedRepository ? (
-                  <>
-                    <div style={styles.detailValue}>{resolvedRepository.name}</div>
-                    <div style={styles.smallText}>{resolvedRepository.local_path}</div>
-                    <div style={styles.smallText}>
-                      {resolvedRepository.remote_url
-                        ? `Remote configured: ${resolvedRepository.remote_url}`
-                        : "Remote: not configured"}
-                    </div>
-                    <div style={styles.smallText}>Branch: {selectedWorkItemSummary?.branch_name || resolvedRepository.default_branch}</div>
-                    <div style={styles.smallText}>
-                      Source: {selectedWorkItemSummary?.repo_override_id ? "story override" : "scope default"}
-                    </div>
-                    <div style={styles.smallText}>Version history: enabled</div>
-                    {renderWorkspaceAssignmentPanel()}
-                  </>
-                ) : (
-                  <>
-                    <div style={styles.warning}>
-                      No workspace is attached to the current story scope.
-                    </div>
-                    <div style={styles.smallText}>
-                      Delivery stages will be blocked until a workspace exists for this scope.
-                    </div>
-                    <div style={{ marginTop: 10 }}>
-                      <button
-                        style={styles.btn}
-                        onClick={() => createWorkspaceMutation.mutate()}
-                        disabled={createWorkspaceMutation.isPending}
-                      >
-                        {createWorkspaceMutation.isPending ? "Creating Workspace..." : "Create Workspace"}
-                      </button>
-                    </div>
-                    {renderWorkspaceAssignmentPanel()}
-                  </>
-                )}
-              </div>
+              <WorkItemWorkspaceReadinessCard
+                resolvedRepository={resolvedRepository}
+                selectedWorkItem={selectedWorkItemSummary}
+                workspaceAssignmentPanel={renderWorkspaceAssignmentPanel()}
+                isCreateWorkspacePending={createWorkspaceMutation.isPending}
+                onCreateWorkspace={() => createWorkspaceMutation.mutate()}
+              />
               <div style={styles.sectionTitle}>Review Signals</div>
               <WorkItemReviewWorkflowCard
                 workflowRunId={workflowRunId}
