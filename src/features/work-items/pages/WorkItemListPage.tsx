@@ -49,6 +49,12 @@ import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
 import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
 import { WorkItemModalShell as ModalShell } from "../components/WorkItemModalShell";
+import {
+  WorkItemCreateModal,
+  WorkItemEditModal,
+  type WorkItemCreateFormState,
+  type WorkItemEditDraftState,
+} from "../components/WorkItemFormModals";
 import { styles } from "../lib/workItemListPageStyles";
 import {
   BACKLOG_OVERSCAN_ROWS,
@@ -148,7 +154,7 @@ export function WorkItemListPage() {
   const [selectedBacklogItemIds, setSelectedBacklogItemIds] = useState<string[]>([]);
   const [pendingRowActionIds, setPendingRowActionIds] = useState<string[]>([]);
   const [bulkActionInFlight, setBulkActionInFlight] = useState<"approve" | "reject" | null>(null);
-  const [createForm, setCreateForm] = useState({
+  const [createForm, setCreateForm] = useState<WorkItemCreateFormState>({
     title: "",
     problemStatement: "",
     description: "",
@@ -159,7 +165,7 @@ export function WorkItemListPage() {
     complexity: "medium",
     parentWorkItemId: null as string | null,
   });
-  const [workItemDraft, setWorkItemDraft] = useState({
+  const [workItemDraft, setWorkItemDraft] = useState<WorkItemEditDraftState>({
     title: "",
     description: "",
     status: "draft",
@@ -940,6 +946,17 @@ export function WorkItemListPage() {
     }
     return parts.length > 0 ? parts.join(" / ") : "None selected";
   }, [activeCapability?.name, activeProductArea?.name, activeProduct?.name]);
+  const createWorkItemScopeLabel = createForm.parentWorkItemId
+    ? "Current story"
+    : activeCapability
+    ? `Current ${getHierarchyNodeKindLabel(activeCapability.node_kind, { lowercase: true })}`
+    : activeCapabilityId
+      ? "Current node"
+      : activeProductAreaId
+        ? "Current product area"
+        : activeProductId
+          ? "Current product"
+          : "No product selected";
   const workItemOwnerMap = useMemo(() => {
     const map = new Map<string, { badge: string; path: string; isRoot: boolean }>();
     if (!activeProduct) {
@@ -2384,88 +2401,27 @@ export function WorkItemListPage() {
       )}
 
       {(showCreateForm || workItemCreateDialogOpen) && (
-        <ModalShell title={createForm.parentWorkItemId ? "Create Task" : "Create Story"} onClose={() => { setShowCreateForm(false); closeWorkItemCreateDialog(); }}>
-          <div style={styles.detailCard}>
-            <div style={styles.detailLabel}>Creation Scope</div>
-            <div style={styles.detailValue}>
-              {createForm.parentWorkItemId
-                ? "Current story"
-                : activeCapability
-                ? `Current ${getHierarchyNodeKindLabel(activeCapability.node_kind, { lowercase: true })}`
-                : activeCapabilityId
-                  ? "Current node"
-                  : activeProductAreaId
-                    ? "Current product area"
-                    : activeProductId
-                      ? "Current product"
-                      : "No product selected"}
-            </div>
-          </div>
-          <label style={styles.detailLabel}>Title</label>
-          <input style={styles.input} value={createForm.title} onChange={(e) => setCreateForm({ ...createForm, title: e.target.value })} />
-          <label style={styles.detailLabel}>Problem Statement</label>
-          <textarea style={styles.textarea} value={createForm.problemStatement} onChange={(e) => setCreateForm({ ...createForm, problemStatement: e.target.value })} />
-          <label style={styles.detailLabel}>Description</label>
-          <textarea style={styles.textarea} value={createForm.description} onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })} />
-          <label style={styles.detailLabel}>Acceptance Criteria</label>
-          <textarea style={styles.textarea} value={createForm.acceptanceCriteria} onChange={(e) => setCreateForm({ ...createForm, acceptanceCriteria: e.target.value })} />
-          <label style={styles.detailLabel}>Constraints</label>
-          <textarea style={styles.textarea} value={createForm.constraints} onChange={(e) => setCreateForm({ ...createForm, constraints: e.target.value })} />
-          <div style={styles.row}>
-            <div>
-              <label style={styles.detailLabel}>Type</label>
-              <select style={styles.filterSelect} value={createForm.workItemType} onChange={(e) => setCreateForm({ ...createForm, workItemType: e.target.value })}>
-                {["feature", "bug", "refactor", "test", "review", "security_fix", "performance_improvement"].map((type) => (
-                  <option key={type} value={type}>{type}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label style={styles.detailLabel}>Priority</label>
-              <select style={styles.filterSelect} value={createForm.priority} onChange={(e) => setCreateForm({ ...createForm, priority: e.target.value })}>
-                {["critical", "high", "medium", "low"].map((priority) => (
-                  <option key={priority} value={priority}>{priority}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          {!activeProductId && <div style={styles.warning}>Select a product before creating a story.</div>}
-          {formError && <div style={styles.errorText}>{formError}</div>}
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <button style={styles.ghostBtn} onClick={() => { setShowCreateForm(false); closeWorkItemCreateDialog(); }}>Cancel</button>
-            <button style={styles.btn} onClick={() => createMutation.mutate()} disabled={!activeProductId || !createForm.title}>
-              {createMutation.isPending ? "Creating..." : createForm.parentWorkItemId ? "Create Task" : "Create Story"}
-            </button>
-          </div>
-        </ModalShell>
+        <WorkItemCreateModal
+          createForm={createForm}
+          setCreateForm={setCreateForm}
+          creationScopeLabel={createWorkItemScopeLabel}
+          hasActiveProduct={!!activeProductId}
+          formError={formError}
+          isPending={createMutation.isPending}
+          onClose={() => { setShowCreateForm(false); closeWorkItemCreateDialog(); }}
+          onSubmit={() => createMutation.mutate()}
+        />
       )}
 
       {isEditingWorkItem && selectedWorkItemSummary && (
-        <ModalShell title="Edit Story" onClose={() => setIsEditingWorkItem(false)}>
-          {formError && <div style={styles.errorText}>{formError}</div>}
-          <label style={styles.detailLabel}>Title</label>
-          <input style={styles.input} value={workItemDraft.title} onChange={(e) => setWorkItemDraft({ ...workItemDraft, title: e.target.value })} />
-          <label style={styles.detailLabel}>Description</label>
-          <textarea style={styles.textarea} value={workItemDraft.description} onChange={(e) => setWorkItemDraft({ ...workItemDraft, description: e.target.value })} />
-          <label style={styles.detailLabel}>Problem Statement</label>
-          <textarea style={styles.textarea} value={workItemDraft.problemStatement} onChange={(e) => setWorkItemDraft({ ...workItemDraft, problemStatement: e.target.value })} />
-          <label style={styles.detailLabel}>Acceptance Criteria</label>
-          <textarea style={styles.textarea} value={workItemDraft.acceptanceCriteria} onChange={(e) => setWorkItemDraft({ ...workItemDraft, acceptanceCriteria: e.target.value })} />
-          <label style={styles.detailLabel}>Constraints</label>
-          <textarea style={styles.textarea} value={workItemDraft.constraints} onChange={(e) => setWorkItemDraft({ ...workItemDraft, constraints: e.target.value })} />
-          <label style={styles.detailLabel}>Status</label>
-          <select style={styles.filterSelect} value={workItemDraft.status} onChange={(e) => setWorkItemDraft({ ...workItemDraft, status: e.target.value })}>
-            {Object.keys(statusColors).map((status) => (
-              <option key={status} value={status}>{status.replace(/_/g, " ")}</option>
-            ))}
-          </select>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <button style={styles.ghostBtn} onClick={() => setIsEditingWorkItem(false)}>Cancel</button>
-            <button style={styles.btn} onClick={() => updateWorkItemMutation.mutate()} disabled={!workItemDraft.title}>
-              {updateWorkItemMutation.isPending ? "Saving..." : "Save Story"}
-            </button>
-          </div>
-        </ModalShell>
+        <WorkItemEditModal
+          draft={workItemDraft}
+          setDraft={setWorkItemDraft}
+          formError={formError}
+          isPending={updateWorkItemMutation.isPending}
+          onClose={() => setIsEditingWorkItem(false)}
+          onSubmit={() => updateWorkItemMutation.mutate()}
+        />
       )}
     </div>
   );
