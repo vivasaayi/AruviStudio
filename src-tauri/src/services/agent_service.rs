@@ -45,6 +45,7 @@ mod tool_loop;
 mod tool_loop_contract;
 mod tool_loop_legacy;
 mod tool_loop_workspace;
+mod tool_loop_workspace_files;
 
 impl AgentService {
     #[cfg(test)]
