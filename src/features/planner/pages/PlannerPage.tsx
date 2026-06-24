@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -26,6 +26,7 @@ import { PlannerHeader } from "../components/PlannerHeader";
 import { PlannerPageContent } from "../components/PlannerPageContent";
 import { PlannerRepositoryModal } from "../components/PlannerRepositoryModal";
 import { PlannerSidebar } from "../components/PlannerSidebar";
+import { usePlannerDraftEditorState } from "../hooks/usePlannerDraftEditorState";
 import { usePlannerPageViewModel } from "../hooks/usePlannerPageViewModel";
 import { usePlannerSpeechSettingsState } from "../hooks/usePlannerSpeechSettingsState";
 import { usePlannerWindowWidth } from "../hooks/usePlannerWindowWidth";
@@ -68,7 +69,6 @@ import {
 } from "../lib/plannerPageModel";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import type {
-  PlannerDraftChildType,
   PlannerTraceEvent,
   Product,
   ProductTree,
@@ -94,12 +94,6 @@ export function PlannerPage() {
   const [selectedDraftNodeId, setSelectedDraftNodeId] = useState<string | null>(null);
   const [expandedDraftNodeIds, setExpandedDraftNodeIds] = useState<string[]>([]);
   const [latestTraceEvents, setLatestTraceEvents] = useState<PlannerTraceEvent[]>([]);
-  const [renameDraftName, setRenameDraftName] = useState("");
-  const [draftChildType, setDraftChildType] = useState<PlannerDraftChildType>("product_area");
-  const [draftChildName, setDraftChildName] = useState("");
-  const [draftChildSummary, setDraftChildSummary] = useState("");
-  const [draftEditError, setDraftEditError] = useState<string | null>(null);
-  const [draftEditMessage, setDraftEditMessage] = useState<string | null>(null);
   const [selectedRepositoryId, setSelectedRepositoryId] = useState("");
   const [repositoryPathDraft, setRepositoryPathDraft] = useState("");
   const [repoAnalysisMessage, setRepoAnalysisMessage] = useState<string | null>(null);
@@ -184,6 +178,24 @@ export function PlannerPage() {
     modelName,
     speechProviderSetting,
     speechModelSetting,
+  });
+  const {
+    renameDraftName,
+    setRenameDraftName,
+    draftChildType,
+    setDraftChildType,
+    draftChildName,
+    setDraftChildName,
+    draftChildSummary,
+    setDraftChildSummary,
+    draftEditError,
+    setDraftEditError,
+    draftEditMessage,
+    setDraftEditMessage,
+  } = usePlannerDraftEditorState({
+    selectedDraftNode,
+    selectedDraftNodeId,
+    allowedDraftChildTypes,
   });
 
   useEffect(() => {
@@ -337,21 +349,6 @@ export function PlannerPage() {
       return Array.from(currentSet);
     });
   }, [draftTreeNodes, selectedDraftNodeId]);
-
-  useEffect(() => {
-    setRenameDraftName(selectedDraftNode?.label ?? "");
-    setDraftEditError(null);
-    setDraftEditMessage(null);
-  }, [selectedDraftNodeId, selectedDraftNode?.label]);
-
-  useEffect(() => {
-    if (allowedDraftChildTypes.length === 0) {
-      return;
-    }
-    if (!allowedDraftChildTypes.includes(draftChildType)) {
-      setDraftChildType(allowedDraftChildTypes[0]);
-    }
-  }, [allowedDraftChildTypes, draftChildType]);
 
   useEffect(() => {
     if (!voiceEnabled) {
