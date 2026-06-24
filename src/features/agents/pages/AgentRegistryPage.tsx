@@ -45,6 +45,7 @@ import type {
   Skill,
 } from "../../../lib/types";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
+import { AgentSkillsTab } from "../components/AgentSkillsTab";
 import { styles } from "../lib/agentRegistryPageStyles";
 import {
   blankAgentDraft,
@@ -1540,110 +1541,33 @@ export function AgentRegistryPage() {
   );
 
   const renderSkillsTab = () => (
-    <div style={styles.workspace}>
-      <div style={styles.rail}>
-        <div style={styles.toolbar}>
-          <button
-            type="button"
-            style={styles.buttonPrimary}
-            onClick={() => {
-              setSelectedSkillId(null);
-              setSkillDraft(blankSkillDraft());
-              setSkillError(null);
-              setSkillFeedback(null);
-            }}
-          >
-            + New Skill
-          </button>
-        </div>
-        <div style={styles.sectionTitle}>Catalog</div>
-        <div style={styles.list}>
-          {skills.length === 0 ? (
-            <div style={styles.empty}>No skills defined yet.</div>
-          ) : (
-            skills.map((skill) => (
-              <button
-                key={skill.id}
-                type="button"
-                style={{
-                  ...styles.listItem,
-                  ...(skill.id === selectedSkillId ? styles.listItemActive : {}),
-                  textAlign: "left",
-                }}
-                onClick={() => setSelectedSkillId(skill.id)}
-              >
-                <div style={styles.itemTitle}>{skill.name}</div>
-                <div style={styles.itemMeta}>{skill.category}</div>
-                <div style={styles.badgeRow}>
-                  <span style={styles.badgeMuted}>{skill.enabled ? "enabled" : "disabled"}</span>
-                </div>
-              </button>
-            ))
-          )}
-        </div>
-      </div>
-      <div style={styles.detail}>
-        <div style={styles.headerRow}>
-          <div style={styles.titleWrap}>
-            <h2 style={styles.title}>{selectedSkill ? "Edit Skill" : "Create Skill"}</h2>
-            <div style={styles.subtitle}>Define reusable capability packs and link them to both agents and teams.</div>
-          </div>
-          {selectedSkill ? (
-            <button type="button" style={styles.buttonDanger} onClick={() => deleteSkillMutation.mutate(selectedSkill.id)}>
-              Delete
-            </button>
-          ) : null}
-        </div>
-        <div style={styles.formGrid}>
-          <div style={styles.field}>
-            <label style={styles.label}>Name</label>
-            <input style={styles.input} value={skillDraft.name} onChange={(e) => setSkillDraft((draft) => ({ ...draft, name: e.target.value }))} />
-          </div>
-          <div style={styles.field}>
-            <label style={styles.label}>Category</label>
-            <input style={styles.input} value={skillDraft.category} onChange={(e) => setSkillDraft((draft) => ({ ...draft, category: e.target.value }))} />
-          </div>
-          <div style={{ ...styles.field, ...styles.fullWidth }}>
-            <label style={styles.label}>Description</label>
-            <textarea style={styles.textarea} value={skillDraft.description} onChange={(e) => setSkillDraft((draft) => ({ ...draft, description: e.target.value }))} />
-          </div>
-          <div style={{ ...styles.field, ...styles.fullWidth }}>
-            <label style={styles.label}>Instructions</label>
-            <textarea style={{ ...styles.textarea, minHeight: 140 }} value={skillDraft.instructions} onChange={(e) => setSkillDraft((draft) => ({ ...draft, instructions: e.target.value }))} />
-          </div>
-        </div>
-        <label style={styles.checkboxRow}>
-          <input
-            type="checkbox"
-            checked={skillDraft.enabled}
-            onChange={(e) => setSkillDraft((draft) => ({ ...draft, enabled: e.target.checked }))}
-          />
-          Skill is active
-        </label>
-        {skillError ? <div style={styles.error}>{skillError}</div> : null}
-        {skillFeedback ? <div style={styles.success}>{skillFeedback}</div> : null}
-        <div style={styles.toolbar}>
-          <button type="button" style={styles.buttonPrimary} onClick={handleSaveSkill}>
-            {selectedSkill ? "Save Skill" : "Create Skill"}
-          </button>
-          <button
-            type="button"
-            style={styles.buttonSecondary}
-            onClick={() => {
-              if (selectedSkill) {
-                setSkillDraft(parseSkillDraft(selectedSkill));
-              } else {
-                setSkillDraft(blankSkillDraft());
-              }
-              setSkillError(null);
-              setSkillFeedback(null);
-            }}
-          >
-            Reset
-          </button>
-        </div>
-      </div>
-    </div>
+    <AgentSkillsTab
+      skills={skills}
+      selectedSkillId={selectedSkillId}
+      selectedSkill={selectedSkill}
+      skillDraft={skillDraft}
+      onCreateNewSkill={() => {
+        setSelectedSkillId(null);
+        setSkillDraft(blankSkillDraft());
+        setSkillError(null);
+        setSkillFeedback(null);
+      }}
+      onSelectSkill={setSelectedSkillId}
+      onSkillDraftChange={setSkillDraft}
+      onDeleteSkill={(skillId) => deleteSkillMutation.mutate(skillId)}
+      onSaveSkill={handleSaveSkill}
+      onResetSkillForm={() => {
+        if (selectedSkill) {
+          setSkillDraft(parseSkillDraft(selectedSkill));
+        } else {
+          setSkillDraft(blankSkillDraft());
+        }
+        setSkillError(null);
+        setSkillFeedback(null);
+      }}
+      skillError={skillError}
+      skillFeedback={skillFeedback}
+    />
   );
 
   const renderRoutingTab = () => (
