@@ -1,11 +1,16 @@
 import React from "react";
 import { FlatList, Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { ProductModeButton, ProductNodeRow, ProductPlannerPanel } from "./MobileProductComponents";
-import type { HierarchyTreeNode, MobilePlannerToolTraceEntry, Product, ProductTree, ProductTreeSummary } from "../types";
+import type {
+  HierarchyTreeNode,
+  MobilePlannerToolTraceEntry,
+  Product,
+  ProductExploreTab,
+  ProductTree,
+  ProductTreeSummary,
+} from "../types";
 import { formatNodeKind, getNodeSummary } from "../lib/productTree";
 import { styles } from "../styles/appStyles";
-
-export type ProductExploreTab = "map" | "work" | "search" | "overview";
 
 type ProductStats = {
   productAreas: number;

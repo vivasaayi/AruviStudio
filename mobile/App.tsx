@@ -23,11 +23,11 @@ import { MobileAppHeader } from "./src/components/MobileAppHeader";
 import { MobileBottomTabs, MOBILE_TABS, type MobileTabId } from "./src/components/MobileBottomTabs";
 import { MobileCallsScreen } from "./src/components/MobileCallsScreen";
 import { MobileModelManager } from "./src/components/MobileModelManager";
-import { MobileProductExplorer, type ProductExploreTab } from "./src/components/MobileProductExplorer";
+import { MobileProductExplorer } from "./src/components/MobileProductExplorer";
 import { MobileRemoteWebView } from "./src/components/MobileRemoteWebView";
 import { MobileVoiceScreen } from "./src/components/MobileVoiceScreen";
-import { useMobileProductViewModel } from "./src/hooks/useMobileProductViewModel";
-import type { MobilePlannerToolTraceEntry, ModelCall, Product, ProductTree, ProductTreeSummary } from "./src/types";
+import { useMobileProductsController } from "./src/hooks/useMobileProductsController";
+import type { MobilePlannerToolTraceEntry, ModelCall } from "./src/types";
 import {
   buildRemoteScript,
   buildRemoteVoiceSubmitScript,
@@ -53,7 +53,6 @@ import {
 } from "./src/lib/mobileVoice";
 import {
   getNodeSummary,
-  productViewNeedsTree,
 } from "./src/lib/productTree";
 import { styles } from "./src/styles/appStyles";
 
@@ -129,17 +128,6 @@ export default function App() {
       content: "Ready when you are. Tap the mic and speak naturally.",
     },
   ]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [productSummary, setProductSummary] = useState<ProductTreeSummary | null>(null);
-  const [productTree, setProductTree] = useState<ProductTree | null>(null);
-  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
-  const [selectedProductNodeId, setSelectedProductNodeId] = useState<string | null>(null);
-  const [productExploreTab, setProductExploreTab] = useState<ProductExploreTab>("overview");
-  const [productSearchQuery, setProductSearchQuery] = useState("");
-  const [isProductLoading, setIsProductLoading] = useState(false);
-  const [isProductTreeLoading, setIsProductTreeLoading] = useState(false);
-  const [productError, setProductError] = useState<string | null>(null);
-  const [isProductPickerOpen, setIsProductPickerOpen] = useState(false);
   const [modelCalls, setModelCalls] = useState<ModelCall[]>([]);
   const [selectedModelCallSessionKey, setSelectedModelCallSessionKey] = useState<string | null>(null);
   const [selectedModelCall, setSelectedModelCall] = useState<ModelCall | null>(null);
@@ -155,6 +143,12 @@ export default function App() {
     return new PlannerMobileClient(baseUrl.trim(), token.trim());
   }, [baseUrl, token]);
 
+  const productsController = useMobileProductsController({
+    mobileClient,
+    token,
+    describeError,
+  });
+
   const {
     selectedProduct,
     selectedProductNode,
@@ -162,14 +156,26 @@ export default function App() {
     productStats,
     visibleProductChildren,
     filteredProductNodes,
-  } = useMobileProductViewModel({
     products,
     productSummary,
     productTree,
     selectedProductId,
     selectedProductNodeId,
+    productExploreTab,
     productSearchQuery,
-  });
+    isProductLoading,
+    isProductTreeLoading,
+    productError,
+    isProductPickerOpen,
+    loadProducts,
+    ensureProductTree,
+    setProductError,
+    openProductNode,
+    setSelectedProductNodeId,
+    switchProductExploreTab,
+    setProductSearchQuery,
+    setIsProductPickerOpen,
+  } = productsController;
 
   const selectedWhisperModel = useMemo(() => {
     return WHISPER_MODELS.find((model) => model.id === selectedWhisperModelId) ?? WHISPER_MODELS[0];
@@ -399,82 +405,6 @@ export default function App() {
       Alert.alert("Save failed", describeError(error));
     } finally {
       setIsSaving(false);
-    }
-  };
-
-  const loadProductSummary = async (productId: string) => {
-    const summary = await mobileClient.getProductSummary(productId);
-    setProductSummary(summary);
-    setSelectedProductId(productId);
-    if (productTree?.product.id !== productId || !productViewNeedsTree(productExploreTab)) {
-      setProductTree(null);
-      setSelectedProductNodeId(null);
-    }
-  };
-
-  const ensureProductTree = async (productId: string, force = false) => {
-    if (!force && productTree?.product.id === productId) {
-      return productTree;
-    }
-    try {
-      setIsProductTreeLoading(true);
-      setProductError(null);
-      const previousProductId = selectedProductId;
-      const tree = await mobileClient.getProductTree(productId);
-      setProductTree(tree);
-      setSelectedProductId(productId);
-      if (previousProductId !== productId) {
-        setSelectedProductNodeId(null);
-      }
-      return tree;
-    } finally {
-      setIsProductTreeLoading(false);
-    }
-  };
-
-  const switchProductExploreTab = async (mode: ProductExploreTab) => {
-    setProductExploreTab(mode);
-    if (!productViewNeedsTree(mode) || !selectedProductId) {
-      return;
-    }
-    try {
-      await ensureProductTree(selectedProductId);
-    } catch (error) {
-      setProductError(describeError(error));
-    }
-  };
-
-  const loadProducts = async (preferredProductId?: string | null) => {
-    if (!token.trim()) {
-      setProductError("Save a mobile API token before loading products.");
-      return;
-    }
-    try {
-      setIsProductLoading(true);
-      setProductError(null);
-      const loadedProducts = await mobileClient.listProducts();
-      setProducts(loadedProducts);
-      const nextProductId =
-        preferredProductId && loadedProducts.some((product) => product.id === preferredProductId)
-          ? preferredProductId
-          : selectedProductId && loadedProducts.some((product) => product.id === selectedProductId)
-            ? selectedProductId
-            : loadedProducts[0]?.id ?? null;
-      if (nextProductId) {
-        await loadProductSummary(nextProductId);
-        if (productViewNeedsTree(productExploreTab)) {
-          await ensureProductTree(nextProductId, true);
-        }
-      } else {
-        setProductSummary(null);
-        setProductTree(null);
-        setSelectedProductId(null);
-        setSelectedProductNodeId(null);
-      }
-    } catch (error) {
-      setProductError(describeError(error));
-    } finally {
-      setIsProductLoading(false);
     }
   };
 
@@ -1112,11 +1042,6 @@ export default function App() {
           ? "Backend offline"
           : "Not checked";
   const isVoiceKeyboardOpen = activeTab === "voice" && keyboardHeight > 0;
-
-  const openProductNode = (nodeId: string) => {
-    setSelectedProductNodeId(nodeId);
-    setProductExploreTab("map");
-  };
 
   return (
     <SafeAreaView style={styles.safeArea}>

@@ -43,6 +43,8 @@ export type ProductTreeSummary = {
   leaf_node_count: number;
 };
 
+export type ProductExploreTab = "map" | "work" | "search" | "overview";
+
 export type ProductAreaTree = {
   product_area: ProductArea;
   features: CapabilityTree[];

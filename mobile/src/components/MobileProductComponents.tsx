@@ -1,11 +1,9 @@
 import React from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
-import type { HierarchyTreeNode, MobilePlannerToolTraceEntry } from "../types";
+import type { HierarchyTreeNode, MobilePlannerToolTraceEntry, ProductExploreTab } from "../types";
 import { formatPlannerToolTrace } from "../lib/mobileFormatters";
 import { formatNodeKind, getNodeSummary } from "../lib/productTree";
 import { styles } from "../styles/appStyles";
-
-type ProductExploreTab = "map" | "work" | "search" | "overview";
 
 type ProductModeButtonProps = {
   mode: ProductExploreTab;
