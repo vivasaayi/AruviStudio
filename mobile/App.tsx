@@ -17,7 +17,6 @@ import * as FileSystem from "expo-file-system";
 import * as Speech from "expo-speech";
 import * as SecureStore from "expo-secure-store";
 import { WebView } from "react-native-webview";
-import { initWhisper, type WhisperContext } from "whisper.rn";
 import { PlannerMobileClient } from "./src/api/client";
 import { MobileAppHeader } from "./src/components/MobileAppHeader";
 import { MobileBottomTabs, MOBILE_TABS, type MobileTabId } from "./src/components/MobileBottomTabs";
@@ -28,6 +27,7 @@ import { MobileRemoteWebView } from "./src/components/MobileRemoteWebView";
 import { MobileVoiceScreen } from "./src/components/MobileVoiceScreen";
 import { useMobileModelCallsController } from "./src/hooks/useMobileModelCallsController";
 import { useMobileProductsController } from "./src/hooks/useMobileProductsController";
+import { useMobileWhisperController } from "./src/hooks/useMobileWhisperController";
 import type { MobilePlannerToolTraceEntry } from "./src/types";
 import {
   buildRemoteScript,
@@ -40,14 +40,11 @@ import {
 } from "./src/lib/mobileConnection";
 import { describeError } from "./src/lib/mobileFormatters";
 import {
-  assertWhisperNativeModuleAvailable,
   normalizeWhisperLanguage,
   parseInstalledWhisperModels,
-  whisperModelDirectory,
   WHISPER_MODELS,
   VOICE_RECORDING_OPTIONS,
   type InstalledWhisperModel,
-  type WhisperModelOption,
 } from "./src/lib/mobileVoice";
 import {
   getNodeSummary,
@@ -86,7 +83,6 @@ function createId(prefix: string) {
 
 export default function App() {
   const webViewRef = useRef<WebView>(null);
-  const whisperContextRef = useRef<{ modelId: string; uri: string; context: WhisperContext } | null>(null);
   const audioRecorder = useAudioRecorder(VOICE_RECORDING_OPTIONS);
   const recorderState = useAudioRecorderState(audioRecorder, 250);
   const [baseUrl, setBaseUrl] = useState("http://100.66.32.111:8787");
@@ -99,11 +95,6 @@ export default function App() {
   const [plannerChatSessionId, setPlannerChatSessionId] = useState<string | null>(null);
   const [plannerContextProductName, setPlannerContextProductName] = useState<string | null>(null);
   const [readReplies, setReadReplies] = useState(true);
-  const [selectedWhisperModelId, setSelectedWhisperModelId] = useState(WHISPER_MODELS[0].id);
-  const [installedWhisperModels, setInstalledWhisperModels] = useState<Record<string, InstalledWhisperModel>>({});
-  const [modelInstallStatus, setModelInstallStatus] = useState("No on-device model installed yet.");
-  const [modelInstallProgress, setModelInstallProgress] = useState<number | null>(null);
-  const [modelInstallBusyId, setModelInstallBusyId] = useState<string | null>(null);
   const [isSetupOpen, setIsSetupOpen] = useState(false);
   const [webReloadKey, setWebReloadKey] = useState(0);
   const [connectionCheckKey, setConnectionCheckKey] = useState(0);
@@ -184,14 +175,27 @@ export default function App() {
     describeError,
   });
 
-  const selectedWhisperModel = useMemo(() => {
-    return WHISPER_MODELS.find((model) => model.id === selectedWhisperModelId) ?? WHISPER_MODELS[0];
-  }, [selectedWhisperModelId]);
-
-  const installedSelectedWhisperModel = installedWhisperModels[selectedWhisperModel.id];
-  const firstInstalledWhisperModel = Object.values(installedWhisperModels)[0];
-  const activeLocalWhisperModel = installedSelectedWhisperModel ?? firstInstalledWhisperModel;
-  const canUseLocalSpeech = Boolean(activeLocalWhisperModel?.uri);
+  const {
+    selectedWhisperModel,
+    selectedWhisperModelId,
+    setSelectedWhisperModelId,
+    installedWhisperModels,
+    setVerifiedInstalledModels,
+    modelInstallStatus,
+    modelInstallProgress,
+    modelInstallBusyId,
+    activeLocalWhisperModel,
+    canUseLocalSpeech,
+    selectWhisperModel,
+    installWhisperModel,
+    removeWhisperModel,
+    transcribeWithLocalWhisper,
+  } = useMobileWhisperController({
+    locale,
+    installedModelsStorageKey: STORAGE_KEYS.installedWhisperModels,
+    selectedModelStorageKey: STORAGE_KEYS.selectedWhisperModelId,
+    onStatusChange: setNativeVoiceStatus,
+  });
 
   const remoteBootstrapScript = useMemo(() => {
     return buildRemoteScript({
@@ -210,9 +214,6 @@ export default function App() {
     });
 
     return () => {
-      const currentContext = whisperContextRef.current;
-      whisperContextRef.current = null;
-      void currentContext?.context.release();
       void Speech.stop();
     };
   }, []);
@@ -367,12 +368,7 @@ export default function App() {
         }),
       );
       if (disposed) return;
-      setInstalledWhisperModels(verifiedInstalledModels);
-      setModelInstallStatus(
-        Object.keys(verifiedInstalledModels).length
-          ? "On-device Whisper model is available."
-          : "No on-device model installed yet.",
-      );
+      setVerifiedInstalledModels(verifiedInstalledModels);
 
       const initialUrl = await Linking.getInitialURL();
       if (disposed || !initialUrl) return;
@@ -779,143 +775,6 @@ export default function App() {
     } finally {
       setIsVoiceBusy(false);
     }
-  };
-
-  const persistInstalledWhisperModels = async (nextModels: Record<string, InstalledWhisperModel>) => {
-    setInstalledWhisperModels(nextModels);
-    await SecureStore.setItemAsync(STORAGE_KEYS.installedWhisperModels, JSON.stringify(nextModels));
-  };
-
-  const selectWhisperModel = async (modelId: string) => {
-    setSelectedWhisperModelId(modelId);
-    await SecureStore.setItemAsync(STORAGE_KEYS.selectedWhisperModelId, modelId);
-  };
-
-  const installWhisperModel = async (model: WhisperModelOption) => {
-    try {
-      setModelInstallBusyId(model.id);
-      setModelInstallProgress(0);
-      setModelInstallStatus(`Preparing ${model.label}...`);
-      const directory = whisperModelDirectory();
-      await FileSystem.makeDirectoryAsync(directory, { intermediates: true });
-      const destinationUri = `${directory}${model.fileName}`;
-      const existingInfo = await FileSystem.getInfoAsync(destinationUri);
-
-      if (existingInfo.exists) {
-        const nextModels = {
-          ...installedWhisperModels,
-          [model.id]: {
-            id: model.id,
-            uri: destinationUri,
-            fileName: model.fileName,
-            installedAt: new Date().toISOString(),
-            sizeBytes: "size" in existingInfo ? existingInfo.size : undefined,
-          },
-        };
-        await persistInstalledWhisperModels(nextModels);
-        await selectWhisperModel(model.id);
-        setModelInstallProgress(100);
-        setModelInstallStatus(`${model.label} installed and selected for voice chat.`);
-        return;
-      }
-
-      const download = FileSystem.createDownloadResumable(
-        model.url,
-        destinationUri,
-        {},
-        ({ totalBytesWritten, totalBytesExpectedToWrite }) => {
-          if (totalBytesExpectedToWrite > 0) {
-            setModelInstallProgress(Math.round((totalBytesWritten / totalBytesExpectedToWrite) * 100));
-          }
-        },
-      );
-      const result = await download.downloadAsync();
-      if (!result?.uri) {
-        throw new Error("Model download did not produce a local file.");
-      }
-      const downloadedInfo = await FileSystem.getInfoAsync(result.uri);
-      const nextModels = {
-        ...installedWhisperModels,
-        [model.id]: {
-          id: model.id,
-          uri: result.uri,
-          fileName: model.fileName,
-          installedAt: new Date().toISOString(),
-          sizeBytes: downloadedInfo.exists && "size" in downloadedInfo ? downloadedInfo.size : undefined,
-        },
-      };
-      await persistInstalledWhisperModels(nextModels);
-      await selectWhisperModel(model.id);
-      setModelInstallProgress(100);
-      setModelInstallStatus(`${model.label} installed and selected for voice chat.`);
-    } catch (error) {
-      const message = describeError(error);
-      setModelInstallStatus(message);
-      Alert.alert("Model install failed", message);
-    } finally {
-      setModelInstallBusyId(null);
-    }
-  };
-
-  const removeWhisperModel = async (model: WhisperModelOption) => {
-    try {
-      const installedModel = installedWhisperModels[model.id];
-      if (installedModel?.uri) {
-        const info = await FileSystem.getInfoAsync(installedModel.uri);
-        if (info.exists) {
-          await FileSystem.deleteAsync(installedModel.uri, { idempotent: true });
-        }
-      }
-      const nextModels = { ...installedWhisperModels };
-      delete nextModels[model.id];
-      await persistInstalledWhisperModels(nextModels);
-      const currentContext = whisperContextRef.current;
-      if (currentContext?.modelId === model.id) {
-        whisperContextRef.current = null;
-        await currentContext.context.release();
-      }
-      setModelInstallProgress(null);
-      setModelInstallStatus(`${model.label} removed.`);
-    } catch (error) {
-      const message = describeError(error);
-      setModelInstallStatus(message);
-      Alert.alert("Remove failed", message);
-    }
-  };
-
-  const getWhisperContext = async (modelId: string, modelUri: string) => {
-    const currentContext = whisperContextRef.current;
-    if (currentContext?.modelId === modelId && currentContext.uri === modelUri) {
-      return currentContext.context;
-    }
-    if (currentContext) {
-      await currentContext.context.release();
-    }
-    setNativeVoiceStatus("Loading local Whisper model...");
-    assertWhisperNativeModuleAvailable();
-    const context = await initWhisper({
-      filePath: modelUri,
-      useGpu: true,
-      useCoreMLIos: false,
-    });
-    whisperContextRef.current = { modelId, uri: modelUri, context };
-    return context;
-  };
-
-  const transcribeWithLocalWhisper = async (audioUri: string) => {
-    const installedModel = activeLocalWhisperModel;
-    if (!installedModel?.uri) {
-      throw new Error("Install the selected Whisper model before using on-device transcription.");
-    }
-    const context = await getWhisperContext(installedModel.id, installedModel.uri);
-    setNativeVoiceStatus("Transcribing on device...");
-    const { promise } = context.transcribe(audioUri, {
-      language: normalizeWhisperLanguage(locale),
-      maxThreads: 4,
-      onProgress: (progress: number) => setNativeVoiceStatus(`Transcribing on device ${Math.round(progress)}%`),
-    });
-    const result = await promise;
-    return result.result.trim();
   };
 
   const transcribeNativeRecording = async (uri: string) => {
