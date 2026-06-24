@@ -61,8 +61,8 @@ import {
   ProductAreaFormModal,
 } from "../components/ProductManagementHierarchyModals";
 import { ProductDependenciesTab } from "../components/ProductDependenciesTab";
+import { ProductPageTabs } from "../components/ProductPageTabs";
 import { ProductStatusTab } from "../components/ProductStatusTab";
-import { ScopedRefreshButton } from "../components/ScopedRefreshButton";
 import {
   DeleteHierarchyNodeModal,
   DeleteManagementWorkItemModal,
@@ -1491,41 +1491,22 @@ export function ProductListPage() {
         </div>
       </div>
 
-      <div style={styles.pageTabs}>
-        <div style={styles.pageTabGroup}>
-          <span style={styles.pageTabGroupLabel}>Catalog</span>
-          <button style={productPageTab === "list" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("list")}>Product List</button>
-          <button style={productPageTab === "status" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("status")}>Product Status</button>
-        </div>
-        <div style={styles.pageTabGroup}>
-          <span style={styles.pageTabGroupLabel}>Selected Product</span>
-          <select
-            aria-label="Selected product"
-            style={styles.pageTabProductSelect}
-            value={selectedProductId ?? ""}
-            onChange={(event) => {
-              const nextProductId = event.target.value || null;
-              setActiveProduct(nextProductId);
-              if (nextProductId && (productPageTab === "list" || productPageTab === "status")) {
-                setProductPageTab("overview");
-              }
-            }}
-          >
-            <option value="">Select product</option>
-            {(products ?? []).map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
-          </select>
-          <button style={productPageTab === "overview" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("overview")} disabled={!selectedProduct}>Product Overview</button>
-          <button style={productPageTab === "design" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("design")} disabled={!selectedProduct}>Product Management</button>
-          <button style={productPageTab === "dependencies" ? styles.pageTabActive : styles.pageTab} onClick={() => setProductPageTab("dependencies")} disabled={!selectedProduct}>Dependencies</button>
-        </div>
-        <div style={styles.tabRefreshSlot}>
-          <ScopedRefreshButton
-            label={activeProductPageRefreshLabel}
-            onRefresh={refreshActiveProductPageTab}
-            disabled={activeProductPageRefreshDisabled}
-          />
-        </div>
-      </div>
+      <ProductPageTabs
+        productPageTab={productPageTab}
+        selectedProductId={selectedProductId}
+        selectedProduct={selectedProduct}
+        products={products ?? []}
+        refreshLabel={activeProductPageRefreshLabel}
+        isRefreshDisabled={activeProductPageRefreshDisabled}
+        onProductPageTabChange={setProductPageTab}
+        onSelectedProductChange={(nextProductId) => {
+          setActiveProduct(nextProductId);
+          if (nextProductId && (productPageTab === "list" || productPageTab === "status")) {
+            setProductPageTab("overview");
+          }
+        }}
+        onRefresh={refreshActiveProductPageTab}
+      />
 
       <div style={styles.workspace}>
         <div style={styles.panel}>
