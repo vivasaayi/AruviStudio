@@ -15,7 +15,6 @@ import {
   reorderCapabilities,
   reorderProductAreas,
   resetProductPlan,
-  setSetting,
   updateCapability,
   updateProductArea,
   updateProduct,
@@ -32,6 +31,7 @@ import { ProductManagementConsole } from "../components/ProductManagementConsole
 import { ProductManagementModalStack } from "../components/ProductManagementModalStack";
 import { ProductPageTabs } from "../components/ProductPageTabs";
 import { ProductWorkspacePanel } from "../components/ProductWorkspacePanel";
+import { useProductCatalogControls } from "../hooks/useProductCatalogControls";
 import { useProductHierarchySelectionState } from "../hooks/useProductHierarchySelectionState";
 import { useProductManagementSelection } from "../hooks/useProductManagementSelection";
 import { useProductPageViewModel } from "../hooks/useProductPageViewModel";
@@ -57,9 +57,7 @@ import {
   isProductPageRefreshDisabled,
   type ProductManagementTab,
   type ProductPageTab,
-  type ProductStatusGroupBy,
 } from "../lib/productRefreshScopes";
-import type { ProductCatalogSort, ProductCatalogSourceFilter, ProductCatalogStatusFilter } from "../lib/productCatalogRows";
 import type { CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ProductAreaTree, Product, WorkItem } from "../../../lib/types";
 
 
@@ -105,18 +103,6 @@ export function ProductListPage() {
   const [productManagementTab, setProductManagementTab] = useState<ProductManagementTab>("areas");
   const [formError, setFormError] = useState<string | null>(null);
   const [productPageTab, setProductPageTab] = useState<ProductPageTab>(() => isProductDetailRoute ? "design" : "list");
-  const [productSearch, setProductSearch] = useState("");
-  const [productStatusFilter, setProductStatusFilter] = useState<ProductCatalogStatusFilter>("all");
-  const [productSourceFilter, setProductSourceFilter] = useState<ProductCatalogSourceFilter>("all");
-  const [productTagFilter, setProductTagFilter] = useState("all");
-  const [productSort, setProductSort] = useState<ProductCatalogSort>("name");
-  const [showDefaultProductsInTable, setShowDefaultProductsInTable] = useState(true);
-  const [showCustomProductsInTable, setShowCustomProductsInTable] = useState(true);
-  const [catalogFilterMsg, setCatalogFilterMsg] = useState<string | null>(null);
-  const [catalogFilterError, setCatalogFilterError] = useState<string | null>(null);
-  const [statusProductId, setStatusProductId] = useState<string>("all");
-  const [statusDepth, setStatusDepth] = useState(1);
-  const [statusGroupBy, setStatusGroupBy] = useState<ProductStatusGroupBy>("work_status");
   const [dependencyDraft, setDependencyDraft] = useState<ProductDependencyDraft>(emptyProductDependencyDraft);
   const [deleteProductCandidate, setDeleteProductCandidate] = useState<Product | null>(null);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
@@ -144,6 +130,34 @@ export function ProductListPage() {
   const [storyDraft, setStoryDraft] = useState<WorkItemDraftState>(emptyWorkItemDraft);
   const [taskDraft, setTaskDraft] = useState<WorkItemDraftState>(emptyWorkItemDraft);
   const [copiedEntityId, setCopiedEntityId] = useState<string | null>(null);
+
+  const {
+    productSearch,
+    setProductSearch,
+    productStatusFilter,
+    setProductStatusFilter,
+    productSourceFilter,
+    setProductSourceFilter,
+    productTagFilter,
+    setProductTagFilter,
+    productSort,
+    setProductSort,
+    showDefaultProductsInTable,
+    setShowDefaultProductsInTable,
+    showCustomProductsInTable,
+    setShowCustomProductsInTable,
+    catalogFilterMsg,
+    catalogFilterError,
+    statusProductId,
+    setStatusProductId,
+    statusDepth,
+    setStatusDepth,
+    statusGroupBy,
+    setStatusGroupBy,
+    updateDefaultProductVisibility,
+  } = useProductCatalogControls({
+    queryClient,
+  });
 
   const {
     products,
@@ -191,22 +205,7 @@ export function ProductListPage() {
     if (!products?.some((product) => product.id === statusProductId)) {
       setStatusProductId("all");
     }
-  }, [products, statusProductId]);
-
-  const updateDefaultProductVisibility = async (includeDefaultProducts: boolean) => {
-    try {
-      setCatalogFilterMsg(null);
-      setCatalogFilterError(null);
-      await setSetting(HIDE_EXAMPLE_PRODUCTS_KEY, includeDefaultProducts ? "false" : "true");
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["products"] }),
-        queryClient.invalidateQueries({ queryKey: ["setting", HIDE_EXAMPLE_PRODUCTS_KEY] }),
-      ]);
-      setCatalogFilterMsg(includeDefaultProducts ? "Default products are included." : "Default products are hidden.");
-    } catch (error) {
-      setCatalogFilterError(String(error));
-    }
-  };
+  }, [products, setStatusProductId, statusProductId]);
 
   useEffect(() => {
     if (!activeProductId && products?.[0]?.id) {
