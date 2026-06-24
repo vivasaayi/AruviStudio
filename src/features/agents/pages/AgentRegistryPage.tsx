@@ -46,6 +46,7 @@ import type {
 } from "../../../lib/types";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { AgentAssignmentsTab } from "../components/AgentAssignmentsTab";
+import { AgentOrgTreeRail } from "../components/AgentOrgTreeRail";
 import { AgentRegistryHeader } from "../components/AgentRegistryHeader";
 import { AgentRoutingTab } from "../components/AgentRoutingTab";
 import { AgentSkillChooser } from "../components/AgentSkillChooser";
@@ -789,215 +790,44 @@ export function AgentRegistryPage() {
 
   const renderAgentTab = () => (
     <div style={styles.workspace}>
-      <div style={styles.rail}>
-        <div style={styles.toolbar}>
-          <button
-            type="button"
-            style={styles.buttonPrimary}
-            onClick={() => {
-              setSelectedAgentId(null);
-              setSelectedAgentSkillIds([]);
-              setAgentDraft(blankAgentDraft());
-              setAgentError(null);
-              setAgentFeedback(null);
-            }}
-          >
-            + Hire Agent
-          </button>
-          <button
-            type="button"
-            style={styles.buttonSecondary}
-            onClick={handleBindAllAgentsToDeepSeek}
-          >
-            Use DeepSeek for All Enabled Agents
-          </button>
-          <button
-            type="button"
-            style={styles.buttonSecondary}
-            onClick={handleBindCodingAgentsToDeepSeek}
-          >
-            Use DeepSeek for Coding Agents
-          </button>
-        </div>
-        <div style={styles.sectionTitle}>Org Tree</div>
-        {agentsLoading || teamsLoading ? (
-          <div style={styles.empty}>Loading organization...</div>
-        ) : (
-          <div style={styles.treeTable}>
-            <div style={{ ...styles.treeHeader, gridTemplateColumns: "minmax(0, 1.25fr) 100px 130px 110px 180px" }}>
-              <div>Name</div>
-              <div>Type</div>
-              <div>Role / Lead</div>
-              <div>Status</div>
-              <div style={{ textAlign: "right" }}>Actions</div>
-            </div>
-            {teams.length === 0 && unassignedAgents.length === 0 ? (
-              <div style={{ ...styles.empty, padding: 14 }}>No agents hired yet.</div>
-            ) : (
-              <>
-                {teams.map((team) => {
-                  const isExpanded = expandedTeams[team.id] ?? true;
-                  const memberRows = teamMembershipsByTeam.get(team.id) ?? [];
-                  return (
-                    <React.Fragment key={team.id}>
-                      <div
-                        style={{
-                          ...styles.treeRow,
-                          gridTemplateColumns: "minmax(0, 1.25fr) 100px 130px 110px 180px",
-                          ...(team.id === selectedTeamId && !selectedAgentId ? styles.treeRowActive : {}),
-                        }}
-                        onClick={() => {
-                          setSelectedTeamId(team.id);
-                          setSelectedAgentId(null);
-                        }}
-                      >
-                        <div style={styles.treeNameCell}>
-                          <span style={styles.treeCaret}>{isExpanded ? "▾" : "▸"}</span>
-                          <span style={styles.treeName}>{team.name}</span>
-                        </div>
-                        <div style={styles.treeCell}>Team</div>
-                        <div style={styles.treeCell}>
-                          {memberRows.find((membership) => membership.is_lead)?.title ?? "No lead set"}
-                        </div>
-                        <div><span style={styles.treeMetaBadge}>{team.enabled ? "enabled" : "disabled"}</span></div>
-                        <div style={styles.treeActions}>
-                          <button
-                            type="button"
-                            style={styles.treeActionBtn}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setExpandedTeams((current) => ({ ...current, [team.id]: !isExpanded }));
-                            }}
-                          >
-                            {isExpanded ? "Collapse" : "Expand"}
-                          </button>
-                          <button
-                            type="button"
-                            style={styles.treeActionBtn}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedTeamId(team.id);
-                              setSelectedAgentId(null);
-                              setActiveTab("teams");
-                            }}
-                          >
-                            Edit
-                          </button>
-                        </div>
-                      </div>
-                      {isExpanded ? memberRows.map((membership) => {
-                        const agent = agents.find((entry) => entry.id === membership.agent_id);
-                        if (!agent) {
-                          return null;
-                        }
-                        return (
-                          <div
-                            key={membership.id}
-                            style={{
-                              ...styles.treeRow,
-                              gridTemplateColumns: "minmax(0, 1.25fr) 100px 130px 110px 180px",
-                              ...(agent.id === selectedAgentId ? styles.treeRowActive : {}),
-                            }}
-                            onClick={() => {
-                              setSelectedTeamId(team.id);
-                              setSelectedAgentId(agent.id);
-                            }}
-                            >
-                              <div style={styles.treeNameCell}>
-                                <span style={styles.treeIndent} />
-                                <span style={styles.treeCaret}>•</span>
-                                <span style={styles.treeSubName}>{agent.name}</span>
-                            </div>
-                            <div style={styles.treeCell}>Agent</div>
-                            <div style={styles.treeCell}>
-                              {agent.role}{membership.is_lead ? " (lead)" : ""}
-                            </div>
-                            <div><span style={styles.treeMetaBadge}>{agent.employment_status}</span></div>
-                            <div style={styles.treeActions}>
-                              <button
-                                type="button"
-                                style={styles.treeActionBtn}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedTeamId(team.id);
-                                  setSelectedAgentId(agent.id);
-                                }}
-                              >
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                style={styles.treeActionBtn}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedTeamId(team.id);
-                                  removeMembershipMutation.mutate(membership.id);
-                                }}
-                              >
-                                Unassign
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      }) : null}
-                    </React.Fragment>
-                  );
-                })}
-                {unassignedAgents.length > 0 ? (
-                  <>
-                    <div style={{ ...styles.treeRow, gridTemplateColumns: "minmax(0, 1.25fr) 100px 130px 110px 180px" }}>
-                      <div style={styles.treeNameCell}>
-                        <span style={styles.treeCaret}>▾</span>
-                        <span style={styles.treeName}>Unassigned</span>
-                      </div>
-                      <div style={styles.treeCell}>Group</div>
-                      <div style={styles.treeCell}>No team</div>
-                      <div />
-                      <div />
-                    </div>
-                    {unassignedAgents.map((agent) => (
-                      <div
-                        key={agent.id}
-                        style={{
-                          ...styles.treeRow,
-                          gridTemplateColumns: "minmax(0, 1.25fr) 100px 130px 110px 180px",
-                          ...(agent.id === selectedAgentId ? styles.treeRowActive : {}),
-                        }}
-                        onClick={() => {
-                          setSelectedTeamId(null);
-                          setSelectedAgentId(agent.id);
-                        }}
-                      >
-                        <div style={styles.treeNameCell}>
-                          <span style={styles.treeIndent} />
-                          <span style={styles.treeCaret}>•</span>
-                          <span style={styles.treeSubName}>{agent.name}</span>
-                        </div>
-                        <div style={styles.treeCell}>Agent</div>
-                        <div style={styles.treeCell}>{agent.role}</div>
-                        <div><span style={styles.treeMetaBadge}>{agent.employment_status}</span></div>
-                        <div style={styles.treeActions}>
-                          <button
-                            type="button"
-                            style={styles.treeActionBtn}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedTeamId(null);
-                              setSelectedAgentId(agent.id);
-                            }}
-                          >
-                            Edit
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </>
-                ) : null}
-              </>
-            )}
-          </div>
-        )}
-      </div>
+      <AgentOrgTreeRail
+        agents={agents}
+        teams={teams}
+        agentsLoading={agentsLoading}
+        teamsLoading={teamsLoading}
+        selectedAgentId={selectedAgentId}
+        selectedTeamId={selectedTeamId}
+        expandedTeams={expandedTeams}
+        teamMembershipsByTeam={teamMembershipsByTeam}
+        unassignedAgents={unassignedAgents}
+        onHireAgent={() => {
+          setSelectedAgentId(null);
+          setSelectedAgentSkillIds([]);
+          setAgentDraft(blankAgentDraft());
+          setAgentError(null);
+          setAgentFeedback(null);
+        }}
+        onBindAllAgentsToDeepSeek={handleBindAllAgentsToDeepSeek}
+        onBindCodingAgentsToDeepSeek={handleBindCodingAgentsToDeepSeek}
+        onExpandedTeamsChange={setExpandedTeams}
+        onSelectTeam={(teamId) => {
+          setSelectedTeamId(teamId);
+          setSelectedAgentId(null);
+        }}
+        onEditTeam={(teamId) => {
+          setSelectedTeamId(teamId);
+          setSelectedAgentId(null);
+          setActiveTab("teams");
+        }}
+        onSelectAgent={(teamId, agentId) => {
+          setSelectedTeamId(teamId);
+          setSelectedAgentId(agentId);
+        }}
+        onUnassignMembership={(teamId, membershipId) => {
+          setSelectedTeamId(teamId);
+          removeMembershipMutation.mutate(membershipId);
+        }}
+      />
       <div style={styles.detail}>
         <div style={styles.headerRow}>
           <div style={styles.titleWrap}>
