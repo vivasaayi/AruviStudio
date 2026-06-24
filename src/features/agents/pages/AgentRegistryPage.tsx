@@ -45,6 +45,7 @@ import type {
   Skill,
 } from "../../../lib/types";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
+import { AgentRoutingTab } from "../components/AgentRoutingTab";
 import { AgentSkillsTab } from "../components/AgentSkillsTab";
 import { styles } from "../lib/agentRegistryPageStyles";
 import {
@@ -1571,117 +1572,23 @@ export function AgentRegistryPage() {
   );
 
   const renderRoutingTab = () => (
-    <div style={styles.workspace}>
-      <div style={styles.rail}>
-        <div style={styles.sectionTitle}>Workflow Stages</div>
-        <div style={styles.list}>
-          {workflowStageOptions.map((stageName) => {
-            const policy = routingPolicies.find((entry) => entry.stage_name === stageName);
-            return (
-              <button
-                key={stageName}
-                type="button"
-                style={{
-                  ...styles.listItem,
-                  ...(selectedPolicyStage === stageName ? styles.listItemActive : {}),
-                  textAlign: "left",
-                }}
-                onClick={() => setSelectedPolicyStage(stageName)}
-              >
-                <div style={styles.itemTitle}>{stageName}</div>
-                <div style={styles.itemMeta}>
-                  {policy ? `${policy.primary_roles.length} primary / ${policy.fallback_roles.length} fallback` : "using defaults"}
-                </div>
-                <div style={styles.badgeRow}>
-                  <span style={styles.badgeMuted}>
-                    {policy?.coordinator_required ?? true ? "coordinator on" : "coordinator off"}
-                  </span>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-      <div style={styles.detail}>
-        <div style={styles.headerRow}>
-          <div style={styles.titleWrap}>
-            <h2 style={styles.title}>Routing Policy Editor</h2>
-            <div style={styles.subtitle}>Map each work item delivery stage to preferred and fallback roles, and control whether coordinator review is required before the specialist runs.</div>
-          </div>
-          {selectedPolicy ? (
-            <button type="button" style={styles.buttonDanger} onClick={() => deleteRoutingPolicyMutation.mutate(selectedPolicy.stage_name)}>
-              Reset To Default
-            </button>
-          ) : null}
-        </div>
-        <div style={styles.formGrid}>
-          <div style={styles.field}>
-            <label style={styles.label}>Stage</label>
-            <select
-              style={styles.select}
-              value={routingDraft.stageName}
-              onChange={(e) => {
-                setSelectedPolicyStage(e.target.value);
-                setRoutingDraft((draft) => ({ ...draft, stageName: e.target.value }));
-              }}
-            >
-              {workflowStageOptions.map((stageName) => (
-                <option key={stageName} value={stageName}>
-                  {stageName}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div style={styles.field}>
-            <label style={styles.label}>Coordinator Review</label>
-            <select
-              style={styles.select}
-              value={routingDraft.coordinatorRequired ? "required" : "skipped"}
-              onChange={(e) => setRoutingDraft((draft) => ({ ...draft, coordinatorRequired: e.target.value === "required" }))}
-            >
-              <option value="required">required</option>
-              <option value="skipped">skipped</option>
-            </select>
-          </div>
-          <div style={{ ...styles.field, ...styles.fullWidth }}>
-            <label style={styles.label}>Primary Roles (comma-separated)</label>
-            <input
-              style={styles.input}
-              value={routingDraft.primaryRoles}
-              onChange={(e) => setRoutingDraft((draft) => ({ ...draft, primaryRoles: e.target.value }))}
-              placeholder="developer, architect, manager"
-            />
-          </div>
-          <div style={{ ...styles.field, ...styles.fullWidth }}>
-            <label style={styles.label}>Fallback Roles (comma-separated)</label>
-            <input
-              style={styles.input}
-              value={routingDraft.fallbackRoles}
-              onChange={(e) => setRoutingDraft((draft) => ({ ...draft, fallbackRoles: e.target.value }))}
-              placeholder="coding, planning"
-            />
-          </div>
-        </div>
-        {routingError ? <div style={styles.error}>{routingError}</div> : null}
-        {routingFeedback ? <div style={styles.success}>{routingFeedback}</div> : null}
-        <div style={styles.toolbar}>
-          <button type="button" style={styles.buttonPrimary} onClick={handleSaveRoutingPolicy}>
-            Save Policy
-          </button>
-          <button
-            type="button"
-            style={styles.buttonSecondary}
-            onClick={() => {
-              setRoutingDraft(parsePolicyDraft(selectedPolicy, selectedPolicyStage));
-              setRoutingError(null);
-              setRoutingFeedback(null);
-            }}
-          >
-            Reset Form
-          </button>
-        </div>
-      </div>
-    </div>
+    <AgentRoutingTab
+      routingPolicies={routingPolicies}
+      selectedPolicyStage={selectedPolicyStage}
+      selectedPolicy={selectedPolicy}
+      routingDraft={routingDraft}
+      onSelectedPolicyStageChange={setSelectedPolicyStage}
+      onRoutingDraftChange={setRoutingDraft}
+      onDeleteRoutingPolicy={(stageName) => deleteRoutingPolicyMutation.mutate(stageName)}
+      onSaveRoutingPolicy={handleSaveRoutingPolicy}
+      onResetRoutingForm={() => {
+        setRoutingDraft(parsePolicyDraft(selectedPolicy, selectedPolicyStage));
+        setRoutingError(null);
+        setRoutingFeedback(null);
+      }}
+      routingError={routingError}
+      routingFeedback={routingFeedback}
+    />
   );
 
   return (
