@@ -2,16 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
   Keyboard,
   Linking,
-  Modal,
   Platform,
   Pressable,
   SafeAreaView,
-  ScrollView,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import {
@@ -29,9 +25,9 @@ import { PlannerMobileClient } from "./src/api/client";
 import { MobileAppHeader } from "./src/components/MobileAppHeader";
 import { MobileCallsScreen } from "./src/components/MobileCallsScreen";
 import { MobileModelManager } from "./src/components/MobileModelManager";
-import { ProductModeButton, ProductNodeRow, ProductPlannerPanel } from "./src/components/MobileProductComponents";
+import { MobileProductExplorer, type ProductExploreTab } from "./src/components/MobileProductExplorer";
 import { MobileVoiceScreen } from "./src/components/MobileVoiceScreen";
-import type { HierarchyTreeNode, MobilePlannerToolTraceEntry, ModelCall, Product, ProductTree, ProductTreeSummary } from "./src/types";
+import type { MobilePlannerToolTraceEntry, ModelCall, Product, ProductTree, ProductTreeSummary } from "./src/types";
 import {
   buildRemoteScript,
   buildRemoteVoiceSubmitScript,
@@ -61,14 +57,12 @@ import {
   findProductNode,
   findProductNodePath,
   flattenProductNodes,
-  formatNodeKind,
   getNodeSummary,
   productViewNeedsTree,
 } from "./src/lib/productTree";
 import { styles } from "./src/styles/appStyles";
 
 type ActiveTab = "planner" | "products" | "voice" | "models" | "calls" | "activity";
-type ProductExploreTab = "map" | "work" | "search" | "overview";
 type ConnectionStatus = "unchecked" | "checking" | "connected" | "offline";
 type VoiceMode = "assistant" | "planner";
 type VoiceMessage = {
@@ -1167,268 +1161,6 @@ export default function App() {
     setProductExploreTab("map");
   };
 
-  const renderProductExplorer = () => {
-    const currentContextTitle = selectedProductNode?.name ?? selectedProduct?.name ?? "Products";
-    const currentContextSummary = selectedProductNode
-      ? getNodeSummary(selectedProductNode)
-      : selectedProduct?.description || "Select a product to inspect its structure.";
-    const pathNodes = selectedProductNodePath;
-    const hasProductContext = Boolean(productSummary || productTree);
-    const productMeta = [
-      `${productStats.productAreas} product areas`,
-      `${productStats.totalNodes} nodes`,
-      `${productStats.leafNodes} leaves`,
-      selectedProduct?.status ?? productTree?.product.status ?? null,
-    ].filter(Boolean).join(" · ");
-    const parentPathLabel = pathNodes.length > 1
-      ? pathNodes.slice(0, -1).map((node) => node.name).join(" / ")
-      : selectedProduct?.name ?? "Product";
-
-    if (productError && !productSummary && !productTree) {
-      return (
-        <View style={styles.productEmptyScreen}>
-          <Text style={styles.productEmptyTitle}>Products unavailable</Text>
-          <Text style={styles.productEmptyText}>{productError}</Text>
-          <Pressable style={styles.productPrimaryAction} onPress={() => void loadProducts(selectedProductId)}>
-            <Text style={styles.productPrimaryActionText}>Retry</Text>
-          </Pressable>
-        </View>
-      );
-    }
-
-    const treeRequiredFallback = (
-      <View style={styles.productEmptyScreen}>
-        <Text style={styles.productEmptyTitle}>
-          {isProductTreeLoading ? "Loading product map" : "Product map not loaded"}
-        </Text>
-        <Text style={styles.productEmptyText}>
-          {isProductTreeLoading
-            ? "Fetching the semantic tree for this product."
-            : "Overview uses aggregate metrics. Load the map only when you need to browse product areas, capabilities, and features."}
-        </Text>
-        {!isProductTreeLoading && selectedProductId ? (
-          <Pressable
-            style={styles.productPrimaryAction}
-            onPress={() => {
-              void ensureProductTree(selectedProductId).catch((error) => {
-                setProductError(describeError(error));
-              });
-            }}
-          >
-            <Text style={styles.productPrimaryActionText}>Load Product Map</Text>
-          </Pressable>
-        ) : null}
-      </View>
-    );
-
-    return (
-      <View style={styles.productScreen}>
-        <View style={styles.productHeader}>
-          <View style={styles.productHeaderTop}>
-            <View style={styles.productHeaderCopy}>
-              <Text style={styles.productHeaderTitle} numberOfLines={1}>{selectedProduct?.name ?? "No product"}</Text>
-              <Text style={styles.productHeaderSummary} numberOfLines={1}>
-                {hasProductContext ? productMeta : "Load a product to browse its summary."}
-              </Text>
-            </View>
-            <Pressable
-              style={styles.productChangeButton}
-              onPress={() => setIsProductPickerOpen(true)}
-              disabled={!products.length}
-            >
-              <Text style={styles.productChangeText}>Change</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.productModeRow}>
-            <ProductModeButton mode="map" label="Map" activeMode={productExploreTab} onPress={switchProductExploreTab} />
-            <ProductModeButton mode="work" label="Work" activeMode={productExploreTab} onPress={switchProductExploreTab} />
-            <ProductModeButton mode="search" label="Search" activeMode={productExploreTab} onPress={switchProductExploreTab} />
-            <ProductModeButton mode="overview" label="Overview" activeMode={productExploreTab} onPress={switchProductExploreTab} />
-          </View>
-        </View>
-
-        {productExploreTab === "map" ? (
-          !productTree ? treeRequiredFallback : (
-          <FlatList
-            data={visibleProductChildren}
-            keyExtractor={(node) => node.id}
-            contentContainerStyle={styles.productListContent}
-            ListHeaderComponent={(
-              selectedProductNode ? (
-                <View style={styles.productContextPanel}>
-                  <View style={styles.productBreadcrumbRow}>
-                    <Pressable style={styles.productBackButton} onPress={() => setSelectedProductNodeId(pathNodes[pathNodes.length - 2]?.id ?? null)}>
-                      <Text style={styles.productBackText}>Back</Text>
-                    </Pressable>
-                    <Text style={styles.productPathLine} numberOfLines={1} ellipsizeMode="middle">
-                      {parentPathLabel}
-                    </Text>
-                  </View>
-                  <Text style={styles.productContextTitle} numberOfLines={2}>{currentContextTitle}</Text>
-                  <Text style={styles.productContextSummary} numberOfLines={3}>{currentContextSummary}</Text>
-                  <View style={styles.productNodeMetaRow}>
-                    <Text style={styles.productKindBadge}>{formatNodeKind(selectedProductNode.node_kind)}</Text>
-                    <Text style={styles.productNodeMeta}>
-                      {visibleProductChildren.length === 1 ? "1 child" : `${visibleProductChildren.length} children`}
-                    </Text>
-                  </View>
-                  <ProductPlannerPanel
-                    isRecording={productPlannerRecording || recorderState.isRecording}
-                    isDisabled={isVoiceBusy && !(productPlannerRecording || recorderState.isRecording)}
-                    status={productPlannerStatus}
-                    reply={productPlannerReply}
-                    draft={productPlannerDraft}
-                    trace={productPlannerTrace}
-                    onSpeakReply={speakAssistantReply}
-                    onDraftChange={setProductPlannerDraft}
-                    onToggleRecording={toggleProductPlannerRecording}
-                    onSubmitPrompt={(prompt) => submitProductPlannerPrompt(prompt, "typed")}
-                  />
-                </View>
-              ) : (
-                <View style={styles.productRootHeader}>
-                  <Text style={styles.productRootTitle}>Root sections</Text>
-                  <Text style={styles.productRootMeta}>
-                    {visibleProductChildren.length === 1 ? "1 top-level section" : `${visibleProductChildren.length} top-level sections`}
-                  </Text>
-                </View>
-              )
-            )}
-            renderItem={({ item }) => <ProductNodeRow node={item} onOpenNode={openProductNode} />}
-            ListEmptyComponent={(
-              <View style={styles.productEmptyBlock}>
-                <Text style={styles.productEmptyTitle}>No children here</Text>
-                <Text style={styles.productEmptyText}>This node is a leaf. Use Search to jump elsewhere in the product map.</Text>
-              </View>
-            )}
-          />
-          )
-        ) : productExploreTab === "search" ? (
-          !productTree ? treeRequiredFallback : (
-          <View style={styles.productSearchScreen}>
-            <TextInput
-              style={styles.productSearchInput}
-              value={productSearchQuery}
-              onChangeText={setProductSearchQuery}
-              placeholder="Search nodes, kinds, summaries"
-              placeholderTextColor="#7d8898"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <FlatList
-              data={filteredProductNodes}
-              keyExtractor={(item) => item.node.id}
-              contentContainerStyle={styles.productListContent}
-              renderItem={({ item }) => (
-                <ProductNodeRow node={item.node} pathLabel={item.pathLabel} onOpenNode={openProductNode} />
-              )}
-              ListHeaderComponent={(
-                <Text style={styles.productSearchCount}>
-                  {filteredProductNodes.length} {filteredProductNodes.length === 1 ? "match" : "matches"}
-                </Text>
-              )}
-              ListEmptyComponent={(
-                <View style={styles.productEmptyBlock}>
-                  <Text style={styles.productEmptyTitle}>No matches</Text>
-                  <Text style={styles.productEmptyText}>Try a product area, capability, node kind, or technical term.</Text>
-                </View>
-              )}
-            />
-          </View>
-          )
-        ) : productExploreTab === "overview" ? (
-          <ScrollView style={styles.productOverviewScreen} contentContainerStyle={styles.productListContent}>
-            <View style={styles.productOverviewCard}>
-              <Text style={styles.productOverviewTitle}>{selectedProduct?.name ?? "Product"}</Text>
-              <Text style={styles.productOverviewText}>{selectedProduct?.description || "No description."}</Text>
-            </View>
-            <View style={styles.productOverviewGrid}>
-              <View style={styles.productOverviewMetric}>
-                <Text style={styles.productStatValue}>{productStats.productAreas}</Text>
-                <Text style={styles.productStatLabel}>Product Areas</Text>
-              </View>
-              <View style={styles.productOverviewMetric}>
-                <Text style={styles.productStatValue}>{productStats.capabilities}</Text>
-                <Text style={styles.productStatLabel}>Capabilities</Text>
-              </View>
-              <View style={styles.productOverviewMetric}>
-                <Text style={styles.productStatValue}>{productStats.totalNodes}</Text>
-                <Text style={styles.productStatLabel}>All nodes</Text>
-              </View>
-              <View style={styles.productOverviewMetric}>
-                <Text style={styles.productStatValue}>{productStats.leafNodes}</Text>
-                <Text style={styles.productStatLabel}>Leaf nodes</Text>
-              </View>
-            </View>
-            {selectedProduct?.tags?.length ? (
-              <View style={styles.productOverviewCard}>
-                <Text style={styles.productOverviewTitle}>Tags</Text>
-                <View style={styles.productTagRow}>
-                  {selectedProduct.tags.map((tag) => (
-                    <Text key={tag} style={styles.productKindBadge}>{tag}</Text>
-                  ))}
-                </View>
-              </View>
-            ) : null}
-          </ScrollView>
-        ) : (
-          <View style={styles.productEmptyScreen}>
-            <Text style={styles.productEmptyTitle}>Work view coming next</Text>
-            <Text style={styles.productEmptyText}>
-              The native product map is now separated from the desktop WebView. Next we should add a mobile work-item endpoint and show active delivery work by selected node.
-            </Text>
-          </View>
-        )}
-        <Modal
-          visible={isProductPickerOpen}
-          animationType="slide"
-          transparent
-          onRequestClose={() => setIsProductPickerOpen(false)}
-        >
-          <View style={styles.productModalOverlay}>
-            <View style={styles.productModal}>
-              <View style={styles.productModalHeader}>
-                <View style={styles.productModalTitleBlock}>
-                  <Text style={styles.productModalTitle}>Choose Product</Text>
-                  <Text style={styles.productModalMeta}>{products.length} available</Text>
-                </View>
-                <Pressable style={styles.productModalClose} onPress={() => setIsProductPickerOpen(false)}>
-                  <Text style={styles.productModalCloseText}>Close</Text>
-                </Pressable>
-              </View>
-              <FlatList
-                data={products}
-                keyExtractor={(product) => product.id}
-                contentContainerStyle={styles.productModalList}
-                renderItem={({ item }) => (
-                  <Pressable
-                    style={[
-                      styles.productModalRow,
-                      item.id === selectedProduct?.id && styles.productModalRowActive,
-                    ]}
-                    onPress={() => {
-                      setIsProductPickerOpen(false);
-                      void loadProducts(item.id);
-                    }}
-                  >
-                    <View style={styles.productModalRowCopy}>
-                      <Text style={styles.productModalRowTitle} numberOfLines={1}>{item.name}</Text>
-                      <Text style={styles.productModalRowSummary} numberOfLines={2}>
-                        {item.description || item.status}
-                      </Text>
-                    </View>
-                    <Text style={styles.productModalRowStatus}>{item.status}</Text>
-                  </Pressable>
-                )}
-              />
-            </View>
-          </View>
-        </Modal>
-      </View>
-    );
-  };
-
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.shell}>
@@ -1510,7 +1242,43 @@ export default function App() {
               onSelectedModelCallChange={setSelectedModelCall}
             />
           ) : activeTab === "products" ? (
-            renderProductExplorer()
+            <MobileProductExplorer
+              selectedProduct={selectedProduct}
+              selectedProductId={selectedProductId}
+              selectedProductNode={selectedProductNode}
+              selectedProductNodePath={selectedProductNodePath}
+              productSummary={productSummary}
+              productTree={productTree}
+              productStats={productStats}
+              visibleProductChildren={visibleProductChildren}
+              filteredProductNodes={filteredProductNodes}
+              productExploreTab={productExploreTab}
+              productSearchQuery={productSearchQuery}
+              productError={productError}
+              isProductTreeLoading={isProductTreeLoading}
+              isProductPickerOpen={isProductPickerOpen}
+              products={products}
+              productPlannerRecording={productPlannerRecording}
+              isRecorderRecording={recorderState.isRecording}
+              isVoiceBusy={isVoiceBusy}
+              productPlannerStatus={productPlannerStatus}
+              productPlannerReply={productPlannerReply}
+              productPlannerDraft={productPlannerDraft}
+              productPlannerTrace={productPlannerTrace}
+              onLoadProducts={loadProducts}
+              onEnsureProductTree={ensureProductTree}
+              onProductError={setProductError}
+              onOpenNode={openProductNode}
+              onSelectParentNode={setSelectedProductNodeId}
+              onSwitchExploreTab={switchProductExploreTab}
+              onProductSearchQueryChange={setProductSearchQuery}
+              onProductPickerOpenChange={setIsProductPickerOpen}
+              onSpeakPlannerReply={speakAssistantReply}
+              onPlannerDraftChange={setProductPlannerDraft}
+              onTogglePlannerRecording={toggleProductPlannerRecording}
+              onSubmitPlannerPrompt={(prompt) => submitProductPlannerPrompt(prompt, "typed")}
+              describeError={describeError}
+            />
           ) : (
             <WebView
               ref={webViewRef}
