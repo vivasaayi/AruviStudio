@@ -1,19 +1,8 @@
 import React, { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  clearDatabasePathOverride,
-  getActiveDatabasePath,
-  getDatabaseHealth,
-  getDatabasePathOverride,
   getMcpBridgeStatus,
   getMobileBridgeStatus,
-  getSetting,
-  routePlannerContact,
-  sendTwilioWhatsappMessage,
-  seedExampleProducts,
-  startTwilioVoiceCall,
-  setDatabasePathOverride,
-  setSetting,
 } from "../../../lib/tauri";
 import type { McpBridgeStatus, MobileBridgeStatus } from "../../../lib/types";
 import {
@@ -50,23 +39,27 @@ import {
   TWILIO_VOICE_FROM_KEY,
   TWILIO_WEBHOOK_BASE_URL_KEY,
   TWILIO_WHATSAPP_FROM_KEY,
-  parseBooleanSetting,
 } from "../lib/settingsKeys";
 import { useSettingsModelOptions } from "../hooks/useSettingsModelOptions";
 import { useSettingsPageState } from "../hooks/useSettingsPageState";
+import {
+  useSettingsLoader,
+  useSettingsPageActions,
+} from "../hooks/useSettingsPersistence";
 import { styles } from "../lib/settingsPageStyles";
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
+  const settingsState = useSettingsPageState();
   const {
     dockerHost, setDockerHost, maxRetries, setMaxRetries,
     autoStartAfterApproval, setAutoStartAfterApproval,
     autoApprovePlan, setAutoApprovePlan, autoApproveTestReview, setAutoApproveTestReview,
-    hideExampleProducts, setHideExampleProducts, savedMsg, setSavedMsg,
-    dbHealth, setDbHealth, dbHealthError, setDbHealthError, activeDbPath, setActiveDbPath,
-    dbPathOverrideInput, setDbPathOverrideInput, dbPathOverrideSaved, setDbPathOverrideSaved,
-    dbPathOverrideError, setDbPathOverrideError, catalogActionMsg, setCatalogActionMsg,
-    catalogActionError, setCatalogActionError, plannerDefaultProviderId,
+    hideExampleProducts, setHideExampleProducts, savedMsg,
+    dbHealth, dbHealthError, activeDbPath,
+    dbPathOverrideInput, setDbPathOverrideInput, dbPathOverrideSaved,
+    dbPathOverrideError, catalogActionMsg,
+    catalogActionError, plannerDefaultProviderId,
     setPlannerDefaultProviderId, plannerDefaultModelName, setPlannerDefaultModelName,
     plannerChannelPreference, setPlannerChannelPreference, plannerEscalateToCall,
     setPlannerEscalateToCall, plannerCallQuietHoursStart, setPlannerCallQuietHoursStart,
@@ -80,8 +73,8 @@ export function SettingsPage() {
     twilioWhatsappFrom, setTwilioWhatsappFrom, twilioVoiceFrom, setTwilioVoiceFrom,
     twilioWebhookBaseUrl, setTwilioWebhookBaseUrl, plannerContactTarget,
     setPlannerContactTarget, plannerContactOpeningMessage, setPlannerContactOpeningMessage,
-    plannerContactMsg, setPlannerContactMsg, plannerContactError, setPlannerContactError,
-  } = useSettingsPageState();
+    plannerContactMsg, plannerContactError,
+  } = settingsState;
   const { data: mcpBridgeStatus } = useQuery<McpBridgeStatus>({
     queryKey: ["mcpBridgeStatus"],
     queryFn: getMcpBridgeStatus,
@@ -95,48 +88,7 @@ export function SettingsPage() {
     speechProviderId,
   });
 
-  useEffect(() => {
-    getSetting("docker_host").then((v) => { if (v) setDockerHost(v); });
-    getSetting("max_workflow_retries").then((v) => { if (v) setMaxRetries(v); });
-    getSetting(AUTO_START_AFTER_APPROVAL_KEY).then((v) => setAutoStartAfterApproval(parseBooleanSetting(v, true)));
-    getSetting(AUTO_APPROVE_PLAN_KEY).then((v) => setAutoApprovePlan(parseBooleanSetting(v, true)));
-    getSetting(AUTO_APPROVE_TEST_REVIEW_KEY).then((v) => setAutoApproveTestReview(parseBooleanSetting(v, true)));
-    getSetting(HIDE_EXAMPLE_PRODUCTS_KEY).then((v) => setHideExampleProducts(parseBooleanSetting(v, true)));
-    getSetting(PLANNER_DEFAULT_PROVIDER_KEY).then((v) => { if (v) setPlannerDefaultProviderId(v); });
-    getSetting(PLANNER_DEFAULT_MODEL_KEY).then((v) => { if (v) setPlannerDefaultModelName(v); });
-    getSetting(PLANNER_CHANNEL_PREFERENCE_KEY).then((v) => { if (v) setPlannerChannelPreference(v); });
-    getSetting(PLANNER_ESCALATE_TO_CALL_KEY).then((v) => setPlannerEscalateToCall(parseBooleanSetting(v, true)));
-    getSetting(PLANNER_CALL_QUIET_HOURS_START_KEY).then((v) => { if (v) setPlannerCallQuietHoursStart(v); });
-    getSetting(PLANNER_CALL_QUIET_HOURS_END_KEY).then((v) => { if (v) setPlannerCallQuietHoursEnd(v); });
-    getSetting(SPEECH_PROVIDER_KEY).then((v) => { if (v) setSpeechProviderId(v); });
-    getSetting(SPEECH_MODEL_KEY).then((v) => { if (v) setSpeechModelName(v); });
-    getSetting(SPEECH_LOCALE_KEY).then((v) => { if (v) setSpeechLocale(v); });
-    getSetting(SPEECH_NATIVE_VOICE_KEY).then((v) => { if (v) setSpeechNativeVoice(v); });
-    getSetting(SPEECH_ENABLE_MIC_KEY).then((v) => setSpeechEnableMic(parseBooleanSetting(v, true)));
-    getSetting(SPEECH_AUTO_SPEAK_REPLIES_KEY).then((v) => setSpeechAutoSpeakReplies(parseBooleanSetting(v, false)));
-    getSetting(SPEECH_REVIEW_BEFORE_SEND_KEY).then((v) => setSpeechReviewBeforeSend(parseBooleanSetting(v, false)));
-    getSetting(MCP_API_TOKEN_KEY).then((v) => { if (v) setMcpApiToken(v); });
-    getSetting(MOBILE_API_TOKEN_KEY).then((v) => { if (v) setMobileApiToken(v); });
-    getSetting(MOBILE_BIND_HOST_KEY).then((v) => { if (v) setMobileBindHost(v); });
-    getSetting(MOBILE_BIND_PORT_KEY).then((v) => { if (v) setMobileBindPort(v); });
-    getSetting(TWILIO_ACCOUNT_SID_KEY).then((v) => { if (v) setTwilioAccountSid(v); });
-    getSetting(TWILIO_AUTH_TOKEN_KEY).then((v) => { if (v) setTwilioAuthToken(v); });
-    getSetting(TWILIO_WHATSAPP_FROM_KEY).then((v) => { if (v) setTwilioWhatsappFrom(v); });
-    getSetting(TWILIO_VOICE_FROM_KEY).then((v) => { if (v) setTwilioVoiceFrom(v); });
-    getSetting(TWILIO_WEBHOOK_BASE_URL_KEY).then((v) => { if (v) setTwilioWebhookBaseUrl(v); });
-    getSetting(PLANNER_CONTACT_TARGET_KEY).then((v) => { if (v) setPlannerContactTarget(v); });
-    getSetting(PLANNER_CONTACT_OPENING_MESSAGE_KEY).then((v) => { if (v) setPlannerContactOpeningMessage(v); });
-    getActiveDatabasePath().then(setActiveDbPath).catch((error) => setDbPathOverrideError(String(error)));
-    getDatabasePathOverride().then((v) => { if (v) setDbPathOverrideInput(v); });
-    getDatabaseHealth()
-      .then((health) => {
-        setDbHealth(health);
-        setDbHealthError(null);
-      })
-      .catch((error) => {
-        setDbHealthError(String(error));
-      });
-  }, []);
+  useSettingsLoader(settingsState);
 
   useEffect(() => {
     if (!speechProviderId || speechModelName === "") {
@@ -147,96 +99,16 @@ export function SettingsPage() {
     }
   }, [speechModelName, speechModelOptions, speechProviderId]);
 
-  const saveSetting = async (key: string, value: string) => {
-    await setSetting(key, value);
-    await queryClient.invalidateQueries({ queryKey: ["setting"] });
-    await queryClient.invalidateQueries({ queryKey: ["mcpBridgeStatus"] });
-    await queryClient.invalidateQueries({ queryKey: ["mobileBridgeStatus"] });
-    if (key === HIDE_EXAMPLE_PRODUCTS_KEY) {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["products"] }),
-        queryClient.invalidateQueries({ queryKey: ["productTree"] }),
-        queryClient.invalidateQueries({ queryKey: ["sidebarProductTree"] }),
-        queryClient.invalidateQueries({ queryKey: ["inspectorProductTree"] }),
-      ]);
-    }
-    setSavedMsg(key);
-    setTimeout(() => setSavedMsg(null), 2000);
-  };
-
-  const saveDbOverride = async () => {
-    try {
-      setDbPathOverrideError(null);
-      await setDatabasePathOverride(dbPathOverrideInput);
-      setDbPathOverrideSaved("saved");
-      setTimeout(() => setDbPathOverrideSaved(null), 2500);
-    } catch (error) {
-      setDbPathOverrideError(String(error));
-    }
-  };
-
-  const clearDbOverride = async () => {
-    try {
-      setDbPathOverrideError(null);
-      await clearDatabasePathOverride();
-      setDbPathOverrideInput("");
-      setDbPathOverrideSaved("cleared");
-      setTimeout(() => setDbPathOverrideSaved(null), 2500);
-    } catch (error) {
-      setDbPathOverrideError(String(error));
-    }
-  };
-
-  const copyText = async (value: string) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setSavedMsg(`copied:${value}`);
-      setTimeout(() => setSavedMsg(null), 2000);
-    } catch {
-      setSavedMsg(null);
-    }
-  };
-
-  const autoRoutePlannerContact = async () => {
-    try {
-      setPlannerContactError(null);
-      setPlannerContactMsg(null);
-      const result = await routePlannerContact({
-        to: plannerContactTarget.trim(),
-        content: plannerContactOpeningMessage.trim(),
-      });
-      const channelLabel = result.channel === "voice" ? "voice call" : "WhatsApp";
-      if (result.status === "blocked") {
-        setPlannerContactError(`Auto-routing blocked: ${result.reason}`);
-        return;
-      }
-      setPlannerContactMsg(`Auto-routed to ${channelLabel}. ${result.reason}`);
-    } catch (error) {
-      setPlannerContactError(String(error));
-    }
-  };
-
-  const sendPlannerWhatsapp = async () => {
-    try {
-      setPlannerContactError(null);
-      setPlannerContactMsg(null);
-      await sendTwilioWhatsappMessage({ to: plannerContactTarget.trim(), content: plannerContactOpeningMessage.trim() });
-      setPlannerContactMsg("WhatsApp message queued through Twilio.");
-    } catch (error) {
-      setPlannerContactError(String(error));
-    }
-  };
-
-  const startPlannerVoiceCall = async () => {
-    try {
-      setPlannerContactError(null);
-      setPlannerContactMsg(null);
-      await startTwilioVoiceCall({ to: plannerContactTarget.trim(), initialPrompt: plannerContactOpeningMessage.trim() || undefined });
-      setPlannerContactMsg("Voice call requested through Twilio.");
-    } catch (error) {
-      setPlannerContactError(String(error));
-    }
-  };
+  const {
+    autoRoutePlannerContact,
+    clearDbOverride,
+    copyText,
+    saveDbOverride,
+    saveSetting,
+    seedExampleCatalog,
+    sendPlannerWhatsapp,
+    startPlannerVoiceCall,
+  } = useSettingsPageActions({ queryClient, settings: settingsState });
 
   return (
     <div style={styles.page}>
@@ -265,23 +137,7 @@ export function SettingsPage() {
           <div style={{ display: "flex", alignItems: "center" }}>
             <button
               style={styles.btn}
-              onClick={async () => {
-                try {
-                  setCatalogActionError(null);
-                  await seedExampleProducts();
-                  await Promise.all([
-                    queryClient.invalidateQueries({ queryKey: ["products"] }),
-                    queryClient.invalidateQueries({ queryKey: ["productTree"] }),
-                    queryClient.invalidateQueries({ queryKey: ["sidebarProductTree"] }),
-                    queryClient.invalidateQueries({ queryKey: ["inspectorProductTree"] }),
-                    queryClient.invalidateQueries({ queryKey: ["workItems"] }),
-                  ]);
-                  setCatalogActionMsg("Example catalog is present and up to date.");
-                  setTimeout(() => setCatalogActionMsg(null), 2500);
-                } catch (error) {
-                  setCatalogActionError(String(error));
-                }
-              }}
+              onClick={() => void seedExampleCatalog()}
             >
               Seed / Repair
             </button>
