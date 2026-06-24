@@ -18,53 +18,37 @@ import {
   setSetting,
 } from "../../../lib/tauri";
 import type { DatabaseHealth, McpBridgeStatus, MobileBridgeStatus, ModelDefinition, ModelProvider } from "../../../lib/types";
-
-const AUTO_START_AFTER_APPROVAL_KEY = "workflow.auto_start_after_work_item_approval";
-const AUTO_APPROVE_PLAN_KEY = "workflow.auto_approve_plan";
-const AUTO_APPROVE_TEST_REVIEW_KEY = "workflow.auto_approve_test_review";
-const HIDE_EXAMPLE_PRODUCTS_KEY = "catalog.hide_example_products";
-const PLANNER_DEFAULT_PROVIDER_KEY = "planner.default_provider_id";
-const PLANNER_DEFAULT_MODEL_KEY = "planner.default_model_name";
-const PLANNER_CHANNEL_PREFERENCE_KEY = "planner.channel_preference";
-const PLANNER_ESCALATE_TO_CALL_KEY = "planner.escalate_to_call_on_ambiguity";
-const PLANNER_CALL_QUIET_HOURS_START_KEY = "planner.call_quiet_hours_start";
-const PLANNER_CALL_QUIET_HOURS_END_KEY = "planner.call_quiet_hours_end";
-const SPEECH_PROVIDER_KEY = "speech.transcription_provider_id";
-const SPEECH_MODEL_KEY = "speech.transcription_model_name";
-const SPEECH_LOCALE_KEY = "speech.locale";
-const SPEECH_NATIVE_VOICE_KEY = "speech.native_voice";
-const SPEECH_ENABLE_MIC_KEY = "speech.enable_mic";
-const SPEECH_AUTO_SPEAK_REPLIES_KEY = "speech.auto_speak_replies";
-const SPEECH_REVIEW_BEFORE_SEND_KEY = "speech.review_before_send";
-const MCP_API_TOKEN_KEY = "mcp.api_token";
-const MOBILE_API_TOKEN_KEY = "mobile.api_token";
-const MOBILE_BIND_HOST_KEY = "mobile.bind_host";
-const MOBILE_BIND_PORT_KEY = "mobile.bind_port";
-const TWILIO_ACCOUNT_SID_KEY = "twilio.account_sid";
-const TWILIO_AUTH_TOKEN_KEY = "twilio.auth_token";
-const TWILIO_WHATSAPP_FROM_KEY = "twilio.whatsapp_from";
-const TWILIO_VOICE_FROM_KEY = "twilio.voice_from";
-const TWILIO_WEBHOOK_BASE_URL_KEY = "twilio.webhook_base_url";
-const PLANNER_CONTACT_TARGET_KEY = "planner.contact_target";
-const PLANNER_CONTACT_OPENING_MESSAGE_KEY = "planner.contact_opening_message";
-
-function parseBooleanSetting(value: string | null | undefined, fallback: boolean) {
-  if (value == null) return fallback;
-  switch (value.trim().toLowerCase()) {
-    case "1":
-    case "true":
-    case "yes":
-    case "on":
-      return true;
-    case "0":
-    case "false":
-    case "no":
-    case "off":
-      return false;
-    default:
-      return fallback;
-  }
-}
+import {
+  AUTO_APPROVE_PLAN_KEY,
+  AUTO_APPROVE_TEST_REVIEW_KEY,
+  AUTO_START_AFTER_APPROVAL_KEY,
+  HIDE_EXAMPLE_PRODUCTS_KEY,
+  MCP_API_TOKEN_KEY,
+  MOBILE_API_TOKEN_KEY,
+  MOBILE_BIND_HOST_KEY,
+  MOBILE_BIND_PORT_KEY,
+  PLANNER_CALL_QUIET_HOURS_END_KEY,
+  PLANNER_CALL_QUIET_HOURS_START_KEY,
+  PLANNER_CHANNEL_PREFERENCE_KEY,
+  PLANNER_CONTACT_OPENING_MESSAGE_KEY,
+  PLANNER_CONTACT_TARGET_KEY,
+  PLANNER_DEFAULT_MODEL_KEY,
+  PLANNER_DEFAULT_PROVIDER_KEY,
+  PLANNER_ESCALATE_TO_CALL_KEY,
+  SPEECH_AUTO_SPEAK_REPLIES_KEY,
+  SPEECH_ENABLE_MIC_KEY,
+  SPEECH_LOCALE_KEY,
+  SPEECH_MODEL_KEY,
+  SPEECH_NATIVE_VOICE_KEY,
+  SPEECH_PROVIDER_KEY,
+  SPEECH_REVIEW_BEFORE_SEND_KEY,
+  TWILIO_ACCOUNT_SID_KEY,
+  TWILIO_AUTH_TOKEN_KEY,
+  TWILIO_VOICE_FROM_KEY,
+  TWILIO_WEBHOOK_BASE_URL_KEY,
+  TWILIO_WHATSAPP_FROM_KEY,
+  parseBooleanSetting,
+} from "../lib/settingsKeys";
 
 const styles: Record<string, React.CSSProperties> = {
   page: { maxWidth: 700, margin: "0 auto" },
