@@ -48,13 +48,14 @@ import { getHierarchyNodeKindLabel } from "../../../lib/hierarchyLabels";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
 import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
-import { WorkItemModalShell as ModalShell } from "../components/WorkItemModalShell";
+import { WorkItemArtifactModal } from "../components/WorkItemArtifactModal";
 import {
   WorkItemCreateModal,
   WorkItemEditModal,
   type WorkItemCreateFormState,
   type WorkItemEditDraftState,
 } from "../components/WorkItemFormModals";
+import { WorkItemWorkspaceAssignmentPanel } from "../components/WorkItemWorkspaceAssignmentPanel";
 import { styles } from "../lib/workItemListPageStyles";
 import {
   BACKLOG_OVERSCAN_ROWS,
@@ -321,32 +322,6 @@ export function WorkItemListPage() {
     queryFn: () => readArtifactContent(artifactModalArtifact!.id),
     enabled: !!artifactModalArtifact?.id,
   });
-  const artifactModalTraceSteps = useMemo(() => {
-    if (!artifactModalArtifact || !artifactModalContent) return null;
-    const fileName = getArtifactFileName(artifactModalArtifact).toLowerCase();
-    const isTraceArtifact =
-      artifactModalArtifact.artifact_type === "coding_tool_trace" || fileName === "tool_trace.json";
-    if (!isTraceArtifact) return null;
-    try {
-      const parsed = JSON.parse(artifactModalContent) as Array<{ step?: number; kind?: string; payload?: string }>;
-      if (!Array.isArray(parsed)) return null;
-      const grouped = new Map<number, Array<{ kind: string; payload: string }>>();
-      parsed.forEach((entry) => {
-        if (!entry || typeof entry !== "object") return;
-        const step = typeof entry.step === "number" ? entry.step : 0;
-        const kind = typeof entry.kind === "string" ? entry.kind : "unknown";
-        const payload = typeof entry.payload === "string" ? entry.payload : JSON.stringify(entry.payload ?? "");
-        const current = grouped.get(step) ?? [];
-        current.push({ kind, payload });
-        grouped.set(step, current);
-      });
-      return Array.from(grouped.entries())
-        .sort((a, b) => a[0] - b[0])
-        .map(([step, events]) => ({ step, events }));
-    } catch {
-      return null;
-    }
-  }, [artifactModalArtifact, artifactModalContent]);
   const { data: findings } = useQuery({ queryKey: ["findings", selectedWorkItemId], queryFn: () => listWorkItemFindings(selectedWorkItemId!), enabled: !!selectedWorkItemId });
   const { data: teamAssignments } = useQuery({ queryKey: ["teamAssignments"], queryFn: () => listTeamAssignments() });
   const { data: agentTeams } = useQuery({ queryKey: ["agentTeams"], queryFn: () => listAgentTeams() });
@@ -1337,87 +1312,33 @@ export function WorkItemListPage() {
     resolvedRepository,
   ]);
 
-  const renderWorkspaceAssignmentPanel = () => {
-    const currentBranch = selectedWorkItemSummary?.branch_name || resolvedRepository?.default_branch || "not set";
-    const branchPreview = resolveWorkspaceBranchName();
-    return (
-      <div style={{ marginTop: 12 }}>
-        {!isEditingWorkspace ? (
-          <div style={styles.taskActions}>
-            <button style={styles.ghostBtn} onClick={openWorkspaceEditor}>
-              Change Workspace
-            </button>
-            {selectedWorkItemSummary?.repo_override_id && (
-              <button
-                style={styles.ghostBtn}
-                onClick={() => clearWorkspaceOverrideMutation.mutate()}
-                disabled={clearWorkspaceOverrideMutation.isPending}
-              >
-                {clearWorkspaceOverrideMutation.isPending ? "Clearing..." : "Use Scope Default"}
-              </button>
-            )}
-          </div>
-        ) : (
-          <div style={styles.infoCard}>
-            <div style={styles.detailLabel}>Workspace</div>
-            <select
-              style={styles.filterSelect}
-              value={workspaceRepositoryId}
-              onChange={(event) => {
-                const nextRepository = repositories.find((repository: Repository) => repository.id === event.target.value) ?? null;
-                setWorkspaceRepositoryId(event.target.value);
-                if (workspaceBranchMode === "default") {
-                  setWorkspaceBranchName(nextRepository?.default_branch ?? "");
-                }
-              }}
-            >
-              <option value="">Select workspace</option>
-              {repositories.map((repository: Repository) => (
-                <option key={repository.id} value={repository.id}>
-                  {repository.name} - {repository.local_path}
-                </option>
-              ))}
-            </select>
-
-            <div style={styles.detailLabel}>Branch Option</div>
-            <select
-              style={styles.filterSelect}
-              value={workspaceBranchMode}
-              onChange={(event) => setWorkspaceBranchMode(event.target.value as WorkspaceBranchMode)}
-            >
-              <option value="default">Use workspace default branch</option>
-              <option value="work_item">Create/use story branch</option>
-              <option value="custom">Use custom branch</option>
-            </select>
-
-            {workspaceBranchMode === "custom" && (
-              <input
-                style={styles.input}
-                value={workspaceBranchName}
-                onChange={(event) => setWorkspaceBranchName(event.target.value)}
-                placeholder="feature/my-work-item"
-              />
-            )}
-
-            <div style={styles.smallText}>Current branch: {currentBranch}</div>
-            <div style={styles.smallText}>Next branch: {branchPreview || "Select a workspace or branch option"}</div>
-            <div style={{ ...styles.taskActions, justifyContent: "flex-start", marginTop: 10 }}>
-              <button
-                style={styles.btn}
-                onClick={() => assignWorkspaceMutation.mutate()}
-                disabled={assignWorkspaceMutation.isPending || !workspaceRepositoryId || !branchPreview}
-              >
-                {assignWorkspaceMutation.isPending ? "Saving..." : "Save Workspace"}
-              </button>
-              <button style={styles.ghostBtn} onClick={() => setIsEditingWorkspace(false)}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
+  const renderWorkspaceAssignmentPanel = () => (
+    <WorkItemWorkspaceAssignmentPanel
+      isEditing={isEditingWorkspace}
+      repositories={repositories}
+      workspaceRepositoryId={workspaceRepositoryId}
+      workspaceBranchMode={workspaceBranchMode}
+      workspaceBranchName={workspaceBranchName}
+      currentBranch={selectedWorkItemSummary?.branch_name || resolvedRepository?.default_branch || "not set"}
+      branchPreview={resolveWorkspaceBranchName()}
+      hasWorkspaceOverride={!!selectedWorkItemSummary?.repo_override_id}
+      isAssignPending={assignWorkspaceMutation.isPending}
+      isClearPending={clearWorkspaceOverrideMutation.isPending}
+      onOpenEditor={openWorkspaceEditor}
+      onClearOverride={() => clearWorkspaceOverrideMutation.mutate()}
+      onRepositoryIdChange={(repositoryId) => {
+        const nextRepository = repositories.find((repository: Repository) => repository.id === repositoryId) ?? null;
+        setWorkspaceRepositoryId(repositoryId);
+        if (workspaceBranchMode === "default") {
+          setWorkspaceBranchName(nextRepository?.default_branch ?? "");
+        }
+      }}
+      onBranchModeChange={setWorkspaceBranchMode}
+      onBranchNameChange={setWorkspaceBranchName}
+      onSave={() => assignWorkspaceMutation.mutate()}
+      onCancel={() => setIsEditingWorkspace(false)}
+    />
+  );
 
   return (
     <div style={styles.page}>
@@ -2353,51 +2274,11 @@ export function WorkItemListPage() {
       </div>
 
       {artifactModalArtifact && (
-        <ModalShell
-          title={`Artifact: ${getArtifactFileName(artifactModalArtifact)}`}
+        <WorkItemArtifactModal
+          artifact={artifactModalArtifact}
+          content={artifactModalContent}
           onClose={() => setArtifactModalArtifact(null)}
-        >
-          <div style={styles.detailCard}>
-            <div style={styles.detailLabel}>Type</div>
-            <div style={styles.detailValue}>{artifactModalArtifact.artifact_type}</div>
-            <div style={{ ...styles.detailLabel, marginTop: 10 }}>Path</div>
-            <div style={styles.smallText}>{artifactModalArtifact.storage_path}</div>
-            <div style={{ ...styles.detailLabel, marginTop: 10 }}>Summary</div>
-            <div style={styles.smallText}>{artifactModalArtifact.summary}</div>
-          </div>
-          {artifactModalTraceSteps ? (
-            <div>
-              <div style={{ ...styles.detailLabel, marginBottom: 8 }}>
-                Tool Trace Timeline ({artifactModalTraceSteps.length} steps)
-              </div>
-              {artifactModalTraceSteps.map((stepGroup) => (
-                <div key={stepGroup.step} style={styles.traceStepCard}>
-                  <div style={styles.traceStepHeader}>
-                    <div style={styles.traceStepTitle}>Step {stepGroup.step}</div>
-                    <div style={styles.traceStepMeta}>{stepGroup.events.length} events</div>
-                  </div>
-                  <div style={styles.traceEventList}>
-                    {stepGroup.events.map((event, index) => {
-                      const eventStyle = event.kind.includes("error")
-                        ? styles.traceEventCardError
-                        : styles.traceEventCard;
-                      return (
-                        <div key={`${stepGroup.step}-${event.kind}-${index}`} style={eventStyle}>
-                          <div style={styles.traceEventKind}>{event.kind.replace(/_/g, " ")}</div>
-                          <pre style={styles.traceEventPayload}>{event.payload}</pre>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div style={styles.previewBox}>
-              {(artifactModalContent ?? "").trim() || "Artifact content is empty."}
-            </div>
-          )}
-        </ModalShell>
+        />
       )}
 
       {(showCreateForm || workItemCreateDialogOpen) && (
