@@ -8,6 +8,7 @@ mod agent_work;
 mod agent_work_lifecycle;
 mod agents;
 mod catalog;
+mod catalog_bulk_import;
 mod channels;
 mod checkpoints;
 mod definitions;
