@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
-  Keyboard,
-  Platform,
   SafeAreaView,
   View,
 } from "react-native";
@@ -12,18 +10,19 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from "expo-audio";
-import * as FileSystem from "expo-file-system";
 import * as Speech from "expo-speech";
 import * as SecureStore from "expo-secure-store";
 import { WebView } from "react-native-webview";
 import { PlannerMobileClient } from "./src/api/client";
 import { MobileAppHeader } from "./src/components/MobileAppHeader";
-import { MobileBottomTabs, MOBILE_TABS, type MobileTabId } from "./src/components/MobileBottomTabs";
+import { MobileBottomTabs, type MobileTabId } from "./src/components/MobileBottomTabs";
 import { MobileCallsScreen } from "./src/components/MobileCallsScreen";
 import { MobileModelManager } from "./src/components/MobileModelManager";
 import { MobileProductExplorer } from "./src/components/MobileProductExplorer";
 import { MobileRemoteWebView } from "./src/components/MobileRemoteWebView";
 import { MobileVoiceScreen } from "./src/components/MobileVoiceScreen";
+import { useKeyboardHeight } from "./src/hooks/useKeyboardHeight";
+import { useMobileAppPreferences } from "./src/hooks/useMobileAppPreferences";
 import { useMobileConnectionController } from "./src/hooks/useMobileConnectionController";
 import { useMobileModelCallsController } from "./src/hooks/useMobileModelCallsController";
 import { useMobilePlannerChatController } from "./src/hooks/useMobilePlannerChatController";
@@ -42,10 +41,8 @@ import { describeError } from "./src/lib/mobileFormatters";
 import { MOBILE_STORAGE_KEYS } from "./src/lib/mobileStorageKeys";
 import {
   normalizeWhisperLanguage,
-  parseInstalledWhisperModels,
   WHISPER_MODELS,
   VOICE_RECORDING_OPTIONS,
-  type InstalledWhisperModel,
 } from "./src/lib/mobileVoice";
 import { styles } from "./src/styles/appStyles";
 
@@ -75,7 +72,7 @@ export default function App() {
   const [nativeVoiceStatus, setNativeVoiceStatus] = useState("Ready");
   const [lastVoiceTranscript, setLastVoiceTranscript] = useState("");
   const [voiceDraft, setVoiceDraft] = useState("");
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const keyboardHeight = useKeyboardHeight();
   const [voiceMessages, setVoiceMessages] = useState<VoiceMessage[]>([
     {
       id: "assistant-welcome",
@@ -178,6 +175,14 @@ export default function App() {
     onStatusChange: setNativeVoiceStatus,
   });
 
+  useMobileAppPreferences({
+    setActiveTab,
+    setVoiceMode,
+    setReadReplies,
+    setSelectedWhisperModelId,
+    setVerifiedInstalledModels,
+  });
+
   const {
     plannerContextProductName,
     submitPlannerPrompt,
@@ -210,82 +215,6 @@ export default function App() {
 
     return () => {
       void Speech.stop();
-    };
-  }, []);
-
-  useEffect(() => {
-    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const showSubscription = Keyboard.addListener(showEvent, (event) => {
-      setKeyboardHeight(event.endCoordinates.height);
-    });
-    const hideSubscription = Keyboard.addListener(hideEvent, () => {
-      setKeyboardHeight(0);
-    });
-
-    return () => {
-      showSubscription.remove();
-      hideSubscription.remove();
-    };
-  }, []);
-
-  useEffect(() => {
-    let disposed = false;
-
-    const loadSavedPreferences = async () => {
-      const [
-        savedActiveTab,
-        savedVoiceMode,
-        savedReadReplies,
-        savedSelectedWhisperModelId,
-        savedInstalledWhisperModels,
-      ] = await Promise.all([
-        SecureStore.getItemAsync(MOBILE_STORAGE_KEYS.activeTab),
-        SecureStore.getItemAsync(MOBILE_STORAGE_KEYS.voiceMode),
-        SecureStore.getItemAsync(MOBILE_STORAGE_KEYS.readReplies),
-        SecureStore.getItemAsync(MOBILE_STORAGE_KEYS.selectedWhisperModelId),
-        SecureStore.getItemAsync(MOBILE_STORAGE_KEYS.installedWhisperModels),
-      ]);
-      if (disposed) return;
-      if (MOBILE_TABS.some((tab) => tab.id === savedActiveTab)) {
-        setActiveTab(savedActiveTab as ActiveTab);
-      } else if (savedActiveTab === "chat") {
-        setActiveTab("voice");
-        void SecureStore.setItemAsync(MOBILE_STORAGE_KEYS.activeTab, "voice");
-      }
-      if (savedVoiceMode === "assistant" || savedVoiceMode === "planner") {
-        setVoiceMode(savedVoiceMode);
-      }
-      if (savedReadReplies === "true" || savedReadReplies === "false") {
-        setReadReplies(savedReadReplies === "true");
-      }
-      if (
-        typeof savedSelectedWhisperModelId === "string"
-        && WHISPER_MODELS.some((model) => model.id === savedSelectedWhisperModelId)
-      ) {
-        setSelectedWhisperModelId(savedSelectedWhisperModelId);
-      }
-
-      const parsedInstalledModels = parseInstalledWhisperModels(savedInstalledWhisperModels);
-      const verifiedInstalledModels: Record<string, InstalledWhisperModel> = {};
-      await Promise.all(
-        Object.values(parsedInstalledModels).map(async (model) => {
-          const info = await FileSystem.getInfoAsync(model.uri);
-          if (info.exists) {
-            verifiedInstalledModels[model.id] = {
-              ...model,
-              sizeBytes: "size" in info ? info.size : model.sizeBytes,
-            };
-          }
-        }),
-      );
-      if (disposed) return;
-      setVerifiedInstalledModels(verifiedInstalledModels);
-    };
-
-    void loadSavedPreferences();
-    return () => {
-      disposed = true;
     };
   }, []);
 
