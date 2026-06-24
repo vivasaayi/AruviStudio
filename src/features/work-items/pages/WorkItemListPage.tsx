@@ -53,6 +53,7 @@ import { WorkItemReviewSummaryCards } from "../components/WorkItemReviewSummaryC
 import { WorkItemReviewWorkflowCard } from "../components/WorkItemReviewWorkflowCard";
 import { WorkItemWorkspaceReadinessCard } from "../components/WorkItemWorkspaceReadinessCard";
 import { WorkItemWorkspaceAssignmentPanel } from "../components/WorkItemWorkspaceAssignmentPanel";
+import { useWorkItemBacklogApprovalActions } from "../hooks/useWorkItemBacklogApprovalActions";
 import { useWorkItemBacklogView } from "../hooks/useWorkItemBacklogView";
 import { useWorkItemPageSync } from "../hooks/useWorkItemPageSync";
 import { useWorkItemReviewSignals } from "../hooks/useWorkItemReviewSignals";
@@ -725,48 +726,20 @@ export function WorkItemListPage() {
     selectedBacklogItemIds,
     isBacklogActive: workItemWorkspaceTab === "backlog",
   });
-  const isRowActionPending = (workItemId: string) => pendingRowActionIds.includes(workItemId);
-  const runRowApprovalAction = async (workItemId: string, action: "approve" | "reject") => {
-    if (isRowActionPending(workItemId)) {
-      return;
-    }
-    setPendingRowActionIds((current) => [...current, workItemId]);
-    setActionError(null);
-    try {
-      if (action === "approve") {
-        await approveWorkItem(workItemId, "Approved from backlog row");
-      } else {
-        await rejectWorkItem(workItemId, "Rejected from backlog row");
-      }
-      await invalidateTasks();
-    } catch (error) {
-      setActionError(String(error));
-    } finally {
-      setPendingRowActionIds((current) => current.filter((id) => id !== workItemId));
-    }
-  };
-  const runBulkApprovalAction = async (action: "approve" | "reject") => {
-    if (selectedBacklogItemIds.length === 0 || bulkActionInFlight) {
-      return;
-    }
-    setBulkActionInFlight(action);
-    setActionError(null);
-    try {
-      for (const workItemId of selectedBacklogItemIds) {
-        if (action === "approve") {
-          await approveWorkItem(workItemId, "Approved from backlog");
-        } else {
-          await rejectWorkItem(workItemId, "Rejected from backlog");
-        }
-      }
-      setSelectedBacklogItemIds([]);
-      await invalidateTasks();
-    } catch (error) {
-      setActionError(String(error));
-    } finally {
-      setBulkActionInFlight(null);
-    }
-  };
+  const {
+    isRowActionPending,
+    runRowApprovalAction,
+    runBulkApprovalAction,
+  } = useWorkItemBacklogApprovalActions({
+    selectedBacklogItemIds,
+    setSelectedBacklogItemIds,
+    pendingRowActionIds,
+    setPendingRowActionIds,
+    bulkActionInFlight,
+    setBulkActionInFlight,
+    setActionError,
+    invalidateTasks,
+  });
   const stageLabel = activeWorkflowStage ? activeWorkflowStage.replace(/_/g, " ") : null;
   const externalCliProviderInFlight = externalCliMutation.isPending ? externalCliMutation.variables : null;
 
