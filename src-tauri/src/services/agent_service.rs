@@ -43,6 +43,7 @@ mod model_execution;
 mod run_context;
 mod tool_loop;
 mod tool_loop_contract;
+mod tool_loop_legacy;
 mod tool_loop_workspace;
 
 impl AgentService {
