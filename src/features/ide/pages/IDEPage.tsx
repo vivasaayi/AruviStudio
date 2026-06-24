@@ -6,6 +6,7 @@ import { TabBar } from "../../../app/layout/TabBar";
 import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
 import { useEditorStore } from "../../../state/editorStore";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
+import { IDECopilotPanel } from "../components/IDECopilotPanel";
 import {
   attachRepository,
   applyRepositoryPatch,
@@ -677,151 +678,41 @@ Rules:
           </div>
         </div>
 
-        <div style={styles.panel}>
-          <div style={styles.panelHeader}>
-            <div style={styles.panelTitle}>Aruvi Copilot</div>
-            <button
-              style={styles.buttonGhost}
-              onClick={() => {
-                setCopilotMessages([]);
-                setPatchProposal(null);
-                setCopilotError(null);
-                copilotSessionIdRef.current = crypto.randomUUID();
-              }}
-              disabled={isCopilotSending}
-            >
-              Clear
-            </button>
-          </div>
-          <div style={styles.section}>
-            <div style={styles.segmented}>
-              <button
-                style={copilotMode === "chat" ? styles.modeButtonActive : styles.modeButton}
-                onClick={() => setCopilotMode("chat")}
-                disabled={isCopilotSending}
-              >
-                Chat
-              </button>
-              <button
-                style={copilotMode === "patch" ? styles.modeButtonActive : styles.modeButton}
-                onClick={() => setCopilotMode("patch")}
-                disabled={isCopilotSending}
-              >
-                Propose Patch
-              </button>
-            </div>
-            <label style={styles.label}>Provider</label>
-            <select style={styles.select} value={copilotProviderId} onChange={(event) => setCopilotProviderId(event.target.value)}>
-              <option value="">Select provider</option>
-              {providers.map((provider) => (
-                <option key={provider.id} value={provider.id}>
-                  {provider.name}
-                </option>
-              ))}
-            </select>
-            <label style={styles.label}>Model</label>
-            <select style={styles.select} value={copilotModelName} onChange={(event) => setCopilotModelName(event.target.value)}>
-              <option value="">Select model</option>
-              {modelOptions.map((model) => (
-                <option key={model.id} value={model.name}>
-                  {model.name}
-                </option>
-              ))}
-            </select>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <div>
-                <label style={styles.label}>Temperature</label>
-                <input style={styles.input} value={copilotTemp} onChange={(event) => setCopilotTemp(event.target.value)} />
-              </div>
-              <div>
-                <label style={styles.label}>Max Tokens</label>
-                <input style={styles.input} value={copilotMaxTokens} onChange={(event) => setCopilotMaxTokens(event.target.value)} />
-              </div>
-            </div>
-            <label style={styles.label}>System Prompt</label>
-            <textarea
-              style={{ ...styles.textarea, minHeight: 72 }}
-              value={copilotSystemPrompt}
-              onChange={(event) => setCopilotSystemPrompt(event.target.value)}
-            />
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input
-                id="include-file-context"
-                type="checkbox"
-                checked={includeActiveFileContext}
-                onChange={(event) => setIncludeActiveFileContext(event.target.checked)}
-              />
-              <label style={styles.label} htmlFor="include-file-context">
-                Include active file context
-              </label>
-            </div>
-            <label style={styles.label}>Context Budget (chars)</label>
-            <input
-              style={styles.input}
-              value={contextBudgetChars}
-              onChange={(event) => setContextBudgetChars(event.target.value)}
-            />
-          </div>
-          <div style={styles.chatBody}>
-            {copilotMessages.length === 0 ? (
-              <div style={styles.status}>Ask Aruvi Copilot for implementation help, refactors, or review notes.</div>
-            ) : (
-              copilotMessages.map((message) => (
-                <div
-                  key={message.id}
-                  style={message.role === "user" ? styles.bubbleUser : styles.bubbleAssistant}
-                >
-                  {message.content}
-                </div>
-              ))
-            )}
-          </div>
-          {patchProposal && (
-            <div style={styles.section}>
-              <div style={styles.label}>Patch Proposal</div>
-              <div style={styles.status}>{patchProposal.summary}</div>
-              {patchProposal.patches.map((patch, index) => (
-                <div key={`${patch.path}:${index}`} style={styles.patchPanel}>
-                  <div style={styles.patchPath}>{patch.path}</div>
-                  <div style={styles.patchMeta}>
-                    {patch.description || "No description"}{patch.base_sha256 ? " · base hash guarded" : ""}
-                  </div>
-                  <div style={styles.patchSnippet}>{truncateForContext(patch.patch, 420)}</div>
-                </div>
-              ))}
-              <button
-                style={styles.button}
-                onClick={() => void applyPatchProposal(patchProposal)}
-                disabled={isApplyingProposal}
-              >
-                {isApplyingProposal ? "Applying..." : "Apply Proposal"}
-              </button>
-            </div>
-          )}
-          <div style={styles.chatComposer}>
-            <textarea
-              style={styles.textarea}
-              value={copilotDraft}
-              placeholder={copilotMode === "patch" ? "Describe the exact change; Copilot will return a structured patch proposal..." : "Ask about the selected file or broader repo changes..."}
-              onChange={(event) => setCopilotDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !isCopilotSending) {
-                  event.preventDefault();
-                  void sendCopilot();
-                }
-              }}
-            />
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-              <div style={styles.status}>
-                {isCopilotSending ? "Streaming response..." : "Cmd/Ctrl + Enter to send"}
-              </div>
-              <button style={styles.button} onClick={() => void sendCopilot()} disabled={isCopilotSending}>
-                {isCopilotSending ? "Sending..." : copilotMode === "patch" ? "Generate Proposal" : "Send"}
-              </button>
-            </div>
-            {copilotError && <div style={styles.error}>{copilotError}</div>}
-          </div>
-        </div>
+        <IDECopilotPanel
+          providers={providers}
+          modelOptions={modelOptions}
+          copilotMode={copilotMode}
+          setCopilotMode={setCopilotMode}
+          copilotProviderId={copilotProviderId}
+          setCopilotProviderId={setCopilotProviderId}
+          copilotModelName={copilotModelName}
+          setCopilotModelName={setCopilotModelName}
+          copilotTemp={copilotTemp}
+          setCopilotTemp={setCopilotTemp}
+          copilotMaxTokens={copilotMaxTokens}
+          setCopilotMaxTokens={setCopilotMaxTokens}
+          copilotSystemPrompt={copilotSystemPrompt}
+          setCopilotSystemPrompt={setCopilotSystemPrompt}
+          includeActiveFileContext={includeActiveFileContext}
+          setIncludeActiveFileContext={setIncludeActiveFileContext}
+          contextBudgetChars={contextBudgetChars}
+          setContextBudgetChars={setContextBudgetChars}
+          copilotMessages={copilotMessages}
+          patchProposal={patchProposal}
+          copilotDraft={copilotDraft}
+          setCopilotDraft={setCopilotDraft}
+          copilotError={copilotError}
+          isCopilotSending={isCopilotSending}
+          isApplyingProposal={isApplyingProposal}
+          onClear={() => {
+            setCopilotMessages([]);
+            setPatchProposal(null);
+            setCopilotError(null);
+            copilotSessionIdRef.current = crypto.randomUUID();
+          }}
+          onSend={() => void sendCopilot()}
+          onApplyPatchProposal={(proposal) => void applyPatchProposal(proposal)}
+        />
       </div>
     </div>
   );
