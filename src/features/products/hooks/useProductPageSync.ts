@@ -3,33 +3,22 @@ import { useEffect, type Dispatch, type SetStateAction } from "react";
 import { getDefaultChildNodeKind } from "../../../lib/hierarchyLabels";
 import type {
   Capability,
-  HierarchyNodeKind,
   HierarchyTreeNode,
   Product,
   ProductArea,
 } from "../../../lib/types";
 import {
+  createEmptyCapabilityForm,
+  emptyProductAreaForm,
   emptyProductForm,
   productToForm,
+  type CapabilityFormState,
+  type ProductAreaFormState,
   type ProductFormState,
 } from "../lib/productListPageState";
 import type { ProductManagementTab } from "../lib/productRefreshScopes";
 
 type DialogMode = "closed" | "create" | "edit";
-type ProductAreaFormState = {
-  name: string;
-  description: string;
-  purpose: string;
-  nodeKind: HierarchyNodeKind;
-};
-type CapabilityFormState = {
-  name: string;
-  description: string;
-  acceptanceCriteria: string;
-  technicalNotes: string;
-  nodeKind: HierarchyNodeKind;
-};
-
 type ProductPageSyncInput = {
   isLoading: boolean;
   activeProductId: string | null;
@@ -59,23 +48,6 @@ type ProductPageSyncInput = {
   setManagementStoryPageIndex: Dispatch<SetStateAction<number>>;
   setFormError: Dispatch<SetStateAction<string | null>>;
 };
-
-const emptyProductAreaForm: ProductAreaFormState = {
-  name: "",
-  description: "",
-  purpose: "",
-  nodeKind: "product_area",
-};
-
-function createEmptyCapabilityForm(nodeKind: HierarchyNodeKind): CapabilityFormState {
-  return {
-    name: "",
-    description: "",
-    acceptanceCriteria: "",
-    technicalNotes: "",
-    nodeKind,
-  };
-}
 
 export function useProductPageSync({
   isLoading,

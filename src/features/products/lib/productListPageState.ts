@@ -1,4 +1,4 @@
-import type { Product, ProductDependencyKind, ProductReference, WorkItem } from "../../../lib/types";
+import type { HierarchyNodeKind, Product, ProductDependencyKind, ProductReference, WorkItem } from "../../../lib/types";
 
 export const HIDE_EXAMPLE_PRODUCTS_KEY = "catalog.hide_example_products";
 export const SUB_WORK_ITEM_PAGE_SIZE = 500;
@@ -31,6 +31,38 @@ export const emptyProductForm: ProductFormState = {
   roadmap: "",
   evidence: "",
 };
+
+export type ProductAreaFormState = {
+  name: string;
+  description: string;
+  purpose: string;
+  nodeKind: HierarchyNodeKind;
+};
+
+export const emptyProductAreaForm: ProductAreaFormState = {
+  name: "",
+  description: "",
+  purpose: "",
+  nodeKind: "product_area",
+};
+
+export type CapabilityFormState = {
+  name: string;
+  description: string;
+  acceptanceCriteria: string;
+  technicalNotes: string;
+  nodeKind: HierarchyNodeKind;
+};
+
+export function createEmptyCapabilityForm(nodeKind: HierarchyNodeKind): CapabilityFormState {
+  return {
+    name: "",
+    description: "",
+    acceptanceCriteria: "",
+    technicalNotes: "",
+    nodeKind,
+  };
+}
 
 export function productToForm(product: Product): ProductFormState {
   return {
