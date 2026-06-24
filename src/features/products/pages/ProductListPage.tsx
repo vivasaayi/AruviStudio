@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -34,6 +34,7 @@ import { ProductWorkspacePanel } from "../components/ProductWorkspacePanel";
 import { useProductCatalogControls } from "../hooks/useProductCatalogControls";
 import { useProductHierarchySelectionState } from "../hooks/useProductHierarchySelectionState";
 import { useProductManagementSelection } from "../hooks/useProductManagementSelection";
+import { useProductPageSync } from "../hooks/useProductPageSync";
 import { useProductPageViewModel } from "../hooks/useProductPageViewModel";
 import { styles } from "../lib/productListPageStyles";
 import {
@@ -189,48 +190,6 @@ export function ProductListPage() {
     statusGroupBy,
   });
 
-  useEffect(() => {
-    if (isLoading) {
-      return;
-    }
-    if (activeProductId !== selectedProductId) {
-      setActiveProduct(selectedProductId);
-    }
-  }, [activeProductId, isLoading, selectedProductId, setActiveProduct]);
-
-  useEffect(() => {
-    if (statusProductId === "all") {
-      return;
-    }
-    if (!products?.some((product) => product.id === statusProductId)) {
-      setStatusProductId("all");
-    }
-  }, [products, setStatusProductId, statusProductId]);
-
-  useEffect(() => {
-    if (!activeProductId && products?.[0]?.id) {
-      setActiveProduct(products[0].id);
-    }
-  }, [activeProductId, products, setActiveProduct]);
-
-  useEffect(() => {
-    setActiveWorkItem(null);
-    setFormError(null);
-  }, [selectedProductId, activeProductAreaId, activeCapabilityId, setActiveWorkItem]);
-
-  useEffect(() => {
-    if (selectedProduct) {
-      setProductDraft(productToForm(selectedProduct));
-    }
-  }, [selectedProduct]);
-
-  useEffect(() => {
-    setFormError(null);
-    if (productDialogMode === "create") {
-      setProductForm(emptyProductForm);
-    }
-  }, [productDialogMode]);
-
   const {
     productAreaOrderIds,
     capabilityOrderMap,
@@ -243,44 +202,6 @@ export function ProductListPage() {
     activeProductAreaId,
     activeCapabilityId,
   });
-
-  useEffect(() => {
-    if (productAreaDialogMode === "create") {
-      setProductAreaForm({ name: "", description: "", purpose: "", nodeKind: "product_area" });
-      return;
-    }
-    if (productAreaDialogMode === "edit" && selectedProductArea) {
-      setProductAreaDraft({
-        name: selectedProductArea.name,
-        description: selectedProductArea.description,
-        purpose: selectedProductArea.purpose,
-        nodeKind: selectedProductArea.node_kind,
-      });
-    }
-  }, [productAreaDialogMode, selectedProductArea]);
-
-  useEffect(() => {
-    if (capabilityDialogMode === "create") {
-      setCapabilityForm({
-        name: "",
-        description: "",
-        acceptanceCriteria: "",
-        technicalNotes: "",
-        nodeKind: getDefaultChildNodeKind(selectedCapability?.node_kind ?? selectedProductArea?.node_kind),
-      });
-      setFormError(null);
-      return;
-    }
-    if (capabilityDialogMode === "edit" && selectedCapability) {
-      setCapabilityDraft({
-        name: selectedCapability.name,
-        description: selectedCapability.description,
-        acceptanceCriteria: selectedCapability.acceptance_criteria,
-        technicalNotes: selectedCapability.technical_notes,
-        nodeKind: selectedCapability.node_kind,
-      });
-    }
-  }, [capabilityDialogMode, selectedCapability, selectedProductArea]);
 
   const invalidateHierarchy = async () => {
     await Promise.all([
@@ -687,10 +608,35 @@ export function ProductListPage() {
     productPageTab,
     productManagementTab,
   });
-  useEffect(() => {
-    setManagementStoryPageIndex(0);
-    setSelectedManagementStoryId(null);
-  }, [selectedManagementFeatureNode?.id, selectedProductId, productManagementTab]);
+  useProductPageSync({
+    isLoading,
+    activeProductId,
+    selectedProductId,
+    products,
+    setActiveProduct,
+    statusProductId,
+    setStatusProductId,
+    setActiveWorkItem,
+    activeProductAreaId,
+    activeCapabilityId,
+    selectedProduct,
+    setProductForm,
+    setProductDraft,
+    productDialogMode,
+    selectedProductArea,
+    setProductAreaForm,
+    setProductAreaDraft,
+    productAreaDialogMode,
+    selectedCapability,
+    setCapabilityForm,
+    setCapabilityDraft,
+    capabilityDialogMode,
+    selectedManagementFeatureNode,
+    productManagementTab,
+    setSelectedManagementStoryId,
+    setManagementStoryPageIndex,
+    setFormError,
+  });
   const refreshProductManagementTabQueries = async () => {
     await refreshScopedProductQueries(queryClient, getProductManagementRefreshQueryKeys({
       selectedProductId,
