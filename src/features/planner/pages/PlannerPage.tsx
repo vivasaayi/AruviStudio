@@ -21,6 +21,7 @@ import { PlannerPageContent } from "../components/PlannerPageContent";
 import { PlannerRepositoryModal } from "../components/PlannerRepositoryModal";
 import { PlannerSidebar } from "../components/PlannerSidebar";
 import { usePlannerDesignPacketExport } from "../hooks/usePlannerDesignPacketExport";
+import { usePlannerDraftActions } from "../hooks/usePlannerDraftActions";
 import { usePlannerDraftEditorState } from "../hooks/usePlannerDraftEditorState";
 import { usePlannerPageLifecycle } from "../hooks/usePlannerPageLifecycle";
 import { usePlannerPageViewModel } from "../hooks/usePlannerPageViewModel";
@@ -33,7 +34,6 @@ import {
   buildPlannerMutationMessages,
   buildWorkItemTreeNodes,
   buildWorkItemTreeReport,
-  collectTreeNodeIds,
   executePlannerPlan,
   findCapability,
   findProductArea,
@@ -696,20 +696,6 @@ export function PlannerPage() {
     setPlannerView("conversation");
   };
 
-  const toggleDraftNodeExpanded = (nodeId: string) => {
-    setExpandedDraftNodeIds((current) =>
-      current.includes(nodeId) ? current.filter((value) => value !== nodeId) : [...current, nodeId],
-    );
-  };
-
-  const expandAllDraftNodes = () => {
-    setExpandedDraftNodeIds(collectTreeNodeIds(draftTreeNodes));
-  };
-
-  const collapseAllDraftNodes = () => {
-    setExpandedDraftNodeIds([]);
-  };
-
   function appendVoiceCommandFeedback(transcript: string, reply: string) {
     setPendingVoiceTranscript(null);
     setEditableVoiceTranscript("");
@@ -826,68 +812,32 @@ export function PlannerPage() {
     return true;
   }
 
-  const applyPromptSuggestion = (prompt: string) => {
-    setDraft(prompt);
-    composerRef.current?.focus();
-  };
-
-  const renameSelectedDraftNode = async () => {
-    if (!selectedDraftNode || !renameDraftName.trim() || isPlannerBusy) {
-      return;
-    }
-    setDraftEditError(null);
-    setDraftEditMessage(null);
-    try {
-      await draftEditMutation.mutateAsync({
-        kind: "rename",
-        nodeId: selectedDraftNode.id,
-        name: renameDraftName.trim(),
-      });
-      setDraftEditMessage(`Renamed to "${renameDraftName.trim()}".`);
-    } catch {
-      // Error state is handled by the mutation.
-    }
-  };
-
-  const addChildToSelectedDraftNode = async () => {
-    if (!selectedDraftNode || !draftChildName.trim() || allowedDraftChildTypes.length === 0 || isPlannerBusy) {
-      return;
-    }
-    setDraftEditError(null);
-    setDraftEditMessage(null);
-    try {
-      await draftEditMutation.mutateAsync({
-        kind: "add_child",
-        parentNodeId: selectedDraftNode.id,
-        childType: draftChildType,
-        name: draftChildName.trim(),
-        summary: draftChildSummary.trim() || undefined,
-      });
-      setDraftChildName("");
-      setDraftChildSummary("");
-      setDraftEditMessage(`Added ${formatDraftChildTypeLabel(draftChildType).toLowerCase()} "${draftChildName.trim()}".`);
-    } catch {
-      // Error state is handled by the mutation.
-    }
-  };
-
-  const deleteSelectedDraftNode = async () => {
-    if (!selectedDraftNode || isPlannerBusy) {
-      return;
-    }
-    setDraftEditError(null);
-    setDraftEditMessage(null);
-    const deletedLabel = selectedDraftNode.label;
-    try {
-      await draftEditMutation.mutateAsync({
-        kind: "delete",
-        nodeId: selectedDraftNode.id,
-      });
-      setDraftEditMessage(`Removed "${deletedLabel}" from the design.`);
-    } catch {
-      // Error state is handled by the mutation.
-    }
-  };
+  const {
+    toggleDraftNodeExpanded,
+    expandAllDraftNodes,
+    collapseAllDraftNodes,
+    applyPromptSuggestion,
+    renameSelectedDraftNode,
+    addChildToSelectedDraftNode,
+    deleteSelectedDraftNode,
+  } = usePlannerDraftActions({
+    draftTreeNodes,
+    setExpandedDraftNodeIds,
+    setDraft,
+    composerRef,
+    selectedDraftNode,
+    renameDraftName,
+    draftChildType,
+    draftChildName,
+    setDraftChildName,
+    draftChildSummary,
+    setDraftChildSummary,
+    allowedDraftChildTypes,
+    isPlannerBusy,
+    setDraftEditError,
+    setDraftEditMessage,
+    draftEditMutation,
+  });
 
   const plannerComposer = (
     <PlannerComposerPanel
