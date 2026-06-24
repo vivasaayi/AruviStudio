@@ -1,6 +1,8 @@
+import { PlannerComposerPanel } from "./PlannerComposerPanel";
 import { PlannerHeader } from "./PlannerHeader";
 import { PlannerPageContent } from "./PlannerPageContent";
 import { PlannerRepositoryModal } from "./PlannerRepositoryModal";
+import { PlannerSidebar } from "./PlannerSidebar";
 import type { PlannerPageController } from "../hooks/usePlannerPageController";
 import { styles } from "../lib/plannerPageStyles";
 
@@ -15,11 +17,14 @@ export function PlannerPageBody({ controller }: PlannerPageBodyProps) {
     browseRepositoryPathForPlanner,
     clearPendingVoiceReview,
     collapseAllDraftNodes,
+    composerRef,
+    composerScopeChips,
     confirmPendingPlan,
     deleteSelectedDraftNode,
     designPacketError,
     designPacketPath,
     dismissPendingPlan,
+    draft,
     draftChildName,
     draftChildSummary,
     draftChildType,
@@ -35,18 +40,18 @@ export function PlannerPageBody({ controller }: PlannerPageBodyProps) {
     isCompactScreen,
     isExportingDesignPacket,
     isFocusedWorkspaceView,
+    isListening,
     isPlannerBusy,
     isVoiceSubmitting,
+    isTranscribing,
     latestDraftPlan,
     latestTraceEvents,
     modelName,
     navigate,
     pendingPlan,
     pendingVoiceTranscript,
-    plannerComposer,
     plannerModelPickerOptions,
     plannerModelPickerValue,
-    plannerSidebar,
     plannerStatusSummary,
     plannerView,
     products,
@@ -67,10 +72,12 @@ export function PlannerPageBody({ controller }: PlannerPageBodyProps) {
     selectedNodeRecentActions,
     selectedProductId,
     selectedRepositoryId,
+    send,
     setActiveProduct,
     setDraftChildName,
     setDraftChildSummary,
     setDraftChildType,
+    setDraft,
     setEditableVoiceTranscript,
     setModelName,
     setPlannerView,
@@ -85,12 +92,57 @@ export function PlannerPageBody({ controller }: PlannerPageBodyProps) {
     setShowRepoModal,
     submitPendingVoiceTranscript,
     toggleDraftNodeExpanded,
+    toggleListening,
     voiceElapsedMs,
+    voiceEnabled,
+    voiceActivity,
     applyPromptSuggestion,
     renameDraftName,
     renameSelectedDraftNode,
     addChildToSelectedDraftNode,
   } = controller;
+
+  const plannerComposer = (
+    <PlannerComposerPanel
+      draft={draft}
+      onDraftChange={setDraft}
+      onSend={() => {
+        void send();
+      }}
+      onToggleListening={() => {
+        void toggleListening();
+      }}
+      onOpenDraftWorkspace={() => setPlannerView("draft")}
+      onConfirm={() => setDraft("confirm")}
+      onDismiss={dismissPendingPlan}
+      isPlannerBusy={isPlannerBusy}
+      voiceEnabled={voiceEnabled}
+      isListening={isListening}
+      isTranscribing={isTranscribing}
+      isVoiceSubmitting={isVoiceSubmitting}
+      pendingVoiceTranscript={pendingVoiceTranscript}
+      draftTreeNodesLength={draftTreeNodes.length}
+      pendingPlan={pendingPlan}
+      voiceActivity={voiceActivity}
+      composerRef={composerRef}
+      scopeChips={composerScopeChips}
+      isProductSelected={Boolean(selectedProductId)}
+    />
+  );
+
+  const plannerSidebar = (
+    <PlannerSidebar
+      isCompactScreen={isCompactScreen}
+      hasTreeData={hasTreeData}
+      plannerWorkItemsHasMore={controller.plannerWorkItemsHasMore}
+      draftTreeNodes={draftTreeNodes}
+      selectedDraftNodeId={selectedDraftNodeId}
+      onSelectDraftNode={setSelectedDraftNodeId}
+      expandedDraftNodeIdSet={expandedDraftNodeIdSet}
+      onToggleDraftNodeExpanded={toggleDraftNodeExpanded}
+      pendingPlan={pendingPlan}
+    />
+  );
 
   return (
     <div style={styles.page}>

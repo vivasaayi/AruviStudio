@@ -1,19 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
-import {
-  revealInFinder,
-  speakTextNatively,
-} from "../../../lib/tauri";
+import { revealInFinder } from "../../../lib/tauri";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
-import { speakInBrowser } from "../../shared/voice";
-import { PlannerComposerPanel } from "../components/PlannerComposerPanel";
-import { PlannerSidebar } from "../components/PlannerSidebar";
+import { usePlannerAssistantSpeech } from "./usePlannerAssistantSpeech";
 import { usePlannerDesignPacketExport } from "./usePlannerDesignPacketExport";
 import { usePlannerDraftActions } from "./usePlannerDraftActions";
 import { usePlannerDraftEditorState } from "./usePlannerDraftEditorState";
 import { usePlannerPageLifecycle } from "./usePlannerPageLifecycle";
 import { usePlannerPageViewModel } from "./usePlannerPageViewModel";
+import { usePlannerPageCoreState } from "./usePlannerPageCoreState";
 import { usePlannerMutationResultHandler } from "./usePlannerMutationResultHandler";
 import { usePlannerPendingPlanActions } from "./usePlannerPendingPlanActions";
 import { usePlannerRepositoryModalState } from "./usePlannerRepositoryModalState";
@@ -22,34 +18,46 @@ import { usePlannerTurnMutations } from "./usePlannerTurnMutations";
 import { usePlannerVoiceCapture } from "./usePlannerVoiceCapture";
 import { usePlannerVoiceTranscriptHandler } from "./usePlannerVoiceTranscriptHandler";
 import { usePlannerWindowWidth } from "./usePlannerWindowWidth";
-import type { PlannerSpeechModelSelection } from "../lib/plannerModelSelection";
-import {
-  DEFAULT_ASSISTANT_OPENING,
-  makeId,
-  type PendingPlan,
-  type PlannerMessage,
-  type PlannerTreeNode,
-} from "../lib/plannerPageModel";
-import type { PlannerTraceEvent } from "../../../lib/types";
+import { makeId } from "../lib/plannerPageModel";
 
 export function usePlannerPageController() {
   const queryClient = useQueryClient();
   const location = useLocation();
   const navigate = useNavigate();
   const { activeProductId, activeProductAreaId, activeCapabilityId, activeWorkItemId, setActiveProduct } = useWorkspaceStore();
-  const [plannerView, setPlannerView] = useState<"conversation" | "draft" | "trace">("conversation");
-  const [providerId, setProviderId] = useState("");
-  const [modelName, setModelName] = useState("");
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
-  const [messages, setMessages] = useState<PlannerMessage[]>([
-    { id: makeId(), role: "assistant", content: DEFAULT_ASSISTANT_OPENING },
-  ]);
-  const [pendingPlan, setPendingPlan] = useState<PendingPlan | null>(null);
-  const [draftTreeNodes, setDraftTreeNodes] = useState<PlannerTreeNode[]>([]);
-  const [selectedDraftNodeId, setSelectedDraftNodeId] = useState<string | null>(null);
-  const [expandedDraftNodeIds, setExpandedDraftNodeIds] = useState<string[]>([]);
-  const [latestTraceEvents, setLatestTraceEvents] = useState<PlannerTraceEvent[]>([]);
+  const {
+    activePlannerProductRef,
+    composerRef,
+    consumedRoutePromptRef,
+    draft,
+    draftTreeNodes,
+    expandedDraftNodeIds,
+    latestTraceEvents,
+    messages,
+    modelName,
+    pendingPlan,
+    plannerBusyRef,
+    plannerView,
+    providerId,
+    selectedDraftNodeId,
+    sessionId,
+    setDraft,
+    setDraftTreeNodes,
+    setExpandedDraftNodeIds,
+    setLatestTraceEvents,
+    setMessages,
+    setModelName,
+    setPendingPlan,
+    setPlannerView,
+    setProviderId,
+    setSelectedDraftNodeId,
+    setSessionId,
+    setShowCompactTools,
+    showCompactTools,
+    speechModelSelectionRef,
+    submitVoiceTranscriptRef,
+    transcriptRef,
+  } = usePlannerPageCoreState();
   const {
     voiceEnabled,
     autoSpeak,
@@ -59,15 +67,11 @@ export function usePlannerPageController() {
     speechNativeVoiceSetting,
     reviewVoiceBeforeSend,
   } = usePlannerSpeechSettingsState();
+  const { speakAssistantReply } = usePlannerAssistantSpeech({
+    speechLocaleSetting,
+    speechNativeVoiceSetting,
+  });
   const windowWidth = usePlannerWindowWidth();
-  const [showCompactTools, setShowCompactTools] = useState(false);
-  const transcriptRef = useRef<HTMLDivElement | null>(null);
-  const composerRef = useRef<HTMLTextAreaElement | null>(null);
-  const consumedRoutePromptRef = useRef<string | null>(null);
-  const activePlannerProductRef = useRef<string | null>(null);
-  const plannerBusyRef = useRef(false);
-  const submitVoiceTranscriptRef = useRef<(transcript: string) => Promise<void>>(async () => {});
-  const speechModelSelectionRef = useRef<PlannerSpeechModelSelection | null>(null);
   const {
     isListening,
     isTranscribing,
@@ -219,22 +223,6 @@ export function usePlannerPageController() {
     isCompactScreen,
     setShowCompactTools,
   });
-
-  const speakAssistantReply = async (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) {
-      return;
-    }
-    try {
-      await speakTextNatively({
-        text: trimmed,
-        voice: speechNativeVoiceSetting || undefined,
-        locale: speechLocaleSetting || "en-US",
-      });
-    } catch {
-      speakInBrowser(trimmed);
-    }
-  };
 
   const handlePlannerMutationSuccess = usePlannerMutationResultHandler({
     queryClient,
@@ -433,60 +421,21 @@ export function usePlannerPageController() {
     };
   }, [handleVoiceTranscript]);
 
-  const plannerComposer = (
-    <PlannerComposerPanel
-      draft={draft}
-      onDraftChange={setDraft}
-      onSend={() => {
-        void send();
-      }}
-      onToggleListening={() => {
-        void toggleListening();
-      }}
-      onOpenDraftWorkspace={() => setPlannerView("draft")}
-      onConfirm={() => setDraft("confirm")}
-      onDismiss={dismissPendingPlan}
-      isPlannerBusy={isPlannerBusy}
-      voiceEnabled={voiceEnabled}
-      isListening={isListening}
-      isTranscribing={isTranscribing}
-      isVoiceSubmitting={isVoiceSubmitting}
-      pendingVoiceTranscript={pendingVoiceTranscript}
-      draftTreeNodesLength={draftTreeNodes.length}
-      pendingPlan={pendingPlan}
-      voiceActivity={voiceActivity}
-      composerRef={composerRef}
-      scopeChips={composerScopeChips}
-      isProductSelected={Boolean(selectedProductId)}
-    />
-  );
-
-  const plannerSidebar = (
-    <PlannerSidebar
-      isCompactScreen={isCompactScreen}
-      hasTreeData={hasTreeData}
-      plannerWorkItemsHasMore={plannerWorkItemsHasMore}
-      draftTreeNodes={draftTreeNodes}
-      selectedDraftNodeId={selectedDraftNodeId}
-      onSelectDraftNode={setSelectedDraftNodeId}
-      expandedDraftNodeIdSet={expandedDraftNodeIdSet}
-      onToggleDraftNodeExpanded={toggleDraftNodeExpanded}
-      pendingPlan={pendingPlan}
-    />
-  );
-
   return {
     allowedDraftChildTypes,
     analyzeSelectedRepository,
     browseRepositoryPathForPlanner,
     clearPendingVoiceReview,
     collapseAllDraftNodes,
+    composerRef,
+    composerScopeChips,
     confirmPendingPlan,
     context,
     deleteSelectedDraftNode,
     designPacketError,
     designPacketPath,
     dismissPendingPlan,
+    draft,
     draftChildName,
     draftChildSummary,
     draftChildType,
@@ -502,8 +451,10 @@ export function usePlannerPageController() {
     isCompactScreen,
     isExportingDesignPacket,
     isFocusedWorkspaceView,
+    isListening,
     isPlannerBusy,
     isVoiceSubmitting,
+    isTranscribing,
     latestDraftPlan,
     latestTraceEvents,
     messages,
@@ -511,12 +462,11 @@ export function usePlannerPageController() {
     navigate,
     pendingPlan,
     pendingVoiceTranscript,
-    plannerComposer,
     plannerModelPickerOptions,
     plannerModelPickerValue,
-    plannerSidebar,
     plannerStatusSummary,
     plannerView,
+    plannerWorkItemsHasMore,
     products,
     providerId,
     providers,
@@ -535,6 +485,7 @@ export function usePlannerPageController() {
     selectedNodeRecentActions,
     selectedProductId,
     selectedRepositoryId,
+    send,
     setActiveProduct,
     setDraftChildName,
     setDraftChildSummary,
@@ -548,13 +499,17 @@ export function usePlannerPageController() {
     setSelectedDraftNodeId,
     setSelectedRepositoryId,
     setShowCompactTools,
+    setDraft,
     showCompactTools,
     showRepoModal,
     setShowRepoModal,
     submitPendingVoiceTranscript,
+    toggleListening,
     toggleDraftNodeExpanded,
     transcriptRef,
     voiceElapsedMs,
+    voiceEnabled,
+    voiceActivity,
     applyPromptSuggestion,
     renameDraftName,
     renameSelectedDraftNode,
