@@ -49,6 +49,7 @@ import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
 import { WorkItemArtifactModal } from "../components/WorkItemArtifactModal";
 import { WorkItemBacklogTab } from "../components/WorkItemBacklogTab";
+import { WorkItemExternalCliTab } from "../components/WorkItemExternalCliTab";
 import {
   WorkItemCreateModal,
   WorkItemEditModal,
@@ -70,9 +71,7 @@ import {
   buildCapabilityPath,
   describeWorkItemRuntime,
   formatDurationMs,
-  formatExternalCliCommand,
   formatExternalCliTerminal,
-  formatExternalCliTerminalEvent,
   formatInteger,
   getArtifactFileName,
   getWorkItemExecutionSteps,
@@ -86,7 +85,6 @@ import {
 import type {
   AgentDefinition,
   AgentModelBinding,
-  ExternalCliRun,
   ExternalCliRunEvent,
   ModelCall,
   AgentRun,
@@ -1560,128 +1558,24 @@ export function WorkItemListPage() {
           )}
 
           {workItemWorkspaceTab === "external_cli" && (
-            <>
-              <div style={styles.detailTitle}>External CLI</div>
-              <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-                {EXTERNAL_CLI_PROVIDERS.map((entry) => (
-                  <button
-                    key={entry.provider}
-                    style={styles.btn}
-                    onClick={() => externalCliMutation.mutate(entry.provider)}
-                    disabled={!selectedWorkItemId || !resolvedRepository || externalCliMutation.isPending}
-                    title={!resolvedRepository ? "Attach a workspace before launching an external CLI." : `Run ${entry.label}`}
-                  >
-                    {externalCliProviderInFlight === entry.provider ? "Running..." : `Run ${entry.label}`}
-                  </button>
-                ))}
-              </div>
-              {actionError && <div style={styles.errorText}>{actionError}</div>}
-              {actionInfo && <div style={{ ...styles.smallText, color: "#4ec9b0", marginBottom: 10 }}>{actionInfo}</div>}
-
-              <div style={styles.detailCard}>
-                <div style={styles.detailLabel}>Active Run</div>
-                {!resolvedRepository ? (
-                  <div style={styles.warning}>Attach a workspace before launching an external CLI.</div>
-                ) : activeExternalCliRun ? (
-                  <>
-                    <div style={styles.taskTitle}>{activeExternalCliRun.label} · {activeExternalCliRun.status}</div>
-                    <div style={styles.smallText}>Run: <code>{activeExternalCliRun.id}</code></div>
-                    <div style={styles.smallText}>Command: {formatExternalCliCommand(activeExternalCliRun)}</div>
-                    <div style={styles.smallText}>CWD: {activeExternalCliRun.cwd}</div>
-                    {activeExternalCliRun.session_log_path ? (
-                      <div style={styles.smallText}>Session file: <code>{activeExternalCliRun.session_log_path}</code></div>
-                    ) : null}
-                    <div style={styles.smallText}>
-                      Started: {activeExternalCliRun.started_at}{activeExternalCliRun.ended_at ? ` · Ended: ${activeExternalCliRun.ended_at}` : ""}
-                    </div>
-                    <div style={styles.smallText}>
-                      Exit {activeExternalCliRun.exit_code ?? "n/a"} · Duration {formatDurationMs(activeExternalCliRun.duration_ms)} · stdout {formatInteger(activeExternalCliRun.stdout_chars)} chars · stderr {formatInteger(activeExternalCliRun.stderr_chars)} chars
-                    </div>
-                    {activeExternalCliRun.error_message && <div style={styles.warning}>{activeExternalCliRun.error_message}</div>}
-                    {(() => {
-                      const outputArtifact = (artifacts ?? []).find((artifact) => artifact.id === activeExternalCliRun.output_artifact_id) ?? null;
-                      return outputArtifact ? (
-                        <button
-                          style={{ ...styles.ghostBtn, marginTop: 8 }}
-                          onClick={() => setArtifactModalArtifact(outputArtifact)}
-                        >
-                          Open captured output
-                        </button>
-                      ) : (
-                        <div style={styles.smallText}>Captured artifact pending.</div>
-                      );
-                    })()}
-                  </>
-                ) : (
-                  <div style={styles.detailValue}>No external CLI run has been launched for this story.</div>
-                )}
-              </div>
-
-              <div style={styles.detailCard}>
-                <div style={styles.detailLabel}>Latest Log</div>
-                {latestExternalCliEvent ? (
-                  <pre style={{ ...styles.terminalOutput, maxHeight: 120 }}>{formatExternalCliTerminalEvent(latestExternalCliEvent)}</pre>
-                ) : activeExternalCliRun?.status === "running" ? (
-                  <div style={styles.detailValue}>Waiting for the first CLI event...</div>
-                ) : (
-                  <div style={styles.detailValue}>No log events recorded yet.</div>
-                )}
-              </div>
-
-              <div style={styles.detailCard}>
-                <div style={styles.detailLabel}>Console Output</div>
-                <div style={styles.smallText}>Showing latest {formatInteger(EXTERNAL_CLI_TRACE_LIMIT)} events for the selected run as a combined terminal transcript.</div>
-                {externalCliRunEvents && externalCliRunEvents.length > 0 ? (
-                  <pre style={styles.terminalOutput}>{externalCliTerminalOutput}</pre>
-                ) : activeExternalCliRun ? (
-                  <div style={styles.detailValue}>Trace events are loading...</div>
-                ) : (
-                  <div style={styles.detailValue}>No trace is available until a CLI run starts.</div>
-                )}
-              </div>
-
-              <div style={styles.detailCard}>
-                <div style={styles.detailLabel}>Run History</div>
-                {externalCliRuns && externalCliRuns.length > 0 ? (
-                  <div style={styles.list}>
-                    {externalCliRuns.map((run: ExternalCliRun) => {
-                      const outputArtifact = (artifacts ?? []).find((artifact) => artifact.id === run.output_artifact_id) ?? null;
-                      return (
-                        <div key={run.id} style={run.id === activeExternalCliRunId ? { ...styles.listItem, borderColor: "#0e639c" } : styles.listItem}>
-                          <div style={styles.taskTitle}>{run.label} · {run.status}</div>
-                          <div style={styles.smallText}>Run: {run.id}</div>
-                          <div style={styles.smallText}>Command: {formatExternalCliCommand(run)}</div>
-                          <div style={styles.smallText}>CWD: {run.cwd}</div>
-                          {run.session_log_path ? <div style={styles.smallText}>Session file: {run.session_log_path}</div> : null}
-                          <div style={styles.smallText}>
-                            Started: {run.started_at}{run.ended_at ? ` · Ended: ${run.ended_at}` : ""}
-                          </div>
-                          <div style={styles.smallText}>
-                            Exit {run.exit_code ?? "n/a"} · Duration {formatDurationMs(run.duration_ms)} · stdout {formatInteger(run.stdout_chars)} chars · stderr {formatInteger(run.stderr_chars)} chars
-                          </div>
-                          {run.error_message && <div style={styles.warning}>{run.error_message}</div>}
-                          <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-                            <button style={styles.ghostBtn} onClick={() => setSelectedExternalCliRunId(run.id)}>
-                              View trace
-                            </button>
-                            {outputArtifact ? (
-                              <button
-                                style={styles.ghostBtn}
-                                onClick={() => setArtifactModalArtifact(outputArtifact)}
-                              >
-                                Open captured output
-                              </button>
-                            ) : null}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div style={styles.detailValue}>No external CLI runs yet.</div>
-                )}
-              </div>
-            </>
+            <WorkItemExternalCliTab
+              selectedWorkItemId={selectedWorkItemId}
+              resolvedRepository={resolvedRepository}
+              isRunPending={externalCliMutation.isPending}
+              providerInFlight={externalCliProviderInFlight}
+              onRunProvider={(provider) => externalCliMutation.mutate(provider)}
+              actionError={actionError}
+              actionInfo={actionInfo}
+              activeRun={activeExternalCliRun}
+              activeRunId={activeExternalCliRunId}
+              latestEvent={latestExternalCliEvent}
+              events={externalCliRunEvents}
+              terminalOutput={externalCliTerminalOutput}
+              runs={externalCliRuns}
+              artifacts={artifacts}
+              onOpenArtifact={setArtifactModalArtifact}
+              onSelectRun={setSelectedExternalCliRunId}
+            />
           )}
 
           {workItemWorkspaceTab === "review" && (
