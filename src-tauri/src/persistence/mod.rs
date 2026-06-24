@@ -19,6 +19,7 @@ pub mod agent_work_run_repo;
 pub mod agent_work_status;
 pub mod approval_repo;
 pub mod artifact_repo;
+pub mod bulk_import_job_repo;
 pub mod bulk_import_repo;
 pub mod db;
 pub mod external_cli_repo;
