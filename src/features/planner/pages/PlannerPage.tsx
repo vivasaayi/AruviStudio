@@ -27,9 +27,9 @@ import { PlannerPageContent } from "../components/PlannerPageContent";
 import { PlannerRepositoryModal } from "../components/PlannerRepositoryModal";
 import { PlannerSidebar } from "../components/PlannerSidebar";
 import { usePlannerPageViewModel } from "../hooks/usePlannerPageViewModel";
+import { usePlannerSpeechSettingsState } from "../hooks/usePlannerSpeechSettingsState";
 import { usePlannerWindowWidth } from "../hooks/usePlannerWindowWidth";
 import { styles } from "../lib/plannerPageStyles";
-import { loadPlannerSpeechSettings } from "../lib/plannerSpeechSettings";
 import {
   DEFAULT_ASSISTANT_OPENING,
   buildPlannerMutationMessages,
@@ -107,8 +107,6 @@ export function PlannerPage() {
   const [designPacketPath, setDesignPacketPath] = useState<string | null>(null);
   const [designPacketError, setDesignPacketError] = useState<string | null>(null);
   const [isExportingDesignPacket, setIsExportingDesignPacket] = useState(false);
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
-  const [autoSpeak, setAutoSpeak] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isVoiceSubmitting, setIsVoiceSubmitting] = useState(false);
@@ -118,11 +116,15 @@ export function PlannerPage() {
   const [voiceCaptureStartedAt, setVoiceCaptureStartedAt] = useState<number | null>(null);
   const [voiceElapsedMs, setVoiceElapsedMs] = useState<number>(0);
   const [speechError, setSpeechError] = useState<string | null>(null);
-  const [speechProviderSetting, setSpeechProviderSetting] = useState("");
-  const [speechModelSetting, setSpeechModelSetting] = useState("");
-  const [speechLocaleSetting, setSpeechLocaleSetting] = useState("en-US");
-  const [speechNativeVoiceSetting, setSpeechNativeVoiceSetting] = useState("");
-  const [reviewVoiceBeforeSend, setReviewVoiceBeforeSend] = useState(false);
+  const {
+    voiceEnabled,
+    autoSpeak,
+    speechProviderSetting,
+    speechModelSetting,
+    speechLocaleSetting,
+    speechNativeVoiceSetting,
+    reviewVoiceBeforeSend,
+  } = usePlannerSpeechSettingsState();
   const [showRepoModal, setShowRepoModal] = useState(false);
   const windowWidth = usePlannerWindowWidth();
   const [showCompactTools, setShowCompactTools] = useState(false);
@@ -222,39 +224,6 @@ export function PlannerPage() {
       setSelectedRepositoryId(repositories[0].id);
     }
   }, [repositories, selectedRepositoryId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void loadPlannerSpeechSettings().then((settings) => {
-      if (cancelled) {
-        return;
-      }
-      if (settings.provider) {
-        setSpeechProviderSetting(settings.provider);
-      }
-      if (settings.model) {
-        setSpeechModelSetting(settings.model);
-      }
-      if (settings.locale) {
-        setSpeechLocaleSetting(settings.locale);
-      }
-      if (settings.nativeVoice) {
-        setSpeechNativeVoiceSetting(settings.nativeVoice);
-      }
-      if (typeof settings.micEnabled === "boolean") {
-        setVoiceEnabled(settings.micEnabled);
-      }
-      if (typeof settings.autoSpeak === "boolean") {
-        setAutoSpeak(settings.autoSpeak);
-      }
-      if (typeof settings.reviewBeforeSend === "boolean") {
-        setReviewVoiceBeforeSend(settings.reviewBeforeSend);
-      }
-    }).catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.__ARUVI_E2E__) {
