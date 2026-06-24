@@ -192,7 +192,7 @@ pub fn run() {
             commands::model_commands::list_model_calls,
             commands::model_commands::get_model_call,
             commands::model_commands::read_model_call_snapshot,
-            commands::model_commands::start_model_chat_stream,
+            commands::model_commands::stream::start_model_chat_stream,
             // Planner commands
             commands::planner_commands::create_planner_session_command,
             commands::planner_commands::update_planner_session_command,
