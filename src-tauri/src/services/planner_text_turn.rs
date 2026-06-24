@@ -2,7 +2,6 @@ use crate::error::AppError;
 use crate::persistence::product_repo;
 use crate::services::planner_action_fields::target_field;
 use crate::services::planner_catalog::build_tree_nodes;
-use crate::services::planner_commit::commit_draft_plan;
 use crate::services::planner_draft::build_draft_tree_nodes;
 use crate::services::planner_draft_apply::apply_actions_to_draft;
 use crate::services::planner_execution::execute_plan;
@@ -11,6 +10,7 @@ use crate::services::planner_session::{
     append_conversation, get_or_load_session, persist_draft_state, persist_pending_plan,
     PlannerConversationEntry, PlannerService,
 };
+use crate::services::planner_text_turn_commit::commit_confirmed_draft_plan;
 use crate::services::planner_text_turn_response::{
     clarification_response, planner_error_response, proposal_response, selection_required_response,
     session_draft_tree_nodes,
@@ -79,66 +79,16 @@ pub async fn submit_planner_turn(
 
     let normalized = user_input.trim().to_lowercase();
     if matches!(normalized.as_str(), "yes" | "confirm" | "go ahead") {
-        if let Some(draft_plan) = session.draft_plan.clone() {
-            push_trace(
-                &mut trace,
-                "commit",
-                "Attempting draft commit",
-                serde_json::to_string_pretty(&draft_plan)?,
-            );
-            let execution_lines = match commit_draft_plan(state, &draft_plan).await {
-                Ok(lines) => lines,
-                Err(error) => {
-                    push_trace(
-                        &mut trace,
-                        "error",
-                        "Draft commit failed",
-                        error.to_string(),
-                    );
-                    return Ok(planner_error_response(
-                        session_id,
-                        &session,
-                        error.to_string(),
-                        None,
-                        trace,
-                    ));
-                }
-            };
-            append_conversation(&state.db, &session_id, "user", &user_input).await?;
-            session.conversation.push(PlannerConversationEntry {
-                role: "user".to_string(),
-                content: user_input.clone(),
-            });
-            append_conversation(
-                &state.db,
-                &session_id,
-                "assistant",
-                "Applied design to catalog.",
-            )
-            .await?;
-            session.conversation.push(PlannerConversationEntry {
-                role: "assistant".to_string(),
-                content: "Applied design to catalog.".to_string(),
-            });
-            session.pending_plan = None;
-            session.draft_plan = None;
-            session.selected_draft_node_id = None;
-            persist_pending_plan(&state.db, &session_id, None).await?;
-            persist_draft_state(&state.db, &session_id, None, None).await?;
-            let mut service = planner_service.lock().await;
-            service.save_session(&session_id, session);
-            return Ok(PlannerTurnResponse {
+        if session.draft_plan.is_some() {
+            return commit_confirmed_draft_plan(
+                planner_service,
+                state,
                 session_id,
-                status: "execution".to_string(),
-                assistant_message: "Applied design to catalog.".to_string(),
-                pending_plan: None,
-                tree_nodes: None,
-                draft_tree_nodes: None,
-                selected_draft_node_id: None,
-                execution_lines,
-                execution_errors: vec![],
-                trace_events: trace,
-            });
+                &user_input,
+                session,
+                trace,
+            )
+            .await;
         }
     }
 
