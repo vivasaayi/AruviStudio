@@ -1,9 +1,5 @@
 import React from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type {
-  AgentDefinition,
-  AgentTeam,
-} from "../../../lib/types";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { AgentAssignmentsTab } from "../components/AgentAssignmentsTab";
 import { AgentProfileTab } from "../components/AgentProfileTab";
@@ -13,6 +9,7 @@ import { AgentSkillsTab } from "../components/AgentSkillsTab";
 import { AgentTeamsTab } from "../components/AgentTeamsTab";
 import { useAgentModelBindingActions } from "../hooks/useAgentModelBindingActions";
 import { useAgentRegistryMutations } from "../hooks/useAgentRegistryMutations";
+import { useAgentRegistryPageActions } from "../hooks/useAgentRegistryPageActions";
 import { useAgentRegistryPageSync } from "../hooks/useAgentRegistryPageSync";
 import { useAgentRegistryViewModel } from "../hooks/useAgentRegistryViewModel";
 import { styles } from "../lib/agentRegistryPageStyles";
@@ -20,11 +17,7 @@ import {
   blankAgentDraft,
   blankSkillDraft,
   blankTeamDraft,
-  formatUiError,
-  parseAgentDraft,
   parsePolicyDraft,
-  parseSkillDraft,
-  parseTeamDraft,
   workflowStageOptions,
   type AgentDraft,
   type AgentTab,
@@ -149,26 +142,7 @@ export function AgentRegistryPage() {
     setAssignmentCapabilityId,
   });
 
-  const {
-    createAgentMutation,
-    updateAgentMutation,
-    deleteAgentMutation,
-    createTeamMutation,
-    updateTeamMutation,
-    deleteTeamMutation,
-    createSkillMutation,
-    updateSkillMutation,
-    deleteSkillMutation,
-    upsertRoutingPolicyMutation,
-    deleteRoutingPolicyMutation,
-    bindAgentModelMutation,
-    addMembershipMutation,
-    removeMembershipMutation,
-    assignScopeMutation,
-    removeAssignmentMutation,
-    syncAgentSkills,
-    syncTeamSkills,
-  } = useAgentRegistryMutations({
+  const mutations = useAgentRegistryMutations({
     queryClient,
     agents,
     teams,
@@ -204,193 +178,58 @@ export function AgentRegistryPage() {
   } = useAgentModelBindingActions({
     agents,
     modelDefinitions,
-    bindAgentModelMutation,
+    bindAgentModelMutation: mutations.bindAgentModelMutation,
     setAgentFeedback,
     setAgentError,
   });
 
-  const handleSaveAgent = async () => {
-    setAgentError(null);
-    setAgentFeedback(null);
-    if (!agentDraft.name.trim() || !agentDraft.role.trim()) {
-      setAgentError("Name and role are required.");
-      return;
-    }
-
-    const payload = {
-      name: agentDraft.name.trim(),
-      role: agentDraft.role.trim(),
-      description: agentDraft.description.trim(),
-      promptTemplateRef: agentDraft.promptTemplateRef.trim(),
-      allowedTools: agentDraft.allowedTools,
-      skillTags: agentDraft.skillTags,
-      boundaries: agentDraft.boundaries,
-      enabled: agentDraft.enabled,
-      employmentStatus: agentDraft.employmentStatus,
-    } as const;
-
-    try {
-      let savedAgent: AgentDefinition;
-      if (selectedAgent) {
-        savedAgent = await updateAgentMutation.mutateAsync({ id: selectedAgent.id, ...payload });
-      } else {
-        savedAgent = await createAgentMutation.mutateAsync(payload);
-      }
-      setSelectedAgentId(savedAgent.id);
-      await syncAgentSkills(savedAgent.id, selectedAgentSkillIds);
-    } catch {
-      // Mutation handlers already set error state.
-    }
-  };
-
-  const handleBindSelectedAgentModel = async () => {
-    setAgentError(null);
-    setAgentFeedback(null);
-    if (!selectedAgent) {
-      setAgentError("Select an agent first.");
-      return;
-    }
-    if (!selectedAgentModelId) {
-      setAgentError("Select a model definition first.");
-      return;
-    }
-    try {
-      await bindAgentModelMutation.mutateAsync({
-        agentId: selectedAgent.id,
-        modelId: selectedAgentModelId,
-      });
-    } catch {
-      // Mutation handler sets feedback.
-    }
-  };
-
-  const handleSaveTeam = async () => {
-    setTeamError(null);
-    setTeamFeedback(null);
-    if (!teamDraft.name.trim()) {
-      setTeamError("Team name is required.");
-      return;
-    }
-
-    const payload = {
-      name: teamDraft.name.trim(),
-      department: teamDraft.department.trim(),
-      description: teamDraft.description.trim(),
-      enabled: teamDraft.enabled,
-      maxConcurrentWorkflows: Math.max(1, teamDraft.maxConcurrentWorkflows),
-    } as const;
-
-    try {
-      let savedTeam: AgentTeam;
-      if (selectedTeam) {
-        savedTeam = await updateTeamMutation.mutateAsync({ id: selectedTeam.id, ...payload });
-      } else {
-        savedTeam = await createTeamMutation.mutateAsync(payload);
-      }
-      setSelectedTeamId(savedTeam.id);
-      await syncTeamSkills(savedTeam.id, selectedTeamSkillIds);
-    } catch (error) {
-      setTeamError(formatUiError(error));
-      setTeamFeedback(null);
-    }
-  };
-
-  const handleSaveSkill = async () => {
-    setSkillError(null);
-    setSkillFeedback(null);
-    if (!skillDraft.name.trim()) {
-      setSkillError("Skill name is required.");
-      return;
-    }
-
-    const payload = {
-      name: skillDraft.name.trim(),
-      category: skillDraft.category.trim(),
-      description: skillDraft.description.trim(),
-      instructions: skillDraft.instructions,
-      enabled: skillDraft.enabled,
-    } as const;
-
-    try {
-      if (selectedSkill) {
-        await updateSkillMutation.mutateAsync({ id: selectedSkill.id, ...payload });
-      } else {
-        await createSkillMutation.mutateAsync(payload);
-      }
-    } catch {
-      // Mutation handlers already set error state.
-    }
-  };
-
-  const handleSaveRoutingPolicy = async () => {
-    setRoutingError(null);
-    setRoutingFeedback(null);
-    if (!routingDraft.stageName) {
-      setRoutingError("Select a workflow stage.");
-      return;
-    }
-
-    try {
-      await upsertRoutingPolicyMutation.mutateAsync({
-        stageName: routingDraft.stageName,
-        primaryRoles: routingDraft.primaryRoles,
-        fallbackRoles: routingDraft.fallbackRoles,
-        coordinatorRequired: routingDraft.coordinatorRequired,
-      });
-    } catch {
-      // Mutation handlers already set error state.
-    }
-  };
-
-  const handleAddMembership = async () => {
-    setMembershipError(null);
-    if (!selectedTeamId) {
-      setMembershipError("Select a team first.");
-      return;
-    }
-    if (!membershipDraft.agentId) {
-      setMembershipError("Choose an agent to add.");
-      return;
-    }
-    try {
-      await addMembershipMutation.mutateAsync({
-        teamId: selectedTeamId,
-        agentId: membershipDraft.agentId,
-        title: membershipDraft.title.trim() || "Member",
-        isLead: membershipDraft.isLead,
-      });
-    } catch {
-      // Mutation handlers already set error state.
-    }
-  };
-
-  const handleAssignScope = async () => {
-    setAssignmentError(null);
-    if (!selectedTeamId) {
-      setAssignmentError("Select a team first.");
-      return;
-    }
-    let scopeId = assignmentProductId ?? "";
-    if (assignmentScopeType === "product_area") {
-      scopeId = assignmentProductAreaId;
-    }
-    if (assignmentScopeType === "capability") {
-      scopeId = assignmentCapabilityId;
-    }
-    if (!scopeId) {
-      setAssignmentError("Choose a scope before assigning.");
-      return;
-    }
-    try {
-      await assignScopeMutation.mutateAsync({
-        teamId: selectedTeamId,
-        scopeType: assignmentScopeType,
-        scopeId,
-      });
-    } catch {
-      // Mutation handlers already set error state.
-    }
-  };
+  const actions = useAgentRegistryPageActions({
+    agentDraft,
+    selectedAgent,
+    selectedAgentId,
+    selectedAgentSkillIds,
+    selectedAgentModelId,
+    agentSkillLinks,
+    setSelectedAgentId,
+    setSelectedAgentSkillIds,
+    setSelectedAgentModelId,
+    setAgentDraft,
+    setAgentError,
+    setAgentFeedback,
+    selectedTeam,
+    selectedTeamId,
+    selectedTeamSkillIds,
+    teamDraft,
+    teamSkillLinks,
+    setSelectedTeamId,
+    setSelectedTeamSkillIds,
+    setTeamDraft,
+    setTeamError,
+    setTeamFeedback,
+    selectedSkill,
+    skillDraft,
+    setSelectedSkillId,
+    setSkillDraft,
+    setSkillError,
+    setSkillFeedback,
+    selectedPolicy,
+    selectedPolicyStage,
+    routingDraft,
+    setRoutingDraft,
+    setRoutingError,
+    setRoutingFeedback,
+    membershipDraft,
+    setMembershipError,
+    assignmentProductId,
+    assignmentScopeType,
+    assignmentProductAreaId,
+    assignmentCapabilityId,
+    setAssignmentProductId,
+    setAssignmentError,
+    setActiveProduct,
+    setActiveTab,
+    mutations,
+  });
 
   const renderAgentTab = () => (
     <AgentProfileTab
@@ -411,52 +250,24 @@ export function AgentRegistryPage() {
       selectedAgentModelId={selectedAgentModelId}
       agentError={agentError}
       agentFeedback={agentFeedback}
-      onHireAgent={() => {
-        setSelectedAgentId(null);
-        setSelectedAgentSkillIds([]);
-        setAgentDraft(blankAgentDraft());
-        setAgentError(null);
-        setAgentFeedback(null);
-      }}
+      onHireAgent={actions.hireAgent}
       onBindAllAgentsToDeepSeek={bindAllAgentsToDeepSeek}
       onBindCodingAgentsToDeepSeek={bindCodingAgentsToDeepSeek}
       onExpandedTeamsChange={setExpandedTeams}
-      onSelectTeam={(teamId) => {
-        setSelectedTeamId(teamId);
-        setSelectedAgentId(null);
-      }}
-      onEditTeam={(teamId) => {
-        setSelectedTeamId(teamId);
-        setSelectedAgentId(null);
-        setActiveTab("teams");
-      }}
-      onSelectAgent={(teamId, agentId) => {
-        setSelectedTeamId(teamId);
-        setSelectedAgentId(agentId);
-      }}
+      onSelectTeam={actions.selectTeamFromAgentTab}
+      onEditTeam={actions.editTeamFromAgentTab}
+      onSelectAgent={actions.selectAgentFromTeam}
       onUnassignMembership={(teamId, membershipId) => {
         setSelectedTeamId(teamId);
-        removeMembershipMutation.mutate(membershipId);
+        mutations.removeMembershipMutation.mutate(membershipId);
       }}
-      onDeleteAgent={(agentId) => deleteAgentMutation.mutate(agentId)}
+      onDeleteAgent={(agentId) => mutations.deleteAgentMutation.mutate(agentId)}
       onAgentDraftChange={setAgentDraft}
       onSelectedAgentSkillIdsChange={setSelectedAgentSkillIds}
       onSelectedAgentModelChange={setSelectedAgentModelId}
-      onBindSelectedAgentModel={handleBindSelectedAgentModel}
-      onSaveAgent={handleSaveAgent}
-      onResetAgentForm={() => {
-        if (selectedAgent) {
-          setAgentDraft(parseAgentDraft(selectedAgent));
-          setSelectedAgentSkillIds(
-            agentSkillLinks.filter((link) => link.agent_id === selectedAgent.id).map((link) => link.skill_id),
-          );
-        } else {
-          setAgentDraft(blankAgentDraft());
-          setSelectedAgentSkillIds([]);
-        }
-        setAgentError(null);
-        setAgentFeedback(null);
-      }}
+      onBindSelectedAgentModel={actions.handleBindSelectedAgentModel}
+      onSaveAgent={actions.handleSaveAgent}
+      onResetAgentForm={actions.resetAgentForm}
     />
   );
 
@@ -477,36 +288,18 @@ export function AgentRegistryPage() {
       membershipError={membershipError}
       teamError={teamError}
       teamFeedback={teamFeedback}
-      isCreateTeamPending={createTeamMutation.isPending}
-      isUpdateTeamPending={updateTeamMutation.isPending}
-      onCreateNewTeam={() => {
-        setSelectedTeamId(null);
-        setSelectedTeamSkillIds([]);
-        setTeamDraft(blankTeamDraft());
-        setTeamError(null);
-        setTeamFeedback(null);
-      }}
+      isCreateTeamPending={mutations.createTeamMutation.isPending}
+      isUpdateTeamPending={mutations.updateTeamMutation.isPending}
+      onCreateNewTeam={actions.createNewTeam}
       onSelectTeam={setSelectedTeamId}
       onTeamDraftChange={setTeamDraft}
       onSelectedTeamSkillIdsChange={setSelectedTeamSkillIds}
       onMembershipDraftChange={setMembershipDraft}
-      onSaveTeam={handleSaveTeam}
-      onResetTeamForm={() => {
-        if (selectedTeam) {
-          setTeamDraft(parseTeamDraft(selectedTeam));
-          setSelectedTeamSkillIds(
-            teamSkillLinks.filter((link) => link.team_id === selectedTeam.id).map((link) => link.skill_id),
-          );
-        } else {
-          setTeamDraft(blankTeamDraft());
-          setSelectedTeamSkillIds([]);
-        }
-        setTeamError(null);
-        setTeamFeedback(null);
-      }}
-      onDeleteTeam={(teamId) => deleteTeamMutation.mutate(teamId)}
-      onRemoveMembership={(membershipId) => removeMembershipMutation.mutate(membershipId)}
-      onAddMembership={handleAddMembership}
+      onSaveTeam={actions.handleSaveTeam}
+      onResetTeamForm={actions.resetTeamForm}
+      onDeleteTeam={(teamId) => mutations.deleteTeamMutation.mutate(teamId)}
+      onRemoveMembership={(membershipId) => mutations.removeMembershipMutation.mutate(membershipId)}
+      onAddMembership={actions.handleAddMembership}
     />
   );
 
@@ -524,15 +317,12 @@ export function AgentRegistryPage() {
       selectedTeamAssignments={selectedTeamAssignments}
       assignmentError={assignmentError}
       onSelectedTeamChange={setSelectedTeamId}
-      onAssignmentProductChange={(nextId) => {
-        setAssignmentProductId(nextId);
-        setActiveProduct(nextId);
-      }}
+      onAssignmentProductChange={actions.changeAssignmentProduct}
       onAssignmentScopeTypeChange={setAssignmentScopeType}
       onAssignmentProductAreaChange={setAssignmentProductAreaId}
       onAssignmentCapabilityChange={setAssignmentCapabilityId}
-      onAssignScope={handleAssignScope}
-      onRemoveAssignment={(assignmentId) => removeAssignmentMutation.mutate(assignmentId)}
+      onAssignScope={actions.handleAssignScope}
+      onRemoveAssignment={(assignmentId) => mutations.removeAssignmentMutation.mutate(assignmentId)}
     />
   );
 
@@ -542,25 +332,12 @@ export function AgentRegistryPage() {
       selectedSkillId={selectedSkillId}
       selectedSkill={selectedSkill}
       skillDraft={skillDraft}
-      onCreateNewSkill={() => {
-        setSelectedSkillId(null);
-        setSkillDraft(blankSkillDraft());
-        setSkillError(null);
-        setSkillFeedback(null);
-      }}
+      onCreateNewSkill={actions.createNewSkill}
       onSelectSkill={setSelectedSkillId}
       onSkillDraftChange={setSkillDraft}
-      onDeleteSkill={(skillId) => deleteSkillMutation.mutate(skillId)}
-      onSaveSkill={handleSaveSkill}
-      onResetSkillForm={() => {
-        if (selectedSkill) {
-          setSkillDraft(parseSkillDraft(selectedSkill));
-        } else {
-          setSkillDraft(blankSkillDraft());
-        }
-        setSkillError(null);
-        setSkillFeedback(null);
-      }}
+      onDeleteSkill={(skillId) => mutations.deleteSkillMutation.mutate(skillId)}
+      onSaveSkill={actions.handleSaveSkill}
+      onResetSkillForm={actions.resetSkillForm}
       skillError={skillError}
       skillFeedback={skillFeedback}
     />
@@ -574,13 +351,9 @@ export function AgentRegistryPage() {
       routingDraft={routingDraft}
       onSelectedPolicyStageChange={setSelectedPolicyStage}
       onRoutingDraftChange={setRoutingDraft}
-      onDeleteRoutingPolicy={(stageName) => deleteRoutingPolicyMutation.mutate(stageName)}
-      onSaveRoutingPolicy={handleSaveRoutingPolicy}
-      onResetRoutingForm={() => {
-        setRoutingDraft(parsePolicyDraft(selectedPolicy, selectedPolicyStage));
-        setRoutingError(null);
-        setRoutingFeedback(null);
-      }}
+      onDeleteRoutingPolicy={(stageName) => mutations.deleteRoutingPolicyMutation.mutate(stageName)}
+      onSaveRoutingPolicy={actions.handleSaveRoutingPolicy}
+      onResetRoutingForm={actions.resetRoutingForm}
       routingError={routingError}
       routingFeedback={routingFeedback}
     />
