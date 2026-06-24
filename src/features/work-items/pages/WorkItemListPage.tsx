@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   assignWorkItemWorkspace,
@@ -54,6 +54,7 @@ import { WorkItemReviewWorkflowCard } from "../components/WorkItemReviewWorkflow
 import { WorkItemWorkspaceReadinessCard } from "../components/WorkItemWorkspaceReadinessCard";
 import { WorkItemWorkspaceAssignmentPanel } from "../components/WorkItemWorkspaceAssignmentPanel";
 import { useWorkItemBacklogView } from "../hooks/useWorkItemBacklogView";
+import { useWorkItemPageSync } from "../hooks/useWorkItemPageSync";
 import { useWorkItemReviewSignals } from "../hooks/useWorkItemReviewSignals";
 import { useWorkItemScopeData } from "../hooks/useWorkItemScopeData";
 import { useWorkItemScopeDisplay } from "../hooks/useWorkItemScopeDisplay";
@@ -155,40 +156,6 @@ export function WorkItemListPage() {
     workItemPageIndex,
   });
 
-  useEffect(() => {
-    if (productsLoading) {
-      return;
-    }
-    if (activeProductId !== selectedProductId) {
-      setActiveProduct(selectedProductId);
-    }
-  }, [activeProductId, productsLoading, selectedProductId, setActiveProduct]);
-
-  useEffect(() => {
-    setWorkItemPageIndex(0);
-    setSelectedBacklogItemIds([]);
-  }, [selectedProductId, activeNodeId, activeNodeType, statusFilter]);
-
-  useEffect(() => {
-    setBacklogScrollTop(0);
-    backlogViewportRef.current?.scrollTo({ top: 0 });
-  }, [selectedProductId, activeNodeId, activeNodeType, statusFilter, workItemPageIndex]);
-
-  useEffect(() => {
-    if (workItemWorkspaceTab !== "backlog") {
-      return;
-    }
-    const updateViewportHeight = () => {
-      const nextHeight = backlogViewportRef.current?.clientHeight;
-      if (nextHeight && nextHeight > 0) {
-        setBacklogViewportHeight(nextHeight);
-      }
-    };
-    updateViewportHeight();
-    window.addEventListener("resize", updateViewportHeight);
-    return () => window.removeEventListener("resize", updateViewportHeight);
-  }, [workItemWorkspaceTab, selectedProductId, activeNodeId, activeNodeType, statusFilter, workItemPageIndex]);
-
   const { data: latestWorkflowRun } = useQuery({
     queryKey: ["latestWorkflowRun", selectedWorkItemId],
     queryFn: () => getLatestWorkflowRunForWorkItem(selectedWorkItemId!),
@@ -259,63 +226,41 @@ export function WorkItemListPage() {
     refetchInterval: 2000,
   });
 
-  useEffect(() => {
-    if (selectedWorkItemId !== activeWorkItemId) {
-      setActiveWorkItem(selectedWorkItemId);
-    }
-  }, [activeWorkItemId, selectedWorkItemId, setActiveWorkItem]);
-
-  useEffect(() => {
-    setActionError(null);
-    setActionInfo(null);
-    setActiveWorkflowRunId(null);
-    setSelectedArtifactStage(null);
-    setOpenOverflowWorkItemId(null);
-  }, [activeProductId, activeProductAreaId, activeCapabilityId]);
-
-  useEffect(() => {
-    if (selectedWorkItem) {
-      setWorkItemDraft({
-        title: selectedWorkItem.title,
-        description: selectedWorkItem.description,
-        status: selectedWorkItem.status,
-        problemStatement: selectedWorkItem.problem_statement,
-        acceptanceCriteria: selectedWorkItem.acceptance_criteria,
-        constraints: selectedWorkItem.constraints,
-      });
-    }
-  }, [selectedWorkItem]);
-
-  useEffect(() => {
-    setWorkItemOrderIds(filteredWorkItems.map((workItem) => workItem.id));
-  }, [filteredWorkItems]);
-
-  useEffect(() => {
-    if (showCreateForm || workItemCreateDialogOpen) {
-      setFormError(null);
-    }
-  }, [showCreateForm, workItemCreateDialogOpen]);
-
-  useEffect(() => {
-    setActionError(null);
-    setActionInfo(null);
-  }, [selectedWorkItemId]);
-
-  useEffect(() => {
-    setOpenOverflowWorkItemId(null);
-  }, [selectedWorkItemId, workItemWorkspaceTab]);
-
-  useEffect(() => {
-    setActiveWorkflowRunId(null);
-  }, [selectedWorkItemId]);
-
-  useEffect(() => {
-    setSelectedExternalCliRunId(null);
-  }, [selectedWorkItemId]);
-
-  useEffect(() => {
-    setSelectedArtifactStage(null);
-  }, [selectedWorkItemId]);
+  useWorkItemPageSync({
+    productsLoading,
+    activeProductId,
+    selectedProductId,
+    setActiveProduct,
+    selectedProductScopeId: selectedProductId,
+    activeNodeId,
+    activeNodeType,
+    statusFilter,
+    setWorkItemPageIndex,
+    setSelectedBacklogItemIds,
+    workItemPageIndex,
+    backlogViewportRef,
+    setBacklogScrollTop,
+    setBacklogViewportHeight,
+    workItemWorkspaceTab,
+    selectedWorkItemId,
+    activeWorkItemId,
+    setActiveWorkItem,
+    activeProductAreaId,
+    activeCapabilityId,
+    setActionError,
+    setActionInfo,
+    setActiveWorkflowRunId,
+    setSelectedArtifactStage,
+    setOpenOverflowWorkItemId,
+    selectedWorkItem,
+    setWorkItemDraft,
+    filteredWorkItems,
+    setWorkItemOrderIds,
+    showCreateForm,
+    workItemCreateDialogOpen,
+    setFormError,
+    setSelectedExternalCliRunId,
+  });
 
   const invalidateTasks = async () => {
     await Promise.all([
