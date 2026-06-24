@@ -37,11 +37,9 @@ import {
   countDescendantNodes,
   countHierarchyNodes,
   findHierarchyNode,
-  findHierarchyNodePath,
   flattenHierarchyNodes,
   getDirectChildNodes,
   getDirectWorkItemsForNode,
-  getHierarchyNodeKey,
   getHierarchyNodeSectionId,
 } from "../../../lib/hierarchyTree";
 import {
@@ -51,8 +49,6 @@ import {
   getHierarchyChildLabel,
   getHierarchyNodeKindLabel,
   orderHierarchyNodeKinds,
-  ROOT_NODE_KINDS,
-  supportsHierarchyChildren,
 } from "../../../lib/hierarchyLabels";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
@@ -155,8 +151,6 @@ export function ProductListPage() {
     productAreaDialogMode,
     capabilityDialogMode,
     productWorkspaceTab,
-    expandedProductAreas,
-    expandedCapabilities,
     closeProductDialog,
     openProductDialog,
     closeProductAreaDialog,
@@ -164,10 +158,6 @@ export function ProductListPage() {
     closeCapabilityDialog,
     openCapabilityDialog,
     setProductWorkspaceTab,
-    toggleProductAreaExpanded,
-    toggleCapabilityExpanded,
-    setProductAreaExpanded,
-    setCapabilityExpanded,
     setActiveView,
   } = useUIStore();
 
@@ -224,11 +214,7 @@ export function ProductListPage() {
   const [deleteWorkItemConfirmChecked, setDeleteWorkItemConfirmChecked] = useState(false);
   const [storyDraft, setStoryDraft] = useState<WorkItemDraftState>(emptyWorkItemDraft);
   const [taskDraft, setTaskDraft] = useState<WorkItemDraftState>(emptyWorkItemDraft);
-  const [outlineSearchTerm, setOutlineSearchTerm] = useState("");
-  const [outlineKindFilter, setOutlineKindFilter] = useState<HierarchyNodeKind | "">("");
-  const [recentNodeKeys, setRecentNodeKeys] = useState<string[]>([]);
   const [copiedEntityId, setCopiedEntityId] = useState<string | null>(null);
-  const outlineNodeRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
 
   const { data: products, isLoading } = useQuery({ queryKey: ["products"], queryFn: listProducts });
   const { data: productDependencies = [] } = useQuery({
@@ -903,10 +889,6 @@ export function ProductListPage() {
     () => (tree ? findHierarchyNode(tree.roots, activeNodeId, activeNodeType) : null),
     [tree, activeNodeId, activeNodeType],
   );
-  const selectedHierarchyPath = useMemo(
-    () => (tree ? findHierarchyNodePath(tree.roots, activeNodeId, activeNodeType) : []),
-    [tree, activeNodeId, activeNodeType],
-  );
   const allTreeNodes = useMemo(() => (tree ? flattenHierarchyNodes(tree.roots) : []), [tree]);
   const canonicalManagementNodeCount = useMemo(
     () => allTreeNodes.filter((node) => node.node_kind === "product_area" || node.node_kind === "capability" || node.node_kind === "feature").length,
@@ -944,66 +926,6 @@ export function ProductListPage() {
       .forEach((node) => map.set(node.id, node.path.join(" / ")));
     return map;
   }, [allTreeNodes, productTreeById]);
-  const nodeLookup = useMemo(
-    () => new Map(allTreeNodes.map((node) => [getHierarchyNodeKey(node), node])),
-    [allTreeNodes],
-  );
-  const selectedNodeKey = activeNodeId && activeNodeType ? `${activeNodeType}:${activeNodeId}` : null;
-  const outlineNodeKindOptions = useMemo(
-    () => orderHierarchyNodeKinds(Array.from(new Set(allTreeNodes.map((node) => node.node_kind)))),
-    [allTreeNodes],
-  );
-  const outlineNodeKindGroups = useMemo(() => groupHierarchyNodeKinds(outlineNodeKindOptions), [outlineNodeKindOptions]);
-  const hasOutlineFilter = outlineSearchTerm.trim().length > 0 || outlineKindFilter.length > 0;
-  const filteredOutlineRoots = useMemo(() => {
-    if (!tree) {
-      return [];
-    }
-    if (!hasOutlineFilter) {
-      return tree.roots;
-    }
-
-    const normalizedSearch = outlineSearchTerm.trim().toLowerCase();
-    const filterNode = (node: HierarchyTreeNode): HierarchyTreeNode | null => {
-      const childMatches = node.children
-        .map(filterNode)
-        .filter(Boolean) as HierarchyTreeNode[];
-      const matchesSearch = normalizedSearch.length === 0
-        || [node.name, ...node.path, node.description, node.summary].join(" ").toLowerCase().includes(normalizedSearch);
-      const matchesKind = !outlineKindFilter || node.node_kind === outlineKindFilter;
-      if ((matchesSearch && matchesKind) || childMatches.length > 0) {
-        return {
-          ...node,
-          children: childMatches,
-        };
-      }
-      return null;
-    };
-
-    return tree.roots
-      .map(filterNode)
-      .filter(Boolean) as HierarchyTreeNode[];
-  }, [hasOutlineFilter, outlineKindFilter, outlineSearchTerm, tree]);
-  const selectedNodeKind = selectedHierarchyNode?.node_kind ?? selectedCapability?.node_kind ?? selectedProductArea?.node_kind ?? null;
-  const selectedNodeTitle = selectedHierarchyNode?.name ?? selectedProduct?.name ?? "Product";
-  const selectedNodeSummary = selectedHierarchyNode?.summary
-    || selectedHierarchyNode?.description
-    || selectedProduct?.description
-    || "Add a durable description so the selected node reads like a documented section instead of a blank planning shell.";
-  const selectedScopePath = selectedProduct
-    ? [selectedProduct.name, ...selectedHierarchyPath.map((node) => node.name)]
-    : [];
-  const selectedNodeEntityLabel = selectedCapability
-    ? getHierarchyNodeKindLabel(selectedCapability.node_kind)
-    : selectedProductArea
-      ? getHierarchyNodeKindLabel(selectedProductArea.node_kind)
-      : "Product";
-  const selectedAllowedChildKinds = selectedHierarchyNode ? selectedHierarchyNode.allowed_child_kinds : ROOT_NODE_KINDS;
-  const selectedChildNodeKinds = selectedHierarchyNode ? selectedAllowedChildKinds : [];
-  const canCreateChildCapability = selectedChildNodeKinds.length > 0;
-  const nextCapabilityEntityLabel = selectedChildNodeKinds.length > 0
-    ? getHierarchyNodeKindLabel(getDefaultChildNodeKind(selectedNodeKind))
-    : "Child Node";
   const selectedDirectChildren = useMemo(
     () => getDirectChildNodes(tree, selectedHierarchyNode),
     [tree, selectedHierarchyNode],
@@ -1297,17 +1219,6 @@ export function ProductListPage() {
     openCapabilityDialog("edit");
   };
 
-  const openCreateInSelectedScope = () => {
-    if (!selectedHierarchyNode) {
-      useUIStore.getState().openProductAreaDialog("create");
-      return;
-    }
-    if (!canCreateChildCapability) {
-      return;
-    }
-    useUIStore.getState().openCapabilityDialog("create");
-  };
-
   const selectProductArea = (productAreaTree: ProductAreaTree) => {
     setActiveHierarchyNode({
       nodeId: productAreaTree.product_area.id,
@@ -1388,63 +1299,6 @@ export function ProductListPage() {
     navigate("/work-items");
   };
 
-  useEffect(() => {
-    if (!selectedNodeKey) {
-      return;
-    }
-    setRecentNodeKeys((current) => [selectedNodeKey, ...current.filter((key) => key !== selectedNodeKey)].slice(0, 6));
-  }, [selectedNodeKey]);
-
-  const setOutlineNodeExpandedState = (node: HierarchyTreeNode, expanded: boolean) => {
-    if (node.node_type === "product_area") {
-      setProductAreaExpanded(node.id, expanded);
-      return;
-    }
-    setCapabilityExpanded(node.id, expanded);
-  };
-
-  const collapseOutlineNodes = () => {
-    allTreeNodes.forEach((node) => setOutlineNodeExpandedState(node, false));
-  };
-
-  const expandSelectedOutlinePath = () => {
-    selectedHierarchyPath.forEach((node) => setOutlineNodeExpandedState(node, true));
-  };
-
-  const jumpToSelectedOutlineNode = () => {
-    if (!selectedNodeKey) {
-      return;
-    }
-    expandSelectedOutlinePath();
-    requestAnimationFrame(() => {
-      outlineNodeRefs.current[selectedNodeKey]?.scrollIntoView({ block: "center", behavior: "smooth" });
-    });
-  };
-
-  const openOutlineNode = (node: HierarchyTreeNode) => {
-    setActiveHierarchyNode({
-      nodeId: node.id,
-      nodeType: node.node_type,
-      productAreaId: node.product_area_id,
-      capabilityId: node.capability_id,
-    });
-    setProductWorkspaceTab("structure");
-  };
-
-  const createChildForOutlineNode = (node: HierarchyTreeNode) => {
-    openOutlineNode(node);
-    openCapabilityDialog("create");
-  };
-
-  const editOutlineNode = (node: HierarchyTreeNode) => {
-    openOutlineNode(node);
-    if (node.node_type === "product_area") {
-      openProductAreaDialog("edit");
-      return;
-    }
-    openCapabilityDialog("edit");
-  };
-
   const copyEntityId = async (id: string) => {
     try {
       await navigator.clipboard.writeText(id);
@@ -1474,83 +1328,6 @@ export function ProductListPage() {
         >
           {isCopied ? "Copied" : "Copy"}
         </button>
-      </div>
-    );
-  };
-
-  const renderOutlineNode = (node: HierarchyTreeNode, depth = 0): React.ReactNode => {
-    const nodeKey = getHierarchyNodeKey(node);
-    const isActive = selectedNodeKey === nodeKey;
-    const isExpanded = hasOutlineFilter
-      ? true
-      : node.node_type === "product_area"
-        ? expandedProductAreas[node.id] ?? true
-        : expandedCapabilities[node.id] ?? true;
-    return (
-      <div key={nodeKey}>
-        <div
-          ref={(element) => {
-            outlineNodeRefs.current[nodeKey] = element;
-          }}
-          style={{
-            ...(isActive ? styles.outlineNodeActive : styles.outlineNode),
-            marginLeft: depth * 10,
-          }}
-        >
-          <div style={styles.outlineNodeHeader}>
-            {node.children.length > 0 ? (
-              <button
-                style={styles.outlineToggle}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  if (node.node_type === "product_area") {
-                    toggleProductAreaExpanded(node.id);
-                  } else {
-                    toggleCapabilityExpanded(node.id);
-                  }
-                }}
-              >
-                {isExpanded ? "-" : "+"}
-              </button>
-            ) : (
-              <div style={styles.outlineToggle}>.</div>
-            )}
-            <div style={styles.outlineNodeBody} onClick={() => openOutlineNode(node)}>
-              <div style={styles.outlineNodeTitle}>{node.name}</div>
-              <div style={styles.outlineNodeMeta}>
-                {getHierarchyNodeKindLabel(node.node_kind)} · {node.children.length} {node.children.length === 1 ? "child" : "children"}
-              </div>
-              {node.summary || node.description ? <div style={styles.outlineNodeMeta}>{node.summary || node.description}</div> : null}
-            </div>
-          </div>
-          <div style={styles.outlineActionRow}>
-            {supportsHierarchyChildren(node.node_kind) ? (
-              <button
-                style={styles.outlineActionBtn}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  createChildForOutlineNode(node);
-                }}
-              >
-                + Child Node
-              </button>
-            ) : null}
-            <button
-              style={styles.outlineActionBtn}
-              onClick={(event) => {
-                event.stopPropagation();
-                editOutlineNode(node);
-              }}
-            >
-              Edit
-            </button>
-          </div>
-        </div>
-        {isExpanded && node.children.length > 0 ? (
-          <div style={styles.outlineChildWrap}>
-            {node.children.map((child) => renderOutlineNode(child, depth + 1))}
-          </div>
-        ) : null}
       </div>
     );
   };
