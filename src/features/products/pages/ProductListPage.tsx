@@ -54,6 +54,7 @@ import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
 import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
 import { ProductOverviewPage } from "./ProductOverviewPage";
+import { CopyableEntityId } from "../components/CopyableEntityId";
 import { ProductManagementConsole } from "../components/ProductManagementConsole";
 import { ProductCatalogTab } from "../components/ProductCatalogTab";
 import {
@@ -1310,25 +1311,13 @@ export function ProductListPage() {
   };
 
   const renderCopyableEntityId = (label: string, id: string) => {
-    const displayId = id.length > 18 ? `${id.slice(0, 8)}...${id.slice(-6)}` : id;
-    const isCopied = copiedEntityId === id;
-
     return (
-      <div style={styles.copyIdRow} title={id}>
-        <span style={styles.copyIdLabel}>{label}</span>
-        <span style={styles.copyIdValue}>{displayId}</span>
-        <button
-          type="button"
-          style={styles.copyIdButton}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            void copyEntityId(id);
-          }}
-        >
-          {isCopied ? "Copied" : "Copy"}
-        </button>
-      </div>
+      <CopyableEntityId
+        label={label}
+        id={id}
+        isCopied={copiedEntityId === id}
+        onCopy={(entityId) => void copyEntityId(entityId)}
+      />
     );
   };
 
