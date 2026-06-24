@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { revealInFinder } from "../../../lib/tauri";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { usePlannerAssistantSpeech } from "./usePlannerAssistantSpeech";
+import { usePlannerComposerSubmit } from "./usePlannerComposerSubmit";
 import { usePlannerDesignPacketExport } from "./usePlannerDesignPacketExport";
 import { usePlannerDraftActions } from "./usePlannerDraftActions";
 import { usePlannerDraftEditorState } from "./usePlannerDraftEditorState";
@@ -18,7 +19,6 @@ import { usePlannerVoiceCapture } from "./usePlannerVoiceCapture";
 import { usePlannerVoiceSubmission } from "./usePlannerVoiceSubmission";
 import { usePlannerVoiceTranscriptHandler } from "./usePlannerVoiceTranscriptHandler";
 import { usePlannerWindowWidth } from "./usePlannerWindowWidth";
-import { makeId } from "../lib/plannerPageModel";
 
 export function usePlannerPageController() {
   const queryClient = useQueryClient();
@@ -293,21 +293,14 @@ export function usePlannerPageController() {
   const isPlannerBusy = basePlannerBusy || isRepositoryAnalysisPending;
   plannerBusyRef.current = isPlannerBusy;
 
-  const send = async () => {
-    const content = draft.trim();
-    if (!content || isPlannerBusy) {
-      return;
-    }
-    if (!selectedProductId) {
-      setMessages((current) => [
-        ...current,
-        { id: makeId(), role: "assistant", content: "Select a product before planning. Use Products to create one if needed.", meta: "Product required", kind: "error" },
-      ]);
-      return;
-    }
-    setDraft("");
-    await processMutation.mutateAsync(content);
-  };
+  const { send } = usePlannerComposerSubmit({
+    draft,
+    isPlannerBusy,
+    processMutation,
+    selectedProductId,
+    setDraft,
+    setMessages,
+  });
 
   const {
     confirmPendingPlan,
