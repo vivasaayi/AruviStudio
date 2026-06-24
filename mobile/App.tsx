@@ -29,6 +29,7 @@ import { initWhisper, type WhisperContext } from "whisper.rn";
 import { PlannerMobileClient } from "./src/api/client";
 import { MobileCallsScreen } from "./src/components/MobileCallsScreen";
 import { MobileModelManager } from "./src/components/MobileModelManager";
+import { MobileVoiceScreen } from "./src/components/MobileVoiceScreen";
 import type { HierarchyTreeNode, MobilePlannerToolTraceEntry, ModelCall, Product, ProductTree, ProductTreeSummary } from "./src/types";
 import {
   buildRemoteScript,
@@ -41,7 +42,6 @@ import {
 } from "./src/lib/mobileConnection";
 import {
   buildModelCallSessions,
-  compactJson,
   describeError,
   formatPlannerToolTrace,
 } from "./src/lib/mobileFormatters";
@@ -1516,145 +1516,6 @@ export default function App() {
     );
   };
 
-  const renderVoiceScreen = () => (
-    <View style={styles.voiceScreen}>
-      <View style={styles.voiceTopBand}>
-        <View style={styles.voiceTopCopy}>
-          <Text style={styles.voiceTitle}>{voiceMode === "planner" ? "Planner Chat" : "Voice"}</Text>
-          <Text style={styles.voiceSubtitle} numberOfLines={1}>
-            {voiceMode === "planner" ? `${nativeVoiceStatus} · ${plannerContextLabel}` : nativeVoiceStatus}
-          </Text>
-        </View>
-        <Pressable style={styles.runtimeChip} onPress={() => switchTab("models")}>
-          <Text style={styles.runtimeChipText} numberOfLines={1}>
-            {voiceMode === "planner" ? plannerRuntimeLabel : speechModelLabel}
-          </Text>
-        </Pressable>
-      </View>
-      <View style={styles.voiceModeRow}>
-        <Pressable
-          style={[styles.voiceModeButton, voiceMode === "assistant" && styles.voiceModeButtonActive]}
-          onPress={() => switchVoiceMode("assistant")}
-        >
-          <Text style={[styles.voiceModeText, voiceMode === "assistant" && styles.voiceModeTextActive]}>Assistant</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.voiceModeButton, voiceMode === "planner" && styles.voiceModeButtonActive]}
-          onPress={() => switchVoiceMode("planner")}
-        >
-          <Text style={[styles.voiceModeText, voiceMode === "planner" && styles.voiceModeTextActive]}>Planner</Text>
-        </Pressable>
-      </View>
-
-      <ScrollView
-        style={styles.voiceConversation}
-        contentContainerStyle={styles.voiceConversationContent}
-        keyboardShouldPersistTaps="handled"
-      >
-        {voiceMessages.map((message) => (
-          <View
-            key={message.id}
-            style={[
-              styles.voiceBubble,
-              message.role === "user" ? styles.voiceBubbleUser : styles.voiceBubbleAssistant,
-            ]}
-          >
-            <Text
-              style={[
-                styles.voiceBubbleText,
-                message.role === "user" ? styles.voiceBubbleTextUser : styles.voiceBubbleTextAssistant,
-              ]}
-            >
-              {message.content}
-            </Text>
-            {message.toolTrace?.length ? (
-              <View style={styles.plannerTraceList}>
-                {message.toolTrace.map((entry) => (
-                  <View key={`${message.id}-${entry.step}-${entry.tool_name}`} style={styles.plannerTraceCard}>
-                    <View style={styles.plannerTraceHeader}>
-                      <Text style={styles.plannerTraceTitle} numberOfLines={1}>{formatPlannerToolTrace(entry)}</Text>
-                      <Text style={[styles.plannerTraceStatus, entry.error && styles.plannerTraceStatusError]}>
-                        {entry.error ? "Error" : "OK"}
-                      </Text>
-                    </View>
-                    <Text style={styles.plannerTraceMeta} numberOfLines={2}>
-                      {entry.error ? entry.error : compactJson(entry.arguments)}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            ) : null}
-          </View>
-        ))}
-      </ScrollView>
-
-      <View
-        style={[
-          styles.voiceComposerPanel,
-          isVoiceKeyboardOpen && { marginBottom: keyboardHeight + 8 },
-        ]}
-      >
-        <View style={styles.voiceComposerHeader}>
-          <Text style={styles.voiceComposerLabel} numberOfLines={1}>
-            {recorderState.isRecording ? "Listening" : isVoiceBusy ? nativeVoiceStatus : "Voice transcript"}
-          </Text>
-          <Text style={styles.voiceComposerStatus} numberOfLines={1}>
-            {voiceComposerStatus}
-          </Text>
-        </View>
-        <TextInput
-          style={styles.voiceComposerInput}
-          value={voiceDraft}
-          onChangeText={setVoiceDraft}
-          placeholder={voiceMode === "planner" ? "Ask the planner to inspect or update the product" : "Speak or type a message"}
-          placeholderTextColor="#7f8a9c"
-          multiline
-          textAlignVertical="top"
-        />
-        <View style={styles.voiceComposerActions}>
-          <Pressable
-            style={[styles.voiceClearButton, (!voiceDraft.trim() || isVoiceBusy || recorderState.isRecording) && styles.buttonDisabled]}
-            onPress={() => setVoiceDraft("")}
-            disabled={!voiceDraft.trim() || isVoiceBusy || recorderState.isRecording}
-          >
-            <Text style={styles.voiceClearButtonText}>Clear</Text>
-          </Pressable>
-          <View style={styles.voiceComposerSpacer} />
-          <Pressable
-            style={[
-              styles.voiceMicButton,
-              recorderState.isRecording && styles.voiceMicButtonRecording,
-              nativeVoiceButtonDisabled && !recorderState.isRecording && styles.buttonDisabled,
-            ]}
-            onPress={() => void toggleNativeVoiceRecording()}
-            disabled={nativeVoiceButtonDisabled && !recorderState.isRecording}
-          >
-            <Text style={styles.voiceMicButtonText}>
-              {recorderState.isRecording ? "Stop" : canUseLocalSpeech ? "Mic" : "Install"}
-            </Text>
-          </Pressable>
-          <Pressable
-            style={[
-              styles.voiceSendButton,
-              (!voiceDraft.trim() || isVoiceBusy || recorderState.isRecording) && styles.buttonDisabled,
-            ]}
-            onPress={() => void submitVoicePrompt(voiceDraft, "typed")}
-            disabled={!voiceDraft.trim() || isVoiceBusy || recorderState.isRecording}
-          >
-            <Text style={styles.voiceSendButtonText}>↑</Text>
-          </Pressable>
-        </View>
-        <Text style={styles.voiceControlHint} numberOfLines={1}>
-          {token.trim()
-            ? voiceMode === "planner"
-              ? "Planner mode uses backend MCP tools and your selected model."
-              : speechModelDescription
-            : "Save setup first."}
-        </Text>
-      </View>
-    </View>
-  );
-
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.shell}>
@@ -1759,7 +1620,30 @@ export default function App() {
 
         <View style={styles.content}>
           {activeTab === "voice" ? (
-            renderVoiceScreen()
+            <MobileVoiceScreen
+              voiceMode={voiceMode}
+              nativeVoiceStatus={nativeVoiceStatus}
+              plannerContextLabel={plannerContextLabel}
+              plannerRuntimeLabel={plannerRuntimeLabel}
+              speechModelLabel={speechModelLabel}
+              voiceMessages={voiceMessages}
+              isVoiceKeyboardOpen={isVoiceKeyboardOpen}
+              keyboardHeight={keyboardHeight}
+              isVoiceBusy={isVoiceBusy}
+              isRecording={recorderState.isRecording}
+              voiceComposerStatus={voiceComposerStatus}
+              voiceDraft={voiceDraft}
+              nativeVoiceButtonDisabled={nativeVoiceButtonDisabled}
+              canUseLocalSpeech={canUseLocalSpeech}
+              token={token}
+              speechModelDescription={speechModelDescription}
+              onOpenModels={() => switchTab("models")}
+              onSwitchVoiceMode={switchVoiceMode}
+              onVoiceDraftChange={setVoiceDraft}
+              onClearVoiceDraft={() => setVoiceDraft("")}
+              onToggleNativeVoiceRecording={toggleNativeVoiceRecording}
+              onSubmitVoicePrompt={(prompt) => submitVoicePrompt(prompt, "typed")}
+            />
           ) : activeTab === "models" ? (
             <MobileModelManager
               speechModelDescription={speechModelDescription}
