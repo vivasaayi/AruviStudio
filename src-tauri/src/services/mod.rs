@@ -48,6 +48,7 @@ pub mod planner_execution_work_items;
 pub mod planner_model;
 pub mod planner_repository_analysis;
 pub mod planner_repository_annotation;
+pub mod planner_repository_metadata;
 pub mod planner_repository_signals;
 pub mod planner_repository_turn;
 pub mod planner_response;
