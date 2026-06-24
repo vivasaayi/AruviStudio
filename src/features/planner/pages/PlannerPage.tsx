@@ -3,8 +3,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   addPlannerDraftChild,
-  clearPlannerPending,
-  confirmPlannerPlan,
   createPlannerSession,
   deletePlannerDraftNode,
   renamePlannerDraftNode,
@@ -25,6 +23,7 @@ import { usePlannerDraftActions } from "../hooks/usePlannerDraftActions";
 import { usePlannerDraftEditorState } from "../hooks/usePlannerDraftEditorState";
 import { usePlannerPageLifecycle } from "../hooks/usePlannerPageLifecycle";
 import { usePlannerPageViewModel } from "../hooks/usePlannerPageViewModel";
+import { usePlannerPendingPlanActions } from "../hooks/usePlannerPendingPlanActions";
 import { usePlannerRepositoryModalState } from "../hooks/usePlannerRepositoryModalState";
 import { usePlannerSpeechSettingsState } from "../hooks/usePlannerSpeechSettingsState";
 import { usePlannerWindowWidth } from "../hooks/usePlannerWindowWidth";
@@ -32,19 +31,11 @@ import { styles } from "../lib/plannerPageStyles";
 import {
   DEFAULT_ASSISTANT_OPENING,
   buildPlannerMutationMessages,
-  buildWorkItemTreeNodes,
-  buildWorkItemTreeReport,
-  executePlannerPlan,
-  findCapability,
-  findProductArea,
-  findTree,
   findTreeNodePath,
-  flattenTreeNodes,
   formatDraftChildTypeLabel,
   getPlannerMutationSpeechText,
   getPlannerNodeType,
   getPlannerVoiceViewCommand,
-  getReportTreeProductName,
   isCollapseDraftVoiceCommand,
   isDraftWideVoiceTarget,
   isExpandDraftVoiceCommand,
@@ -53,12 +44,9 @@ import {
   parseVoiceNodeReference,
   resolveVoiceNodeReference,
   type DraftEditOperation,
-  type ExecutionResult,
   type PendingPlan,
-  type PlannerAction,
   type PlannerMessage,
   type PlannerMutationResult,
-  type PlannerPlan,
   type PlannerTreeNode,
   mapPlannerResponseToMutationResult,
 } from "../lib/plannerPageModel";
@@ -633,68 +621,23 @@ export function PlannerPage() {
     }
   };
 
-  const confirmPendingPlan = () => {
-    if ((!pendingPlan && draftTreeNodes.length === 0) || isPlannerBusy || !sessionId) {
-      return;
-    }
-    void (async () => {
-      const response = await confirmPlannerPlan(sessionId);
-      const execution: ExecutionResult = {
-        lines: response.execution_lines,
-        errors: response.execution_errors,
-      };
-      const plan = pendingPlan?.plan ?? {
-        assistant_response: "Applied design to catalog.",
-        needs_confirmation: false,
-        clarification_question: null,
-        actions: [],
-      };
-      const treeNodes = (response.tree_nodes as unknown as PlannerTreeNode[] | undefined) ?? undefined;
-      setLatestTraceEvents(response.trace_events ?? []);
-      setMessages((current) => [
-        ...current,
-        { id: makeId(), role: "user", content: "confirm", kind: "text" },
-        {
-          id: makeId(),
-          role: "assistant",
-          content: ["Applied design to catalog.", ...execution.lines, ...(execution.errors.length ? [`Errors: ${execution.errors.join(" | ")}`] : [])].join("\n"),
-          meta: "Planner execution",
-          kind: treeNodes ? "tree" : "execution",
-          treeNodes,
-          plan,
-          traceEvents: response.trace_events ?? [],
-        },
-      ]);
-      setPendingPlan(null);
-      setDraftTreeNodes([]);
-      setSelectedDraftNodeId(null);
-      setPlannerView("conversation");
-      void queryClient.invalidateQueries({ queryKey: ["products"] });
-      void queryClient.invalidateQueries({ queryKey: ["plannerWorkItems", selectedProductId] });
-      void queryClient.invalidateQueries({ queryKey: ["sidebarWorkItems"] });
-      void queryClient.invalidateQueries({ queryKey: ["productTree", selectedProductId] });
-      void queryClient.invalidateQueries({ queryKey: ["plannerProductAreas", selectedProductId] });
-      void queryClient.invalidateQueries({ queryKey: ["plannerProductTree", selectedProductId] });
-    })().catch((error) => {
-      setMessages((current) => [
-        ...current,
-        { id: makeId(), role: "assistant", content: String(error), meta: "Planner error", kind: "error" },
-      ]);
-    });
-  };
-
-  const dismissPendingPlan = () => {
-    if (!pendingPlan && draftTreeNodes.length === 0) {
-      return;
-    }
-    if (sessionId) {
-      void clearPlannerPending(sessionId).catch(() => {});
-    }
-    setPendingPlan(null);
-    setDraftTreeNodes([]);
-    setSelectedDraftNodeId(null);
-    setPlannerView("conversation");
-  };
+  const {
+    confirmPendingPlan,
+    dismissPendingPlan,
+  } = usePlannerPendingPlanActions({
+    queryClient,
+    pendingPlan,
+    setPendingPlan,
+    draftTreeNodes,
+    setDraftTreeNodes,
+    sessionId,
+    isPlannerBusy,
+    selectedProductId,
+    setLatestTraceEvents,
+    setMessages,
+    setSelectedDraftNodeId,
+    setPlannerView,
+  });
 
   function appendVoiceCommandFeedback(transcript: string, reply: string) {
     setPendingVoiceTranscript(null);
