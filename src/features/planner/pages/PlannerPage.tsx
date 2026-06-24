@@ -29,6 +29,7 @@ import {
 } from "../../../lib/tauri";
 import { blobToBase64, speakInBrowser, startWavCapture, type ActiveAudioCapture } from "../../shared/voice";
 import { PlannerConversationTranscript } from "../components/PlannerConversationTranscript";
+import { PlannerComposerPanel } from "../components/PlannerComposerPanel";
 import { PlannerDraftCanvas } from "../components/PlannerDraftCanvas";
 import { PlannerDraftSidePanel } from "../components/PlannerDraftSidePanel";
 import { PlannerHeader } from "../components/PlannerHeader";
@@ -46,8 +47,6 @@ import {
   SPEECH_NATIVE_VOICE_KEY,
   SPEECH_PROVIDER_KEY,
   SPEECH_REVIEW_BEFORE_SEND_KEY,
-  PlannerComposer,
-  PLANNER_COMPOSER_SCOPE_HINT,
   buildPlannerComposerScopeChips,
   buildPlannerModelPickerOptions,
   buildPlannerMutationMessages,
@@ -1251,6 +1250,34 @@ export function PlannerPage() {
     }
   };
 
+  const plannerComposer = (
+    <PlannerComposerPanel
+      draft={draft}
+      onDraftChange={setDraft}
+      onSend={() => {
+        void send();
+      }}
+      onToggleListening={() => {
+        void toggleListening();
+      }}
+      onOpenDraftWorkspace={() => setPlannerView("draft")}
+      onConfirm={() => setDraft("confirm")}
+      onDismiss={dismissPendingPlan}
+      isPlannerBusy={isPlannerBusy}
+      voiceEnabled={voiceEnabled}
+      isListening={isListening}
+      isTranscribing={isTranscribing}
+      isVoiceSubmitting={isVoiceSubmitting}
+      pendingVoiceTranscript={pendingVoiceTranscript}
+      draftTreeNodesLength={draftTreeNodes.length}
+      pendingPlan={pendingPlan}
+      voiceActivity={voiceActivity}
+      composerRef={composerRef}
+      scopeChips={composerScopeChips}
+      isProductSelected={Boolean(selectedProductId)}
+    />
+  );
+
   const plannerSidebar = (
     <PlannerSidebar
       isCompactScreen={isCompactScreen}
@@ -1323,32 +1350,7 @@ export function PlannerPage() {
                     onExpandAllDraftNodes={expandAllDraftNodes}
                     onCollapseAllDraftNodes={collapseAllDraftNodes}
                   />
-                  <PlannerComposer
-                    draft={draft}
-                    onDraftChange={setDraft}
-                    onSend={() => {
-                      void send();
-                    }}
-                    onToggleListening={() => {
-                      void toggleListening();
-                    }}
-                    onOpenDraftWorkspace={() => setPlannerView("draft")}
-                    onConfirm={() => setDraft("confirm")}
-                    onDismiss={dismissPendingPlan}
-                    isPlannerBusy={isPlannerBusy}
-                    voiceEnabled={voiceEnabled}
-                    isListening={isListening}
-                    isTranscribing={isTranscribing}
-                    isVoiceSubmitting={isVoiceSubmitting}
-                    pendingVoiceTranscript={pendingVoiceTranscript}
-                    draftTreeNodesLength={draftTreeNodes.length}
-                    pendingPlan={pendingPlan}
-                    voiceActivity={voiceActivity}
-                    composerRef={composerRef}
-                    scopeChips={composerScopeChips}
-                    scopeHint={PLANNER_COMPOSER_SCOPE_HINT}
-                    isProductSelected={Boolean(selectedProductId)}
-                  />
+                  {plannerComposer}
                 </div>
 
                 <PlannerDraftSidePanel
@@ -1412,32 +1414,7 @@ export function PlannerPage() {
               />
             )}
             {plannerView !== "draft" ? (
-              <PlannerComposer
-                draft={draft}
-                onDraftChange={setDraft}
-                onSend={() => {
-                  void send();
-                }}
-                onToggleListening={() => {
-                  void toggleListening();
-                }}
-                onOpenDraftWorkspace={() => setPlannerView("draft")}
-                onConfirm={() => setDraft("confirm")}
-                onDismiss={dismissPendingPlan}
-                isPlannerBusy={isPlannerBusy}
-                voiceEnabled={voiceEnabled}
-                isListening={isListening}
-                isTranscribing={isTranscribing}
-                isVoiceSubmitting={isVoiceSubmitting}
-                pendingVoiceTranscript={pendingVoiceTranscript}
-                draftTreeNodesLength={draftTreeNodes.length}
-                pendingPlan={pendingPlan}
-                voiceActivity={voiceActivity}
-                composerRef={composerRef}
-                scopeChips={composerScopeChips}
-                scopeHint={PLANNER_COMPOSER_SCOPE_HINT}
-                isProductSelected={Boolean(selectedProductId)}
-              />
+              plannerComposer
             ) : null}
           </div>
         </div>
