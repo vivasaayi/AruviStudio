@@ -33,6 +33,8 @@ import { PlannerDraftSidePanel } from "../components/PlannerDraftSidePanel";
 import { PlannerHeader } from "../components/PlannerHeader";
 import { PlannerRepositoryModal } from "../components/PlannerRepositoryModal";
 import { PlannerSidebar } from "../components/PlannerSidebar";
+import { PlannerTraceView } from "../components/PlannerTraceView";
+import { PlannerVoiceReviewCard } from "../components/PlannerVoiceReviewCard";
 import { styles } from "../lib/plannerPageStyles";
 import {
   DEFAULT_ASSISTANT_OPENING,
@@ -62,7 +64,6 @@ import {
   findTreeNodePath,
   flattenTreeNodes,
   formatDraftChildTypeLabel,
-  formatElapsedMs,
   getAllowedDraftChildTypes,
   getPlannerNodeType,
   getReportTreeProductName,
@@ -1780,71 +1781,20 @@ export function PlannerPage() {
                 />
               </div>
             ) : plannerView === "trace" ? (
-              <div style={styles.draftWorkspaceMain}>
-                <div style={styles.draftCanvas}>
-                  <div style={styles.draftCanvasHeader}>
-                    <div>
-                      <div style={styles.draftCanvasTitle}>Latest Planner Turn Trace</div>
-                      <div style={styles.helper}>
-                        Inspect the raw planning flow: input context, model completions, tool calls, parsed plan, and any backend validation failure.
-                      </div>
-                    </div>
-                    <div style={styles.chipRow}>
-                      <div style={styles.chip}>{latestTraceEvents.length} events</div>
-                    </div>
-                  </div>
-                  {latestTraceEvents.length > 0 ? (
-                    <div style={styles.list}>
-                      {latestTraceEvents.map((event) => (
-                        <div key={`${event.step}-${event.title}`} style={styles.listItem}>
-                          <div style={styles.listItemTitle}>
-                            {event.step}. {event.title}
-                          </div>
-                          <div style={styles.helper}>{event.stage}</div>
-                          <div style={{ ...styles.listItemMeta, marginTop: 8 }}>{event.detail}</div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div style={styles.emptyState}>
-                      No trace captured yet. Send a planner turn, then open this view to inspect the latest model/tool trace.
-                    </div>
-                  )}
-                </div>
-              </div>
+              <PlannerTraceView events={latestTraceEvents} />
             ) : (
               <div ref={transcriptRef} style={{ ...styles.transcript, flex: 1, minHeight: 0, overflow: "auto" }}>
                 {pendingVoiceTranscript && reviewVoiceBeforeSend ? (
-                  <div style={styles.voiceReviewCard}>
-                    <div style={styles.voiceReviewHeader}>
-                      <div>
-                        <div style={styles.voiceReviewTitle}>Voice Transcript Preview</div>
-                        <div style={styles.helper}>
-                          Review or edit the recognized speech before sending it to the planner.
-                        </div>
-                      </div>
-                      <div style={styles.chipRow}>
-                        <div style={styles.chip}>elapsed {formatElapsedMs(voiceElapsedMs)}</div>
-                        <div style={styles.chip}>{isVoiceSubmitting ? "sending" : "ready to send"}</div>
-                      </div>
-                    </div>
-                    <textarea
-                      style={{ ...styles.compactTextarea, minHeight: 88 }}
-                      value={editableVoiceTranscript}
-                      onChange={(event) => setEditableVoiceTranscript(event.target.value)}
-                    />
-                    <div style={styles.inlineButtonRow}>
-                      <button style={styles.btn} onClick={() => void submitPendingVoiceTranscript()} disabled={!editableVoiceTranscript.trim() || isPlannerBusy}>
-                        Send Transcript
-                      </button>
-                      <button style={styles.btnGhost} onClick={() => void retryVoiceCapture()} disabled={isPlannerBusy}>
-                        Retry
-                      </button>
-                      <button style={styles.btnDanger} onClick={clearPendingVoiceReview} disabled={isPlannerBusy}>
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
+                  <PlannerVoiceReviewCard
+                    voiceElapsedMs={voiceElapsedMs}
+                    isVoiceSubmitting={isVoiceSubmitting}
+                    editableVoiceTranscript={editableVoiceTranscript}
+                    onEditableVoiceTranscriptChange={setEditableVoiceTranscript}
+                    onSubmitPendingVoiceTranscript={() => void submitPendingVoiceTranscript()}
+                    onRetryVoiceCapture={() => void retryVoiceCapture()}
+                    onClearPendingVoiceReview={clearPendingVoiceReview}
+                    isPlannerBusy={isPlannerBusy}
+                  />
                 ) : null}
                 {messages.map((message) => (
                   <div key={message.id} style={message.role === "user" ? styles.bubbleUser : styles.bubbleAssistant}>
