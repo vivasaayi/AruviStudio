@@ -47,6 +47,7 @@ import type {
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { AgentRegistryHeader } from "../components/AgentRegistryHeader";
 import { AgentRoutingTab } from "../components/AgentRoutingTab";
+import { AgentSkillChooser } from "../components/AgentSkillChooser";
 import { AgentSkillsTab } from "../components/AgentSkillsTab";
 import { styles } from "../lib/agentRegistryPageStyles";
 import {
@@ -786,30 +787,6 @@ export function AgentRegistryPage() {
     }
   };
 
-  const renderSkillChooser = (
-    selectedIds: string[],
-    onToggle: (skillId: string, checked: boolean) => void,
-  ) => (
-    <div style={styles.skillList}>
-      {skills.length === 0 ? (
-        <div style={styles.empty}>Add skills in the Skills tab first.</div>
-      ) : (
-        skills.map((skill) => (
-          <label key={skill.id} style={styles.skillPill}>
-            <input
-              type="checkbox"
-              checked={selectedIds.includes(skill.id)}
-              onChange={(e) => onToggle(skill.id, e.target.checked)}
-            />
-            <span style={{ color: "#374151", fontSize: 12 }}>
-              {skill.name} <span style={{ color: "#6b7280" }}>({skill.category})</span>
-            </span>
-          </label>
-        ))
-      )}
-    </div>
-  );
-
   const renderAgentTab = () => (
     <div style={styles.workspace}>
       <div style={styles.rail}>
@@ -1078,11 +1055,15 @@ export function AgentRegistryPage() {
           </div>
           <div style={{ ...styles.field, ...styles.fullWidth }}>
             <label style={styles.label}>Linked Skills</label>
-            {renderSkillChooser(selectedAgentSkillIds, (skillId, checked) => {
-              setSelectedAgentSkillIds((current) =>
-                checked ? [...new Set([...current, skillId])] : current.filter((id) => id !== skillId),
-              );
-            })}
+            <AgentSkillChooser
+              skills={skills}
+              selectedIds={selectedAgentSkillIds}
+              onToggle={(skillId, checked) => {
+                setSelectedAgentSkillIds((current) =>
+                  checked ? [...new Set([...current, skillId])] : current.filter((id) => id !== skillId),
+                );
+              }}
+            />
           </div>
           <div style={{ ...styles.field, ...styles.fullWidth }}>
             <label style={styles.label}>Primary Model</label>
@@ -1300,11 +1281,15 @@ export function AgentRegistryPage() {
             </div>
             <div style={{ ...styles.field, ...styles.fullWidth }}>
               <label style={styles.label}>Team Skills</label>
-              {renderSkillChooser(selectedTeamSkillIds, (skillId, checked) => {
-                setSelectedTeamSkillIds((current) =>
-                  checked ? [...new Set([...current, skillId])] : current.filter((id) => id !== skillId),
-                );
-              })}
+              <AgentSkillChooser
+                skills={skills}
+                selectedIds={selectedTeamSkillIds}
+                onToggle={(skillId, checked) => {
+                  setSelectedTeamSkillIds((current) =>
+                    checked ? [...new Set([...current, skillId])] : current.filter((id) => id !== skillId),
+                  );
+                }}
+              />
             </div>
           </div>
           <label style={styles.checkboxRow}>
