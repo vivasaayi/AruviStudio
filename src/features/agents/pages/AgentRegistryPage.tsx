@@ -48,8 +48,8 @@ import { AgentAssignmentsTab } from "../components/AgentAssignmentsTab";
 import { AgentProfileTab } from "../components/AgentProfileTab";
 import { AgentRegistryHeader } from "../components/AgentRegistryHeader";
 import { AgentRoutingTab } from "../components/AgentRoutingTab";
-import { AgentSkillChooser } from "../components/AgentSkillChooser";
 import { AgentSkillsTab } from "../components/AgentSkillsTab";
+import { AgentTeamsTab } from "../components/AgentTeamsTab";
 import { styles } from "../lib/agentRegistryPageStyles";
 import {
   blankAgentDraft,
@@ -856,249 +856,53 @@ export function AgentRegistryPage() {
   );
 
   const renderTeamTab = () => (
-    <div style={styles.workspace}>
-      <div style={styles.rail}>
-        <div style={styles.toolbar}>
-          <button
-            type="button"
-            style={styles.buttonPrimary}
-            onClick={() => {
-              setSelectedTeamId(null);
-              setSelectedTeamSkillIds([]);
-              setTeamDraft(blankTeamDraft());
-              setTeamError(null);
-              setTeamFeedback(null);
-            }}
-          >
-            + New Team
-          </button>
-        </div>
-        <div style={styles.sectionTitle}>Teams</div>
-        <div style={styles.list}>
-          {teamsLoading ? (
-            <div style={styles.empty}>Loading teams...</div>
-          ) : teams.length === 0 ? (
-            <div style={styles.empty}>No teams created yet.</div>
-          ) : (
-            teams.map((team) => {
-              const memberCount = memberships.filter((membership) => membership.team_id === team.id).length;
-              return (
-                <button
-                  key={team.id}
-                  type="button"
-                  style={{
-                    ...styles.listItem,
-                    ...(team.id === selectedTeamId ? styles.listItemActive : {}),
-                    textAlign: "left",
-                  }}
-                  onClick={() => setSelectedTeamId(team.id)}
-                >
-                  <div style={styles.itemTitle}>{team.name}</div>
-                  <div style={styles.itemMeta}>
-                    {team.department} · {memberCount} member{memberCount === 1 ? "" : "s"}
-                  </div>
-                  <div style={styles.badgeRow}>
-                    <span style={styles.badgeMuted}>{team.enabled ? "enabled" : "disabled"}</span>
-                  </div>
-                </button>
-              );
-            })
-          )}
-        </div>
-      </div>
-      <div style={styles.detail}>
-        <div style={styles.headerRow}>
-          <div style={styles.titleWrap}>
-            <h2 style={styles.title}>{selectedTeam ? "Edit Team" : "Create Team"}</h2>
-            <div style={styles.subtitle}>Set team profile, save, then manage members. Keep this page focused on one team at a time.</div>
-          </div>
-          <div style={styles.headerActions}>
-            <button
-              type="button"
-              style={{
-                ...styles.buttonPrimary,
-                opacity: !teamDraft.name.trim() ? 0.55 : 1,
-                cursor: !teamDraft.name.trim() ? "not-allowed" : "pointer",
-              }}
-              disabled={!teamDraft.name.trim() || createTeamMutation.isPending || updateTeamMutation.isPending}
-              onClick={handleSaveTeam}
-            >
-              {selectedTeam ? "Save Team" : "Create Team"}
-            </button>
-            <button
-              type="button"
-              style={styles.buttonSecondary}
-              onClick={() => {
-                if (selectedTeam) {
-                  setTeamDraft(parseTeamDraft(selectedTeam));
-                  setSelectedTeamSkillIds(
-                    teamSkillLinks.filter((link) => link.team_id === selectedTeam.id).map((link) => link.skill_id),
-                  );
-                } else {
-                  setTeamDraft(blankTeamDraft());
-                  setSelectedTeamSkillIds([]);
-                }
-                setTeamError(null);
-                setTeamFeedback(null);
-              }}
-            >
-              Reset
-            </button>
-            {selectedTeam ? (
-              <button type="button" style={styles.buttonDanger} onClick={() => deleteTeamMutation.mutate(selectedTeam.id)}>
-                Delete
-              </button>
-            ) : null}
-          </div>
-        </div>
-
-        <div style={styles.teamStatsRow}>
-          <div style={styles.teamStatChip}>
-            <div style={styles.sectionTitle}>Roster</div>
-            <div style={styles.infoValue}>{selectedTeamMemberships.length} member{selectedTeamMemberships.length === 1 ? "" : "s"}</div>
-          </div>
-          <div style={styles.teamStatChip}>
-            <div style={styles.sectionTitle}>Assignments</div>
-            <div style={styles.infoValue}>{selectedTeamAssignments.length} scope assignment{selectedTeamAssignments.length === 1 ? "" : "s"}</div>
-          </div>
-          <div style={styles.teamStatChip}>
-            <div style={styles.sectionTitle}>Skills</div>
-            <div style={styles.infoValue}>{selectedTeamSkillIds.length} linked skill{selectedTeamSkillIds.length === 1 ? "" : "s"}</div>
-          </div>
-          <div style={styles.teamStatChip}>
-            <div style={styles.sectionTitle}>Capacity</div>
-            <div style={styles.infoValue}>
-              {selectedTeam ? selectedTeam.max_concurrent_workflows : teamDraft.maxConcurrentWorkflows} concurrent workflow
-              {(selectedTeam ? selectedTeam.max_concurrent_workflows : teamDraft.maxConcurrentWorkflows) === 1 ? "" : "s"}
-            </div>
-          </div>
-        </div>
-
-        <div style={styles.teamPanel}>
-          <div style={styles.teamPanelTitle}>Team Profile</div>
-          <div style={styles.formGrid}>
-            <div style={styles.field}>
-              <label style={styles.label}>Team Name</label>
-              <input style={styles.input} value={teamDraft.name} onChange={(e) => setTeamDraft((draft) => ({ ...draft, name: e.target.value }))} />
-              {!teamDraft.name.trim() ? <div style={styles.error}>Team name is required.</div> : null}
-            </div>
-            <div style={styles.field}>
-              <label style={styles.label}>Department</label>
-              <input style={styles.input} value={teamDraft.department} onChange={(e) => setTeamDraft((draft) => ({ ...draft, department: e.target.value }))} />
-            </div>
-            <div style={{ ...styles.field, ...styles.fullWidth }}>
-              <label style={styles.label}>Description</label>
-              <textarea style={styles.textarea} value={teamDraft.description} onChange={(e) => setTeamDraft((draft) => ({ ...draft, description: e.target.value }))} />
-            </div>
-            <div style={styles.field}>
-              <label style={styles.label}>Max Concurrent Workflows</label>
-              <input
-                type="number"
-                min={1}
-                style={styles.input}
-                value={teamDraft.maxConcurrentWorkflows}
-                onChange={(e) =>
-                  setTeamDraft((draft) => ({
-                    ...draft,
-                    maxConcurrentWorkflows: Number.isFinite(Number(e.target.value)) ? Math.max(1, Number(e.target.value)) : 1,
-                  }))
-                }
-              />
-            </div>
-            <div style={{ ...styles.field, ...styles.fullWidth }}>
-              <label style={styles.label}>Team Skills</label>
-              <AgentSkillChooser
-                skills={skills}
-                selectedIds={selectedTeamSkillIds}
-                onToggle={(skillId, checked) => {
-                  setSelectedTeamSkillIds((current) =>
-                    checked ? [...new Set([...current, skillId])] : current.filter((id) => id !== skillId),
-                  );
-                }}
-              />
-            </div>
-          </div>
-          <label style={styles.checkboxRow}>
-            <input
-              type="checkbox"
-              checked={teamDraft.enabled}
-              onChange={(e) => setTeamDraft((draft) => ({ ...draft, enabled: e.target.checked }))}
-            />
-            Team is active
-          </label>
-          {teamError ? <div style={styles.error}>{teamError}</div> : null}
-          {teamFeedback ? <div style={styles.success}>{teamFeedback}</div> : null}
-        </div>
-
-        <div style={styles.teamManagementGrid}>
-          <div style={styles.teamPanel}>
-            <div style={styles.teamPanelTitle}>Current Members</div>
-            <div style={styles.subList}>
-              {selectedTeamMemberships.length === 0 ? (
-                <div style={styles.empty}>No one assigned to this team yet.</div>
-              ) : (
-                selectedTeamMemberships.map((membership) => {
-                  const agent = agents.find((entry) => entry.id === membership.agent_id);
-                  return (
-                    <div key={membership.id} style={styles.listItem}>
-                      <div style={styles.itemTitle}>{agent?.name ?? "Unknown agent"}</div>
-                      <div style={styles.itemMeta}>
-                        {membership.title}
-                        {membership.is_lead ? " · team lead" : ""}
-                      </div>
-                      <div style={styles.toolbar}>
-                        <button type="button" style={styles.buttonSecondary} onClick={() => removeMembershipMutation.mutate(membership.id)}>
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-          <div style={styles.teamPanel}>
-            <div style={styles.teamPanelTitle}>Add Member</div>
-            <div style={styles.field}>
-              <label style={styles.label}>Agent</label>
-              <select
-                style={styles.select}
-                value={membershipDraft.agentId}
-                onChange={(e) => setMembershipDraft((draft) => ({ ...draft, agentId: e.target.value }))}
-              >
-                <option value="">Select an agent</option>
-                {agents.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.name} · {agent.role}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div style={styles.field}>
-              <label style={styles.label}>Title in Team</label>
-              <input
-                style={styles.input}
-                value={membershipDraft.title}
-                onChange={(e) => setMembershipDraft((draft) => ({ ...draft, title: e.target.value }))}
-                placeholder="Staff Engineer, QA Lead, Architect"
-              />
-            </div>
-            <label style={styles.checkboxRow}>
-              <input
-                type="checkbox"
-                checked={membershipDraft.isLead}
-                onChange={(e) => setMembershipDraft((draft) => ({ ...draft, isLead: e.target.checked }))}
-              />
-              Team lead
-            </label>
-            {membershipError ? <div style={styles.error}>{membershipError}</div> : null}
-            <button type="button" style={styles.buttonPrimary} onClick={handleAddMembership}>
-              Add To Team
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <AgentTeamsTab
+      agents={agents}
+      teams={teams}
+      skills={skills}
+      teamsLoading={teamsLoading}
+      memberships={memberships}
+      selectedTeamId={selectedTeamId}
+      selectedTeam={selectedTeam}
+      teamDraft={teamDraft}
+      selectedTeamSkillIds={selectedTeamSkillIds}
+      selectedTeamMemberships={selectedTeamMemberships}
+      selectedTeamAssignments={selectedTeamAssignments}
+      membershipDraft={membershipDraft}
+      membershipError={membershipError}
+      teamError={teamError}
+      teamFeedback={teamFeedback}
+      isCreateTeamPending={createTeamMutation.isPending}
+      isUpdateTeamPending={updateTeamMutation.isPending}
+      onCreateNewTeam={() => {
+        setSelectedTeamId(null);
+        setSelectedTeamSkillIds([]);
+        setTeamDraft(blankTeamDraft());
+        setTeamError(null);
+        setTeamFeedback(null);
+      }}
+      onSelectTeam={setSelectedTeamId}
+      onTeamDraftChange={setTeamDraft}
+      onSelectedTeamSkillIdsChange={setSelectedTeamSkillIds}
+      onMembershipDraftChange={setMembershipDraft}
+      onSaveTeam={handleSaveTeam}
+      onResetTeamForm={() => {
+        if (selectedTeam) {
+          setTeamDraft(parseTeamDraft(selectedTeam));
+          setSelectedTeamSkillIds(
+            teamSkillLinks.filter((link) => link.team_id === selectedTeam.id).map((link) => link.skill_id),
+          );
+        } else {
+          setTeamDraft(blankTeamDraft());
+          setSelectedTeamSkillIds([]);
+        }
+        setTeamError(null);
+        setTeamFeedback(null);
+      }}
+      onDeleteTeam={(teamId) => deleteTeamMutation.mutate(teamId)}
+      onRemoveMembership={(membershipId) => removeMembershipMutation.mutate(membershipId)}
+      onAddMembership={handleAddMembership}
+    />
   );
 
   const renderAssignmentsTab = () => (
