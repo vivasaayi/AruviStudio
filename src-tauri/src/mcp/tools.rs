@@ -12,6 +12,7 @@ mod channels;
 mod checkpoints;
 mod definitions;
 mod feature_context;
+mod feature_context_queries;
 mod first_class_definitions;
 mod models;
 mod planner;
