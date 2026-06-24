@@ -37,250 +37,34 @@ import {
 } from "../../../lib/tauri";
 import type {
   AgentDefinition,
-  AgentModelBinding,
   AgentTeam,
   Capability,
   ModelDefinition,
   Product,
   ProductArea,
   Skill,
-  TeamAssignment,
-  WorkflowStagePolicy,
 } from "../../../lib/types";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
-
-type AgentTab = "agents" | "teams" | "assignments" | "skills" | "routing";
-
-type AgentDraft = {
-  name: string;
-  role: string;
-  description: string;
-  promptTemplateRef: string;
-  allowedTools: string;
-  skillTags: string;
-  boundaries: string;
-  enabled: boolean;
-  employmentStatus: "active" | "inactive" | "terminated";
-};
-
-type TeamDraft = {
-  name: string;
-  department: string;
-  description: string;
-  enabled: boolean;
-  maxConcurrentWorkflows: number;
-};
-
-type SkillDraft = {
-  name: string;
-  category: string;
-  description: string;
-  instructions: string;
-  enabled: boolean;
-};
-
-type RoutingDraft = {
-  stageName: string;
-  primaryRoles: string;
-  fallbackRoles: string;
-  coordinatorRequired: boolean;
-};
-
-const blankAgentDraft = (): AgentDraft => ({
-  name: "",
-  role: "developer",
-  description: "",
-  promptTemplateRef: "",
-  allowedTools: "",
-  skillTags: "",
-  boundaries: "{}",
-  enabled: true,
-  employmentStatus: "active",
-});
-
-const blankTeamDraft = (): TeamDraft => ({
-  name: "",
-  department: "engineering",
-  description: "",
-  enabled: true,
-  maxConcurrentWorkflows: 2,
-});
-
-const blankSkillDraft = (): SkillDraft => ({
-  name: "",
-  category: "general",
-  description: "",
-  instructions: "",
-  enabled: true,
-});
-
-const workflowStageOptions = [
-  "requirement_analysis",
-  "planning",
-  "coding",
-  "unit_test_generation",
-  "integration_test_generation",
-  "ui_test_planning",
-  "qa_validation",
-  "security_review",
-  "performance_review",
-  "push_preparation",
-  "git_push",
-];
-
-function parseAgentDraft(agent: AgentDefinition): AgentDraft {
-  return {
-    name: agent.name,
-    role: agent.role,
-    description: agent.description,
-    promptTemplateRef: agent.prompt_template_ref,
-    allowedTools: agent.allowed_tools.join(", "),
-    skillTags: agent.skill_tags.join(", "),
-    boundaries: JSON.stringify(agent.boundaries ?? {}, null, 2),
-    enabled: agent.enabled,
-    employmentStatus: agent.employment_status,
-  };
-}
-
-function parseTeamDraft(team: AgentTeam): TeamDraft {
-  return {
-    name: team.name,
-    department: team.department,
-    description: team.description,
-    enabled: team.enabled,
-    maxConcurrentWorkflows: team.max_concurrent_workflows,
-  };
-}
-
-function parseSkillDraft(skill: Skill): SkillDraft {
-  return {
-    name: skill.name,
-    category: skill.category,
-    description: skill.description,
-    instructions: skill.instructions,
-    enabled: skill.enabled,
-  };
-}
-
-function parsePolicyDraft(policy?: WorkflowStagePolicy | null, fallbackStage = workflowStageOptions[0]): RoutingDraft {
-  return {
-    stageName: policy?.stage_name ?? fallbackStage,
-    primaryRoles: policy?.primary_roles.join(", ") ?? "",
-    fallbackRoles: policy?.fallback_roles.join(", ") ?? "",
-    coordinatorRequired: policy?.coordinator_required ?? true,
-  };
-}
-
-function countAssignmentsByType(assignments: TeamAssignment[]) {
-  return assignments.reduce(
-    (acc, assignment) => {
-      acc[assignment.scope_type] += 1;
-      return acc;
-    },
-    { product: 0, product_area: 0, capability: 0 } as Record<"product" | "product_area" | "capability", number>,
-  );
-}
-
-function formatCapabilityOptionName(capability: Capability) {
-  return `${"  ".repeat(Math.max(0, capability.level))}${capability.name}`;
-}
-
-function resolveScopeLabel(
-  assignment: TeamAssignment,
-  products: Product[],
-  product_areas: Array<{ id: string; name: string }>,
-  capabilities: Array<{ id: string; name: string }>,
-) {
-  if (assignment.scope_type === "product") {
-    return products.find((product) => product.id === assignment.scope_id)?.name ?? assignment.scope_id;
-  }
-  if (assignment.scope_type === "product_area") {
-    return product_areas.find((product_area) => product_area.id === assignment.scope_id)?.name ?? assignment.scope_id;
-  }
-  return capabilities.find((capability) => capability.id === assignment.scope_id)?.name.trim() ?? assignment.scope_id;
-}
-
-function formatUiError(error: unknown): string {
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-  if (typeof error === "string") {
-    return error;
-  }
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return "Unknown error";
-  }
-}
-
-const styles: Record<string, React.CSSProperties> = {
-  page: { display: "flex", flexDirection: "column", gap: 16, height: "100%", minHeight: 0 },
-  headerRow: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 },
-  titleWrap: { display: "flex", flexDirection: "column", gap: 4 },
-  title: { fontSize: 18, fontWeight: 700, color: "#111827", margin: 0 },
-  subtitle: { fontSize: 13, color: "#6b7280", lineHeight: 1.4 },
-  summaryRow: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 },
-  statCard: { backgroundColor: "#ffffff", borderRadius: 12, border: "1px solid #d9e0ea", padding: 14, display: "flex", flexDirection: "column", gap: 6 },
-  statLabel: { fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b7280" },
-  statValue: { fontSize: 24, fontWeight: 700, color: "#111827" },
-  tabRow: { display: "flex", gap: 8, flexWrap: "wrap" },
-  tab: { borderRadius: 10, border: "1px solid #d9e0ea", backgroundColor: "#f8fafc", color: "#374151", padding: "9px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
-  tabActive: { backgroundColor: "#dbeafe", borderColor: "#2563eb", color: "#111827" },
-  workspace: { display: "grid", gridTemplateColumns: "300px minmax(0, 1fr)", gap: 16, minHeight: 0, flex: 1 },
-  rail: { backgroundColor: "#ffffff", borderRadius: 14, border: "1px solid #d9e0ea", padding: 14, display: "flex", flexDirection: "column", gap: 12, minHeight: 0 },
-  detail: { backgroundColor: "#ffffff", borderRadius: 14, border: "1px solid #d9e0ea", padding: 16, display: "flex", flexDirection: "column", gap: 14, minHeight: 0, overflowY: "auto" as const },
-  sectionTitle: { fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b7280", fontWeight: 700 },
-  list: { display: "flex", flexDirection: "column", gap: 8, overflowY: "auto", minHeight: 0 },
-  listItem: { borderRadius: 12, border: "1px solid #d9e0ea", backgroundColor: "#ffffff", padding: 12, cursor: "pointer", display: "flex", flexDirection: "column", gap: 6 },
-  listItemActive: { borderColor: "#2563eb", backgroundColor: "#eff6ff" },
-  itemTitle: { fontSize: 14, fontWeight: 700, color: "#111827" },
-  itemMeta: { fontSize: 12, color: "#6b7280", lineHeight: 1.35 },
-  badgeRow: { display: "flex", gap: 8, flexWrap: "wrap" },
-  badge: { fontSize: 11, borderRadius: 999, padding: "3px 8px", backgroundColor: "#dcfce7", color: "#166534" },
-  badgeMuted: { fontSize: 11, borderRadius: 999, padding: "3px 8px", backgroundColor: "#eef2ff", color: "#3730a3" },
-  toolbar: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" },
-  headerActions: { display: "flex", gap: 8, alignItems: "center", position: "relative" as const, zIndex: 5 },
-  buttonPrimary: { borderRadius: 10, border: "1px solid #2563eb", backgroundColor: "#2563eb", color: "#ffffff", padding: "9px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
-  buttonSecondary: { borderRadius: 10, border: "1px solid #cfd8e3", backgroundColor: "#f8fafc", color: "#111827", padding: "9px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
-  buttonDanger: { borderRadius: 10, border: "1px solid #dc2626", backgroundColor: "#dc2626", color: "#ffffff", padding: "9px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
-  formGrid: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 },
-  fullWidth: { gridColumn: "1 / -1" },
-  field: { display: "flex", flexDirection: "column", gap: 6 },
-  label: { fontSize: 12, color: "#6b7280", fontWeight: 700 },
-  input: { width: "100%", borderRadius: 10, border: "1px solid #cfd8e3", backgroundColor: "#ffffff", color: "#111827", padding: "10px 12px", fontSize: 13, boxSizing: "border-box" as const },
-  textarea: { width: "100%", minHeight: 84, borderRadius: 10, border: "1px solid #cfd8e3", backgroundColor: "#ffffff", color: "#111827", padding: "10px 12px", fontSize: 13, resize: "vertical" as const, boxSizing: "border-box" as const },
-  select: { width: "100%", borderRadius: 10, border: "1px solid #cfd8e3", backgroundColor: "#ffffff", color: "#111827", padding: "10px 12px", fontSize: 13, boxSizing: "border-box" as const },
-  checkboxRow: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#374151" },
-  infoCard: { borderRadius: 12, border: "1px solid #d9e0ea", backgroundColor: "#f8fafc", padding: 12, display: "flex", flexDirection: "column", gap: 6 },
-  infoValue: { fontSize: 13, color: "#374151", lineHeight: 1.4 },
-  split: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(280px, 360px)", gap: 16, minHeight: 0 },
-  teamStatsRow: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 },
-  teamStatChip: { borderRadius: 10, border: "1px solid #d9e0ea", backgroundColor: "#f8fafc", padding: 10, display: "flex", flexDirection: "column", gap: 4 },
-  teamPanel: { borderRadius: 12, border: "1px solid #d9e0ea", backgroundColor: "#ffffff", padding: 14, display: "flex", flexDirection: "column", gap: 12 },
-  teamPanelTitle: { fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase" as const, color: "#6b7280", fontWeight: 700, marginBottom: 2 },
-  teamManagementGrid: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(320px, 420px)", gap: 16, minHeight: 0 },
-  subList: { display: "flex", flexDirection: "column", gap: 8, maxHeight: 260, overflowY: "auto" as const },
-  skillList: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 },
-  skillPill: { borderRadius: 10, border: "1px solid #d9e0ea", backgroundColor: "#f8fafc", padding: "8px 10px", display: "flex", alignItems: "center", gap: 8 },
-  error: { color: "#dc2626", fontSize: 12 },
-  success: { color: "#047857", fontSize: 12 },
-  empty: { color: "#6b7280", fontSize: 13, padding: "18px 0" },
-  divider: { height: 1, backgroundColor: "#d9e0ea", margin: "4px 0" },
-  treeTable: { display: "flex", flexDirection: "column", border: "1px solid #d9e0ea", borderRadius: 12, overflow: "hidden", backgroundColor: "#ffffff" },
-  treeHeader: { display: "grid", gridTemplateColumns: "minmax(0, 1.4fr) 120px 130px 110px", gap: 10, padding: "10px 12px", borderBottom: "1px solid #d9e0ea", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" as const, color: "#6b7280", backgroundColor: "#f8fafc" },
-  treeRow: { display: "grid", gridTemplateColumns: "minmax(0, 1.4fr) 120px 130px 110px", gap: 10, padding: "10px 12px", borderBottom: "1px solid #edf2f7", alignItems: "center", cursor: "pointer", backgroundColor: "#ffffff" },
-  treeRowActive: { backgroundColor: "#eff6ff" },
-  treeNameCell: { display: "flex", alignItems: "center", gap: 8, minWidth: 0 },
-  treeIndent: { width: 14, flexShrink: 0 },
-  treeCaret: { width: 10, color: "#6b7280", fontSize: 11, flexShrink: 0 },
-  treeName: { fontSize: 13, fontWeight: 700, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
-  treeSubName: { fontSize: 12, color: "#4b5563", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
-  treeCell: { fontSize: 12, color: "#374151" },
-  treeMetaBadge: { fontSize: 11, borderRadius: 999, padding: "3px 8px", backgroundColor: "#eef2ff", color: "#3730a3", display: "inline-block" },
-  treeActions: { display: "flex", gap: 6, justifyContent: "flex-end" },
-  treeActionBtn: { borderRadius: 7, border: "1px solid #cfd8e3", backgroundColor: "#f8fafc", color: "#111827", padding: "4px 7px", fontSize: 11, fontWeight: 700, cursor: "pointer" },
-};
+import { styles } from "../lib/agentRegistryPageStyles";
+import {
+  blankAgentDraft,
+  blankSkillDraft,
+  blankTeamDraft,
+  countAssignmentsByType,
+  formatCapabilityOptionName,
+  formatUiError,
+  parseAgentDraft,
+  parsePolicyDraft,
+  parseSkillDraft,
+  parseTeamDraft,
+  resolveScopeLabel,
+  workflowStageOptions,
+  type AgentDraft,
+  type AgentTab,
+  type RoutingDraft,
+  type SkillDraft,
+  type TeamDraft,
+} from "../lib/agentRegistryPageModel";
 
 export function AgentRegistryPage() {
   const queryClient = useQueryClient();
