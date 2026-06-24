@@ -53,14 +53,11 @@ import {
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
 import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
-import { ProductOverviewPage } from "./ProductOverviewPage";
 import { CopyableEntityId } from "../components/CopyableEntityId";
 import { ProductManagementConsole } from "../components/ProductManagementConsole";
-import { ProductCatalogTab } from "../components/ProductCatalogTab";
-import { ProductDependenciesTab } from "../components/ProductDependenciesTab";
 import { ProductManagementModalStack } from "../components/ProductManagementModalStack";
 import { ProductPageTabs } from "../components/ProductPageTabs";
-import { ProductStatusTab } from "../components/ProductStatusTab";
+import { ProductWorkspacePanel } from "../components/ProductWorkspacePanel";
 import { styles } from "../lib/productListPageStyles";
 import {
   HIDE_EXAMPLE_PRODUCTS_KEY,
@@ -1484,114 +1481,77 @@ export function ProductListPage() {
         onRefresh={refreshActiveProductPageTab}
       />
 
-      <div style={styles.workspace}>
-        <div style={styles.panel}>
-          <div style={styles.panelInner}>
-            {productPageTab === "list" ? (
-              <ProductCatalogTab
-                productSearch={productSearch}
-                productStatusFilter={productStatusFilter}
-                productSourceFilter={productSourceFilter}
-                productTagFilter={productTagFilter}
-                productSort={productSort}
-                allProductTags={allProductTags}
-                showCustomProductsInTable={showCustomProductsInTable}
-                showDefaultProductsInTable={showDefaultProductsInTable}
-                includeDefaultProductsInCatalog={includeDefaultProductsInCatalog}
-                catalogFilterMsg={catalogFilterMsg}
-                catalogFilterError={catalogFilterError}
-                productTableRows={productTableRows}
-                isLoading={isLoading}
-                onProductSearchChange={setProductSearch}
-                onProductStatusFilterChange={setProductStatusFilter}
-                onProductSourceFilterChange={setProductSourceFilter}
-                onProductTagFilterChange={setProductTagFilter}
-                onProductSortChange={setProductSort}
-                onShowCustomProductsInTableChange={setShowCustomProductsInTable}
-                onShowDefaultProductsInTableChange={setShowDefaultProductsInTable}
-                onIncludeDefaultProductsInCatalogChange={updateDefaultProductVisibility}
-                onAddProduct={() => openProductDialog("create")}
-                onEditProduct={editProductFromList}
-                onOpenProductStatus={openProductStatus}
-                onOpenProductOverview={openProductOverview}
-                onOpenProductDesign={openProductDesign}
-                onOpenProductDependencies={openProductDependencies}
-                onDeleteProduct={requestArchiveProduct}
-                styles={styles}
-              />
-            ) : productPageTab === "status" ? (
-              <ProductStatusTab
-                products={products ?? []}
-                statusProductId={statusProductId}
-                statusDepth={statusDepth}
-                statusGroupBy={statusGroupBy}
-                statusSummary={statusSummary}
-                statusRows={statusRows}
-                isLoading={isLoading}
-                onStatusProductChange={(nextProductId) => {
-                  setStatusProductId(nextProductId);
-                  if (nextProductId !== "all") {
-                    setActiveProduct(nextProductId);
-                  }
-                }}
-                onStatusDepthChange={setStatusDepth}
-                onStatusGroupByChange={setStatusGroupBy}
-                onOpenStatusRow={(row) => {
-                  if (row.productId) {
-                    setActiveProduct(row.productId);
-                  }
-                  if (row.nodeId && row.nodeType) {
-                    setActiveHierarchyNode({
-                      nodeId: row.nodeId,
-                      nodeType: row.nodeType,
-                      productAreaId: row.productAreaId ?? null,
-                      capabilityId: row.capabilityId ?? null,
-                    });
-                    setProductPageTab("design");
-                  }
-                }}
-                styles={styles}
-              />
-            ) : productPageTab === "overview" ? (
-              selectedProduct ? (
-                <ProductOverviewPage />
-              ) : (
-                <div style={styles.empty}>Select a product to view the product overview.</div>
-              )
-            ) : productPageTab === "dependencies" ? (
-              selectedProduct ? (
-                <ProductDependenciesTab
-                  selectedProduct={selectedProduct}
-                  products={products ?? []}
-                  selectedProductId={selectedProductId}
-                  dependencyDraft={dependencyDraft}
-                  setDependencyDraft={setDependencyDraft}
-                  selectedCapabilityOptions={selectedCapabilityOptions}
-                  dependencyTargetCapabilityOptions={dependencyTargetCapabilityOptions}
-                  selectedProductDependencies={selectedProductDependencies}
-                  productNameById={productNameById}
-                  capabilityLabelById={capabilityLabelById}
-                  isCreatingDependency={createProductDependencyMutation.isPending}
-                  onCreateDependency={() => createProductDependencyMutation.mutate()}
-                  styles={styles}
-                />
-              ) : (
-                <div style={styles.empty}>Select a product before editing dependencies.</div>
-              )
-            ) : selectedProduct ? (
-              productManagementConsole
-            ) : (
-              <div style={styles.empty}>
-                {isLoading
-                  ? "Loading products..."
-                  : products && products.length > 0
-                    ? "Select a product from Product List to start refining the management tree."
-                    : "No visible products yet. Use Add Product or disable Hide Example Products in Settings."}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+      <ProductWorkspacePanel
+        productPageTab={productPageTab}
+        selectedProduct={selectedProduct}
+        products={products ?? []}
+        isLoading={isLoading}
+        productSearch={productSearch}
+        productStatusFilter={productStatusFilter}
+        productSourceFilter={productSourceFilter}
+        productTagFilter={productTagFilter}
+        productSort={productSort}
+        allProductTags={allProductTags}
+        showCustomProductsInTable={showCustomProductsInTable}
+        showDefaultProductsInTable={showDefaultProductsInTable}
+        includeDefaultProductsInCatalog={includeDefaultProductsInCatalog}
+        catalogFilterMsg={catalogFilterMsg}
+        catalogFilterError={catalogFilterError}
+        productTableRows={productTableRows}
+        onProductSearchChange={setProductSearch}
+        onProductStatusFilterChange={setProductStatusFilter}
+        onProductSourceFilterChange={setProductSourceFilter}
+        onProductTagFilterChange={setProductTagFilter}
+        onProductSortChange={setProductSort}
+        onShowCustomProductsInTableChange={setShowCustomProductsInTable}
+        onShowDefaultProductsInTableChange={setShowDefaultProductsInTable}
+        onIncludeDefaultProductsInCatalogChange={updateDefaultProductVisibility}
+        onAddProduct={() => openProductDialog("create")}
+        onEditProduct={editProductFromList}
+        onOpenProductStatus={openProductStatus}
+        onOpenProductOverview={openProductOverview}
+        onOpenProductDesign={openProductDesign}
+        onOpenProductDependencies={openProductDependencies}
+        onDeleteProduct={requestArchiveProduct}
+        statusProductId={statusProductId}
+        statusDepth={statusDepth}
+        statusGroupBy={statusGroupBy}
+        statusSummary={statusSummary}
+        statusRows={statusRows}
+        onStatusProductChange={(nextProductId) => {
+          setStatusProductId(nextProductId);
+          if (nextProductId !== "all") {
+            setActiveProduct(nextProductId);
+          }
+        }}
+        onStatusDepthChange={setStatusDepth}
+        onStatusGroupByChange={setStatusGroupBy}
+        onOpenStatusRow={(row) => {
+          if (row.productId) {
+            setActiveProduct(row.productId);
+          }
+          if (row.nodeId && row.nodeType) {
+            setActiveHierarchyNode({
+              nodeId: row.nodeId,
+              nodeType: row.nodeType,
+              productAreaId: row.productAreaId ?? null,
+              capabilityId: row.capabilityId ?? null,
+            });
+            setProductPageTab("design");
+          }
+        }}
+        selectedProductId={selectedProductId}
+        dependencyDraft={dependencyDraft}
+        setDependencyDraft={setDependencyDraft}
+        selectedCapabilityOptions={selectedCapabilityOptions}
+        dependencyTargetCapabilityOptions={dependencyTargetCapabilityOptions}
+        selectedProductDependencies={selectedProductDependencies}
+        productNameById={productNameById}
+        capabilityLabelById={capabilityLabelById}
+        isCreatingDependency={createProductDependencyMutation.isPending}
+        onCreateDependency={() => createProductDependencyMutation.mutate()}
+        productManagementConsole={productManagementConsole}
+      />
 
       <ProductManagementModalStack
         productDialogMode={productDialogMode}
