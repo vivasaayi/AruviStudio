@@ -1,4 +1,4 @@
-import type { Product, ProductReference, WorkItem } from "../../../lib/types";
+import type { Product, ProductDependencyKind, ProductReference, WorkItem } from "../../../lib/types";
 
 export const HIDE_EXAMPLE_PRODUCTS_KEY = "catalog.hide_example_products";
 export const SUB_WORK_ITEM_PAGE_SIZE = 500;
@@ -52,6 +52,22 @@ export const productLifecycleOptions: Product["lifecycle"][] = ["idea", "incubat
 export const productHealthOptions: Product["health"][] = ["unknown", "healthy", "watch", "at_risk", "blocked"];
 export const productInvestmentOptions: Product["investment_status"][] = ["evaluate", "invest", "maintain", "pause", "retire"];
 export const referenceKindOptions: ProductReference["reference_kind"][] = ["note", "external_doc", "architecture", "customer_evidence", "regulatory", "design_packet", "standard", "other"];
+
+export type ProductDependencyDraft = {
+  capabilityId: string;
+  dependsOnProductId: string;
+  dependsOnCapabilityId: string;
+  dependencyKind: ProductDependencyKind;
+  description: string;
+};
+
+export const emptyProductDependencyDraft: ProductDependencyDraft = {
+  capabilityId: "",
+  dependsOnProductId: "",
+  dependsOnCapabilityId: "",
+  dependencyKind: "platform",
+  description: "",
+};
 
 export type WorkItemDraftState = {
   title: string;

@@ -69,6 +69,7 @@ import { ProductManagementStoryDetailPane } from "../components/ProductManagemen
 import { ProductManagementStoriesPane } from "../components/ProductManagementStoriesPane";
 import { ProductManagementWorkItemFeatureSelector } from "../components/ProductManagementWorkItemFeatureSelector";
 import { ProductCatalogTab } from "../components/ProductCatalogTab";
+import { ProductDependenciesTab } from "../components/ProductDependenciesTab";
 import { ProductStatusTab } from "../components/ProductStatusTab";
 import { ScopedRefreshButton } from "../components/ScopedRefreshButton";
 import { ProductManagementModalShell as ModalShell } from "../components/ProductManagementModalShell";
@@ -87,12 +88,14 @@ import {
   HIDE_EXAMPLE_PRODUCTS_KEY,
   PRODUCT_MANAGEMENT_STORY_PAGE_SIZE,
   SUB_WORK_ITEM_PAGE_SIZE,
+  emptyProductDependencyDraft,
   emptyProductForm,
   emptyWorkItemDraft,
   parseBooleanSetting,
   productToForm,
   referenceKindOptions,
   workItemToDraft,
+  type ProductDependencyDraft,
   type ProductFormState,
   type WorkItemDraftState,
 } from "../lib/productListPageState";
@@ -129,7 +132,7 @@ import {
   orderItemsByIds,
   seedCapabilityOrderMap,
 } from "../lib/productHierarchyHelpers";
-import type { CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ProductAreaTree, Product, ProductDependency, ProductDependencyKind, ProductReference, ProductTree, ProductTreeSummary, ProductWorkItemSummary, Repository, WorkItem, WorkItemScopeSummary } from "../../../lib/types";
+import type { CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ProductAreaTree, Product, ProductReference, ProductTree, ProductTreeSummary, ProductWorkItemSummary, Repository, WorkItem, WorkItemScopeSummary } from "../../../lib/types";
 
 
 
@@ -204,13 +207,7 @@ export function ProductListPage() {
   const [statusProductId, setStatusProductId] = useState<string>("all");
   const [statusDepth, setStatusDepth] = useState(1);
   const [statusGroupBy, setStatusGroupBy] = useState<ProductStatusGroupBy>("work_status");
-  const [dependencyDraft, setDependencyDraft] = useState({
-    capabilityId: "",
-    dependsOnProductId: "",
-    dependsOnCapabilityId: "",
-    dependencyKind: "platform" as ProductDependencyKind,
-    description: "",
-  });
+  const [dependencyDraft, setDependencyDraft] = useState<ProductDependencyDraft>(emptyProductDependencyDraft);
   const [deleteProductCandidate, setDeleteProductCandidate] = useState<Product | null>(null);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [deleteConfirmArchive, setDeleteConfirmArchive] = useState(false);
@@ -586,13 +583,7 @@ export function ProductListPage() {
       status: "active",
     }),
     onSuccess: async () => {
-      setDependencyDraft({
-        capabilityId: "",
-        dependsOnProductId: "",
-        dependsOnCapabilityId: "",
-        dependencyKind: "platform",
-        description: "",
-      });
+      setDependencyDraft(emptyProductDependencyDraft);
       setFormError(null);
       await queryClient.invalidateQueries({ queryKey: ["product-dependencies"] });
     },
@@ -2042,107 +2033,21 @@ export function ProductListPage() {
               )
             ) : productPageTab === "dependencies" ? (
               selectedProduct ? (
-                <>
-                  <div style={styles.section}>
-                    <div style={styles.sectionTitle}>Dependencies</div>
-                    <div style={styles.contextCard}>
-                      <div style={styles.contextLabel}>Product Owner Lens</div>
-                      <div style={styles.contextTitle}>{selectedProduct.name}</div>
-                      <div style={styles.contextText}>
-                        Capture cross-product dependencies here. Use the optional capability fields when one product capability depends on a specific platform capability.
-                      </div>
-                    </div>
-                    <div style={styles.formRow}>
-                      <div>
-                        <label style={styles.label}>Source Capability</label>
-                        <select
-                          style={styles.select}
-                          value={dependencyDraft.capabilityId}
-                          onChange={(event) => setDependencyDraft((draft) => ({ ...draft, capabilityId: event.target.value }))}
-                        >
-                          <option value="">Whole product</option>
-                          {selectedCapabilityOptions.map((option) => (
-                            <option key={option.id} value={option.id}>{option.label}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label style={styles.label}>Depends On Product</label>
-                        <select
-                          style={styles.select}
-                          value={dependencyDraft.dependsOnProductId}
-                          onChange={(event) => setDependencyDraft((draft) => ({ ...draft, dependsOnProductId: event.target.value, dependsOnCapabilityId: "" }))}
-                        >
-                          <option value="">Select product</option>
-                          {(products ?? []).filter((product) => product.id !== selectedProduct.id).map((product) => (
-                            <option key={product.id} value={product.id}>{product.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                    <div style={styles.formRow}>
-                      <div>
-                        <label style={styles.label}>Depends On Capability</label>
-                        <select
-                          style={styles.select}
-                          value={dependencyDraft.dependsOnCapabilityId}
-                          onChange={(event) => setDependencyDraft((draft) => ({ ...draft, dependsOnCapabilityId: event.target.value }))}
-                          disabled={!dependencyDraft.dependsOnProductId}
-                        >
-                          <option value="">Whole product</option>
-                          {dependencyTargetCapabilityOptions.map((option) => (
-                            <option key={option.id} value={option.id}>{option.label}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label style={styles.label}>Kind</label>
-                        <select
-                          style={styles.select}
-                          value={dependencyDraft.dependencyKind}
-                          onChange={(event) => setDependencyDraft((draft) => ({ ...draft, dependencyKind: event.target.value as ProductDependencyKind }))}
-                        >
-                          {(["platform", "capability", "data", "integration", "operational", "other"] as ProductDependencyKind[]).map((kind) => (
-                            <option key={kind} value={kind}>{kind}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                    <label style={styles.label}>Description</label>
-                    <textarea
-                      style={styles.textarea}
-                      value={dependencyDraft.description}
-                      onChange={(event) => setDependencyDraft((draft) => ({ ...draft, description: event.target.value }))}
-                    />
-                    <button
-                      style={styles.btn}
-                      onClick={() => createProductDependencyMutation.mutate()}
-                      disabled={!selectedProductId || !dependencyDraft.dependsOnProductId || createProductDependencyMutation.isPending}
-                    >
-                      {createProductDependencyMutation.isPending ? "Adding..." : "Add Dependency"}
-                    </button>
-                  </div>
-                  <div style={styles.section}>
-                    <div style={styles.sectionTitle}>Captured Dependencies</div>
-                    {selectedProductDependencies.length > 0 ? (
-                      selectedProductDependencies.map((dependency: ProductDependency) => (
-                        <div key={dependency.id} style={styles.contextCard}>
-                          <div style={styles.contextLabel}>{dependency.dependency_kind} · {dependency.status}</div>
-                          <div style={styles.contextTitle}>
-                            {dependency.capability_id ? capabilityLabelById.get(dependency.capability_id) ?? "Selected capability" : selectedProduct.name}
-                          </div>
-                          <div style={styles.contextText}>
-                            depends on {productNameById.get(dependency.depends_on_product_id) ?? "Unknown product"}
-                            {dependency.depends_on_capability_id ? ` / ${capabilityLabelById.get(dependency.depends_on_capability_id) ?? "selected capability"}` : ""}
-                          </div>
-                          {dependency.description ? <div style={{ ...styles.contextText, marginTop: 8 }}>{dependency.description}</div> : null}
-                        </div>
-                      ))
-                    ) : (
-                      <div style={styles.empty}>No dependencies captured for this product yet.</div>
-                    )}
-                  </div>
-                </>
+                <ProductDependenciesTab
+                  selectedProduct={selectedProduct}
+                  products={products ?? []}
+                  selectedProductId={selectedProductId}
+                  dependencyDraft={dependencyDraft}
+                  setDependencyDraft={setDependencyDraft}
+                  selectedCapabilityOptions={selectedCapabilityOptions}
+                  dependencyTargetCapabilityOptions={dependencyTargetCapabilityOptions}
+                  selectedProductDependencies={selectedProductDependencies}
+                  productNameById={productNameById}
+                  capabilityLabelById={capabilityLabelById}
+                  isCreatingDependency={createProductDependencyMutation.isPending}
+                  onCreateDependency={() => createProductDependencyMutation.mutate()}
+                  styles={styles}
+                />
               ) : (
                 <div style={styles.empty}>Select a product before editing dependencies.</div>
               )
