@@ -87,6 +87,11 @@ import {
   type ProductCatalogStatusFilter,
 } from "../lib/productCatalogRows";
 import {
+  buildCapabilityLabelById,
+  buildCapabilityOptionsFromNodes,
+  buildDependencyTargetCapabilityOptions,
+} from "../lib/productDependencyOptions";
+import {
   buildProductStatusSummary,
   buildStatusRows,
   buildWorkItemScopeSummaryIndex,
@@ -862,17 +867,13 @@ export function ProductListPage() {
   );
   const allTreeNodes = useMemo(() => (tree ? flattenHierarchyNodes(tree.roots) : []), [tree]);
   const selectedCapabilityOptions = useMemo(
-    () => allTreeNodes
-      .filter((node) => node.node_type === "capability")
-      .map((node) => ({ id: node.id, label: node.path.join(" / ") })),
+    () => buildCapabilityOptionsFromNodes(allTreeNodes),
     [allTreeNodes],
   );
-  const dependencyTargetCapabilityOptions = useMemo(() => {
-    const targetTree = productTreeById.get(dependencyDraft.dependsOnProductId);
-    return targetTree ? flattenHierarchyNodes(targetTree.roots)
-      .filter((node) => node.node_type === "capability")
-      .map((node) => ({ id: node.id, label: node.path.join(" / ") })) : [];
-  }, [dependencyDraft.dependsOnProductId, productTreeById]);
+  const dependencyTargetCapabilityOptions = useMemo(
+    () => buildDependencyTargetCapabilityOptions(productTreeById, dependencyDraft.dependsOnProductId),
+    [dependencyDraft.dependsOnProductId, productTreeById],
+  );
   const selectedProductDependencies = useMemo(
     () => productDependencies.filter((dependency) => dependency.product_id === selectedProductId),
     [productDependencies, selectedProductId],
@@ -881,18 +882,10 @@ export function ProductListPage() {
     () => new Map((products ?? []).map((product) => [product.id, product.name])),
     [products],
   );
-  const capabilityLabelById = useMemo(() => {
-    const map = new Map<string, string>();
-    productTreeById.forEach((productTree) => {
-      flattenHierarchyNodes(productTree.roots)
-        .filter((node) => node.node_type === "capability")
-        .forEach((node) => map.set(node.id, node.path.join(" / ")));
-    });
-    allTreeNodes
-      .filter((node) => node.node_type === "capability")
-      .forEach((node) => map.set(node.id, node.path.join(" / ")));
-    return map;
-  }, [allTreeNodes, productTreeById]);
+  const capabilityLabelById = useMemo(
+    () => buildCapabilityLabelById(productTreeById, allTreeNodes),
+    [allTreeNodes, productTreeById],
+  );
   const editableCapabilityNodeKinds = useMemo(() => {
     if (!selectedCapability) {
       return [] as HierarchyNodeKind[];
