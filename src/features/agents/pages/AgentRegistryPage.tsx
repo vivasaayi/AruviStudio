@@ -39,14 +39,13 @@ import type {
   AgentDefinition,
   AgentTeam,
   Capability,
-  ModelDefinition,
   Product,
   ProductArea,
   Skill,
 } from "../../../lib/types";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { AgentAssignmentsTab } from "../components/AgentAssignmentsTab";
-import { AgentOrgTreeRail } from "../components/AgentOrgTreeRail";
+import { AgentProfileTab } from "../components/AgentProfileTab";
 import { AgentRegistryHeader } from "../components/AgentRegistryHeader";
 import { AgentRoutingTab } from "../components/AgentRoutingTab";
 import { AgentSkillChooser } from "../components/AgentSkillChooser";
@@ -789,174 +788,71 @@ export function AgentRegistryPage() {
   };
 
   const renderAgentTab = () => (
-    <div style={styles.workspace}>
-      <AgentOrgTreeRail
-        agents={agents}
-        teams={teams}
-        agentsLoading={agentsLoading}
-        teamsLoading={teamsLoading}
-        selectedAgentId={selectedAgentId}
-        selectedTeamId={selectedTeamId}
-        expandedTeams={expandedTeams}
-        teamMembershipsByTeam={teamMembershipsByTeam}
-        unassignedAgents={unassignedAgents}
-        onHireAgent={() => {
-          setSelectedAgentId(null);
-          setSelectedAgentSkillIds([]);
+    <AgentProfileTab
+      agents={agents}
+      teams={teams}
+      skills={skills}
+      modelDefinitions={modelDefinitions}
+      agentsLoading={agentsLoading}
+      teamsLoading={teamsLoading}
+      selectedAgentId={selectedAgentId}
+      selectedTeamId={selectedTeamId}
+      selectedAgent={selectedAgent}
+      expandedTeams={expandedTeams}
+      teamMembershipsByTeam={teamMembershipsByTeam}
+      unassignedAgents={unassignedAgents}
+      agentDraft={agentDraft}
+      selectedAgentSkillIds={selectedAgentSkillIds}
+      selectedAgentModelId={selectedAgentModelId}
+      agentError={agentError}
+      agentFeedback={agentFeedback}
+      onHireAgent={() => {
+        setSelectedAgentId(null);
+        setSelectedAgentSkillIds([]);
+        setAgentDraft(blankAgentDraft());
+        setAgentError(null);
+        setAgentFeedback(null);
+      }}
+      onBindAllAgentsToDeepSeek={handleBindAllAgentsToDeepSeek}
+      onBindCodingAgentsToDeepSeek={handleBindCodingAgentsToDeepSeek}
+      onExpandedTeamsChange={setExpandedTeams}
+      onSelectTeam={(teamId) => {
+        setSelectedTeamId(teamId);
+        setSelectedAgentId(null);
+      }}
+      onEditTeam={(teamId) => {
+        setSelectedTeamId(teamId);
+        setSelectedAgentId(null);
+        setActiveTab("teams");
+      }}
+      onSelectAgent={(teamId, agentId) => {
+        setSelectedTeamId(teamId);
+        setSelectedAgentId(agentId);
+      }}
+      onUnassignMembership={(teamId, membershipId) => {
+        setSelectedTeamId(teamId);
+        removeMembershipMutation.mutate(membershipId);
+      }}
+      onDeleteAgent={(agentId) => deleteAgentMutation.mutate(agentId)}
+      onAgentDraftChange={setAgentDraft}
+      onSelectedAgentSkillIdsChange={setSelectedAgentSkillIds}
+      onSelectedAgentModelChange={setSelectedAgentModelId}
+      onBindSelectedAgentModel={handleBindSelectedAgentModel}
+      onSaveAgent={handleSaveAgent}
+      onResetAgentForm={() => {
+        if (selectedAgent) {
+          setAgentDraft(parseAgentDraft(selectedAgent));
+          setSelectedAgentSkillIds(
+            agentSkillLinks.filter((link) => link.agent_id === selectedAgent.id).map((link) => link.skill_id),
+          );
+        } else {
           setAgentDraft(blankAgentDraft());
-          setAgentError(null);
-          setAgentFeedback(null);
-        }}
-        onBindAllAgentsToDeepSeek={handleBindAllAgentsToDeepSeek}
-        onBindCodingAgentsToDeepSeek={handleBindCodingAgentsToDeepSeek}
-        onExpandedTeamsChange={setExpandedTeams}
-        onSelectTeam={(teamId) => {
-          setSelectedTeamId(teamId);
-          setSelectedAgentId(null);
-        }}
-        onEditTeam={(teamId) => {
-          setSelectedTeamId(teamId);
-          setSelectedAgentId(null);
-          setActiveTab("teams");
-        }}
-        onSelectAgent={(teamId, agentId) => {
-          setSelectedTeamId(teamId);
-          setSelectedAgentId(agentId);
-        }}
-        onUnassignMembership={(teamId, membershipId) => {
-          setSelectedTeamId(teamId);
-          removeMembershipMutation.mutate(membershipId);
-        }}
-      />
-      <div style={styles.detail}>
-        <div style={styles.headerRow}>
-          <div style={styles.titleWrap}>
-            <h2 style={styles.title}>{selectedAgent ? "Edit Agent" : "Hire Agent"}</h2>
-            <div style={styles.subtitle}>Model explicit roles and link each agent to reusable skills instead of relying only on freeform tags.</div>
-          </div>
-          {selectedAgent ? (
-            <button type="button" style={styles.buttonDanger} onClick={() => deleteAgentMutation.mutate(selectedAgent.id)}>
-              Remove
-            </button>
-          ) : null}
-        </div>
-        <div style={styles.formGrid}>
-          <div style={styles.field}>
-            <label style={styles.label}>Name</label>
-            <input style={styles.input} value={agentDraft.name} onChange={(e) => setAgentDraft((draft) => ({ ...draft, name: e.target.value }))} />
-          </div>
-          <div style={styles.field}>
-            <label style={styles.label}>Role</label>
-            <input style={styles.input} value={agentDraft.role} onChange={(e) => setAgentDraft((draft) => ({ ...draft, role: e.target.value }))} />
-          </div>
-          <div style={{ ...styles.field, ...styles.fullWidth }}>
-            <label style={styles.label}>Description</label>
-            <textarea style={styles.textarea} value={agentDraft.description} onChange={(e) => setAgentDraft((draft) => ({ ...draft, description: e.target.value }))} />
-          </div>
-          <div style={styles.field}>
-            <label style={styles.label}>Prompt Template Ref</label>
-            <input style={styles.input} value={agentDraft.promptTemplateRef} onChange={(e) => setAgentDraft((draft) => ({ ...draft, promptTemplateRef: e.target.value }))} />
-          </div>
-          <div style={styles.field}>
-            <label style={styles.label}>Employment Status</label>
-            <select
-              style={styles.select}
-              value={agentDraft.employmentStatus}
-              onChange={(e) =>
-                setAgentDraft((draft) => ({ ...draft, employmentStatus: e.target.value as AgentDraft["employmentStatus"] }))
-              }
-            >
-              <option value="active">active</option>
-              <option value="inactive">inactive</option>
-              <option value="terminated">terminated</option>
-            </select>
-          </div>
-          <div style={styles.field}>
-            <label style={styles.label}>Allowed Tools (comma-separated)</label>
-            <input style={styles.input} value={agentDraft.allowedTools} onChange={(e) => setAgentDraft((draft) => ({ ...draft, allowedTools: e.target.value }))} />
-          </div>
-          <div style={styles.field}>
-            <label style={styles.label}>Skill Tags (comma-separated)</label>
-            <input style={styles.input} value={agentDraft.skillTags} onChange={(e) => setAgentDraft((draft) => ({ ...draft, skillTags: e.target.value }))} />
-          </div>
-          <div style={{ ...styles.field, ...styles.fullWidth }}>
-            <label style={styles.label}>Boundaries (JSON object)</label>
-            <textarea style={{ ...styles.textarea, minHeight: 120 }} value={agentDraft.boundaries} onChange={(e) => setAgentDraft((draft) => ({ ...draft, boundaries: e.target.value }))} />
-          </div>
-          <div style={{ ...styles.field, ...styles.fullWidth }}>
-            <label style={styles.label}>Linked Skills</label>
-            <AgentSkillChooser
-              skills={skills}
-              selectedIds={selectedAgentSkillIds}
-              onToggle={(skillId, checked) => {
-                setSelectedAgentSkillIds((current) =>
-                  checked ? [...new Set([...current, skillId])] : current.filter((id) => id !== skillId),
-                );
-              }}
-            />
-          </div>
-          <div style={{ ...styles.field, ...styles.fullWidth }}>
-            <label style={styles.label}>Primary Model</label>
-            <select
-              style={styles.select}
-              value={selectedAgentModelId}
-              onChange={(e) => setSelectedAgentModelId(e.target.value)}
-            >
-              <option value="">Select a model definition</option>
-              {modelDefinitions.map((model: ModelDefinition) => (
-                <option key={model.id} value={model.id}>
-                  {model.name}
-                </option>
-              ))}
-            </select>
-            <div style={styles.toolbar}>
-              <button type="button" style={styles.buttonSecondary} onClick={handleBindSelectedAgentModel} disabled={!selectedAgent || !selectedAgentModelId}>
-                Bind Model
-              </button>
-              {selectedAgentModelId ? (
-                <span style={styles.infoValue}>
-                  {modelDefinitions.find((model) => model.id === selectedAgentModelId)?.name ?? "Selected model"}
-                </span>
-              ) : null}
-            </div>
-          </div>
-        </div>
-        <label style={styles.checkboxRow}>
-          <input
-            type="checkbox"
-            checked={agentDraft.enabled}
-            onChange={(e) => setAgentDraft((draft) => ({ ...draft, enabled: e.target.checked }))}
-          />
-          Enabled for orchestration
-        </label>
-        {agentError ? <div style={styles.error}>{agentError}</div> : null}
-        {agentFeedback ? <div style={styles.success}>{agentFeedback}</div> : null}
-        <div style={styles.toolbar}>
-          <button type="button" style={styles.buttonPrimary} onClick={handleSaveAgent}>
-            {selectedAgent ? "Save Agent" : "Hire Agent"}
-          </button>
-          <button
-            type="button"
-            style={styles.buttonSecondary}
-            onClick={() => {
-              if (selectedAgent) {
-                setAgentDraft(parseAgentDraft(selectedAgent));
-                setSelectedAgentSkillIds(
-                  agentSkillLinks.filter((link) => link.agent_id === selectedAgent.id).map((link) => link.skill_id),
-                );
-              } else {
-                setAgentDraft(blankAgentDraft());
-                setSelectedAgentSkillIds([]);
-              }
-              setAgentError(null);
-              setAgentFeedback(null);
-            }}
-          >
-            Reset
-          </button>
-        </div>
-      </div>
-    </div>
+          setSelectedAgentSkillIds([]);
+        }
+        setAgentError(null);
+        setAgentFeedback(null);
+      }}
+    />
   );
 
   const renderTeamTab = () => (
