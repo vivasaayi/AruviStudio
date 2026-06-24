@@ -47,6 +47,7 @@ import {
   SPEECH_PROVIDER_KEY,
   SPEECH_REVIEW_BEFORE_SEND_KEY,
   PlannerComposer,
+  buildPlannerMutationMessages,
   buildDesignReviewPacketHtml,
   buildDraftValidation,
   buildProductAreaOnlyTree,
@@ -64,13 +65,13 @@ import {
   flattenTreeNodes,
   formatDraftChildTypeLabel,
   getAllowedDraftChildTypes,
+  getPlannerMutationSpeechText,
   getPlannerNodeType,
   getPlannerVoiceViewCommand,
   getReportTreeProductName,
   isCollapseDraftVoiceCommand,
   isDraftWideVoiceTarget,
   isExpandDraftVoiceCommand,
-  isInformationalOnly,
   makeId,
   normalize,
   parseVoiceNodeReference,
@@ -633,111 +634,7 @@ export function PlannerPage() {
     setVoiceActivity(null);
     setIsVoiceSubmitting(false);
     setLatestTraceEvents(result.traceEvents ?? []);
-    setMessages((current) => {
-      const next: PlannerMessage[] = [...current, { id: makeId(), role: "user", content: result.userInput, kind: "text" }];
-      if (result.mode === "confirmation_required") {
-        next.push({
-          id: makeId(),
-          role: "assistant",
-          content: result.plan.assistant_response,
-          meta: "Suggestion awaiting confirmation",
-          kind: "proposal",
-          plan: result.plan,
-          treeNodes: result.treeNodes,
-          traceEvents: result.traceEvents,
-        });
-        return next;
-      }
-      if (result.mode === "draft_updated") {
-        const output = [
-          result.plan.assistant_response,
-          ...(result.execution?.lines ?? []),
-        ].join("\n");
-        next.push({
-          id: makeId(),
-          role: "assistant",
-          content: output,
-          meta: "Design updated",
-          kind: "proposal",
-          plan: result.plan,
-          treeNodes: result.treeNodes,
-          traceEvents: result.traceEvents,
-        });
-        return next;
-      }
-      if (result.mode === "confirmed") {
-        const output = [
-          "Executed pending plan.",
-          ...(result.execution?.lines ?? []),
-          ...(result.execution?.errors.length ? [`Errors: ${result.execution.errors.join(" | ")}`] : []),
-        ].join("\n");
-        next.push({
-          id: makeId(),
-          role: "assistant",
-          content: output,
-          meta: "Planner execution",
-          kind: result.treeNodes ? "tree" : "execution",
-          treeNodes: result.treeNodes,
-          plan: result.plan,
-          traceEvents: result.traceEvents,
-        });
-        return next;
-      }
-      if (result.mode === "clarification") {
-        next.push({
-          id: makeId(),
-          role: "assistant",
-          content: result.plan.clarification_question ?? result.plan.assistant_response,
-          meta: "Need more detail",
-          kind: "text",
-          traceEvents: result.traceEvents,
-        });
-        return next;
-      }
-      if (result.mode === "session_updated") {
-        const output = [
-          result.plan.assistant_response,
-          ...(result.execution?.lines ?? []),
-          ...(result.execution?.errors.length ? [`Errors: ${result.execution.errors.join(" | ")}`] : []),
-        ].join("\n");
-        next.push({
-          id: makeId(),
-          role: "assistant",
-          content: output,
-          meta: "Planner state updated",
-          kind: "text",
-          traceEvents: result.traceEvents,
-        });
-        return next;
-      }
-      if (result.mode === "failed") {
-        next.push({
-          id: makeId(),
-          role: "assistant",
-          content: [result.plan.assistant_response, ...(result.execution.errors.length ? [`Errors: ${result.execution.errors.join(" | ")}`] : [])].join("\n"),
-          meta: "Planner error",
-          kind: "error",
-          traceEvents: result.traceEvents,
-        });
-        return next;
-      }
-      const output = [
-        result.plan.assistant_response,
-        ...(result.execution?.lines ?? []),
-        ...(result.execution?.errors.length ? [`Errors: ${result.execution.errors.join(" | ")}`] : []),
-      ].join("\n");
-      next.push({
-        id: makeId(),
-        role: "assistant",
-        content: output,
-        meta: isInformationalOnly(result.plan) ? "Status report" : "Planner execution",
-        kind: result.treeNodes ? "tree" : isInformationalOnly(result.plan) ? "report" : "execution",
-        treeNodes: result.treeNodes,
-        plan: result.plan,
-        traceEvents: result.traceEvents,
-      });
-      return next;
-    });
+    setMessages((current) => buildPlannerMutationMessages(current, result, makeId));
 
     if (result.draftTreeNodes) {
       setDraftTreeNodes(result.draftTreeNodes);
@@ -778,18 +675,7 @@ export function PlannerPage() {
     }
 
     if (autoSpeak) {
-      const lastAssistant = result.mode === "clarification"
-        ? result.plan.clarification_question ?? result.plan.assistant_response
-        : result.mode === "confirmation_required"
-          ? `${result.plan.assistant_response}. Say confirm to apply the proposal.`
-          : result.mode === "draft_updated"
-            ? `${result.plan.assistant_response}. The design tree has been updated.`
-            : result.mode === "session_updated"
-              ? result.plan.assistant_response
-            : result.mode === "confirmed"
-              ? "Executed the pending planner actions."
-              : result.plan.assistant_response;
-      void speakAssistantReply(lastAssistant);
+      void speakAssistantReply(getPlannerMutationSpeechText(result));
     }
   };
 
