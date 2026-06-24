@@ -1,20 +1,15 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { AgentDefinition, AgentTeam, Skill } from "../../../lib/types";
 import {
-  blankAgentDraft,
-  blankSkillDraft,
-  blankTeamDraft,
   formatUiError,
-  parseAgentDraft,
   parsePolicyDraft,
-  parseSkillDraft,
-  parseTeamDraft,
   type AgentDraft,
   type AgentTab,
   type RoutingDraft,
   type SkillDraft,
   type TeamDraft,
 } from "../lib/agentRegistryPageModel";
+import { useAgentRegistryFormActions } from "./useAgentRegistryFormActions";
 import type { useAgentRegistryMutations } from "./useAgentRegistryMutations";
 
 type ScopeType = "product" | "product_area" | "capability";
@@ -120,6 +115,37 @@ export function useAgentRegistryPageActions({
   setActiveTab,
   mutations,
 }: AgentRegistryPageActionsArgs) {
+  const formActions = useAgentRegistryFormActions({
+    selectedAgent,
+    agentSkillLinks,
+    setSelectedAgentId,
+    setSelectedAgentSkillIds,
+    setSelectedAgentModelId,
+    setAgentDraft,
+    setAgentError,
+    setAgentFeedback,
+    selectedTeam,
+    teamSkillLinks,
+    setSelectedTeamId,
+    setSelectedTeamSkillIds,
+    setTeamDraft,
+    setTeamError,
+    setTeamFeedback,
+    selectedSkill,
+    setSelectedSkillId,
+    setSkillDraft,
+    setSkillError,
+    setSkillFeedback,
+    selectedPolicy,
+    selectedPolicyStage,
+    setRoutingDraft,
+    setRoutingError,
+    setRoutingFeedback,
+    setAssignmentProductId,
+    setActiveProduct,
+    setActiveTab,
+  });
+
   const handleSaveAgent = async () => {
     setAgentError(null);
     setAgentFeedback(null);
@@ -312,104 +338,7 @@ export function useAgentRegistryPageActions({
     }
   };
 
-  const hireAgent = () => {
-    setSelectedAgentId(null);
-    setSelectedAgentSkillIds([]);
-    setSelectedAgentModelId("");
-    setAgentDraft(blankAgentDraft());
-    setAgentError(null);
-    setAgentFeedback(null);
-  };
-
-  const resetAgentForm = () => {
-    if (selectedAgent) {
-      setAgentDraft(parseAgentDraft(selectedAgent));
-      setSelectedAgentSkillIds(
-        agentSkillLinks
-          .filter((link) => link.agent_id === selectedAgent.id)
-          .map((link) => link.skill_id),
-      );
-    } else {
-      setAgentDraft(blankAgentDraft());
-      setSelectedAgentSkillIds([]);
-    }
-    setAgentError(null);
-    setAgentFeedback(null);
-  };
-
-  const createNewTeam = () => {
-    setSelectedTeamId(null);
-    setSelectedTeamSkillIds([]);
-    setTeamDraft(blankTeamDraft());
-    setTeamError(null);
-    setTeamFeedback(null);
-  };
-
-  const resetTeamForm = () => {
-    if (selectedTeam) {
-      setTeamDraft(parseTeamDraft(selectedTeam));
-      setSelectedTeamSkillIds(
-        teamSkillLinks
-          .filter((link) => link.team_id === selectedTeam.id)
-          .map((link) => link.skill_id),
-      );
-    } else {
-      setTeamDraft(blankTeamDraft());
-      setSelectedTeamSkillIds([]);
-    }
-    setTeamError(null);
-    setTeamFeedback(null);
-  };
-
-  const createNewSkill = () => {
-    setSelectedSkillId(null);
-    setSkillDraft(blankSkillDraft());
-    setSkillError(null);
-    setSkillFeedback(null);
-  };
-
-  const resetSkillForm = () => {
-    if (selectedSkill) {
-      setSkillDraft(parseSkillDraft(selectedSkill));
-    } else {
-      setSkillDraft(blankSkillDraft());
-    }
-    setSkillError(null);
-    setSkillFeedback(null);
-  };
-
-  const resetRoutingForm = () => {
-    setRoutingDraft(parsePolicyDraft(selectedPolicy, selectedPolicyStage));
-    setRoutingError(null);
-    setRoutingFeedback(null);
-  };
-
-  const selectTeamFromAgentTab = (teamId: string) => {
-    setSelectedTeamId(teamId);
-    setSelectedAgentId(null);
-  };
-
-  const editTeamFromAgentTab = (teamId: string) => {
-    setSelectedTeamId(teamId);
-    setSelectedAgentId(null);
-    setActiveTab("teams");
-  };
-
-  const selectAgentFromTeam = (teamId: string | null, agentId: string) => {
-    setSelectedTeamId(teamId);
-    setSelectedAgentId(agentId);
-  };
-
-  const changeAssignmentProduct = (nextId: string | null) => {
-    setAssignmentProductId(nextId);
-    setActiveProduct(nextId);
-  };
-
   return {
-    changeAssignmentProduct,
-    createNewSkill,
-    createNewTeam,
-    editTeamFromAgentTab,
     handleAddMembership,
     handleAssignScope,
     handleBindSelectedAgentModel,
@@ -417,12 +346,6 @@ export function useAgentRegistryPageActions({
     handleSaveRoutingPolicy,
     handleSaveSkill,
     handleSaveTeam,
-    hireAgent,
-    resetAgentForm,
-    resetRoutingForm,
-    resetSkillForm,
-    resetTeamForm,
-    selectAgentFromTeam,
-    selectTeamFromAgentTab,
+    ...formActions,
   };
 }
