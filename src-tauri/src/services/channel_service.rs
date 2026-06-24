@@ -1,11 +1,14 @@
 use crate::error::AppError;
 use crate::persistence::{planner_repo, settings_repo};
+use crate::services::channel_contact_policy::{
+    looks_like_whatsapp_destination, normalize_voice_destination, normalize_whatsapp_destination,
+    quiet_hours_summary, resolve_channel_policy, select_initial_channel, ChannelKind,
+};
 use crate::services::channel_twilio::{supports_voice, supports_whatsapp};
 use crate::services::planner_service::{
     create_planner_session, submit_planner_voice_turn, PlannerTurnResponse,
 };
 use crate::state::AppState;
-use chrono::{Local, NaiveTime};
 use serde::{Deserialize, Serialize};
 
 pub use crate::services::channel_twilio::{
@@ -14,71 +17,13 @@ pub use crate::services::channel_twilio::{
 
 const DEFAULT_PROVIDER_SETTING_KEY: &str = "planner.default_provider_id";
 const DEFAULT_MODEL_SETTING_KEY: &str = "planner.default_model_name";
-const CHANNEL_PREFERENCE_KEY: &str = "planner.channel_preference";
-const ESCALATE_TO_CALL_ON_AMBIGUITY_KEY: &str = "planner.escalate_to_call_on_ambiguity";
-const CALL_QUIET_HOURS_START_KEY: &str = "planner.call_quiet_hours_start";
-const CALL_QUIET_HOURS_END_KEY: &str = "planner.call_quiet_hours_end";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChannelInboundMessage {
     pub channel: String,
     pub remote_user_id: String,
     pub remote_conversation_id: String,
     pub content: String,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum ChannelKind {
-    Whatsapp,
-    Voice,
-}
-
-impl ChannelKind {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Whatsapp => "whatsapp",
-            Self::Voice => "voice",
-        }
-    }
-
-    fn from_input(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "whatsapp" => Some(Self::Whatsapp),
-            "voice" | "call" | "phone" => Some(Self::Voice),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ChannelPreference {
-    Whatsapp,
-    Voice,
-    Hybrid,
-}
-
-impl ChannelPreference {
-    fn from_setting(value: Option<&str>) -> Self {
-        match value
-            .unwrap_or("hybrid")
-            .trim()
-            .to_ascii_lowercase()
-            .as_str()
-        {
-            "whatsapp" => Self::Whatsapp,
-            "voice" => Self::Voice,
-            _ => Self::Hybrid,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct ChannelPolicy {
-    preference: ChannelPreference,
-    escalate_to_call_on_ambiguity: bool,
-    call_quiet_hours_start: Option<String>,
-    call_quiet_hours_end: Option<String>,
-    in_call_quiet_hours: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,54 +51,6 @@ async fn resolve_default_planner_model(
         .ok()
         .or(settings_repo::get_setting(&state.db, DEFAULT_MODEL_SETTING_KEY).await?);
     Ok((provider_id, model_name))
-}
-
-fn parse_hhmm(value: Option<&str>) -> Option<NaiveTime> {
-    value
-        .map(str::trim)
-        .filter(|candidate| !candidate.is_empty())
-        .and_then(|candidate| NaiveTime::parse_from_str(candidate, "%H:%M").ok())
-}
-
-fn is_in_quiet_hours(start: Option<NaiveTime>, end: Option<NaiveTime>) -> bool {
-    let (Some(start), Some(end)) = (start, end) else {
-        return false;
-    };
-    if start == end {
-        return false;
-    }
-    let now = Local::now().time();
-    if start < end {
-        now >= start && now < end
-    } else {
-        now >= start || now < end
-    }
-}
-
-async fn resolve_channel_policy(state: &AppState) -> Result<ChannelPolicy, AppError> {
-    let preference = ChannelPreference::from_setting(
-        settings_repo::get_setting(&state.db, CHANNEL_PREFERENCE_KEY)
-            .await?
-            .as_deref(),
-    );
-    let escalate_to_call_on_ambiguity =
-        settings_repo::get_bool_setting(&state.db, ESCALATE_TO_CALL_ON_AMBIGUITY_KEY, true).await?;
-    let call_quiet_hours_start =
-        settings_repo::get_setting(&state.db, CALL_QUIET_HOURS_START_KEY).await?;
-    let call_quiet_hours_end =
-        settings_repo::get_setting(&state.db, CALL_QUIET_HOURS_END_KEY).await?;
-    let in_call_quiet_hours = is_in_quiet_hours(
-        parse_hhmm(call_quiet_hours_start.as_deref()),
-        parse_hhmm(call_quiet_hours_end.as_deref()),
-    );
-
-    Ok(ChannelPolicy {
-        preference,
-        escalate_to_call_on_ambiguity,
-        call_quiet_hours_start,
-        call_quiet_hours_end,
-        in_call_quiet_hours,
-    })
 }
 
 async fn ensure_channel_session(
@@ -210,77 +107,6 @@ pub async fn handle_inbound_message(
     .await
 }
 
-fn normalize_whatsapp_destination(value: &str) -> String {
-    let trimmed = value.trim();
-    if trimmed.to_ascii_lowercase().starts_with("whatsapp:") {
-        trimmed.to_string()
-    } else {
-        format!("whatsapp:{trimmed}")
-    }
-}
-
-fn normalize_voice_destination(value: &str) -> String {
-    let trimmed = value.trim();
-    if trimmed.to_ascii_lowercase().starts_with("whatsapp:") {
-        trimmed["whatsapp:".len()..].to_string()
-    } else {
-        trimmed.to_string()
-    }
-}
-
-fn looks_like_whatsapp_destination(value: &str) -> bool {
-    value.trim().to_ascii_lowercase().starts_with("whatsapp:")
-}
-
-fn should_escalate_to_call(content: &str) -> bool {
-    let normalized = content.trim().to_ascii_lowercase();
-    if normalized.is_empty() {
-        return false;
-    }
-
-    let question_marks = normalized.matches('?').count();
-    let word_count = normalized.split_whitespace().count();
-    let ambiguity_markers = [
-        "discuss",
-        "brainstorm",
-        "talk through",
-        "walk through",
-        "clarify",
-        "not sure",
-        "unsure",
-        "tradeoff",
-        "trade-off",
-        "options",
-        "decide",
-        "decision",
-        "prioritize",
-        "scope",
-        "plan this",
-        "strategy",
-        "complex",
-        "ambiguous",
-    ];
-
-    question_marks > 1
-        || word_count > 30
-        || normalized.len() > 180
-        || ambiguity_markers
-            .iter()
-            .any(|marker| normalized.contains(marker))
-}
-
-fn quiet_hours_summary(policy: &ChannelPolicy) -> String {
-    match (
-        policy.call_quiet_hours_start.as_deref(),
-        policy.call_quiet_hours_end.as_deref(),
-    ) {
-        (Some(start), Some(end)) if !start.trim().is_empty() && !end.trim().is_empty() => {
-            format!("call quiet hours are active between {start} and {end}")
-        }
-        _ => "call quiet hours are active".to_string(),
-    }
-}
-
 pub async fn route_planner_contact(
     state: &AppState,
     request: PlannerContactRequest,
@@ -308,38 +134,9 @@ pub async fn route_planner_contact(
         .as_deref()
         .and_then(ChannelKind::from_input);
     let allow_after_hours = request.allow_after_hours.unwrap_or(false);
-    let discussion_worthy = should_escalate_to_call(content);
     let mut reason_parts: Vec<String> = Vec::new();
-
-    let mut selected_channel = if let Some(channel) = explicit_channel {
-        reason_parts.push(format!("explicitly requested {}", channel.as_str()));
-        channel
-    } else {
-        match policy.preference {
-            ChannelPreference::Whatsapp => {
-                reason_parts.push("policy prefers WhatsApp for routine outreach".to_string());
-                ChannelKind::Whatsapp
-            }
-            ChannelPreference::Voice => {
-                reason_parts.push("policy prefers voice calls".to_string());
-                ChannelKind::Voice
-            }
-            ChannelPreference::Hybrid => {
-                if policy.escalate_to_call_on_ambiguity && discussion_worthy {
-                    reason_parts.push(
-                        "hybrid policy escalated this request to a call because it looks exploratory or ambiguous"
-                            .to_string(),
-                    );
-                    ChannelKind::Voice
-                } else {
-                    reason_parts.push(
-                        "hybrid policy kept this on WhatsApp as a routine update".to_string(),
-                    );
-                    ChannelKind::Whatsapp
-                }
-            }
-        }
-    };
+    let mut selected_channel =
+        select_initial_channel(&policy, explicit_channel, content, &mut reason_parts);
 
     if selected_channel == ChannelKind::Voice && !allow_after_hours && policy.in_call_quiet_hours {
         if whatsapp_available {

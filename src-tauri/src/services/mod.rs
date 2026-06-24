@@ -14,6 +14,7 @@ pub mod bulk_import_document;
 pub mod bulk_import_normalization;
 pub mod bulk_import_schema;
 pub mod bulk_import_service;
+pub mod channel_contact_policy;
 pub mod channel_service;
 pub mod channel_twilio;
 pub mod docker_service;
