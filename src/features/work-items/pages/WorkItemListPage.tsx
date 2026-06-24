@@ -57,14 +57,13 @@ import { WorkItemWorkspaceAssignmentPanel } from "../components/WorkItemWorkspac
 import { useWorkItemBacklogView } from "../hooks/useWorkItemBacklogView";
 import { useWorkItemReviewSignals } from "../hooks/useWorkItemReviewSignals";
 import { useWorkItemScopeData } from "../hooks/useWorkItemScopeData";
+import { useWorkItemWorkspaceEditor } from "../hooks/useWorkItemWorkspaceEditor";
 import { styles } from "../lib/workItemListPageStyles";
 import {
   SUB_WORK_ITEM_PAGE_SIZE,
   WORK_ITEM_PAGE_SIZE,
   buildCapabilityPath,
-  workItemBranchName,
   type ExternalCliProvider,
-  type WorkspaceBranchMode,
 } from "../lib/workItemListPageHelpers";
 import type {
   Approval,
@@ -106,10 +105,6 @@ export function WorkItemListPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionInfo, setActionInfo] = useState<string | null>(null);
-  const [isEditingWorkspace, setIsEditingWorkspace] = useState(false);
-  const [workspaceRepositoryId, setWorkspaceRepositoryId] = useState("");
-  const [workspaceBranchMode, setWorkspaceBranchMode] = useState<WorkspaceBranchMode>("default");
-  const [workspaceBranchName, setWorkspaceBranchName] = useState("");
   const [activeWorkflowRunId, setActiveWorkflowRunId] = useState<string | null>(null);
   const [selectedExternalCliRunId, setSelectedExternalCliRunId] = useState<string | null>(null);
   const [selectedArtifactStage, setSelectedArtifactStage] = useState<string | null>(null);
@@ -585,6 +580,34 @@ export function WorkItemListPage() {
     mutationFn: (orderedIds: string[]) => reorderWorkItems(orderedIds),
     onSuccess: async () => invalidateTasks(),
   });
+  const selectedWorkItemSummary = useMemo(
+    () => selectedWorkItem ?? filteredWorkItems.find((workItem) => workItem.id === selectedWorkItemId) ?? null,
+    [filteredWorkItems, selectedWorkItem, selectedWorkItemId],
+  );
+  const repositoryFromWorkItem = useMemo(() => {
+    const repositoryId = selectedWorkItemSummary?.repo_override_id ?? selectedWorkItemSummary?.active_repo_id;
+    if (!repositoryId) {
+      return null;
+    }
+    return repositories.find((repository: Repository) => repository.id === repositoryId) ?? null;
+  }, [repositories, selectedWorkItemSummary?.active_repo_id, selectedWorkItemSummary?.repo_override_id]);
+  const resolvedRepository = resolvedRepositoryFromQuery ?? repositoryFromWorkItem ?? null;
+  const {
+    isEditingWorkspace,
+    setIsEditingWorkspace,
+    workspaceRepositoryId,
+    workspaceBranchMode,
+    setWorkspaceBranchMode,
+    workspaceBranchName,
+    setWorkspaceBranchName,
+    branchPreview,
+    openWorkspaceEditor,
+    selectWorkspaceRepository,
+  } = useWorkItemWorkspaceEditor({
+    repositories,
+    selectedWorkItem: selectedWorkItemSummary,
+    resolvedRepository,
+  });
   const createWorkspaceMutation = useMutation({
     mutationFn: async () => {
       if (!selectedWorkItemSummary) {
@@ -610,34 +633,6 @@ export function WorkItemListPage() {
     onError: (error) => setActionError(String(error)),
   });
 
-  const selectedWorkspaceRepository = repositories.find((repository: Repository) => repository.id === workspaceRepositoryId) ?? null;
-
-  const resolveWorkspaceBranchName = () => {
-    if (workspaceBranchMode === "default") {
-      return selectedWorkspaceRepository?.default_branch ?? "";
-    }
-    if (workspaceBranchMode === "work_item") {
-      return selectedWorkItemSummary ? workItemBranchName(selectedWorkItemSummary.title) : "";
-    }
-    return workspaceBranchName.trim();
-  };
-
-  const openWorkspaceEditor = () => {
-    const currentRepositoryId =
-      resolvedRepository?.id ??
-      selectedWorkItemSummary?.repo_override_id ??
-      selectedWorkItemSummary?.active_repo_id ??
-      repositories[0]?.id ??
-      "";
-    const currentRepository = repositories.find((repository: Repository) => repository.id === currentRepositoryId) ?? null;
-    const currentBranch = selectedWorkItemSummary?.branch_name ?? currentRepository?.default_branch ?? "";
-    setWorkspaceRepositoryId(currentRepositoryId);
-    setWorkspaceBranchName(currentBranch);
-    setWorkspaceBranchMode(currentRepository && currentBranch === currentRepository.default_branch ? "default" : "custom");
-    setActionError(null);
-    setIsEditingWorkspace(true);
-  };
-
   const assignWorkspaceMutation = useMutation({
     mutationFn: async () => {
       if (!selectedWorkItemSummary) {
@@ -646,7 +641,7 @@ export function WorkItemListPage() {
       if (!workspaceRepositoryId) {
         throw new Error("Select a workspace.");
       }
-      const branchName = resolveWorkspaceBranchName();
+      const branchName = branchPreview;
       if (!branchName) {
         throw new Error("Branch name is required.");
       }
@@ -703,19 +698,6 @@ export function WorkItemListPage() {
     },
     onError: (error) => setActionError(String(error)),
   });
-
-  const selectedWorkItemSummary = useMemo(
-    () => selectedWorkItem ?? filteredWorkItems.find((workItem) => workItem.id === selectedWorkItemId) ?? null,
-    [filteredWorkItems, selectedWorkItem, selectedWorkItemId],
-  );
-  const repositoryFromWorkItem = useMemo(() => {
-    const repositoryId = selectedWorkItemSummary?.repo_override_id ?? selectedWorkItemSummary?.active_repo_id;
-    if (!repositoryId) {
-      return null;
-    }
-    return repositories.find((repository: Repository) => repository.id === repositoryId) ?? null;
-  }, [repositories, selectedWorkItemSummary?.active_repo_id, selectedWorkItemSummary?.repo_override_id]);
-  const resolvedRepository = resolvedRepositoryFromQuery ?? repositoryFromWorkItem ?? null;
   const {
     selectedDagNodeId,
     workflowElapsedLabel,
@@ -949,19 +931,16 @@ export function WorkItemListPage() {
       workspaceBranchMode={workspaceBranchMode}
       workspaceBranchName={workspaceBranchName}
       currentBranch={selectedWorkItemSummary?.branch_name || resolvedRepository?.default_branch || "not set"}
-      branchPreview={resolveWorkspaceBranchName()}
+      branchPreview={branchPreview}
       hasWorkspaceOverride={!!selectedWorkItemSummary?.repo_override_id}
       isAssignPending={assignWorkspaceMutation.isPending}
       isClearPending={clearWorkspaceOverrideMutation.isPending}
-      onOpenEditor={openWorkspaceEditor}
-      onClearOverride={() => clearWorkspaceOverrideMutation.mutate()}
-      onRepositoryIdChange={(repositoryId) => {
-        const nextRepository = repositories.find((repository: Repository) => repository.id === repositoryId) ?? null;
-        setWorkspaceRepositoryId(repositoryId);
-        if (workspaceBranchMode === "default") {
-          setWorkspaceBranchName(nextRepository?.default_branch ?? "");
-        }
+      onOpenEditor={() => {
+        setActionError(null);
+        openWorkspaceEditor();
       }}
+      onClearOverride={() => clearWorkspaceOverrideMutation.mutate()}
+      onRepositoryIdChange={selectWorkspaceRepository}
       onBranchModeChange={setWorkspaceBranchMode}
       onBranchNameChange={setWorkspaceBranchName}
       onSave={() => assignWorkspaceMutation.mutate()}
