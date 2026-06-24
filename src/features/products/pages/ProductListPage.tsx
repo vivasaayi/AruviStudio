@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -32,6 +32,7 @@ import { ProductManagementConsole } from "../components/ProductManagementConsole
 import { ProductManagementModalStack } from "../components/ProductManagementModalStack";
 import { ProductPageTabs } from "../components/ProductPageTabs";
 import { ProductWorkspacePanel } from "../components/ProductWorkspacePanel";
+import { useProductHierarchySelectionState } from "../hooks/useProductHierarchySelectionState";
 import { useProductManagementSelection } from "../hooks/useProductManagementSelection";
 import { useProductPageViewModel } from "../hooks/useProductPageViewModel";
 import { styles } from "../lib/productListPageStyles";
@@ -59,11 +60,6 @@ import {
   type ProductStatusGroupBy,
 } from "../lib/productRefreshScopes";
 import type { ProductCatalogSort, ProductCatalogSourceFilter, ProductCatalogStatusFilter } from "../lib/productCatalogRows";
-import {
-  findCapabilityTree,
-  getCapabilityOrderKey,
-  seedCapabilityOrderMap,
-} from "../lib/productHierarchyHelpers";
 import type { CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ProductAreaTree, Product, WorkItem } from "../../../lib/types";
 
 
@@ -108,10 +104,6 @@ export function ProductListPage() {
   const [capabilityDraft, setCapabilityDraft] = useState<{ name: string; description: string; acceptanceCriteria: string; technicalNotes: string; nodeKind: HierarchyNodeKind }>({ name: "", description: "", acceptanceCriteria: "", technicalNotes: "", nodeKind: "capability" });
   const [productManagementTab, setProductManagementTab] = useState<ProductManagementTab>("areas");
   const [formError, setFormError] = useState<string | null>(null);
-  const [draggedProductAreaId, setDraggedProductAreaId] = useState<string | null>(null);
-  const [draggedFeature, setDraggedFeature] = useState<null | { id: string; productAreaId: string; parentCapabilityId?: string | null; siblingIds: string[] }>(null);
-  const [productAreaOrderIds, setProductAreaOrderIds] = useState<string[]>([]);
-  const [capabilityOrderMap, setFeatureOrderMap] = useState<Record<string, string[]>>({});
   const [productPageTab, setProductPageTab] = useState<ProductPageTab>(() => isProductDetailRoute ? "design" : "list");
   const [productSearch, setProductSearch] = useState("");
   const [productStatusFilter, setProductStatusFilter] = useState<ProductCatalogStatusFilter>("all");
@@ -240,37 +232,18 @@ export function ProductListPage() {
     }
   }, [productDialogMode]);
 
-  useEffect(() => {
-    if (!tree) {
-      return;
-    }
-    setProductAreaOrderIds(tree.product_areas.map((productAreaTree) => productAreaTree.product_area.id));
-    const nextCapabilityMap: Record<string, string[]> = {};
-    tree.product_areas.forEach((productAreaTree) => {
-      nextCapabilityMap[getCapabilityOrderKey(productAreaTree.product_area.id, null)] = productAreaTree.features.map((capabilityTree) => capabilityTree.capability.id);
-      seedCapabilityOrderMap(nextCapabilityMap, productAreaTree.features);
-    });
-    setFeatureOrderMap(nextCapabilityMap);
-  }, [tree]);
-
-  const selectedProductArea = useMemo(
-    () => tree?.product_areas.find((productAreaTree) => productAreaTree.product_area.id === activeProductAreaId)?.product_area ?? null,
-    [tree, activeProductAreaId],
-  );
-  const selectedCapabilityTree = useMemo(
-    () => (tree ? findCapabilityTree(tree.product_areas, activeCapabilityId) : null),
-    [tree, activeCapabilityId],
-  );
-  const selectedCapability = selectedCapabilityTree?.capability ?? null;
-  const selectedCapabilityParentKind = useMemo(() => {
-    if (!selectedCapability) {
-      return selectedProductArea?.node_kind ?? null;
-    }
-    if (!selectedCapability.parent_capability_id) {
-      return selectedProductArea?.node_kind ?? null;
-    }
-    return findCapabilityTree(tree?.product_areas ?? [], selectedCapability.parent_capability_id)?.capability.node_kind ?? null;
-  }, [selectedCapability, selectedProductArea, tree]);
+  const {
+    productAreaOrderIds,
+    capabilityOrderMap,
+    selectedProductArea,
+    selectedCapabilityTree,
+    selectedCapability,
+    selectedCapabilityParentKind,
+  } = useProductHierarchySelectionState({
+    tree,
+    activeProductAreaId,
+    activeCapabilityId,
+  });
 
   useEffect(() => {
     if (productAreaDialogMode === "create") {
