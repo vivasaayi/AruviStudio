@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   assignWorkItemWorkspace,
   approveWorkItem,
@@ -54,16 +54,14 @@ import { WorkItemReviewSummaryCards } from "../components/WorkItemReviewSummaryC
 import { WorkItemReviewWorkflowCard } from "../components/WorkItemReviewWorkflowCard";
 import { WorkItemWorkspaceReadinessCard } from "../components/WorkItemWorkspaceReadinessCard";
 import { WorkItemWorkspaceAssignmentPanel } from "../components/WorkItemWorkspaceAssignmentPanel";
+import { useWorkItemBacklogView } from "../hooks/useWorkItemBacklogView";
 import { useWorkItemReviewSignals } from "../hooks/useWorkItemReviewSignals";
 import { useWorkItemScopeData } from "../hooks/useWorkItemScopeData";
 import { styles } from "../lib/workItemListPageStyles";
 import {
-  BACKLOG_OVERSCAN_ROWS,
-  BACKLOG_ROW_ESTIMATED_HEIGHT,
   SUB_WORK_ITEM_PAGE_SIZE,
   WORK_ITEM_PAGE_SIZE,
   buildCapabilityPath,
-  orderWorkItemsByIds,
   workItemBranchName,
   type ExternalCliProvider,
   type WorkspaceBranchMode,
@@ -74,7 +72,6 @@ import type {
   Finding,
   WorkItem,
   WorkItemPage,
-  WorkflowRun,
   Product,
   Repository,
 } from "../../../lib/types";
@@ -880,28 +877,25 @@ export function WorkItemListPage() {
 
     return map;
   }, [activeProduct, capabilityById, filteredWorkItems, productAreaById]);
-  const orderedWorkItems = useMemo(() => orderWorkItemsByIds(filteredWorkItems, workItemOrderIds), [filteredWorkItems, workItemOrderIds]);
-  const backlogWindow = useMemo(() => {
-    const start = Math.max(0, Math.floor(backlogScrollTop / BACKLOG_ROW_ESTIMATED_HEIGHT) - BACKLOG_OVERSCAN_ROWS);
-    const visibleRows = Math.ceil(backlogViewportHeight / BACKLOG_ROW_ESTIMATED_HEIGHT) + BACKLOG_OVERSCAN_ROWS * 2;
-    const end = Math.min(orderedWorkItems.length, start + Math.max(visibleRows, BACKLOG_OVERSCAN_ROWS * 2));
-    return {
-      start,
-      end,
-      topPadding: start * BACKLOG_ROW_ESTIMATED_HEIGHT,
-      bottomPadding: Math.max(0, orderedWorkItems.length - end) * BACKLOG_ROW_ESTIMATED_HEIGHT,
-      items: orderedWorkItems.slice(start, end),
-    };
-  }, [backlogScrollTop, backlogViewportHeight, orderedWorkItems]);
-  const hasNextWorkItemPage = workItemPage?.has_more ?? false;
-  const workItemPageStart = workItemPageIndex * WORK_ITEM_PAGE_SIZE + (orderedWorkItems.length > 0 ? 1 : 0);
-  const workItemPageEnd = workItemPageIndex * WORK_ITEM_PAGE_SIZE + orderedWorkItems.length;
-  const backlogRenderedRangeLabel =
-    orderedWorkItems.length > 0 ? `${backlogWindow.start + 1}-${backlogWindow.end}` : "0-0";
-  const selectedBacklogItems = useMemo(
-    () => orderedWorkItems.filter((workItem) => selectedBacklogItemIds.includes(workItem.id)),
-    [orderedWorkItems, selectedBacklogItemIds],
-  );
+  const {
+    orderedWorkItems,
+    backlogWindow,
+    hasNextWorkItemPage,
+    workItemPageStart,
+    workItemPageEnd,
+    backlogRenderedRangeLabel,
+    selectedBacklogItems,
+    latestWorkflowRunByWorkItemId,
+  } = useWorkItemBacklogView({
+    filteredWorkItems,
+    workItemOrderIds,
+    backlogScrollTop,
+    backlogViewportHeight,
+    workItemPage,
+    workItemPageIndex,
+    selectedBacklogItemIds,
+    isBacklogActive: workItemWorkspaceTab === "backlog",
+  });
   const isRowActionPending = (workItemId: string) => pendingRowActionIds.includes(workItemId);
   const runRowApprovalAction = async (workItemId: string, action: "approve" | "reject") => {
     if (isRowActionPending(workItemId)) {
@@ -944,22 +938,6 @@ export function WorkItemListPage() {
       setBulkActionInFlight(null);
     }
   };
-  const backlogWorkflowRunQueries = useQueries({
-    queries: backlogWindow.items.map((workItem) => ({
-      queryKey: ["latestWorkflowRun", workItem.id],
-      queryFn: () => getLatestWorkflowRunForWorkItem(workItem.id),
-      enabled: workItemWorkspaceTab === "backlog",
-      refetchInterval: 4000,
-    })),
-  });
-  const latestWorkflowRunByWorkItemId = useMemo(() => {
-    const map = new Map<string, WorkflowRun | null>();
-    backlogWindow.items.forEach((workItem, index) => {
-      const run = backlogWorkflowRunQueries[index]?.data ?? null;
-      map.set(workItem.id, run);
-    });
-    return map;
-  }, [backlogWorkflowRunQueries, backlogWindow.items]);
   const stageLabel = activeWorkflowStage ? activeWorkflowStage.replace(/_/g, " ") : null;
   const externalCliProviderInFlight = externalCliMutation.isPending ? externalCliMutation.variables : null;
 
