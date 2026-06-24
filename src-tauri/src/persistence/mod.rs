@@ -27,6 +27,7 @@ pub mod model_repo;
 pub mod observability_repo;
 pub mod planner_repo;
 pub mod product_area_repo;
+pub mod product_capability_read_repo;
 pub mod product_capability_repo;
 pub mod product_core_repo;
 pub mod product_hierarchy_repo;
