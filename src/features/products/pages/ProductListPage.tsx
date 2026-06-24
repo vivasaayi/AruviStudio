@@ -51,7 +51,6 @@ import {
   getDefaultChildNodeKind,
   groupHierarchyNodeKinds,
   getHierarchyChildLabel,
-  getHierarchyNodeKindGuidance,
   getHierarchyNodeKindLabel,
   orderHierarchyNodeKinds,
   ROOT_NODE_KINDS,
@@ -69,10 +68,13 @@ import { ProductManagementStoryDetailPane } from "../components/ProductManagemen
 import { ProductManagementStoriesPane } from "../components/ProductManagementStoriesPane";
 import { ProductManagementWorkItemFeatureSelector } from "../components/ProductManagementWorkItemFeatureSelector";
 import { ProductCatalogTab } from "../components/ProductCatalogTab";
+import {
+  CapabilityFormModal,
+  ProductAreaFormModal,
+} from "../components/ProductManagementHierarchyModals";
 import { ProductDependenciesTab } from "../components/ProductDependenciesTab";
 import { ProductStatusTab } from "../components/ProductStatusTab";
 import { ScopedRefreshButton } from "../components/ScopedRefreshButton";
-import { ProductManagementModalShell as ModalShell } from "../components/ProductManagementModalShell";
 import {
   DeleteHierarchyNodeModal,
   DeleteManagementWorkItemModal,
@@ -2178,137 +2180,40 @@ export function ProductListPage() {
       )}
 
       {productAreaDialogMode !== "closed" && (
-        <ModalShell
-          title={productAreaDialogMode === "create"
-            ? `Create ${getHierarchyNodeKindLabel(productAreaForm.nodeKind)}`
-            : `Edit ${selectedProductArea ? getHierarchyNodeKindLabel(selectedProductArea.node_kind) : "Product Area"}: ${selectedProductArea?.name ?? ""}`}
+        <ProductAreaFormModal
+          mode={productAreaDialogMode}
+          selectedProductArea={selectedProductArea}
+          form={productAreaForm}
+          draft={productAreaDraft}
+          setForm={setProductAreaForm}
+          setDraft={setProductAreaDraft}
+          formError={formError}
+          selectedProductId={selectedProductId}
+          isCreatePending={createProductAreaMutation.isPending}
+          isUpdatePending={updateProductAreaMutation.isPending}
           onClose={closeProductAreaDialog}
-        >
-          {productAreaDialogMode === "create" ? (
-            <>
-              <label style={styles.label}>Product Area Kind</label>
-              <select style={styles.input} value={productAreaForm.nodeKind} onChange={(e) => setProductAreaForm({ ...productAreaForm, nodeKind: e.target.value as HierarchyNodeKind })}>
-                {(["product_area"] as HierarchyNodeKind[]).map((nodeKind) => (
-                  <option key={nodeKind} value={nodeKind}>{getHierarchyNodeKindLabel(nodeKind)}</option>
-                ))}
-              </select>
-              <div style={styles.contextText}>{getHierarchyNodeKindGuidance(productAreaForm.nodeKind)}</div>
-              <label style={styles.label}>{getHierarchyNodeKindLabel(productAreaForm.nodeKind)} Name</label>
-              <input style={styles.input} value={productAreaForm.name} onChange={(e) => setProductAreaForm({ ...productAreaForm, name: e.target.value })} />
-              <label style={styles.label}>Description</label>
-              <textarea style={styles.textarea} value={productAreaForm.description} onChange={(e) => setProductAreaForm({ ...productAreaForm, description: e.target.value })} />
-              <label style={styles.label}>Purpose</label>
-              <input style={styles.input} value={productAreaForm.purpose} onChange={(e) => setProductAreaForm({ ...productAreaForm, purpose: e.target.value })} />
-            </>
-          ) : (
-            <>
-              <div style={styles.contextCard}>
-                <div style={styles.contextLabel}>Product Area</div>
-                <div style={styles.contextText}>{getHierarchyNodeKindGuidance("product_area")}</div>
-              </div>
-              <label style={styles.label}>Product Area Name</label>
-              <input style={styles.input} value={productAreaDraft.name} onChange={(e) => setProductAreaDraft({ ...productAreaDraft, name: e.target.value })} />
-              <label style={styles.label}>Description</label>
-              <textarea style={styles.textarea} value={productAreaDraft.description} onChange={(e) => setProductAreaDraft({ ...productAreaDraft, description: e.target.value })} />
-              <label style={styles.label}>Purpose</label>
-              <input style={styles.input} value={productAreaDraft.purpose} onChange={(e) => setProductAreaDraft({ ...productAreaDraft, purpose: e.target.value })} />
-            </>
-          )}
-          {formError && <div style={styles.errorText}>{formError}</div>}
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <button style={styles.ghostBtn} onClick={closeProductAreaDialog}>Cancel</button>
-            <button
-              style={styles.btn}
-              onClick={() => (productAreaDialogMode === "create" ? createProductAreaMutation.mutate() : updateProductAreaMutation.mutate())}
-              disabled={!(productAreaDialogMode === "create" ? productAreaForm.name : productAreaDraft.name) || !selectedProductId}
-            >
-              {productAreaDialogMode === "create"
-                ? createProductAreaMutation.isPending ? "Saving..." : `Create ${getHierarchyNodeKindLabel(productAreaForm.nodeKind)}`
-                : updateProductAreaMutation.isPending ? "Saving..." : "Save Product Area"}
-            </button>
-          </div>
-        </ModalShell>
+          onSubmit={() => productAreaDialogMode === "create" ? createProductAreaMutation.mutate() : updateProductAreaMutation.mutate()}
+        />
       )}
 
       {capabilityDialogMode !== "closed" && (
-        <ModalShell
-          title={capabilityDialogMode === "create"
-            ? `Create ${getHierarchyNodeKindLabel(capabilityForm.nodeKind)}`
-            : `Edit ${selectedCapability ? getHierarchyNodeKindLabel(selectedCapability.node_kind) : "Node"}: ${selectedCapability?.name ?? ""}`}
+        <CapabilityFormModal
+          mode={capabilityDialogMode}
+          selectedProductArea={selectedProductArea}
+          selectedCapability={selectedCapability}
+          form={capabilityForm}
+          draft={capabilityDraft}
+          setForm={setCapabilityForm}
+          setDraft={setCapabilityDraft}
+          createKindGroups={selectedCapabilityAllowedKindGroups}
+          editKindGroups={editableCapabilityNodeKindGroups}
+          formError={formError}
+          activeProductAreaId={activeProductAreaId}
+          isCreatePending={createCapabilityMutation.isPending}
+          isUpdatePending={updateCapabilityMutation.isPending}
           onClose={closeCapabilityDialog}
-        >
-          {capabilityDialogMode === "create" ? (
-            <>
-              <label style={styles.label}>Parent Product Area</label>
-              <input style={styles.input} value={selectedProductArea?.name ?? ""} readOnly />
-              <label style={styles.label}>Parent Node</label>
-              <input
-                style={styles.input}
-                value={selectedCapability?.name ?? ""}
-                readOnly
-                placeholder={`Create a top-level child under ${selectedProductArea?.name ?? "the selected product area"}`}
-              />
-              <label style={styles.label}>Node Kind</label>
-              <select style={styles.input} value={capabilityForm.nodeKind} onChange={(e) => setCapabilityForm({ ...capabilityForm, nodeKind: e.target.value as HierarchyNodeKind })}>
-                {selectedCapabilityAllowedKindGroups.map((group) => (
-                  <optgroup key={group.label} label={group.label}>
-                    {group.kinds.map((nodeKind) => (
-                      <option key={nodeKind} value={nodeKind}>{getHierarchyNodeKindLabel(nodeKind)}</option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-              <div style={styles.contextText}>
-                {getHierarchyNodeKindGuidance(capabilityForm.nodeKind)}
-                {" "}
-                Allowed here: {selectedCapabilityAllowedKindGroups.flatMap((group) => group.kinds).map((nodeKind) => getHierarchyNodeKindLabel(nodeKind)).join(", ")}.
-              </div>
-              <label style={styles.label}>{getHierarchyNodeKindLabel(capabilityForm.nodeKind)} Name</label>
-              <input style={styles.input} value={capabilityForm.name} onChange={(e) => setCapabilityForm({ ...capabilityForm, name: e.target.value })} />
-              <label style={styles.label}>Description</label>
-              <textarea style={styles.textarea} value={capabilityForm.description} onChange={(e) => setCapabilityForm({ ...capabilityForm, description: e.target.value })} />
-              <label style={styles.label}>Acceptance Criteria</label>
-              <textarea style={styles.textarea} value={capabilityForm.acceptanceCriteria} onChange={(e) => setCapabilityForm({ ...capabilityForm, acceptanceCriteria: e.target.value })} />
-              <label style={styles.label}>Technical Notes</label>
-              <textarea style={styles.textarea} value={capabilityForm.technicalNotes} onChange={(e) => setCapabilityForm({ ...capabilityForm, technicalNotes: e.target.value })} />
-            </>
-          ) : (
-            <>
-              <label style={styles.label}>Node Kind</label>
-              <select style={styles.input} value={capabilityDraft.nodeKind} onChange={(e) => setCapabilityDraft((current) => ({ ...current, nodeKind: e.target.value as HierarchyNodeKind }))}>
-                {editableCapabilityNodeKindGroups.map((group) => (
-                  <optgroup key={group.label} label={group.label}>
-                    {group.kinds.map((nodeKind) => (
-                      <option key={nodeKind} value={nodeKind}>{getHierarchyNodeKindLabel(nodeKind)}</option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-              <div style={styles.contextText}>{getHierarchyNodeKindGuidance(capabilityDraft.nodeKind)}</div>
-              <label style={styles.label}>Name</label>
-              <input style={styles.input} value={capabilityDraft.name} onChange={(e) => setCapabilityDraft((current) => ({ ...current, name: e.target.value }))} />
-              <label style={styles.label}>Description</label>
-              <textarea style={styles.textarea} value={capabilityDraft.description} onChange={(e) => setCapabilityDraft((current) => ({ ...current, description: e.target.value }))} />
-              <label style={styles.label}>Acceptance Criteria</label>
-              <textarea style={styles.textarea} value={capabilityDraft.acceptanceCriteria} onChange={(e) => setCapabilityDraft((current) => ({ ...current, acceptanceCriteria: e.target.value }))} />
-              <label style={styles.label}>Technical Notes</label>
-              <textarea style={styles.textarea} value={capabilityDraft.technicalNotes} onChange={(e) => setCapabilityDraft((current) => ({ ...current, technicalNotes: e.target.value }))} />
-            </>
-          )}
-          {formError && <div style={styles.errorText}>{formError}</div>}
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <button style={styles.ghostBtn} onClick={closeCapabilityDialog}>Cancel</button>
-            <button
-              style={styles.btn}
-              onClick={() => (capabilityDialogMode === "create" ? createCapabilityMutation.mutate() : updateCapabilityMutation.mutate())}
-              disabled={!(capabilityDialogMode === "create" ? capabilityForm.name : capabilityDraft.name) || !activeProductAreaId}
-            >
-              {capabilityDialogMode === "create"
-                ? createCapabilityMutation.isPending ? "Saving..." : `Create ${getHierarchyNodeKindLabel(capabilityForm.nodeKind)}`
-                : updateCapabilityMutation.isPending ? "Saving..." : `Save ${selectedCapability ? getHierarchyNodeKindLabel(selectedCapability.node_kind) : "Node"}`}
-            </button>
-          </div>
-        </ModalShell>
+          onSubmit={() => capabilityDialogMode === "create" ? createCapabilityMutation.mutate() : updateCapabilityMutation.mutate()}
+        />
       )}
 
     </div>
