@@ -29,6 +29,7 @@ import { initWhisper, type WhisperContext } from "whisper.rn";
 import { PlannerMobileClient } from "./src/api/client";
 import { MobileCallsScreen } from "./src/components/MobileCallsScreen";
 import { MobileModelManager } from "./src/components/MobileModelManager";
+import { ProductModeButton, ProductNodeRow, ProductPlannerPanel } from "./src/components/MobileProductComponents";
 import { MobileVoiceScreen } from "./src/components/MobileVoiceScreen";
 import type { HierarchyTreeNode, MobilePlannerToolTraceEntry, ModelCall, Product, ProductTree, ProductTreeSummary } from "./src/types";
 import {
@@ -43,7 +44,6 @@ import {
 import {
   buildModelCallSessions,
   describeError,
-  formatPlannerToolTrace,
 } from "./src/lib/mobileFormatters";
 import {
   assertWhisperNativeModuleAvailable,
@@ -1162,109 +1162,9 @@ export default function App() {
           : "Not checked";
   const isVoiceKeyboardOpen = activeTab === "voice" && keyboardHeight > 0;
 
-  const renderProductModeButton = (mode: ProductExploreTab, label: string) => (
-    <Pressable
-      key={mode}
-      style={[styles.productModeButton, productExploreTab === mode && styles.productModeButtonActive]}
-      onPress={() => void switchProductExploreTab(mode)}
-    >
-      <Text style={[styles.productModeText, productExploreTab === mode && styles.productModeTextActive]}>{label}</Text>
-    </Pressable>
-  );
-
-  const renderProductNodeRow = (node: HierarchyTreeNode, pathLabel?: string) => {
-    const childCount = node.children?.length ?? 0;
-    return (
-      <Pressable
-        key={node.id}
-        style={styles.productNodeRow}
-        onPress={() => {
-          setSelectedProductNodeId(node.id);
-          setProductExploreTab("map");
-        }}
-      >
-        <View style={styles.productNodeMain}>
-          <View style={styles.productNodeTitleRow}>
-            <Text style={styles.productNodeTitle} numberOfLines={2}>{node.name}</Text>
-            <Text style={styles.productNodeChevron}>{childCount ? "Open" : "View"}</Text>
-          </View>
-          {pathLabel ? <Text style={styles.productNodePath} numberOfLines={1}>{pathLabel}</Text> : null}
-          <Text style={styles.productNodeSummary} numberOfLines={3}>{getNodeSummary(node)}</Text>
-          <View style={styles.productNodeMetaRow}>
-            <Text style={styles.productKindBadge}>{formatNodeKind(node.node_kind)}</Text>
-            <Text style={styles.productNodeMeta}>{formatNodeKind(node.node_type)}</Text>
-            <Text style={styles.productNodeMeta}>
-              {childCount === 1 ? "1 child" : `${childCount} children`}
-            </Text>
-          </View>
-        </View>
-      </Pressable>
-    );
-  };
-
-  const renderProductPlannerProcessor = () => {
-    const isRecordingHere = productPlannerRecording || recorderState.isRecording;
-    const disabled = isVoiceBusy && !isRecordingHere;
-    return (
-      <View style={styles.productPlannerPanel}>
-        <View style={styles.productPlannerHeader}>
-          <View style={styles.productPlannerCopy}>
-            <Text style={styles.productPlannerTitle}>Planner</Text>
-            <Text style={styles.productPlannerStatus} numberOfLines={1}>{productPlannerStatus}</Text>
-          </View>
-          {productPlannerReply.trim() ? (
-            <Pressable style={styles.productPlannerIconButton} onPress={() => speakAssistantReply(productPlannerReply)}>
-              <Text style={styles.productPlannerIconText}>Speak</Text>
-            </Pressable>
-          ) : null}
-        </View>
-        <TextInput
-          style={styles.productPlannerInput}
-          value={productPlannerDraft}
-          onChangeText={setProductPlannerDraft}
-          placeholder={productPlannerReply.trim() ? "Ask a follow-up or revise what it just did" : "Say what to add, revise, split, or plan here"}
-          placeholderTextColor="#7f8a9c"
-          multiline
-          textAlignVertical="top"
-        />
-        <View style={styles.productPlannerActions}>
-          <Pressable
-            style={[
-              styles.productPlannerAction,
-              isRecordingHere && styles.productPlannerActionRecording,
-              disabled && styles.buttonDisabled,
-            ]}
-            onPress={() => void toggleProductPlannerRecording()}
-            disabled={disabled}
-          >
-            <Text style={styles.productPlannerActionText}>{isRecordingHere ? "Stop" : "Mic"}</Text>
-          </Pressable>
-          <Pressable
-            style={[
-              styles.productPlannerAction,
-              styles.productPlannerActionPrimary,
-              (!productPlannerDraft.trim() || isVoiceBusy || isRecordingHere) && styles.buttonDisabled,
-            ]}
-            onPress={() => void submitProductPlannerPrompt(productPlannerDraft, "typed")}
-            disabled={!productPlannerDraft.trim() || isVoiceBusy || isRecordingHere}
-          >
-            <Text style={styles.productPlannerPrimaryText}>Send</Text>
-          </Pressable>
-        </View>
-        {productPlannerReply.trim() ? (
-          <Text style={styles.productPlannerReply} numberOfLines={7}>{productPlannerReply}</Text>
-        ) : null}
-        {productPlannerTrace.length ? (
-          <View style={styles.productPlannerTraceList}>
-            {productPlannerTrace.slice(-3).map((entry) => (
-              <Text key={`${entry.step}-${entry.tool_name}`} style={styles.productPlannerTraceItem} numberOfLines={1}>
-                {formatPlannerToolTrace(entry)}
-              </Text>
-            ))}
-          </View>
-        ) : null}
-      </View>
-    );
+  const openProductNode = (nodeId: string) => {
+    setSelectedProductNodeId(nodeId);
+    setProductExploreTab("map");
   };
 
   const renderProductExplorer = () => {
@@ -1341,10 +1241,10 @@ export default function App() {
           </View>
 
           <View style={styles.productModeRow}>
-            {renderProductModeButton("map", "Map")}
-            {renderProductModeButton("work", "Work")}
-            {renderProductModeButton("search", "Search")}
-            {renderProductModeButton("overview", "Overview")}
+            <ProductModeButton mode="map" label="Map" activeMode={productExploreTab} onPress={switchProductExploreTab} />
+            <ProductModeButton mode="work" label="Work" activeMode={productExploreTab} onPress={switchProductExploreTab} />
+            <ProductModeButton mode="search" label="Search" activeMode={productExploreTab} onPress={switchProductExploreTab} />
+            <ProductModeButton mode="overview" label="Overview" activeMode={productExploreTab} onPress={switchProductExploreTab} />
           </View>
         </View>
 
@@ -1373,7 +1273,18 @@ export default function App() {
                       {visibleProductChildren.length === 1 ? "1 child" : `${visibleProductChildren.length} children`}
                     </Text>
                   </View>
-                  {renderProductPlannerProcessor()}
+                  <ProductPlannerPanel
+                    isRecording={productPlannerRecording || recorderState.isRecording}
+                    isDisabled={isVoiceBusy && !(productPlannerRecording || recorderState.isRecording)}
+                    status={productPlannerStatus}
+                    reply={productPlannerReply}
+                    draft={productPlannerDraft}
+                    trace={productPlannerTrace}
+                    onSpeakReply={speakAssistantReply}
+                    onDraftChange={setProductPlannerDraft}
+                    onToggleRecording={toggleProductPlannerRecording}
+                    onSubmitPrompt={(prompt) => submitProductPlannerPrompt(prompt, "typed")}
+                  />
                 </View>
               ) : (
                 <View style={styles.productRootHeader}>
@@ -1384,7 +1295,7 @@ export default function App() {
                 </View>
               )
             )}
-            renderItem={({ item }) => renderProductNodeRow(item)}
+            renderItem={({ item }) => <ProductNodeRow node={item} onOpenNode={openProductNode} />}
             ListEmptyComponent={(
               <View style={styles.productEmptyBlock}>
                 <Text style={styles.productEmptyTitle}>No children here</Text>
@@ -1409,7 +1320,9 @@ export default function App() {
               data={filteredProductNodes}
               keyExtractor={(item) => item.node.id}
               contentContainerStyle={styles.productListContent}
-              renderItem={({ item }) => renderProductNodeRow(item.node, item.pathLabel)}
+              renderItem={({ item }) => (
+                <ProductNodeRow node={item.node} pathLabel={item.pathLabel} onOpenNode={openProductNode} />
+              )}
               ListHeaderComponent={(
                 <Text style={styles.productSearchCount}>
                   {filteredProductNodes.length} {filteredProductNodes.length === 1 ? "match" : "matches"}
