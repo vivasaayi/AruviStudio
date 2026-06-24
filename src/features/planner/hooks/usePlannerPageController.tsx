@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import { revealInFinder } from "../../../lib/tauri";
@@ -16,6 +15,7 @@ import { usePlannerRepositoryModalState } from "./usePlannerRepositoryModalState
 import { usePlannerSpeechSettingsState } from "./usePlannerSpeechSettingsState";
 import { usePlannerTurnMutations } from "./usePlannerTurnMutations";
 import { usePlannerVoiceCapture } from "./usePlannerVoiceCapture";
+import { usePlannerVoiceSubmission } from "./usePlannerVoiceSubmission";
 import { usePlannerVoiceTranscriptHandler } from "./usePlannerVoiceTranscriptHandler";
 import { usePlannerWindowWidth } from "./usePlannerWindowWidth";
 import { makeId } from "../lib/plannerPageModel";
@@ -309,32 +309,6 @@ export function usePlannerPageController() {
     await processMutation.mutateAsync(content);
   };
 
-  const submitVoiceTranscript = async (transcript: string) => {
-    if (!transcript || isPlannerBusy) {
-      return;
-    }
-    if (!selectedProductId) {
-      setSpeechError("Select a product before using Planner voice input.");
-      return;
-    }
-    setPendingVoiceTranscript(transcript);
-    setVoiceActivity("Sending voice input to the planner...");
-    setIsVoiceSubmitting(true);
-    try {
-      const handledAsVoiceCommand = await handleVoiceTranscript(transcript);
-      if (!handledAsVoiceCommand) {
-        setDraft((current) => (current ? `${current.trim()} ${transcript}` : transcript));
-        composerRef.current?.focus();
-        setVoiceActivity("Speech recognized and added to the composer.");
-      }
-    } catch (error) {
-      setSpeechError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsVoiceSubmitting(false);
-      clearPendingVoiceReview();
-    }
-  };
-
   const {
     confirmPendingPlan,
     dismissPendingPlan,
@@ -402,24 +376,19 @@ export function usePlannerPageController() {
     onPlannerMutationSuccess: handlePlannerMutationSuccess,
     speakAssistantReply,
   });
-  submitVoiceTranscriptRef.current = submitVoiceTranscript;
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.__ARUVI_E2E__) {
-      return;
-    }
-    window.__ARUVI_E2E__.runPlannerVoiceTranscript = async (transcript: string) => {
-      const handled = await handleVoiceTranscript(transcript);
-      if (!handled) {
-        setDraft((current) => (current ? `${current.trim()} ${transcript.trim()}` : transcript.trim()));
-      }
-    };
-    return () => {
-      if (window.__ARUVI_E2E__) {
-        delete window.__ARUVI_E2E__.runPlannerVoiceTranscript;
-      }
-    };
-  }, [handleVoiceTranscript]);
+  usePlannerVoiceSubmission({
+    clearPendingVoiceReview,
+    composerRef,
+    handleVoiceTranscript,
+    isPlannerBusy,
+    selectedProductId,
+    setDraft,
+    setIsVoiceSubmitting,
+    setPendingVoiceTranscript,
+    setSpeechError,
+    setVoiceActivity,
+    submitVoiceTranscriptRef,
+  });
 
   return {
     allowedDraftChildTypes,
