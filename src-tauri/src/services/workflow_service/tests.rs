@@ -13,6 +13,8 @@ use tokio::sync::Mutex;
 mod helpers;
 mod live_calculator;
 mod plan_approval_flows;
+mod plan_auto_approval;
+mod plan_rejection_flows;
 mod recovery_flows;
 mod test_review_flows;
 
