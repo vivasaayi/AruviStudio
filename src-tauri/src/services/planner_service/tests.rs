@@ -3,18 +3,16 @@ use super::{
     create_planner_session, delete_draft_node, persist_draft_state, rename_draft_node,
     submit_planner_voice_turn, PlannerDraftPlan,
 };
-use crate::domain::repository::Repository;
 use crate::persistence::{db as db_service, product_repo, work_item_repo};
 use crate::services::planner_action_parser::normalize_planner_action;
-use crate::services::planner_repository_analysis::{
-    build_repository_analysis_snapshot, RepositoryAnalysisSnapshot,
-};
 use crate::state::AppState;
 use serde_json::json;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use tokio::sync::{Mutex, OwnedMutexGuard};
+
+mod draft_mutations;
+mod repository_analysis;
 
 fn planner_test_lock() -> Arc<Mutex<()>> {
     static LOCK: OnceLock<Arc<Mutex<()>>> = OnceLock::new();
@@ -54,19 +52,6 @@ fn normalize_actions(values: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
         .collect::<Vec<_>>()
 }
 
-fn make_repository(temp_root: &Path, name: &str) -> Repository {
-    Repository {
-        id: uuid::Uuid::new_v4().to_string(),
-        name: name.to_string(),
-        local_path: temp_root.display().to_string(),
-        remote_url: "".to_string(),
-        default_branch: "main".to_string(),
-        auth_profile: None,
-        created_at: "2026-03-21 00:00:00".to_string(),
-        updated_at: "2026-03-21 00:00:00".to_string(),
-    }
-}
-
 #[test]
 fn normalize_planner_action_repairs_relaxed_model_shapes() {
     let normalized = normalize_planner_action(json!({
@@ -87,70 +72,6 @@ fn normalize_planner_action_repairs_relaxed_model_shapes() {
             .and_then(|value| value.get("capabilityName"))
             .and_then(serde_json::Value::as_str),
         Some("Guest Profile Management")
-    );
-}
-
-#[test]
-fn build_repository_analysis_snapshot_extracts_structured_signals() {
-    let temp_root = make_temp_dir("repo_analysis_snapshot");
-    fs::create_dir_all(temp_root.join("src/features/planner"))
-        .expect("failed to create feature dir");
-    fs::create_dir_all(temp_root.join("app/hotels")).expect("failed to create route dir");
-    fs::create_dir_all(temp_root.join("e2e")).expect("failed to create e2e dir");
-    fs::write(
-        temp_root.join("README.md"),
-        "# Hotel Management System\n## Planner\nInteractive planning workspace.",
-    )
-    .expect("failed to write README");
-    fs::write(
-            temp_root.join("package.json"),
-            r#"{
-              "name": "hotel-management-system",
-              "scripts": { "dev": "vite", "test:e2e": "playwright test" },
-              "dependencies": { "react": "^18.0.0", "vite": "^5.0.0", "@tanstack/react-query": "^5.0.0" },
-              "devDependencies": { "@playwright/test": "^1.0.0" }
-            }"#,
-        )
-        .expect("failed to write package.json");
-    fs::write(
-        temp_root.join("src/features/planner/PlannerPage.tsx"),
-        "export function PlannerPage() { return null; }",
-    )
-    .expect("failed to write planner page");
-    fs::write(
-        temp_root.join("app/hotels/page.tsx"),
-        "export default function Hotels() { return null; }",
-    )
-    .expect("failed to write route");
-    fs::write(
-        temp_root.join("e2e/planner.spec.ts"),
-        "test('planner', () => {});",
-    )
-    .expect("failed to write test");
-
-    let snapshot: RepositoryAnalysisSnapshot =
-        build_repository_analysis_snapshot(&make_repository(&temp_root, "hotel-management-system"))
-            .expect("snapshot should build");
-
-    assert!(
-        !snapshot.manifests.is_empty(),
-        "manifest signals should be extracted"
-    );
-    assert!(!snapshot.docs.is_empty(), "doc signals should be extracted");
-    assert!(
-        !snapshot.routes.is_empty(),
-        "route signals should be extracted"
-    );
-    assert!(
-        !snapshot.tests.is_empty(),
-        "test signals should be extracted"
-    );
-    assert!(
-        snapshot
-            .candidate_areas
-            .iter()
-            .any(|area| area.name.contains("Planner") || area.name.contains("Hotels")),
-        "candidate areas should include feature or route-derived areas"
     );
 }
 
@@ -546,141 +467,4 @@ async fn commit_draft_plan_persists_tree_structure() {
     assert!(work_items
         .iter()
         .any(|item| item.title == "Implement Guest Profile CRUD"));
-}
-
-#[tokio::test]
-async fn rename_draft_node_updates_descendant_targets() {
-    let actions = normalize_actions(vec![
-        json!({
-            "type": "create_product",
-            "name": "Hotel Management System",
-            "description": "Hotel root."
-        }),
-        json!({
-            "type": "create_product_area",
-            "target": { "productName": "Hotel Management System" },
-            "name": "Guest Management",
-            "description": "Guest workflows."
-        }),
-        json!({
-            "type": "create_capability",
-            "target": {
-                "productName": "Hotel Management System",
-                "productAreaName": "Guest Management"
-            },
-            "name": "Guest Profile Management",
-            "description": "Profiles."
-        }),
-        json!({
-            "type": "create_work_item",
-            "target": {
-                "productName": "Hotel Management System",
-                "productAreaName": "Guest Management",
-                "capabilityName": "Guest Profile Management"
-            },
-            "title": "Implement Guest Profile CRUD",
-            "description": "Build CRUD."
-        }),
-    ]);
-
-    let mut draft = apply_actions_to_draft(None, None, &actions).expect("failed to create draft");
-    let product_area_id = draft
-        .nodes
-        .iter()
-        .find(|node| node.node_type == "product_area" && node.name == "Guest Management")
-        .map(|node| node.id.clone())
-        .expect("product_area should exist");
-
-    let renamed = rename_draft_node(&mut draft, &product_area_id, "Guest Operations")
-        .expect("rename should succeed");
-
-    assert_eq!(renamed.name, "Guest Operations");
-    let capability = draft
-        .nodes
-        .iter()
-        .find(|node| node.node_type == "capability")
-        .expect("capability should exist");
-    let work_item = draft
-        .nodes
-        .iter()
-        .find(|node| node.node_type == "work_item")
-        .expect("work item should exist");
-
-    assert_eq!(
-        capability
-            .details
-            .get("target")
-            .and_then(|value| value.get("productAreaName"))
-            .and_then(serde_json::Value::as_str),
-        Some("Guest Operations")
-    );
-    assert_eq!(
-        work_item
-            .details
-            .get("target")
-            .and_then(|value| value.get("productAreaName"))
-            .and_then(serde_json::Value::as_str),
-        Some("Guest Operations")
-    );
-}
-
-#[tokio::test]
-async fn add_and_delete_draft_child_nodes_preserve_hierarchy() {
-    let actions = normalize_actions(vec![
-        json!({
-            "type": "create_product",
-            "name": "Hotel Management System",
-            "description": "Hotel root."
-        }),
-        json!({
-            "type": "create_product_area",
-            "target": { "productName": "Hotel Management System" },
-            "name": "Billing & Payments",
-            "description": "Billing workflows."
-        }),
-    ]);
-
-    let mut draft = apply_actions_to_draft(None, None, &actions).expect("failed to create draft");
-    let product_area_id = draft
-        .nodes
-        .iter()
-        .find(|node| node.node_type == "product_area" && node.name == "Billing & Payments")
-        .map(|node| node.id.clone())
-        .expect("product_area should exist");
-
-    let capability = add_draft_child_node(
-        &mut draft,
-        &product_area_id,
-        "capability",
-        "Notification Preferences",
-        Some("Manage guest delivery preferences."),
-    )
-    .expect("capability should be created");
-    let work_item = add_draft_child_node(
-        &mut draft,
-        &capability.id,
-        "work_item",
-        "Build Preference Capture Form",
-        Some("Add guest preference controls."),
-    )
-    .expect("work item should be created");
-
-    assert_eq!(
-        capability.parent_id.as_deref(),
-        Some(product_area_id.as_str())
-    );
-    assert_eq!(work_item.parent_id.as_deref(), Some(capability.id.as_str()));
-
-    let (_, fallback_parent_id) =
-        delete_draft_node(&mut draft, &capability.id).expect("delete should succeed");
-
-    assert_eq!(
-        fallback_parent_id.as_deref(),
-        Some(product_area_id.as_str())
-    );
-    assert!(draft
-        .nodes
-        .iter()
-        .all(|node| node.name != "Notification Preferences"
-            && node.name != "Build Preference Capture Form"));
 }
