@@ -28,14 +28,13 @@ import {
   updatePlannerSession,
 } from "../../../lib/tauri";
 import { blobToBase64, speakInBrowser, startWavCapture, type ActiveAudioCapture } from "../../shared/voice";
-import { PlannerAssistantMessage } from "../components/PlannerAssistantMessage";
+import { PlannerConversationTranscript } from "../components/PlannerConversationTranscript";
 import { PlannerDraftCanvas } from "../components/PlannerDraftCanvas";
 import { PlannerDraftSidePanel } from "../components/PlannerDraftSidePanel";
 import { PlannerHeader } from "../components/PlannerHeader";
 import { PlannerRepositoryModal } from "../components/PlannerRepositoryModal";
 import { PlannerSidebar } from "../components/PlannerSidebar";
 import { PlannerTraceView } from "../components/PlannerTraceView";
-import { PlannerVoiceReviewCard } from "../components/PlannerVoiceReviewCard";
 import { styles } from "../lib/plannerPageStyles";
 import {
   DEFAULT_ASSISTANT_OPENING,
@@ -1721,39 +1720,28 @@ export function PlannerPage() {
             ) : plannerView === "trace" ? (
               <PlannerTraceView events={latestTraceEvents} />
             ) : (
-              <div ref={transcriptRef} style={{ ...styles.transcript, flex: 1, minHeight: 0, overflow: "auto" }}>
-                {pendingVoiceTranscript && reviewVoiceBeforeSend ? (
-                  <PlannerVoiceReviewCard
-                    voiceElapsedMs={voiceElapsedMs}
-                    isVoiceSubmitting={isVoiceSubmitting}
-                    editableVoiceTranscript={editableVoiceTranscript}
-                    onEditableVoiceTranscriptChange={setEditableVoiceTranscript}
-                    onSubmitPendingVoiceTranscript={() => void submitPendingVoiceTranscript()}
-                    onRetryVoiceCapture={() => void retryVoiceCapture()}
-                    onClearPendingVoiceReview={clearPendingVoiceReview}
-                    isPlannerBusy={isPlannerBusy}
-                  />
-                ) : null}
-                {messages.map((message) => (
-                  <div key={message.id} style={message.role === "user" ? styles.bubbleUser : styles.bubbleAssistant}>
-                    {message.role === "assistant" ? (
-                      <PlannerAssistantMessage
-                        message={message}
-                        isExportingDesignPacket={isExportingDesignPacket}
-                        onExportDesignReviewPacket={() => void exportDesignReviewPacket()}
-                        onConfirmPendingPlan={confirmPendingPlan}
-                        onDismissPendingPlan={dismissPendingPlan}
-                        isPlannerBusy={isPlannerBusy}
-                        pendingPlan={pendingPlan}
-                        draftTreeNodes={draftTreeNodes}
-                        designPacketPath={designPacketPath}
-                        designPacketError={designPacketError}
-                      />
-                    ) : message.content}
-                    {message.meta ? <span style={styles.bubbleMeta}>{message.meta}</span> : null}
-                  </div>
-                ))}
-              </div>
+              <PlannerConversationTranscript
+                transcriptRef={transcriptRef}
+                pendingVoiceTranscript={pendingVoiceTranscript}
+                reviewVoiceBeforeSend={reviewVoiceBeforeSend}
+                voiceElapsedMs={voiceElapsedMs}
+                isVoiceSubmitting={isVoiceSubmitting}
+                editableVoiceTranscript={editableVoiceTranscript}
+                isPlannerBusy={isPlannerBusy}
+                messages={messages}
+                isExportingDesignPacket={isExportingDesignPacket}
+                pendingPlan={pendingPlan}
+                draftTreeNodes={draftTreeNodes}
+                designPacketPath={designPacketPath}
+                designPacketError={designPacketError}
+                onEditableVoiceTranscriptChange={setEditableVoiceTranscript}
+                onSubmitPendingVoiceTranscript={() => void submitPendingVoiceTranscript()}
+                onRetryVoiceCapture={() => void retryVoiceCapture()}
+                onClearPendingVoiceReview={clearPendingVoiceReview}
+                onExportDesignReviewPacket={() => void exportDesignReviewPacket()}
+                onConfirmPendingPlan={confirmPendingPlan}
+                onDismissPendingPlan={dismissPendingPlan}
+              />
             )}
             {plannerView !== "draft" ? (
               <PlannerComposer
