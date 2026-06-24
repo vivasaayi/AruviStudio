@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   addPlannerDraftChild,
@@ -9,12 +9,6 @@ import {
   deletePlannerDraftNode,
   exportProductOverviewHtml,
   getProductTree,
-  listRepositories,
-  listModelDefinitions,
-  listProducts,
-  listProductAreas,
-  listProviders,
-  listWorkItemsPage,
   browseForRepositoryPath,
   registerRepository,
   analyzeRepositoryForPlanner,
@@ -32,35 +26,24 @@ import { PlannerHeader } from "../components/PlannerHeader";
 import { PlannerPageContent } from "../components/PlannerPageContent";
 import { PlannerRepositoryModal } from "../components/PlannerRepositoryModal";
 import { PlannerSidebar } from "../components/PlannerSidebar";
+import { usePlannerPageViewModel } from "../hooks/usePlannerPageViewModel";
 import { usePlannerWindowWidth } from "../hooks/usePlannerWindowWidth";
 import { styles } from "../lib/plannerPageStyles";
 import { loadPlannerSpeechSettings } from "../lib/plannerSpeechSettings";
 import {
   DEFAULT_ASSISTANT_OPENING,
-  PLANNER_WORK_ITEM_PAGE_SIZE,
-  buildPlannerComposerScopeChips,
-  buildPlannerModelPickerOptions,
   buildPlannerMutationMessages,
   buildDesignReviewPacketHtml,
-  buildDraftValidation,
-  buildPlannerStatusSummary,
-  buildProductAreaOnlyTree,
-  buildSuggestedPrompts,
   buildWorkItemTreeNodes,
   buildWorkItemTreeReport,
   collectTreeNodeIds,
   executePlannerPlan,
   findCapability,
-  findLatestAssistantMessage,
-  findLatestDraftPlan,
   findProductArea,
-  findRelevantPlanActions,
   findTree,
-  findTreeNodeById,
   findTreeNodePath,
   flattenTreeNodes,
   formatDraftChildTypeLabel,
-  getAllowedDraftChildTypes,
   getPlannerMutationSpeechText,
   getPlannerNodeType,
   getPlannerVoiceViewCommand,
@@ -72,10 +55,8 @@ import {
   normalize,
   parseVoiceNodeReference,
   resolveVoiceNodeReference,
-  resolvePlannerSpeechModelSelection,
   slugifyPacketName,
   type DraftEditOperation,
-  type DraftValidationSummary,
   type ExecutionResult,
   type PendingPlan,
   type PlannerAction,
@@ -83,7 +64,6 @@ import {
   type PlannerMutationResult,
   type PlannerPlan,
   type PlannerTreeNode,
-  type ResolverContext,
   mapPlannerResponseToMutationResult,
 } from "../lib/plannerPageModel";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
@@ -91,7 +71,6 @@ import type {
   PlannerDraftChildType,
   PlannerTraceEvent,
   Product,
-  ProductArea,
   ProductTree,
   WorkItem,
 } from "../../../lib/types";
@@ -154,132 +133,56 @@ export function PlannerPage() {
   const consumedRoutePromptRef = useRef<string | null>(null);
   const activePlannerProductRef = useRef<string | null>(null);
 
-  const { data: products = [] } = useQuery({ queryKey: ["products"], queryFn: listProducts });
-  const { data: providers = [] } = useQuery({ queryKey: ["plannerProviders"], queryFn: listProviders });
-  const { data: models = [] } = useQuery({ queryKey: ["plannerModels"], queryFn: listModelDefinitions });
-  const { data: repositories = [] } = useQuery({ queryKey: ["plannerRepositories"], queryFn: listRepositories });
-  const selectedProductId = useMemo(
-    () => products.some((product) => product.id === activeProductId) ? activeProductId : null,
-    [activeProductId, products],
-  );
-  const selectedProduct = useMemo(
-    () => products.find((product) => product.id === selectedProductId) ?? null,
-    [products, selectedProductId],
-  );
-  const { data: selectedProductAreas = [] } = useQuery<ProductArea[]>({
-    queryKey: ["plannerProductAreas", selectedProductId],
-    queryFn: () => listProductAreas(selectedProductId!),
-    enabled: !!selectedProductId,
-  });
-  const { data: workItemPage } = useQuery({
-    queryKey: ["plannerWorkItems", selectedProductId, PLANNER_WORK_ITEM_PAGE_SIZE],
-    queryFn: () => listWorkItemsPage({
-      productId: selectedProductId ?? undefined,
-      limit: PLANNER_WORK_ITEM_PAGE_SIZE,
-      offset: 0,
-    }),
-    enabled: !!selectedProductId,
-  });
-  const workItems = workItemPage?.items ?? [];
-  const plannerWorkItemsHasMore = workItemPage?.has_more ?? false;
-  const productTrees = useMemo(() => {
-    if (selectedProduct && selectedProductAreas.length > 0) {
-      return [buildProductAreaOnlyTree(selectedProduct, selectedProductAreas)];
-    }
-    return [];
-  }, [selectedProduct, selectedProductAreas]);
-  const hasTreeData = productTrees.length > 0;
-  const isFocusedWorkspaceView = plannerView === "draft" || plannerView === "trace";
-  const isCompactScreen = windowWidth <= 1360;
-  const selectedDraftNode = useMemo(
-    () => findTreeNodeById(draftTreeNodes, selectedDraftNodeId),
-    [draftTreeNodes, selectedDraftNodeId],
-  );
-  const selectedDraftNodePath = useMemo(
-    () => findTreeNodePath(draftTreeNodes, selectedDraftNodeId),
-    [draftTreeNodes, selectedDraftNodeId],
-  );
-  const expandedDraftNodeIdSet = useMemo(
-    () => new Set(expandedDraftNodeIds),
-    [expandedDraftNodeIds],
-  );
-  const latestDraftPlan = useMemo(
-    () => findLatestDraftPlan(messages, pendingPlan),
-    [messages, pendingPlan],
-  );
-  const selectedDraftNodePrompts = useMemo(
-    () => buildSuggestedPrompts(selectedDraftNode),
-    [selectedDraftNode],
-  );
-  const allowedDraftChildTypes = useMemo(
-    () => getAllowedDraftChildTypes(selectedDraftNode),
-    [selectedDraftNode],
-  );
-  const draftValidation = useMemo(
-    () => buildDraftValidation(draftTreeNodes),
-    [draftTreeNodes],
-  );
-  const selectedNodeRecentActions = useMemo(
-    () => findRelevantPlanActions(latestDraftPlan, selectedDraftNode),
-    [latestDraftPlan, selectedDraftNode],
-  );
-  const latestAssistantMessage = useMemo(
-    () => findLatestAssistantMessage(messages),
-    [messages],
-  );
-  const plannerStatusSummary = useMemo(() => buildPlannerStatusSummary({
-    voiceActivity,
-    pendingVoiceTranscript,
-    reviewVoiceBeforeSend,
-    draftTreeNodeCount: draftTreeNodes.length,
-    draftValidation,
-    selectedDraftNode,
-    pendingPlan,
-    latestAssistantMessage,
-  }), [
-    draftTreeNodes.length,
-    draftValidation,
-    latestAssistantMessage,
-    pendingPlan,
-    pendingVoiceTranscript,
-    reviewVoiceBeforeSend,
-    selectedDraftNode,
-    voiceActivity,
-  ]);
-  const composerScopeChips = useMemo(() => buildPlannerComposerScopeChips({
-    selectedDraftNodeId,
+  const {
+    products,
+    providers,
+    models,
+    repositories,
     selectedProductId,
+    selectedProduct,
+    workItems,
+    plannerWorkItemsHasMore,
+    productTrees,
+    hasTreeData,
+    isFocusedWorkspaceView,
+    isCompactScreen,
+    selectedDraftNode,
+    selectedDraftNodePath,
+    expandedDraftNodeIdSet,
+    latestDraftPlan,
+    selectedDraftNodePrompts,
+    allowedDraftChildTypes,
+    draftValidation,
+    selectedNodeRecentActions,
+    latestAssistantMessage,
+    plannerStatusSummary,
+    composerScopeChips,
+    modelOptions,
+    plannerModelPickerOptions,
+    plannerModelPickerValue,
+    speechModelSelection,
+    context,
+    activeProductName,
+  } = usePlannerPageViewModel({
+    activeProductId,
     activeProductAreaId,
     activeCapabilityId,
     activeWorkItemId,
-  }), [activeCapabilityId, activeProductAreaId, selectedProductId, activeWorkItemId, selectedDraftNodeId]);
-
-  const modelOptions = useMemo(
-    () => models.filter((model) => model.provider_id === providerId && model.enabled),
-    [models, providerId],
-  );
-  const plannerModelPickerOptions = useMemo(
-    () => buildPlannerModelPickerOptions(models, providers),
-    [models, providers],
-  );
-  const plannerModelPickerValue = providerId && modelName ? `${providerId}::${modelName}` : "";
-  const speechModelSelection = useMemo(() => resolvePlannerSpeechModelSelection({
-    models,
+    selectedDraftNodeId,
+    expandedDraftNodeIds,
+    draftTreeNodes,
+    messages,
+    pendingPlan,
+    voiceActivity,
+    pendingVoiceTranscript,
+    reviewVoiceBeforeSend,
+    plannerView,
+    windowWidth,
     providerId,
+    modelName,
     speechProviderSetting,
     speechModelSetting,
-  }), [models, providerId, speechModelSetting, speechProviderSetting]);
-
-  const context = useMemo<ResolverContext>(() => ({
-    products,
-    productTrees,
-    workItems,
-    activeProductId: selectedProductId,
-    activeProductAreaId,
-    activeCapabilityId,
-    activeWorkItemId,
-  }), [activeCapabilityId, activeProductAreaId, selectedProductId, activeWorkItemId, productTrees, products, workItems]);
-  const activeProductName = selectedProduct?.name ?? null;
+  });
 
   useEffect(() => {
     if (activePlannerProductRef.current === selectedProductId) {
