@@ -1,17 +1,16 @@
-import { useProductCatalogControls } from "./useProductCatalogControls";
-import { useProductHierarchySelectionState } from "./useProductHierarchySelectionState";
 import { useProductHierarchyMutations } from "./useProductHierarchyMutations";
+import { useProductListPageData } from "./useProductListPageData";
 import { useProductManagementSelection } from "./useProductManagementSelection";
 import { useProductManagementWorkItemMutations } from "./useProductManagementWorkItemMutations";
 import { useProductPageActions } from "./useProductPageActions";
 import { useProductListPageState } from "./useProductListPageState";
 import { useProductPageRefreshActions } from "./useProductPageRefreshActions";
 import { useProductPageSync } from "./useProductPageSync";
-import { useProductPageViewModel } from "./useProductPageViewModel";
 import { useProductPageRuntimeContext } from "./useProductPageRuntimeContext";
 
 export function useProductListPageController() {
   const { isProductDetailRoute, navigate, queryClient, ui, workspace } = useProductPageRuntimeContext();
+  const pageState = useProductListPageState({ isProductDetailRoute });
   const {
     activeProductId,
     activeProductAreaId,
@@ -60,76 +59,57 @@ export function useProductListPageController() {
     copiedEntityId, setCopiedEntityId,
     deleteConfirmationReady, resetPlanReady, deleteHierarchyReady,
     deleteManagementWorkItemReady,
-  } = useProductListPageState({ isProductDetailRoute });
+  } = pageState;
 
   const {
+    allProductTags,
+    capabilityOrderMap,
+    catalogFilterError,
+    catalogFilterMsg,
+    includeDefaultProductsInCatalog,
+    isLoading,
+    productAreaOrderIds,
+    productDependencies,
     productSearch,
     setProductSearch,
-    productStatusFilter,
-    setProductStatusFilter,
-    productSourceFilter,
-    setProductSourceFilter,
-    productTagFilter,
-    setProductTagFilter,
     productSort,
     setProductSort,
-    showDefaultProductsInTable,
-    setShowDefaultProductsInTable,
-    showCustomProductsInTable,
+    productSourceFilter,
+    setProductSourceFilter,
+    productStatusFilter,
+    setProductStatusFilter,
+    productTagFilter,
+    setProductTagFilter,
+    productTableRows,
+    productTreeById,
+    productTreeSummaryById,
+    products,
+    scopeSummaryIndex,
+    selectedCapability,
+    selectedCapabilityParentKind,
+    selectedProduct,
+    selectedProductArea,
+    selectedProductId,
     setShowCustomProductsInTable,
-    catalogFilterMsg,
-    catalogFilterError,
+    showDefaultProductsInTable,
+    showCustomProductsInTable,
+    setShowDefaultProductsInTable,
     statusProductId,
     setStatusProductId,
     statusDepth,
     setStatusDepth,
     statusGroupBy,
     setStatusGroupBy,
-    updateDefaultProductVisibility,
-  } = useProductCatalogControls({
-    queryClient,
-  });
-
-  const {
-    products,
-    isLoading,
-    productDependencies,
-    selectedProductId,
-    selectedProduct,
-    tree,
-    productTreeById,
-    productTreeSummaryById,
-    scopeSummaryIndex,
-    allProductTags,
-    includeDefaultProductsInCatalog,
-    productTableRows,
-    statusSummary,
     statusRows,
-  } = useProductPageViewModel({
-    activeProductId,
-    productPageTab,
-    productSearch,
-    productStatusFilter,
-    productSourceFilter,
-    productTagFilter,
-    productSort,
-    showDefaultProductsInTable,
-    showCustomProductsInTable,
-    statusProductId,
-    statusDepth,
-    statusGroupBy,
-  });
-
-  const {
-    productAreaOrderIds,
-    capabilityOrderMap,
-    selectedProductArea,
-    selectedCapability,
-    selectedCapabilityParentKind,
-  } = useProductHierarchySelectionState({
+    statusSummary,
     tree,
+    updateDefaultProductVisibility,
+  } = useProductListPageData({
+    activeProductId,
     activeProductAreaId,
     activeCapabilityId,
+    queryClient,
+    state: pageState,
   });
 
   const {
