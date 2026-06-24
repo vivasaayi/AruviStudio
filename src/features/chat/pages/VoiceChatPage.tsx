@@ -1,44 +1,37 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
-  getSetting,
-  listModelDefinitions,
-  listProviders,
   speakTextNatively,
   startModelChatStream,
   transcribeAudio,
 } from "../../../lib/tauri";
-import type { ModelDefinition, ModelProvider } from "../../../lib/types";
-import { VoiceChatConversation } from "../components/VoiceChatConversation";
-import { VoiceChatHeader } from "../components/VoiceChatHeader";
-import type { VoiceChatModelOption } from "../components/VoiceChatHeader";
-import { VoiceChatStatusCard } from "../components/VoiceChatStatusCard";
-import { VoiceChatTextComposer } from "../components/VoiceChatTextComposer";
+import { VoiceChatPageContent } from "../components/VoiceChatPageContent";
+import { useVoiceChatConfiguration } from "../hooks/useVoiceChatConfiguration";
 import {
   blobToBase64,
   speakInBrowserAsync,
   startSilenceAwareWavCapture,
   type SilenceAwareAudioCapture,
 } from "../../shared/voice";
-import { styles } from "../lib/voiceChatPageStyles";
 import {
-  parseBooleanSetting,
-  SPEECH_ENABLE_MIC_KEY,
-  SPEECH_LOCALE_KEY,
-  SPEECH_MODEL_KEY,
-  SPEECH_NATIVE_VOICE_KEY,
-  SPEECH_PROVIDER_KEY,
   stopBrowserSpeech,
 } from "../lib/voiceChatSettings";
 import type { LocalChatMessage } from "../lib/voiceChatTypes";
 
 export function VoiceChatPage() {
-  const [providerId, setProviderId] = useState("");
-  const [modelName, setModelName] = useState("");
-  const [systemPrompt, setSystemPrompt] = useState(
-    "You are a concise, capable voice assistant. Keep replies natural and easy to speak aloud.",
-  );
+  const {
+    providerId,
+    modelName,
+    systemPrompt,
+    speechProviderId,
+    speechModelName,
+    speechLocale,
+    speechNativeVoice,
+    voiceEnabled,
+    combinedModelOptions,
+    selectedModelValue,
+    setSelectedModelValue,
+  } = useVoiceChatConfiguration();
   const [messages, setMessages] = useState<LocalChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [sessionActive, setSessionActive] = useState(false);
@@ -49,26 +42,12 @@ export function VoiceChatPage() {
   const [status, setStatus] = useState("Ready. Start a voice session and speak naturally.");
   const [lastTranscript, setLastTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [speechProviderId, setSpeechProviderId] = useState("");
-  const [speechModelName, setSpeechModelName] = useState("");
-  const [speechLocale, setSpeechLocale] = useState("en-US");
-  const [speechNativeVoice, setSpeechNativeVoice] = useState("");
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
   const audioCaptureRef = useRef<SilenceAwareAudioCapture | null>(null);
   const messagesRef = useRef<LocalChatMessage[]>([]);
   const sessionActiveRef = useRef(false);
   const isLoopingRef = useRef(false);
   const speakQueueRef = useRef(Promise.resolve());
   const sessionIdRef = useRef(crypto.randomUUID());
-
-  const { data: providers = [] } = useQuery<ModelProvider[]>({
-    queryKey: ["voiceChatProviders"],
-    queryFn: listProviders,
-  });
-  const { data: models = [] } = useQuery<ModelDefinition[]>({
-    queryKey: ["voiceChatModels"],
-    queryFn: listModelDefinitions,
-  });
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -77,60 +56,6 @@ export function VoiceChatPage() {
   useEffect(() => {
     sessionActiveRef.current = sessionActive;
   }, [sessionActive]);
-
-  useEffect(() => {
-    void Promise.all([
-      getSetting(SPEECH_PROVIDER_KEY),
-      getSetting(SPEECH_MODEL_KEY),
-      getSetting(SPEECH_LOCALE_KEY),
-      getSetting(SPEECH_NATIVE_VOICE_KEY),
-      getSetting(SPEECH_ENABLE_MIC_KEY),
-    ]).then(([providerSetting, modelSetting, localeSetting, nativeVoiceSetting, micEnabledSetting]) => {
-      if (providerSetting) setSpeechProviderId(providerSetting);
-      if (modelSetting) setSpeechModelName(modelSetting);
-      if (localeSetting) setSpeechLocale(localeSetting);
-      if (nativeVoiceSetting) setSpeechNativeVoice(nativeVoiceSetting);
-      setVoiceEnabled(parseBooleanSetting(micEnabledSetting, true));
-    });
-  }, []);
-
-  const enabledProviders = useMemo(
-    () => providers.filter((provider) => provider.enabled),
-    [providers],
-  );
-
-  const enabledModels = useMemo(
-    () => models.filter((model) => model.enabled),
-    [models],
-  );
-
-  const combinedModelOptions = useMemo(
-    () =>
-      enabledModels
-        .map((model) => {
-          const provider = enabledProviders.find((entry) => entry.id === model.provider_id);
-          if (!provider) {
-            return null;
-          }
-          return {
-            value: `${provider.id}::${model.name}`,
-            label: `${provider.name} / ${model.name}`,
-            providerId: provider.id,
-            modelName: model.name,
-          };
-        })
-        .filter((entry): entry is VoiceChatModelOption => Boolean(entry)),
-    [enabledModels, enabledProviders],
-  );
-
-  useEffect(() => {
-    if ((!providerId || !modelName) && combinedModelOptions.length > 0) {
-      setProviderId(combinedModelOptions[0].providerId);
-      setModelName(combinedModelOptions[0].modelName);
-    }
-  }, [providerId, modelName, combinedModelOptions]);
-
-  const selectedModelValue = providerId && modelName ? `${providerId}::${modelName}` : "";
 
   const stopCurrentCapture = async () => {
     const capture = audioCaptureRef.current;
@@ -385,41 +310,27 @@ export function VoiceChatPage() {
   };
 
   return (
-    <div style={styles.page}>
-      <VoiceChatHeader
-        selectedModelValue={selectedModelValue}
-        modelOptions={combinedModelOptions}
-        sessionActive={sessionActive}
-        voiceEnabled={voiceEnabled}
-        onModelChange={(value) => {
-          const [nextProviderId, nextModelName] = value.split("::");
-          setProviderId(nextProviderId ?? "");
-          setModelName(nextModelName ?? "");
-        }}
-        onStartSession={startSession}
-        onStopSession={() => void stopSession()}
-      />
-      <VoiceChatStatusCard
-        sessionActive={sessionActive}
-        voiceEnabled={voiceEnabled}
-        speechModelName={speechModelName}
-        isListening={isListening}
-        isTranscribing={isTranscribing}
-        isSending={isSending}
-        isSpeaking={isSpeaking}
-        status={status}
-        lastTranscript={lastTranscript}
-        error={error}
-      />
-      <VoiceChatConversation messages={messages} />
-      <VoiceChatTextComposer
-        draft={draft}
-        isSending={isSending}
-        isBusy={isListening || isTranscribing || isSending || isSpeaking}
-        onDraftChange={setDraft}
-        onSendTypedMessage={() => void sendTypedMessage()}
-        onClearTranscript={clearTranscript}
-      />
-    </div>
+    <VoiceChatPageContent
+      selectedModelValue={selectedModelValue}
+      modelOptions={combinedModelOptions}
+      sessionActive={sessionActive}
+      voiceEnabled={voiceEnabled}
+      speechModelName={speechModelName}
+      isListening={isListening}
+      isTranscribing={isTranscribing}
+      isSending={isSending}
+      isSpeaking={isSpeaking}
+      status={status}
+      lastTranscript={lastTranscript}
+      error={error}
+      messages={messages}
+      draft={draft}
+      onModelChange={setSelectedModelValue}
+      onStartSession={startSession}
+      onStopSession={() => void stopSession()}
+      onDraftChange={setDraft}
+      onSendTypedMessage={() => void sendTypedMessage()}
+      onClearTranscript={clearTranscript}
+    />
   );
 }
