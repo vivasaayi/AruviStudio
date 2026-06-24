@@ -5,9 +5,7 @@ import {
   approveWorkItem,
   approveWorkItemPlan,
   approveWorkItemTestReview,
-  createWorkItem,
   createLocalWorkspace,
-  deleteWorkItem,
   getLatestWorkflowRunForWorkItem,
   getWorkflowHistory,
   handleWorkflowUserAction,
@@ -35,7 +33,6 @@ import {
   rejectWorkItem,
   restartWorkflowRun,
   startWorkItemWorkflow,
-  updateWorkItem,
 } from "../../../lib/tauri";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
@@ -55,6 +52,7 @@ import { WorkItemWorkspaceReadinessCard } from "../components/WorkItemWorkspaceR
 import { WorkItemWorkspaceAssignmentPanel } from "../components/WorkItemWorkspaceAssignmentPanel";
 import { useWorkItemBacklogApprovalActions } from "../hooks/useWorkItemBacklogApprovalActions";
 import { useWorkItemBacklogView } from "../hooks/useWorkItemBacklogView";
+import { useWorkItemCrudMutations } from "../hooks/useWorkItemCrudMutations";
 import { useWorkItemPageSync } from "../hooks/useWorkItemPageSync";
 import { useWorkItemReviewSignals } from "../hooks/useWorkItemReviewSignals";
 import { useWorkItemScopeData } from "../hooks/useWorkItemScopeData";
@@ -63,7 +61,6 @@ import { useWorkItemWorkspaceEditor } from "../hooks/useWorkItemWorkspaceEditor"
 import { styles } from "../lib/workItemListPageStyles";
 import {
   SUB_WORK_ITEM_PAGE_SIZE,
-  WORK_ITEM_PAGE_SIZE,
   type ExternalCliProvider,
 } from "../lib/workItemListPageHelpers";
 import type {
@@ -71,7 +68,6 @@ import type {
   Artifact,
   Finding,
   WorkItem,
-  WorkItemPage,
   Repository,
 } from "../../../lib/types";
 
@@ -282,89 +278,32 @@ export function WorkItemListPage() {
     ]);
   };
 
-  const createMutation = useMutation({
-    mutationFn: () =>
-      createWorkItem({
-        productId: activeProductId || "",
-        productAreaId: activeProductAreaId ?? undefined,
-        capabilityId: activeCapabilityId ?? undefined,
-        sourceNodeId: activeNodeId ?? undefined,
-        sourceNodeType: activeNodeType ?? undefined,
-        title: createForm.title,
-        problemStatement: createForm.problemStatement,
-        description: createForm.description,
-        acceptanceCriteria: createForm.acceptanceCriteria,
-        constraints: createForm.constraints,
-        workItemType: createForm.workItemType,
-        priority: createForm.priority,
-        complexity: createForm.complexity,
-        parentWorkItemId: createForm.parentWorkItemId ?? undefined,
-    }),
-    onSuccess: async (createdWorkItem) => {
-      queryClient.setQueryData<WorkItemPage | undefined>(workItemsQueryKey, (current) =>
-        current
-          ? {
-              ...current,
-              items: current.items.length < current.limit ? [...current.items, createdWorkItem] : current.items,
-              has_more: current.has_more || current.items.length >= current.limit,
-            }
-          : {
-              items: [createdWorkItem],
-              limit: WORK_ITEM_PAGE_SIZE,
-              offset: workItemPageIndex * WORK_ITEM_PAGE_SIZE,
-              has_more: false,
-            },
-      );
-      queryClient.setQueryData<WorkItem[] | undefined>(["sidebarWorkItems", activeProductId], (current) =>
-        current ? [...current, createdWorkItem] : [createdWorkItem],
-      );
-      setWorkItemOrderIds((current) => (current.includes(createdWorkItem.id) ? current : [...current, createdWorkItem.id]));
-      setActiveWorkItem(createdWorkItem.id);
-      await invalidateTasks();
-      setCreateForm({
-        title: "",
-        problemStatement: "",
-        description: "",
-        acceptanceCriteria: "",
-        constraints: "",
-        workItemType: "story",
-        priority: "medium",
-        complexity: "medium",
-        parentWorkItemId: null,
-      });
-      setShowCreateForm(false);
-      closeWorkItemCreateDialog();
-      setWorkItemWorkspaceTab("detail");
-    },
-    onError: (error) => setFormError(String(error)),
-  });
-
-  const updateWorkItemMutation = useMutation({
-    mutationFn: () =>
-      updateWorkItem({
-        id: selectedWorkItemId!,
-        title: workItemDraft.title,
-        description: workItemDraft.description,
-        status: workItemDraft.status,
-        problemStatement: workItemDraft.problemStatement,
-        acceptanceCriteria: workItemDraft.acceptanceCriteria,
-        constraints: workItemDraft.constraints,
-      }),
-    onSuccess: async () => {
-      await invalidateTasks();
-      setIsEditingWorkItem(false);
-    },
-    onError: (error) => setFormError(String(error)),
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => deleteWorkItem(id),
-    onSuccess: async (_, deletedId) => {
-      await invalidateTasks();
-      if (selectedWorkItemId === deletedId) {
-        setActiveWorkItem(null);
-      }
-    },
+  const {
+    createMutation,
+    updateWorkItemMutation,
+    deleteMutation,
+  } = useWorkItemCrudMutations({
+    queryClient,
+    activeProductId,
+    activeProductAreaId,
+    activeCapabilityId,
+    activeNodeId,
+    activeNodeType,
+    selectedWorkItemId,
+    createForm,
+    setCreateForm,
+    workItemDraft,
+    setWorkItemOrderIds,
+    setActiveWorkItem,
+    setShowCreateForm,
+    closeWorkItemCreateDialog,
+    setWorkItemWorkspaceTab,
+    setIsEditingWorkItem,
+    setFormError,
+    workItemsQueryKey,
+    activeProductSidebarQueryKey: ["sidebarWorkItems", activeProductId],
+    workItemPageIndex,
+    invalidateTasks,
   });
 
   const approveMutation = useMutation({
