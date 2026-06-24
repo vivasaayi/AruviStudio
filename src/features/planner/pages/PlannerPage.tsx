@@ -7,9 +7,6 @@ import {
   confirmPlannerPlan,
   createPlannerSession,
   deletePlannerDraftNode,
-  browseForRepositoryPath,
-  registerRepository,
-  analyzeRepositoryForPlanner,
   renamePlannerDraftNode,
   revealInFinder,
   speakTextNatively,
@@ -27,6 +24,7 @@ import { PlannerSidebar } from "../components/PlannerSidebar";
 import { usePlannerDesignPacketExport } from "../hooks/usePlannerDesignPacketExport";
 import { usePlannerDraftEditorState } from "../hooks/usePlannerDraftEditorState";
 import { usePlannerPageViewModel } from "../hooks/usePlannerPageViewModel";
+import { usePlannerRepositoryModalState } from "../hooks/usePlannerRepositoryModalState";
 import { usePlannerSpeechSettingsState } from "../hooks/usePlannerSpeechSettingsState";
 import { usePlannerWindowWidth } from "../hooks/usePlannerWindowWidth";
 import { styles } from "../lib/plannerPageStyles";
@@ -86,10 +84,6 @@ export function PlannerPage() {
   const [selectedDraftNodeId, setSelectedDraftNodeId] = useState<string | null>(null);
   const [expandedDraftNodeIds, setExpandedDraftNodeIds] = useState<string[]>([]);
   const [latestTraceEvents, setLatestTraceEvents] = useState<PlannerTraceEvent[]>([]);
-  const [selectedRepositoryId, setSelectedRepositoryId] = useState("");
-  const [repositoryPathDraft, setRepositoryPathDraft] = useState("");
-  const [repoAnalysisMessage, setRepoAnalysisMessage] = useState<string | null>(null);
-  const [repoAnalysisError, setRepoAnalysisError] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isVoiceSubmitting, setIsVoiceSubmitting] = useState(false);
@@ -108,7 +102,6 @@ export function PlannerPage() {
     speechNativeVoiceSetting,
     reviewVoiceBeforeSend,
   } = usePlannerSpeechSettingsState();
-  const [showRepoModal, setShowRepoModal] = useState(false);
   const windowWidth = usePlannerWindowWidth();
   const [showCompactTools, setShowCompactTools] = useState(false);
   const audioCaptureRef = useRef<ActiveAudioCapture | null>(null);
@@ -239,12 +232,6 @@ export function PlannerPage() {
       setProviderId(providers[0].id);
     }
   }, [providerId, providers]);
-
-  useEffect(() => {
-    if (!selectedRepositoryId && repositories.length > 0) {
-      setSelectedRepositoryId(repositories[0].id);
-    }
-  }, [repositories, selectedRepositoryId]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.__ARUVI_E2E__) {
@@ -526,29 +513,6 @@ export function PlannerPage() {
     },
   });
 
-  const repositoryAnalysisMutation = useMutation<PlannerMutationResult, Error, string>({
-    mutationFn: async (repositoryId: string) => {
-      if (!sessionId) {
-        throw new Error("Planner session is not ready.");
-      }
-      const response = await analyzeRepositoryForPlanner({
-        sessionId,
-        repositoryId,
-        selectedDraftNodeId,
-        productId: selectedProductId,
-      });
-      return mapPlannerResponseToMutationResult(
-        response,
-        `Analyze repository ${repositoryId} into a design packet.`,
-      );
-    },
-    onSuccess: handlePlannerMutationSuccess,
-    onError: (error) => {
-      setRepoAnalysisError(error instanceof Error ? error.message : String(error));
-      setRepoAnalysisMessage(null);
-    },
-  });
-
   const transcribeAudioMutation = useMutation<string, Error, { audioBytesBase64: string; mimeType: string }>({
     mutationFn: async ({ audioBytesBase64, mimeType }) => {
       if (!speechModelSelection) {
@@ -568,12 +532,34 @@ export function PlannerPage() {
     },
   });
 
-  const isPlannerBusy =
+  const basePlannerBusy =
     processMutation.isPending ||
     draftEditMutation.isPending ||
-    repositoryAnalysisMutation.isPending ||
     transcribeAudioMutation.isPending ||
     isVoiceSubmitting;
+  const {
+    showRepoModal,
+    setShowRepoModal,
+    selectedRepositoryId,
+    setSelectedRepositoryId,
+    repositoryPathDraft,
+    setRepositoryPathDraft,
+    repoAnalysisMessage,
+    repoAnalysisError,
+    isRepositoryAnalysisPending,
+    browseRepositoryPathForPlanner,
+    registerRepositoryForPlanner,
+    analyzeSelectedRepository,
+  } = usePlannerRepositoryModalState({
+    queryClient,
+    repositories,
+    sessionId,
+    selectedDraftNodeId,
+    selectedProductId,
+    isPlannerBusy: basePlannerBusy,
+    onAnalysisSuccess: handlePlannerMutationSuccess,
+  });
+  const isPlannerBusy = basePlannerBusy || isRepositoryAnalysisPending;
 
   useEffect(() => {
     if (!isListening || !voiceCaptureStartedAt) {
@@ -803,57 +789,6 @@ export function PlannerPage() {
     setDraftTreeNodes([]);
     setSelectedDraftNodeId(null);
     setPlannerView("conversation");
-  };
-
-  const browseRepositoryPathForPlanner = async () => {
-    try {
-      setRepoAnalysisError(null);
-      const selectedPath = await browseForRepositoryPath();
-      if (selectedPath) {
-        setRepositoryPathDraft(selectedPath);
-      }
-    } catch (error) {
-      setRepoAnalysisError(String(error));
-    }
-  };
-
-  const registerRepositoryForPlanner = async () => {
-    const localPath = repositoryPathDraft.trim();
-    if (!localPath) {
-      return;
-    }
-    try {
-      setRepoAnalysisError(null);
-      setRepoAnalysisMessage(null);
-      const segments = localPath.split(/[\\/]/).filter(Boolean);
-      const inferredName = segments[segments.length - 1] ?? "repository";
-      const repository = await registerRepository({
-        name: inferredName,
-        localPath,
-        remoteUrl: "",
-        defaultBranch: "main",
-      });
-      setSelectedRepositoryId(repository.id);
-      setRepositoryPathDraft("");
-      setRepoAnalysisMessage(`Registered repository "${repository.name}".`);
-      void queryClient.invalidateQueries({ queryKey: ["plannerRepositories"] });
-    } catch (error) {
-      setRepoAnalysisError(String(error));
-    }
-  };
-
-  const analyzeSelectedRepository = async () => {
-    if (!selectedRepositoryId || !selectedProductId || isPlannerBusy) {
-      return;
-    }
-    try {
-      setRepoAnalysisError(null);
-      setRepoAnalysisMessage(null);
-      await repositoryAnalysisMutation.mutateAsync(selectedRepositoryId);
-      setRepoAnalysisMessage("Repository analysis staged a design update.");
-    } catch {
-      // Error state is handled by the mutation.
-    }
   };
 
   const toggleDraftNodeExpanded = (nodeId: string) => {
