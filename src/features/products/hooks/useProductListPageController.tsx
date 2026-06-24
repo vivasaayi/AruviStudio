@@ -1,7 +1,3 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { useLocation, useNavigate } from "react-router-dom";
-import { useWorkspaceStore } from "../../../state/workspaceStore";
-import { useUIStore } from "../../../state/uiStore";
 import { useProductCatalogControls } from "./useProductCatalogControls";
 import { useProductHierarchySelectionState } from "./useProductHierarchySelectionState";
 import { useProductHierarchyMutations } from "./useProductHierarchyMutations";
@@ -12,12 +8,10 @@ import { useProductListPageState } from "./useProductListPageState";
 import { useProductPageRefreshActions } from "./useProductPageRefreshActions";
 import { useProductPageSync } from "./useProductPageSync";
 import { useProductPageViewModel } from "./useProductPageViewModel";
+import { useProductPageRuntimeContext } from "./useProductPageRuntimeContext";
 
 export function useProductListPageController() {
-  const queryClient = useQueryClient();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const isProductDetailRoute = location.pathname.startsWith("/products/");
+  const { isProductDetailRoute, navigate, queryClient, ui, workspace } = useProductPageRuntimeContext();
   const {
     activeProductId,
     activeProductAreaId,
@@ -28,7 +22,7 @@ export function useProductListPageController() {
     setActiveCapability,
     setActiveHierarchyNode,
     setActiveWorkItem,
-  } = useWorkspaceStore();
+  } = workspace;
   const {
     productDialogMode,
     productAreaDialogMode,
@@ -41,7 +35,7 @@ export function useProductListPageController() {
     openCapabilityDialog,
     setProductWorkspaceTab,
     setActiveView,
-  } = useUIStore();
+  } = ui;
 
   const {
     productForm, setProductForm, productDraft, setProductDraft,
@@ -64,6 +58,8 @@ export function useProductListPageController() {
     deleteWorkItemConfirmChecked, setDeleteWorkItemConfirmChecked,
     storyDraft, setStoryDraft, taskDraft, setTaskDraft,
     copiedEntityId, setCopiedEntityId,
+    deleteConfirmationReady, resetPlanReady, deleteHierarchyReady,
+    deleteManagementWorkItemReady,
   } = useProductListPageState({ isProductDetailRoute });
 
   const {
@@ -367,19 +363,6 @@ export function useProductListPageController() {
     setDeleteWorkItemConfirmChecked,
     setFormError,
   });
-
-  const deleteConfirmationReady = !!deleteProductCandidate
-    && deleteConfirmName.trim() === deleteProductCandidate.name
-    && deleteConfirmArchive;
-  const resetPlanReady = !!resetPlanCandidate
-    && resetPlanConfirmName.trim() === resetPlanCandidate.name
-    && resetPlanConfirmTree;
-  const deleteHierarchyReady = !!deleteHierarchyCandidate
-    && deleteHierarchyConfirmName.trim() === deleteHierarchyCandidate.name
-    && deleteHierarchyConfirmChecked;
-  const deleteManagementWorkItemReady = !!deleteWorkItemCandidate
-    && deleteWorkItemConfirmName.trim() === deleteWorkItemCandidate.workItem.title
-    && deleteWorkItemConfirmChecked;
 
   return {
     activeProductAreaId,

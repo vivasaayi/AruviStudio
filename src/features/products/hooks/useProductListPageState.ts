@@ -10,6 +10,7 @@ import {
   type ProductFormState,
   type WorkItemDraftState,
 } from "../lib/productListPageState";
+import { getProductModalReadiness } from "../lib/productModalReadiness";
 import type {
   ProductManagementTab,
   ProductPageTab,
@@ -105,6 +106,25 @@ export function useProductListPageState({
   const [taskDraft, setTaskDraft] =
     useState<WorkItemDraftState>(emptyWorkItemDraft);
   const [copiedEntityId, setCopiedEntityId] = useState<string | null>(null);
+  const {
+    deleteConfirmationReady,
+    resetPlanReady,
+    deleteHierarchyReady,
+    deleteManagementWorkItemReady,
+  } = getProductModalReadiness({
+    deleteProductCandidate,
+    deleteConfirmName,
+    deleteConfirmArchive,
+    resetPlanCandidate,
+    resetPlanConfirmName,
+    resetPlanConfirmTree,
+    deleteHierarchyCandidate,
+    deleteHierarchyConfirmName,
+    deleteHierarchyConfirmChecked,
+    deleteWorkItemCandidate,
+    deleteWorkItemConfirmName,
+    deleteWorkItemConfirmChecked,
+  });
 
   return {
     productForm,
@@ -171,5 +191,9 @@ export function useProductListPageState({
     setTaskDraft,
     copiedEntityId,
     setCopiedEntityId,
+    deleteConfirmationReady,
+    resetPlanReady,
+    deleteHierarchyReady,
+    deleteManagementWorkItemReady,
   };
 }
