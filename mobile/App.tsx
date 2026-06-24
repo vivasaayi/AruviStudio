@@ -26,6 +26,7 @@ import { MobileRemoteWebView } from "./src/components/MobileRemoteWebView";
 import { MobileVoiceScreen } from "./src/components/MobileVoiceScreen";
 import { useMobileConnectionController } from "./src/hooks/useMobileConnectionController";
 import { useMobileModelCallsController } from "./src/hooks/useMobileModelCallsController";
+import { useMobilePlannerChatController } from "./src/hooks/useMobilePlannerChatController";
 import { useMobileProductsController } from "./src/hooks/useMobileProductsController";
 import { useMobileWhisperController } from "./src/hooks/useMobileWhisperController";
 import type { MobilePlannerToolTraceEntry } from "./src/types";
@@ -70,8 +71,6 @@ export default function App() {
   const recorderState = useAudioRecorderState(audioRecorder, 250);
   const [activeTab, setActiveTab] = useState<ActiveTab>("planner");
   const [voiceMode, setVoiceMode] = useState<VoiceMode>("assistant");
-  const [plannerChatSessionId, setPlannerChatSessionId] = useState<string | null>(null);
-  const [plannerContextProductName, setPlannerContextProductName] = useState<string | null>(null);
   const [readReplies, setReadReplies] = useState(true);
   const [isSetupOpen, setIsSetupOpen] = useState(false);
   const [isVoiceBusy, setIsVoiceBusy] = useState(false);
@@ -114,7 +113,6 @@ export default function App() {
   } = useMobileConnectionController();
 
   type ChatCompletionBody = Parameters<typeof mobileClient.runChatCompletion>[0];
-  type PlannerChatTurnBody = Parameters<typeof mobileClient.submitMobilePlannerChatTurn>[1];
 
   const productsController = useMobileProductsController({
     mobileClient,
@@ -185,6 +183,20 @@ export default function App() {
     installedModelsStorageKey: MOBILE_STORAGE_KEYS.installedWhisperModels,
     selectedModelStorageKey: MOBILE_STORAGE_KEYS.selectedWhisperModelId,
     onStatusChange: setNativeVoiceStatus,
+  });
+
+  const {
+    plannerContextProductName,
+    submitPlannerPrompt,
+  } = useMobilePlannerChatController({
+    mobileClient,
+    baseUrl,
+    token,
+    providerId,
+    modelName,
+    selectedProductId,
+    onConnected: () => setConnectionStatus("connected"),
+    onFallbackBaseUrl: applyFallbackBaseUrl,
   });
 
   const remoteBootstrapScript = useMemo(() => {
@@ -359,83 +371,6 @@ export default function App() {
       }
       throw error;
     }
-  };
-
-  const createPlannerChatSessionWithFallback = async () => {
-    const body = {
-      provider_id: providerId.trim() || undefined,
-      model_name: modelName.trim() || undefined,
-      product_id: selectedProductId ?? undefined,
-    };
-    try {
-      const response = await mobileClient.createMobilePlannerChatSession(body);
-      setConnectionStatus("connected");
-      setPlannerContextProductName(response.product_name ?? null);
-      return response;
-    } catch (error) {
-      const fallbackBaseUrl = getLoopbackFallbackBaseUrl(baseUrl);
-      if (isNetworkRequestFailure(error) && fallbackBaseUrl) {
-        try {
-          const response = await new PlannerMobileClient(fallbackBaseUrl, token.trim()).createMobilePlannerChatSession(body);
-          setPlannerContextProductName(response.product_name ?? null);
-          await applyFallbackBaseUrl(fallbackBaseUrl);
-          return response;
-        } catch {
-          throw new Error(
-            `Cannot reach Aruvi at ${normalizeBaseUrlForDisplay(baseUrl)} or ${fallbackBaseUrl}. Check Settings base URL and that the desktop bridge is running.`,
-          );
-        }
-      }
-      throw error;
-    }
-  };
-
-  const runPlannerChatWithFallback = async (sessionId: string, body: PlannerChatTurnBody) => {
-    try {
-      const response = await mobileClient.submitMobilePlannerChatTurn(sessionId, body);
-      setConnectionStatus("connected");
-      setPlannerContextProductName(response.product_name ?? null);
-      return response;
-    } catch (error) {
-      const fallbackBaseUrl = getLoopbackFallbackBaseUrl(baseUrl);
-      if (isNetworkRequestFailure(error) && fallbackBaseUrl) {
-        try {
-          const response = await new PlannerMobileClient(fallbackBaseUrl, token.trim()).submitMobilePlannerChatTurn(sessionId, body);
-          setPlannerContextProductName(response.product_name ?? null);
-          await applyFallbackBaseUrl(fallbackBaseUrl);
-          return response;
-        } catch {
-          throw new Error(
-            `Cannot reach Aruvi at ${normalizeBaseUrlForDisplay(baseUrl)} or ${fallbackBaseUrl}. Check Settings base URL and that the desktop bridge is running.`,
-          );
-        }
-      }
-      throw error;
-    }
-  };
-
-  const submitPlannerPrompt = async (trimmed: string) => {
-    const activeSessionId = plannerChatSessionId ?? (await createPlannerChatSessionWithFallback()).session_id;
-    if (!plannerChatSessionId) {
-      setPlannerChatSessionId(activeSessionId);
-    }
-    const response = await runPlannerChatWithFallback(activeSessionId, {
-      provider_id: providerId.trim() || undefined,
-      model_name: modelName.trim() || undefined,
-      product_id: selectedProductId ?? undefined,
-      messages: [
-        {
-          role: "user",
-          content: trimmed,
-        },
-      ],
-      max_tool_steps: 4,
-    });
-    const assistantText = response.assistant_message.trim() || "(empty planner response)";
-    return {
-      content: assistantText,
-      toolTrace: response.tool_trace,
-    };
   };
 
   const buildProductPlannerPrompt = (instruction: string) => {
