@@ -56,6 +56,7 @@ pub mod planner_voice_turn;
 pub mod product_example_catalog;
 pub mod product_semantic_template;
 pub mod product_service;
+pub mod repo_patch_service;
 pub mod repo_service;
 pub mod sandbox_service;
 pub mod speech_service;
