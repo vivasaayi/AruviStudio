@@ -1,6 +1,7 @@
 mod protocol;
 mod resources;
 mod server;
+mod server_responses;
 mod tools;
 
 use crate::bootstrap;
