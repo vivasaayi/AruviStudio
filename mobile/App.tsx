@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Keyboard,
-  Linking,
   Platform,
   SafeAreaView,
   View,
@@ -25,6 +24,7 @@ import { MobileModelManager } from "./src/components/MobileModelManager";
 import { MobileProductExplorer } from "./src/components/MobileProductExplorer";
 import { MobileRemoteWebView } from "./src/components/MobileRemoteWebView";
 import { MobileVoiceScreen } from "./src/components/MobileVoiceScreen";
+import { useMobileConnectionController } from "./src/hooks/useMobileConnectionController";
 import { useMobileModelCallsController } from "./src/hooks/useMobileModelCallsController";
 import { useMobileProductsController } from "./src/hooks/useMobileProductsController";
 import { useMobileWhisperController } from "./src/hooks/useMobileWhisperController";
@@ -35,10 +35,9 @@ import {
   getLoopbackFallbackBaseUrl,
   isNetworkRequestFailure,
   normalizeBaseUrlForDisplay,
-  parseConnectionUrl,
-  type ConnectionValues,
 } from "./src/lib/mobileConnection";
 import { describeError } from "./src/lib/mobileFormatters";
+import { MOBILE_STORAGE_KEYS } from "./src/lib/mobileStorageKeys";
 import {
   normalizeWhisperLanguage,
   parseInstalledWhisperModels,
@@ -52,7 +51,6 @@ import {
 import { styles } from "./src/styles/appStyles";
 
 type ActiveTab = MobileTabId;
-type ConnectionStatus = "unchecked" | "checking" | "connected" | "offline";
 type VoiceMode = "assistant" | "planner";
 type VoiceMessage = {
   id: string;
@@ -61,21 +59,6 @@ type VoiceMessage = {
   toolTrace?: MobilePlannerToolTraceEntry[];
 };
 type VoicePromptSource = "typed" | "recording";
-type ChatCompletionBody = Parameters<PlannerMobileClient["runChatCompletion"]>[0];
-type PlannerChatTurnBody = Parameters<PlannerMobileClient["submitMobilePlannerChatTurn"]>[1];
-
-const STORAGE_KEYS = {
-  baseUrl: "aruvi.mobile.base_url",
-  token: "aruvi.mobile.token",
-  providerId: "aruvi.mobile.provider_id",
-  modelName: "aruvi.mobile.model_name",
-  locale: "aruvi.mobile.locale",
-  activeTab: "aruvi.mobile.active_tab",
-  voiceMode: "aruvi.mobile.voice_mode",
-  readReplies: "aruvi.mobile.read_replies",
-  selectedWhisperModelId: "aruvi.mobile.selected_whisper_model_id",
-  installedWhisperModels: "aruvi.mobile.installed_whisper_models",
-};
 
 function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.round(Math.random() * 100000)}`;
@@ -85,21 +68,12 @@ export default function App() {
   const webViewRef = useRef<WebView>(null);
   const audioRecorder = useAudioRecorder(VOICE_RECORDING_OPTIONS);
   const recorderState = useAudioRecorderState(audioRecorder, 250);
-  const [baseUrl, setBaseUrl] = useState("http://100.66.32.111:8787");
-  const [token, setToken] = useState("");
-  const [providerId, setProviderId] = useState("");
-  const [modelName, setModelName] = useState("");
-  const [locale, setLocale] = useState("en-US");
   const [activeTab, setActiveTab] = useState<ActiveTab>("planner");
   const [voiceMode, setVoiceMode] = useState<VoiceMode>("assistant");
   const [plannerChatSessionId, setPlannerChatSessionId] = useState<string | null>(null);
   const [plannerContextProductName, setPlannerContextProductName] = useState<string | null>(null);
   const [readReplies, setReadReplies] = useState(true);
   const [isSetupOpen, setIsSetupOpen] = useState(false);
-  const [webReloadKey, setWebReloadKey] = useState(0);
-  const [connectionCheckKey, setConnectionCheckKey] = useState(0);
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("unchecked");
-  const [isSaving, setIsSaving] = useState(false);
   const [isVoiceBusy, setIsVoiceBusy] = useState(false);
   const [nativeVoiceStatus, setNativeVoiceStatus] = useState("Ready");
   const [lastVoiceTranscript, setLastVoiceTranscript] = useState("");
@@ -117,14 +91,30 @@ export default function App() {
       content: "Ready when you are. Tap the mic and speak naturally.",
     },
   ]);
-  const remoteUrl = useMemo(() => {
-    const trimmed = normalizeBaseUrlForDisplay(baseUrl);
-    return trimmed ? `${trimmed}/remote` : "about:blank";
-  }, [baseUrl]);
+  const {
+    baseUrl,
+    setBaseUrl,
+    token,
+    setToken,
+    providerId,
+    setProviderId,
+    modelName,
+    setModelName,
+    locale,
+    webReloadKey,
+    connectionStatus,
+    setConnectionStatus,
+    isSaving,
+    remoteUrl,
+    mobileClient,
+    reloadRemote,
+    refreshConnection,
+    saveConnection,
+    applyFallbackBaseUrl,
+  } = useMobileConnectionController();
 
-  const mobileClient = useMemo(() => {
-    return new PlannerMobileClient(baseUrl.trim(), token.trim());
-  }, [baseUrl, token]);
+  type ChatCompletionBody = Parameters<typeof mobileClient.runChatCompletion>[0];
+  type PlannerChatTurnBody = Parameters<typeof mobileClient.submitMobilePlannerChatTurn>[1];
 
   const productsController = useMobileProductsController({
     mobileClient,
@@ -192,8 +182,8 @@ export default function App() {
     transcribeWithLocalWhisper,
   } = useMobileWhisperController({
     locale,
-    installedModelsStorageKey: STORAGE_KEYS.installedWhisperModels,
-    selectedModelStorageKey: STORAGE_KEYS.selectedWhisperModelId,
+    installedModelsStorageKey: MOBILE_STORAGE_KEYS.installedWhisperModels,
+    selectedModelStorageKey: MOBILE_STORAGE_KEYS.selectedWhisperModelId,
     onStatusChange: setNativeVoiceStatus,
   });
 
@@ -237,109 +227,26 @@ export default function App() {
   useEffect(() => {
     let disposed = false;
 
-    const checkConnection = async () => {
-      if (!token.trim() || !baseUrl.trim()) {
-        setConnectionStatus("unchecked");
-        return;
-      }
-      setConnectionStatus("checking");
-      try {
-        await mobileClient.health();
-        if (!disposed) {
-          setConnectionStatus("connected");
-        }
-      } catch (error) {
-        const fallbackBaseUrl = getLoopbackFallbackBaseUrl(baseUrl);
-        if (isNetworkRequestFailure(error) && fallbackBaseUrl) {
-          try {
-            await new PlannerMobileClient(fallbackBaseUrl, token.trim()).health();
-            if (!disposed) {
-              setBaseUrl(fallbackBaseUrl);
-              await SecureStore.setItemAsync(STORAGE_KEYS.baseUrl, fallbackBaseUrl);
-              setConnectionStatus("connected");
-            }
-            return;
-          } catch {
-            // Keep the original configured URL visible when loopback cannot reach the backend either.
-          }
-        }
-        if (!disposed) {
-          setConnectionStatus("offline");
-        }
-      }
-    };
-
-    void checkConnection();
-    return () => {
-      disposed = true;
-    };
-  }, [baseUrl, connectionCheckKey, mobileClient, token]);
-
-  const applyConnectionValues = async (values: ConnectionValues) => {
-    const next = {
-      baseUrl: values.baseUrl?.trim(),
-      token: values.token?.trim(),
-      providerId: values.providerId?.trim(),
-      modelName: values.modelName?.trim(),
-      locale: values.locale?.trim(),
-    };
-    if (next.baseUrl) setBaseUrl(next.baseUrl);
-    if (next.token) setToken(next.token);
-    if (next.providerId !== undefined) setProviderId(next.providerId);
-    if (next.modelName !== undefined) setModelName(next.modelName);
-    if (next.locale) setLocale(next.locale);
-    await Promise.all([
-      next.baseUrl ? SecureStore.setItemAsync(STORAGE_KEYS.baseUrl, next.baseUrl) : Promise.resolve(),
-      next.token ? SecureStore.setItemAsync(STORAGE_KEYS.token, next.token) : Promise.resolve(),
-      next.providerId !== undefined
-        ? SecureStore.setItemAsync(STORAGE_KEYS.providerId, next.providerId)
-        : Promise.resolve(),
-      next.modelName !== undefined
-        ? SecureStore.setItemAsync(STORAGE_KEYS.modelName, next.modelName)
-        : Promise.resolve(),
-      next.locale ? SecureStore.setItemAsync(STORAGE_KEYS.locale, next.locale) : Promise.resolve(),
-    ]);
-    setWebReloadKey((current) => current + 1);
-  };
-
-  useEffect(() => {
-    let disposed = false;
-
-    const loadSavedConnection = async () => {
+    const loadSavedPreferences = async () => {
       const [
-        savedBaseUrl,
-        savedToken,
-        savedProviderId,
-        savedModelName,
-        savedLocale,
         savedActiveTab,
         savedVoiceMode,
         savedReadReplies,
         savedSelectedWhisperModelId,
         savedInstalledWhisperModels,
       ] = await Promise.all([
-        SecureStore.getItemAsync(STORAGE_KEYS.baseUrl),
-        SecureStore.getItemAsync(STORAGE_KEYS.token),
-        SecureStore.getItemAsync(STORAGE_KEYS.providerId),
-        SecureStore.getItemAsync(STORAGE_KEYS.modelName),
-        SecureStore.getItemAsync(STORAGE_KEYS.locale),
-        SecureStore.getItemAsync(STORAGE_KEYS.activeTab),
-        SecureStore.getItemAsync(STORAGE_KEYS.voiceMode),
-        SecureStore.getItemAsync(STORAGE_KEYS.readReplies),
-        SecureStore.getItemAsync(STORAGE_KEYS.selectedWhisperModelId),
-        SecureStore.getItemAsync(STORAGE_KEYS.installedWhisperModels),
+        SecureStore.getItemAsync(MOBILE_STORAGE_KEYS.activeTab),
+        SecureStore.getItemAsync(MOBILE_STORAGE_KEYS.voiceMode),
+        SecureStore.getItemAsync(MOBILE_STORAGE_KEYS.readReplies),
+        SecureStore.getItemAsync(MOBILE_STORAGE_KEYS.selectedWhisperModelId),
+        SecureStore.getItemAsync(MOBILE_STORAGE_KEYS.installedWhisperModels),
       ]);
       if (disposed) return;
-      if (savedBaseUrl) setBaseUrl(savedBaseUrl);
-      if (savedToken) setToken(savedToken);
-      if (savedProviderId) setProviderId(savedProviderId);
-      if (savedModelName) setModelName(savedModelName);
-      if (savedLocale) setLocale(savedLocale);
       if (MOBILE_TABS.some((tab) => tab.id === savedActiveTab)) {
         setActiveTab(savedActiveTab as ActiveTab);
       } else if (savedActiveTab === "chat") {
         setActiveTab("voice");
-        void SecureStore.setItemAsync(STORAGE_KEYS.activeTab, "voice");
+        void SecureStore.setItemAsync(MOBILE_STORAGE_KEYS.activeTab, "voice");
       }
       if (savedVoiceMode === "assistant" || savedVoiceMode === "planner") {
         setVoiceMode(savedVoiceMode);
@@ -369,47 +276,13 @@ export default function App() {
       );
       if (disposed) return;
       setVerifiedInstalledModels(verifiedInstalledModels);
-
-      const initialUrl = await Linking.getInitialURL();
-      if (disposed || !initialUrl) return;
-      const connectionValues = parseConnectionUrl(initialUrl);
-      if (connectionValues) {
-        await applyConnectionValues(connectionValues);
-      }
     };
 
-    const subscription = Linking.addEventListener("url", ({ url }) => {
-      const connectionValues = parseConnectionUrl(url);
-      if (connectionValues) {
-        void applyConnectionValues(connectionValues);
-      }
-    });
-
-    void loadSavedConnection();
+    void loadSavedPreferences();
     return () => {
       disposed = true;
-      subscription.remove();
     };
   }, []);
-
-  const saveConnection = async () => {
-    try {
-      setIsSaving(true);
-      await Promise.all([
-        SecureStore.setItemAsync(STORAGE_KEYS.baseUrl, baseUrl.trim()),
-        SecureStore.setItemAsync(STORAGE_KEYS.token, token.trim()),
-        SecureStore.setItemAsync(STORAGE_KEYS.providerId, providerId.trim()),
-        SecureStore.setItemAsync(STORAGE_KEYS.modelName, modelName.trim()),
-        SecureStore.setItemAsync(STORAGE_KEYS.locale, locale.trim()),
-      ]);
-      setWebReloadKey((current) => current + 1);
-      setIsSetupOpen(false);
-    } catch (error) {
-      Alert.alert("Save failed", describeError(error));
-    } finally {
-      setIsSaving(false);
-    }
-  };
 
   useEffect(() => {
     if (activeTab === "products" && token.trim() && !products.length && !isProductLoading) {
@@ -425,7 +298,7 @@ export default function App() {
 
   const switchTab = (nextTab: ActiveTab) => {
     setActiveTab(nextTab);
-    void SecureStore.setItemAsync(STORAGE_KEYS.activeTab, nextTab);
+    void SecureStore.setItemAsync(MOBILE_STORAGE_KEYS.activeTab, nextTab);
     webViewRef.current?.injectJavaScript(
       buildRemoteScript({
         token: token.trim(),
@@ -439,13 +312,13 @@ export default function App() {
 
   const switchVoiceMode = (nextMode: VoiceMode) => {
     setVoiceMode(nextMode);
-    void SecureStore.setItemAsync(STORAGE_KEYS.voiceMode, nextMode);
+    void SecureStore.setItemAsync(MOBILE_STORAGE_KEYS.voiceMode, nextMode);
     setNativeVoiceStatus(nextMode === "planner" ? "Planner chat ready" : "Ready");
   };
 
   const setReadRepliesPreference = async (nextValue: boolean) => {
     setReadReplies(nextValue);
-    await SecureStore.setItemAsync(STORAGE_KEYS.readReplies, nextValue ? "true" : "false");
+    await SecureStore.setItemAsync(MOBILE_STORAGE_KEYS.readReplies, nextValue ? "true" : "false");
     if (!nextValue) {
       void Speech.stop();
       setNativeVoiceStatus("Reply reading off");
@@ -476,10 +349,7 @@ export default function App() {
       if (isNetworkRequestFailure(error) && fallbackBaseUrl) {
         try {
           const response = await new PlannerMobileClient(fallbackBaseUrl, token.trim()).runChatCompletion(body);
-          setBaseUrl(fallbackBaseUrl);
-          await SecureStore.setItemAsync(STORAGE_KEYS.baseUrl, fallbackBaseUrl);
-          setConnectionStatus("connected");
-          setWebReloadKey((current) => current + 1);
+          await applyFallbackBaseUrl(fallbackBaseUrl);
           return response;
         } catch {
           throw new Error(
@@ -507,11 +377,8 @@ export default function App() {
       if (isNetworkRequestFailure(error) && fallbackBaseUrl) {
         try {
           const response = await new PlannerMobileClient(fallbackBaseUrl, token.trim()).createMobilePlannerChatSession(body);
-          setBaseUrl(fallbackBaseUrl);
-          await SecureStore.setItemAsync(STORAGE_KEYS.baseUrl, fallbackBaseUrl);
-          setConnectionStatus("connected");
           setPlannerContextProductName(response.product_name ?? null);
-          setWebReloadKey((current) => current + 1);
+          await applyFallbackBaseUrl(fallbackBaseUrl);
           return response;
         } catch {
           throw new Error(
@@ -534,11 +401,8 @@ export default function App() {
       if (isNetworkRequestFailure(error) && fallbackBaseUrl) {
         try {
           const response = await new PlannerMobileClient(fallbackBaseUrl, token.trim()).submitMobilePlannerChatTurn(sessionId, body);
-          setBaseUrl(fallbackBaseUrl);
-          await SecureStore.setItemAsync(STORAGE_KEYS.baseUrl, fallbackBaseUrl);
-          setConnectionStatus("connected");
           setPlannerContextProductName(response.product_name ?? null);
-          setWebReloadKey((current) => current + 1);
+          await applyFallbackBaseUrl(fallbackBaseUrl);
           return response;
         } catch {
           throw new Error(
@@ -897,16 +761,21 @@ export default function App() {
             if (activeTab === "products") {
               void loadProducts(selectedProductId);
             } else {
-              setWebReloadKey((current) => current + 1);
+              reloadRemote();
             }
-            setConnectionCheckKey((current) => current + 1);
+            refreshConnection();
           }}
           onBaseUrlChange={setBaseUrl}
           onTokenChange={setToken}
           onProviderIdChange={setProviderId}
           onModelNameChange={setModelName}
           onReadRepliesChange={setReadRepliesPreference}
-          onSaveConnection={saveConnection}
+          onSaveConnection={async () => {
+            const didSave = await saveConnection();
+            if (didSave) {
+              setIsSetupOpen(false);
+            }
+          }}
         />
 
         <View style={styles.content}>
