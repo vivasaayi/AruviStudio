@@ -37,6 +37,7 @@ pub mod planner_draft_create_actions;
 pub mod planner_draft_delete_actions;
 pub mod planner_draft_mutation;
 pub mod planner_draft_template_actions;
+pub mod planner_draft_tree;
 pub mod planner_draft_update_actions;
 pub mod planner_draft_voice;
 pub mod planner_execution;
