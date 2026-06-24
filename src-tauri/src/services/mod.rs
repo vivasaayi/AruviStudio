@@ -68,6 +68,7 @@ pub mod repo_service;
 pub mod sandbox_service;
 pub mod speech_service;
 pub mod webhook_bridge;
+pub mod webhook_bridge_auth;
 pub mod webhook_mobile_api;
 pub mod webhook_mobile_chat;
 pub mod webhook_mobile_model;
