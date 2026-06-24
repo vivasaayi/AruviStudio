@@ -35,6 +35,7 @@ import { AgentRegistryHeader } from "../components/AgentRegistryHeader";
 import { AgentRoutingTab } from "../components/AgentRoutingTab";
 import { AgentSkillsTab } from "../components/AgentSkillsTab";
 import { AgentTeamsTab } from "../components/AgentTeamsTab";
+import { useAgentRegistryPageSync } from "../hooks/useAgentRegistryPageSync";
 import { useAgentRegistryViewModel } from "../hooks/useAgentRegistryViewModel";
 import { styles } from "../lib/agentRegistryPageStyles";
 import {
@@ -58,9 +59,6 @@ import { invalidateAgentRegistryData } from "../lib/agentRegistryQueries";
 export function AgentRegistryPage() {
   const queryClient = useQueryClient();
   const { activeProductId, setActiveProduct } = useWorkspaceStore();
-  const hasInitializedAgentSelection = React.useRef(false);
-  const hasInitializedTeamSelection = React.useRef(false);
-  const hasInitializedSkillSelection = React.useRef(false);
 
   const [activeTab, setActiveTab] = React.useState<AgentTab>("agents");
   const [expandedTeams, setExpandedTeams] = React.useState<Record<string, boolean>>({});
@@ -130,91 +128,49 @@ export function AgentRegistryPage() {
     assignmentScopeType,
   });
 
-  React.useEffect(() => {
-    if (!hasInitializedAgentSelection.current && !selectedAgentId && agents.length > 0) {
-      setSelectedAgentId(agents[0].id);
-      hasInitializedAgentSelection.current = true;
-    }
-  }, [agents, selectedAgentId]);
-
-  React.useEffect(() => {
-    if (!hasInitializedTeamSelection.current && !selectedTeamId && teams.length > 0) {
-      setSelectedTeamId(teams[0].id);
-      hasInitializedTeamSelection.current = true;
-    }
-  }, [teams, selectedTeamId]);
-
-  React.useEffect(() => {
-    if (!hasInitializedSkillSelection.current && !selectedSkillId && skills.length > 0) {
-      setSelectedSkillId(skills[0].id);
-      hasInitializedSkillSelection.current = true;
-    }
-  }, [skills, selectedSkillId]);
-
-  React.useEffect(() => {
-    if (!assignmentProductId && activeProductId) {
-      setAssignmentProductId(activeProductId);
-    }
-  }, [activeProductId, assignmentProductId]);
-
-  React.useEffect(() => {
-    if (selectedAgent) {
-      setAgentDraft(parseAgentDraft(selectedAgent));
-      setSelectedAgentSkillIds(
-        agentSkillLinks.filter((link) => link.agent_id === selectedAgent.id).map((link) => link.skill_id),
-      );
-      setAgentError(null);
-      setAgentFeedback(null);
-    }
-  }, [selectedAgent, agentSkillLinks]);
-
-  React.useEffect(() => {
-    if (selectedAgent) {
-      const binding = agentModelBindings.find((entry) => entry.agent_id === selectedAgent.id);
-      setSelectedAgentModelId(binding?.model_id ?? "");
-    } else {
-      setSelectedAgentModelId("");
-    }
-  }, [selectedAgent, agentModelBindings]);
-
-  React.useEffect(() => {
-    if (selectedTeam) {
-      setTeamDraft(parseTeamDraft(selectedTeam));
-      setSelectedTeamSkillIds(
-        teamSkillLinks.filter((link) => link.team_id === selectedTeam.id).map((link) => link.skill_id),
-      );
-      setTeamError(null);
-      setTeamFeedback(null);
-    }
-  }, [selectedTeam, teamSkillLinks]);
-
-  React.useEffect(() => {
-    if (selectedSkill) {
-      setSkillDraft(parseSkillDraft(selectedSkill));
-      setSkillError(null);
-      setSkillFeedback(null);
-    }
-  }, [selectedSkill]);
-
-  React.useEffect(() => {
-    setRoutingDraft(parsePolicyDraft(selectedPolicy, selectedPolicyStage));
-    setRoutingError(null);
-    setRoutingFeedback(null);
-  }, [selectedPolicy, selectedPolicyStage]);
-
-  React.useEffect(() => {
-    const firstProductAreaId = currentProductAreaOptions[0]?.id ?? "";
-    if (!assignmentProductAreaId || !currentProductAreaOptions.some((entry) => entry.id === assignmentProductAreaId)) {
-      setAssignmentProductAreaId(firstProductAreaId);
-    }
-  }, [assignmentProductAreaId, currentProductAreaOptions]);
-
-  React.useEffect(() => {
-    const availableCapabilityIds = currentCapabilityOptions.map((capability) => capability.id);
-    if (!assignmentCapabilityId || !availableCapabilityIds.includes(assignmentCapabilityId)) {
-      setAssignmentCapabilityId(currentCapabilityOptions[0]?.id ?? "");
-    }
-  }, [assignmentCapabilityId, currentCapabilityOptions]);
+  useAgentRegistryPageSync({
+    activeProductId,
+    assignmentProductId,
+    setAssignmentProductId,
+    agents,
+    selectedAgentId,
+    setSelectedAgentId,
+    selectedAgent,
+    agentSkillLinks,
+    setSelectedAgentSkillIds,
+    setAgentDraft,
+    setAgentError,
+    setAgentFeedback,
+    agentModelBindings,
+    setSelectedAgentModelId,
+    teams,
+    selectedTeamId,
+    setSelectedTeamId,
+    selectedTeam,
+    teamSkillLinks,
+    setSelectedTeamSkillIds,
+    setTeamDraft,
+    setTeamError,
+    setTeamFeedback,
+    skills,
+    selectedSkillId,
+    setSelectedSkillId,
+    selectedSkill,
+    setSkillDraft,
+    setSkillError,
+    setSkillFeedback,
+    selectedPolicy,
+    selectedPolicyStage,
+    setRoutingDraft,
+    setRoutingError,
+    setRoutingFeedback,
+    currentProductAreaOptions,
+    assignmentProductAreaId,
+    setAssignmentProductAreaId,
+    currentCapabilityOptions,
+    assignmentCapabilityId,
+    setAssignmentCapabilityId,
+  });
 
   const invalidateAgentData = () => invalidateAgentRegistryData(queryClient);
 
