@@ -28,7 +28,7 @@ async fn create_product_and_product_area_accepts_optional_detail_fields() {
     .await
     .expect("product should be created");
 
-    let product_area = create_product_area(
+    let product_area = hierarchy::create_product_area(
         state,
         CreateProductAreaCommand {
             product_id: product.id.clone(),

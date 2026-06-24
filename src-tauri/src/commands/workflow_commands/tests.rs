@@ -28,7 +28,7 @@ async fn create_approved_work_item(
     )
     .await
     .expect("product should be created");
-    let product_area = product_commands::create_product_area(
+    let product_area = product_commands::hierarchy::create_product_area(
         state.clone(),
         product_commands::CreateProductAreaCommand {
             product_id: product.id.clone(),

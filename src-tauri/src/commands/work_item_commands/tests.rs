@@ -31,7 +31,7 @@ async fn create_test_product_area(
     product_id: String,
     name: &str,
 ) -> ProductArea {
-    product_commands::create_product_area(
+    product_commands::hierarchy::create_product_area(
         state,
         product_commands::CreateProductAreaCommand {
             product_id,
@@ -54,7 +54,7 @@ async fn create_test_capability(
     product_area_id: String,
     name: &str,
 ) -> Capability {
-    product_commands::create_capability(
+    product_commands::hierarchy::create_capability(
         state,
         product_commands::CreateCapabilityCommand {
             product_area_id,
