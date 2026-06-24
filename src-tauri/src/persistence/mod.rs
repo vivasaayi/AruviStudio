@@ -1,3 +1,4 @@
+pub mod agent_definition_repo;
 pub mod agent_model_binding_repo;
 pub mod agent_repo;
 pub mod agent_run_repo;
