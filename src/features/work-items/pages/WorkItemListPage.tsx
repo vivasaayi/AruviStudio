@@ -47,8 +47,8 @@ import {
 import { getHierarchyNodeKindLabel } from "../../../lib/hierarchyLabels";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
-import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
 import { WorkItemArtifactModal } from "../components/WorkItemArtifactModal";
+import { WorkItemBacklogTab } from "../components/WorkItemBacklogTab";
 import {
   WorkItemCreateModal,
   WorkItemEditModal,
@@ -74,14 +74,10 @@ import {
   formatExternalCliTerminal,
   formatExternalCliTerminalEvent,
   formatInteger,
-  formatWorkItemTypeLabel,
   getArtifactFileName,
-  getToneBadgeStyle,
   getWorkItemExecutionSteps,
-  moveTaskIdToIndex,
   orderWorkItemsByIds,
   parseSqliteUtcTimestamp,
-  statusColors,
   summarizeModelUsage,
   workItemBranchName,
   type ExternalCliProvider,
@@ -1359,229 +1355,53 @@ export function WorkItemListPage() {
           </div>
 
           {workItemWorkspaceTab === "backlog" && (
-            <>
-              <ScopeBreadcrumb
-                label="Current Scope"
-                productName={activeProduct?.name}
-                productAreaName={activeProductArea?.name}
-                capabilityName={activeCapability?.name}
-              />
-              <div style={styles.sectionTitle}>
-                <span>Backlog</span>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                  {selectedBacklogItems.length > 0 ? (
-                    <>
-                      <button
-                        style={{ ...styles.btn, backgroundColor: "#2d6a3f" }}
-                        onClick={() => void runBulkApprovalAction("approve")}
-                        disabled={bulkActionInFlight !== null}
-                      >
-                        {bulkActionInFlight === "approve" ? "Approving..." : `Approve Selected (${selectedBacklogItems.length})`}
-                      </button>
-                      <button
-                        style={styles.btnDanger}
-                        onClick={() => void runBulkApprovalAction("reject")}
-                        disabled={bulkActionInFlight !== null}
-                      >
-                        {bulkActionInFlight === "reject" ? "Rejecting..." : `Reject Selected (${selectedBacklogItems.length})`}
-                      </button>
-                    </>
-                  ) : null}
-                  <button
-                    style={styles.ghostBtn}
-                    onClick={() => {
-                      setCreateForm((current) => ({ ...current, parentWorkItemId: null }));
-                      openWorkItemCreateDialog();
-                    }}
-                  >
-                    + New Story
-                  </button>
-                </div>
-              </div>
-              {!activeProductId && <div style={styles.warning}>Select a product to load the backlog.</div>}
-              {actionError && <div style={styles.errorText}>{actionError}</div>}
-              <select style={styles.filterSelect} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-                <option value="">All Statuses</option>
-                {Object.keys(statusColors).map((status) => (
-                  <option key={status} value={status}>{status.replace(/_/g, " ")}</option>
-                ))}
-              </select>
-              <div style={styles.smallText}>
-                Showing stories for: {scopeDescriptor}. Page {workItemPageIndex + 1}, rows {workItemPageStart}-{workItemPageEnd}. Rendering visible rows {backlogRenderedRangeLabel}.
-              </div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
-                <button
-                  style={styles.ghostBtn}
-                  onClick={() => setWorkItemPageIndex((current) => Math.max(0, current - 1))}
-                  disabled={workItemPageIndex === 0 || isLoading}
-                >
-                  Previous
-                </button>
-                <button
-                  style={styles.ghostBtn}
-                  onClick={() => setWorkItemPageIndex((current) => current + 1)}
-                  disabled={!hasNextWorkItemPage || isLoading}
-                >
-                  Next
-                </button>
-                <span style={styles.smallText}>100 rows per page. Use status/scope filters to narrow large products.</span>
-              </div>
-              {isLoading ? (
-                <div style={styles.empty}>Loading stories...</div>
-              ) : orderedWorkItems.length > 0 ? (
-                <div
-                  data-testid="work-item-virtual-list"
-                  ref={backlogViewportRef}
-                  style={styles.virtualTaskViewport}
-                  onScroll={(event) => setBacklogScrollTop(event.currentTarget.scrollTop)}
-                >
-                  <div style={{ ...styles.virtualTaskSpacer, paddingTop: backlogWindow.topPadding, paddingBottom: backlogWindow.bottomPadding }}>
-                  {backlogWindow.items.map((workItem, visibleWorkItemIndex) => (
-                    (() => {
-                      const workItemIndex = backlogWindow.start + visibleWorkItemIndex;
-                      const latestRun = latestWorkflowRunByWorkItemId.get(workItem.id) ?? null;
-                      const runtimeStatus = describeWorkItemRuntime(workItem, latestRun);
-                      const owner = workItemOwnerMap.get(workItem.id);
-
-                      return (
-                        <div
-                          key={workItem.id}
-                          style={{
-                            ...(selectedWorkItemId === workItem.id ? styles.taskCardActive : styles.taskCard),
-                            ...(draggedWorkItemId === workItem.id ? styles.dropTarget : null),
-                          }}
-                          draggable
-                          onDragStart={() => setDraggedWorkItemId(workItem.id)}
-                          onDragEnd={() => setDraggedWorkItemId(null)}
-                          onDragOver={(e) => e.preventDefault()}
-                          onDrop={() => {
-                            if (!draggedWorkItemId || draggedWorkItemId === workItem.id) {
-                              return;
-                            }
-                            const nextOrder = moveTaskIdToIndex(workItemOrderIds, draggedWorkItemId, workItemIndex);
-                            setWorkItemOrderIds(nextOrder);
-                            reorderWorkItemsMutation.mutate(nextOrder);
-                            setDraggedWorkItemId(null);
-                          }}
-                          onClick={() => {
-                            setActiveWorkItem(workItem.id);
-                            setWorkItemWorkspaceTab("detail");
-                          }}
-                        >
-                          <div style={styles.taskRowCard}>
-                            <div style={styles.taskMain}>
-                              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                                <input
-                                  type="checkbox"
-                                  checked={selectedBacklogItemIds.includes(workItem.id)}
-                                  onChange={(event) => {
-                                    event.stopPropagation();
-                                    setSelectedBacklogItemIds((current) =>
-                                      event.target.checked
-                                        ? [...current, workItem.id]
-                                        : current.filter((id) => id !== workItem.id),
-                                    );
-                                  }}
-                                  onClick={(event) => event.stopPropagation()}
-                                />
-                                <div style={styles.taskTitle}>{workItem.title}</div>
-                              </div>
-                              {owner ? (
-                                <div style={styles.ownerRow}>
-                                  <span style={owner.isRoot ? styles.ownerBadgeRoot : styles.ownerBadge}>
-                                    Owner: {owner.badge}
-                                  </span>
-                                  <span style={styles.ownerPath}>{owner.path}</span>
-                                </div>
-                              ) : null}
-                              <div style={styles.taskMeta}>
-                                <span>{formatWorkItemTypeLabel(workItem.work_item_type)}</span>
-                                <span>{workItem.priority}</span>
-                                {runtimeStatus.stageLabel ? <span>stage: {runtimeStatus.stageLabel}</span> : null}
-                              </div>
-                            </div>
-                            <div style={styles.taskStatusLine}>
-                              <div style={styles.badgeRow}>
-                                <span style={{ ...styles.badge, backgroundColor: statusColors[workItem.status] || "#444", color: "#fff" }}>
-                                  {workItem.status.replace(/_/g, " ")}
-                                </span>
-                                {runtimeStatus.label !== workItem.status.replace(/_/g, " ") ? (
-                                  <span style={{ ...styles.badge, ...getToneBadgeStyle(runtimeStatus.tone) }}>
-                                    {runtimeStatus.label}
-                                  </span>
-                                ) : null}
-                              </div>
-                              <div style={styles.taskStatusSummary}>{runtimeStatus.detail}</div>
-                            </div>
-                            <div style={styles.taskActions}>
-                              <button
-                                style={workItem.status === "approved" ? styles.ghostBtn : { ...styles.btn, backgroundColor: "#2d6a3f" }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void runRowApprovalAction(workItem.id, "approve");
-                                }}
-                                disabled={isRowActionPending(workItem.id)}
-                              >
-                                {isRowActionPending(workItem.id) ? "Working..." : workItem.status === "approved" ? "Approved" : "Approve"}
-                              </button>
-                              <button
-                                style={styles.btnDanger}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void runRowApprovalAction(workItem.id, "reject");
-                                }}
-                                disabled={isRowActionPending(workItem.id)}
-                              >
-                                {isRowActionPending(workItem.id) ? "Working..." : "Reject"}
-                              </button>
-                              <span style={styles.dragHandle} title="Drag to reorder">::</span>
-                              <div style={styles.overflowWrap}>
-                                <button
-                                  style={styles.ghostBtn}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setOpenOverflowWorkItemId((current) => (current === workItem.id ? null : workItem.id));
-                                  }}
-                                  aria-label={`More actions for ${workItem.title}`}
-                                >
-                                  •••
-                                </button>
-                                {openOverflowWorkItemId === workItem.id && (
-                                  <div style={styles.overflowMenu} onClick={(e) => e.stopPropagation()}>
-                                    <button
-                                      style={styles.overflowMenuItem}
-                                      onClick={() => {
-                                        setActiveWorkItem(workItem.id);
-                                        setWorkItemWorkspaceTab("detail");
-                                        setOpenOverflowWorkItemId(null);
-                                      }}
-                                    >
-                                      Open details
-                                    </button>
-                                    <button
-                                      style={styles.overflowMenuItemDanger}
-                                      onClick={() => {
-                                        setOpenOverflowWorkItemId(null);
-                                        deleteMutation.mutate(workItem.id);
-                                      }}
-                                    >
-                                      Delete story
-                                    </button>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()
-                  ))}
-                  </div>
-                </div>
-              ) : (
-                <div style={styles.empty}>No stories in the current scope yet.</div>
-              )}
-            </>
+            <WorkItemBacklogTab
+              activeProduct={activeProduct}
+              activeProductArea={activeProductArea}
+              activeCapability={activeCapability}
+              selectedBacklogItems={selectedBacklogItems}
+              bulkActionInFlight={bulkActionInFlight}
+              onRunBulkApprovalAction={(action) => void runBulkApprovalAction(action)}
+              onOpenCreateStory={() => {
+                setCreateForm((current) => ({ ...current, parentWorkItemId: null }));
+                openWorkItemCreateDialog();
+              }}
+              activeProductId={activeProductId}
+              actionError={actionError}
+              statusFilter={statusFilter}
+              onStatusFilterChange={setStatusFilter}
+              scopeDescriptor={scopeDescriptor}
+              workItemPageIndex={workItemPageIndex}
+              workItemPageStart={workItemPageStart}
+              workItemPageEnd={workItemPageEnd}
+              backlogRenderedRangeLabel={backlogRenderedRangeLabel}
+              onWorkItemPageIndexChange={setWorkItemPageIndex}
+              hasNextWorkItemPage={hasNextWorkItemPage}
+              isLoading={isLoading}
+              orderedWorkItems={orderedWorkItems}
+              backlogViewportRef={backlogViewportRef}
+              onBacklogScrollTopChange={setBacklogScrollTop}
+              backlogWindow={backlogWindow}
+              latestWorkflowRunByWorkItemId={latestWorkflowRunByWorkItemId}
+              workItemOwnerMap={workItemOwnerMap}
+              selectedWorkItemId={selectedWorkItemId}
+              draggedWorkItemId={draggedWorkItemId}
+              onDraggedWorkItemIdChange={setDraggedWorkItemId}
+              workItemOrderIds={workItemOrderIds}
+              onWorkItemOrderIdsChange={setWorkItemOrderIds}
+              onReorderWorkItems={(orderedIds) => reorderWorkItemsMutation.mutate(orderedIds)}
+              onSelectWorkItem={(workItemId) => {
+                setActiveWorkItem(workItemId);
+                setWorkItemWorkspaceTab("detail");
+              }}
+              selectedBacklogItemIds={selectedBacklogItemIds}
+              onSelectedBacklogItemIdsChange={setSelectedBacklogItemIds}
+              onRunRowApprovalAction={(workItemId, action) => void runRowApprovalAction(workItemId, action)}
+              isRowActionPending={isRowActionPending}
+              openOverflowWorkItemId={openOverflowWorkItemId}
+              onOpenOverflowWorkItemIdChange={setOpenOverflowWorkItemId}
+              onDeleteWorkItem={(workItemId) => deleteMutation.mutate(workItemId)}
+            />
           )}
 
           {workItemWorkspaceTab === "detail" && (
