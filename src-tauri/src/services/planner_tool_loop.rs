@@ -39,7 +39,16 @@ async fn get_product_tree_tool(
     Ok(serde_json::to_value(tree)?)
 }
 
-async fn list_work_items_tool(
+fn resolve_work_item_page(limit: Option<i64>, offset: Option<i64>) -> (i64, i64) {
+    (
+        limit
+            .unwrap_or(PLANNER_TOOL_WORK_ITEM_LIMIT)
+            .clamp(1, PLANNER_TOOL_WORK_ITEM_LIMIT),
+        offset.unwrap_or(0).max(0),
+    )
+}
+
+pub(crate) async fn list_work_items_tool(
     db: &SqlitePool,
     product_name: Option<&str>,
     status: Option<&str>,
@@ -51,18 +60,30 @@ async fn list_work_items_tool(
     } else {
         None
     };
-    let work_items = work_item_repo::list_work_items_page(
+    let (page_limit, page_offset) = resolve_work_item_page(limit, offset);
+    let mut work_items = work_item_repo::list_work_items_page(
         db,
         work_item_repo::WorkItemListQuery {
             product_id: product_id.as_deref(),
             status,
-            limit: Some(limit.unwrap_or(PLANNER_TOOL_WORK_ITEM_LIMIT)),
-            offset,
+            limit: Some(page_limit + 1),
+            offset: Some(page_offset),
             ..Default::default()
         },
     )
     .await?;
-    Ok(serde_json::to_value(work_items)?)
+    let has_more = work_items.len() > page_limit as usize;
+    work_items.truncate(page_limit as usize);
+    Ok(json!({
+        "workItems": work_items,
+        "pagination": {
+            "limit": page_limit,
+            "offset": page_offset,
+            "returned": work_items.len(),
+            "hasMore": has_more,
+            "nextOffset": if has_more { Some(page_offset + page_limit) } else { None },
+        },
+    }))
 }
 
 pub(crate) struct PlannerToolLoopInput<'a> {
@@ -241,4 +262,126 @@ pub(crate) async fn run_tool_loop(
     Err(AppError::Validation(
         "Planner exceeded tool-step limit before returning a final plan".to_string(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::persistence::{db as db_service, product_repo};
+
+    fn make_temp_dir(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "aruvi_planner_tool_loop_{}_{}",
+            name,
+            uuid::Uuid::new_v4()
+        ))
+    }
+
+    async fn create_test_pool(name: &str) -> SqlitePool {
+        let temp_root = make_temp_dir(name);
+        std::fs::create_dir_all(&temp_root).expect("temp dir should be created");
+        let db_path = temp_root.join("test.db");
+        let database_url = format!("sqlite://{}", db_path.display());
+        db_service::create_pool(&database_url)
+            .await
+            .expect("test database should be created")
+    }
+
+    async fn create_test_product(pool: &SqlitePool, product_id: &str, name: &str) {
+        product_repo::create_product(
+            pool,
+            product_repo::CreateProductInput {
+                id: product_id,
+                name,
+                description: "",
+                vision: "",
+                goals: "[]",
+                tags: "[]",
+                lifecycle: Some("active"),
+                health: Some("healthy"),
+                owner_label: None,
+                investment_status: Some("invest"),
+                roadmap: None,
+                evidence: None,
+            },
+        )
+        .await
+        .expect("product should be created");
+    }
+
+    async fn create_test_work_item(pool: &SqlitePool, id: &str, product_id: &str, title: &str) {
+        work_item_repo::create_work_item(
+            pool,
+            work_item_repo::CreateWorkItemInput {
+                id,
+                product_id,
+                product_area_id: None,
+                capability_id: None,
+                source_node_id: None,
+                source_node_type: None,
+                parent_work_item_id: None,
+                title,
+                problem_statement: "",
+                description: "",
+                acceptance_criteria: "",
+                constraints: "",
+                work_item_type: "story",
+                priority: "medium",
+                complexity: "medium",
+            },
+        )
+        .await
+        .expect("work item should be created");
+    }
+
+    #[tokio::test]
+    async fn list_work_items_tool_returns_pagination_metadata() {
+        let pool = create_test_pool("list_work_items_pagination").await;
+        create_test_product(&pool, "product-planner-tool", "Planner Product").await;
+        for index in 0..3 {
+            create_test_work_item(
+                &pool,
+                &format!("work-item-{index}"),
+                "product-planner-tool",
+                &format!("Planner story {index}"),
+            )
+            .await;
+        }
+
+        let result = list_work_items_tool(&pool, Some("Planner Product"), None, Some(2), Some(0))
+            .await
+            .expect("tool should return work items");
+
+        assert_eq!(
+            result
+                .get("workItems")
+                .and_then(serde_json::Value::as_array)
+                .map(Vec::len),
+            Some(2)
+        );
+        assert_eq!(
+            result
+                .pointer("/pagination/limit")
+                .and_then(serde_json::Value::as_i64),
+            Some(2)
+        );
+        assert_eq!(
+            result
+                .pointer("/pagination/offset")
+                .and_then(serde_json::Value::as_i64),
+            Some(0)
+        );
+        assert_eq!(
+            result
+                .pointer("/pagination/hasMore")
+                .and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            result
+                .pointer("/pagination/nextOffset")
+                .and_then(serde_json::Value::as_i64),
+            Some(2)
+        );
+    }
 }

@@ -71,34 +71,44 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             .await?,
         ),
         "upsert_item" => {
+            let run_id = args.required_string(&["run_id", "runId"], "run_id")?;
             let feature_id = args.required_string(&["feature_id", "featureId"], "feature_id")?;
+            let work_item_id = args.optional_string(&["work_item_id", "workItemId"])?;
+            let product_area = args.string_or_default(&["product_area"], "")?;
+            let service_or_domain =
+                args.optional_string(&["service_or_domain", "serviceOrDomain"])?;
+            let priority = args.optional_string(&["priority"])?;
+            let release_phase = args.optional_string(&["release_phase", "releasePhase"])?;
             let title = args
                 .optional_string(&["title"])?
                 .unwrap_or_else(|| feature_id.clone());
+            let description = args.string_or_default(&["description"], "")?;
+            let status = args.optional_string(&["status"])?;
+            let batch_id = args.optional_string(&["batch_id", "batchId"])?;
+            let agent = args.optional_string(&["agent"])?;
+            let commit_sha = args.optional_string(&["commit_sha", "commitSha"])?;
             let conflict_zones = args
                 .optional_string_list(&["conflict_zones", "conflictZones"])?
                 .map(|zones| json!(zones));
             let item = agent_work_repo::upsert_item(
                 &state.db,
-                &args.required_string(&["run_id", "runId"], "run_id")?,
-                &feature_id,
-                args.optional_string(&["work_item_id", "workItemId"])?
-                    .as_deref(),
-                &args.string_or_default(&["product_area"], "")?,
-                args.optional_string(&["service_or_domain", "serviceOrDomain"])?
-                    .as_deref(),
-                args.optional_string(&["priority"])?.as_deref(),
-                args.optional_string(&["release_phase", "releasePhase"])?
-                    .as_deref(),
-                &title,
-                &args.string_or_default(&["description"], "")?,
-                args.optional_string(&["status"])?.as_deref(),
-                args.optional_string(&["batch_id", "batchId"])?.as_deref(),
-                args.optional_string(&["agent"])?.as_deref(),
-                args.optional_string(&["commit_sha", "commitSha"])?
-                    .as_deref(),
-                conflict_zones,
-                args.optional_deserialize::<Value>(&["metadata"], "metadata")?,
+                agent_work_repo::UpsertAgentWorkItemInput {
+                    run_id: &run_id,
+                    feature_id: &feature_id,
+                    work_item_id: work_item_id.as_deref(),
+                    product_area: &product_area,
+                    service_or_domain: service_or_domain.as_deref(),
+                    priority: priority.as_deref(),
+                    release_phase: release_phase.as_deref(),
+                    title: &title,
+                    description: &description,
+                    status: status.as_deref(),
+                    batch_id: batch_id.as_deref(),
+                    agent: agent.as_deref(),
+                    commit_sha: commit_sha.as_deref(),
+                    conflict_zones,
+                    metadata: args.optional_deserialize::<Value>(&["metadata"], "metadata")?,
+                },
             )
             .await?;
             action_result("upsert_item", item)
@@ -323,6 +333,17 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             .await?,
         ),
         "append_evidence" => {
+            let run_id = args.required_string(&["run_id", "runId"], "run_id")?;
+            let batch_id = args.optional_string(&["batch_id", "batchId"])?;
+            let feature_id = args.optional_string(&["feature_id", "featureId"])?;
+            let work_item_id = args.optional_string(&["work_item_id", "workItemId"])?;
+            let agent = args.optional_string(&["agent"])?;
+            let evidence_type =
+                args.required_string(&["evidence_type", "evidenceType"], "evidence_type")?;
+            let command = args.optional_string(&["command"])?;
+            let status = args.optional_string(&["status"])?;
+            let summary = args.string_or_default(&["summary"], "")?;
+            let details = args.string_or_default(&["details"], "")?;
             let changed_files = args
                 .optional_string_list(&["changed_files", "changedFiles"])?
                 .map(|values| json!(values));
@@ -333,22 +354,22 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 "append_evidence",
                 agent_work_repo::append_evidence(
                     &state.db,
-                    &args.required_string(&["run_id", "runId"], "run_id")?,
-                    args.optional_string(&["batch_id", "batchId"])?.as_deref(),
-                    args.optional_string(&["feature_id", "featureId"])?
-                        .as_deref(),
-                    args.optional_string(&["work_item_id", "workItemId"])?
-                        .as_deref(),
-                    args.optional_string(&["agent"])?.as_deref(),
-                    &args.required_string(&["evidence_type", "evidenceType"], "evidence_type")?,
-                    args.optional_string(&["command"])?.as_deref(),
-                    args.optional_i64(&["exit_code", "exitCode"])?,
-                    args.optional_string(&["status"])?.as_deref(),
-                    &args.string_or_default(&["summary"], "")?,
-                    &args.string_or_default(&["details"], "")?,
-                    changed_files,
-                    artifact_refs,
-                    args.optional_deserialize::<Value>(&["metadata"], "metadata")?,
+                    agent_work_repo::AppendAgentWorkEvidenceInput {
+                        run_id: &run_id,
+                        batch_id: batch_id.as_deref(),
+                        feature_id: feature_id.as_deref(),
+                        work_item_id: work_item_id.as_deref(),
+                        agent: agent.as_deref(),
+                        evidence_type: &evidence_type,
+                        command: command.as_deref(),
+                        exit_code: args.optional_i64(&["exit_code", "exitCode"])?,
+                        status: status.as_deref(),
+                        summary: &summary,
+                        details: &details,
+                        changed_files,
+                        artifact_refs,
+                        metadata: args.optional_deserialize::<Value>(&["metadata"], "metadata")?,
+                    },
                 )
                 .await?,
             )
@@ -382,25 +403,36 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             )
             .await?,
         ),
-        "append_event" => action_result(
-            "append_event",
-            agent_work_repo::append_event(
-                &state.db,
-                &args.required_string(&["run_id", "runId"], "run_id")?,
-                &args.required_string(&["event_type", "eventType"], "event_type")?,
-                args.optional_string(&["batch_id", "batchId"])?.as_deref(),
-                args.optional_string(&["feature_id", "featureId"])?
-                    .as_deref(),
-                args.optional_string(&["work_item_id", "workItemId"])?
-                    .as_deref(),
-                args.optional_string(&["agent"])?.as_deref(),
-                args.optional_string(&["command"])?.as_deref(),
-                args.optional_string(&["status"])?.as_deref(),
-                args.optional_string(&["details"])?.as_deref(),
-                args.optional_deserialize::<Value>(&["metadata"], "metadata")?,
+        "append_event" => {
+            let run_id = args.required_string(&["run_id", "runId"], "run_id")?;
+            let event_type = args.required_string(&["event_type", "eventType"], "event_type")?;
+            let batch_id = args.optional_string(&["batch_id", "batchId"])?;
+            let feature_id = args.optional_string(&["feature_id", "featureId"])?;
+            let work_item_id = args.optional_string(&["work_item_id", "workItemId"])?;
+            let agent = args.optional_string(&["agent"])?;
+            let command = args.optional_string(&["command"])?;
+            let status = args.optional_string(&["status"])?;
+            let details = args.optional_string(&["details"])?;
+            action_result(
+                "append_event",
+                agent_work_repo::append_event(
+                    &state.db,
+                    agent_work_repo::AppendAgentWorkEventInput {
+                        run_id: &run_id,
+                        event_type: &event_type,
+                        batch_id: batch_id.as_deref(),
+                        feature_id: feature_id.as_deref(),
+                        work_item_id: work_item_id.as_deref(),
+                        agent: agent.as_deref(),
+                        command: command.as_deref(),
+                        status: status.as_deref(),
+                        details: details.as_deref(),
+                        metadata: args.optional_deserialize::<Value>(&["metadata"], "metadata")?,
+                    },
+                )
+                .await?,
             )
-            .await?,
-        ),
+        }
         "list_events" => action_result(
             "list_events",
             agent_work_repo::list_events(

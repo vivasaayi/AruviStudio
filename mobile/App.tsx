@@ -33,7 +33,7 @@ import * as SecureStore from "expo-secure-store";
 import { WebView } from "react-native-webview";
 import { initWhisper, type WhisperContext } from "whisper.rn";
 import { PlannerMobileClient } from "./src/api/client";
-import type { HierarchyTreeNode, MobilePlannerToolTraceEntry, ModelCall, Product, ProductTree } from "./src/types";
+import type { HierarchyTreeNode, MobilePlannerToolTraceEntry, ModelCall, Product, ProductTree, ProductTreeSummary } from "./src/types";
 
 type ActiveTab = "planner" | "products" | "voice" | "models" | "calls" | "activity";
 type ProductExploreTab = "map" | "work" | "search" | "overview";
@@ -447,6 +447,10 @@ type FlatProductNode = {
   pathLabel: string;
 };
 
+function productViewNeedsTree(mode: ProductExploreTab) {
+  return mode === "map" || mode === "search";
+}
+
 function formatNodeKind(value?: string | null) {
   return String(value ?? "node").replace(/_/g, " ");
 }
@@ -543,12 +547,14 @@ export default function App() {
     },
   ]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [productSummary, setProductSummary] = useState<ProductTreeSummary | null>(null);
   const [productTree, setProductTree] = useState<ProductTree | null>(null);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [selectedProductNodeId, setSelectedProductNodeId] = useState<string | null>(null);
-  const [productExploreTab, setProductExploreTab] = useState<ProductExploreTab>("map");
+  const [productExploreTab, setProductExploreTab] = useState<ProductExploreTab>("overview");
   const [productSearchQuery, setProductSearchQuery] = useState("");
   const [isProductLoading, setIsProductLoading] = useState(false);
+  const [isProductTreeLoading, setIsProductTreeLoading] = useState(false);
   const [productError, setProductError] = useState<string | null>(null);
   const [isProductPickerOpen, setIsProductPickerOpen] = useState(false);
   const [modelCalls, setModelCalls] = useState<ModelCall[]>([]);
@@ -585,12 +591,12 @@ export default function App() {
   const productStats = useMemo(() => {
     const roots = productTree?.roots ?? [];
     return {
-      modules: productTree?.modules.length ?? 0,
-      rootSections: roots.length,
-      totalNodes: countTreeNodes(roots),
-      leafNodes: countLeafNodes(roots),
+      productAreas: productSummary?.product_area_count ?? productTree?.product_areas.length ?? 0,
+      capabilities: productSummary?.capability_count ?? Math.max(countTreeNodes(roots) - (productTree?.product_areas.length ?? 0), 0),
+      totalNodes: productSummary?.total_node_count ?? countTreeNodes(roots),
+      leafNodes: productSummary?.leaf_node_count ?? countLeafNodes(roots),
     };
-  }, [productTree?.modules.length, productTree?.roots]);
+  }, [productSummary, productTree?.product_areas.length, productTree?.roots]);
 
   const visibleProductChildren = selectedProductNode?.children ?? productTree?.roots ?? [];
 
@@ -842,11 +848,46 @@ export default function App() {
     }
   };
 
-  const loadProductTree = async (productId: string) => {
-    const tree = await mobileClient.getProductTree(productId);
-    setProductTree(tree);
+  const loadProductSummary = async (productId: string) => {
+    const summary = await mobileClient.getProductSummary(productId);
+    setProductSummary(summary);
     setSelectedProductId(productId);
-    setSelectedProductNodeId(null);
+    if (productTree?.product.id !== productId || !productViewNeedsTree(productExploreTab)) {
+      setProductTree(null);
+      setSelectedProductNodeId(null);
+    }
+  };
+
+  const ensureProductTree = async (productId: string, force = false) => {
+    if (!force && productTree?.product.id === productId) {
+      return productTree;
+    }
+    try {
+      setIsProductTreeLoading(true);
+      setProductError(null);
+      const previousProductId = selectedProductId;
+      const tree = await mobileClient.getProductTree(productId);
+      setProductTree(tree);
+      setSelectedProductId(productId);
+      if (previousProductId !== productId) {
+        setSelectedProductNodeId(null);
+      }
+      return tree;
+    } finally {
+      setIsProductTreeLoading(false);
+    }
+  };
+
+  const switchProductExploreTab = async (mode: ProductExploreTab) => {
+    setProductExploreTab(mode);
+    if (!productViewNeedsTree(mode) || !selectedProductId) {
+      return;
+    }
+    try {
+      await ensureProductTree(selectedProductId);
+    } catch (error) {
+      setProductError(describeError(error));
+    }
   };
 
   const loadProducts = async (preferredProductId?: string | null) => {
@@ -866,8 +907,12 @@ export default function App() {
             ? selectedProductId
             : loadedProducts[0]?.id ?? null;
       if (nextProductId) {
-        await loadProductTree(nextProductId);
+        await loadProductSummary(nextProductId);
+        if (productViewNeedsTree(productExploreTab)) {
+          await ensureProductTree(nextProductId, true);
+        }
       } else {
+        setProductSummary(null);
         setProductTree(null);
         setSelectedProductId(null);
         setSelectedProductNodeId(null);
@@ -1083,7 +1128,7 @@ export default function App() {
         : "Selected node: product root",
       selectedProductNode ? `Node type: ${selectedProductNode.node_type}` : null,
       selectedProductNode ? `Node kind: ${selectedProductNode.node_kind}` : null,
-      selectedProductNode?.module_id ? `Module id: ${selectedProductNode.module_id}` : null,
+      selectedProductNode?.product_area_id ? `Product Area id: ${selectedProductNode.product_area_id}` : null,
       selectedProductNode?.capability_id ? `Capability id: ${selectedProductNode.capability_id}` : null,
       pathLabel ? `Path: ${pathLabel}` : null,
       selectedProductNode ? `Node summary: ${getNodeSummary(selectedProductNode)}` : null,
@@ -1518,7 +1563,7 @@ export default function App() {
     <Pressable
       key={mode}
       style={[styles.productModeButton, productExploreTab === mode && styles.productModeButtonActive]}
-      onPress={() => setProductExploreTab(mode)}
+      onPress={() => void switchProductExploreTab(mode)}
     >
       <Text style={[styles.productModeText, productExploreTab === mode && styles.productModeTextActive]}>{label}</Text>
     </Pressable>
@@ -1625,17 +1670,18 @@ export default function App() {
       ? getNodeSummary(selectedProductNode)
       : selectedProduct?.description || "Select a product to inspect its structure.";
     const pathNodes = selectedProductNodePath;
+    const hasProductContext = Boolean(productSummary || productTree);
     const productMeta = [
-      `${productStats.rootSections} roots`,
+      `${productStats.productAreas} product areas`,
       `${productStats.totalNodes} nodes`,
       `${productStats.leafNodes} leaves`,
-      productTree?.product.status ?? null,
+      selectedProduct?.status ?? productTree?.product.status ?? null,
     ].filter(Boolean).join(" · ");
     const parentPathLabel = pathNodes.length > 1
       ? pathNodes.slice(0, -1).map((node) => node.name).join(" / ")
       : selectedProduct?.name ?? "Product";
 
-    if (productError && !productTree) {
+    if (productError && !productSummary && !productTree) {
       return (
         <View style={styles.productEmptyScreen}>
           <Text style={styles.productEmptyTitle}>Products unavailable</Text>
@@ -1647,6 +1693,31 @@ export default function App() {
       );
     }
 
+    const treeRequiredFallback = (
+      <View style={styles.productEmptyScreen}>
+        <Text style={styles.productEmptyTitle}>
+          {isProductTreeLoading ? "Loading product map" : "Product map not loaded"}
+        </Text>
+        <Text style={styles.productEmptyText}>
+          {isProductTreeLoading
+            ? "Fetching the semantic tree for this product."
+            : "Overview uses aggregate metrics. Load the map only when you need to browse product areas, capabilities, and features."}
+        </Text>
+        {!isProductTreeLoading && selectedProductId ? (
+          <Pressable
+            style={styles.productPrimaryAction}
+            onPress={() => {
+              void ensureProductTree(selectedProductId).catch((error) => {
+                setProductError(describeError(error));
+              });
+            }}
+          >
+            <Text style={styles.productPrimaryActionText}>Load Product Map</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
+
     return (
       <View style={styles.productScreen}>
         <View style={styles.productHeader}>
@@ -1654,7 +1725,7 @@ export default function App() {
             <View style={styles.productHeaderCopy}>
               <Text style={styles.productHeaderTitle} numberOfLines={1}>{selectedProduct?.name ?? "No product"}</Text>
               <Text style={styles.productHeaderSummary} numberOfLines={1}>
-                {productTree ? productMeta : "Load a product to browse its semantic map."}
+                {hasProductContext ? productMeta : "Load a product to browse its summary."}
               </Text>
             </View>
             <Pressable
@@ -1675,6 +1746,7 @@ export default function App() {
         </View>
 
         {productExploreTab === "map" ? (
+          !productTree ? treeRequiredFallback : (
           <FlatList
             data={visibleProductChildren}
             keyExtractor={(node) => node.id}
@@ -1717,7 +1789,9 @@ export default function App() {
               </View>
             )}
           />
+          )
         ) : productExploreTab === "search" ? (
+          !productTree ? treeRequiredFallback : (
           <View style={styles.productSearchScreen}>
             <TextInput
               style={styles.productSearchInput}
@@ -1741,11 +1815,12 @@ export default function App() {
               ListEmptyComponent={(
                 <View style={styles.productEmptyBlock}>
                   <Text style={styles.productEmptyTitle}>No matches</Text>
-                  <Text style={styles.productEmptyText}>Try a module, capability, node kind, or technical term.</Text>
+                  <Text style={styles.productEmptyText}>Try a product area, capability, node kind, or technical term.</Text>
                 </View>
               )}
             />
           </View>
+          )
         ) : productExploreTab === "overview" ? (
           <ScrollView style={styles.productOverviewScreen} contentContainerStyle={styles.productListContent}>
             <View style={styles.productOverviewCard}>
@@ -1754,12 +1829,12 @@ export default function App() {
             </View>
             <View style={styles.productOverviewGrid}>
               <View style={styles.productOverviewMetric}>
-                <Text style={styles.productStatValue}>{productStats.modules}</Text>
-                <Text style={styles.productStatLabel}>Modules</Text>
+                <Text style={styles.productStatValue}>{productStats.productAreas}</Text>
+                <Text style={styles.productStatLabel}>Product Areas</Text>
               </View>
               <View style={styles.productOverviewMetric}>
-                <Text style={styles.productStatValue}>{productStats.rootSections}</Text>
-                <Text style={styles.productStatLabel}>Root sections</Text>
+                <Text style={styles.productStatValue}>{productStats.capabilities}</Text>
+                <Text style={styles.productStatLabel}>Capabilities</Text>
               </View>
               <View style={styles.productOverviewMetric}>
                 <Text style={styles.productStatValue}>{productStats.totalNodes}</Text>

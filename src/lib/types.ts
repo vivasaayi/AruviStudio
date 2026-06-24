@@ -151,6 +151,13 @@ export interface WorkItem {
   updated_at: string;
 }
 
+export interface WorkItemPage {
+  items: WorkItem[];
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
+
 export interface ProductWorkItemSummary {
   product_id: string;
   total_count: number;

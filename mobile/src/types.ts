@@ -11,17 +11,11 @@ export type PlannerTreeNode = {
 };
 
 export type HierarchyNodeKind =
-  | "area"
-  | "domain"
-  | "subdomain"
-  | "system"
-  | "subsystem"
-  | "feature_set"
+  | "product_area"
   | "capability"
-  | "rollout"
-  | "reference";
+  | "feature";
 
-export type HierarchyNodeType = "module" | "capability";
+export type HierarchyNodeType = "product_area" | "capability";
 
 export type Product = {
   id: string;
@@ -37,16 +31,24 @@ export type Product = {
 
 export type ProductTree = {
   product: Product;
-  modules: ModuleTree[];
+  product_areas: ProductAreaTree[];
   roots: HierarchyTreeNode[];
 };
 
-export type ModuleTree = {
-  module: Module;
+export type ProductTreeSummary = {
+  product_id: string;
+  product_area_count: number;
+  capability_count: number;
+  total_node_count: number;
+  leaf_node_count: number;
+};
+
+export type ProductAreaTree = {
+  product_area: ProductArea;
   features: CapabilityTree[];
 };
 
-export type Module = {
+export type ProductArea = {
   id: string;
   product_id: string;
   node_kind: HierarchyNodeKind;
@@ -69,7 +71,7 @@ export type CapabilityTree = {
 
 export type Capability = {
   id: string;
-  module_id: string;
+  product_area_id: string;
   parent_capability_id: string | null;
   level: number;
   node_kind: HierarchyNodeKind;
@@ -93,7 +95,7 @@ export type HierarchyTreeNode = {
   id: string;
   node_type: HierarchyNodeType;
   node_kind: HierarchyNodeKind;
-  module_id: string;
+  product_area_id: string;
   capability_id: string | null;
   parent_node_id: string | null;
   parent_node_type: HierarchyNodeType | null;

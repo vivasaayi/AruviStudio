@@ -12,6 +12,7 @@ describe("productRefreshScopes", () => {
   it("keeps overview refresh scoped to aggregate and lazy overview queries", () => {
     const queryKeys = getProductPageRefreshQueryKeys({
       productPageTab: "overview",
+      statusGroupBy: "work_status",
       selectedProductId: "product-1",
       statusProductId: "all",
       hideExampleProductsKey: "catalog.hide_example_products",
@@ -36,6 +37,7 @@ describe("productRefreshScopes", () => {
     const baseScope = {
       selectedProductId: "product-1",
       statusProductId: "all",
+      statusGroupBy: "work_status" as const,
       hideExampleProductsKey: "catalog.hide_example_products",
       productManagementTab: "areas" as const,
       selectedManagementStoryIdForTasks: null,
@@ -47,7 +49,7 @@ describe("productRefreshScopes", () => {
     })).toEqual([
       ["products"],
       ["setting", "catalog.hide_example_products"],
-      ["productTree"],
+      ["productTreeSummary"],
       ["productWorkItemSummary"],
     ]);
 
@@ -57,6 +59,19 @@ describe("productRefreshScopes", () => {
       statusProductId: "product-2",
     })).toEqual([
       ["products"],
+      ["productTreeSummary"],
+      ["workItemScopeSummary", "product-2"],
+      ["productWorkItemSummary"],
+    ]);
+
+    expect(getProductPageRefreshQueryKeys({
+      ...baseScope,
+      productPageTab: "status",
+      statusGroupBy: "node",
+      statusProductId: "product-2",
+    })).toEqual([
+      ["products"],
+      ["productTreeSummary"],
       ["productTree"],
       ["workItemScopeSummary", "product-2"],
       ["productWorkItemSummary"],
@@ -76,6 +91,7 @@ describe("productRefreshScopes", () => {
     const baseScope = {
       selectedProductId: null,
       statusProductId: "all",
+      statusGroupBy: "work_status" as const,
       hideExampleProductsKey: "catalog.hide_example_products",
       productManagementTab: "areas" as const,
       selectedManagementStoryIdForTasks: null,

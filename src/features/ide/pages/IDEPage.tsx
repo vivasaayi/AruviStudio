@@ -11,7 +11,8 @@ import {
   applyRepositoryPatch,
   browseForRepositoryPath,
   createLocalWorkspace,
-  getProductTree,
+  getCapability,
+  listProductAreas,
   listModelDefinitions,
   listProducts,
   listProviders,
@@ -149,10 +150,15 @@ export function IDEPage() {
       setActiveProduct(products[0].id);
     }
   }, [activeProductId, products, productsLoading, setActiveProduct]);
-  const { data: activeProductTree } = useQuery({
-    queryKey: ["ideProductTree", selectedProductId],
-    queryFn: () => getProductTree(selectedProductId!),
+  const { data: activeProductAreas = [] } = useQuery({
+    queryKey: ["ideProductAreas", selectedProductId],
+    queryFn: () => listProductAreas(selectedProductId!),
     enabled: !!selectedProductId,
+  });
+  const { data: activeCapability = null } = useQuery({
+    queryKey: ["ideCapability", activeCapabilityId],
+    queryFn: () => getCapability(activeCapabilityId!),
+    enabled: !!activeCapabilityId,
   });
   const { data: providers = [] } = useQuery({ queryKey: ["providers"], queryFn: listProviders });
   const { data: models = [] } = useQuery({ queryKey: ["model-definitions"], queryFn: listModelDefinitions });
@@ -230,22 +236,7 @@ export function IDEPage() {
   const activeFileRepositoryId = rawActiveFile?.id.split(":")[0] ?? null;
   const activeFile = activeFileRepositoryId === selectedRepoId ? rawActiveFile : null;
   const activeProduct = products.find((product) => product.id === selectedProductId) ?? null;
-  const activeProductArea = activeProductTree?.product_areas.find((productAreaTree) => productAreaTree.product_area.id === activeProductAreaId)?.product_area ?? null;
-  const activeCapability = React.useMemo(() => {
-    if (!activeCapabilityId || !activeProductTree) {
-      return null;
-    }
-    const stack = [...activeProductTree.product_areas.flatMap((productAreaTree) => productAreaTree.features)];
-    while (stack.length > 0) {
-      const current = stack.pop();
-      if (!current) continue;
-      if (current.capability.id === activeCapabilityId) {
-        return current.capability;
-      }
-      stack.push(...current.children);
-    }
-    return null;
-  }, [activeCapabilityId, activeProductTree]);
+  const activeProductArea = activeProductAreas.find((productArea) => productArea.id === activeProductAreaId) ?? null;
 
   const handleSelectRepository = (repositoryId: string) => {
     setSelectedRepoId(repositoryId);

@@ -495,7 +495,7 @@ fn work_item_definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "work_items.list",
             "List Work Items",
-            "List delivery stories and tasks filtered by product, product area, feature, source scope, or status.",
+            "List delivery stories and tasks filtered by product, product area, feature, source scope, or status. Results are server-side paginated; set includePagination=true to receive workItems plus pagination metadata.",
             object_schema(
                 vec![
                     ("productId", string_property("Optional product id.")),
@@ -512,9 +512,17 @@ fn work_item_definitions() -> Vec<ToolDefinition> {
                     ("status", string_property("Optional work item status filter.")),
                     (
                         "limit",
-                        integer_property("Maximum rows to return, capped at 2000."),
+                        integer_property(
+                            "Maximum rows to return. Defaults to 500 and is capped at 2000.",
+                        ),
                     ),
                     ("offset", integer_property("Pagination offset.")),
+                    (
+                        "includePagination",
+                        boolean_property(
+                            "When true, return { workItems, pagination } instead of the legacy raw array result.",
+                        ),
+                    ),
                 ],
                 &[],
             ),

@@ -1,7 +1,6 @@
 import {
   countDescendantNodes,
   countHierarchyNodes,
-  countLeafNodes,
   flattenHierarchyNodes,
   getHierarchyNodeKey,
 } from "../../../lib/hierarchyTree";
@@ -10,6 +9,7 @@ import type {
   HierarchyTreeNode,
   Product,
   ProductTree,
+  ProductTreeSummary,
   ProductWorkItemSummary,
   WorkItemScopeSummary,
 } from "../../../lib/types";
@@ -73,7 +73,7 @@ export function getProgressSummaryFromCounts(total: number, done: number): Progr
 
 export function buildProductStatusSummary(
   products: Product[],
-  productTreeById: Map<string, ProductTree>,
+  productTreeSummaryById: Map<string, ProductTreeSummary>,
   productSummaryById: Map<string, ProductWorkItemSummary>,
 ): ProductStatusSummary {
   const totals = products.reduce(
@@ -82,8 +82,8 @@ export function buildProductStatusSummary(
   );
   return {
     productCount: products.length,
-    nodeCount: products.reduce((total, product) => total + countHierarchyNodes(productTreeById.get(product.id)?.roots ?? []), 0),
-    leafCount: products.reduce((total, product) => total + countLeafNodes(productTreeById.get(product.id)?.roots ?? []), 0),
+    nodeCount: products.reduce((total, product) => total + (productTreeSummaryById.get(product.id)?.total_node_count ?? 0), 0),
+    leafCount: products.reduce((total, product) => total + (productTreeSummaryById.get(product.id)?.leaf_node_count ?? 0), 0),
     workItemCount: totals.total,
     activeWorkItemCount: totals.active,
     doneWorkItemCount: totals.done,

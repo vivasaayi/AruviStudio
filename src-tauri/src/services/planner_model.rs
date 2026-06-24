@@ -57,7 +57,7 @@ Rules:
 - Use tools when the request depends on current repo state or structure instead of guessing from the prompt alone.
 - If a tool reports that a proposed entity does not exist yet, treat that as expected for proposal refinement and continue planning against the pending proposal instead of failing.
 - Do not call mutation tools. Staged design edits go in final.actions.
-- list_work_items is paginated; request the smallest useful limit and use offset only when you need another page.
+- list_work_items is paginated and returns {workItems, pagination}; request the smallest useful limit and use pagination.hasMore/nextOffset only when you need another page.
 - After receiving tool results, continue reasoning and either call another tool or return type=final.
 - The selected product is the root. Strategy hierarchy is not editable here.
 - Model the product hierarchy as Product > Product Area > Capability > Feature. Use create_product_area only as the legacy action name for product areas and create_capability for capabilities/features.

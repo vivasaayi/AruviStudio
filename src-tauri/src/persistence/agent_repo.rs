@@ -1,9 +1,17 @@
 use crate::domain::agent::{
-    AgentDefinition, AgentModelBinding, AgentRun, AgentRunStatus, AgentSkillLink, AgentTeam,
-    AgentTeamMembership, Skill, TeamAssignment, TeamSkillLink, WorkflowStagePolicy,
+    AgentDefinition, AgentSkillLink, AgentTeam, AgentTeamMembership, Skill, TeamAssignment,
+    TeamSkillLink, WorkflowStagePolicy,
 };
 use crate::domain::work_item::WorkItem;
 use crate::error::AppError;
+pub use crate::persistence::agent_model_binding_repo::{
+    create_agent_model_binding, delete_agent_model_bindings_for_agent, get_agent_model_bindings,
+    list_agent_model_bindings,
+};
+pub use crate::persistence::agent_run_repo::{
+    add_agent_run_token_usage, create_agent_run, list_agent_runs_for_workflow,
+    update_agent_run_failure, update_agent_run_snapshot_paths, update_agent_run_status,
+};
 use sqlx::{Row, SqlitePool};
 
 fn row_to_agent_definition(row: sqlx::sqlite::SqliteRow) -> AgentDefinition {
@@ -614,186 +622,4 @@ pub async fn unlink_skill_from_team(pool: &SqlitePool, id: &str) -> Result<(), A
         .execute(pool)
         .await?;
     Ok(())
-}
-
-pub async fn create_agent_run(
-    pool: &SqlitePool,
-    id: &str,
-    workflow_run_id: &str,
-    work_item_id: &str,
-    agent_id: &str,
-    model_id: &str,
-    stage: &str,
-) -> Result<AgentRun, AppError> {
-    sqlx::query_as::<_, AgentRun>(
-        "INSERT INTO agent_runs (id,workflow_run_id,work_item_id,agent_id,model_id,stage,status,started_at) 
-         VALUES (?,?,?,?,?,?,?,datetime('now')) 
-         RETURNING id,workflow_run_id,agent_id,stage,status,prompt_snapshot_path,output_snapshot_path,token_count_input,token_count_output,duration_ms,error_message,started_at,ended_at,created_at"
-    )
-    .bind(id)
-    .bind(workflow_run_id)
-    .bind(work_item_id)
-    .bind(agent_id)
-    .bind(model_id)
-    .bind(stage)
-    .bind("running")
-    .fetch_one(pool)
-    .await
-    .map_err(|e| e.into())
-}
-
-pub async fn update_agent_run_status(
-    pool: &SqlitePool,
-    id: &str,
-    status: AgentRunStatus,
-) -> Result<(), AppError> {
-    sqlx::query(
-        "UPDATE agent_runs
-         SET status=?,
-             ended_at=datetime('now'),
-             duration_ms=CAST((julianday(datetime('now')) - julianday(started_at)) * 86400000 AS INTEGER)
-         WHERE id=?",
-    )
-        .bind(status.as_str())
-        .bind(id)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
-pub async fn update_agent_run_failure(
-    pool: &SqlitePool,
-    id: &str,
-    error_message: &str,
-) -> Result<(), AppError> {
-    sqlx::query(
-        "UPDATE agent_runs
-         SET status='failed',
-             error_message=?,
-             ended_at=datetime('now'),
-             duration_ms=CAST((julianday(datetime('now')) - julianday(started_at)) * 86400000 AS INTEGER)
-         WHERE id=?",
-    )
-        .bind(error_message)
-        .bind(id)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
-pub async fn add_agent_run_token_usage(
-    pool: &SqlitePool,
-    id: &str,
-    token_count_input: Option<i64>,
-    token_count_output: Option<i64>,
-) -> Result<(), AppError> {
-    if token_count_input.is_none() && token_count_output.is_none() {
-        return Ok(());
-    }
-    sqlx::query(
-        "UPDATE agent_runs
-         SET token_count_input = COALESCE(token_count_input, 0) + ?,
-             token_count_output = COALESCE(token_count_output, 0) + ?
-         WHERE id=?",
-    )
-    .bind(token_count_input.unwrap_or(0))
-    .bind(token_count_output.unwrap_or(0))
-    .bind(id)
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
-pub async fn update_agent_run_snapshot_paths(
-    pool: &SqlitePool,
-    id: &str,
-    prompt_snapshot_path: &str,
-    output_snapshot_path: &str,
-) -> Result<(), AppError> {
-    sqlx::query(
-        "UPDATE agent_runs
-         SET prompt_snapshot_path=?,
-             output_snapshot_path=?
-         WHERE id=?",
-    )
-    .bind(prompt_snapshot_path)
-    .bind(output_snapshot_path)
-    .bind(id)
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
-pub async fn list_agent_runs_for_workflow(
-    pool: &SqlitePool,
-    workflow_run_id: &str,
-) -> Result<Vec<AgentRun>, AppError> {
-    sqlx::query_as::<_, AgentRun>(
-        "SELECT id,workflow_run_id,agent_id,stage,status,prompt_snapshot_path,output_snapshot_path,token_count_input,token_count_output,duration_ms,error_message,started_at,ended_at,created_at 
-         FROM agent_runs WHERE workflow_run_id=? ORDER BY started_at ASC"
-    )
-    .bind(workflow_run_id)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| e.into())
-}
-
-pub async fn get_agent_model_bindings(
-    pool: &SqlitePool,
-    agent_id: &str,
-) -> Result<Vec<AgentModelBinding>, AppError> {
-    sqlx::query_as::<_, AgentModelBinding>(
-        "SELECT id,agent_id,model_id,priority,created_at FROM agent_model_bindings WHERE agent_id=? ORDER BY priority ASC"
-    )
-    .bind(agent_id)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| e.into())
-}
-
-pub async fn list_agent_model_bindings(
-    pool: &SqlitePool,
-) -> Result<Vec<AgentModelBinding>, AppError> {
-    sqlx::query_as::<_, AgentModelBinding>(
-        "SELECT id,agent_id,model_id,priority,created_at FROM agent_model_bindings ORDER BY agent_id ASC, priority ASC"
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|e| e.into())
-}
-
-pub async fn delete_agent_model_bindings_for_agent(
-    pool: &SqlitePool,
-    agent_id: &str,
-) -> Result<(), AppError> {
-    sqlx::query("DELETE FROM agent_model_bindings WHERE agent_id=?")
-        .bind(agent_id)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
-pub async fn create_agent_model_binding(
-    pool: &SqlitePool,
-    id: &str,
-    agent_id: &str,
-    model_id: &str,
-    priority: i32,
-) -> Result<AgentModelBinding, AppError> {
-    sqlx::query(
-        "INSERT INTO agent_model_bindings (id,agent_id,model_id,priority) VALUES (?,?,?,?)",
-    )
-    .bind(id)
-    .bind(agent_id)
-    .bind(model_id)
-    .bind(priority)
-    .execute(pool)
-    .await?;
-    sqlx::query_as::<_, AgentModelBinding>(
-        "SELECT id,agent_id,model_id,priority,created_at FROM agent_model_bindings WHERE id=?",
-    )
-    .bind(id)
-    .fetch_one(pool)
-    .await
-    .map_err(|e| e.into())
 }

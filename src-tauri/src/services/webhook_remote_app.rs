@@ -588,7 +588,7 @@ pub const REMOTE_APP_HTML: &str = r##"<!doctype html>
       selectedProductId: localStorage.getItem(storageKeys.selectedProduct) || "",
       draftTreeNodes: [],
       products: [],
-      productTree: null,
+      productSummary: null,
       chatMessages: [],
       voiceMessages: [],
       voiceRecording: null,
@@ -1196,9 +1196,9 @@ pub const REMOTE_APP_HTML: &str = r##"<!doctype html>
         state.products = await request("/api/mobile/products");
         renderProducts();
         if (state.selectedProductId && state.products.some((product) => product.id === state.selectedProductId)) {
-          await loadProductTree(state.selectedProductId);
+          await loadProductSummary(state.selectedProductId);
         } else if (state.products[0]) {
-          await loadProductTree(state.products[0].id);
+          await loadProductSummary(state.products[0].id);
         }
         setStatus("Connected", "ok");
       } catch (error) {
@@ -1230,7 +1230,7 @@ pub const REMOTE_APP_HTML: &str = r##"<!doctype html>
         card.type = "button";
         card.className = "product-card" + (product.id === state.selectedProductId ? " selected" : "");
         card.onclick = () => {
-          void loadProductTree(product.id);
+          void loadProductSummary(product.id);
         };
         const title = document.createElement("div");
         title.className = "product-title";
@@ -1244,13 +1244,13 @@ pub const REMOTE_APP_HTML: &str = r##"<!doctype html>
       });
     }
 
-    async function loadProductTree(productId) {
+    async function loadProductSummary(productId) {
       state.selectedProductId = productId;
       localStorage.setItem(storageKeys.selectedProduct, productId);
       renderProducts();
       el.productStatus.textContent = "Loading";
-      state.productTree = await request("/api/mobile/products/" + encodeURIComponent(productId) + "/tree");
-      renderProductTree();
+      state.productSummary = await request("/api/mobile/products/" + encodeURIComponent(productId) + "/summary");
+      renderProductSummary();
     }
 
     function renderMetric(value, label) {
@@ -1267,56 +1267,25 @@ pub const REMOTE_APP_HTML: &str = r##"<!doctype html>
       return metric;
     }
 
-    function renderProductTree() {
+    function renderProductSummary() {
       el.productMetrics.innerHTML = "";
       el.productTree.innerHTML = "";
-      const tree = state.productTree;
-      if (!tree) {
+      const summary = state.productSummary;
+      if (!summary) {
         el.productStatus.textContent = "No product";
         return;
       }
-      const product_areas = tree.product_areas || [];
-      const roots = tree.roots || [];
-      const nodeCount = countNodes(roots);
-      el.productStatus.textContent = tree.product ? tree.product.name : "Loaded";
-      el.productMetrics.appendChild(renderMetric(product_areas.length, "Product Areas"));
-      el.productMetrics.appendChild(renderMetric(nodeCount, "Nodes"));
-      el.productMetrics.appendChild(renderMetric(tree.product && tree.product.status ? tree.product.status : "active", "Status"));
+      const product = state.products.find((entry) => entry.id === state.selectedProductId);
+      el.productStatus.textContent = product ? product.name : "Loaded";
+      el.productMetrics.appendChild(renderMetric(summary.product_area_count || 0, "Product Areas"));
+      el.productMetrics.appendChild(renderMetric(summary.total_node_count || 0, "Nodes"));
+      el.productMetrics.appendChild(renderMetric(summary.leaf_node_count || 0, "Leaf Nodes"));
+      el.productMetrics.appendChild(renderMetric(product && product.status ? product.status : "active", "Status"));
 
-      if (!roots.length) {
-        const empty = document.createElement("div");
-        empty.className = "empty";
-        empty.textContent = "No tree nodes.";
-        el.productTree.appendChild(empty);
-        return;
-      }
-      roots.forEach((node) => renderProductTreeNode(node, 0));
-    }
-
-    function countNodes(nodes) {
-      return (nodes || []).reduce((total, node) => total + 1 + countNodes(node.children || []), 0);
-    }
-
-    function renderProductTreeNode(node, depth) {
-      const card = document.createElement("div");
-      card.className = "tree-node";
-      card.style.marginLeft = Math.min(depth * 12, 36) + "px";
-      const title = document.createElement("div");
-      title.className = "tree-title";
-      title.textContent = node.name || "Untitled";
-      const meta = document.createElement("div");
-      meta.className = "tree-meta";
-      meta.textContent = [node.node_kind, node.node_type].filter(Boolean).join(" / ");
-      card.appendChild(title);
-      card.appendChild(meta);
-      if (node.summary || node.description) {
-        const summary = document.createElement("div");
-        summary.className = "tree-summary";
-        summary.textContent = node.summary || node.description;
-        card.appendChild(summary);
-      }
-      el.productTree.appendChild(card);
-      (node.children || []).forEach((child) => renderProductTreeNode(child, depth + 1));
+      const note = document.createElement("div");
+      note.className = "empty";
+      note.textContent = "Mobile loads aggregate product metrics only. Open the desktop Product Overview to browse the full semantic tree.";
+      el.productTree.appendChild(note);
     }
 
     function renderMcpTools() {
@@ -1374,3 +1343,16 @@ pub const REMOTE_APP_HTML: &str = r##"<!doctype html>
   </script>
 </body>
 </html>"##;
+
+#[cfg(test)]
+mod tests {
+    use super::REMOTE_APP_HTML;
+
+    #[test]
+    fn product_overview_uses_summary_endpoint_by_default() {
+        assert!(REMOTE_APP_HTML
+            .contains("/api/mobile/products/\" + encodeURIComponent(productId) + \"/summary"));
+        assert!(!REMOTE_APP_HTML
+            .contains("/api/mobile/products/\" + encodeURIComponent(productId) + \"/tree"));
+    }
+}

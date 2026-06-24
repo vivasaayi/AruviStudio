@@ -9,6 +9,7 @@ import type {
   ProductArea,
   Capability,
   WorkItem,
+  WorkItemPage,
   ProductWorkItemSummary,
   WorkItemScopeSummary,
   Repository,
@@ -390,6 +391,9 @@ export const createCapability = (data: {
   });
 export const listCapabilities = (productAreaId: string) =>
   invoke<Capability[]>("list_capabilities", { productAreaId, product_area_id: productAreaId });
+export const listProductCapabilities = (productId: string) =>
+  invoke<Capability[]>("list_product_capabilities", { productId, product_id: productId });
+export const getCapability = (id: string) => invoke<Capability>("get_capability", { id });
 export const updateCapability = (data: {
   id: string;
   name?: string;
@@ -500,7 +504,7 @@ export const createWorkItem = (data: {
   });
 
 export const getWorkItem = (id: string) => invoke<WorkItem>("get_work_item", { id });
-export const listWorkItems = (filters?: {
+export const listWorkItemsPage = (filters?: {
   productId?: string;
   productAreaId?: string;
   capabilityId?: string;
@@ -509,8 +513,9 @@ export const listWorkItems = (filters?: {
   status?: string;
   limit?: number;
   offset?: number;
+  topLevelOnly?: boolean;
 }) =>
-  invoke<WorkItem[]>("list_work_items", {
+  invoke<WorkItemPage>("list_work_items_page", {
     request: {
       product_id: filters?.productId,
       product_area_id: filters?.productAreaId,
@@ -520,6 +525,7 @@ export const listWorkItems = (filters?: {
       status: filters?.status,
       limit: filters?.limit,
       offset: filters?.offset,
+      top_level_only: filters?.topLevelOnly,
     },
   });
 export const summarizeWorkItemsByProduct = () =>

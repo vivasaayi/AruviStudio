@@ -1,4 +1,70 @@
 use super::*;
+use crate::persistence::{db as db_service, product_repo, work_item_repo};
+use crate::state::AppState;
+
+fn make_temp_dir(name: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("aruvi_mcp_tools_{}_{}", name, uuid::Uuid::new_v4()))
+}
+
+async fn create_test_state(name: &str) -> AppState {
+    let temp_root = make_temp_dir(name);
+    std::fs::create_dir_all(&temp_root).expect("temp dir should be created");
+    let db_path = temp_root.join("test.db");
+    let database_url = format!("sqlite://{}", db_path.display());
+    let pool = db_service::create_pool(&database_url)
+        .await
+        .expect("test database should be created");
+    AppState::new(pool, temp_root)
+        .await
+        .expect("test app state should be created")
+}
+
+async fn create_test_product(state: &AppState, product_id: &str) {
+    product_repo::create_product(
+        &state.db,
+        product_repo::CreateProductInput {
+            id: product_id,
+            name: "MCP Test Product",
+            description: "",
+            vision: "",
+            goals: "[]",
+            tags: "[]",
+            lifecycle: Some("active"),
+            health: Some("healthy"),
+            owner_label: None,
+            investment_status: Some("invest"),
+            roadmap: None,
+            evidence: None,
+        },
+    )
+    .await
+    .expect("product should be created");
+}
+
+async fn create_test_work_item(state: &AppState, id: &str, product_id: &str, title: &str) {
+    work_item_repo::create_work_item(
+        &state.db,
+        work_item_repo::CreateWorkItemInput {
+            id,
+            product_id,
+            product_area_id: None,
+            capability_id: None,
+            source_node_id: None,
+            source_node_type: None,
+            parent_work_item_id: None,
+            title,
+            problem_statement: "",
+            description: "",
+            acceptance_criteria: "",
+            constraints: "",
+            work_item_type: "story",
+            priority: "medium",
+            complexity: "medium",
+        },
+    )
+    .await
+    .expect("work item should be created");
+}
 
 #[test]
 fn definitions_include_first_class_tools_after_legacy_tools() {
@@ -144,6 +210,87 @@ fn discovery_exposes_agent_work_coordination_tools() {
     assert!(definitions
         .iter()
         .any(|tool| tool.name == "repositories.git.status"));
+}
+
+#[test]
+fn discovery_exposes_work_item_pagination_metadata_option() {
+    let definitions = definitions();
+    let list_tool = definitions
+        .iter()
+        .find(|tool| tool.name == "work_items.list")
+        .expect("work_items.list tool");
+
+    assert!(list_tool.description.contains("includePagination=true"));
+    let properties = list_tool
+        .input_schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .expect("properties object");
+    assert!(properties.contains_key("includePagination"));
+}
+
+#[tokio::test]
+async fn work_items_list_supports_opt_in_pagination_metadata() {
+    let state = create_test_state("work_item_list_pagination").await;
+    create_test_product(&state, "mcp-product-page").await;
+    for (id, title) in [
+        ("mcp-page-story-1", "First"),
+        ("mcp-page-story-2", "Second"),
+        ("mcp-page-story-3", "Third"),
+    ] {
+        create_test_work_item(&state, id, "mcp-product-page", title).await;
+    }
+
+    let raw_response = dispatch_tool(
+        &state,
+        "work_items.list",
+        json!({
+            "productId": "mcp-product-page",
+            "limit": 2
+        }),
+    )
+    .await
+    .expect("legacy raw page should load");
+
+    assert_eq!(raw_response["action"], json!("list_work_items"));
+    assert_eq!(
+        raw_response["result"]
+            .as_array()
+            .expect("legacy result should remain an array")
+            .len(),
+        2
+    );
+
+    let paged_response = dispatch_tool(
+        &state,
+        "work_items.list",
+        json!({
+            "productId": "mcp-product-page",
+            "limit": 2,
+            "offset": 0,
+            "includePagination": true
+        }),
+    )
+    .await
+    .expect("metadata page should load");
+
+    assert_eq!(
+        paged_response["result"]["workItems"]
+            .as_array()
+            .expect("metadata result should include workItems")
+            .len(),
+        2
+    );
+    assert_eq!(
+        paged_response["result"]["pagination"],
+        json!({
+            "limit": 2,
+            "offset": 0,
+            "returned": 2,
+            "hasMore": true,
+            "nextOffset": 2,
+        })
+    );
 }
 
 #[test]

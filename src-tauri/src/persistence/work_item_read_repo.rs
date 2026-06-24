@@ -1,10 +1,14 @@
 use crate::domain::work_item::{ProductWorkItemSummary, WorkItem, WorkItemScopeSummary};
 use crate::error::AppError;
+use crate::observability::performance::{
+    elapsed_ms, record_persistence_query, record_persistence_query_error,
+};
 use sqlx::SqlitePool;
+use std::time::Instant;
 use tracing::trace;
 
-const DEFAULT_LIST_WORK_ITEMS_LIMIT: i64 = 500;
-const MAX_LIST_WORK_ITEMS_LIMIT: i64 = 2_000;
+pub const DEFAULT_LIST_WORK_ITEMS_LIMIT: i64 = 500;
+pub const MAX_LIST_WORK_ITEMS_LIMIT: i64 = 2_000;
 const WORK_ITEM_SELECT_COLUMNS: &str = "id,product_id,product_area_id,capability_id,source_node_id,source_node_type,parent_work_item_id,title,problem_statement,description,acceptance_criteria,constraints,work_item_type,priority,complexity,status,repo_override_id,active_repo_id,branch_name,sort_order,created_at,updated_at";
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -20,14 +24,26 @@ pub struct WorkItemListQuery<'a> {
 }
 
 impl WorkItemListQuery<'_> {
-    fn bounded_page(&self) -> (i64, i64) {
+    pub(crate) fn bounded_page(&self) -> (i64, i64) {
+        self.bounded_page_with_max(MAX_LIST_WORK_ITEMS_LIMIT)
+    }
+
+    fn bounded_page_with_max(&self, max_limit: i64) -> (i64, i64) {
         let limit = self
             .limit
             .unwrap_or(DEFAULT_LIST_WORK_ITEMS_LIMIT)
-            .clamp(1, MAX_LIST_WORK_ITEMS_LIMIT);
+            .clamp(1, max_limit);
         let offset = self.offset.unwrap_or(0).max(0);
         (limit, offset)
     }
+}
+
+#[derive(Debug)]
+pub struct WorkItemPage {
+    pub items: Vec<WorkItem>,
+    pub limit: i64,
+    pub offset: i64,
+    pub has_more: bool,
 }
 
 pub async fn get_work_item(pool: &SqlitePool, id: &str) -> Result<WorkItem, AppError> {
@@ -44,14 +60,62 @@ pub async fn list_work_items_page(
     pool: &SqlitePool,
     query: WorkItemListQuery<'_>,
 ) -> Result<Vec<WorkItem>, AppError> {
-    list_work_items_internal(pool, query, false).await
+    list_work_items_internal(pool, query, false, MAX_LIST_WORK_ITEMS_LIMIT).await
+}
+
+pub async fn list_work_items_page_with_metadata(
+    pool: &SqlitePool,
+    query: WorkItemListQuery<'_>,
+) -> Result<WorkItemPage, AppError> {
+    let (limit, offset) = query.bounded_page();
+    let probe_query = WorkItemListQuery {
+        limit: Some(limit + 1),
+        offset: Some(offset),
+        ..query
+    };
+    let mut items =
+        list_work_items_internal(pool, probe_query, false, MAX_LIST_WORK_ITEMS_LIMIT + 1).await?;
+    let has_more = i64::try_from(items.len()).unwrap_or(i64::MAX) > limit;
+    if has_more {
+        items.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
+    }
+    Ok(WorkItemPage {
+        items,
+        limit,
+        offset,
+        has_more,
+    })
 }
 
 pub async fn list_top_level_work_items_page(
     pool: &SqlitePool,
     query: WorkItemListQuery<'_>,
 ) -> Result<Vec<WorkItem>, AppError> {
-    list_work_items_internal(pool, query, true).await
+    list_work_items_internal(pool, query, true, MAX_LIST_WORK_ITEMS_LIMIT).await
+}
+
+pub async fn list_top_level_work_items_page_with_metadata(
+    pool: &SqlitePool,
+    query: WorkItemListQuery<'_>,
+) -> Result<WorkItemPage, AppError> {
+    let (limit, offset) = query.bounded_page();
+    let probe_query = WorkItemListQuery {
+        limit: Some(limit + 1),
+        offset: Some(offset),
+        ..query
+    };
+    let mut items =
+        list_work_items_internal(pool, probe_query, true, MAX_LIST_WORK_ITEMS_LIMIT + 1).await?;
+    let has_more = i64::try_from(items.len()).unwrap_or(i64::MAX) > limit;
+    if has_more {
+        items.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
+    }
+    Ok(WorkItemPage {
+        items,
+        limit,
+        offset,
+        has_more,
+    })
 }
 
 pub async fn search_work_items_by_title(
@@ -93,7 +157,8 @@ pub async fn search_work_items_by_title(
 pub async fn summarize_work_items_by_product(
     pool: &SqlitePool,
 ) -> Result<Vec<ProductWorkItemSummary>, AppError> {
-    sqlx::query_as::<_, ProductWorkItemSummary>(
+    let started = Instant::now();
+    let result = sqlx::query_as::<_, ProductWorkItemSummary>(
         "SELECT product_id, COUNT(*) as total_count,
          SUM(CASE WHEN status NOT IN ('done', 'cancelled') THEN 1 ELSE 0 END) as active_count,
          SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done_count,
@@ -103,8 +168,19 @@ pub async fn summarize_work_items_by_product(
          GROUP BY product_id",
     )
     .fetch_all(pool)
-    .await
-    .map_err(|error| error.into())
+    .await;
+    let duration_ms = elapsed_ms(started);
+    match &result {
+        Ok(rows) => record_persistence_query(
+            "work_items.summarize_by_product",
+            duration_ms,
+            Some(rows.len()),
+        ),
+        Err(error) => {
+            record_persistence_query_error("work_items.summarize_by_product", duration_ms, error)
+        }
+    }
+    result.map_err(|error| error.into())
 }
 
 pub async fn summarize_work_items_by_scope(
@@ -137,10 +213,20 @@ pub async fn summarize_work_items_by_scope(
     if let Some(product_id) = product_id {
         query_builder = query_builder.bind(product_id);
     }
-    query_builder
-        .fetch_all(pool)
-        .await
-        .map_err(|error| error.into())
+    let started = Instant::now();
+    let result = query_builder.fetch_all(pool).await;
+    let duration_ms = elapsed_ms(started);
+    match &result {
+        Ok(rows) => record_persistence_query(
+            "work_items.summarize_by_scope",
+            duration_ms,
+            Some(rows.len()),
+        ),
+        Err(error) => {
+            record_persistence_query_error("work_items.summarize_by_scope", duration_ms, error)
+        }
+    }
+    result.map_err(|error| error.into())
 }
 
 pub async fn get_sub_work_items_page(
@@ -154,7 +240,8 @@ pub async fn get_sub_work_items_page(
         .clamp(1, MAX_LIST_WORK_ITEMS_LIMIT);
     let offset = offset.unwrap_or(0).max(0);
     trace!(parent_work_item_id = %parent_work_item_id, limit, offset, "persist get_sub_work_items_page");
-    sqlx::query_as::<_, WorkItem>(&format!(
+    let started = Instant::now();
+    let result = sqlx::query_as::<_, WorkItem>(&format!(
         "SELECT {WORK_ITEM_SELECT_COLUMNS}
          FROM work_items
          WHERE parent_work_item_id=?
@@ -165,20 +252,30 @@ pub async fn get_sub_work_items_page(
     .bind(limit)
     .bind(offset)
     .fetch_all(pool)
-    .await
-    .map_err(|error| error.into())
+    .await;
+    let duration_ms = elapsed_ms(started);
+    match &result {
+        Ok(rows) => {
+            record_persistence_query("work_items.list_sub_items", duration_ms, Some(rows.len()))
+        }
+        Err(error) => {
+            record_persistence_query_error("work_items.list_sub_items", duration_ms, error)
+        }
+    }
+    result.map_err(|error| error.into())
 }
 
 async fn list_work_items_internal(
     pool: &SqlitePool,
     query: WorkItemListQuery<'_>,
     top_level_only: bool,
+    max_limit: i64,
 ) -> Result<Vec<WorkItem>, AppError> {
     let normalized_source_node_type = query
         .source_node_type
         .map(normalize_source_node_type)
         .transpose()?;
-    let (limit, offset) = query.bounded_page();
+    let (limit, offset) = query.bounded_page_with_max(max_limit);
     trace!(product_id = ?query.product_id, product_area_id = ?query.product_area_id, capability_id = ?query.capability_id, source_node_id = ?query.source_node_id, source_node_type = ?query.source_node_type, status = ?query.status, limit, offset, "persist list_work_items");
     let mut sql = format!("SELECT {WORK_ITEM_SELECT_COLUMNS} FROM work_items WHERE 1=1");
     if query.product_id.is_some() {
@@ -225,10 +322,14 @@ async fn list_work_items_internal(
         query_builder = query_builder.bind(value);
     }
     query_builder = query_builder.bind(limit).bind(offset);
-    query_builder
-        .fetch_all(pool)
-        .await
-        .map_err(|error| error.into())
+    let started = Instant::now();
+    let result = query_builder.fetch_all(pool).await;
+    let duration_ms = elapsed_ms(started);
+    match &result {
+        Ok(rows) => record_persistence_query("work_items.list_page", duration_ms, Some(rows.len())),
+        Err(error) => record_persistence_query_error("work_items.list_page", duration_ms, error),
+    }
+    result.map_err(|error| error.into())
 }
 
 fn normalize_source_node_type(value: &str) -> Result<&'static str, AppError> {

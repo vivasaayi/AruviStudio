@@ -1,5 +1,4 @@
-import { countHierarchyNodes } from "../../../lib/hierarchyTree";
-import type { Product, ProductTree, ProductWorkItemSummary } from "../../../lib/types";
+import type { Product, ProductTreeSummary, ProductWorkItemSummary } from "../../../lib/types";
 import { getProgressSummaryFromCounts, type ProgressSummary } from "./productStatusSummary";
 
 export type ProductCatalogSource = "default" | "custom";
@@ -19,7 +18,7 @@ export interface ProductCatalogRow {
 
 export interface BuildProductCatalogRowsOptions {
   products: Product[];
-  productTreeById: Map<string, ProductTree>;
+  productTreeSummaryById: Map<string, ProductTreeSummary>;
   productSummaryById: Map<string, ProductWorkItemSummary>;
   search: string;
   statusFilter: ProductCatalogStatusFilter;
@@ -38,7 +37,7 @@ export function getProductCatalogTags(products: Product[]) {
 
 export function buildProductCatalogRows({
   products,
-  productTreeById,
+  productTreeSummaryById,
   productSummaryById,
   search,
   statusFilter,
@@ -50,7 +49,7 @@ export function buildProductCatalogRows({
 }: BuildProductCatalogRowsOptions): ProductCatalogRow[] {
   const normalizedSearch = search.trim().toLowerCase();
   return products
-    .map((product) => buildProductCatalogRow(product, productTreeById, productSummaryById))
+    .map((product) => buildProductCatalogRow(product, productTreeSummaryById, productSummaryById))
     .filter((row) => productCatalogRowMatches(row, {
       search: normalizedSearch,
       statusFilter,
@@ -68,10 +67,10 @@ export function isExampleProduct(product: Product) {
 
 function buildProductCatalogRow(
   product: Product,
-  productTreeById: Map<string, ProductTree>,
+  productTreeSummaryById: Map<string, ProductTreeSummary>,
   productSummaryById: Map<string, ProductWorkItemSummary>,
 ): ProductCatalogRow {
-  const treeForProduct = productTreeById.get(product.id);
+  const treeSummary = productTreeSummaryById.get(product.id);
   const summary = productSummaryById.get(product.id);
   const total = summary?.total_count ?? 0;
   const done = summary?.done_count ?? 0;
@@ -79,8 +78,8 @@ function buildProductCatalogRow(
   return {
     product,
     source: isExampleProduct(product) ? "default" : "custom",
-    rootCount: treeForProduct?.roots.length ?? 0,
-    nodeCount: treeForProduct ? countHierarchyNodes(treeForProduct.roots) : 0,
+    rootCount: treeSummary?.product_area_count ?? 0,
+    nodeCount: treeSummary?.total_node_count ?? 0,
     workItemCount: total,
     activeWorkItemCount: summary?.active_count ?? 0,
     progress: getProgressSummaryFromCounts(total, done),

@@ -6,9 +6,10 @@ pub use crate::persistence::product_core_repo::{
 };
 pub use crate::persistence::product_hierarchy_repo::{
     convert_capability_node_kind, create_capability, create_product_area, delete_capability,
-    delete_product_area, get_capability, list_capabilities, list_product_areas,
-    reorder_capabilities, reorder_product_areas, update_capability, update_product_area,
-    CreateCapabilityInput, CreateProductAreaInput, UpdateCapabilityPatch, UpdateProductAreaPatch,
+    delete_product_area, get_capability, list_capabilities, list_capabilities_by_ids_for_product,
+    list_product_areas, list_product_capabilities, reorder_capabilities, reorder_product_areas,
+    update_capability, update_product_area, CreateCapabilityInput, CreateProductAreaInput,
+    UpdateCapabilityPatch, UpdateProductAreaPatch,
 };
 pub use crate::persistence::product_plan_reset_repo::reset_product_plan;
 pub use crate::persistence::product_reference_repo::{

@@ -90,41 +90,45 @@ async fn claim_next_item_holds_conflict_zone_until_commit_releases_it() {
 
     upsert_item(
         &pool,
-        "run-test",
-        "01-01",
-        None,
-        "calculator-core",
-        None,
-        Some("P0"),
-        None,
-        "Expression parser",
-        "",
-        None,
-        None,
-        None,
-        None,
-        Some(serde_json::json!(["product_area:calculator-core"])),
-        None,
+        UpsertAgentWorkItemInput {
+            run_id: "run-test",
+            feature_id: "01-01",
+            work_item_id: None,
+            product_area: "calculator-core",
+            service_or_domain: None,
+            priority: Some("P0"),
+            release_phase: None,
+            title: "Expression parser",
+            description: "",
+            status: None,
+            batch_id: None,
+            agent: None,
+            commit_sha: None,
+            conflict_zones: Some(serde_json::json!(["product_area:calculator-core"])),
+            metadata: None,
+        },
     )
     .await
     .expect("first item should be created");
     upsert_item(
         &pool,
-        "run-test",
-        "01-02",
-        None,
-        "calculator-core",
-        None,
-        Some("P0"),
-        None,
-        "Operator precedence",
-        "",
-        None,
-        None,
-        None,
-        None,
-        Some(serde_json::json!(["product_area:calculator-core"])),
-        None,
+        UpsertAgentWorkItemInput {
+            run_id: "run-test",
+            feature_id: "01-02",
+            work_item_id: None,
+            product_area: "calculator-core",
+            service_or_domain: None,
+            priority: Some("P0"),
+            release_phase: None,
+            title: "Operator precedence",
+            description: "",
+            status: None,
+            batch_id: None,
+            agent: None,
+            commit_sha: None,
+            conflict_zones: Some(serde_json::json!(["product_area:calculator-core"])),
+            metadata: None,
+        },
     )
     .await
     .expect("second item should be created");
@@ -188,6 +192,186 @@ async fn claim_next_item_holds_conflict_zone_until_commit_releases_it() {
 }
 
 #[tokio::test]
+async fn lifecycle_updates_heartbeat_status_and_expired_requeue() {
+    let pool = create_test_pool("lifecycle").await;
+
+    upsert_run(
+        &pool,
+        UpsertAgentWorkRunInput {
+            id: "run-lifecycle",
+            product_id: None,
+            repository_id: None,
+            roadmap_hash: "roadmap-hash",
+            status: None,
+            last_commit_sha: None,
+            current_batch_id: None,
+            next_action: Some("Start"),
+            metadata: None,
+        },
+    )
+    .await
+    .expect("run should be created");
+
+    upsert_item(
+        &pool,
+        UpsertAgentWorkItemInput {
+            run_id: "run-lifecycle",
+            feature_id: "01-heartbeat",
+            work_item_id: None,
+            product_area: "calculator-core",
+            service_or_domain: None,
+            priority: Some("P0"),
+            release_phase: None,
+            title: "Heartbeat target",
+            description: "",
+            status: None,
+            batch_id: None,
+            agent: None,
+            commit_sha: None,
+            conflict_zones: Some(serde_json::json!(["product_area:calculator-core"])),
+            metadata: None,
+        },
+    )
+    .await
+    .expect("heartbeat item should be created");
+    upsert_item(
+        &pool,
+        UpsertAgentWorkItemInput {
+            run_id: "run-lifecycle",
+            feature_id: "02-blocked",
+            work_item_id: None,
+            product_area: "reporting",
+            service_or_domain: None,
+            priority: Some("P1"),
+            release_phase: None,
+            title: "Blocked target",
+            description: "",
+            status: None,
+            batch_id: None,
+            agent: None,
+            commit_sha: None,
+            conflict_zones: Some(serde_json::json!(["product_area:reporting"])),
+            metadata: None,
+        },
+    )
+    .await
+    .expect("blocked item should be created");
+
+    let heartbeat_claim = claim_next_item(
+        &pool,
+        "run-lifecycle",
+        "agent-a",
+        Some("batch-a"),
+        Some("claim heartbeat"),
+        Some(30),
+    )
+    .await
+    .expect("heartbeat claim should succeed")
+    .expect("heartbeat item should be claimed");
+    assert_eq!(heartbeat_claim.item.feature_id, "01-heartbeat");
+
+    let heartbeat = heartbeat_item(
+        &pool,
+        "run-lifecycle",
+        "01-heartbeat",
+        &heartbeat_claim.claim_token,
+        Some(3600),
+    )
+    .await
+    .expect("heartbeat should refresh item and lock lease");
+    assert_eq!(heartbeat.status, "claimed");
+    assert!(heartbeat.heartbeat_at.is_some());
+    assert!(heartbeat.lease_expires_at.is_some());
+    let heartbeat_lock = list_active_locks(&pool, "run-lifecycle")
+        .await
+        .expect("locks should list")
+        .into_iter()
+        .find(|lock| lock.feature_id.as_deref() == Some("01-heartbeat"))
+        .expect("heartbeat lock should remain active");
+    assert_eq!(
+        Some(heartbeat_lock.lease_expires_at.as_str()),
+        heartbeat.lease_expires_at.as_deref()
+    );
+
+    sqlx::query(
+        "UPDATE agent_work_items
+         SET lease_expires_at=datetime('now', '-1 second')
+         WHERE run_id='run-lifecycle' AND feature_id='01-heartbeat'",
+    )
+    .execute(&pool)
+    .await
+    .expect("item lease should be expired");
+    sqlx::query(
+        "UPDATE agent_work_locks
+         SET lease_expires_at=datetime('now', '-1 second')
+         WHERE run_id='run-lifecycle' AND feature_id='01-heartbeat'",
+    )
+    .execute(&pool)
+    .await
+    .expect("lock lease should be expired");
+
+    let requeued = requeue_expired_items(
+        &pool,
+        "run-lifecycle",
+        Some("coordinator"),
+        Some("lease expired"),
+    )
+    .await
+    .expect("expired claim should be requeued");
+    assert_eq!(requeued.len(), 1);
+    assert_eq!(requeued[0].feature_id, "01-heartbeat");
+    assert_eq!(requeued[0].status, "pending");
+    assert!(requeued[0].claim_token.is_none());
+    assert!(requeued[0].lease_expires_at.is_none());
+
+    let blocked_claim = claim_next_item(
+        &pool,
+        "run-lifecycle",
+        "agent-b",
+        Some("batch-b"),
+        Some("claim blocked"),
+        Some(300),
+    )
+    .await
+    .expect("blocked claim should succeed")
+    .expect("blocked item should be claimed");
+    assert_eq!(blocked_claim.item.feature_id, "01-heartbeat");
+
+    let blocked = update_item_status(
+        &pool,
+        UpdateAgentWorkItemStatusInput {
+            run_id: "run-lifecycle",
+            feature_id: "01-heartbeat",
+            status: "blocked",
+            agent: Some("agent-b"),
+            batch_id: Some("batch-b"),
+            claim_token: Some(&blocked_claim.claim_token),
+            commit_sha: None,
+            details: Some("blocked by missing dependency"),
+        },
+    )
+    .await
+    .expect("terminal status should release locks");
+    assert_eq!(blocked.status, "blocked");
+    assert_eq!(
+        list_active_locks(&pool, "run-lifecycle")
+            .await
+            .expect("locks should list")
+            .len(),
+        0
+    );
+
+    let status_events: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM agent_work_events
+         WHERE run_id='run-lifecycle' AND feature_id='01-heartbeat' AND event_type='status' AND status='blocked'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("status event count should load");
+    assert_eq!(status_events, 1);
+}
+
+#[tokio::test]
 async fn claim_next_item_skips_rows_with_unmet_dependencies() {
     let pool = create_test_pool("claim_dependencies").await;
 
@@ -210,41 +394,45 @@ async fn claim_next_item_skips_rows_with_unmet_dependencies() {
 
     upsert_item(
         &pool,
-        "run-deps",
-        "01-foundation",
-        None,
-        "calculator-core",
-        None,
-        Some("P0"),
-        None,
-        "Foundation",
-        "",
-        None,
-        None,
-        None,
-        None,
-        Some(serde_json::json!(["feature:01-foundation"])),
-        None,
+        UpsertAgentWorkItemInput {
+            run_id: "run-deps",
+            feature_id: "01-foundation",
+            work_item_id: None,
+            product_area: "calculator-core",
+            service_or_domain: None,
+            priority: Some("P0"),
+            release_phase: None,
+            title: "Foundation",
+            description: "",
+            status: None,
+            batch_id: None,
+            agent: None,
+            commit_sha: None,
+            conflict_zones: Some(serde_json::json!(["feature:01-foundation"])),
+            metadata: None,
+        },
     )
     .await
     .expect("foundation should be created");
     upsert_item(
         &pool,
-        "run-deps",
-        "02-dependent",
-        None,
-        "calculator-core",
-        None,
-        Some("P0"),
-        None,
-        "Dependent",
-        "",
-        None,
-        None,
-        None,
-        None,
-        Some(serde_json::json!(["feature:02-dependent"])),
-        None,
+        UpsertAgentWorkItemInput {
+            run_id: "run-deps",
+            feature_id: "02-dependent",
+            work_item_id: None,
+            product_area: "calculator-core",
+            service_or_domain: None,
+            priority: Some("P0"),
+            release_phase: None,
+            title: "Dependent",
+            description: "",
+            status: None,
+            batch_id: None,
+            agent: None,
+            commit_sha: None,
+            conflict_zones: Some(serde_json::json!(["feature:02-dependent"])),
+            metadata: None,
+        },
     )
     .await
     .expect("dependent should be created");
@@ -332,21 +520,23 @@ async fn materialize_catalog_creates_visible_product_tree_and_work_items() {
     .expect("run should be created");
     upsert_item(
         &pool,
-        "run-materialize",
-        "legacy-feature-001",
-        None,
-        "Payments",
-        Some("Checkout"),
-        Some("P1"),
-        Some("M1"),
-        "Add checkout reconciliation",
-        "Reconcile checkout events against settlements.",
-        Some("pending"),
-        None,
-        None,
-        None,
-        None,
-        None,
+        UpsertAgentWorkItemInput {
+            run_id: "run-materialize",
+            feature_id: "legacy-feature-001",
+            work_item_id: None,
+            product_area: "Payments",
+            service_or_domain: Some("Checkout"),
+            priority: Some("P1"),
+            release_phase: Some("M1"),
+            title: "Add checkout reconciliation",
+            description: "Reconcile checkout events against settlements.",
+            status: Some("pending"),
+            batch_id: None,
+            agent: None,
+            commit_sha: None,
+            conflict_zones: None,
+            metadata: None,
+        },
     )
     .await
     .expect("item should be created");
@@ -450,21 +640,23 @@ async fn link_catalog_work_items_reconciles_existing_imported_rows() {
     .expect("run should be created");
     upsert_item(
         &pool,
-        "run-link-test",
-        "legacy-feature-link-test",
-        None,
-        "Payments",
-        Some("Checkout"),
-        Some("P1"),
-        Some("M1"),
-        "Reconcile checkout",
-        "",
-        Some("committed"),
-        None,
-        None,
-        None,
-        None,
-        None,
+        UpsertAgentWorkItemInput {
+            run_id: "run-link-test",
+            feature_id: "legacy-feature-link-test",
+            work_item_id: None,
+            product_area: "Payments",
+            service_or_domain: Some("Checkout"),
+            priority: Some("P1"),
+            release_phase: Some("M1"),
+            title: "Reconcile checkout",
+            description: "",
+            status: Some("committed"),
+            batch_id: None,
+            agent: None,
+            commit_sha: None,
+            conflict_zones: None,
+            metadata: None,
+        },
     )
     .await
     .expect("item should be created");

@@ -1,6 +1,7 @@
 use crate::error::AppError;
 use crate::persistence::agent_work_repo::{
-    append_event, normalize_batch_status, upsert_item, upsert_run, UpsertAgentWorkRunInput,
+    append_event, normalize_batch_status, upsert_item, upsert_run, AppendAgentWorkEventInput,
+    UpsertAgentWorkItemInput, UpsertAgentWorkRunInput,
 };
 use serde_json::Value;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
@@ -99,24 +100,26 @@ pub async fn import_legacy_checkpoint(
         let commit_sha: Option<String> = row.get("commit_sha");
         upsert_item(
             pool,
-            &imported_run_id,
-            &feature_id,
-            None,
-            &product_area,
-            service_or_domain.as_deref(),
-            priority.as_deref(),
-            release_phase.as_deref(),
-            &feature_id,
-            "",
-            Some(&status),
-            batch_id.as_deref(),
-            agent.as_deref(),
-            commit_sha.as_deref(),
-            None,
-            Some(serde_json::json!({
-                "source": source_label.unwrap_or("legacy_checkpoint"),
-                "checkpointPath": checkpoint_path
-            })),
+            UpsertAgentWorkItemInput {
+                run_id: &imported_run_id,
+                feature_id: &feature_id,
+                work_item_id: None,
+                product_area: &product_area,
+                service_or_domain: service_or_domain.as_deref(),
+                priority: priority.as_deref(),
+                release_phase: release_phase.as_deref(),
+                title: &feature_id,
+                description: "",
+                status: Some(&status),
+                batch_id: batch_id.as_deref(),
+                agent: agent.as_deref(),
+                commit_sha: commit_sha.as_deref(),
+                conflict_zones: None,
+                metadata: Some(serde_json::json!({
+                    "source": source_label.unwrap_or("legacy_checkpoint"),
+                    "checkpointPath": checkpoint_path
+                })),
+            },
         )
         .await?;
     }
@@ -197,18 +200,20 @@ pub async fn import_legacy_checkpoint(
 
     append_event(
         pool,
-        &imported_run_id,
-        "legacy_import",
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some("imported"),
-        Some(checkpoint_path),
-        Some(serde_json::json!({
-            "source": source_label.unwrap_or("legacy_checkpoint")
-        })),
+        AppendAgentWorkEventInput {
+            run_id: &imported_run_id,
+            event_type: "legacy_import",
+            batch_id: None,
+            feature_id: None,
+            work_item_id: None,
+            agent: None,
+            command: None,
+            status: Some("imported"),
+            details: Some(checkpoint_path),
+            metadata: Some(serde_json::json!({
+                "source": source_label.unwrap_or("legacy_checkpoint")
+            })),
+        },
     )
     .await?;
 

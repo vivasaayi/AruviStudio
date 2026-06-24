@@ -32,35 +32,38 @@ fn json_array_string(value: Option<Value>) -> Result<String, AppError> {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+pub struct AppendAgentWorkEventInput<'a> {
+    pub run_id: &'a str,
+    pub event_type: &'a str,
+    pub batch_id: Option<&'a str>,
+    pub feature_id: Option<&'a str>,
+    pub work_item_id: Option<&'a str>,
+    pub agent: Option<&'a str>,
+    pub command: Option<&'a str>,
+    pub status: Option<&'a str>,
+    pub details: Option<&'a str>,
+    pub metadata: Option<Value>,
+}
+
 pub async fn append_event(
     pool: &SqlitePool,
-    run_id: &str,
-    event_type: &str,
-    batch_id: Option<&str>,
-    feature_id: Option<&str>,
-    work_item_id: Option<&str>,
-    agent: Option<&str>,
-    command: Option<&str>,
-    status: Option<&str>,
-    details: Option<&str>,
-    metadata: Option<Value>,
+    input: AppendAgentWorkEventInput<'_>,
 ) -> Result<AgentWorkEvent, AppError> {
-    let metadata_json = json_object_string(metadata)?;
+    let metadata_json = json_object_string(input.metadata)?;
     let id = sqlx::query(
         "INSERT INTO agent_work_events (
             run_id, event_type, batch_id, feature_id, work_item_id, agent, command, status, details, metadata_json
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
-    .bind(run_id)
-    .bind(event_type)
-    .bind(batch_id)
-    .bind(feature_id)
-    .bind(work_item_id)
-    .bind(agent)
-    .bind(command)
-    .bind(status)
-    .bind(details)
+    .bind(input.run_id)
+    .bind(input.event_type)
+    .bind(input.batch_id)
+    .bind(input.feature_id)
+    .bind(input.work_item_id)
+    .bind(input.agent)
+    .bind(input.command)
+    .bind(input.status)
+    .bind(input.details)
     .bind(metadata_json)
     .execute(pool)
     .await?
@@ -128,27 +131,30 @@ pub async fn list_events(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+pub struct AppendAgentWorkEvidenceInput<'a> {
+    pub run_id: &'a str,
+    pub batch_id: Option<&'a str>,
+    pub feature_id: Option<&'a str>,
+    pub work_item_id: Option<&'a str>,
+    pub agent: Option<&'a str>,
+    pub evidence_type: &'a str,
+    pub command: Option<&'a str>,
+    pub exit_code: Option<i64>,
+    pub status: Option<&'a str>,
+    pub summary: &'a str,
+    pub details: &'a str,
+    pub changed_files: Option<Value>,
+    pub artifact_refs: Option<Value>,
+    pub metadata: Option<Value>,
+}
+
 pub async fn append_evidence(
     pool: &SqlitePool,
-    run_id: &str,
-    batch_id: Option<&str>,
-    feature_id: Option<&str>,
-    work_item_id: Option<&str>,
-    agent: Option<&str>,
-    evidence_type: &str,
-    command: Option<&str>,
-    exit_code: Option<i64>,
-    status: Option<&str>,
-    summary: &str,
-    details: &str,
-    changed_files: Option<Value>,
-    artifact_refs: Option<Value>,
-    metadata: Option<Value>,
+    input: AppendAgentWorkEvidenceInput<'_>,
 ) -> Result<AgentWorkEvidence, AppError> {
-    let changed_files_json = json_array_string(changed_files)?;
-    let artifact_refs_json = json_array_string(artifact_refs)?;
-    let metadata_json = json_object_string(metadata)?;
+    let changed_files_json = json_array_string(input.changed_files)?;
+    let artifact_refs_json = json_array_string(input.artifact_refs)?;
+    let metadata_json = json_object_string(input.metadata)?;
     let id = uuid::Uuid::new_v4().to_string();
     sqlx::query(
         "INSERT INTO agent_work_evidence (
@@ -158,17 +164,17 @@ pub async fn append_evidence(
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
-    .bind(run_id)
-    .bind(batch_id)
-    .bind(feature_id)
-    .bind(work_item_id)
-    .bind(agent)
-    .bind(evidence_type)
-    .bind(command)
-    .bind(exit_code)
-    .bind(status)
-    .bind(summary)
-    .bind(details)
+    .bind(input.run_id)
+    .bind(input.batch_id)
+    .bind(input.feature_id)
+    .bind(input.work_item_id)
+    .bind(input.agent)
+    .bind(input.evidence_type)
+    .bind(input.command)
+    .bind(input.exit_code)
+    .bind(input.status)
+    .bind(input.summary)
+    .bind(input.details)
     .bind(changed_files_json)
     .bind(artifact_refs_json)
     .bind(metadata_json)
@@ -176,16 +182,18 @@ pub async fn append_evidence(
     .await?;
     append_event(
         pool,
-        run_id,
-        "evidence",
-        batch_id,
-        feature_id,
-        work_item_id,
-        agent,
-        command,
-        status,
-        Some(summary),
-        None,
+        AppendAgentWorkEventInput {
+            run_id: input.run_id,
+            event_type: "evidence",
+            batch_id: input.batch_id,
+            feature_id: input.feature_id,
+            work_item_id: input.work_item_id,
+            agent: input.agent,
+            command: input.command,
+            status: input.status,
+            details: Some(input.summary),
+            metadata: None,
+        },
     )
     .await?;
     get_evidence(pool, &id).await

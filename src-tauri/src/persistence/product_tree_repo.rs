@@ -3,28 +3,71 @@ use crate::domain::product::{
     ProductTreeSummary,
 };
 use crate::error::AppError;
+use crate::observability::performance::{
+    elapsed_ms, record_persistence_query, record_persistence_query_error,
+};
 use crate::persistence::product_repo;
 use sqlx::SqlitePool;
+use std::collections::HashMap;
+use std::time::Instant;
 use tracing::trace;
 
+const CAPABILITY_TREE_SELECT_COLUMNS: &str = "
+    c.id AS id,
+    c.product_area_id AS product_area_id,
+    c.parent_capability_id AS parent_capability_id,
+    c.level AS level,
+    c.node_kind AS node_kind,
+    c.sort_order AS sort_order,
+    c.name AS name,
+    c.description AS description,
+    c.acceptance_criteria AS acceptance_criteria,
+    c.explanation AS explanation,
+    c.examples AS examples,
+    c.priority AS priority,
+    c.risk AS risk,
+    c.status AS status,
+    c.technical_notes AS technical_notes,
+    c.implementation_notes AS implementation_notes,
+    c.test_guidance AS test_guidance,
+    c.created_at AS created_at,
+    c.updated_at AS updated_at";
+
 pub async fn get_product_tree(
+    pool: &SqlitePool,
+    product_id: &str,
+) -> Result<ProductTree, AppError> {
+    let started = Instant::now();
+    let result = get_product_tree_impl(pool, product_id).await;
+    let duration_ms = elapsed_ms(started);
+    match &result {
+        Ok(tree) => record_persistence_query(
+            "products.get_tree",
+            duration_ms,
+            Some(product_tree_node_count(tree)),
+        ),
+        Err(error) => record_persistence_query_error("products.get_tree", duration_ms, error),
+    }
+    result
+}
+
+async fn get_product_tree_impl(
     pool: &SqlitePool,
     product_id: &str,
 ) -> Result<ProductTree, AppError> {
     trace!(product_id = %product_id, "persist get_product_tree");
     let product = product_repo::get_product(pool, product_id).await?;
     let product_areas = product_repo::list_product_areas(pool, product_id).await?;
+    let capabilities_by_product_area =
+        group_capabilities_by_product_area(list_capabilities_for_product(pool, product_id).await?);
     let mut product_area_trees = Vec::new();
     for product_area in product_areas {
-        let features = product_repo::list_capabilities(pool, &product_area.id).await?;
-        let root_features: Vec<_> = features
-            .iter()
-            .filter(|feature| feature.parent_capability_id.is_none())
-            .collect();
-        let capability_trees = root_features
-            .iter()
-            .map(|feature| build_capability_tree(feature, &features))
-            .collect();
+        let capability_trees = build_capability_trees(
+            capabilities_by_product_area
+                .get(&product_area.id)
+                .cloned()
+                .unwrap_or_default(),
+        );
         product_area_trees.push(ProductAreaTree {
             product_area,
             features: capability_trees,
@@ -41,7 +84,108 @@ pub async fn get_product_tree(
     })
 }
 
+async fn list_capabilities_for_product(
+    pool: &SqlitePool,
+    product_id: &str,
+) -> Result<Vec<Capability>, AppError> {
+    let started = Instant::now();
+    let result = sqlx::query_as::<_, Capability>(&format!(
+        "SELECT {CAPABILITY_TREE_SELECT_COLUMNS}
+         FROM capabilities c
+         JOIN product_areas pa ON pa.id = c.product_area_id
+         WHERE pa.product_id = ?
+         ORDER BY pa.sort_order, c.product_area_id, c.sort_order, c.name"
+    ))
+    .bind(product_id)
+    .fetch_all(pool)
+    .await;
+    let duration_ms = elapsed_ms(started);
+    match &result {
+        Ok(rows) => record_persistence_query(
+            "products.list_capabilities_for_tree",
+            duration_ms,
+            Some(rows.len()),
+        ),
+        Err(error) => record_persistence_query_error(
+            "products.list_capabilities_for_tree",
+            duration_ms,
+            error,
+        ),
+    }
+    result.map_err(|error| error.into())
+}
+
+fn group_capabilities_by_product_area(
+    capabilities: Vec<Capability>,
+) -> HashMap<String, Vec<Capability>> {
+    let mut grouped = HashMap::new();
+    for capability in capabilities {
+        grouped
+            .entry(capability.product_area_id.clone())
+            .or_insert_with(Vec::new)
+            .push(capability);
+    }
+    grouped
+}
+
+fn build_capability_trees(capabilities: Vec<Capability>) -> Vec<CapabilityTree> {
+    let mut children_by_parent = group_capabilities_by_parent(capabilities);
+    children_by_parent
+        .remove(&None)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|capability| build_capability_tree(capability, &mut children_by_parent))
+        .collect()
+}
+
+fn group_capabilities_by_parent(
+    capabilities: Vec<Capability>,
+) -> HashMap<Option<String>, Vec<Capability>> {
+    let mut grouped = HashMap::new();
+    for capability in capabilities {
+        grouped
+            .entry(capability.parent_capability_id.clone())
+            .or_insert_with(Vec::new)
+            .push(capability);
+    }
+    grouped
+}
+
+fn build_capability_tree(
+    capability: Capability,
+    children_by_parent: &mut HashMap<Option<String>, Vec<Capability>>,
+) -> CapabilityTree {
+    let children = children_by_parent
+        .remove(&Some(capability.id.clone()))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|child| build_capability_tree(child, children_by_parent))
+        .collect();
+    CapabilityTree {
+        capability,
+        children,
+    }
+}
+
 pub async fn summarize_product_tree(
+    pool: &SqlitePool,
+    product_id: &str,
+) -> Result<ProductTreeSummary, AppError> {
+    let started = Instant::now();
+    let result = summarize_product_tree_impl(pool, product_id).await;
+    let duration_ms = elapsed_ms(started);
+    match &result {
+        Ok(summary) => record_persistence_query(
+            "products.summarize_tree",
+            duration_ms,
+            usize::try_from(summary.total_node_count).ok(),
+        ),
+        Err(error) => record_persistence_query_error("products.summarize_tree", duration_ms, error),
+    }
+    result
+}
+
+async fn summarize_product_tree_impl(
     pool: &SqlitePool,
     product_id: &str,
 ) -> Result<ProductTreeSummary, AppError> {
@@ -92,6 +236,24 @@ pub async fn summarize_product_tree(
         total_node_count: product_area_count + capability_count,
         leaf_node_count: product_area_leaf_count + capability_leaf_count,
     })
+}
+
+fn product_tree_node_count(tree: &ProductTree) -> usize {
+    tree.product_areas.len()
+        + tree
+            .product_areas
+            .iter()
+            .flat_map(|product_area_tree| product_area_tree.features.iter())
+            .map(capability_tree_node_count)
+            .sum::<usize>()
+}
+
+fn capability_tree_node_count(tree: &CapabilityTree) -> usize {
+    1 + tree
+        .children
+        .iter()
+        .map(capability_tree_node_count)
+        .sum::<usize>()
 }
 
 fn build_product_area_hierarchy_tree(product_area_tree: &ProductAreaTree) -> HierarchyTreeNode {
@@ -175,21 +337,6 @@ fn build_hierarchy_tree(
         ]),
         path,
         allowed_child_kinds: capability_tree.capability.node_kind.allowed_child_kinds(),
-        children,
-    }
-}
-
-fn build_capability_tree(
-    capability: &Capability,
-    all_capabilities: &[Capability],
-) -> CapabilityTree {
-    let children: Vec<_> = all_capabilities
-        .iter()
-        .filter(|feature| feature.parent_capability_id.as_deref() == Some(&capability.id))
-        .map(|feature| build_capability_tree(feature, all_capabilities))
-        .collect();
-    CapabilityTree {
-        capability: capability.clone(),
         children,
     }
 }

@@ -10,7 +10,6 @@ import {
   deleteAgentTeam,
   deleteSkill,
   deleteWorkflowStagePolicy,
-  getProductTree,
   linkSkillToAgent,
   linkSkillToTeam,
   listAgentModelBindings,
@@ -18,6 +17,8 @@ import {
   listModelDefinitions,
   listAgentSkillLinks,
   listAgentTeams,
+  listProductAreas,
+  listProductCapabilities,
   listProducts,
   listSkills,
   listTeamAssignments,
@@ -38,9 +39,10 @@ import type {
   AgentDefinition,
   AgentModelBinding,
   AgentTeam,
-  CapabilityTree,
+  Capability,
   ModelDefinition,
   Product,
+  ProductArea,
   Skill,
   TeamAssignment,
   WorkflowStagePolicy,
@@ -179,11 +181,8 @@ function countAssignmentsByType(assignments: TeamAssignment[]) {
   );
 }
 
-function flattenCapabilityOptions(features: CapabilityTree[], depth = 0): Array<{ id: string; name: string }> {
-  return features.flatMap((entry) => [
-    { id: entry.capability.id, name: `${"  ".repeat(depth)}${entry.capability.name}` },
-    ...flattenCapabilityOptions(entry.children, depth + 1),
-  ]);
+function formatCapabilityOptionName(capability: Capability) {
+  return `${"  ".repeat(Math.max(0, capability.level))}${capability.name}`;
 }
 
 function resolveScopeLabel(
@@ -335,10 +334,15 @@ export function AgentRegistryPage() {
   const { data: teamSkillLinks = [] } = useQuery({ queryKey: ["team-skill-links"], queryFn: listTeamSkillLinks });
   const { data: routingPolicies = [] } = useQuery({ queryKey: ["workflow-stage-policies"], queryFn: listWorkflowStagePolicies });
   const { data: products = [] } = useQuery({ queryKey: ["products"], queryFn: listProducts });
-  const { data: assignmentTree } = useQuery({
-    queryKey: ["agent-assignment-tree", assignmentProductId],
-    queryFn: () => getProductTree(assignmentProductId as string),
+  const { data: assignmentProductAreas = [] } = useQuery<ProductArea[]>({
+    queryKey: ["agent-assignment-product-areas", assignmentProductId],
+    queryFn: () => listProductAreas(assignmentProductId as string),
     enabled: Boolean(assignmentProductId),
+  });
+  const { data: assignmentCapabilities = [] } = useQuery<Capability[]>({
+    queryKey: ["agent-assignment-capabilities", assignmentProductId],
+    queryFn: () => listProductCapabilities(assignmentProductId as string),
+    enabled: Boolean(assignmentProductId) && assignmentScopeType === "capability",
   });
 
   React.useEffect(() => {
@@ -419,15 +423,17 @@ export function AgentRegistryPage() {
   }, [selectedPolicy, selectedPolicyStage]);
 
   React.useEffect(() => {
-    const firstProductAreaId = assignmentTree?.product_areas[0]?.product_area.id ?? "";
-    if (!assignmentProductAreaId || !assignmentTree?.product_areas.some((entry) => entry.product_area.id === assignmentProductAreaId)) {
+    const firstProductAreaId = assignmentProductAreas[0]?.id ?? "";
+    if (!assignmentProductAreaId || !assignmentProductAreas.some((entry) => entry.id === assignmentProductAreaId)) {
       setAssignmentProductAreaId(firstProductAreaId);
     }
-  }, [assignmentTree, assignmentProductAreaId]);
+  }, [assignmentProductAreaId, assignmentProductAreas]);
 
-  const currentProductAreas = assignmentTree?.product_areas ?? [];
-  const currentProductAreaOptions = currentProductAreas.map((entry) => entry.product_area);
-  const currentCapabilityOptions = currentProductAreas.flatMap((entry) => flattenCapabilityOptions(entry.features));
+  const currentProductAreaOptions = assignmentProductAreas;
+  const currentCapabilityOptions = React.useMemo(
+    () => assignmentCapabilities.map((capability) => ({ id: capability.id, name: formatCapabilityOptionName(capability) })),
+    [assignmentCapabilities],
+  );
 
   React.useEffect(() => {
     const availableCapabilityIds = currentCapabilityOptions.map((capability) => capability.id);

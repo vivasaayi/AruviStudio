@@ -2,7 +2,7 @@ use crate::domain::agent_work::{
     AgentWorkCatalogLinkResult, AgentWorkItem, AgentWorkMaterializationResult,
 };
 use crate::error::AppError;
-use crate::persistence::agent_work_repo::{append_event, get_run};
+use crate::persistence::agent_work_repo::{append_event, get_run, AppendAgentWorkEventInput};
 use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;
@@ -617,16 +617,20 @@ pub async fn materialize_catalog(
 
     append_event(
         pool,
-        run_id,
-        "catalog_materialized",
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some("completed"),
-        Some("Agent-work rows materialized into catalog features and visible work items."),
-        Some(serde_json::to_value(&result)?),
+        AppendAgentWorkEventInput {
+            run_id,
+            event_type: "catalog_materialized",
+            batch_id: None,
+            feature_id: None,
+            work_item_id: None,
+            agent: None,
+            command: None,
+            status: Some("completed"),
+            details: Some(
+                "Agent-work rows materialized into catalog features and visible work items.",
+            ),
+            metadata: Some(serde_json::to_value(&result)?),
+        },
     )
     .await?;
 

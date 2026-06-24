@@ -1,5 +1,8 @@
 use super::*;
+use crate::domain::product::HierarchyNodeType;
+use crate::error::AppError;
 use crate::persistence::{db as db_service, product_repo};
+use sqlx::SqlitePool;
 
 fn make_temp_dir(name: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
@@ -128,6 +131,38 @@ async fn create_test_capability(
     .expect("capability should be created");
 }
 
+async fn explain_query_plan_details(
+    pool: &SqlitePool,
+    sql: &str,
+    bindings: &[&str],
+) -> Vec<String> {
+    let mut query = sqlx::query_as::<_, (i64, i64, i64, String)>(sql);
+    for binding in bindings {
+        query = query.bind(*binding);
+    }
+
+    query
+        .fetch_all(pool)
+        .await
+        .expect("query plan should load")
+        .into_iter()
+        .map(|(_, _, _, detail)| detail)
+        .collect()
+}
+
+async fn assert_query_plan_uses_index(
+    pool: &SqlitePool,
+    sql: &str,
+    bindings: &[&str],
+    index_name: &str,
+) {
+    let details = explain_query_plan_details(pool, sql, bindings).await;
+    assert!(
+        details.iter().any(|detail| detail.contains(index_name)),
+        "expected query plan to use {index_name}; details: {details:#?}"
+    );
+}
+
 #[tokio::test]
 async fn list_work_items_page_applies_limit_and_offset() {
     let pool = create_test_pool("list_page").await;
@@ -159,6 +194,57 @@ async fn list_work_items_page_applies_limit_and_offset() {
     assert_eq!(page.len(), 2);
     assert_eq!(page[0].title, "Work item 1");
     assert_eq!(page[1].title, "Work item 2");
+}
+
+#[tokio::test]
+async fn list_work_items_page_with_metadata_probes_for_next_page() {
+    let pool = create_test_pool("list_page_metadata").await;
+    create_test_product(&pool, "product-list-page-metadata").await;
+
+    for (id, title) in [
+        ("metadata-story-1", "First"),
+        ("metadata-story-2", "Second"),
+        ("metadata-story-3", "Third"),
+    ] {
+        create_work_item(
+            &pool,
+            test_work_item_input(id, "product-list-page-metadata", title),
+        )
+        .await
+        .expect("work item should be created");
+    }
+
+    let first_page = list_work_items_page_with_metadata(
+        &pool,
+        WorkItemListQuery {
+            product_id: Some("product-list-page-metadata"),
+            limit: Some(2),
+            offset: Some(0),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("metadata page should load");
+
+    assert_eq!(first_page.limit, 2);
+    assert_eq!(first_page.offset, 0);
+    assert_eq!(first_page.items.len(), 2);
+    assert!(first_page.has_more);
+
+    let second_page = list_work_items_page_with_metadata(
+        &pool,
+        WorkItemListQuery {
+            product_id: Some("product-list-page-metadata"),
+            limit: Some(2),
+            offset: Some(2),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("metadata page should load");
+
+    assert_eq!(second_page.items.len(), 1);
+    assert!(!second_page.has_more);
 }
 
 #[tokio::test]
@@ -252,7 +338,7 @@ async fn summarize_work_items_by_product_counts_total_active_and_done() {
 }
 
 #[tokio::test]
-async fn summarize_work_items_by_scope_handles_50k_product_without_loading_rows() {
+async fn summary_and_paged_reads_handle_50k_product_without_loading_all_rows() {
     let pool = create_test_pool("summarize_50k").await;
     create_test_product(&pool, "product-scale-50k").await;
     create_test_product_area(&pool, "area-scale-50k", "product-scale-50k", "Scale Area").await;
@@ -311,6 +397,56 @@ async fn summarize_work_items_by_scope_handles_50k_product_without_loading_rows(
             .expect("bulk work items should insert");
     }
 
+    assert_query_plan_uses_index(
+        &pool,
+        "EXPLAIN QUERY PLAN
+         SELECT id FROM work_items
+         WHERE product_id = ?
+         ORDER BY sort_order, created_at DESC
+         LIMIT 25 OFFSET 0",
+        &["product-scale-50k"],
+        "idx_work_items_product_list",
+    )
+    .await;
+    assert_query_plan_uses_index(
+        &pool,
+        "EXPLAIN QUERY PLAN
+         SELECT id FROM work_items
+         WHERE product_id = ? AND status = ?
+         ORDER BY sort_order, created_at DESC
+         LIMIT 25 OFFSET 0",
+        &["product-scale-50k", "in_progress"],
+        "idx_work_items_product_status_list",
+    )
+    .await;
+    assert_query_plan_uses_index(
+        &pool,
+        "EXPLAIN QUERY PLAN
+         SELECT id FROM work_items
+         WHERE product_id = ? AND source_node_type = ? AND source_node_id = ?
+         ORDER BY sort_order, created_at DESC
+         LIMIT 25 OFFSET 0",
+        &["product-scale-50k", "capability", "feature-scale-50k"],
+        "idx_work_items_product_source_list",
+    )
+    .await;
+    assert_query_plan_uses_index(
+        &pool,
+        "EXPLAIN QUERY PLAN
+         SELECT id FROM work_items
+         WHERE product_id = ? AND source_node_type = ? AND source_node_id = ? AND status = ?
+         ORDER BY sort_order, created_at DESC
+         LIMIT 25 OFFSET 0",
+        &[
+            "product-scale-50k",
+            "capability",
+            "feature-scale-50k",
+            "in_progress",
+        ],
+        "idx_work_items_product_source_status_list",
+    )
+    .await;
+
     let product_summaries = summarize_work_items_by_product(&pool)
         .await
         .expect("product summaries should load");
@@ -338,6 +474,56 @@ async fn summarize_work_items_by_scope_handles_50k_product_without_loading_rows(
         entry.source_node_id.as_deref() == Some("feature-scale-50k")
             && entry.source_node_type.as_deref() == Some("capability")
     }));
+
+    let first_page = list_work_items_page_with_metadata(
+        &pool,
+        WorkItemListQuery {
+            product_id: Some("product-scale-50k"),
+            limit: Some(25),
+            offset: Some(0),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("first Mayyam-scale page should load");
+    assert_eq!(first_page.limit, 25);
+    assert_eq!(first_page.offset, 0);
+    assert_eq!(first_page.items.len(), 25);
+    assert!(first_page.has_more);
+    assert_eq!(first_page.items[0].id, "scale-work-item-00000");
+    assert_eq!(first_page.items[24].id, "scale-work-item-00024");
+
+    let offset_page = list_work_items_page(
+        &pool,
+        WorkItemListQuery {
+            product_id: Some("product-scale-50k"),
+            limit: Some(10),
+            offset: Some(25),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("offset Mayyam-scale page should load");
+    assert_eq!(offset_page.len(), 10);
+    assert_eq!(offset_page[0].id, "scale-work-item-00025");
+    assert_eq!(offset_page[9].id, "scale-work-item-00034");
+
+    let capped_page = list_work_items_page_with_metadata(
+        &pool,
+        WorkItemListQuery {
+            product_id: Some("product-scale-50k"),
+            limit: Some(50_000),
+            offset: Some(0),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("oversized Mayyam-scale page should be capped");
+    assert_eq!(capped_page.limit, 2_000);
+    assert_eq!(capped_page.items.len(), 2_000);
+    assert!(capped_page.has_more);
+    assert_eq!(capped_page.items[0].id, "scale-work-item-00000");
+    assert_eq!(capped_page.items[1_999].id, "scale-work-item-01999");
 }
 
 #[tokio::test]

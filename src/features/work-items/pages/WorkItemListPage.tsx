@@ -9,7 +9,6 @@ import {
   createLocalWorkspace,
   deleteWorkItem,
   getLatestWorkflowRunForWorkItem,
-  getProductTree,
   getWorkflowHistory,
   handleWorkflowUserAction,
   getSubWorkItems,
@@ -17,10 +16,11 @@ import {
   getWorkItemApprovals,
   listWorkItemArtifacts,
   listWorkItemFindings,
-  listWorkItems,
+  listWorkItemsPage,
   listAgentDefinitions,
   listAgentModelCallsForWorkflow,
   listAgentRunsForWorkflow,
+  listCapabilities,
   invokeExternalCliForWorkItem,
   listExternalCliRunEvents,
   listExternalCliRunsForWorkItem,
@@ -28,6 +28,7 @@ import {
   listAgentTeams,
   listModelDefinitions,
   listProducts,
+  listProductAreas,
   listProviders,
   listRepositories,
   listTeamAssignments,
@@ -43,7 +44,6 @@ import {
   startWorkItemWorkflow,
   updateWorkItem,
 } from "../../../lib/tauri";
-import { findHierarchyNode } from "../../../lib/hierarchyTree";
 import { getHierarchyNodeKindLabel } from "../../../lib/hierarchyLabels";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
@@ -64,11 +64,13 @@ import type {
   ModelProvider,
   TeamAssignment,
   WorkItem,
+  WorkItemPage,
   WorkflowRun,
   WorkflowStageHistory,
   WorkflowStagePolicy,
   Product,
-  HierarchyTreeNode,
+  ProductArea,
+  Capability,
   Repository,
 } from "../../../lib/types";
 
@@ -425,6 +427,25 @@ function getWorkItemExecutionSteps(workItem: WorkItem, workspaceName?: string | 
   return steps;
 }
 
+function buildCapabilityPath(
+  capability: Capability,
+  productAreaById: Map<string, ProductArea>,
+  capabilityById: Map<string, Capability>,
+) {
+  const capabilityNames: string[] = [];
+  const visited = new Set<string>();
+  let current: Capability | undefined = capability;
+
+  while (current && !visited.has(current.id)) {
+    visited.add(current.id);
+    capabilityNames.push(current.name);
+    current = current.parent_capability_id ? capabilityById.get(current.parent_capability_id) : undefined;
+  }
+
+  const productArea = productAreaById.get(capability.product_area_id);
+  return [...(productArea ? [productArea.name] : []), ...capabilityNames.reverse()];
+}
+
 export function WorkItemListPage() {
   const queryClient = useQueryClient();
   const {
@@ -525,10 +546,12 @@ export function WorkItemListPage() {
     return () => window.removeEventListener("resize", updateViewportHeight);
   }, [workItemWorkspaceTab, selectedProductId, activeNodeId, activeNodeType, statusFilter, workItemPageIndex]);
 
-  const { data: workItems, isLoading } = useQuery({
-    queryKey: ["workItems", selectedProductId, activeNodeId, activeNodeType, statusFilter, workItemPageIndex],
+  const workItemsScopeQueryKey = ["workItems", selectedProductId, activeNodeId, activeNodeType, statusFilter] as const;
+  const workItemsQueryKey = [...workItemsScopeQueryKey, workItemPageIndex] as const;
+  const { data: workItemPage, isLoading } = useQuery({
+    queryKey: workItemsQueryKey,
     queryFn: () =>
-      listWorkItems({
+      listWorkItemsPage({
         productId: selectedProductId ?? undefined,
         sourceNodeId: activeNodeId ?? undefined,
         sourceNodeType: activeNodeType ?? undefined,
@@ -538,17 +561,49 @@ export function WorkItemListPage() {
       }),
     enabled: !!selectedProductId,
   });
-  const { data: activeProductTree } = useQuery({
-    queryKey: ["workItemProductTree", selectedProductId],
-    queryFn: () => getProductTree(selectedProductId!),
+  const workItems = workItemPage?.items ?? [];
+  const { data: activeProductAreas = [] } = useQuery<ProductArea[]>({
+    queryKey: ["workItemProductAreas", selectedProductId],
+    queryFn: () => listProductAreas(selectedProductId!),
     enabled: !!selectedProductId,
   });
+  const productAreaById = useMemo(
+    () => new Map(activeProductAreas.map((productArea) => [productArea.id, productArea])),
+    [activeProductAreas],
+  );
+  const productAreaIdsForCapabilityLookup = useMemo(() => {
+    const ids = new Set<string>();
+    if (activeProductAreaId && productAreaById.has(activeProductAreaId)) {
+      ids.add(activeProductAreaId);
+    }
+    workItems.forEach((workItem) => {
+      if (workItem.product_area_id && productAreaById.has(workItem.product_area_id)) {
+        ids.add(workItem.product_area_id);
+      }
+    });
+    return Array.from(ids).sort();
+  }, [activeProductAreaId, productAreaById, workItems]);
+  const productAreaCapabilityQueries = useQueries({
+    queries: productAreaIdsForCapabilityLookup.map((productAreaId) => ({
+      queryKey: ["workItemProductAreaCapabilities", productAreaId],
+      queryFn: () => listCapabilities(productAreaId),
+      enabled: !!selectedProductId,
+    })),
+  });
+  const activeCapabilities = useMemo<Capability[]>(
+    () => productAreaCapabilityQueries.flatMap((query) => query.data ?? []),
+    [productAreaCapabilityQueries],
+  );
+  const capabilityById = useMemo(
+    () => new Map(activeCapabilities.map((capability) => [capability.id, capability])),
+    [activeCapabilities],
+  );
   const { data: repositories = [] } = useQuery({ queryKey: ["repositories"], queryFn: listRepositories });
   const filteredWorkItems = useMemo(() => {
     if (!selectedProductId) {
       return [];
     }
-    return (workItems ?? []).filter((workItem) => workItem.product_id === selectedProductId);
+    return workItems.filter((workItem) => workItem.product_id === selectedProductId);
   }, [selectedProductId, workItems]);
 
   const selectedWorkItemId = useMemo(() => {
@@ -807,7 +862,7 @@ export function WorkItemListPage() {
 
   const invalidateTasks = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["workItems", activeProductId, activeNodeId, activeNodeType, statusFilter] }),
+      queryClient.invalidateQueries({ queryKey: workItemsScopeQueryKey, refetchType: "none" }),
       queryClient.invalidateQueries({ queryKey: ["sidebarWorkItems", activeProductId] }),
       queryClient.invalidateQueries({ queryKey: ["productWorkItemSummary"] }),
       queryClient.invalidateQueries({ queryKey: ["workItem", selectedWorkItemId] }),
@@ -819,7 +874,7 @@ export function WorkItemListPage() {
       queryClient.invalidateQueries({ queryKey: ["externalCliRunEvents"] }),
       queryClient.invalidateQueries({ queryKey: ["artifacts", selectedWorkItemId] }),
       queryClient.invalidateQueries({ queryKey: ["findings", selectedWorkItemId] }),
-      queryClient.refetchQueries({ queryKey: ["workItems", activeProductId, activeNodeId, activeNodeType, statusFilter], type: "active" }),
+      queryClient.refetchQueries({ queryKey: workItemsQueryKey, type: "active" }),
       queryClient.refetchQueries({ queryKey: ["sidebarWorkItems", activeProductId], type: "active" }),
     ]);
   };
@@ -841,10 +896,21 @@ export function WorkItemListPage() {
         priority: createForm.priority,
         complexity: createForm.complexity,
         parentWorkItemId: createForm.parentWorkItemId ?? undefined,
-      }),
+    }),
     onSuccess: async (createdWorkItem) => {
-      queryClient.setQueryData<WorkItem[] | undefined>(["workItems", activeProductId, activeNodeId, activeNodeType, statusFilter, workItemPageIndex], (current) =>
-        current ? [...current, createdWorkItem] : [createdWorkItem],
+      queryClient.setQueryData<WorkItemPage | undefined>(workItemsQueryKey, (current) =>
+        current
+          ? {
+              ...current,
+              items: current.items.length < current.limit ? [...current.items, createdWorkItem] : current.items,
+              has_more: current.has_more || current.items.length >= current.limit,
+            }
+          : {
+              items: [createdWorkItem],
+              limit: WORK_ITEM_PAGE_SIZE,
+              offset: workItemPageIndex * WORK_ITEM_PAGE_SIZE,
+              has_more: false,
+            },
       );
       queryClient.setQueryData<WorkItem[] | undefined>(["sidebarWorkItems", activeProductId], (current) =>
         current ? [...current, createdWorkItem] : [createdWorkItem],
@@ -1138,7 +1204,8 @@ export function WorkItemListPage() {
       }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["workItem", selectedWorkItemId] }),
-        queryClient.invalidateQueries({ queryKey: ["workItems"] }),
+        queryClient.invalidateQueries({ queryKey: workItemsScopeQueryKey, refetchType: "none" }),
+        queryClient.refetchQueries({ queryKey: workItemsQueryKey, type: "active" }),
         queryClient.invalidateQueries({ queryKey: ["resolvedRepositoryForWorkItem", selectedWorkItemId] }),
         queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] }),
       ]);
@@ -1164,7 +1231,8 @@ export function WorkItemListPage() {
       queryClient.setQueryData(["workItem", selectedWorkItemId], updatedWorkItem);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["workItem", selectedWorkItemId] }),
-        queryClient.invalidateQueries({ queryKey: ["workItems"] }),
+        queryClient.invalidateQueries({ queryKey: workItemsScopeQueryKey, refetchType: "none" }),
+        queryClient.refetchQueries({ queryKey: workItemsQueryKey, type: "active" }),
         queryClient.invalidateQueries({ queryKey: ["resolvedRepositoryForWorkItem", selectedWorkItemId] }),
         queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] }),
       ]);
@@ -1189,26 +1257,12 @@ export function WorkItemListPage() {
     [activeProductId, products],
   );
   const activeProductArea = useMemo(
-    () => activeProductTree?.product_areas.find((productAreaTree) => productAreaTree.product_area.id === activeProductAreaId)?.product_area ?? null,
-    [activeProductAreaId, activeProductTree],
+    () => activeProductAreaId ? productAreaById.get(activeProductAreaId) ?? null : null,
+    [activeProductAreaId, productAreaById],
   );
   const activeCapability = useMemo(() => {
-    if (!activeCapabilityId || !activeProductTree) {
-      return null;
-    }
-    const stack = [...activeProductTree.product_areas.flatMap((productAreaTree) => productAreaTree.features)];
-    while (stack.length > 0) {
-      const current = stack.pop();
-      if (!current) {
-        continue;
-      }
-      if (current.capability.id === activeCapabilityId) {
-        return current.capability;
-      }
-      stack.push(...current.children);
-    }
-    return null;
-  }, [activeCapabilityId, activeProductTree]);
+    return activeCapabilityId ? capabilityById.get(activeCapabilityId) ?? null : null;
+  }, [activeCapabilityId, capabilityById]);
   const scopeDescriptor = useMemo(() => {
     const parts: string[] = [];
     if (activeProduct?.name) {
@@ -1228,21 +1282,58 @@ export function WorkItemListPage() {
       return map;
     }
 
-    const roots = activeProductTree?.roots ?? [];
     filteredWorkItems.forEach((workItem) => {
-      const ownerNode = findHierarchyNode(
-        roots,
-        workItem.source_node_id ?? workItem.capability_id ?? workItem.product_area_id,
-        workItem.source_node_type ?? (workItem.capability_id ? "capability" : workItem.product_area_id ? "product_area" : null),
-      );
+      const ownerId = workItem.source_node_id ?? workItem.capability_id ?? workItem.product_area_id;
+      const ownerType = workItem.source_node_type ?? (workItem.capability_id ? "capability" : workItem.product_area_id ? "product_area" : null);
 
-      if (ownerNode) {
-        map.set(workItem.id, {
-          badge: getHierarchyNodeKindLabel(ownerNode.node_kind),
-          path: [activeProduct.name, ...ownerNode.path].join(" / "),
-          isRoot: false,
-        });
-        return;
+      if (ownerId && ownerType === "product_area") {
+        const productArea = productAreaById.get(ownerId);
+        if (productArea) {
+          map.set(workItem.id, {
+            badge: getHierarchyNodeKindLabel(productArea.node_kind),
+            path: [activeProduct.name, productArea.name].join(" / "),
+            isRoot: false,
+          });
+          return;
+        }
+      }
+
+      if (ownerId && ownerType === "capability") {
+        const capability = capabilityById.get(ownerId);
+        if (capability) {
+          const ownerPath = buildCapabilityPath(capability, productAreaById, capabilityById);
+          map.set(workItem.id, {
+            badge: getHierarchyNodeKindLabel(capability.node_kind),
+            path: [activeProduct.name, ...ownerPath].join(" / "),
+            isRoot: false,
+          });
+          return;
+        }
+      }
+
+      if (workItem.capability_id) {
+        const capability = capabilityById.get(workItem.capability_id);
+        if (capability) {
+          const ownerPath = buildCapabilityPath(capability, productAreaById, capabilityById);
+          map.set(workItem.id, {
+            badge: getHierarchyNodeKindLabel(capability.node_kind),
+            path: [activeProduct.name, ...ownerPath].join(" / "),
+            isRoot: false,
+          });
+          return;
+        }
+      }
+
+      if (workItem.product_area_id) {
+        const productArea = productAreaById.get(workItem.product_area_id);
+        if (productArea) {
+          map.set(workItem.id, {
+            badge: getHierarchyNodeKindLabel(productArea.node_kind),
+            path: [activeProduct.name, productArea.name].join(" / "),
+            isRoot: false,
+          });
+          return;
+        }
       }
 
       if (workItem.product_area_id || workItem.capability_id || workItem.source_node_id) {
@@ -1262,7 +1353,7 @@ export function WorkItemListPage() {
     });
 
     return map;
-  }, [activeProduct, activeProductTree?.roots, filteredWorkItems]);
+  }, [activeProduct, capabilityById, filteredWorkItems, productAreaById]);
   const orderedWorkItems = useMemo(() => orderWorkItemsByIds(filteredWorkItems, workItemOrderIds), [filteredWorkItems, workItemOrderIds]);
   const backlogWindow = useMemo(() => {
     const start = Math.max(0, Math.floor(backlogScrollTop / BACKLOG_ROW_ESTIMATED_HEIGHT) - BACKLOG_OVERSCAN_ROWS);
@@ -1276,7 +1367,7 @@ export function WorkItemListPage() {
       items: orderedWorkItems.slice(start, end),
     };
   }, [backlogScrollTop, backlogViewportHeight, orderedWorkItems]);
-  const hasNextWorkItemPage = (workItems?.length ?? 0) === WORK_ITEM_PAGE_SIZE;
+  const hasNextWorkItemPage = workItemPage?.has_more ?? false;
   const workItemPageStart = workItemPageIndex * WORK_ITEM_PAGE_SIZE + (orderedWorkItems.length > 0 ? 1 : 0);
   const workItemPageEnd = workItemPageIndex * WORK_ITEM_PAGE_SIZE + orderedWorkItems.length;
   const backlogRenderedRangeLabel =

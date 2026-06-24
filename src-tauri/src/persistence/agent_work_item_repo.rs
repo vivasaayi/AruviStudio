@@ -33,28 +33,31 @@ fn json_array_string(value: Option<Value>) -> Result<String, AppError> {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+pub struct UpsertAgentWorkItemInput<'a> {
+    pub run_id: &'a str,
+    pub feature_id: &'a str,
+    pub work_item_id: Option<&'a str>,
+    pub product_area: &'a str,
+    pub service_or_domain: Option<&'a str>,
+    pub priority: Option<&'a str>,
+    pub release_phase: Option<&'a str>,
+    pub title: &'a str,
+    pub description: &'a str,
+    pub status: Option<&'a str>,
+    pub batch_id: Option<&'a str>,
+    pub agent: Option<&'a str>,
+    pub commit_sha: Option<&'a str>,
+    pub conflict_zones: Option<Value>,
+    pub metadata: Option<Value>,
+}
+
 pub async fn upsert_item(
     pool: &SqlitePool,
-    run_id: &str,
-    feature_id: &str,
-    work_item_id: Option<&str>,
-    product_area: &str,
-    service_or_domain: Option<&str>,
-    priority: Option<&str>,
-    release_phase: Option<&str>,
-    title: &str,
-    description: &str,
-    status: Option<&str>,
-    batch_id: Option<&str>,
-    agent: Option<&str>,
-    commit_sha: Option<&str>,
-    conflict_zones: Option<Value>,
-    metadata: Option<Value>,
+    input: UpsertAgentWorkItemInput<'_>,
 ) -> Result<AgentWorkItem, AppError> {
-    let status = normalize_status(status.unwrap_or("pending"))?;
-    let conflict_zones_json = json_array_string(conflict_zones)?;
-    let metadata_json = json_object_string(metadata)?;
+    let status = normalize_status(input.status.unwrap_or("pending"))?;
+    let conflict_zones_json = json_array_string(input.conflict_zones)?;
+    let metadata_json = json_object_string(input.metadata)?;
     sqlx::query(
         "INSERT INTO agent_work_items (
             id, run_id, feature_id, work_item_id, product_area, service_or_domain, priority,
@@ -78,24 +81,24 @@ pub async fn upsert_item(
             updated_at=datetime('now')",
     )
     .bind(uuid::Uuid::new_v4().to_string())
-    .bind(run_id)
-    .bind(feature_id)
-    .bind(work_item_id)
-    .bind(product_area)
-    .bind(service_or_domain)
-    .bind(priority)
-    .bind(release_phase)
-    .bind(title)
-    .bind(description)
+    .bind(input.run_id)
+    .bind(input.feature_id)
+    .bind(input.work_item_id)
+    .bind(input.product_area)
+    .bind(input.service_or_domain)
+    .bind(input.priority)
+    .bind(input.release_phase)
+    .bind(input.title)
+    .bind(input.description)
     .bind(status)
-    .bind(batch_id)
-    .bind(agent)
-    .bind(commit_sha)
+    .bind(input.batch_id)
+    .bind(input.agent)
+    .bind(input.commit_sha)
     .bind(conflict_zones_json)
     .bind(metadata_json)
     .execute(pool)
     .await?;
-    get_item(pool, run_id, feature_id).await
+    get_item(pool, input.run_id, input.feature_id).await
 }
 
 pub async fn get_item(

@@ -1,9 +1,8 @@
 import type React from "react";
 
 import type { Product } from "../../../lib/types";
+import type { ProductStatusGroupBy } from "../lib/productRefreshScopes";
 import type { ProductStatusSummary, StatusRow } from "../lib/productStatusSummary";
-
-export type ProductStatusGroupBy = "node" | "kind" | "work_status";
 
 type ProductStatusTabStyles = {
   statusToolbar: React.CSSProperties;
@@ -58,6 +57,7 @@ export function ProductStatusTab({
         <div>
           <div style={styles.controlLabel}>Product</div>
           <select
+            aria-label="Status product"
             style={styles.select}
             value={statusProductId}
             onChange={(event) => onStatusProductChange(event.target.value)}
@@ -68,16 +68,16 @@ export function ProductStatusTab({
         </div>
         <div>
           <div style={styles.controlLabel}>Visible levels</div>
-          <select style={styles.select} value={statusDepth} onChange={(event) => onStatusDepthChange(Number(event.target.value))}>
+          <select aria-label="Status visible levels" style={styles.select} value={statusDepth} onChange={(event) => onStatusDepthChange(Number(event.target.value))}>
             {[1, 2, 3, 4, 5, 6].map((depth) => <option key={depth} value={depth}>{depth} {depth === 1 ? "level" : "levels"}</option>)}
           </select>
         </div>
         <div>
           <div style={styles.controlLabel}>Pivot</div>
-          <select style={styles.select} value={statusGroupBy} onChange={(event) => onStatusGroupByChange(event.target.value as ProductStatusGroupBy)}>
+          <select aria-label="Status pivot" style={styles.select} value={statusGroupBy} onChange={(event) => onStatusGroupByChange(event.target.value as ProductStatusGroupBy)}>
+            <option value="work_status">Work status</option>
             <option value="node">Tree nodes</option>
             <option value="kind">Node kind</option>
-            <option value="work_status">Work status</option>
           </select>
         </div>
         <div style={styles.statusMetrics}>

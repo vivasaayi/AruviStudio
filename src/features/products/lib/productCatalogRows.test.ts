@@ -5,7 +5,7 @@ import {
   getProductCatalogTags,
   isExampleProduct,
 } from "./productCatalogRows";
-import type { HierarchyTreeNode, Product, ProductTree, ProductWorkItemSummary } from "../../../lib/types";
+import type { Product, ProductTreeSummary, ProductWorkItemSummary } from "../../../lib/types";
 
 function product(overrides: Partial<Product> = {}): Product {
   return {
@@ -28,31 +28,14 @@ function product(overrides: Partial<Product> = {}): Product {
   };
 }
 
-function node(overrides: Partial<HierarchyTreeNode> = {}): HierarchyTreeNode {
+function treeSummary(productId: string, overrides: Partial<ProductTreeSummary> = {}): ProductTreeSummary {
   return {
-    id: "area-1",
-    node_type: "product_area",
-    node_kind: "product_area",
-    product_area_id: "area-1",
-    capability_id: null,
-    parent_node_id: null,
-    parent_node_type: null,
-    depth: 0,
-    name: "Area",
-    description: "",
-    summary: "",
-    path: ["Area"],
-    allowed_child_kinds: ["capability"],
-    children: [],
+    product_id: productId,
+    product_area_count: 0,
+    capability_count: 0,
+    total_node_count: 0,
+    leaf_node_count: 0,
     ...overrides,
-  };
-}
-
-function tree(productModel: Product, roots: HierarchyTreeNode[]): ProductTree {
-  return {
-    product: productModel,
-    product_areas: [],
-    roots,
   };
 }
 
@@ -80,10 +63,9 @@ describe("productCatalogRows", () => {
 
   it("builds rows with hierarchy and aggregate work counts", () => {
     const mayyam = product();
-    const child = node({ id: "capability-1", node_type: "capability", node_kind: "capability", capability_id: "capability-1", depth: 1 });
     const rows = buildProductCatalogRows({
       products: [mayyam],
-      productTreeById: new Map([[mayyam.id, tree(mayyam, [node({ children: [child] })])]]),
+      productTreeSummaryById: new Map([[mayyam.id, treeSummary(mayyam.id, { product_area_count: 1, total_node_count: 2 })]]),
       productSummaryById: new Map([[mayyam.id, summary(mayyam.id, { total_count: 12, active_count: 7, done_count: 3 })]]),
       search: "",
       statusFilter: "all",
@@ -115,7 +97,7 @@ describe("productCatalogRows", () => {
 
     expect(buildProductCatalogRows({
       products,
-      productTreeById: new Map(),
+      productTreeSummaryById: new Map(),
       productSummaryById: new Map(),
       search: "platform",
       statusFilter: "active",
@@ -136,7 +118,7 @@ describe("productCatalogRows", () => {
     ]);
     const baseOptions = {
       products: [alpha, beta],
-      productTreeById: new Map<string, ProductTree>(),
+      productTreeSummaryById: new Map<string, ProductTreeSummary>(),
       productSummaryById: summaries,
       search: "",
       statusFilter: "all" as const,

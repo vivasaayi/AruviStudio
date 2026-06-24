@@ -1781,13 +1781,52 @@
               .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)),
           );
         }
+        case "list_product_capabilities": {
+          const productId = getArg(args, "productId", "product_id");
+          const productAreaOrder = new Map(
+            state.product_areas
+              .filter((productArea) => productArea.product_id === productId)
+              .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name))
+              .map((productArea, index) => [productArea.id, index]),
+          );
+          return ok(
+            state.capabilities
+              .filter((capability) => productAreaOrder.has(capability.product_area_id))
+              .sort((a, b) => {
+                const areaDelta = productAreaOrder.get(a.product_area_id) - productAreaOrder.get(b.product_area_id);
+                return areaDelta || a.level - b.level || a.sort_order - b.sort_order || a.name.localeCompare(b.name);
+              }),
+          );
+        }
+        case "get_capability": {
+          const capability = state.capabilities.find((entry) => entry.id === getArg(args, "id"));
+          if (!capability) {
+            throw new Error("Capability not found");
+          }
+          return ok(capability);
+        }
         case "list_work_items": {
           const offset = Math.max(0, Number(getArg(args, "offset") ?? 0));
           const rawLimit = getArg(args, "limit");
-          const limit = rawLimit == null ? null : Math.max(1, Number(rawLimit));
+          const limit = rawLimit == null ? 500 : Math.min(2000, Math.max(1, Number(rawLimit)));
           const items = listWorkItemsFiltered(args || {})
             .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.title.localeCompare(b.title));
-          return ok(limit == null ? items.slice(offset) : items.slice(offset, offset + limit));
+          return ok(items.slice(offset, offset + limit));
+        }
+        case "list_work_items_page": {
+          const offset = Math.max(0, Number(getArg(args, "offset") ?? 0));
+          const rawLimit = getArg(args, "limit");
+          const limit = rawLimit == null ? 500 : Math.min(2000, Math.max(1, Number(rawLimit)));
+          const topLevelOnly = Boolean(getArg(args, "topLevelOnly", "top_level_only"));
+          const items = listWorkItemsFiltered(args || {})
+            .filter((item) => !topLevelOnly || !item.parent_work_item_id)
+            .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.title.localeCompare(b.title));
+          return ok({
+            items: items.slice(offset, offset + limit),
+            limit,
+            offset,
+            has_more: items.length > offset + limit,
+          });
         }
         case "create_work_item":
           return ok(createWorkItemFromArgs(args || {}));

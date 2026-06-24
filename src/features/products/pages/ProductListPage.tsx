@@ -20,13 +20,14 @@ import {
   listProductDependencies,
   listProductReferences,
   listProducts,
-  listWorkItems,
+  listWorkItemsPage,
   reorderCapabilities,
   reorderProductAreas,
   resetProductPlan,
   revealInFinder,
   resolveRepositoryForScope,
   setSetting,
+  summarizeProductTree,
   summarizeWorkItemsByProduct,
   summarizeWorkItemsByScope,
   updateCapability,
@@ -68,7 +69,7 @@ import { ProductManagementStoryDetailPane } from "../components/ProductManagemen
 import { ProductManagementStoriesPane } from "../components/ProductManagementStoriesPane";
 import { ProductManagementWorkItemFeatureSelector } from "../components/ProductManagementWorkItemFeatureSelector";
 import { ProductCatalogTab } from "../components/ProductCatalogTab";
-import { ProductStatusTab, type ProductStatusGroupBy } from "../components/ProductStatusTab";
+import { ProductStatusTab } from "../components/ProductStatusTab";
 import { ScopedRefreshButton } from "../components/ScopedRefreshButton";
 import { refreshScopedProductQueries } from "../lib/productQueryRefresh";
 import {
@@ -79,6 +80,7 @@ import {
   isProductPageRefreshDisabled,
   type ProductManagementTab,
   type ProductPageTab,
+  type ProductStatusGroupBy,
 } from "../lib/productRefreshScopes";
 import { getProductAreaReferenceScope } from "../lib/productReferences";
 import {
@@ -104,10 +106,11 @@ import {
   seedCapabilityOrderMap,
 } from "../lib/productHierarchyHelpers";
 import { formatWorkItemMeta } from "../lib/workItemDisplay";
-import type { CapabilityNode, CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ProductAreaTree, Product, ProductDependency, ProductDependencyKind, ProductReference, ProductTree, ProductWorkItemSummary, Repository, WorkItem, WorkItemScopeSummary } from "../../../lib/types";
+import type { CapabilityNode, CapabilityTree, HierarchyNodeKind, HierarchyTreeNode, ProductAreaTree, Product, ProductDependency, ProductDependencyKind, ProductReference, ProductTree, ProductTreeSummary, ProductWorkItemSummary, Repository, WorkItem, WorkItemScopeSummary } from "../../../lib/types";
 
 const HIDE_EXAMPLE_PRODUCTS_KEY = "catalog.hide_example_products";
 const SUB_WORK_ITEM_PAGE_SIZE = 500;
+const PRODUCT_MANAGEMENT_STORY_PAGE_SIZE = 100;
 
 type ProductFormState = {
   name: string;
@@ -402,7 +405,7 @@ export function ProductListPage() {
   const [catalogFilterError, setCatalogFilterError] = useState<string | null>(null);
   const [statusProductId, setStatusProductId] = useState<string>("all");
   const [statusDepth, setStatusDepth] = useState(1);
-  const [statusGroupBy, setStatusGroupBy] = useState<ProductStatusGroupBy>("node");
+  const [statusGroupBy, setStatusGroupBy] = useState<ProductStatusGroupBy>("work_status");
   const [dependencyDraft, setDependencyDraft] = useState({
     capabilityId: "",
     dependsOnProductId: "",
@@ -425,6 +428,7 @@ export function ProductListPage() {
   const [deleteHierarchyConfirmName, setDeleteHierarchyConfirmName] = useState("");
   const [deleteHierarchyConfirmChecked, setDeleteHierarchyConfirmChecked] = useState(false);
   const [selectedManagementStoryId, setSelectedManagementStoryId] = useState<string | null>(null);
+  const [managementStoryPageIndex, setManagementStoryPageIndex] = useState(0);
   const [storyDialogMode, setStoryDialogMode] = useState<"closed" | "create" | "edit">("closed");
   const [taskDialogMode, setTaskDialogMode] = useState<"closed" | "create" | "edit">("closed");
   const [editingStory, setEditingStory] = useState<WorkItem | null>(null);
@@ -497,7 +501,15 @@ export function ProductListPage() {
     queries: (products ?? []).map((product) => ({
       queryKey: ["productTree", product.id],
       queryFn: () => getProductTree(product.id),
-      enabled: !!product.id && (productPageTab === "list" || productPageTab === "status" || productPageTab === "dependencies"),
+      enabled: !!product.id && (productPageTab === "dependencies" || (productPageTab === "status" && statusGroupBy !== "work_status")),
+    })),
+  });
+
+  const productTreeSummaryQueries = useQueries({
+    queries: (products ?? []).map((product) => ({
+      queryKey: ["productTreeSummary", product.id],
+      queryFn: () => summarizeProductTree(product.id),
+      enabled: !!product.id && (productPageTab === "list" || productPageTab === "status"),
     })),
   });
 
@@ -528,6 +540,17 @@ export function ProductListPage() {
     return map;
   }, [productTreeQueries, products]);
 
+  const productTreeSummaryById = useMemo(() => {
+    const map = new Map<string, ProductTreeSummary>();
+    (products ?? []).forEach((product, index) => {
+      const result = productTreeSummaryQueries[index]?.data;
+      if (result) {
+        map.set(product.id, result);
+      }
+    });
+    return map;
+  }, [productTreeSummaryQueries, products]);
+
   const scopeSummaryIndex = useMemo(() => buildWorkItemScopeSummaryIndex(workItemScopeSummaries), [workItemScopeSummaries]);
 
   const productSummaryById = useMemo(() => {
@@ -541,7 +564,7 @@ export function ProductListPage() {
   const includeDefaultProductsInCatalog = !parseBooleanSetting(hideExampleProductsSetting, true);
   const productTableRows = useMemo(() => buildProductCatalogRows({
     products: products ?? [],
-    productTreeById,
+    productTreeSummaryById,
     productSummaryById,
     search: productSearch,
     statusFilter: productStatusFilter,
@@ -557,7 +580,7 @@ export function ProductListPage() {
     productStatusFilter,
     productTagFilter,
     productSummaryById,
-    productTreeById,
+    productTreeSummaryById,
     products,
     showCustomProductsInTable,
     showDefaultProductsInTable,
@@ -568,8 +591,8 @@ export function ProductListPage() {
     : products?.find((product) => product.id === statusProductId) ?? null;
   const selectedStatusProducts = selectedStatusProduct ? [selectedStatusProduct] : (products ?? []);
   const statusSummary = useMemo(
-    () => buildProductStatusSummary(selectedStatusProducts, productTreeById, productSummaryById),
-    [productSummaryById, productTreeById, selectedStatusProducts],
+    () => buildProductStatusSummary(selectedStatusProducts, productTreeSummaryById, productSummaryById),
+    [productSummaryById, productTreeSummaryById, selectedStatusProducts],
   );
   const statusRows = useMemo(
     () => buildStatusRows(selectedStatusProducts, productTreeById, scopeSummaryIndex, statusDepth, statusGroupBy),
@@ -1355,16 +1378,25 @@ export function ProductListPage() {
     () => selectedManagementFeature ? findHierarchyNode(tree?.roots ?? [], selectedManagementFeature.capabilityTree.capability.id, "capability") : null,
     [selectedManagementFeature, tree],
   );
-  const { data: managementFeatureWorkItems = [] } = useQuery({
-    queryKey: ["productTasks", selectedProductId, selectedManagementFeatureNode?.id, selectedManagementFeatureNode?.node_type],
+  useEffect(() => {
+    setManagementStoryPageIndex(0);
+    setSelectedManagementStoryId(null);
+  }, [selectedManagementFeatureNode?.id, selectedProductId, productManagementTab]);
+
+  const { data: managementFeatureWorkItemPage } = useQuery({
+    queryKey: ["productTasks", selectedProductId, selectedManagementFeatureNode?.id, selectedManagementFeatureNode?.node_type, managementStoryPageIndex],
     queryFn: () =>
-      listWorkItems({
+      listWorkItemsPage({
         productId: selectedProductId ?? undefined,
         sourceNodeId: selectedManagementFeatureNode?.id,
         sourceNodeType: selectedManagementFeatureNode?.node_type,
+        topLevelOnly: true,
+        limit: PRODUCT_MANAGEMENT_STORY_PAGE_SIZE,
+        offset: managementStoryPageIndex * PRODUCT_MANAGEMENT_STORY_PAGE_SIZE,
       }),
     enabled: !!selectedProductId && !!selectedManagementFeatureNode && productPageTab === "design" && productManagementTab === "work_items",
   });
+  const managementFeatureWorkItems = managementFeatureWorkItemPage?.items ?? [];
   const featureStories = useMemo(() => {
     if (!selectedManagementFeatureNode) {
       return [];
@@ -1417,6 +1449,7 @@ export function ProductListPage() {
     await refreshScopedProductQueries(queryClient, getProductPageRefreshQueryKeys({
       productPageTab,
       selectedProductId,
+      statusGroupBy,
       statusProductId,
       hideExampleProductsKey: HIDE_EXAMPLE_PRODUCTS_KEY,
       productManagementTab,
@@ -2061,6 +2094,10 @@ export function ProductListPage() {
             stories={featureStories}
             selectedStory={selectedManagementStory}
             canCreateStory={!!selectedManagementFeatureNode}
+            storyPageIndex={managementStoryPageIndex}
+            hasNextStoryPage={managementFeatureWorkItemPage?.has_more ?? false}
+            onPreviousStoryPage={() => setManagementStoryPageIndex((current) => Math.max(0, current - 1))}
+            onNextStoryPage={() => setManagementStoryPageIndex((current) => current + 1)}
             onCreateStory={openCreateStoryDialog}
             onOpenBuilder={() => openFeatureInBuilder(selectedManagementFeatureNode)}
             onSelectStory={(story) => {

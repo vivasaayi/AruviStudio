@@ -1,8 +1,8 @@
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
-import { browseForRepositoryPath, deleteRepository, getProductTree, listProducts, listRepositories, registerRepository, updateRepository } from "../../../lib/tauri";
+import { browseForRepositoryPath, deleteRepository, getCapability, listProductAreas, listProducts, listRepositories, registerRepository, updateRepository } from "../../../lib/tauri";
 import type { Repository } from "../../../lib/types";
 
 const styles: Record<string, React.CSSProperties> = {
@@ -53,28 +53,18 @@ export function RepositoryListPage() {
       setActiveProduct(selectedProductId);
     }
   }, [activeProductId, productsLoading, selectedProductId, setActiveProduct]);
-  const { data: activeProductTree } = useQuery({
-    queryKey: ["repositoryProductTree", selectedProductId],
-    queryFn: () => getProductTree(selectedProductId!),
+  const { data: activeProductAreas = [] } = useQuery({
+    queryKey: ["repositoryProductAreas", selectedProductId],
+    queryFn: () => listProductAreas(selectedProductId!),
     enabled: !!selectedProductId,
   });
+  const { data: activeCapability = null } = useQuery({
+    queryKey: ["repositoryCapability", activeCapabilityId],
+    queryFn: () => getCapability(activeCapabilityId!),
+    enabled: !!activeCapabilityId,
+  });
   const activeProduct = products.find((product) => product.id === selectedProductId) ?? null;
-  const activeProductArea = activeProductTree?.product_areas.find((productAreaTree) => productAreaTree.product_area.id === activeProductAreaId)?.product_area ?? null;
-  const activeCapability = useMemo(() => {
-    if (!activeCapabilityId || !activeProductTree) {
-      return null;
-    }
-    const stack = [...activeProductTree.product_areas.flatMap((productAreaTree) => productAreaTree.features)];
-    while (stack.length > 0) {
-      const current = stack.pop();
-      if (!current) continue;
-      if (current.capability.id === activeCapabilityId) {
-        return current.capability;
-      }
-      stack.push(...current.children);
-    }
-    return null;
-  }, [activeCapabilityId, activeProductTree]);
+  const activeProductArea = activeProductAreas.find((productArea) => productArea.id === activeProductAreaId) ?? null;
 
   const createMutation = useMutation({
     mutationFn: () => registerRepository(form),

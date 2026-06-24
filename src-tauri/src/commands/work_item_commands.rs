@@ -2,9 +2,9 @@ use crate::domain::work_item::{ProductWorkItemSummary, WorkItem, WorkItemScopeSu
 use crate::error::AppError;
 use crate::persistence::work_item_repo;
 use crate::state::AppState;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 fn resolve_required(value: Option<String>, field_name: &str) -> Result<String, AppError> {
     value.ok_or_else(|| AppError::Validation(format!("missing {}", field_name)))
@@ -52,6 +52,43 @@ pub struct ListWorkItemsCommand {
     pub(crate) status: Option<String>,
     pub(crate) limit: Option<i64>,
     pub(crate) offset: Option<i64>,
+    #[serde(alias = "topLevelOnly")]
+    pub(crate) top_level_only: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WorkItemPageCommand {
+    pub(crate) items: Vec<WorkItem>,
+    pub(crate) limit: i64,
+    pub(crate) offset: i64,
+    pub(crate) has_more: bool,
+}
+
+fn work_item_query_from_request(
+    request: &ListWorkItemsCommand,
+) -> work_item_repo::WorkItemListQuery<'_> {
+    work_item_repo::WorkItemListQuery {
+        product_id: request.product_id.as_deref(),
+        product_area_id: request.product_area_id.as_deref(),
+        capability_id: request.capability_id.as_deref(),
+        source_node_id: request.source_node_id.as_deref(),
+        source_node_type: request.source_node_type.as_deref(),
+        status: request.status.as_deref(),
+        limit: request.limit,
+        offset: request.offset,
+    }
+}
+
+fn bounded_legacy_work_item_query(
+    request: &ListWorkItemsCommand,
+) -> work_item_repo::WorkItemListQuery<'_> {
+    let query = work_item_query_from_request(request);
+    let (limit, offset) = query.bounded_page();
+    work_item_repo::WorkItemListQuery {
+        limit: Some(limit),
+        offset: Some(offset),
+        ..query
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -122,23 +159,38 @@ pub async fn list_work_items(
     state: State<'_, AppState>,
     request: ListWorkItemsCommand,
 ) -> Result<Vec<WorkItem>, AppError> {
-    debug!(product_id = ?request.product_id, product_area_id = ?request.product_area_id, capability_id = ?request.capability_id, source_node_id = ?request.source_node_id, source_node_type = ?request.source_node_type, status = ?request.status, limit = ?request.limit, offset = ?request.offset, "list_work_items requested");
-    let result = work_item_repo::list_work_items_page(
-        &state.db,
-        work_item_repo::WorkItemListQuery {
-            product_id: request.product_id.as_deref(),
-            product_area_id: request.product_area_id.as_deref(),
-            capability_id: request.capability_id.as_deref(),
-            source_node_id: request.source_node_id.as_deref(),
-            source_node_type: request.source_node_type.as_deref(),
-            status: request.status.as_deref(),
-            limit: request.limit,
-            offset: request.offset,
-        },
-    )
-    .await;
+    let query = bounded_legacy_work_item_query(&request);
+    debug!(product_id = ?request.product_id, product_area_id = ?request.product_area_id, capability_id = ?request.capability_id, source_node_id = ?request.source_node_id, source_node_type = ?request.source_node_type, status = ?request.status, requested_limit = ?request.limit, requested_offset = ?request.offset, limit = ?query.limit, offset = ?query.offset, "list_work_items requested");
+    if request.limit != query.limit || request.offset.is_some_and(|offset| offset < 0) {
+        warn!(product_id = ?request.product_id, requested_limit = ?request.limit, requested_offset = ?request.offset, limit = ?query.limit, offset = ?query.offset, default_limit = work_item_repo::DEFAULT_LIST_WORK_ITEMS_LIMIT, max_limit = work_item_repo::MAX_LIST_WORK_ITEMS_LIMIT, "legacy list_work_items request normalized to bounded pagination; use list_work_items_page for pagination metadata");
+    }
+    let result = work_item_repo::list_work_items_page(&state.db, query).await;
     if let Err(err) = &result {
         error!(product_id = ?request.product_id, product_area_id = ?request.product_area_id, capability_id = ?request.capability_id, source_node_id = ?request.source_node_id, source_node_type = ?request.source_node_type, status = ?request.status, limit = ?request.limit, offset = ?request.offset, error = %err, "list_work_items failed");
+    }
+    result
+}
+
+#[tauri::command]
+pub async fn list_work_items_page(
+    state: State<'_, AppState>,
+    request: ListWorkItemsCommand,
+) -> Result<WorkItemPageCommand, AppError> {
+    debug!(product_id = ?request.product_id, product_area_id = ?request.product_area_id, capability_id = ?request.capability_id, source_node_id = ?request.source_node_id, source_node_type = ?request.source_node_type, status = ?request.status, limit = ?request.limit, offset = ?request.offset, "list_work_items_page requested");
+    let query = work_item_query_from_request(&request);
+    let result = if request.top_level_only.unwrap_or(false) {
+        work_item_repo::list_top_level_work_items_page_with_metadata(&state.db, query).await
+    } else {
+        work_item_repo::list_work_items_page_with_metadata(&state.db, query).await
+    }
+    .map(|page| WorkItemPageCommand {
+        items: page.items,
+        limit: page.limit,
+        offset: page.offset,
+        has_more: page.has_more,
+    });
+    if let Err(err) = &result {
+        error!(product_id = ?request.product_id, product_area_id = ?request.product_area_id, capability_id = ?request.capability_id, source_node_id = ?request.source_node_id, source_node_type = ?request.source_node_type, status = ?request.status, limit = ?request.limit, offset = ?request.offset, error = %err, "list_work_items_page failed");
     }
     result
 }
@@ -279,201 +331,4 @@ pub async fn reorder_work_items(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::commands::product_commands;
-    use crate::commands::test_helpers::make_test_app;
-    use crate::domain::product::{Capability, Product, ProductArea};
-    use tauri::test::MockRuntime;
-    use tauri::Manager;
-
-    async fn create_test_product(state: State<'_, AppState>, name: &str) -> Product {
-        product_commands::create_product(
-            state,
-            product_commands::CreateProductCommand {
-                name: name.to_string(),
-                description: "".to_string(),
-                vision: "".to_string(),
-                goals: "[]".to_string(),
-                tags: "[]".to_string(),
-                lifecycle: None,
-                health: None,
-                owner_label: None,
-                investment_status: None,
-                roadmap: None,
-                evidence: None,
-            },
-        )
-        .await
-        .expect("product should be created")
-    }
-
-    async fn create_test_product_area(
-        state: State<'_, AppState>,
-        product_id: String,
-        name: &str,
-    ) -> ProductArea {
-        product_commands::create_product_area(
-            state,
-            product_commands::CreateProductAreaCommand {
-                product_id,
-                name: name.to_string(),
-                description: "".to_string(),
-                purpose: "".to_string(),
-                node_kind: Some("product_area".to_string()),
-                explanation: None,
-                examples: None,
-                implementation_notes: None,
-                test_guidance: None,
-            },
-        )
-        .await
-        .expect("product_area should be created")
-    }
-
-    async fn create_test_capability(
-        state: State<'_, AppState>,
-        product_area_id: String,
-        name: &str,
-    ) -> Capability {
-        product_commands::create_capability(
-            state,
-            product_commands::CreateCapabilityCommand {
-                product_area_id,
-                parent_capability_id: None,
-                name: name.to_string(),
-                description: "".to_string(),
-                acceptance_criteria: "".to_string(),
-                priority: "medium".to_string(),
-                risk: "low".to_string(),
-                technical_notes: "".to_string(),
-                node_kind: Some("capability".to_string()),
-                explanation: None,
-                examples: None,
-                implementation_notes: None,
-                test_guidance: None,
-            },
-        )
-        .await
-        .expect("capability should be created")
-    }
-
-    #[tokio::test]
-    async fn create_work_item_accepts_canonical_scope_fields() {
-        let app: tauri::App<MockRuntime> = make_test_app("work_item_commands_create").await;
-        let state = app.state::<AppState>();
-
-        let product = create_test_product(state.clone(), "Work Item Product").await;
-        let product_area =
-            create_test_product_area(state.clone(), product.id.clone(), "Area").await;
-        let capability =
-            create_test_capability(state.clone(), product_area.id.clone(), "Capability").await;
-
-        let work_item = create_work_item(
-            state,
-            CreateWorkItemCommand {
-                product_id: Some(product.id.clone()),
-                product_area_id: Some(product_area.id.clone()),
-                capability_id: Some(capability.id.clone()),
-                source_node_id: Some(capability.id.clone()),
-                source_node_type: Some("capability".to_string()),
-                parent_work_item_id: None,
-                title: "Canonical Work Item".to_string(),
-                problem_statement: "Problem from canonical field".to_string(),
-                description: "".to_string(),
-                acceptance_criteria: "Acceptance from canonical field".to_string(),
-                constraints: "".to_string(),
-                work_item_type: "story".to_string(),
-                priority: "high".to_string(),
-                complexity: "medium".to_string(),
-            },
-        )
-        .await
-        .expect("work item should be created");
-
-        assert_eq!(work_item.product_id.as_deref(), Some(product.id.as_str()));
-        assert_eq!(
-            work_item.product_area_id.as_deref(),
-            Some(product_area.id.as_str())
-        );
-        assert_eq!(
-            work_item.capability_id.as_deref(),
-            Some(capability.id.as_str())
-        );
-        assert_eq!(work_item.problem_statement, "Problem from canonical field");
-        assert_eq!(
-            work_item.acceptance_criteria,
-            "Acceptance from canonical field"
-        );
-        assert_eq!(work_item.work_item_type.to_string(), "story");
-    }
-
-    #[tokio::test]
-    async fn list_work_items_applies_filters_and_pagination_from_command_layer() {
-        let app: tauri::App<MockRuntime> = make_test_app("work_item_commands_list").await;
-        let state = app.state::<AppState>();
-
-        let product = create_test_product(state.clone(), "List Product").await;
-
-        for (index, status) in ["draft", "done", "draft"].iter().enumerate() {
-            let item = create_work_item(
-                state.clone(),
-                CreateWorkItemCommand {
-                    product_id: Some(product.id.clone()),
-                    product_area_id: None,
-                    capability_id: None,
-                    source_node_id: None,
-                    source_node_type: None,
-                    parent_work_item_id: None,
-                    title: format!("Item {index}"),
-                    problem_statement: "".to_string(),
-                    description: "".to_string(),
-                    acceptance_criteria: "".to_string(),
-                    constraints: "".to_string(),
-                    work_item_type: "story".to_string(),
-                    priority: "medium".to_string(),
-                    complexity: "medium".to_string(),
-                },
-            )
-            .await
-            .expect("work item should be created");
-
-            if *status != "draft" {
-                update_work_item(
-                    state.clone(),
-                    UpdateWorkItemCommand {
-                        id: item.id,
-                        title: None,
-                        description: None,
-                        status: Some((*status).to_string()),
-                        problem_statement: None,
-                        acceptance_criteria: None,
-                        constraints: None,
-                    },
-                )
-                .await
-                .expect("status should update");
-            }
-        }
-
-        let page = list_work_items(
-            state,
-            ListWorkItemsCommand {
-                product_id: Some(product.id),
-                product_area_id: None,
-                capability_id: None,
-                source_node_id: None,
-                source_node_type: None,
-                status: Some("draft".to_string()),
-                limit: Some(1),
-                offset: Some(1),
-            },
-        )
-        .await
-        .expect("work items should list");
-
-        assert_eq!(page.len(), 1);
-        assert_eq!(page[0].title, "Item 2");
-        assert_eq!(page[0].status.to_string(), "draft");
-    }
-}
+mod tests;

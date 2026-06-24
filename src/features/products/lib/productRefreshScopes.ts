@@ -2,6 +2,7 @@ import type { QueryKey } from "@tanstack/react-query";
 
 export type ProductPageTab = "list" | "status" | "overview" | "design" | "dependencies";
 export type ProductManagementTab = "areas" | "capabilities" | "features" | "work_items";
+export type ProductStatusGroupBy = "node" | "kind" | "work_status";
 
 type ProductManagementRefreshScope = {
   selectedProductId: string | null;
@@ -11,6 +12,7 @@ type ProductManagementRefreshScope = {
 
 type ProductPageRefreshScope = ProductManagementRefreshScope & {
   productPageTab: ProductPageTab;
+  statusGroupBy: ProductStatusGroupBy;
   statusProductId: string;
   hideExampleProductsKey: string;
 };
@@ -53,13 +55,14 @@ export function getProductPageRefreshQueryKeys(scope: ProductPageRefreshScope): 
       return [
         ["products"],
         ["setting", hideExampleProductsKey],
-        ["productTree"],
+        ["productTreeSummary"],
         ["productWorkItemSummary"],
       ];
     case "status":
       return [
         ["products"],
-        ["productTree"],
+        ["productTreeSummary"],
+        ...(scope.statusGroupBy === "work_status" ? [] : [["productTree"] as QueryKey]),
         ["workItemScopeSummary", statusProductId === "all" ? "all" : statusProductId],
         ["productWorkItemSummary"],
       ];

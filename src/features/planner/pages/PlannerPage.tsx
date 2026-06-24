@@ -26,8 +26,9 @@ import {
   listRepositories,
   listModelDefinitions,
   listProducts,
+  listProductAreas,
   listProviders,
-  listWorkItems,
+  listWorkItemsPage,
   browseForRepositoryPath,
   rejectWorkItem,
   rejectWorkItemPlan,
@@ -55,9 +56,12 @@ import type {
   PlannerTraceEvent,
   PlannerTurnResponse,
   Product,
+  ProductArea,
   ProductTree,
   WorkItem,
 } from "../../../lib/types";
+
+const PLANNER_WORK_ITEM_PAGE_SIZE = 500;
 
 const styles: Record<string, React.CSSProperties> = {
   page: { display: "flex", flexDirection: "column", gap: 8, height: "100%" },
@@ -447,6 +451,33 @@ function formatElapsedMs(value: number) {
     return `${minutes}:${String(seconds).padStart(2, "0")}`;
   }
   return `${seconds}s`;
+}
+
+function buildProductAreaOnlyTree(product: Product, productAreas: ProductArea[]): ProductTree {
+  const sortedProductAreas = [...productAreas].sort((left, right) => left.sort_order - right.sort_order || left.name.localeCompare(right.name));
+  return {
+    product,
+    product_areas: sortedProductAreas.map((product_area) => ({
+      product_area,
+      features: [],
+    })),
+    roots: sortedProductAreas.map((product_area) => ({
+      id: product_area.id,
+      node_type: "product_area",
+      node_kind: product_area.node_kind,
+      product_area_id: product_area.id,
+      capability_id: null,
+      parent_node_id: null,
+      parent_node_type: null,
+      depth: 0,
+      name: product_area.name,
+      description: product_area.description,
+      summary: product_area.purpose,
+      path: [product_area.name],
+      allowed_child_kinds: ["capability"],
+      children: [],
+    })),
+  };
 }
 
 function findTree(context: ResolverContext, product: Product) {
@@ -1651,6 +1682,7 @@ type DesignReviewPacketInput = {
   currentProducts: Product[];
   currentProductTrees: ProductTree[];
   currentWorkItems: WorkItem[];
+  currentWorkItemsHasMore: boolean;
   draftTreeNodes: PlannerTreeNode[];
   plan: PlannerPlan | null;
   validation: DraftValidationSummary;
@@ -1777,7 +1809,9 @@ function buildDesignReviewPacketHtml(input: DesignReviewPacketInput) {
         list([
           `${input.currentProducts.length} product(s) exist in the current workspace.`,
           `${input.currentProductTrees.reduce((total, tree) => total + tree.roots.length, 0)} root section(s) are loaded across current products.`,
-          `${input.currentWorkItems.length} story/task item(s) are currently visible to the planner.`,
+          input.currentWorkItemsHasMore
+            ? `The planner context is capped at the first ${input.currentWorkItems.length} story/task item(s); use Work Items for full paged delivery browsing.`
+            : `${input.currentWorkItems.length} story/task item(s) are currently visible to the planner.`,
           input.activeProductName ? `Current active product context: ${input.activeProductName}.` : "No active product context was selected.",
         ]),
       ])}
@@ -2001,17 +2035,28 @@ export function PlannerPage() {
     () => products.find((product) => product.id === selectedProductId) ?? null,
     [products, selectedProductId],
   );
-  const { data: selectedProductTree } = useQuery({
-    queryKey: ["plannerProductTree", selectedProductId],
-    queryFn: () => getProductTree(selectedProductId!),
+  const { data: selectedProductAreas = [] } = useQuery<ProductArea[]>({
+    queryKey: ["plannerProductAreas", selectedProductId],
+    queryFn: () => listProductAreas(selectedProductId!),
     enabled: !!selectedProductId,
   });
-  const { data: workItems = [] } = useQuery({
-    queryKey: ["plannerWorkItems", selectedProductId],
-    queryFn: () => listWorkItems({ productId: selectedProductId ?? undefined }),
+  const { data: workItemPage } = useQuery({
+    queryKey: ["plannerWorkItems", selectedProductId, PLANNER_WORK_ITEM_PAGE_SIZE],
+    queryFn: () => listWorkItemsPage({
+      productId: selectedProductId ?? undefined,
+      limit: PLANNER_WORK_ITEM_PAGE_SIZE,
+      offset: 0,
+    }),
     enabled: !!selectedProductId,
   });
-  const productTrees = useMemo(() => selectedProductTree ? [selectedProductTree] : [], [selectedProductTree]);
+  const workItems = workItemPage?.items ?? [];
+  const plannerWorkItemsHasMore = workItemPage?.has_more ?? false;
+  const productTrees = useMemo(() => {
+    if (selectedProduct && selectedProductAreas.length > 0) {
+      return [buildProductAreaOnlyTree(selectedProduct, selectedProductAreas)];
+    }
+    return [];
+  }, [selectedProduct, selectedProductAreas]);
   const hasTreeData = productTrees.length > 0;
   const isFocusedWorkspaceView = plannerView === "draft" || plannerView === "trace";
   const isCompactScreen = windowWidth <= 1360;
@@ -2690,6 +2735,7 @@ export function PlannerPage() {
       void queryClient.invalidateQueries({ queryKey: ["plannerWorkItems", selectedProductId] });
       void queryClient.invalidateQueries({ queryKey: ["sidebarWorkItems"] });
       void queryClient.invalidateQueries({ queryKey: ["productTree", selectedProductId] });
+      void queryClient.invalidateQueries({ queryKey: ["plannerProductAreas", selectedProductId] });
       void queryClient.invalidateQueries({ queryKey: ["plannerProductTree", selectedProductId] });
     }
 
@@ -3054,6 +3100,7 @@ export function PlannerPage() {
       void queryClient.invalidateQueries({ queryKey: ["plannerWorkItems", selectedProductId] });
       void queryClient.invalidateQueries({ queryKey: ["sidebarWorkItems"] });
       void queryClient.invalidateQueries({ queryKey: ["productTree", selectedProductId] });
+      void queryClient.invalidateQueries({ queryKey: ["plannerProductAreas", selectedProductId] });
       void queryClient.invalidateQueries({ queryKey: ["plannerProductTree", selectedProductId] });
     })().catch((error) => {
       setMessages((current) => [
@@ -3135,13 +3182,22 @@ export function PlannerPage() {
     try {
       setIsExportingDesignPacket(true);
       setDesignPacketError(null);
+      const exportProductTrees = selectedProductId
+        ? [
+            await queryClient.fetchQuery({
+              queryKey: ["plannerProductTree", selectedProductId],
+              queryFn: () => getProductTree(selectedProductId),
+            }),
+          ]
+        : productTrees;
       const html = buildDesignReviewPacketHtml({
         title: packetRootName,
         generatedAt: new Date().toLocaleString(),
         activeProductName,
         currentProducts: products,
-        currentProductTrees: productTrees,
+        currentProductTrees: exportProductTrees,
         currentWorkItems: workItems,
+        currentWorkItemsHasMore: plannerWorkItemsHasMore,
         draftTreeNodes,
         plan: latestDraftPlan,
         validation: draftValidation,
@@ -3487,8 +3543,13 @@ export function PlannerPage() {
         <div style={styles.sectionTitle}>Planner Controls</div>
         <div style={styles.sideCard}>
           <div style={styles.helper}>
-            {hasTreeData ? "Tree rendering is active for delivery-item structure questions." : "Tree rendering will activate once product structure finishes loading."}
+            {hasTreeData ? "Product area context is loaded. Full capability trees load only for packet export or backend planner actions." : "Product area context will activate once product structure finishes loading."}
           </div>
+          {plannerWorkItemsHasMore ? (
+            <div style={{ ...styles.warning, marginTop: 8 }}>
+              Planner context is showing the first {PLANNER_WORK_ITEM_PAGE_SIZE} story/task items. Use Work Items for full paged delivery browsing.
+            </div>
+          ) : null}
         </div>
 
         <div style={styles.sideCard}>

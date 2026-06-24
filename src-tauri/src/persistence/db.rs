@@ -154,6 +154,111 @@ mod tests {
             .expect("table info should be available")
     }
 
+    async fn sqlite_object_sql(pool: &SqlitePool, object_type: &str, name: &str) -> Option<String> {
+        sqlx::query_scalar("SELECT sql FROM sqlite_master WHERE type = ? AND name = ?")
+            .bind(object_type)
+            .bind(name)
+            .fetch_optional(pool)
+            .await
+            .expect("sqlite object SQL lookup should succeed")
+    }
+
+    async fn sqlite_object_names_like(
+        pool: &SqlitePool,
+        object_type: &str,
+        pattern: &str,
+    ) -> Vec<String> {
+        sqlx::query_scalar(
+            "SELECT name FROM sqlite_master WHERE type = ? AND name LIKE ? ORDER BY name",
+        )
+        .bind(object_type)
+        .bind(pattern)
+        .fetch_all(pool)
+        .await
+        .expect("sqlite object name lookup should succeed")
+    }
+
+    async fn sqlite_schema_objects(pool: &SqlitePool) -> Vec<(String, String, String)> {
+        sqlx::query_as(
+            "SELECT type, name, COALESCE(sql, '')
+             FROM sqlite_master
+             WHERE type IN ('table', 'index', 'trigger', 'view')
+               AND name NOT LIKE 'sqlite_%'
+               AND name != '_sqlx_migrations'
+             ORDER BY type, name",
+        )
+        .fetch_all(pool)
+        .await
+        .expect("sqlite schema object lookup should succeed")
+    }
+
+    async fn assert_no_legacy_product_area_schema_objects(pool: &SqlitePool) {
+        let legacy_sql_fragments = [
+            "module_id",
+            "references modules",
+            "create table modules",
+            "scope_type in ('product','module",
+            "scope_type in ('module",
+        ];
+        let violations: Vec<String> = sqlite_schema_objects(pool)
+            .await
+            .into_iter()
+            .filter_map(|(object_type, name, sql)| {
+                let normalized_name = name.to_ascii_lowercase();
+                let normalized_sql = sql.to_ascii_lowercase();
+                let has_legacy_name = normalized_name.contains("module");
+                let has_legacy_sql = legacy_sql_fragments
+                    .iter()
+                    .any(|fragment| normalized_sql.contains(fragment));
+                (has_legacy_name || has_legacy_sql).then(|| format!("{object_type} {name}: {sql}"))
+            })
+            .collect();
+
+        assert!(
+            violations.is_empty(),
+            "active product_area schema should not contain legacy module physical names: {violations:#?}"
+        );
+    }
+
+    async fn assert_canonical_work_item_summary_indexes(pool: &SqlitePool) {
+        let index_names = [
+            "idx_work_items_product_area_status_summary",
+            "idx_work_items_capability_status_summary",
+            "idx_work_items_source_status_summary",
+            "idx_work_items_product_status_list",
+            "idx_work_items_product_source_list",
+            "idx_work_items_product_source_status_list",
+        ];
+
+        for index_name in index_names {
+            let sql = sqlite_object_sql(pool, "index", index_name)
+                .await
+                .unwrap_or_else(|| panic!("missing expected index {index_name}"));
+            assert!(
+                !sql.contains("module_id"),
+                "index {index_name} should not use legacy module_id: {sql}"
+            );
+        }
+
+        let product_area_index =
+            sqlite_object_sql(pool, "index", "idx_work_items_product_area_status_summary")
+                .await
+                .expect("product area summary index should exist");
+        assert!(
+            product_area_index.contains("product_area_id"),
+            "product area summary index should use product_area_id: {product_area_index}"
+        );
+    }
+
+    async fn assert_no_product_area_migration_temp_tables(pool: &SqlitePool) {
+        let legacy_tables =
+            sqlite_object_names_like(pool, "table", "%_product_area_fk_legacy").await;
+        assert!(
+            legacy_tables.is_empty(),
+            "product_area physical migration should not leave temp tables: {legacy_tables:?}"
+        );
+    }
+
     #[tokio::test]
     async fn fresh_migration_uses_product_area_physical_schema() {
         let pool = create_test_pool("product_area_physical_schema").await;
@@ -161,6 +266,8 @@ mod tests {
         assert!(sqlite_object_exists(&pool, "table", "product_areas").await);
         assert!(!sqlite_object_exists(&pool, "table", "modules").await);
         assert!(!sqlite_object_exists(&pool, "table", "modules_product_area_fk_legacy").await);
+        assert_no_product_area_migration_temp_tables(&pool).await;
+        assert_no_legacy_product_area_schema_objects(&pool).await;
 
         let product_area_columns = table_columns(&pool, "product_areas").await;
         assert!(product_area_columns.contains(&"product_id".to_string()));
@@ -177,10 +284,7 @@ mod tests {
         assert!(sqlite_object_exists(&pool, "index", "idx_product_areas_product").await);
         assert!(sqlite_object_exists(&pool, "index", "idx_work_items_product_area").await);
         assert!(sqlite_object_exists(&pool, "index", "idx_work_items_product_area_list").await);
-        assert!(
-            sqlite_object_exists(&pool, "index", "idx_work_items_product_area_status_summary")
-                .await
-        );
+        assert_canonical_work_item_summary_indexes(&pool).await;
     }
 
     #[tokio::test]
@@ -296,6 +400,8 @@ mod tests {
 
         assert!(sqlite_object_exists(&upgraded_pool, "table", "product_areas").await);
         assert!(!sqlite_object_exists(&upgraded_pool, "table", "modules").await);
+        assert_no_product_area_migration_temp_tables(&upgraded_pool).await;
+        assert_no_legacy_product_area_schema_objects(&upgraded_pool).await;
         assert!(!table_columns(&upgraded_pool, "capabilities")
             .await
             .contains(&"module_id".to_string()));
@@ -335,5 +441,12 @@ mod tests {
         .await
         .expect("legacy agent work item should be preserved");
         assert_eq!(agent_work_product_area, "Legacy Area");
+
+        assert!(sqlite_object_exists(&upgraded_pool, "index", "idx_product_areas_product").await);
+        assert!(sqlite_object_exists(&upgraded_pool, "index", "idx_work_items_product_area").await);
+        assert!(
+            sqlite_object_exists(&upgraded_pool, "index", "idx_work_items_product_area_list").await
+        );
+        assert_canonical_work_item_summary_indexes(&upgraded_pool).await;
     }
 }

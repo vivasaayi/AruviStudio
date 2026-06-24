@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::persistence::work_item_repo;
 use crate::state::AppState;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use super::action_args::ToolAction;
 use super::{action_ok, action_result};
@@ -110,23 +110,42 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let source_node_id = args.optional_string(&["source_node_id", "sourceNodeId"])?;
             let source_node_type = args.optional_string(&["source_node_type", "sourceNodeType"])?;
             let status = args.optional_string(&["status"])?;
-            action_result(
-                "list_work_items",
-                work_item_repo::list_work_items_page(
-                    &state.db,
-                    work_item_repo::WorkItemListQuery {
-                        product_id: product_id.as_deref(),
-                        product_area_id: product_area_id.as_deref(),
-                        capability_id: capability_id.as_deref(),
-                        source_node_id: source_node_id.as_deref(),
-                        source_node_type: source_node_type.as_deref(),
-                        status: status.as_deref(),
-                        limit: args.optional_i64(&["limit"])?,
-                        offset: args.optional_i64(&["offset"])?,
-                    },
+            let include_pagination =
+                args.bool_or_default(&["include_pagination", "includePagination"], false)?;
+            let query = work_item_repo::WorkItemListQuery {
+                product_id: product_id.as_deref(),
+                product_area_id: product_area_id.as_deref(),
+                capability_id: capability_id.as_deref(),
+                source_node_id: source_node_id.as_deref(),
+                source_node_type: source_node_type.as_deref(),
+                status: status.as_deref(),
+                limit: args.optional_i64(&["limit"])?,
+                offset: args.optional_i64(&["offset"])?,
+            };
+            if include_pagination {
+                let page =
+                    work_item_repo::list_work_items_page_with_metadata(&state.db, query).await?;
+                let returned = page.items.len();
+                let next_offset = page.has_more.then_some(page.offset + page.limit);
+                action_result(
+                    "list_work_items",
+                    json!({
+                        "workItems": page.items,
+                        "pagination": {
+                            "limit": page.limit,
+                            "offset": page.offset,
+                            "returned": returned,
+                            "hasMore": page.has_more,
+                            "nextOffset": next_offset,
+                        }
+                    }),
                 )
-                .await?,
-            )
+            } else {
+                action_result(
+                    "list_work_items",
+                    work_item_repo::list_work_items_page(&state.db, query).await?,
+                )
+            }
         }
         "summarize_work_items_by_product" => action_result(
             "summarize_work_items_by_product",

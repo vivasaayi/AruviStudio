@@ -4,9 +4,10 @@ import process from "node:process";
 
 const repoRoot = process.cwd();
 const scanRoots = ["src-tauri/src", "src", "e2e"];
-const allowedFiles = new Set([
-  path.normalize("src-tauri/src/persistence/db.rs"),
-]);
+const targetedFiles = [
+  "mobile/App.tsx",
+  "mobile/src/types.ts",
+];
 const ignoredDirs = new Set([
   ".git",
   "dist",
@@ -23,6 +24,17 @@ const scannedExtensions = new Set([
   ".mjs",
 ]);
 const legacyTerms = /\b(create_module|module_id|modules?|Module|Modules)\b/g;
+const targetedLegacyTerms = /\b(create_module|module_id|modules?|module|Module|Modules|ModuleTree)\b/g;
+const frontendLegacyWorkItemListTerms = /\b(listWorkItems)\b|["']list_work_items["']/g;
+
+function isAllowedLegacyProductAreaTerm(normalizedPath, content, matchIndex) {
+  if (normalizedPath !== path.normalize("src-tauri/src/persistence/db.rs")) {
+    return false;
+  }
+
+  const testModuleIndex = content.indexOf("mod tests {");
+  return testModuleIndex >= 0 && matchIndex > testModuleIndex;
+}
 
 function isIgnored(relativePath) {
   return [...ignoredDirs].some(
@@ -53,19 +65,38 @@ function* walk(relativeDir) {
 }
 
 const violations = [];
+const performanceViolations = [];
 for (const root of scanRoots) {
   for (const filePath of walk(root)) {
     const normalizedPath = path.normalize(filePath);
-    if (allowedFiles.has(normalizedPath)) {
-      continue;
-    }
 
     const content = readFileSync(path.join(repoRoot, normalizedPath), "utf8");
     for (const match of content.matchAll(legacyTerms)) {
+      if (isAllowedLegacyProductAreaTerm(normalizedPath, content, match.index)) {
+        continue;
+      }
       const lineNumber = content.slice(0, match.index).split("\n").length;
       const line = content.split("\n")[lineNumber - 1].trim();
       violations.push(`${normalizedPath}:${lineNumber}: ${line}`);
     }
+
+    if (normalizedPath.startsWith(`src${path.sep}`)) {
+      for (const match of content.matchAll(frontendLegacyWorkItemListTerms)) {
+        const lineNumber = content.slice(0, match.index).split("\n").length;
+        const line = content.split("\n")[lineNumber - 1].trim();
+        performanceViolations.push(`${normalizedPath}:${lineNumber}: ${line}`);
+      }
+    }
+  }
+}
+
+for (const filePath of targetedFiles) {
+  const normalizedPath = path.normalize(filePath);
+  const content = readFileSync(path.join(repoRoot, normalizedPath), "utf8");
+  for (const match of content.matchAll(targetedLegacyTerms)) {
+    const lineNumber = content.slice(0, match.index).split("\n").length;
+    const line = content.split("\n")[lineNumber - 1].trim();
+    violations.push(`${normalizedPath}:${lineNumber}: ${line}`);
   }
 }
 
@@ -78,4 +109,13 @@ if (violations.length > 0) {
   process.exit(1);
 }
 
-console.log("Product hierarchy terminology check passed.");
+if (performanceViolations.length > 0) {
+  console.error("Legacy frontend work-item list usage found.");
+  console.error("Use listWorkItemsPage/list_work_items_page so large Mayyam-scale products stay paged.");
+  for (const violation of performanceViolations) {
+    console.error(`- ${violation}`);
+  }
+  process.exit(1);
+}
+
+console.log("Product hierarchy terminology and performance guard check passed.");

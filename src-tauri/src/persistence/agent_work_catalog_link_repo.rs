@@ -1,7 +1,7 @@
 use crate::domain::agent_work::AgentWorkCatalogLinkResult;
 use crate::error::AppError;
 use crate::persistence::agent_work_catalog_repo::{map_capability_status, map_work_item_status};
-use crate::persistence::agent_work_repo::{append_event, get_run};
+use crate::persistence::agent_work_repo::{append_event, get_run, AppendAgentWorkEventInput};
 use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;
 
@@ -285,16 +285,18 @@ pub async fn link_catalog_work_items(
 
     append_event(
         pool,
-        run_id,
-        "catalog_work_items_linked",
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some("completed"),
-        Some("Linked existing catalog work items to agent-work rows."),
-        Some(serde_json::to_value(&result)?),
+        AppendAgentWorkEventInput {
+            run_id,
+            event_type: "catalog_work_items_linked",
+            batch_id: None,
+            feature_id: None,
+            work_item_id: None,
+            agent: None,
+            command: None,
+            status: Some("completed"),
+            details: Some("Linked existing catalog work items to agent-work rows."),
+            metadata: Some(serde_json::to_value(&result)?),
+        },
     )
     .await?;
 

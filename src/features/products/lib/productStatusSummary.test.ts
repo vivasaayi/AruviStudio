@@ -13,6 +13,7 @@ import type {
   HierarchyTreeNode,
   Product,
   ProductTree,
+  ProductTreeSummary,
   ProductWorkItemSummary,
   WorkItem,
   WorkItemScopeSummary,
@@ -71,6 +72,17 @@ function tree(productModel: Product, roots: HierarchyTreeNode[]): ProductTree {
   };
 }
 
+function treeSummary(productId: string, overrides: Partial<ProductTreeSummary> = {}): ProductTreeSummary {
+  return {
+    product_id: productId,
+    product_area_count: 0,
+    capability_count: 0,
+    total_node_count: 0,
+    leaf_node_count: 0,
+    ...overrides,
+  };
+}
+
 function scopeSummary(overrides: Partial<WorkItemScopeSummary>): WorkItemScopeSummary {
   return {
     product_id: "product-1",
@@ -92,18 +104,15 @@ describe("productStatusSummary", () => {
   it("builds product status totals from aggregate product summaries and tree counts", () => {
     const mayyam = product({ id: "product-1", name: "Mayyam" });
     const platform = product({ id: "product-2", name: "Platform" });
-    const feature = node({ id: "feature-1", node_kind: "feature", depth: 2, path: ["Area", "Capability", "Feature"] });
-    const capability = node({ id: "capability-1", node_kind: "capability", depth: 1, path: ["Area", "Capability"], children: [feature] });
-    const area = node({ id: "area-1", node_kind: "product_area", depth: 0, path: ["Area"], children: [capability] });
-    const productTreeById = new Map<string, ProductTree>([
-      [mayyam.id, tree(mayyam, [area])],
+    const productTreeSummaryById = new Map<string, ProductTreeSummary>([
+      [mayyam.id, treeSummary(mayyam.id, { product_area_count: 1, total_node_count: 3, leaf_node_count: 1 })],
     ]);
     const productSummaryById = new Map<string, ProductWorkItemSummary>([
       [mayyam.id, { product_id: mayyam.id, total_count: 10, active_count: 6, done_count: 4, blocked_count: 1 }],
       [platform.id, { product_id: platform.id, total_count: 5, active_count: 4, done_count: 1, blocked_count: 0 }],
     ]);
 
-    expect(buildProductStatusSummary([mayyam, platform], productTreeById, productSummaryById)).toEqual({
+    expect(buildProductStatusSummary([mayyam, platform], productTreeSummaryById, productSummaryById)).toEqual({
       productCount: 2,
       nodeCount: 3,
       leafCount: 1,

@@ -120,6 +120,9 @@ test("product overview avoids full tree and work item loads until a chapter is o
   await page.goto("/products");
 
   await expect(page.getByRole("heading", { name: "Products" })).toBeVisible();
+  await page.waitForTimeout(200);
+  expect(await page.evaluate(() => window.__ARUVI_E2E__.getInvokeCallCount("get_product_tree"))).toBe(0);
+  expect(await page.evaluate(() => window.__ARUVI_E2E__.getInvokeCallCount("summarize_product_tree"))).toBeGreaterThan(0);
   await page.evaluate(() => window.__ARUVI_E2E__.clearInvokeCalls());
 
   await page.getByRole("button", { name: "Product Overview", exact: true }).click();
@@ -127,10 +130,14 @@ test("product overview avoids full tree and work item loads until a chapter is o
   await expect(page.getByText("Product areas read as chapters. Capabilities and features read as sections. Stories and tasks remain delivery notes.")).toBeVisible();
   await page.waitForTimeout(200);
 
-  const listWorkItemCallCount = await page.evaluate(() => window.__ARUVI_E2E__.getInvokeCallCount("list_work_items"));
-  const getProductTreeCallCount = await page.evaluate(() => window.__ARUVI_E2E__.getInvokeCallCount("get_product_tree"));
-  expect(listWorkItemCallCount).toBe(0);
-  expect(getProductTreeCallCount).toBe(0);
+  const overviewLoadCalls = await page.evaluate(() => ({
+    fullTree: window.__ARUVI_E2E__.getInvokeCallCount("get_product_tree"),
+    workItems: window.__ARUVI_E2E__.getInvokeCallCount("list_work_items"),
+    pagedWorkItems: window.__ARUVI_E2E__.getInvokeCallCount("list_work_items_page"),
+  }));
+  expect(overviewLoadCalls.fullTree).toBe(0);
+  expect(overviewLoadCalls.workItems).toBe(0);
+  expect(overviewLoadCalls.pagedWorkItems).toBe(0);
 
   await page.evaluate(() => window.__ARUVI_E2E__.clearInvokeCalls());
   await page.getByRole("button", { name: "Refresh Overview" }).click();
@@ -141,11 +148,13 @@ test("product overview avoids full tree and work item loads until a chapter is o
     productAreas: window.__ARUVI_E2E__.getInvokeCallCount("list_product_areas"),
     treeSummary: window.__ARUVI_E2E__.getInvokeCallCount("summarize_product_tree"),
     workItems: window.__ARUVI_E2E__.getInvokeCallCount("list_work_items"),
+    pagedWorkItems: window.__ARUVI_E2E__.getInvokeCallCount("list_work_items_page"),
     fullTree: window.__ARUVI_E2E__.getInvokeCallCount("get_product_tree"),
   }));
   expect(refreshCalls.productAreas).toBeGreaterThan(0);
   expect(refreshCalls.treeSummary).toBeGreaterThan(0);
   expect(refreshCalls.workItems).toBe(0);
+  expect(refreshCalls.pagedWorkItems).toBe(0);
   expect(refreshCalls.fullTree).toBe(0);
 
   await page.getByText("Core Math Engine", { exact: true }).click();
@@ -155,6 +164,47 @@ test("product overview avoids full tree and work item loads until a chapter is o
   const getProductTreeCallCountAfterOpen = await page.evaluate(() => window.__ARUVI_E2E__.getInvokeCallCount("get_product_tree"));
   expect(lazyCapabilityCallCount).toBe(1);
   expect(getProductTreeCallCountAfterOpen).toBe(0);
+});
+
+test("product status defaults to aggregate work status without full tree loads", async ({ page }) => {
+  await page.goto("/products");
+
+  await expect(page.getByRole("heading", { name: "Products" })).toBeVisible();
+  await page.evaluate(() => window.__ARUVI_E2E__.clearInvokeCalls());
+
+  await page.getByRole("button", { name: "Product Status" }).click();
+  await expect(page.getByLabel("Status pivot")).toHaveValue("work_status");
+  await expect(page.getByText("Work Status", { exact: true }).first()).toBeVisible();
+  await page.waitForTimeout(200);
+
+  const statusLoadCalls = await page.evaluate(() => ({
+    fullTree: window.__ARUVI_E2E__.getInvokeCallCount("get_product_tree"),
+    treeSummary: window.__ARUVI_E2E__.getInvokeCallCount("summarize_product_tree"),
+    scopeSummary: window.__ARUVI_E2E__.getInvokeCallCount("summarize_work_items_by_scope"),
+    workItems: window.__ARUVI_E2E__.getInvokeCallCount("list_work_items"),
+    pagedWorkItems: window.__ARUVI_E2E__.getInvokeCallCount("list_work_items_page"),
+  }));
+  expect(statusLoadCalls.fullTree).toBe(0);
+  expect(statusLoadCalls.scopeSummary).toBeGreaterThan(0);
+  expect(statusLoadCalls.workItems).toBe(0);
+  expect(statusLoadCalls.pagedWorkItems).toBe(0);
+
+  await page.evaluate(() => window.__ARUVI_E2E__.clearInvokeCalls());
+  await page.getByRole("button", { name: "Refresh Status" }).click();
+  await page.waitForTimeout(200);
+
+  const statusRefreshCalls = await page.evaluate(() => ({
+    fullTree: window.__ARUVI_E2E__.getInvokeCallCount("get_product_tree"),
+    treeSummary: window.__ARUVI_E2E__.getInvokeCallCount("summarize_product_tree"),
+    scopeSummary: window.__ARUVI_E2E__.getInvokeCallCount("summarize_work_items_by_scope"),
+    workItems: window.__ARUVI_E2E__.getInvokeCallCount("list_work_items"),
+    pagedWorkItems: window.__ARUVI_E2E__.getInvokeCallCount("list_work_items_page"),
+  }));
+  expect(statusRefreshCalls.fullTree).toBe(0);
+  expect(statusRefreshCalls.treeSummary).toBeGreaterThan(0);
+  expect(statusRefreshCalls.scopeSummary).toBeGreaterThan(0);
+  expect(statusRefreshCalls.workItems).toBe(0);
+  expect(statusRefreshCalls.pagedWorkItems).toBe(0);
 });
 
 test("portfolio and products expose cross-product capability dependencies", async ({ page }) => {

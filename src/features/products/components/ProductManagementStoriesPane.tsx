@@ -30,6 +30,10 @@ export function ProductManagementStoriesPane({
   onSelectStory,
   onEditStory,
   onDeleteStory,
+  storyPageIndex,
+  hasNextStoryPage,
+  onPreviousStoryPage,
+  onNextStoryPage,
   styles,
 }: {
   stories: WorkItem[];
@@ -40,6 +44,10 @@ export function ProductManagementStoriesPane({
   onSelectStory: (story: WorkItem) => void;
   onEditStory: (story: WorkItem) => void;
   onDeleteStory: (story: WorkItem) => void;
+  storyPageIndex: number;
+  hasNextStoryPage: boolean;
+  onPreviousStoryPage: () => void;
+  onNextStoryPage: () => void;
   styles: ProductManagementStoriesPaneStyles;
 }) {
   return (
@@ -75,6 +83,25 @@ export function ProductManagementStoriesPane({
         )) : (
           <div style={styles.empty}>No stories for this feature yet.</div>
         )}
+      </div>
+      <div style={{ ...styles.managementActions, justifyContent: "space-between", marginTop: 10 }}>
+        <span style={styles.rowSecondary}>Page {storyPageIndex + 1} · {stories.length} stories shown</span>
+        <div style={styles.managementActions}>
+          <button
+            style={styles.ghostBtn}
+            onClick={onPreviousStoryPage}
+            disabled={storyPageIndex === 0}
+          >
+            Previous
+          </button>
+          <button
+            style={styles.ghostBtn}
+            onClick={onNextStoryPage}
+            disabled={!hasNextStoryPage}
+          >
+            Next
+          </button>
+        </div>
       </div>
     </div>
   );
