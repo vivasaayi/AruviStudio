@@ -13,9 +13,6 @@ import {
 import {
   escapeHtml,
   groupTocItems,
-  renderBookContentsHtml,
-  renderBookProductAreaHtml,
-  renderBookWorkItemList,
   renderLegendRow,
   renderMetricHtml,
   renderProductAreaHtml,
@@ -24,6 +21,11 @@ import {
   renderWorkItemTreeHtml,
   toHtmlParagraph,
 } from "./productOverviewRenderHelpers";
+import {
+  renderBookContentsHtml,
+  renderBookProductAreaHtml,
+  renderBookWorkItemList,
+} from "./productOverviewBookRenderHelpers";
 
 export {
   PRODUCT_DELIVERY_ID,
