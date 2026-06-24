@@ -27,14 +27,11 @@ import {
   updatePlannerSession,
 } from "../../../lib/tauri";
 import { blobToBase64, speakInBrowser, startWavCapture, type ActiveAudioCapture } from "../../shared/voice";
-import { PlannerConversationTranscript } from "../components/PlannerConversationTranscript";
 import { PlannerComposerPanel } from "../components/PlannerComposerPanel";
-import { PlannerDraftCanvas } from "../components/PlannerDraftCanvas";
-import { PlannerDraftSidePanel } from "../components/PlannerDraftSidePanel";
 import { PlannerHeader } from "../components/PlannerHeader";
+import { PlannerPageContent } from "../components/PlannerPageContent";
 import { PlannerRepositoryModal } from "../components/PlannerRepositoryModal";
 import { PlannerSidebar } from "../components/PlannerSidebar";
-import { PlannerTraceView } from "../components/PlannerTraceView";
 import { usePlannerWindowWidth } from "../hooks/usePlannerWindowWidth";
 import { styles } from "../lib/plannerPageStyles";
 import { loadPlannerSpeechSettings } from "../lib/plannerSpeechSettings";
@@ -1313,86 +1310,60 @@ export function PlannerPage() {
               onToggleCompactTools={() => setShowCompactTools((value) => !value)}
             />
 
-            {plannerView === "draft" ? (
-              <div style={styles.draftWorkspace}>
-                <div style={styles.draftWorkspaceMain}>
-                  <PlannerDraftCanvas
-                    selectedDraftNode={selectedDraftNode}
-                    draftTreeNodes={draftTreeNodes}
-                    draftValidation={draftValidation}
-                    selectedDraftNodeId={selectedDraftNodeId}
-                    expandedDraftNodeIds={expandedDraftNodeIdSet}
-                    onSelectDraftNode={setSelectedDraftNodeId}
-                    onToggleDraftNode={toggleDraftNodeExpanded}
-                    onExpandAllDraftNodes={expandAllDraftNodes}
-                    onCollapseAllDraftNodes={collapseAllDraftNodes}
-                  />
-                  {plannerComposer}
-                </div>
-
-                <PlannerDraftSidePanel
-                  selectedDraftNode={selectedDraftNode}
-                  selectedDraftNodePath={selectedDraftNodePath}
-                  renameDraftName={renameDraftName}
-                  onRenameDraftNameChange={setRenameDraftName}
-                  onRenameSelectedDraftNode={() => void renameSelectedDraftNode()}
-                  onDeleteSelectedDraftNode={() => void deleteSelectedDraftNode()}
-                  isPlannerBusy={isPlannerBusy}
-                  allowedDraftChildTypes={allowedDraftChildTypes}
-                  draftChildType={draftChildType}
-                  onDraftChildTypeChange={setDraftChildType}
-                  draftChildName={draftChildName}
-                  onDraftChildNameChange={setDraftChildName}
-                  draftChildSummary={draftChildSummary}
-                  onDraftChildSummaryChange={setDraftChildSummary}
-                  onAddChildToSelectedDraftNode={() => void addChildToSelectedDraftNode()}
-                  draftEditMessage={draftEditMessage}
-                  draftEditError={draftEditError}
-                  selectedDraftNodePrompts={selectedDraftNodePrompts}
-                  onApplyPromptSuggestion={applyPromptSuggestion}
-                  selectedNodeRecentActions={selectedNodeRecentActions}
-                  draftValidation={draftValidation}
-                  isExportingDesignPacket={isExportingDesignPacket}
-                  onExportDesignReviewPacket={() => void exportDesignReviewPacket()}
-                  designPacketPath={designPacketPath}
-                  onRevealDesignPacket={(path) => void revealInFinder(path)}
-                  designPacketError={designPacketError}
-                  onConfirmPendingPlan={confirmPendingPlan}
-                  draftTreeNodeCount={draftTreeNodes.length}
-                  onBackToChat={() => setPlannerView("conversation")}
-                  onDismissPendingPlan={dismissPendingPlan}
-                  latestDraftPlan={latestDraftPlan}
-                />
-              </div>
-            ) : plannerView === "trace" ? (
-              <PlannerTraceView events={latestTraceEvents} />
-            ) : (
-              <PlannerConversationTranscript
-                transcriptRef={transcriptRef}
-                pendingVoiceTranscript={pendingVoiceTranscript}
-                reviewVoiceBeforeSend={reviewVoiceBeforeSend}
-                voiceElapsedMs={voiceElapsedMs}
-                isVoiceSubmitting={isVoiceSubmitting}
-                editableVoiceTranscript={editableVoiceTranscript}
-                isPlannerBusy={isPlannerBusy}
-                messages={messages}
-                isExportingDesignPacket={isExportingDesignPacket}
-                pendingPlan={pendingPlan}
-                draftTreeNodes={draftTreeNodes}
-                designPacketPath={designPacketPath}
-                designPacketError={designPacketError}
-                onEditableVoiceTranscriptChange={setEditableVoiceTranscript}
-                onSubmitPendingVoiceTranscript={() => void submitPendingVoiceTranscript()}
-                onRetryVoiceCapture={() => void retryVoiceCapture()}
-                onClearPendingVoiceReview={clearPendingVoiceReview}
-                onExportDesignReviewPacket={() => void exportDesignReviewPacket()}
-                onConfirmPendingPlan={confirmPendingPlan}
-                onDismissPendingPlan={dismissPendingPlan}
-              />
-            )}
-            {plannerView !== "draft" ? (
-              plannerComposer
-            ) : null}
+            <PlannerPageContent
+              plannerView={plannerView}
+              plannerComposer={plannerComposer}
+              transcriptRef={transcriptRef}
+              pendingVoiceTranscript={pendingVoiceTranscript}
+              reviewVoiceBeforeSend={reviewVoiceBeforeSend}
+              voiceElapsedMs={voiceElapsedMs}
+              isVoiceSubmitting={isVoiceSubmitting}
+              editableVoiceTranscript={editableVoiceTranscript}
+              isPlannerBusy={isPlannerBusy}
+              messages={messages}
+              isExportingDesignPacket={isExportingDesignPacket}
+              pendingPlan={pendingPlan}
+              draftTreeNodes={draftTreeNodes}
+              designPacketPath={designPacketPath}
+              designPacketError={designPacketError}
+              selectedDraftNode={selectedDraftNode}
+              draftValidation={draftValidation}
+              selectedDraftNodeId={selectedDraftNodeId}
+              expandedDraftNodeIds={expandedDraftNodeIdSet}
+              selectedDraftNodePath={selectedDraftNodePath}
+              renameDraftName={renameDraftName}
+              allowedDraftChildTypes={allowedDraftChildTypes}
+              draftChildType={draftChildType}
+              draftChildName={draftChildName}
+              draftChildSummary={draftChildSummary}
+              draftEditMessage={draftEditMessage}
+              draftEditError={draftEditError}
+              selectedDraftNodePrompts={selectedDraftNodePrompts}
+              selectedNodeRecentActions={selectedNodeRecentActions}
+              latestDraftPlan={latestDraftPlan}
+              latestTraceEvents={latestTraceEvents}
+              onEditableVoiceTranscriptChange={setEditableVoiceTranscript}
+              onSubmitPendingVoiceTranscript={() => void submitPendingVoiceTranscript()}
+              onRetryVoiceCapture={() => void retryVoiceCapture()}
+              onClearPendingVoiceReview={clearPendingVoiceReview}
+              onExportDesignReviewPacket={() => void exportDesignReviewPacket()}
+              onConfirmPendingPlan={confirmPendingPlan}
+              onDismissPendingPlan={dismissPendingPlan}
+              onSelectDraftNode={setSelectedDraftNodeId}
+              onToggleDraftNodeExpanded={toggleDraftNodeExpanded}
+              onExpandAllDraftNodes={expandAllDraftNodes}
+              onCollapseAllDraftNodes={collapseAllDraftNodes}
+              onRenameDraftNameChange={setRenameDraftName}
+              onRenameSelectedDraftNode={() => void renameSelectedDraftNode()}
+              onDeleteSelectedDraftNode={() => void deleteSelectedDraftNode()}
+              onDraftChildTypeChange={setDraftChildType}
+              onDraftChildNameChange={setDraftChildName}
+              onDraftChildSummaryChange={setDraftChildSummary}
+              onAddChildToSelectedDraftNode={() => void addChildToSelectedDraftNode()}
+              onApplyPromptSuggestion={applyPromptSuggestion}
+              onRevealDesignPacket={(path) => void revealInFinder(path)}
+              onBackToChat={() => setPlannerView("conversation")}
+            />
           </div>
         </div>
 
