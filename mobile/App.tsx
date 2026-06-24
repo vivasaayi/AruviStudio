@@ -10,7 +10,6 @@ import {
   Pressable,
   SafeAreaView,
   ScrollView,
-  Switch,
   Text,
   TextInput,
   View,
@@ -27,6 +26,7 @@ import * as SecureStore from "expo-secure-store";
 import { WebView } from "react-native-webview";
 import { initWhisper, type WhisperContext } from "whisper.rn";
 import { PlannerMobileClient } from "./src/api/client";
+import { MobileAppHeader } from "./src/components/MobileAppHeader";
 import { MobileCallsScreen } from "./src/components/MobileCallsScreen";
 import { MobileModelManager } from "./src/components/MobileModelManager";
 import { ProductModeButton, ProductNodeRow, ProductPlannerPanel } from "./src/components/MobileProductComponents";
@@ -1432,104 +1432,33 @@ export default function App() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.shell}>
-        <View style={styles.header}>
-          <View style={styles.titleRow}>
-            <View style={styles.titleBlock}>
-              <Text style={styles.title}>Aruvi Studio</Text>
-              <View style={styles.connectionRow}>
-                <View
-                  style={[
-                    styles.connectionDot,
-                    connectionStatus === "connected" ? styles.connectionDotReady : styles.connectionDotMissing,
-                  ]}
-                />
-                <Text style={styles.connectionText} numberOfLines={1}>
-                  {connectionText}
-                </Text>
-              </View>
-            </View>
-            <Pressable style={styles.headerButton} onPress={() => setIsSetupOpen((current) => !current)}>
-              <Text style={styles.buttonText}>Settings</Text>
-            </Pressable>
-            <Pressable
-              style={styles.headerButton}
-              onPress={() => {
-                if (activeTab === "products") {
-                  void loadProducts(selectedProductId);
-                } else {
-                  setWebReloadKey((current) => current + 1);
-                }
-                setConnectionCheckKey((current) => current + 1);
-              }}
-            >
-              <Text style={styles.buttonText}>Refresh</Text>
-            </Pressable>
-          </View>
-
-          {shouldShowSetup ? (
-            <View style={styles.setupPanel}>
-              <Text style={styles.setupCaption} numberOfLines={1}>{remoteUrl}</Text>
-              <TextInput
-                style={styles.input}
-                value={baseUrl}
-                onChangeText={setBaseUrl}
-                placeholder="http://mac-tailnet-ip:8787"
-                placeholderTextColor="#7d8898"
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="url"
-              />
-              <TextInput
-                style={styles.input}
-                value={token}
-                onChangeText={setToken}
-                placeholder="mobile.api_token"
-                placeholderTextColor="#7d8898"
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <View style={styles.optionalGrid}>
-                <TextInput
-                  style={[styles.input, styles.flexInput]}
-                  value={providerId}
-                  onChangeText={setProviderId}
-                  placeholder="provider id"
-                  placeholderTextColor="#7d8898"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-                <TextInput
-                  style={[styles.input, styles.flexInput]}
-                  value={modelName}
-                  onChangeText={setModelName}
-                  placeholder="model"
-                  placeholderTextColor="#7d8898"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-              </View>
-              <View style={styles.settingsRow}>
-                <View style={styles.settingsCopy}>
-                  <Text style={styles.settingsLabel}>Read replies</Text>
-                  <Text style={styles.settingsDescription}>Speak assistant replies after each voice message.</Text>
-                </View>
-                <Switch
-                  value={readReplies}
-                  onValueChange={(nextValue) => void setReadRepliesPreference(nextValue)}
-                  trackColor={{ false: "#2a3442", true: "#1d6f9d" }}
-                  thumbColor={readReplies ? "#f4f8ff" : "#8b98aa"}
-                  ios_backgroundColor="#2a3442"
-                />
-              </View>
-              <View style={styles.actionRow}>
-                <Pressable style={styles.primaryButton} onPress={() => void saveConnection()} disabled={isSaving}>
-                  <Text style={styles.primaryButtonText}>{isSaving ? "Saving..." : "Save + Load"}</Text>
-                </Pressable>
-              </View>
-            </View>
-          ) : null}
-        </View>
+        <MobileAppHeader
+          remoteUrl={remoteUrl}
+          baseUrl={baseUrl}
+          token={token}
+          providerId={providerId}
+          modelName={modelName}
+          readReplies={readReplies}
+          connectionText={connectionText}
+          connectionStatus={connectionStatus}
+          shouldShowSetup={shouldShowSetup}
+          isSaving={isSaving}
+          onToggleSetup={() => setIsSetupOpen((current) => !current)}
+          onRefresh={() => {
+            if (activeTab === "products") {
+              void loadProducts(selectedProductId);
+            } else {
+              setWebReloadKey((current) => current + 1);
+            }
+            setConnectionCheckKey((current) => current + 1);
+          }}
+          onBaseUrlChange={setBaseUrl}
+          onTokenChange={setToken}
+          onProviderIdChange={setProviderId}
+          onModelNameChange={setModelName}
+          onReadRepliesChange={setReadRepliesPreference}
+          onSaveConnection={saveConnection}
+        />
 
         <View style={styles.content}>
           {activeTab === "voice" ? (
