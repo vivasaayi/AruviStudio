@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   buildPlannerComposerScopeChips,
   buildPlannerStatusSummary,
+  findLatestAssistantMessage,
+  findLatestDraftPlan,
   PLANNER_COMPOSER_SCOPE_HINT,
 } from "./plannerViewModel";
 import type { DraftValidationSummary } from "./plannerDraftTree";
-import type { PendingPlan, PlannerMessage, PlannerTreeNode } from "./plannerPageTypes";
+import type { PendingPlan, PlannerMessage, PlannerPlan, PlannerTreeNode } from "./plannerPageTypes";
 
 const validation: DraftValidationSummary = {
   score: 100,
@@ -115,5 +117,50 @@ describe("plannerViewModel", () => {
       "story/task selected",
     ]);
     expect(PLANNER_COMPOSER_SCOPE_HINT).toContain("selected design node");
+  });
+
+  it("selects pending draft plans before assistant message plans", () => {
+    const assistantPlan: PlannerPlan = {
+      assistant_response: "Older plan",
+      needs_confirmation: true,
+      clarification_question: null,
+      actions: [{ type: "report_status" }],
+    };
+    const pendingPlan: PendingPlan = {
+      sourceText: "new plan",
+      plan: {
+        assistant_response: "Pending plan",
+        needs_confirmation: true,
+        clarification_question: null,
+        actions: [{ type: "report_tree" }],
+      },
+    };
+
+    expect(findLatestDraftPlan([
+      { id: "assistant-1", role: "assistant", content: "older", plan: assistantPlan },
+    ], pendingPlan)).toBe(pendingPlan.plan);
+  });
+
+  it("selects the latest assistant plan with actions and latest assistant message", () => {
+    const emptyPlan: PlannerPlan = {
+      assistant_response: "Empty",
+      needs_confirmation: false,
+      clarification_question: null,
+      actions: [],
+    };
+    const latestPlan: PlannerPlan = {
+      assistant_response: "Latest",
+      needs_confirmation: true,
+      clarification_question: null,
+      actions: [{ type: "report_status" }],
+    };
+    const messages: PlannerMessage[] = [
+      { id: "assistant-empty", role: "assistant", content: "empty", plan: emptyPlan },
+      { id: "user-1", role: "user", content: "request" },
+      { id: "assistant-latest", role: "assistant", content: "latest", plan: latestPlan },
+    ];
+
+    expect(findLatestDraftPlan(messages, null)).toBe(latestPlan);
+    expect(findLatestAssistantMessage(messages)?.id).toBe("assistant-latest");
   });
 });

@@ -61,6 +61,8 @@ import {
   collectTreeNodeIds,
   executePlannerPlan,
   findCapability,
+  findLatestAssistantMessage,
+  findLatestDraftPlan,
   findProductArea,
   findRelevantPlanActions,
   findTree,
@@ -211,18 +213,10 @@ export function PlannerPage() {
     () => new Set(expandedDraftNodeIds),
     [expandedDraftNodeIds],
   );
-  const latestDraftPlan = useMemo(() => {
-    if (pendingPlan?.plan) {
-      return pendingPlan.plan;
-    }
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const entry = messages[index];
-      if (entry.role === "assistant" && entry.plan && entry.plan.actions.length > 0) {
-        return entry.plan;
-      }
-    }
-    return null;
-  }, [messages, pendingPlan]);
+  const latestDraftPlan = useMemo(
+    () => findLatestDraftPlan(messages, pendingPlan),
+    [messages, pendingPlan],
+  );
   const selectedDraftNodePrompts = useMemo(
     () => buildSuggestedPrompts(selectedDraftNode),
     [selectedDraftNode],
@@ -239,14 +233,10 @@ export function PlannerPage() {
     () => findRelevantPlanActions(latestDraftPlan, selectedDraftNode),
     [latestDraftPlan, selectedDraftNode],
   );
-  const latestAssistantMessage = useMemo(() => {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      if (messages[index].role === "assistant") {
-        return messages[index];
-      }
-    }
-    return null;
-  }, [messages]);
+  const latestAssistantMessage = useMemo(
+    () => findLatestAssistantMessage(messages),
+    [messages],
+  );
   const plannerStatusSummary = useMemo(() => buildPlannerStatusSummary({
     voiceActivity,
     pendingVoiceTranscript,

@@ -1,5 +1,5 @@
 import type { DraftValidationSummary } from "./plannerDraftTree";
-import type { PendingPlan, PlannerMessage, PlannerTreeNode } from "./plannerPageTypes";
+import type { PendingPlan, PlannerMessage, PlannerPlan, PlannerTreeNode } from "./plannerPageTypes";
 
 export const PLANNER_COMPOSER_SCOPE_HINT =
   "If you omit names, the planner first tries the selected design node, then the selected workspace scope, then asks follow-up questions if it still cannot resolve the target cleanly.";
@@ -8,6 +8,28 @@ export type PlannerStatusSummary = {
   title: string;
   detail: string;
 };
+
+export function findLatestDraftPlan(messages: PlannerMessage[], pendingPlan: PendingPlan | null): PlannerPlan | null {
+  if (pendingPlan?.plan) {
+    return pendingPlan.plan;
+  }
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const entry = messages[index];
+    if (entry.role === "assistant" && entry.plan && entry.plan.actions.length > 0) {
+      return entry.plan;
+    }
+  }
+  return null;
+}
+
+export function findLatestAssistantMessage(messages: PlannerMessage[]): PlannerMessage | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === "assistant") {
+      return messages[index];
+    }
+  }
+  return null;
+}
 
 export function buildPlannerStatusSummary({
   voiceActivity,
