@@ -1,11 +1,9 @@
 import React, { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  assignWorkItemWorkspace,
   approveWorkItem,
   approveWorkItemPlan,
   approveWorkItemTestReview,
-  createLocalWorkspace,
   getLatestWorkflowRunForWorkItem,
   getWorkflowHistory,
   handleWorkflowUserAction,
@@ -58,6 +56,7 @@ import { useWorkItemReviewSignals } from "../hooks/useWorkItemReviewSignals";
 import { useWorkItemScopeData } from "../hooks/useWorkItemScopeData";
 import { useWorkItemScopeDisplay } from "../hooks/useWorkItemScopeDisplay";
 import { useWorkItemWorkspaceEditor } from "../hooks/useWorkItemWorkspaceEditor";
+import { useWorkItemWorkspaceMutations } from "../hooks/useWorkItemWorkspaceMutations";
 import { styles } from "../lib/workItemListPageStyles";
 import {
   SUB_WORK_ITEM_PAGE_SIZE,
@@ -491,95 +490,26 @@ export function WorkItemListPage() {
     selectedWorkItem: selectedWorkItemSummary,
     resolvedRepository,
   });
-  const createWorkspaceMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedWorkItemSummary) {
-        throw new Error("No story selected.");
-      }
-      return createLocalWorkspace({
-        productId: selectedWorkItemSummary.product_id ?? activeProductId,
-        productAreaId: selectedWorkItemSummary.product_area_id ?? activeProductAreaId,
-        workItemId: selectedWorkItemSummary.id,
-      });
-    },
-    onSuccess: async () => {
-      setActionError(null);
-      setActionInfo("Workspace created and attached. Opening IDE.");
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["repositories"] }),
-        queryClient.invalidateQueries({ queryKey: ["resolvedRepositoryForWorkItem", selectedWorkItemId] }),
-        queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] }),
-        invalidateTasks(),
-      ]);
-      setActiveView("ide");
-    },
-    onError: (error) => setActionError(String(error)),
-  });
-
-  const assignWorkspaceMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedWorkItemSummary) {
-        throw new Error("No story selected.");
-      }
-      if (!workspaceRepositoryId) {
-        throw new Error("Select a workspace.");
-      }
-      const branchName = branchPreview;
-      if (!branchName) {
-        throw new Error("Branch name is required.");
-      }
-      return assignWorkItemWorkspace({
-        id: selectedWorkItemSummary.id,
-        repositoryId: workspaceRepositoryId,
-        branchName,
-      });
-    },
-    onSuccess: async (updatedWorkItem) => {
-      setActionError(null);
-      setActionInfo("Workspace and branch updated for this story.");
-      setIsEditingWorkspace(false);
-      queryClient.setQueryData(["workItem", selectedWorkItemId], updatedWorkItem);
-      const updatedRepositoryId = updatedWorkItem.repo_override_id ?? updatedWorkItem.active_repo_id;
-      const updatedRepository = repositories.find((repository: Repository) => repository.id === updatedRepositoryId) ?? null;
-      if (updatedRepository) {
-        queryClient.setQueryData(["resolvedRepositoryForWorkItem", selectedWorkItemId], updatedRepository);
-      }
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["workItem", selectedWorkItemId] }),
-        queryClient.invalidateQueries({ queryKey: workItemsScopeQueryKey, refetchType: "none" }),
-        queryClient.refetchQueries({ queryKey: workItemsQueryKey, type: "active" }),
-        queryClient.invalidateQueries({ queryKey: ["resolvedRepositoryForWorkItem", selectedWorkItemId] }),
-        queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] }),
-      ]);
-    },
-    onError: (error) => setActionError(String(error)),
-  });
-
-  const clearWorkspaceOverrideMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedWorkItemSummary) {
-        throw new Error("No story selected.");
-      }
-      return assignWorkItemWorkspace({
-        id: selectedWorkItemSummary.id,
-        repositoryId: null,
-        branchName: null,
-      });
-    },
-    onSuccess: async (updatedWorkItem) => {
-      setActionError(null);
-      setActionInfo("Work item workspace override cleared. Scope defaults will be used.");
-      setIsEditingWorkspace(false);
-      queryClient.setQueryData(["workItem", selectedWorkItemId], updatedWorkItem);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["workItem", selectedWorkItemId] }),
-        queryClient.invalidateQueries({ queryKey: workItemsScopeQueryKey, refetchType: "none" }),
-        queryClient.refetchQueries({ queryKey: workItemsQueryKey, type: "active" }),
-        queryClient.invalidateQueries({ queryKey: ["resolvedRepositoryForWorkItem", selectedWorkItemId] }),
-        queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] }),
-      ]);
-    },
-    onError: (error) => setActionError(String(error)),
+  const {
+    createWorkspaceMutation,
+    assignWorkspaceMutation,
+    clearWorkspaceOverrideMutation,
+  } = useWorkItemWorkspaceMutations({
+    queryClient,
+    activeProductId,
+    activeProductAreaId,
+    selectedWorkItemId,
+    selectedWorkItem: selectedWorkItemSummary,
+    repositories,
+    workspaceRepositoryId,
+    branchPreview,
+    workItemsScopeQueryKey,
+    workItemsQueryKey,
+    setActionError,
+    setActionInfo,
+    setIsEditingWorkspace,
+    setActiveView,
+    invalidateTasks,
   });
   const {
     selectedDagNodeId,
