@@ -7,6 +7,7 @@ import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
 import { useEditorStore } from "../../../state/editorStore";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { IDECopilotPanel } from "../components/IDECopilotPanel";
+import { IDEFileTreeNode } from "../components/IDEFileTreeNode";
 import {
   attachRepository,
   applyRepositoryPatch,
@@ -27,11 +28,9 @@ import {
   startModelChatStream,
   writeRepositoryFile,
 } from "../../../lib/tauri";
-import type { RepositoryTreeNode } from "../../../lib/types";
 import {
   detectLanguage,
   filterTreeNodes,
-  formatBytes,
   normalizePath,
   parsePatchProposal,
   truncateForContext,
@@ -616,7 +615,7 @@ Rules:
               <div style={styles.status}>No files match the current filter.</div>
             ) : selectedRepository ? (
               filteredTree.map((node) => (
-                <TreeNode
+                <IDEFileTreeNode
                   key={node.relative_path}
                   node={node}
                   expandedDirs={expandedDirs}
@@ -714,64 +713,6 @@ Rules:
           onApplyPatchProposal={(proposal) => void applyPatchProposal(proposal)}
         />
       </div>
-    </div>
-  );
-}
-
-function TreeNode(props: {
-  node: RepositoryTreeNode;
-  expandedDirs: Record<string, boolean>;
-  activeFilePath: string | null;
-  onToggleDirectory: (relativePath: string) => void;
-  onOpenFile: (relativePath: string) => void;
-}) {
-  const { node, expandedDirs, activeFilePath, onToggleDirectory, onOpenFile } = props;
-  const isDirectory = node.node_type === "directory";
-  const isExpanded = expandedDirs[node.relative_path] ?? false;
-  const isActiveFile = !isDirectory && activeFilePath === node.relative_path;
-  const rowStyle = isActiveFile ? styles.treeNodeActive : styles.treeNode;
-
-  return (
-    <div>
-      <div
-        style={rowStyle}
-        onClick={() => {
-          if (isDirectory) {
-            onToggleDirectory(node.relative_path);
-            return;
-          }
-          onOpenFile(node.relative_path);
-        }}
-      >
-        {isDirectory ? (
-          <div style={styles.treeDirRow}>
-            <span>{isExpanded ? "▾" : "▸"}</span>
-            <span>{node.name}</span>
-          </div>
-        ) : (
-          <div style={styles.treeFileRow}>
-            <span>•</span>
-            <span>{node.name}</span>
-          </div>
-        )}
-        {!isDirectory && node.size_bytes != null && (
-          <div style={styles.treeMeta}>{formatBytes(node.size_bytes)}</div>
-        )}
-      </div>
-      {isDirectory && isExpanded && node.children.length > 0 && (
-        <div style={styles.treeChildren}>
-          {node.children.map((child) => (
-            <TreeNode
-              key={child.relative_path}
-              node={child}
-              expandedDirs={expandedDirs}
-              activeFilePath={activeFilePath}
-              onToggleDirectory={onToggleDirectory}
-              onOpenFile={onOpenFile}
-            />
-          ))}
-        </div>
-      )}
     </div>
   );
 }
