@@ -6,15 +6,12 @@ use tauri::State;
 use tracing::debug;
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn list_work_item_artifacts(
     state: State<'_, AppState>,
     work_item_id: Option<String>,
-    workItemId: Option<String>,
 ) -> Result<Vec<Artifact>, AppError> {
-    let work_item_id = work_item_id
-        .or(workItemId)
-        .ok_or_else(|| AppError::Validation("missing work item id".to_string()))?;
+    let work_item_id =
+        work_item_id.ok_or_else(|| AppError::Validation("missing work item id".to_string()))?;
     debug!(work_item_id = %work_item_id, "list_work_item_artifacts requested");
     artifact_repo::list_work_item_artifacts(&state.db, &work_item_id).await
 }

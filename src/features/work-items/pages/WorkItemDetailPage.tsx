@@ -7,7 +7,7 @@ import { useWorkspaceStore } from "../../../state/workspaceStore";
 
 export function WorkItemDetailPage() {
   const { workItemId } = useParams<{ workItemId: string }>();
-  const { setActiveProduct, setActiveModule, setActiveCapability, setActiveWorkItem } = useWorkspaceStore();
+  const { setActiveProduct, setActiveProductArea, setActiveCapability, setActiveWorkItem } = useWorkspaceStore();
 
   const { data: workItem } = useQuery({
     queryKey: ["workItemRoute", workItemId],
@@ -20,10 +20,10 @@ export function WorkItemDetailPage() {
       return;
     }
     setActiveProduct(workItem.product_id ?? null);
-    setActiveModule(workItem.module_id ?? null);
+    setActiveProductArea(workItem.product_area_id ?? null);
     setActiveCapability(workItem.capability_id ?? null);
     setActiveWorkItem(workItem.id);
-  }, [workItem, setActiveCapability, setActiveModule, setActiveProduct, setActiveWorkItem]);
+  }, [workItem, setActiveCapability, setActiveProductArea, setActiveProduct, setActiveWorkItem]);
 
   return <WorkItemListPage />;
 }

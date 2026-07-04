@@ -11,9 +11,6 @@ pub enum AppError {
     #[error("Validation error: {0}")]
     Validation(String),
 
-    #[error("Workflow error: {0}")]
-    Workflow(String),
-
     #[error("Git error: {0}")]
     Git(#[from] git2::Error),
 

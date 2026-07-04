@@ -8,24 +8,17 @@ use tracing::{error, info};
 const AUTO_START_AFTER_WORK_ITEM_APPROVAL_KEY: &str =
     "workflow.auto_start_after_work_item_approval";
 
-fn resolve_work_item_id(
-    work_item_id: Option<String>,
-    work_item_id_legacy: Option<String>,
-) -> Result<String, AppError> {
-    work_item_id
-        .or(work_item_id_legacy)
-        .ok_or_else(|| AppError::Validation("missing work item id".to_string()))
+fn resolve_work_item_id(work_item_id: Option<String>) -> Result<String, AppError> {
+    work_item_id.ok_or_else(|| AppError::Validation("missing work item id".to_string()))
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn approve_work_item(
     state: State<'_, AppState>,
     work_item_id: Option<String>,
-    workItemId: Option<String>,
     notes: Option<String>,
 ) -> Result<Approval, AppError> {
-    let work_item_id = resolve_work_item_id(work_item_id, workItemId)?;
+    let work_item_id = resolve_work_item_id(work_item_id)?;
     let id = uuid::Uuid::new_v4().to_string();
     info!(work_item_id = %work_item_id, "approve_work_item requested");
     let approval = approval_repo::create_approval(
@@ -40,13 +33,15 @@ pub async fn approve_work_item(
     .await?;
     if let Err(error) = work_item_repo::update_work_item(
         &state.db,
-        &work_item_id,
-        None,
-        None,
-        Some("approved"),
-        None,
-        None,
-        None,
+        work_item_repo::UpdateWorkItemPatch {
+            id: &work_item_id,
+            status: Some("approved"),
+            title: None,
+            description: None,
+            problem_statement: None,
+            acceptance_criteria: None,
+            constraints: None,
+        },
     )
     .await
     {
@@ -78,14 +73,12 @@ pub async fn approve_work_item(
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn reject_work_item(
     state: State<'_, AppState>,
     work_item_id: Option<String>,
-    workItemId: Option<String>,
     notes: String,
 ) -> Result<Approval, AppError> {
-    let work_item_id = resolve_work_item_id(work_item_id, workItemId)?;
+    let work_item_id = resolve_work_item_id(work_item_id)?;
     let id = uuid::Uuid::new_v4().to_string();
     info!(work_item_id = %work_item_id, "reject_work_item requested");
     let approval = approval_repo::create_approval(
@@ -100,13 +93,15 @@ pub async fn reject_work_item(
     .await?;
     if let Err(error) = work_item_repo::update_work_item(
         &state.db,
-        &work_item_id,
-        None,
-        None,
-        Some("draft"),
-        None,
-        None,
-        None,
+        work_item_repo::UpdateWorkItemPatch {
+            id: &work_item_id,
+            status: Some("draft"),
+            title: None,
+            description: None,
+            problem_statement: None,
+            acceptance_criteria: None,
+            constraints: None,
+        },
     )
     .await
     {
@@ -118,14 +113,12 @@ pub async fn reject_work_item(
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn approve_work_item_plan(
     state: State<'_, AppState>,
     work_item_id: Option<String>,
-    workItemId: Option<String>,
     notes: Option<String>,
 ) -> Result<Approval, AppError> {
-    let work_item_id = resolve_work_item_id(work_item_id, workItemId)?;
+    let work_item_id = resolve_work_item_id(work_item_id)?;
     let id = uuid::Uuid::new_v4().to_string();
     approval_repo::create_approval(
         &state.db,
@@ -140,14 +133,12 @@ pub async fn approve_work_item_plan(
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn reject_work_item_plan(
     state: State<'_, AppState>,
     work_item_id: Option<String>,
-    workItemId: Option<String>,
     notes: String,
 ) -> Result<Approval, AppError> {
-    let work_item_id = resolve_work_item_id(work_item_id, workItemId)?;
+    let work_item_id = resolve_work_item_id(work_item_id)?;
     let id = uuid::Uuid::new_v4().to_string();
     approval_repo::create_approval(
         &state.db,
@@ -162,14 +153,12 @@ pub async fn reject_work_item_plan(
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn approve_work_item_test_review(
     state: State<'_, AppState>,
     work_item_id: Option<String>,
-    workItemId: Option<String>,
     notes: Option<String>,
 ) -> Result<Approval, AppError> {
-    let work_item_id = resolve_work_item_id(work_item_id, workItemId)?;
+    let work_item_id = resolve_work_item_id(work_item_id)?;
     let id = uuid::Uuid::new_v4().to_string();
     approval_repo::create_approval(
         &state.db,
@@ -184,12 +173,13 @@ pub async fn approve_work_item_test_review(
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn get_work_item_approvals(
     state: State<'_, AppState>,
     work_item_id: Option<String>,
-    workItemId: Option<String>,
 ) -> Result<Vec<Approval>, AppError> {
-    let work_item_id = resolve_work_item_id(work_item_id, workItemId)?;
+    let work_item_id = resolve_work_item_id(work_item_id)?;
     approval_repo::list_approvals(&state.db, &work_item_id).await
 }
+
+#[cfg(test)]
+mod tests;

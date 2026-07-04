@@ -13,22 +13,6 @@ pub struct LogEntry {
     pub agent_run_id: Option<String>,
 }
 
-pub async fn insert_log(
-    pool: &SqlitePool,
-    id: &str,
-    level: &str,
-    target: &str,
-    message: &str,
-    fields: &str,
-    workflow_run_id: Option<&str>,
-    agent_run_id: Option<&str>,
-) -> Result<(), AppError> {
-    sqlx::query("INSERT INTO structured_logs (id,level,target,message,fields,workflow_run_id,agent_run_id) VALUES (?,?,?,?,?,?,?)")
-        .bind(id).bind(level).bind(target).bind(message).bind(fields).bind(workflow_run_id).bind(agent_run_id)
-        .execute(pool).await?;
-    Ok(())
-}
-
 pub async fn get_logs(
     pool: &SqlitePool,
     level: Option<&str>,

@@ -4,7 +4,7 @@ import type { HierarchyNodeType } from "../lib/types";
 
 interface WorkspaceState {
   activeProductId: string | null;
-  activeModuleId: string | null;
+  activeProductAreaId: string | null;
   activeCapabilityId: string | null;
   activeNodeId: string | null;
   activeNodeType: HierarchyNodeType | null;
@@ -12,9 +12,9 @@ interface WorkspaceState {
   activeRepoId: string | null;
   activeWorkspacePath: string | null;
   setActiveProduct: (id: string | null) => void;
-  setActiveModule: (id: string | null) => void;
+  setActiveProductArea: (id: string | null) => void;
   setActiveCapability: (id: string | null) => void;
-  setActiveHierarchyNode: (selection: { nodeId: string | null; nodeType: HierarchyNodeType | null; moduleId?: string | null; capabilityId?: string | null }) => void;
+  setActiveHierarchyNode: (selection: { nodeId: string | null; nodeType: HierarchyNodeType | null; productAreaId?: string | null; capabilityId?: string | null }) => void;
   setActiveWorkItem: (id: string | null) => void;
   setActiveRepo: (id: string | null) => void;
   setActiveWorkspace: (path: string | null) => void;
@@ -24,18 +24,18 @@ export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
     (set) => ({
       activeProductId: null,
-      activeModuleId: null,
+      activeProductAreaId: null,
       activeCapabilityId: null,
       activeNodeId: null,
       activeNodeType: null,
       activeWorkItemId: null,
       activeRepoId: null,
       activeWorkspacePath: null,
-      setActiveProduct: (id) => set({ activeProductId: id, activeModuleId: null, activeCapabilityId: null, activeNodeId: null, activeNodeType: null, activeWorkItemId: null }),
-      setActiveModule: (id) => set({ activeModuleId: id, activeCapabilityId: null, activeNodeId: id, activeNodeType: id ? "module" : null, activeWorkItemId: null }),
-      setActiveCapability: (id) => set((state) => ({ activeModuleId: id ? state.activeModuleId : state.activeModuleId, activeCapabilityId: id, activeNodeId: id, activeNodeType: id ? "capability" : null, activeWorkItemId: null })),
-      setActiveHierarchyNode: ({ nodeId, nodeType, moduleId, capabilityId }) => set({
-        activeModuleId: moduleId ?? (nodeType === "module" ? nodeId : null),
+      setActiveProduct: (id) => set({ activeProductId: id, activeProductAreaId: null, activeCapabilityId: null, activeNodeId: null, activeNodeType: null, activeWorkItemId: null }),
+      setActiveProductArea: (id) => set({ activeProductAreaId: id, activeCapabilityId: null, activeNodeId: id, activeNodeType: id ? "product_area" : null, activeWorkItemId: null }),
+      setActiveCapability: (id) => set((state) => ({ activeProductAreaId: id ? state.activeProductAreaId : state.activeProductAreaId, activeCapabilityId: id, activeNodeId: id, activeNodeType: id ? "capability" : null, activeWorkItemId: null })),
+      setActiveHierarchyNode: ({ nodeId, nodeType, productAreaId, capabilityId }) => set({
+        activeProductAreaId: productAreaId ?? (nodeType === "product_area" ? nodeId : null),
         activeCapabilityId: capabilityId ?? (nodeType === "capability" ? nodeId : null),
         activeNodeId: nodeId,
         activeNodeType: nodeType,
@@ -50,7 +50,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         activeProductId: state.activeProductId,
-        activeModuleId: state.activeModuleId,
+        activeProductAreaId: state.activeProductAreaId,
         activeCapabilityId: state.activeCapabilityId,
         activeNodeId: state.activeNodeId,
         activeNodeType: state.activeNodeType,

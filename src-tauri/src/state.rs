@@ -1,4 +1,3 @@
-use crate::domain::events::DomainEvent;
 use crate::persistence::{bulk_import_repo, external_cli_repo};
 use crate::services::{
     agent_service, model_service, planner_service, product_service, workflow_service,
@@ -6,23 +5,20 @@ use crate::services::{
 use sqlx::SqlitePool;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::Mutex;
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: SqlitePool,
     pub app_data_dir: PathBuf,
     pub app_profile: Option<String>,
-    pub event_tx: broadcast::Sender<DomainEvent>,
     pub artifact_base_path: PathBuf,
-    pub workspace_base_path: PathBuf,
     pub workflow_service: Arc<Mutex<workflow_service::WorkflowService>>,
-    pub agent_service: Arc<Mutex<agent_service::AgentService>>,
-    pub model_service: Arc<model_service::ModelService>,
     pub planner_service: Arc<Mutex<planner_service::PlannerService>>,
 }
 
 impl AppState {
+    #[cfg(test)]
     pub async fn new(
         db: SqlitePool,
         app_data_dir: PathBuf,
@@ -35,8 +31,6 @@ impl AppState {
         app_data_dir: PathBuf,
         app_profile: Option<String>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let (event_tx, _) = broadcast::channel(100);
-
         let artifact_base_path = app_data_dir.join("artifacts");
         let workspace_base_path = app_data_dir.join("workspaces");
 
@@ -67,12 +61,8 @@ impl AppState {
             db: (*db_arc).clone(),
             app_data_dir,
             app_profile,
-            event_tx,
             artifact_base_path,
-            workspace_base_path,
             workflow_service,
-            agent_service,
-            model_service,
             planner_service,
         })
     }

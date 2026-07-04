@@ -32,7 +32,7 @@ export function filterReferencesForProductBook(
 ): ProductReference[] {
   const scopeKeys = new Set<string>([`product:${productId}`]);
   const visit = (node: HierarchyTreeNode) => {
-    if (node.node_type === "module") {
+    if (node.node_type === "product_area") {
       scopeKeys.add(`product_area:${node.id}`);
     } else if (node.capability_id) {
       scopeKeys.add(`${node.node_kind === "feature" ? "feature" : "capability"}:${node.capability_id}`);

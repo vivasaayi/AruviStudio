@@ -169,3 +169,6 @@ pub async fn get_workflow_history(
         .bind(workflow_run_id)
         .fetch_all(pool).await.map_err(|e| e.into())
 }
+
+#[cfg(test)]
+mod tests;

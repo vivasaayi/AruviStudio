@@ -1,5 +1,11 @@
-use crate::domain::work_item::WorkItem;
 use serde::{Deserialize, Serialize};
+
+mod hierarchy;
+pub use hierarchy::{
+    CapabilityTree, ChildReparentStrategy, HierarchyNodeKind, HierarchyNodeType, HierarchyTreeNode,
+    NodeKindConversionResult, ProductAreaTree, ProductTree, ProductTreeSummary,
+    SemanticTemplateApplicationResult, SemanticTemplateKind,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Product {
@@ -131,7 +137,7 @@ impl std::fmt::Display for ProductInvestmentStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Module {
+pub struct ProductArea {
     pub id: String,
     pub product_id: String,
     pub node_kind: HierarchyNodeKind,
@@ -150,7 +156,7 @@ pub struct Module {
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Capability {
     pub id: String,
-    pub module_id: String,
+    pub product_area_id: String,
     pub parent_capability_id: Option<String>,
     pub level: i32,
     pub node_kind: HierarchyNodeKind,
@@ -231,25 +237,6 @@ impl std::fmt::Display for CapabilityStatus {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProductTree {
-    pub product: Product,
-    pub modules: Vec<ModuleTree>,
-    pub roots: Vec<HierarchyTreeNode>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModuleTree {
-    pub module: Module,
-    pub features: Vec<CapabilityTree>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CapabilityTree {
-    pub capability: Capability,
-    pub children: Vec<CapabilityTree>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ProductReference {
     pub id: String,
@@ -261,172 +248,4 @@ pub struct ProductReference {
     pub content: String,
     pub created_at: String,
     pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, sqlx::Type)]
-#[serde(rename_all = "snake_case")]
-#[sqlx(rename_all = "snake_case")]
-pub enum HierarchyNodeKind {
-    Area,
-    Capability,
-    Feature,
-}
-
-impl HierarchyNodeKind {
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "area" => Some(Self::Area),
-            "capability" => Some(Self::Capability),
-            "feature" => Some(Self::Feature),
-            _ => None,
-        }
-    }
-
-    pub fn default_root() -> Self {
-        Self::Area
-    }
-
-    pub fn default_child(parent_kind: &Self) -> Self {
-        match parent_kind {
-            Self::Area => Self::Capability,
-            Self::Capability => Self::Feature,
-            Self::Feature => Self::Feature,
-        }
-    }
-
-    pub fn is_root_kind(&self) -> bool {
-        matches!(self, Self::Area)
-    }
-
-    pub fn can_have_children(&self) -> bool {
-        matches!(self, Self::Area | Self::Capability)
-    }
-
-    pub fn allowed_child_kinds(&self) -> Vec<Self> {
-        match self {
-            Self::Area => vec![Self::Capability],
-            Self::Capability => vec![Self::Feature],
-            Self::Feature => Vec::new(),
-        }
-    }
-
-    pub fn supports_child_kind(&self, child_kind: &Self) -> bool {
-        self.allowed_child_kinds().contains(child_kind)
-    }
-}
-
-impl std::fmt::Display for HierarchyNodeKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let value = match self {
-            Self::Area => "area",
-            Self::Capability => "capability",
-            Self::Feature => "feature",
-        };
-        write!(f, "{value}")
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, sqlx::Type)]
-#[serde(rename_all = "snake_case")]
-#[sqlx(rename_all = "snake_case")]
-pub enum HierarchyNodeType {
-    Module,
-    Capability,
-}
-
-impl std::fmt::Display for HierarchyNodeType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Module => write!(f, "module"),
-            Self::Capability => write!(f, "capability"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HierarchyTreeNode {
-    pub id: String,
-    pub node_type: HierarchyNodeType,
-    pub node_kind: HierarchyNodeKind,
-    pub module_id: String,
-    pub capability_id: Option<String>,
-    pub parent_node_id: Option<String>,
-    pub parent_node_type: Option<HierarchyNodeType>,
-    pub depth: i32,
-    pub name: String,
-    pub description: String,
-    pub summary: String,
-    pub path: Vec<String>,
-    pub allowed_child_kinds: Vec<HierarchyNodeKind>,
-    pub children: Vec<HierarchyTreeNode>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum SemanticTemplateKind {
-    OperatorChapter,
-    TechnicalTopicBook,
-}
-
-impl SemanticTemplateKind {
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "operator_chapter" => Some(Self::OperatorChapter),
-            "technical_topic_book" | "book_topic" => Some(Self::TechnicalTopicBook),
-            _ => None,
-        }
-    }
-}
-
-impl std::fmt::Display for SemanticTemplateKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::OperatorChapter => write!(f, "operator_chapter"),
-            Self::TechnicalTopicBook => write!(f, "technical_topic_book"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum ChildReparentStrategy {
-    Reject,
-    ReparentToParent,
-}
-
-impl ChildReparentStrategy {
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "reject" => Some(Self::Reject),
-            "reparent_to_parent" => Some(Self::ReparentToParent),
-            _ => None,
-        }
-    }
-}
-
-impl std::fmt::Display for ChildReparentStrategy {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Reject => write!(f, "reject"),
-            Self::ReparentToParent => write!(f, "reparent_to_parent"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SemanticTemplateApplicationResult {
-    pub template_kind: SemanticTemplateKind,
-    pub parent_node_id: String,
-    pub parent_node_type: HierarchyNodeType,
-    pub topic_node: Capability,
-    pub created_nodes: Vec<Capability>,
-    pub created_work_items: Vec<WorkItem>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NodeKindConversionResult {
-    pub capability: Capability,
-    pub previous_node_kind: HierarchyNodeKind,
-    pub child_strategy: Option<ChildReparentStrategy>,
-    pub reparented_children: Vec<Capability>,
 }

@@ -77,3 +77,6 @@ async fn repair_legacy_workflow_stage_history_fk(pool: &SqlitePool) -> Result<()
 
     Ok(())
 }
+
+#[cfg(test)]
+mod db_tests;

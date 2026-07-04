@@ -195,13 +195,7 @@ pub async fn list_mobile_planner_chat_messages(
 
 pub async fn append_mobile_planner_chat_tool_trace(
     pool: &SqlitePool,
-    id: &str,
-    session_id: &str,
-    step: i64,
-    tool_name: &str,
-    arguments_json: &str,
-    result_json: Option<&str>,
-    error: Option<&str>,
+    input: AppendMobilePlannerChatToolTraceInput<'_>,
 ) -> Result<MobilePlannerChatToolTraceRecord, AppError> {
     sqlx::query_as::<_, MobilePlannerChatToolTraceRecord>(
         "INSERT INTO mobile_planner_chat_tool_traces (
@@ -210,16 +204,26 @@ pub async fn append_mobile_planner_chat_tool_trace(
          VALUES (?, ?, ?, ?, ?, ?, ?)
          RETURNING id, session_id, step, tool_name, arguments_json, result_json, error, created_at",
     )
-    .bind(id)
-    .bind(session_id)
-    .bind(step)
-    .bind(tool_name)
-    .bind(arguments_json)
-    .bind(result_json)
-    .bind(error)
+    .bind(input.id)
+    .bind(input.session_id)
+    .bind(input.step)
+    .bind(input.tool_name)
+    .bind(input.arguments_json)
+    .bind(input.result_json)
+    .bind(input.error)
     .fetch_one(pool)
     .await
     .map_err(|error| error.into())
+}
+
+pub struct AppendMobilePlannerChatToolTraceInput<'a> {
+    pub id: &'a str,
+    pub session_id: &'a str,
+    pub step: i64,
+    pub tool_name: &'a str,
+    pub arguments_json: &'a str,
+    pub result_json: Option<&'a str>,
+    pub error: Option<&'a str>,
 }
 
 pub async fn list_mobile_planner_chat_tool_traces(

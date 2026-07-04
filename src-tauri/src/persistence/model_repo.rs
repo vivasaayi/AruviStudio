@@ -118,23 +118,17 @@ pub async fn get_model_definition(
 
 pub async fn update_model_definition(
     pool: &SqlitePool,
-    id: &str,
-    provider_id: Option<&str>,
-    name: Option<&str>,
-    context_window: Option<i64>,
-    capability_tags: Option<&str>,
-    notes: Option<&str>,
-    enabled: Option<bool>,
+    patch: UpdateModelDefinitionPatch<'_>,
 ) -> Result<ModelDefinition, AppError> {
-    let existing = get_model_definition(pool, id).await?;
-    let next_provider_id = provider_id.unwrap_or(&existing.provider_id);
-    let next_name = name.unwrap_or(&existing.name);
-    let next_context_window = context_window.or(existing.context_window);
+    let existing = get_model_definition(pool, patch.id).await?;
+    let next_provider_id = patch.provider_id.unwrap_or(&existing.provider_id);
+    let next_name = patch.name.unwrap_or(&existing.name);
+    let next_context_window = patch.context_window.or(existing.context_window);
     let existing_capability_tags =
         serde_json::to_string(&existing.capability_tags).unwrap_or_else(|_| "[]".to_string());
-    let next_capability_tags = capability_tags.unwrap_or(&existing_capability_tags);
-    let next_notes = notes.unwrap_or(&existing.notes);
-    let next_enabled = enabled.unwrap_or(existing.enabled);
+    let next_capability_tags = patch.capability_tags.unwrap_or(&existing_capability_tags);
+    let next_notes = patch.notes.unwrap_or(&existing.notes);
+    let next_enabled = patch.enabled.unwrap_or(existing.enabled);
 
     sqlx::query(
         "UPDATE model_definitions
@@ -148,11 +142,21 @@ pub async fn update_model_definition(
     .bind(next_capability_tags)
     .bind(next_notes)
     .bind(next_enabled)
-    .bind(id)
+    .bind(patch.id)
     .map(row_to_model_definition)
     .fetch_one(pool)
     .await
     .map_err(|e| e.into())
+}
+
+pub struct UpdateModelDefinitionPatch<'a> {
+    pub id: &'a str,
+    pub provider_id: Option<&'a str>,
+    pub name: Option<&'a str>,
+    pub context_window: Option<i64>,
+    pub capability_tags: Option<&'a str>,
+    pub notes: Option<&'a str>,
+    pub enabled: Option<bool>,
 }
 
 pub async fn delete_model_definition(pool: &SqlitePool, id: &str) -> Result<(), AppError> {

@@ -33,7 +33,7 @@
     };
   }
 
-  function createModule(id, productId, nodeKind, name, description, purpose, sortOrder) {
+  function createProductArea(id, productId, nodeKind, name, description, purpose, sortOrder) {
     return {
       id,
       product_id: productId,
@@ -47,10 +47,10 @@
     };
   }
 
-  function createCapability(id, moduleId, parentCapabilityId, level, nodeKind, name, description, acceptanceCriteria, sortOrder) {
+  function createCapability(id, productAreaId, parentCapabilityId, level, nodeKind, name, description, acceptanceCriteria, sortOrder) {
     return {
       id,
-      module_id: moduleId,
+      product_area_id: productAreaId,
       parent_capability_id: parentCapabilityId,
       level,
       node_kind: nodeKind,
@@ -74,7 +74,7 @@
   function createWorkItem(
     id,
     productId,
-    moduleId,
+    productAreaId,
     capabilityId,
     sourceNodeId,
     sourceNodeType,
@@ -88,7 +88,7 @@
     return {
       id,
       product_id: productId,
-      module_id: moduleId,
+      product_area_id: productAreaId,
       capability_id: capabilityId,
       source_node_id: sourceNodeId,
       source_node_type: sourceNodeType,
@@ -117,11 +117,12 @@
   function createState() {
     const calculatorProductId = "example-product-calculator";
     const wifiProductId = "example-product-wifi-platform";
-    const coreMathModuleId = "calc-core-math-engine";
-    const wifiModuleId = "wifi-connectivity";
+    const coreMathProductAreaId = "calc-core-math-engine";
+    const wifiProductAreaId = "wifi-connectivity";
     const expressionCapabilityId = "calc-expression-evaluation";
     const featureCapabilityId = "calc-scientific-mode-feature";
     const securePairingCapabilityId = "wifi-secure-pairing";
+    const multiTaskStoryId = "work-item-calc-feature-multi-task-story";
 
     return {
       nextId: 1,
@@ -176,20 +177,20 @@
           ["example_product", "seeded_catalog", "platform", "connectivity"],
         ),
       ],
-      modules: [
-        createModule(
-          coreMathModuleId,
+      product_areas: [
+        createProductArea(
+          coreMathProductAreaId,
           calculatorProductId,
-          "area",
+          "product_area",
           "Core Math Engine",
           "Semantic root section for the calculator's parsing and evaluation logic.",
           "Coordinate the parser, evaluator, and delivery work attached to the engine.",
           0,
         ),
-        createModule(
-          wifiModuleId,
+        createProductArea(
+          wifiProductAreaId,
           wifiProductId,
-          "area",
+          "product_area",
           "Connectivity Services",
           "Top-level capability for pairing and sync platform behavior.",
           "Own secure connectivity primitives for dependent products.",
@@ -199,7 +200,7 @@
       capabilities: [
         createCapability(
           expressionCapabilityId,
-          coreMathModuleId,
+          coreMathProductAreaId,
           null,
           0,
           "capability",
@@ -210,7 +211,7 @@
         ),
         createCapability(
           featureCapabilityId,
-          coreMathModuleId,
+          coreMathProductAreaId,
           expressionCapabilityId,
           1,
           "feature",
@@ -221,7 +222,7 @@
         ),
         createCapability(
           securePairingCapabilityId,
-          wifiModuleId,
+          wifiProductAreaId,
           null,
           0,
           "capability",
@@ -235,7 +236,7 @@
         {
           id: "strategy-shared-platforms",
           parent_node_id: null,
-          node_kind: "strategic_area",
+          node_kind: "strategic_product_area",
           name: "Shared Platforms",
           description: "Reusable platforms that support multiple products.",
           owner_label: "Head of Platforms",
@@ -320,10 +321,10 @@
         createWorkItem(
           "work-item-calc-parser-errors",
           calculatorProductId,
-          coreMathModuleId,
+          coreMathProductAreaId,
           null,
-          coreMathModuleId,
-          "module",
+          coreMathProductAreaId,
+          "product_area",
           "Refine parser error surfaces",
           "Improve direct engine-level error messages for malformed expressions.",
           "refactor",
@@ -334,7 +335,7 @@
         createWorkItem(
           "work-item-calc-precedence",
           calculatorProductId,
-          coreMathModuleId,
+          coreMathProductAreaId,
           expressionCapabilityId,
           expressionCapabilityId,
           "capability",
@@ -348,7 +349,7 @@
         createWorkItem(
           "work-item-calc-feature-checklist",
           calculatorProductId,
-          coreMathModuleId,
+          coreMathProductAreaId,
           featureCapabilityId,
           featureCapabilityId,
           "capability",
@@ -359,6 +360,54 @@
           "draft",
           3,
         ),
+        createWorkItem(
+          multiTaskStoryId,
+          calculatorProductId,
+          coreMathProductAreaId,
+          featureCapabilityId,
+          featureCapabilityId,
+          "capability",
+          "Make story task lists reliable after task creation",
+          "Story used to verify that Product Management renders every child task.",
+          "feature",
+          "high",
+          "draft",
+          4,
+        ),
+        {
+          ...createWorkItem(
+            "work-item-calc-feature-multi-task-one",
+            calculatorProductId,
+            coreMathProductAreaId,
+            featureCapabilityId,
+            featureCapabilityId,
+            "capability",
+            "Load selected story tasks through get_sub_work_items",
+            "Use the dedicated child-work-item API for the selected story's task panel.",
+            "task",
+            "high",
+            "draft",
+            0,
+          ),
+          parent_work_item_id: multiTaskStoryId,
+        },
+        {
+          ...createWorkItem(
+            "work-item-calc-feature-multi-task-two",
+            calculatorProductId,
+            coreMathProductAreaId,
+            featureCapabilityId,
+            featureCapabilityId,
+            "capability",
+            "Add regression coverage for multi-task story display",
+            "Assert that a selected story renders all persisted child tasks.",
+            "task",
+            "medium",
+            "draft",
+            1,
+          ),
+          parent_work_item_id: multiTaskStoryId,
+        },
       ],
       repositories: [],
       externalCliRuns: [],
@@ -387,98 +436,99 @@
     if (!product) {
       return null;
     }
-    const modules = state.modules
+    const product_areas = state.product_areas
       .filter((entry) => entry.product_id === productId)
       .sort((a, b) => a.sort_order - b.sort_order)
-      .map((moduleEntry) => ({
-        module: moduleEntry,
-        features: buildCapabilityChildren(moduleEntry.id, null),
+      .map((productAreaEntry) => ({
+        product_area: productAreaEntry,
+        features: buildCapabilityChildren(productAreaEntry.id, null),
       }));
-    return { product, modules, roots: buildHierarchyRoots(productId) };
+    return { product, product_areas, roots: buildHierarchyRoots(productId) };
   }
 
-  function buildCapabilityChildren(moduleId, parentCapabilityId) {
+  function buildCapabilityChildren(productAreaId, parentCapabilityId) {
     const state = getState();
     return state.capabilities
-      .filter((entry) => entry.module_id === moduleId && entry.parent_capability_id === parentCapabilityId)
+      .filter((entry) => entry.product_area_id === productAreaId && entry.parent_capability_id === parentCapabilityId)
       .sort((a, b) => a.sort_order - b.sort_order)
       .map((capability) => ({
         capability,
-        children: buildCapabilityChildren(moduleId, capability.id),
+        children: buildCapabilityChildren(productAreaId, capability.id),
       }));
   }
 
   function buildHierarchyRoots(productId) {
     const state = getState();
-    return state.modules
+    return state.product_areas
       .filter((entry) => entry.product_id === productId)
       .sort((a, b) => a.sort_order - b.sort_order)
-      .map((moduleEntry) => ({
-        id: moduleEntry.id,
-        node_type: "module",
-        node_kind: moduleEntry.node_kind,
-        module_id: moduleEntry.id,
+      .map((productAreaEntry) => ({
+        id: productAreaEntry.id,
+        node_type: "product_area",
+        node_kind: productAreaEntry.node_kind,
+        product_area_id: productAreaEntry.id,
         capability_id: null,
         parent_node_id: null,
         parent_node_type: null,
         depth: 0,
-        name: moduleEntry.name,
-        description: moduleEntry.description,
-        summary: moduleEntry.purpose,
-        path: [moduleEntry.name],
+        name: productAreaEntry.name,
+        description: productAreaEntry.description,
+        summary: productAreaEntry.purpose,
+        path: [productAreaEntry.name],
         allowed_child_kinds: ROOT_ALLOWED_CHILD_KINDS,
-        children: buildHierarchyCapabilityNodes(moduleEntry.id, null, [moduleEntry.name], 1),
+        children: buildHierarchyCapabilityNodes(productAreaEntry.id, null, [productAreaEntry.name], 1),
       }));
   }
 
-  function buildHierarchyCapabilityNodes(moduleId, parentCapabilityId, parentPath, depth) {
+  function buildHierarchyCapabilityNodes(productAreaId, parentCapabilityId, parentPath, depth) {
     const state = getState();
     return state.capabilities
-      .filter((entry) => entry.module_id === moduleId && entry.parent_capability_id === parentCapabilityId)
+      .filter((entry) => entry.product_area_id === productAreaId && entry.parent_capability_id === parentCapabilityId)
       .sort((a, b) => a.sort_order - b.sort_order)
       .map((capability) => ({
         id: capability.id,
         node_type: "capability",
         node_kind: capability.node_kind,
-        module_id: moduleId,
+        product_area_id: productAreaId,
         capability_id: capability.id,
-        parent_node_id: parentCapabilityId ?? moduleId,
-        parent_node_type: parentCapabilityId ? "capability" : "module",
+        parent_node_id: parentCapabilityId ?? productAreaId,
+        parent_node_type: parentCapabilityId ? "capability" : "product_area",
         depth,
         name: capability.name,
         description: capability.description,
         summary: capability.description,
         path: [...parentPath, capability.name],
         allowed_child_kinds: capability.node_kind === "feature" ? [] : NESTED_ALLOWED_CHILD_KINDS,
-        children: buildHierarchyCapabilityNodes(moduleId, capability.id, [...parentPath, capability.name], depth + 1),
+        children: buildHierarchyCapabilityNodes(productAreaId, capability.id, [...parentPath, capability.name], depth + 1),
       }));
   }
 
   function listWorkItemsFiltered(filters) {
+    const payload = commandPayload(filters);
     const state = getState();
     return state.workItems.filter((item) => {
-      if (filters?.productId && item.product_id !== filters.productId) {
+      if (payload?.productId && item.product_id !== payload.productId) {
         return false;
       }
-      if (filters?.moduleId && item.module_id !== filters.moduleId) {
+      if (payload?.productAreaId && item.product_area_id !== payload.productAreaId) {
         return false;
       }
-      if (filters?.capabilityId && item.capability_id !== filters.capabilityId) {
+      if (payload?.capabilityId && item.capability_id !== payload.capabilityId) {
         return false;
       }
-      if (filters?.sourceNodeId && item.source_node_id !== filters.sourceNodeId) {
+      if (payload?.sourceNodeId && item.source_node_id !== payload.sourceNodeId) {
         return false;
       }
-      if (filters?.source_node_id && item.source_node_id !== filters.source_node_id) {
+      if (payload?.source_node_id && item.source_node_id !== payload.source_node_id) {
         return false;
       }
-      if (filters?.sourceNodeType && item.source_node_type !== filters.sourceNodeType) {
+      if (payload?.sourceNodeType && item.source_node_type !== payload.sourceNodeType) {
         return false;
       }
-      if (filters?.source_node_type && item.source_node_type !== filters.source_node_type) {
+      if (payload?.source_node_type && item.source_node_type !== payload.source_node_type) {
         return false;
       }
-      if (filters?.status && item.status !== filters.status) {
+      if (payload?.status && item.status !== payload.status) {
         return false;
       }
       return true;
@@ -491,7 +541,7 @@
     const workItem = {
       id,
       product_id: getArg(args, "productId", "product_id"),
-      module_id: getArg(args, "moduleId", "module_id") ?? null,
+      product_area_id: getArg(args, "productAreaId", "product_area_id") ?? null,
       capability_id: getArg(args, "capabilityId", "capability_id") ?? null,
       source_node_id: getArg(args, "sourceNodeId", "source_node_id") ?? null,
       source_node_type: getArg(args, "sourceNodeType", "source_node_type") ?? null,
@@ -501,7 +551,7 @@
       description: getArg(args, "description") ?? "",
       acceptance_criteria: getArg(args, "acceptanceCriteria", "acceptance_criteria") ?? "",
       constraints: getArg(args, "constraints") ?? "",
-      work_item_type: getArg(args, "workItemType", "work_item_type") ?? "feature",
+      work_item_type: getArg(args, "workItemType", "work_item_type") ?? "story",
       priority: getArg(args, "priority") ?? "medium",
       complexity: getArg(args, "complexity") ?? "medium",
       status: getArg(args, "status") ?? "draft",
@@ -547,13 +597,73 @@
     const state = getState();
     return state.products.map((product) => {
       const items = state.workItems.filter((item) => item.product_id === product.id);
-      const activeCount = items.filter((item) => !["done", "cancelled", "failed"].includes(item.status)).length;
+      const activeCount = items.filter((item) => !["done", "cancelled"].includes(item.status)).length;
       return {
         product_id: product.id,
         total_count: items.length,
         active_count: activeCount,
+        done_count: items.filter((item) => item.status === "done").length,
+        blocked_count: items.filter((item) => ["blocked", "failed"].includes(item.status)).length,
       };
     });
+  }
+
+  function summarizeWorkItemsByScope(args = {}) {
+    const state = getState();
+    const productId = getArg(args, "productId", "product_id");
+    const groups = new Map();
+    state.workItems
+      .filter((item) => !productId || item.product_id === productId)
+      .forEach((item) => {
+        const key = [
+          item.product_id,
+          item.product_area_id ?? "",
+          item.capability_id ?? "",
+          item.source_node_id ?? "",
+          item.source_node_type ?? "",
+          item.status,
+        ].join("\u0000");
+        const current = groups.get(key) ?? {
+          product_id: item.product_id,
+          product_area_id: item.product_area_id ?? null,
+          capability_id: item.capability_id ?? null,
+          source_node_id: item.source_node_id ?? null,
+          source_node_type: item.source_node_type ?? null,
+          status: item.status,
+          total_count: 0,
+          top_level_count: 0,
+          active_count: 0,
+          done_count: 0,
+          blocked_count: 0,
+        };
+        current.total_count += 1;
+        if (!item.parent_work_item_id) current.top_level_count += 1;
+        if (!["done", "cancelled"].includes(item.status)) current.active_count += 1;
+        if (item.status === "done") current.done_count += 1;
+        if (["blocked", "failed"].includes(item.status)) current.blocked_count += 1;
+        groups.set(key, current);
+      });
+    return Array.from(groups.values());
+  }
+
+  function summarizeProductTree(args = {}) {
+    const state = getState();
+    const productId = getArg(args, "productId", "product_id");
+    const productAreas = state.product_areas.filter((productArea) => productArea.product_id === productId);
+    const productAreaIds = new Set(productAreas.map((productArea) => productArea.id));
+    const capabilities = state.capabilities.filter((capability) => productAreaIds.has(capability.product_area_id));
+    const parentIds = new Set(capabilities.map((capability) => capability.parent_capability_id).filter(Boolean));
+    const capabilityProductAreaIds = new Set(capabilities.map((capability) => capability.product_area_id));
+    const productAreaLeafCount = productAreas.filter((productArea) => !capabilityProductAreaIds.has(productArea.id)).length;
+    const capabilityLeafCount = capabilities.filter((capability) => !parentIds.has(capability.id)).length;
+
+    return {
+      product_id: productId,
+      product_area_count: productAreas.length,
+      capability_count: capabilities.length,
+      total_node_count: productAreas.length + capabilities.length,
+      leaf_node_count: productAreaLeafCount + capabilityLeafCount,
+    };
   }
 
   function createPlannerSessionRecord(args) {
@@ -734,16 +844,16 @@
       tags: selectedProduct.tags,
     });
 
-    const inputExperience = createDraftNode(session, "module", "Input Experience", product.id, {
+    const inputExperience = createDraftNode(session, "product_area", "Input Experience", product.id, {
       description: "Handles expression entry, keyboard shortcuts, validation, and accessible input workflows.",
     });
-    const calculationHistory = createDraftNode(session, "module", "Calculation History", product.id, {
+    const calculationHistory = createDraftNode(session, "product_area", "Calculation History", product.id, {
       description: "Tracks previous calculations, labels, replay, and result comparison.",
     });
-    const resultsReporting = createDraftNode(session, "module", "Results Reporting", product.id, {
+    const resultsReporting = createDraftNode(session, "product_area", "Results Reporting", product.id, {
       description: "Exports calculation summaries, sessions, and reviewable result reports.",
     });
-    const expressionEngine = createDraftNode(session, "module", "Expression Engine", product.id, {
+    const expressionEngine = createDraftNode(session, "product_area", "Expression Engine", product.id, {
       description: "Coordinates parsing, deterministic evaluation, and scientific operations.",
     });
 
@@ -782,52 +892,52 @@
   function addNotificationsToProduct(session, selectedNode) {
     const productNode = selectedNode?.type === "product"
       ? selectedNode
-      : selectedNode?.type === "module"
+      : selectedNode?.type === "product_area"
         ? findDraftNodeById(session, selectedNode.parentId)
         : selectedNode?.type === "capability"
           ? findDraftNodeById(session, findDraftNodeById(session, selectedNode.parentId)?.parentId)
           : findDraftNodeById(session, findDraftNodeById(session, findDraftNodeById(session, selectedNode?.parentId)?.parentId)?.parentId);
 
     const resolvedProduct = productNode ?? ensureSelectedProductDraft(session);
-    const notificationsModule = createDraftNode(session, "module", "Notifications & Messaging", resolvedProduct.id, {
+    const notificationsProductArea = createDraftNode(session, "product_area", "Notifications & Messaging", resolvedProduct.id, {
       description: "Coordinates outbound email, SMS, and WhatsApp notifications across reservations and guest service workflows.",
     });
-    const preferencesCapability = createDraftNode(session, "capability", "Guest Notification Preferences", notificationsModule.id, {
+    const preferencesCapability = createDraftNode(session, "capability", "Guest Notification Preferences", notificationsProductArea.id, {
       description: "Manage channel preferences, consent, and notification eligibility per guest.",
     });
     createDraftNode(session, "work_item", "Build Notification Preferences UI", preferencesCapability.id, {
       description: "Add settings UI for guest-facing or staff-managed notification preferences and opt-in capture.",
     });
-    session.selected_draft_node_id = notificationsModule.id;
+    session.selected_draft_node_id = notificationsProductArea.id;
     return {
-      selectedNodeId: notificationsModule.id,
+      selectedNodeId: notificationsProductArea.id,
       actions: [
         {
-          type: "create_module",
+          type: "create_product_area",
           target: { productName: resolvedProduct.label },
-          name: notificationsModule.label,
-          description: notificationsModule.data.description,
+          name: notificationsProductArea.label,
+          description: notificationsProductArea.data.description,
         },
         {
           type: "create_capability",
-          target: { productName: resolvedProduct.label, moduleName: notificationsModule.label },
+          target: { productName: resolvedProduct.label, productAreaName: notificationsProductArea.label },
           name: preferencesCapability.label,
           description: preferencesCapability.data.description,
         },
       ],
-      message: "I expanded the design with a Notifications & Messaging module, including guest preference management so you can handle email and WhatsApp communication cleanly.",
+      message: "I expanded the design with a Notifications & Messaging product area, including guest preference management so you can handle email and WhatsApp communication cleanly.",
     };
   }
 
-  function enhanceSelectedModule(session, selectedNode) {
-    const moduleNode = selectedNode?.type === "module" ? selectedNode : null;
-    if (!moduleNode) {
+  function enhanceSelectedProductArea(session, selectedNode) {
+    const productAreaNode = selectedNode?.type === "product_area" ? selectedNode : null;
+    if (!productAreaNode) {
       return null;
     }
-    const capabilityA = createDraftNode(session, "capability", "Outbound Delivery Tracking", moduleNode.id, {
+    const capabilityA = createDraftNode(session, "capability", "Outbound Delivery Tracking", productAreaNode.id, {
       description: "Track send attempts, delivery outcomes, and failed notification retries across channels.",
     });
-    const capabilityB = createDraftNode(session, "capability", "Template & Trigger Rules", moduleNode.id, {
+    const capabilityB = createDraftNode(session, "capability", "Template & Trigger Rules", productAreaNode.id, {
       description: "Define message templates and the workflow events that trigger them.",
     });
     session.selected_draft_node_id = capabilityA.id;
@@ -836,18 +946,18 @@
       actions: [
         {
           type: "create_capability",
-          target: { moduleName: moduleNode.label },
+          target: { productAreaName: productAreaNode.label },
           name: capabilityA.label,
           description: capabilityA.data.description,
         },
         {
           type: "create_capability",
-          target: { moduleName: moduleNode.label },
+          target: { productAreaName: productAreaNode.label },
           name: capabilityB.label,
           description: capabilityB.data.description,
         },
       ],
-      message: `I enhanced ${moduleNode.label} with delivery tracking and trigger/template capabilities so the module is operationally useful, not just a placeholder.`,
+      message: `I enhanced ${productAreaNode.label} with delivery tracking and trigger/template capabilities so the product area is operationally useful, not just a placeholder.`,
     };
   }
 
@@ -916,20 +1026,20 @@
     const selectedNode = findDraftNodeById(session, session.selected_draft_node_id);
     const normalizedInput = userInput.toLowerCase();
 
-    if (!session.has_draft_plan && (normalizedInput.includes("design") || normalizedInput.includes("module") || normalizedInput.includes("product"))) {
+    if (!session.has_draft_plan && (normalizedInput.includes("design") || normalizedInput.includes("product area") || normalizedInput.includes("product"))) {
       const product = ensureSelectedProductDraft(session, args);
-      const actions = product.children.map((moduleId) => {
-          const moduleNode = session.draftNodes[moduleId];
+      const actions = product.children.map((productAreaId) => {
+          const productAreaNode = session.draftNodes[productAreaId];
           return {
-            type: "create_module",
+            type: "create_product_area",
             target: { productName: product.label },
-            name: moduleNode.label,
-            description: moduleNode.data.description,
+            name: productAreaNode.label,
+            description: productAreaNode.data.description,
           };
         });
       return createPlannerResponse(
         session,
-        `I staged a design for ${product.label} with core modules, foundational capabilities, and starter work items. Use the design tree to refine any branch before applying it.`,
+        `I staged a design for ${product.label} with core product areas, foundational capabilities, and starter work items. Use the design tree to refine any branch before applying it.`,
         actions,
         ["Updated the design plan."],
         product.id,
@@ -939,8 +1049,8 @@
       );
     }
 
-    if ((normalizedInput.includes("enhance") || normalizedInput.includes("expand")) && selectedNode?.type === "module") {
-      const result = enhanceSelectedModule(session, selectedNode);
+    if ((normalizedInput.includes("enhance") || normalizedInput.includes("expand")) && selectedNode?.type === "product_area") {
+      const result = enhanceSelectedProductArea(session, selectedNode);
       return createPlannerResponse(session, result.message, result.actions, ["Updated the design plan."], result.selectedNodeId);
     }
 
@@ -962,7 +1072,7 @@
     return {
       session_id: session.session_id,
       status: "clarification",
-      assistant_message: "I need a bit more detail. Select a design node or tell me whether you want to expand the product, a module, a capability, or a work item.",
+      assistant_message: "I need a bit more detail. Select a design node or tell me whether you want to expand the product, a product area, a capability, or a work item.",
       pending_plan: {
         assistant_response: "I need a bit more detail.",
         needs_confirmation: false,
@@ -1003,37 +1113,37 @@
       return product;
     }
 
-    function upsertModule(node, product) {
-      let module = state.modules.find((entry) => entry.product_id === product.id && entry.name === node.label);
-      if (!module) {
-        module = {
-          id: nextId("module"),
+    function upsertProductArea(node, product) {
+      let product_area = state.product_areas.find((entry) => entry.product_id === product.id && entry.name === node.label);
+      if (!product_area) {
+        product_area = {
+          id: nextId("product-area"),
           product_id: product.id,
           name: node.label,
           description: node.data.description || "",
           purpose: node.data.description || "",
-          sort_order: state.modules.filter((entry) => entry.product_id === product.id).length,
+          sort_order: state.product_areas.filter((entry) => entry.product_id === product.id).length,
           created_at: FIXED_TIMESTAMP,
           updated_at: FIXED_TIMESTAMP,
         };
-        state.modules.push(module);
+        state.product_areas.push(product_area);
       } else {
-        module.description = node.data.description || module.description;
-        module.purpose = node.data.description || module.purpose;
-        module.updated_at = FIXED_TIMESTAMP;
+        product_area.description = node.data.description || product_area.description;
+        product_area.purpose = node.data.description || product_area.purpose;
+        product_area.updated_at = FIXED_TIMESTAMP;
       }
-      return module;
+      return product_area;
     }
 
-    function upsertCapability(node, module, level, parentCapabilityId) {
-      let capability = state.capabilities.find((entry) => entry.module_id === module.id && entry.name === node.label && entry.parent_capability_id === parentCapabilityId);
+    function upsertCapability(node, product_area, level, parentCapabilityId) {
+      let capability = state.capabilities.find((entry) => entry.product_area_id === product_area.id && entry.name === node.label && entry.parent_capability_id === parentCapabilityId);
       if (!capability) {
         capability = {
           id: nextId("capability"),
-          module_id: module.id,
+          product_area_id: product_area.id,
           parent_capability_id: parentCapabilityId,
           level,
-          sort_order: state.capabilities.filter((entry) => entry.module_id === module.id && entry.parent_capability_id === parentCapabilityId).length,
+          sort_order: state.capabilities.filter((entry) => entry.product_area_id === product_area.id && entry.parent_capability_id === parentCapabilityId).length,
           name: node.label,
           description: node.data.description || "",
           acceptance_criteria: node.data.acceptanceCriteria || "",
@@ -1052,13 +1162,13 @@
       return capability;
     }
 
-    function upsertWorkItem(node, product, module, capability, parentWorkItemId) {
+    function upsertWorkItem(node, product, product_area, capability, parentWorkItemId) {
       let workItem = state.workItems.find((entry) => entry.capability_id === capability.id && entry.title === node.label && entry.parent_work_item_id === parentWorkItemId);
       if (!workItem) {
         workItem = {
           id: nextId("work-item"),
           product_id: product.id,
-          module_id: module.id,
+          product_area_id: product_area.id,
           capability_id: capability.id,
           parent_work_item_id: parentWorkItemId,
           title: node.label,
@@ -1066,7 +1176,7 @@
           description: node.data.description || "",
           acceptance_criteria: node.data.acceptanceCriteria || "",
           constraints: "",
-          work_item_type: "feature",
+          work_item_type: "story",
           priority: "high",
           complexity: "medium",
           status: "draft",
@@ -1099,21 +1209,21 @@
         return;
       }
 
-      if (node.type === "module" && context.product) {
-        const module = upsertModule(node, context.product);
-        node.children.forEach((childId) => walk(childId, { product: context.product, module }));
+      if (node.type === "product_area" && context.product) {
+        const product_area = upsertProductArea(node, context.product);
+        node.children.forEach((childId) => walk(childId, { product: context.product, product_area }));
         return;
       }
 
-      if (node.type === "capability" && context.product && context.module) {
-        const capability = upsertCapability(node, context.module, context.capability ? context.capability.level + 1 : 0, context.capability?.id ?? null);
-        node.children.forEach((childId) => walk(childId, { product: context.product, module: context.module, capability }));
+      if (node.type === "capability" && context.product && context.product_area) {
+        const capability = upsertCapability(node, context.product_area, context.capability ? context.capability.level + 1 : 0, context.capability?.id ?? null);
+        node.children.forEach((childId) => walk(childId, { product: context.product, product_area: context.product_area, capability }));
         return;
       }
 
-      if (node.type === "work_item" && context.product && context.module && context.capability) {
-        const workItem = upsertWorkItem(node, context.product, context.module, context.capability, context.workItem?.id ?? null);
-        node.children.forEach((childId) => walk(childId, { product: context.product, module: context.module, capability: context.capability, workItem }));
+      if (node.type === "work_item" && context.product && context.product_area && context.capability) {
+        const workItem = upsertWorkItem(node, context.product, context.product_area, context.capability, context.workItem?.id ?? null);
+        node.children.forEach((childId) => walk(childId, { product: context.product, product_area: context.product_area, capability: context.capability, workItem }));
       }
     }
 
@@ -1150,7 +1260,7 @@
           step: 1,
           stage: "execution",
           title: "Applied staged design",
-          detail: "The staged product tree was persisted into products, modules, capabilities, and work items.",
+          detail: "The staged product tree was persisted into products, product areas, capabilities, and work items.",
         },
       ],
     };
@@ -1222,7 +1332,7 @@
         .replace(/^work item\s+/i, "")
         .replace(/^work-item\s+/i, "")
         .replace(/^capability\s+/i, "")
-        .replace(/^module\s+/i, "")
+        .replace(/^product area\s+/i, "")
         .replace(/^product\s+/i, "")
         .replace(/^node\s+/i, "")
         .trim();
@@ -1232,8 +1342,8 @@
           ? "work_item"
           : /^capability\s+/i.test(rawTarget)
             ? "capability"
-            : /^module\s+/i.test(rawTarget)
-              ? "module"
+            : /^product area\s+/i.test(rawTarget)
+              ? "product_area"
               : /^product\s+/i.test(rawTarget)
                 ? "product"
                 : null;
@@ -1295,16 +1405,16 @@
     }
 
     const product = ensureSelectedProductDraft(session, args);
-    const plannerModule = createDraftNode(session, "module", "Interactive Planner", product.id, {
+    const plannerProductArea = createDraftNode(session, "product_area", "Interactive Planner", product.id, {
       description: "Conversational planning, design staging, approval flow, and trace inspection.",
     });
-    const repoModule = createDraftNode(session, "module", "Repository Intelligence", product.id, {
+    const repoProductArea = createDraftNode(session, "product_area", "Repository Intelligence", product.id, {
       description: "Repository registration, reverse engineering, and code-aware planning expansion.",
     });
-    const plannerCapability = createDraftNode(session, "capability", "Draft Tree Editing", plannerModule.id, {
+    const plannerCapability = createDraftNode(session, "capability", "Draft Tree Editing", plannerProductArea.id, {
       description: "Select, rename, expand, and refine staged design nodes before approval.",
     });
-    createDraftNode(session, "work_item", "Add repo analysis entrypoint", repoModule.id, {
+    createDraftNode(session, "work_item", "Add repo analysis entrypoint", repoProductArea.id, {
       description: "Let users register a repository and stage a reverse-engineered planning tree.",
     });
     createDraftNode(session, "work_item", "Improve design tree ergonomics", plannerCapability.id, {
@@ -1313,19 +1423,19 @@
     session.selected_draft_node_id = product.id;
     return createPlannerResponse(
       session,
-      `I analyzed the ${repository.name} repository and staged repository-informed modules under ${product.label} so you can refine them before approval.`,
+      `I analyzed the ${repository.name} repository and staged repository-informed product areas under ${product.label} so you can refine them before approval.`,
       [
         {
-          type: "create_module",
+          type: "create_product_area",
           target: { productName: product.label },
-          name: plannerModule.label,
-          description: plannerModule.data.description,
+          name: plannerProductArea.label,
+          description: plannerProductArea.data.description,
         },
         {
-          type: "create_module",
+          type: "create_product_area",
           target: { productName: product.label },
-          name: repoModule.label,
-          description: repoModule.data.description,
+          name: repoProductArea.label,
+          description: repoProductArea.data.description,
         },
       ],
       ["Updated the design plan from repository analysis."],
@@ -1438,10 +1548,18 @@
     );
   }
 
+  function commandPayload(args) {
+    if (args && typeof args === "object" && args.request && typeof args.request === "object") {
+      return args.request;
+    }
+    return args;
+  }
+
   function getArg(args, ...keys) {
+    const payload = commandPayload(args);
     for (const key of keys) {
-      if (args && Object.prototype.hasOwnProperty.call(args, key)) {
-        return args[key];
+      if (payload && Object.prototype.hasOwnProperty.call(payload, key)) {
+        return payload[key];
       }
     }
     return undefined;
@@ -1455,8 +1573,54 @@
     return Promise.resolve(null);
   }
 
+  const invokeCalls = [];
+
   window.__ARUVI_E2E__ = {
+    clearInvokeCalls() {
+      invokeCalls.length = 0;
+    },
+    getInvokeCalls(command) {
+      const calls = command ? invokeCalls.filter((call) => call.command === command) : invokeCalls;
+      return deepClone(calls);
+    },
+    getInvokeCallCount(command) {
+      return command
+        ? invokeCalls.filter((call) => call.command === command).length
+        : invokeCalls.length;
+    },
+    seedLargeBacklog(count = 120) {
+      const state = getState();
+      const product = state.products.find((entry) => entry.name === "Calculator") ?? state.products[0];
+      if (!product) {
+        return;
+      }
+      state.workItems = state.workItems.filter((entry) => !String(entry.id).startsWith("work-item-large-backlog-"));
+      const existingSortOrders = state.workItems
+        .filter((entry) => entry.product_id === product.id && !entry.parent_work_item_id)
+        .map((entry) => Number(entry.sort_order ?? 0));
+      const nextSortOrder = Math.max(-1, ...existingSortOrders) + 1;
+      for (let index = 0; index < count; index += 1) {
+        const rowNumber = String(index + 1).padStart(3, "0");
+        state.workItems.push(
+          createWorkItem(
+            `work-item-large-backlog-${rowNumber}`,
+            product.id,
+            null,
+            null,
+            null,
+            null,
+            `Virtual backlog story ${rowNumber}`,
+            `Synthetic large backlog story ${rowNumber}.`,
+            "feature",
+            "medium",
+            "draft",
+            nextSortOrder + index,
+          ),
+        );
+      }
+    },
     invoke(command, args) {
+      invokeCalls.push({ command, args: deepClone(args ?? null) });
       const state = getState();
 
       switch (command) {
@@ -1470,7 +1634,7 @@
           return ok(state.strategyNodes);
         case "create_strategy_node": {
           const parentNodeId = getArg(args, "parentNodeId", "parent_node_id") ?? null;
-          const nodeKind = getArg(args, "nodeKind", "node_kind") ?? "strategic_area";
+          const nodeKind = getArg(args, "nodeKind", "node_kind") ?? "strategic_product_area";
           const node = {
             id: nextId("strategy"),
             parent_node_id: parentNodeId,
@@ -1601,8 +1765,69 @@
         }
         case "get_product_tree":
           return ok(buildProductTree(getArg(args, "productId", "product_id")));
-        case "list_work_items":
-          return ok(listWorkItemsFiltered(args || {}));
+        case "list_product_areas": {
+          const productId = getArg(args, "productId", "product_id");
+          return ok(
+            state.product_areas
+              .filter((productArea) => productArea.product_id === productId)
+              .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)),
+          );
+        }
+        case "list_capabilities": {
+          const productAreaId = getArg(args, "productAreaId", "product_area_id");
+          return ok(
+            state.capabilities
+              .filter((capability) => capability.product_area_id === productAreaId)
+              .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)),
+          );
+        }
+        case "list_product_capabilities": {
+          const productId = getArg(args, "productId", "product_id");
+          const productAreaOrder = new Map(
+            state.product_areas
+              .filter((productArea) => productArea.product_id === productId)
+              .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name))
+              .map((productArea, index) => [productArea.id, index]),
+          );
+          return ok(
+            state.capabilities
+              .filter((capability) => productAreaOrder.has(capability.product_area_id))
+              .sort((a, b) => {
+                const areaDelta = productAreaOrder.get(a.product_area_id) - productAreaOrder.get(b.product_area_id);
+                return areaDelta || a.level - b.level || a.sort_order - b.sort_order || a.name.localeCompare(b.name);
+              }),
+          );
+        }
+        case "get_capability": {
+          const capability = state.capabilities.find((entry) => entry.id === getArg(args, "id"));
+          if (!capability) {
+            throw new Error("Capability not found");
+          }
+          return ok(capability);
+        }
+        case "list_work_items": {
+          const offset = Math.max(0, Number(getArg(args, "offset") ?? 0));
+          const rawLimit = getArg(args, "limit");
+          const limit = rawLimit == null ? 500 : Math.min(2000, Math.max(1, Number(rawLimit)));
+          const items = listWorkItemsFiltered(args || {})
+            .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.title.localeCompare(b.title));
+          return ok(items.slice(offset, offset + limit));
+        }
+        case "list_work_items_page": {
+          const offset = Math.max(0, Number(getArg(args, "offset") ?? 0));
+          const rawLimit = getArg(args, "limit");
+          const limit = rawLimit == null ? 500 : Math.min(2000, Math.max(1, Number(rawLimit)));
+          const topLevelOnly = Boolean(getArg(args, "topLevelOnly", "top_level_only"));
+          const items = listWorkItemsFiltered(args || {})
+            .filter((item) => !topLevelOnly || !item.parent_work_item_id)
+            .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.title.localeCompare(b.title));
+          return ok({
+            items: items.slice(offset, offset + limit),
+            limit,
+            offset,
+            has_more: items.length > offset + limit,
+          });
+        }
         case "create_work_item":
           return ok(createWorkItemFromArgs(args || {}));
         case "update_work_item":
@@ -1611,6 +1836,10 @@
           return ok(deleteWorkItemFromArgs(args || {}));
         case "summarize_work_items_by_product":
           return ok(summarizeWorkItemsByProduct());
+        case "summarize_work_items_by_scope":
+          return ok(summarizeWorkItemsByScope(args || {}));
+        case "summarize_product_tree":
+          return ok(summarizeProductTree(args || {}));
         case "create_planner_session_command":
           return ok(plannerSessionInfo(createPlannerSessionRecord(args || {})));
         case "update_planner_session_command": {
@@ -1709,8 +1938,15 @@
         case "get_work_item_approvals":
         case "list_work_item_artifacts":
         case "list_work_item_findings":
-        case "get_sub_work_items":
           return ok([]);
+        case "get_sub_work_items": {
+          const workItemId = String(getArg(args, "workItemId", "work_item_id") ?? "");
+          const limit = Number(getArg(args, "limit") ?? 500);
+          const offset = Number(getArg(args, "offset") ?? 0);
+          return ok(state.workItems
+            .filter((entry) => entry.parent_work_item_id === workItemId)
+            .slice(Math.max(0, offset), Math.max(0, offset) + Math.max(1, Math.min(limit, 2000))));
+        }
         case "list_external_cli_runs_for_work_item": {
           const workItemId = String(getArg(args, "workItemId", "work_item_id") ?? "");
           return ok(state.externalCliRuns.filter((run) => !workItemId || run.work_item_id === workItemId));
@@ -1791,13 +2027,11 @@
         case "get_product":
         case "update_product":
         case "archive_product":
-        case "create_module":
-        case "list_modules":
-        case "update_module":
-        case "delete_module":
-        case "reorder_modules":
+        case "create_product_area":
+        case "update_product_area":
+        case "delete_product_area":
+        case "reorder_product_areas":
         case "create_capability":
-        case "list_capabilities":
         case "update_capability":
         case "delete_capability":
         case "reorder_capabilities":

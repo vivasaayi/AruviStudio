@@ -1,588 +1,71 @@
-import React, { useEffect, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import React from "react";
 import Editor from "@monaco-editor/react";
 import { TabBar } from "../../../app/layout/TabBar";
 import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
-import { useEditorStore } from "../../../state/editorStore";
-import { useWorkspaceStore } from "../../../state/workspaceStore";
-import {
-  attachRepository,
-  applyRepositoryPatch,
-  browseForRepositoryPath,
-  createLocalWorkspace,
-  getProductTree,
-  listModelDefinitions,
-  listProducts,
-  listProviders,
-  listRepositories,
-  listRepositoryTree,
-  readRepositoryFile,
-  registerRepository,
-  revealInFinder,
-  resolveRepositoryForScope,
-  resolveRepositoryForWorkItem,
-  startModelChatStream,
-  writeRepositoryFile,
-} from "../../../lib/tauri";
-import type { ChatMessagePayload, RepositoryTreeNode } from "../../../lib/types";
-
-type LocalChatMessage = ChatMessagePayload & { id: string };
-type CopilotMode = "chat" | "patch";
-
-interface PatchProposalItem {
-  path: string;
-  patch: string;
-  base_sha256?: string | null;
-  description?: string;
-}
-
-interface CopilotPatchProposal {
-  summary: string;
-  patches: PatchProposalItem[];
-  raw: string;
-}
-
-const styles: Record<string, React.CSSProperties> = {
-  page: { display: "flex", flexDirection: "column", height: "100%", margin: -12 },
-  header: { padding: "10px 12px 12px", borderBottom: "1px solid #d9e0ea", backgroundColor: "#f8fafc" },
-  headerTop: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 10 },
-  title: { margin: 0, fontSize: 20, fontWeight: 750, color: "#111827" },
-  subtitle: { marginTop: 4, fontSize: 12, color: "#6b7280" },
-  productPicker: { minWidth: 280, display: "flex", flexDirection: "column", gap: 4 },
-  workspace: { flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "280px 1fr 360px", gap: 10, padding: 10 },
-  panel: { border: "1px solid #d9e0ea", borderRadius: 12, backgroundColor: "#ffffff", minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" },
-  panelHeader: { padding: "10px 12px", borderBottom: "1px solid #d9e0ea", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  panelTitle: { fontSize: 12, fontWeight: 800, textTransform: "uppercase" as const, letterSpacing: 1, color: "#6b7280" },
-  controlRow: { display: "flex", gap: 8, alignItems: "center" },
-  select: { width: "100%", padding: "8px 10px", backgroundColor: "#ffffff", border: "1px solid #cfd8e3", color: "#111827", borderRadius: 8, fontSize: 13 },
-  input: { width: "100%", padding: "8px 10px", backgroundColor: "#ffffff", border: "1px solid #cfd8e3", color: "#111827", borderRadius: 8, fontSize: 13, boxSizing: "border-box" as const },
-  button: { border: "none", backgroundColor: "#2563eb", color: "#ffffff", borderRadius: 8, padding: "7px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
-  buttonGhost: { border: "1px solid #cfd8e3", backgroundColor: "#f8fafc", color: "#111827", borderRadius: 8, padding: "7px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
-  leftBody: { padding: 10, overflowY: "auto" as const, display: "flex", flexDirection: "column", gap: 8, minHeight: 0 },
-  treeNode: { border: "1px solid transparent", borderRadius: 8, padding: "6px 8px", cursor: "pointer", backgroundColor: "#ffffff", color: "#1f2937", fontSize: 12 },
-  treeNodeActive: { border: "1px solid #2563eb", borderRadius: 8, padding: "6px 8px", cursor: "pointer", backgroundColor: "#eff6ff", color: "#111827", fontSize: 12 },
-  treeDirRow: { display: "flex", alignItems: "center", gap: 6, fontWeight: 700 },
-  treeFileRow: { display: "flex", alignItems: "center", gap: 6 },
-  treeMeta: { fontSize: 10, color: "#6b7280", marginTop: 2 },
-  treeChildren: { marginLeft: 14, marginTop: 6, display: "flex", flexDirection: "column", gap: 6, borderLeft: "1px solid #d9e0ea", paddingLeft: 8 },
-  editorPanel: { display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" },
-  editorHeader: { padding: "8px 12px", borderBottom: "1px solid #d9e0ea", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, backgroundColor: "#f8fafc" },
-  editorPath: { fontSize: 12, color: "#4b5563", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
-  editorBody: { flex: 1, minHeight: 0, backgroundColor: "#ffffff" },
-  placeholder: { height: "100%", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", color: "#6b7280", fontSize: 13, gap: 6 },
-  label: { fontSize: 11, color: "#6b7280", fontWeight: 700 },
-  section: { padding: "10px 12px", borderBottom: "1px solid #d9e0ea", display: "flex", flexDirection: "column", gap: 8 },
-  chatBody: { flex: 1, minHeight: 0, overflowY: "auto" as const, padding: 10, display: "flex", flexDirection: "column", gap: 8, backgroundColor: "#f8fafc" },
-  bubbleUser: { alignSelf: "flex-end", maxWidth: "85%", backgroundColor: "#2563eb", color: "#fff", borderRadius: 10, padding: "8px 10px", whiteSpace: "pre-wrap" as const, fontSize: 13 },
-  bubbleAssistant: { alignSelf: "flex-start", maxWidth: "88%", backgroundColor: "#ffffff", color: "#111827", border: "1px solid #d9e0ea", borderRadius: 10, padding: "8px 10px", whiteSpace: "pre-wrap" as const, fontSize: 13 },
-  chatComposer: { borderTop: "1px solid #d9e0ea", padding: 10, display: "flex", flexDirection: "column", gap: 8 },
-  textarea: { width: "100%", minHeight: 90, padding: "9px 10px", backgroundColor: "#ffffff", border: "1px solid #cfd8e3", color: "#111827", borderRadius: 8, resize: "vertical" as const, fontSize: 13, boxSizing: "border-box" as const },
-  status: { fontSize: 11, color: "#6b7280" },
-  error: { fontSize: 12, color: "#dc2626" },
-  segmented: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 },
-  modeButton: { border: "1px solid #cfd8e3", backgroundColor: "#f8fafc", color: "#374151", borderRadius: 8, padding: "6px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
-  modeButtonActive: { border: "1px solid #2563eb", backgroundColor: "#dbeafe", color: "#111827", borderRadius: 8, padding: "6px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
-  patchPanel: { border: "1px solid #d9e0ea", borderRadius: 8, padding: 8, backgroundColor: "#f8fafc", display: "flex", flexDirection: "column", gap: 6 },
-  patchPath: { fontSize: 12, fontWeight: 700, color: "#111827" },
-  patchMeta: { fontSize: 11, color: "#6b7280" },
-  patchSnippet: { fontSize: 11, fontFamily: "JetBrains Mono, Menlo, Monaco, monospace", backgroundColor: "#f3f4f6", color: "#111827", border: "1px solid #d1d5db", borderRadius: 6, padding: 6, whiteSpace: "pre-wrap" as const, maxHeight: 110, overflow: "auto" as const },
-};
+import { IDECopilotPanel } from "../components/IDECopilotPanel";
+import { IDEFileTreeNode } from "../components/IDEFileTreeNode";
+import { revealInFinder } from "../../../lib/tauri";
+import { useIDEWorkspaceController } from "../hooks/useIDEWorkspaceController";
+import { styles } from "../lib/idePageStyles";
 
 export function IDEPage() {
-  const queryClient = useQueryClient();
   const {
-    openFiles,
-    activeFileId,
-    openFile: openFileInEditor,
-    setActiveFile,
+    activeCapability,
+    activeFile,
+    activeFileRepositoryId,
+    activeProduct,
+    activeProductArea,
+    modelOptions,
+    copilotMode,
+    setCopilotMode,
+    copilotProviderId,
+    setCopilotProviderId,
+    copilotModelName,
+    setCopilotModelName,
+    copilotTemp,
+    setCopilotTemp,
+    copilotMaxTokens,
+    setCopilotMaxTokens,
+    copilotSystemPrompt,
+    setCopilotSystemPrompt,
+    includeActiveFileContext,
+    setIncludeActiveFileContext,
+    contextBudgetChars,
+    setContextBudgetChars,
+    copilotMessages,
+    patchProposal,
+    copilotDraft,
+    setCopilotDraft,
+    copilotError,
+    isCopilotSending,
+    isApplyingProposal,
+    resetCopilot,
+    sendCopilot,
+    applyPatchProposal,
+    createWorkspace,
+    expandedDirs,
+    fileError,
+    filteredTree,
+    handleSelectProduct,
+    isSaving,
+    isTreeRefreshing,
+    openFolder,
+    openRepositoryFile,
+    products,
+    providers,
+    refetchTree,
+    scopeResolvedRepo,
+    saveActiveFile,
+    selectedProductId,
+    selectedRepoId,
+    selectedRepository,
+    setFileError,
+    setTreeFilter,
+    treeFilter,
+    toggleDirectory,
     updateFileContent,
-    replaceFileContent,
-    markFileSaved,
-  } = useEditorStore();
-  const {
-    activeProductId,
-    activeModuleId,
-    activeCapabilityId,
-    activeWorkItemId,
-    setActiveProduct,
-    setActiveRepo,
-  } = useWorkspaceStore();
-
-  const [selectedRepoId, setSelectedRepoId] = useState<string>("");
-  const [treeFilter, setTreeFilter] = useState("");
-  const deferredTreeFilter = React.useDeferredValue(treeFilter);
-  const [expandedDirs, setExpandedDirs] = useState<Record<string, boolean>>({});
-  const [isSaving, setIsSaving] = useState(false);
-  const [fileError, setFileError] = useState<string | null>(null);
-  const [copilotError, setCopilotError] = useState<string | null>(null);
-  const [copilotProviderId, setCopilotProviderId] = useState("");
-  const [copilotModelName, setCopilotModelName] = useState("");
-  const [copilotTemp, setCopilotTemp] = useState("0.2");
-  const [copilotMaxTokens, setCopilotMaxTokens] = useState("4096");
-  const [copilotSystemPrompt, setCopilotSystemPrompt] = useState(
-    "You are Aruvi Copilot. Give precise coding guidance and patch-quality outputs.",
-  );
-  const [copilotDraft, setCopilotDraft] = useState("");
-  const [copilotMessages, setCopilotMessages] = useState<LocalChatMessage[]>([]);
-  const [isCopilotSending, setIsCopilotSending] = useState(false);
-  const [copilotMode, setCopilotMode] = useState<CopilotMode>("chat");
-  const [includeActiveFileContext, setIncludeActiveFileContext] = useState(true);
-  const [contextBudgetChars, setContextBudgetChars] = useState("12000");
-  const [patchProposal, setPatchProposal] = useState<CopilotPatchProposal | null>(null);
-  const [isApplyingProposal, setIsApplyingProposal] = useState(false);
-  const copilotSessionIdRef = useRef(crypto.randomUUID());
-
-  const { data: repositories = [] } = useQuery({
-    queryKey: ["repositories"],
-    queryFn: listRepositories,
-  });
-  const { data: products = [], isLoading: productsLoading } = useQuery({ queryKey: ["products"], queryFn: listProducts });
-  const selectedProductId = products.some((product) => product.id === activeProductId)
-    ? activeProductId
-    : null;
-  useEffect(() => {
-    if (productsLoading || activeProductId) {
-      return;
-    }
-    if (products[0]) {
-      setActiveProduct(products[0].id);
-    }
-  }, [activeProductId, products, productsLoading, setActiveProduct]);
-  const { data: activeProductTree } = useQuery({
-    queryKey: ["ideProductTree", selectedProductId],
-    queryFn: () => getProductTree(selectedProductId!),
-    enabled: !!selectedProductId,
-  });
-  const { data: providers = [] } = useQuery({ queryKey: ["providers"], queryFn: listProviders });
-  const { data: models = [] } = useQuery({ queryKey: ["model-definitions"], queryFn: listModelDefinitions });
-  const { data: scopeResolvedRepo } = useQuery({
-    queryKey: ["ideScopeRepo", selectedProductId, activeModuleId],
-    queryFn: () => resolveRepositoryForScope({ productId: selectedProductId, moduleId: activeModuleId }),
-    enabled: !!selectedProductId || !!activeModuleId,
-    staleTime: 30000,
-  });
-  const { data: workItemResolvedRepo } = useQuery({
-    queryKey: ["ideWorkItemRepo", activeWorkItemId],
-    queryFn: () => resolveRepositoryForWorkItem(activeWorkItemId!),
-    enabled: !!activeWorkItemId,
-    staleTime: 30000,
-  });
-
-  const { data: repositoryTree = [], isFetching: isTreeRefreshing, refetch: refetchTree } = useQuery({
-    queryKey: ["ideRepositoryTree", selectedRepoId],
-    queryFn: () => listRepositoryTree({ repositoryId: selectedRepoId, includeHidden: false, maxDepth: 12 }),
-    enabled: !!selectedRepoId,
-    staleTime: 30000,
-  });
-
-  useEffect(() => {
-    const preferredRepoId =
-      workItemResolvedRepo?.id ??
-      scopeResolvedRepo?.id ??
-      null;
-
-    if (!preferredRepoId || !selectedProductId) {
-      if (selectedRepoId) {
-        React.startTransition(() => {
-          setSelectedRepoId("");
-          setActiveRepo(null);
-          setExpandedDirs({});
-          setFileError(null);
-        });
-      }
-      return;
-    }
-
-    const preferredExists = repositories.some((repo) => repo.id === preferredRepoId);
-    if (!preferredExists || selectedRepoId === preferredRepoId) {
-      return;
-    }
-
-    React.startTransition(() => {
-      setSelectedRepoId(preferredRepoId);
-      setActiveRepo(preferredRepoId);
-      setExpandedDirs({});
-      setFileError(null);
-    });
-  }, [repositories, scopeResolvedRepo?.id, selectedProductId, selectedRepoId, setActiveRepo, workItemResolvedRepo?.id]);
-
-  useEffect(() => {
-    if (!copilotProviderId && providers.length > 0) {
-      setCopilotProviderId(providers[0].id);
-    }
-  }, [copilotProviderId, providers]);
-
-  const modelOptions = models.filter((model) => model.provider_id === copilotProviderId && model.enabled);
-
-  useEffect(() => {
-    if (!copilotProviderId) {
-      return;
-    }
-    if (!copilotModelName || !modelOptions.some((entry) => entry.name === copilotModelName)) {
-      setCopilotModelName(modelOptions[0]?.name ?? "");
-    }
-  }, [copilotModelName, copilotProviderId, modelOptions]);
-
-  const filteredTree = filterTreeNodes(repositoryTree, deferredTreeFilter);
-  const selectedRepository = repositories.find((repo) => repo.id === selectedRepoId) ?? null;
-  const rawActiveFile = openFiles.find((entry) => entry.id === activeFileId) ?? null;
-  const activeFileRepositoryId = rawActiveFile?.id.split(":")[0] ?? null;
-  const activeFile = activeFileRepositoryId === selectedRepoId ? rawActiveFile : null;
-  const activeProduct = products.find((product) => product.id === selectedProductId) ?? null;
-  const activeModule = activeProductTree?.modules.find((moduleTree) => moduleTree.module.id === activeModuleId)?.module ?? null;
-  const activeCapability = React.useMemo(() => {
-    if (!activeCapabilityId || !activeProductTree) {
-      return null;
-    }
-    const stack = [...activeProductTree.modules.flatMap((moduleTree) => moduleTree.features)];
-    while (stack.length > 0) {
-      const current = stack.pop();
-      if (!current) continue;
-      if (current.capability.id === activeCapabilityId) {
-        return current.capability;
-      }
-      stack.push(...current.children);
-    }
-    return null;
-  }, [activeCapabilityId, activeProductTree]);
-
-  const handleSelectRepository = (repositoryId: string) => {
-    setSelectedRepoId(repositoryId);
-    setActiveRepo(repositoryId || null);
-    setExpandedDirs({});
-    setFileError(null);
-  };
-
-  const handleSelectProduct = (productId: string) => {
-    setActiveProduct(productId || null);
-    setSelectedRepoId("");
-    setActiveRepo(null);
-    setExpandedDirs({});
-    setTreeFilter("");
-    setFileError(null);
-    setCopilotMessages([]);
-    setPatchProposal(null);
-    setCopilotError(null);
-    copilotSessionIdRef.current = crypto.randomUUID();
-  };
-
-  const toggleDirectory = (relativePath: string) => {
-    setExpandedDirs((current) => ({ ...current, [relativePath]: !(current[relativePath] ?? false) }));
-  };
-
-  const openRepositoryFile = async (relativePath: string) => {
-    if (!selectedRepoId) {
-      setFileError("Select a workspace first.");
-      return;
-    }
-    const fileId = `${selectedRepoId}:${relativePath}`;
-    const existing = openFiles.find((entry) => entry.id === fileId);
-    if (existing) {
-      setActiveFile(fileId);
-      return;
-    }
-    setFileError(null);
-    try {
-      const content = await readRepositoryFile({ repositoryId: selectedRepoId, relativePath });
-      openFileInEditor({
-        id: fileId,
-        path: relativePath,
-        name: relativePath.split("/").pop() ?? relativePath,
-        content,
-        language: detectLanguage(relativePath),
-      });
-    } catch (error) {
-      setFileError(String(error));
-    }
-  };
-
-  const saveActiveFile = async () => {
-    if (!activeFile || !activeFileRepositoryId) {
-      return;
-    }
-    setFileError(null);
-    setIsSaving(true);
-    try {
-      await writeRepositoryFile({
-        repositoryId: activeFileRepositoryId,
-        relativePath: activeFile.path,
-        content: activeFile.content,
-      });
-      markFileSaved(activeFile.id);
-      if (activeFileRepositoryId === selectedRepoId) {
-        await refetchTree();
-      }
-    } catch (error) {
-      setFileError(String(error));
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const openFolder = async () => {
-    setFileError(null);
-    if (!selectedProductId) {
-      setFileError("Select a product before attaching a workspace.");
-      return;
-    }
-    try {
-      const selectedPath = await browseForRepositoryPath();
-      if (!selectedPath) {
-        return;
-      }
-      const existing = repositories.find((repo) => normalizePath(repo.local_path) === normalizePath(selectedPath));
-      if (existing) {
-        await attachRepository({
-          scopeType: "product",
-          scopeId: selectedProductId,
-          repositoryId: existing.id,
-          isDefault: true,
-        });
-        await queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] });
-        handleSelectRepository(existing.id);
-        return;
-      }
-      const created = await registerRepository({
-        name: selectedPath.split("/").filter(Boolean).pop() ?? "workspace",
-        localPath: selectedPath,
-        remoteUrl: "",
-        defaultBranch: "main",
-      });
-      await attachRepository({
-        scopeType: "product",
-        scopeId: selectedProductId,
-        repositoryId: created.id,
-        isDefault: true,
-      });
-      await queryClient.invalidateQueries({ queryKey: ["repositories"] });
-      await queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] });
-      handleSelectRepository(created.id);
-    } catch (error) {
-      setFileError(String(error));
-    }
-  };
-
-  const createWorkspace = async () => {
-    setFileError(null);
-    if (!selectedProductId) {
-      setFileError("Select a product before creating a workspace.");
-      return;
-    }
-    try {
-      const provisioned = await createLocalWorkspace({
-        productId: selectedProductId,
-        moduleId: activeModuleId,
-        workItemId: activeWorkItemId,
-      });
-      await queryClient.invalidateQueries({ queryKey: ["repositories"] });
-      await queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] });
-      await queryClient.invalidateQueries({ queryKey: ["ideWorkItemRepo"] });
-      handleSelectRepository(provisioned.repository.id);
-    } catch (error) {
-      setFileError(String(error));
-    }
-  };
-
-  const sendCopilot = async () => {
-    setCopilotError(null);
-    const draft = copilotDraft.trim();
-    if (!draft) {
-      return;
-    }
-    if (!copilotProviderId || !copilotModelName) {
-      setCopilotError("Select provider and model for Aruvi Copilot.");
-      return;
-    }
-
-    const userMessage: LocalChatMessage = { id: crypto.randomUUID(), role: "user", content: draft };
-    const assistantMessageId = crypto.randomUUID();
-    const assistantPlaceholder: LocalChatMessage = {
-      id: assistantMessageId,
-      role: "assistant",
-      content: "",
-    };
-    setCopilotMessages((current) => [...current, userMessage, assistantPlaceholder]);
-    setCopilotDraft("");
-    setIsCopilotSending(true);
-    if (copilotMode === "patch") {
-      setPatchProposal(null);
-    }
-
-    const contextLimit = Number.parseInt(contextBudgetChars, 10);
-    const maxContextChars = Number.isFinite(contextLimit) && contextLimit > 1000 ? contextLimit : 12000;
-    const activeFileContext =
-      includeActiveFileContext && activeFile
-        ? `Active file context\nPath: ${activeFile.path}\nLanguage: ${activeFile.language}\n\n${truncateForContext(
-            activeFile.content,
-            maxContextChars,
-          )}`
-        : null;
-
-    const patchSystemInstruction =
-      copilotMode === "patch"
-        ? `Return ONLY JSON with this schema:
-{
-  "type": "patch_proposal",
-  "summary": "short summary",
-  "patches": [
-    {
-      "path": "relative/path/from/repo/root",
-      "base_sha256": null,
-      "description": "why this patch exists",
-      "patch": "@@ -oldStart,oldCount +newStart,newCount @@\\n context/removals/additions ..."
-    }
-  ]
-}
-Rules:
-- No markdown, no prose outside JSON.
-- Use unified diff hunks in "patch" only.
-- Keep patch list minimal and precise.`
-        : null;
-
-    let unlistenChunk: UnlistenFn | null = null;
-    let unlistenDone: UnlistenFn | null = null;
-    let unlistenError: UnlistenFn | null = null;
-    let streamId: string | null = null;
-
-    const cleanup = () => {
-      if (unlistenChunk) {
-        unlistenChunk();
-      }
-      if (unlistenDone) {
-        unlistenDone();
-      }
-      if (unlistenError) {
-        unlistenError();
-      }
-      unlistenChunk = null;
-      unlistenDone = null;
-      unlistenError = null;
-    };
-
-    try {
-      unlistenChunk = await listen<{ stream_id: string; delta: string }>("chat_stream_chunk", (event) => {
-        if (!streamId || event.payload.stream_id !== streamId) {
-          return;
-        }
-        setCopilotMessages((current) =>
-          current.map((message) =>
-            message.id === assistantMessageId
-              ? { ...message, content: `${message.content}${event.payload.delta}` }
-              : message,
-          ),
-        );
-      });
-
-      unlistenDone = await listen<{ stream_id: string }>("chat_stream_done", (event) => {
-        if (!streamId || event.payload.stream_id !== streamId) {
-          return;
-        }
-        if (copilotMode === "patch") {
-          setCopilotMessages((current) => {
-            const target = current.find((entry) => entry.id === assistantMessageId);
-            if (!target) {
-              return current;
-            }
-            const parsed = parsePatchProposal(target.content);
-            if (parsed) {
-              setPatchProposal(parsed);
-            } else {
-              setCopilotError("Copilot response was not a valid patch proposal JSON payload.");
-            }
-            return current;
-          });
-        }
-        setIsCopilotSending(false);
-        cleanup();
-      });
-
-      unlistenError = await listen<{ stream_id: string; error: string }>("chat_stream_error", (event) => {
-        if (!streamId || event.payload.stream_id !== streamId) {
-          return;
-        }
-        setCopilotError(event.payload.error);
-        setIsCopilotSending(false);
-        cleanup();
-      });
-
-      streamId = await startModelChatStream({
-        providerId: copilotProviderId,
-        model: copilotModelName,
-        messages: [
-          { role: "system", content: copilotSystemPrompt.trim() || "You are Aruvi Copilot." },
-          ...(patchSystemInstruction ? [{ role: "system" as const, content: patchSystemInstruction }] : []),
-          ...(activeFileContext ? [{ role: "system" as const, content: activeFileContext }] : []),
-          ...[...copilotMessages, userMessage].map(({ role, content }) => ({ role, content })),
-        ],
-        temperature: Number.isFinite(Number(copilotTemp)) ? Number(copilotTemp) : 0.2,
-        maxTokens: Number.isFinite(Number(copilotMaxTokens)) ? Number(copilotMaxTokens) : 4096,
-        sourceKind: "desktop_ide",
-        sourceId: copilotSessionIdRef.current,
-        sourceLabel: "Desktop IDE",
-      });
-
-      window.setTimeout(() => {
-        if (streamId) {
-          setIsCopilotSending(false);
-          cleanup();
-        }
-      }, 180000);
-    } catch (error) {
-      setCopilotError(String(error));
-      setCopilotMessages((current) => current.filter((entry) => entry.id !== assistantMessageId));
-      cleanup();
-      setIsCopilotSending(false);
-    }
-  };
-
-  const applyPatchProposal = async (proposal: CopilotPatchProposal) => {
-    if (!selectedRepoId) {
-      setCopilotError("Select a workspace before applying a patch proposal.");
-      return;
-    }
-    setCopilotError(null);
-    setIsApplyingProposal(true);
-    try {
-      for (const patch of proposal.patches) {
-        await applyRepositoryPatch({
-          repositoryId: selectedRepoId,
-          relativePath: patch.path,
-          patch: patch.patch,
-          baseSha256: patch.base_sha256 ?? undefined,
-        });
-        const openedFileId = `${selectedRepoId}:${patch.path}`;
-        const existing = openFiles.find((entry) => entry.id === openedFileId);
-        if (existing) {
-          const refreshed = await readRepositoryFile({
-            repositoryId: selectedRepoId,
-            relativePath: patch.path,
-          });
-          replaceFileContent(openedFileId, refreshed);
-          markFileSaved(openedFileId);
-        }
-      }
-      await refetchTree();
-    } catch (error) {
-      setCopilotError(String(error));
-    } finally {
-      setIsApplyingProposal(false);
-    }
-  };
-
-  const onSaveShortcut = React.useEffectEvent((event: KeyboardEvent) => {
-    if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s") {
-      return;
-    }
-    event.preventDefault();
-    void saveActiveFile();
-  });
-
-  useEffect(() => {
-    const listener = (event: KeyboardEvent) => onSaveShortcut(event);
-    window.addEventListener("keydown", listener);
-    return () => window.removeEventListener("keydown", listener);
-  }, [onSaveShortcut]);
+    workItemResolvedRepo,
+  } = useIDEWorkspaceController();
 
   return (
     <div style={styles.page}>
@@ -613,7 +96,7 @@ Rules:
         <ScopeBreadcrumb
           label="Product Scope"
           productName={activeProduct?.name}
-          moduleName={activeModule?.name}
+          productAreaName={activeProductArea?.name}
           capabilityName={activeCapability?.name}
         />
       </div>
@@ -674,7 +157,7 @@ Rules:
               <div style={styles.status}>No files match the current filter.</div>
             ) : selectedRepository ? (
               filteredTree.map((node) => (
-                <TreeNode
+                <IDEFileTreeNode
                   key={node.relative_path}
                   node={node}
                   expandedDirs={expandedDirs}
@@ -736,348 +219,37 @@ Rules:
           </div>
         </div>
 
-        <div style={styles.panel}>
-          <div style={styles.panelHeader}>
-            <div style={styles.panelTitle}>Aruvi Copilot</div>
-            <button
-              style={styles.buttonGhost}
-              onClick={() => {
-                setCopilotMessages([]);
-                setPatchProposal(null);
-                setCopilotError(null);
-                copilotSessionIdRef.current = crypto.randomUUID();
-              }}
-              disabled={isCopilotSending}
-            >
-              Clear
-            </button>
-          </div>
-          <div style={styles.section}>
-            <div style={styles.segmented}>
-              <button
-                style={copilotMode === "chat" ? styles.modeButtonActive : styles.modeButton}
-                onClick={() => setCopilotMode("chat")}
-                disabled={isCopilotSending}
-              >
-                Chat
-              </button>
-              <button
-                style={copilotMode === "patch" ? styles.modeButtonActive : styles.modeButton}
-                onClick={() => setCopilotMode("patch")}
-                disabled={isCopilotSending}
-              >
-                Propose Patch
-              </button>
-            </div>
-            <label style={styles.label}>Provider</label>
-            <select style={styles.select} value={copilotProviderId} onChange={(event) => setCopilotProviderId(event.target.value)}>
-              <option value="">Select provider</option>
-              {providers.map((provider) => (
-                <option key={provider.id} value={provider.id}>
-                  {provider.name}
-                </option>
-              ))}
-            </select>
-            <label style={styles.label}>Model</label>
-            <select style={styles.select} value={copilotModelName} onChange={(event) => setCopilotModelName(event.target.value)}>
-              <option value="">Select model</option>
-              {modelOptions.map((model) => (
-                <option key={model.id} value={model.name}>
-                  {model.name}
-                </option>
-              ))}
-            </select>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <div>
-                <label style={styles.label}>Temperature</label>
-                <input style={styles.input} value={copilotTemp} onChange={(event) => setCopilotTemp(event.target.value)} />
-              </div>
-              <div>
-                <label style={styles.label}>Max Tokens</label>
-                <input style={styles.input} value={copilotMaxTokens} onChange={(event) => setCopilotMaxTokens(event.target.value)} />
-              </div>
-            </div>
-            <label style={styles.label}>System Prompt</label>
-            <textarea
-              style={{ ...styles.textarea, minHeight: 72 }}
-              value={copilotSystemPrompt}
-              onChange={(event) => setCopilotSystemPrompt(event.target.value)}
-            />
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input
-                id="include-file-context"
-                type="checkbox"
-                checked={includeActiveFileContext}
-                onChange={(event) => setIncludeActiveFileContext(event.target.checked)}
-              />
-              <label style={styles.label} htmlFor="include-file-context">
-                Include active file context
-              </label>
-            </div>
-            <label style={styles.label}>Context Budget (chars)</label>
-            <input
-              style={styles.input}
-              value={contextBudgetChars}
-              onChange={(event) => setContextBudgetChars(event.target.value)}
-            />
-          </div>
-          <div style={styles.chatBody}>
-            {copilotMessages.length === 0 ? (
-              <div style={styles.status}>Ask Aruvi Copilot for implementation help, refactors, or review notes.</div>
-            ) : (
-              copilotMessages.map((message) => (
-                <div
-                  key={message.id}
-                  style={message.role === "user" ? styles.bubbleUser : styles.bubbleAssistant}
-                >
-                  {message.content}
-                </div>
-              ))
-            )}
-          </div>
-          {patchProposal && (
-            <div style={styles.section}>
-              <div style={styles.label}>Patch Proposal</div>
-              <div style={styles.status}>{patchProposal.summary}</div>
-              {patchProposal.patches.map((patch, index) => (
-                <div key={`${patch.path}:${index}`} style={styles.patchPanel}>
-                  <div style={styles.patchPath}>{patch.path}</div>
-                  <div style={styles.patchMeta}>
-                    {patch.description || "No description"}{patch.base_sha256 ? " · base hash guarded" : ""}
-                  </div>
-                  <div style={styles.patchSnippet}>{truncateForContext(patch.patch, 420)}</div>
-                </div>
-              ))}
-              <button
-                style={styles.button}
-                onClick={() => void applyPatchProposal(patchProposal)}
-                disabled={isApplyingProposal}
-              >
-                {isApplyingProposal ? "Applying..." : "Apply Proposal"}
-              </button>
-            </div>
-          )}
-          <div style={styles.chatComposer}>
-            <textarea
-              style={styles.textarea}
-              value={copilotDraft}
-              placeholder={copilotMode === "patch" ? "Describe the exact change; Copilot will return a structured patch proposal..." : "Ask about the selected file or broader repo changes..."}
-              onChange={(event) => setCopilotDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !isCopilotSending) {
-                  event.preventDefault();
-                  void sendCopilot();
-                }
-              }}
-            />
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-              <div style={styles.status}>
-                {isCopilotSending ? "Streaming response..." : "Cmd/Ctrl + Enter to send"}
-              </div>
-              <button style={styles.button} onClick={() => void sendCopilot()} disabled={isCopilotSending}>
-                {isCopilotSending ? "Sending..." : copilotMode === "patch" ? "Generate Proposal" : "Send"}
-              </button>
-            </div>
-            {copilotError && <div style={styles.error}>{copilotError}</div>}
-          </div>
-        </div>
+        <IDECopilotPanel
+          providers={providers}
+          modelOptions={modelOptions}
+          copilotMode={copilotMode}
+          setCopilotMode={setCopilotMode}
+          copilotProviderId={copilotProviderId}
+          setCopilotProviderId={setCopilotProviderId}
+          copilotModelName={copilotModelName}
+          setCopilotModelName={setCopilotModelName}
+          copilotTemp={copilotTemp}
+          setCopilotTemp={setCopilotTemp}
+          copilotMaxTokens={copilotMaxTokens}
+          setCopilotMaxTokens={setCopilotMaxTokens}
+          copilotSystemPrompt={copilotSystemPrompt}
+          setCopilotSystemPrompt={setCopilotSystemPrompt}
+          includeActiveFileContext={includeActiveFileContext}
+          setIncludeActiveFileContext={setIncludeActiveFileContext}
+          contextBudgetChars={contextBudgetChars}
+          setContextBudgetChars={setContextBudgetChars}
+          copilotMessages={copilotMessages}
+          patchProposal={patchProposal}
+          copilotDraft={copilotDraft}
+          setCopilotDraft={setCopilotDraft}
+          copilotError={copilotError}
+          isCopilotSending={isCopilotSending}
+          isApplyingProposal={isApplyingProposal}
+          onClear={resetCopilot}
+          onSend={() => void sendCopilot()}
+          onApplyPatchProposal={(proposal) => void applyPatchProposal(proposal)}
+        />
       </div>
     </div>
   );
-}
-
-function TreeNode(props: {
-  node: RepositoryTreeNode;
-  expandedDirs: Record<string, boolean>;
-  activeFilePath: string | null;
-  onToggleDirectory: (relativePath: string) => void;
-  onOpenFile: (relativePath: string) => void;
-}) {
-  const { node, expandedDirs, activeFilePath, onToggleDirectory, onOpenFile } = props;
-  const isDirectory = node.node_type === "directory";
-  const isExpanded = expandedDirs[node.relative_path] ?? false;
-  const isActiveFile = !isDirectory && activeFilePath === node.relative_path;
-  const rowStyle = isActiveFile ? styles.treeNodeActive : styles.treeNode;
-
-  return (
-    <div>
-      <div
-        style={rowStyle}
-        onClick={() => {
-          if (isDirectory) {
-            onToggleDirectory(node.relative_path);
-            return;
-          }
-          onOpenFile(node.relative_path);
-        }}
-      >
-        {isDirectory ? (
-          <div style={styles.treeDirRow}>
-            <span>{isExpanded ? "▾" : "▸"}</span>
-            <span>{node.name}</span>
-          </div>
-        ) : (
-          <div style={styles.treeFileRow}>
-            <span>•</span>
-            <span>{node.name}</span>
-          </div>
-        )}
-        {!isDirectory && node.size_bytes != null && (
-          <div style={styles.treeMeta}>{formatBytes(node.size_bytes)}</div>
-        )}
-      </div>
-      {isDirectory && isExpanded && node.children.length > 0 && (
-        <div style={styles.treeChildren}>
-          {node.children.map((child) => (
-            <TreeNode
-              key={child.relative_path}
-              node={child}
-              expandedDirs={expandedDirs}
-              activeFilePath={activeFilePath}
-              onToggleDirectory={onToggleDirectory}
-              onOpenFile={onOpenFile}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function filterTreeNodes(nodes: RepositoryTreeNode[], rawFilter: string): RepositoryTreeNode[] {
-  const filter = rawFilter.trim().toLowerCase();
-  if (!filter) {
-    return nodes;
-  }
-
-  const filtered: RepositoryTreeNode[] = [];
-  for (const node of nodes) {
-    if (node.node_type === "file") {
-      if (
-        node.name.toLowerCase().includes(filter) ||
-        node.relative_path.toLowerCase().includes(filter)
-      ) {
-        filtered.push(node);
-      }
-      continue;
-    }
-
-    const children = filterTreeNodes(node.children, filter);
-    if (
-      node.name.toLowerCase().includes(filter) ||
-      node.relative_path.toLowerCase().includes(filter) ||
-      children.length > 0
-    ) {
-      filtered.push({
-        ...node,
-        children,
-      });
-    }
-  }
-  return filtered;
-}
-
-function normalizePath(path: string): string {
-  return path.replace(/\/+$/, "");
-}
-
-function truncateForContext(content: string, maxChars: number): string {
-  if (content.length <= maxChars) {
-    return content;
-  }
-  const headLength = Math.floor(maxChars * 0.7);
-  const tailLength = Math.max(0, maxChars - headLength);
-  return `${content.slice(0, headLength)}\n\n...<truncated for context budget>...\n\n${content.slice(
-    Math.max(content.length - tailLength, 0),
-  )}`;
-}
-
-function formatBytes(size: number): string {
-  if (size < 1024) {
-    return `${size} B`;
-  }
-  if (size < 1024 * 1024) {
-    return `${(size / 1024).toFixed(1)} KB`;
-  }
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function detectLanguage(path: string): string {
-  const extension = path.split(".").pop()?.toLowerCase() ?? "";
-  const map: Record<string, string> = {
-    ts: "typescript",
-    tsx: "typescript",
-    js: "javascript",
-    jsx: "javascript",
-    json: "json",
-    rs: "rust",
-    py: "python",
-    md: "markdown",
-    html: "html",
-    css: "css",
-    scss: "scss",
-    yml: "yaml",
-    yaml: "yaml",
-    toml: "toml",
-    sql: "sql",
-    sh: "shell",
-    zsh: "shell",
-    go: "go",
-    java: "java",
-    kt: "kotlin",
-    swift: "swift",
-  };
-  return map[extension] ?? "plaintext";
-}
-
-function parsePatchProposal(text: string): CopilotPatchProposal | null {
-  const payload = extractJsonObject(text);
-  if (!payload) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(payload) as {
-      type?: string;
-      summary?: string;
-      patches?: Array<{ path?: string; patch?: string; base_sha256?: string | null; baseSha256?: string | null; description?: string }>;
-    };
-    if (parsed.type !== "patch_proposal" || !Array.isArray(parsed.patches) || parsed.patches.length === 0) {
-      return null;
-    }
-    const patches = parsed.patches
-      .map((entry) => ({
-        path: (entry.path ?? "").trim(),
-        patch: entry.patch ?? "",
-        base_sha256: entry.base_sha256 ?? entry.baseSha256 ?? null,
-        description: entry.description,
-      }))
-      .filter((entry) => entry.path.length > 0 && entry.patch.trim().length > 0);
-    if (patches.length === 0) {
-      return null;
-    }
-    return {
-      summary: parsed.summary?.trim() || "Patch proposal generated.",
-      patches,
-      raw: payload,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function extractJsonObject(text: string): string | null {
-  const fencedMatch = text.match(/```json\s*([\s\S]*?)```/i);
-  if (fencedMatch?.[1]) {
-    return fencedMatch[1].trim();
-  }
-  const trimmed = text.trim();
-  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
-    return trimmed;
-  }
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start >= 0 && end > start) {
-    return trimmed.slice(start, end + 1);
-  }
-  return null;
 }

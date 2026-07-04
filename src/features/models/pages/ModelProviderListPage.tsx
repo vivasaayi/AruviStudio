@@ -1,97 +1,16 @@
-import React, { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  browseForLocalModelFile,
   listProviders,
-  createProvider,
-  createModelDefinition,
   listModelDefinitions,
-  setSetting,
-  testProviderConnectivity,
-  installManagedLocalModel,
-  registerLocalRuntimeModel,
-  updateProvider,
-  deleteProvider,
-  updateModelDefinition,
-  deleteModelDefinition,
 } from "../../../lib/tauri";
 import type { ModelDefinition, ModelProvider } from "../../../lib/types";
-
-const SPEECH_PROVIDER_KEY = "speech.transcription_provider_id";
-const SPEECH_MODEL_KEY = "speech.transcription_model_name";
-const LEGACY_WHISPER_PLACEHOLDER_PATH = "/absolute/path/to/ggml-base.en.bin";
-
-const styles: Record<string, React.CSSProperties> = {
-  page: { maxWidth: 960, margin: "0 auto" },
-  header: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 },
-  title: { fontSize: 20, fontWeight: 600, color: "#e0e0e0" },
-  btn: { padding: "6px 16px", fontSize: 13, backgroundColor: "#0e639c", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" },
-  btnTest: { padding: "4px 10px", fontSize: 12, backgroundColor: "#2d6a3f", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" },
-  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 16 },
-  card: { backgroundColor: "#252526", borderRadius: 8, padding: 16, border: "1px solid #333" },
-  name: { fontSize: 15, fontWeight: 600, color: "#e0e0e0", marginBottom: 4 },
-  type: { fontSize: 13, color: "#569cd6", marginBottom: 8 },
-  url: { fontSize: 12, color: "#888", fontFamily: "monospace", marginBottom: 12, wordBreak: "break-all" as const },
-  cardFooter: { display: "flex", justifyContent: "space-between", alignItems: "center" },
-  badge: { fontSize: 11, padding: "2px 8px", borderRadius: 10, display: "inline-block" },
-  empty: { textAlign: "center" as const, color: "#666", padding: 40, fontSize: 14 },
-  form: { backgroundColor: "#252526", padding: 20, borderRadius: 8, marginBottom: 24, border: "1px solid #333" },
-  sectionTitle: { fontSize: 16, fontWeight: 600, color: "#e0e0e0", marginBottom: 12 },
-  input: { width: "100%", padding: "8px 12px", backgroundColor: "#1e1e1e", border: "1px solid #444", borderRadius: 4, color: "#e0e0e0", fontSize: 13, marginBottom: 12, boxSizing: "border-box" as const },
-  select: { width: "100%", padding: "8px 12px", backgroundColor: "#1e1e1e", border: "1px solid #444", borderRadius: 4, color: "#e0e0e0", fontSize: 13, marginBottom: 12 },
-  label: { fontSize: 12, color: "#999", display: "block", marginBottom: 4 },
-  testResult: { fontSize: 12, marginTop: 8, padding: 8, borderRadius: 4 },
-  subGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 },
-  modelCard: { backgroundColor: "#1f2228", borderRadius: 8, padding: 14, border: "1px solid #333" },
-  modelName: { fontSize: 14, fontWeight: 600, color: "#e0e0e0", marginBottom: 4 },
-  modelMeta: { fontSize: 12, color: "#999", marginBottom: 6 },
-  feedbackSuccess: { color: "#4ec9b0", fontSize: 12, marginTop: 8 },
-  feedbackError: { color: "#f44747", fontSize: 12, marginTop: 8 },
-  modalBackdrop: { position: "fixed", inset: 0, backgroundColor: "rgba(8, 10, 14, 0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, zIndex: 50 },
-  modal: { width: "min(860px, 100%)", maxHeight: "86vh", backgroundColor: "#252526", border: "1px solid #333", borderRadius: 12, overflow: "hidden", boxShadow: "0 24px 60px rgba(0,0,0,0.45)" },
-  modalHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid #333" },
-  modalTitle: { fontSize: 16, fontWeight: 600, color: "#e0e0e0" },
-  modalBody: { padding: 16, overflow: "auto", maxHeight: "calc(86vh - 56px)" },
-  managedGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 },
-  managedCard: { backgroundColor: "#1f2228", borderRadius: 10, padding: 14, border: "1px solid #333" },
-  managedTitle: { fontSize: 14, fontWeight: 700, color: "#eef3fb", marginBottom: 6 },
-  managedMeta: { fontSize: 12, color: "#9aa0a6", lineHeight: 1.5, marginBottom: 8 },
-  managedBadgeRow: { display: "flex", gap: 8, flexWrap: "wrap" as const, marginBottom: 10 },
-  managedBadge: { fontSize: 11, padding: "3px 8px", borderRadius: 999, backgroundColor: "#24364d", color: "#d7e8fb", fontWeight: 700 },
-};
-
-const MANAGED_LOCAL_MODELS = [
-  {
-    id: "whisper-tiny-en",
-    displayName: "Whisper Tiny English",
-    providerName: "Whisper.cpp Tiny.en (Local)",
-    modelName: "whisper-tiny.en",
-    fileName: "ggml-tiny.en.bin",
-    downloadUrl: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin?download=true",
-    sizeLabel: "75 MiB",
-    notes: "Fastest local transcription option for lightweight desktop voice testing.",
-  },
-  {
-    id: "whisper-base-en",
-    displayName: "Whisper Base English",
-    providerName: "Whisper.cpp Base.en (Local)",
-    modelName: "whisper-base.en",
-    fileName: "ggml-base.en.bin",
-    downloadUrl: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin?download=true",
-    sizeLabel: "142 MiB",
-    notes: "Best default local speech-to-text model for desktop voice planning and chat.",
-  },
-  {
-    id: "whisper-small-en",
-    displayName: "Whisper Small English",
-    providerName: "Whisper.cpp Small.en (Local)",
-    modelName: "whisper-small.en",
-    fileName: "ggml-small.en.bin",
-    downloadUrl: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin?download=true",
-    sizeLabel: "466 MiB",
-    notes: "Higher accuracy local transcription model when you can trade more disk and latency.",
-  },
-] as const;
+import { styles } from "../lib/modelProviderPageStyles";
+import { ManagedLocalSpeechModelsPanel } from "../components/ManagedLocalSpeechModelsPanel";
+import { ModelProviderGrid } from "../components/ModelProviderGrid";
+import { ModelProviderQuickStartPanel } from "../components/ModelProviderQuickStartPanel";
+import { RegisteredModelGrid } from "../components/RegisteredModelGrid";
+import { useModelProviderPageActions } from "../hooks/useModelProviderPageActions";
 
 export function ModelProviderListPage() {
   const queryClient = useQueryClient();
@@ -111,222 +30,44 @@ export function ModelProviderListPage() {
 
   const { data: providers, isLoading } = useQuery({ queryKey: ["providers"], queryFn: listProviders });
   const { data: modelDefinitions } = useQuery({ queryKey: ["model-definitions"], queryFn: listModelDefinitions });
-  const refreshModelQueries = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["providers"] }),
-      queryClient.invalidateQueries({ queryKey: ["model-definitions"] }),
-    ]);
-  };
-
-  const installLocalModelMutation = useMutation({
-    mutationFn: (entry: (typeof MANAGED_LOCAL_MODELS)[number]) =>
-      installManagedLocalModel({
-        providerName: entry.providerName,
-        modelName: entry.modelName,
-        downloadUrl: entry.downloadUrl,
-        fileName: entry.fileName,
-        capabilityTags: ["speech_to_text", "transcription", "audio", "local_runtime"],
-        notes: entry.notes,
-      }),
-    onSuccess: async (result, entry) => {
-      await refreshModelQueries();
-      await applySpeechSettings(result.provider.id, result.model_definition.name);
-      setProviderSuccess(`${entry.displayName} is ready at ${result.file_path} and set as the active speech model.`);
-      setProviderError(null);
-    },
-    onError: (error) => {
-      setProviderError(String(error));
-      setProviderSuccess(null);
-    },
+  const {
+    applyPreset,
+    applySpeechSettings,
+    createModelMutation,
+    createMutation,
+    deleteModelMutation,
+    deleteProviderMutation,
+    installLocalModelMutation,
+    registerLocalModelMutation,
+    startEditingModel,
+    startEditingProvider,
+    testConnectivity,
+    updateModelMutation,
+    updateProviderMutation,
+    visibleProviders,
+  } = useModelProviderPageActions({
+    queryClient,
+    providers: providers ?? [],
+    form,
+    setForm,
+    modelForm,
+    setModelForm,
+    setShowForm,
+    setShowModelForm,
+    setTestResults,
+    editingProvider,
+    setEditingProvider,
+    providerEditForm,
+    setProviderEditForm,
+    editingModel,
+    setEditingModel,
+    modelEditForm,
+    setModelEditForm,
+    setProviderError,
+    setProviderSuccess,
+    setModelError,
+    setModelSuccess,
   });
-
-  const registerLocalModelMutation = useMutation({
-    mutationFn: async (entry: (typeof MANAGED_LOCAL_MODELS)[number]) => {
-      const selectedPath = await browseForLocalModelFile();
-      if (!selectedPath) {
-        throw new Error("Model registration cancelled.");
-      }
-      return registerLocalRuntimeModel({
-        providerName: entry.providerName,
-        modelName: entry.modelName,
-        modelPath: selectedPath,
-        capabilityTags: ["speech_to_text", "transcription", "audio", "local_runtime"],
-        notes: entry.notes,
-      });
-    },
-    onSuccess: async (result, entry) => {
-      await refreshModelQueries();
-      await applySpeechSettings(result.provider.id, result.model_definition.name);
-      setProviderSuccess(`${entry.displayName} registered from ${result.file_path} and set as the active speech model.`);
-      setProviderError(null);
-    },
-    onError: (error) => {
-      if (String(error).includes("cancelled")) {
-        return;
-      }
-      setProviderError(String(error));
-      setProviderSuccess(null);
-    },
-  });
-
-  const createMutation = useMutation({
-    mutationFn: () => createProvider(form),
-    onSuccess: async (provider) => {
-      await queryClient.invalidateQueries({ queryKey: ["providers"] });
-      setProviderSuccess(`Provider "${provider.name}" added.`);
-      setProviderError(null);
-      setForm({ name: "", providerType: "openai_compatible", baseUrl: "http://localhost:1234/v1", authSecretRef: "" });
-      setShowForm(false);
-    },
-    onError: (error) => {
-      setProviderError(String(error));
-      setProviderSuccess(null);
-    },
-  });
-
-  const createModelMutation = useMutation({
-    mutationFn: () =>
-      createModelDefinition({
-        providerId: modelForm.providerId,
-        name: modelForm.name,
-        contextWindow: modelForm.contextWindow ? Number(modelForm.contextWindow) : undefined,
-        capabilityTags: splitCommaSeparated(modelForm.capabilityTags),
-        notes: modelForm.notes.trim() || undefined,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["model-definitions"] });
-      setModelSuccess(`Model "${modelForm.name}" added.`);
-      setModelError(null);
-      setModelForm({ providerId: "", name: "", contextWindow: "", capabilityTags: "", notes: "" });
-      setShowModelForm(false);
-    },
-    onError: (error) => {
-      setModelError(String(error));
-      setModelSuccess(null);
-    },
-  });
-
-  const updateProviderMutation = useMutation({
-    mutationFn: () =>
-      updateProvider({
-        id: editingProvider!.id,
-        name: providerEditForm.name,
-        providerType: providerEditForm.providerType,
-        baseUrl: providerEditForm.baseUrl,
-        authSecretRef: providerEditForm.authSecretRef.trim() ? providerEditForm.authSecretRef.trim() : undefined,
-        enabled: providerEditForm.enabled,
-      }),
-    onSuccess: async (provider) => {
-      await queryClient.invalidateQueries({ queryKey: ["providers"] });
-      setProviderSuccess(`Provider "${provider.name}" updated.`);
-      setProviderError(null);
-      setEditingProvider(null);
-    },
-    onError: (error) => {
-      setProviderError(String(error));
-      setProviderSuccess(null);
-    },
-  });
-
-  const deleteProviderMutation = useMutation({
-    mutationFn: (id: string) => deleteProvider(id),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["providers"] }),
-        queryClient.invalidateQueries({ queryKey: ["model-definitions"] }),
-      ]);
-      setProviderSuccess("Provider deleted.");
-      setProviderError(null);
-    },
-    onError: (error) => {
-      setProviderError(String(error));
-      setProviderSuccess(null);
-    },
-  });
-
-  const updateModelMutation = useMutation({
-    mutationFn: () =>
-      updateModelDefinition({
-        id: editingModel!.id,
-        providerId: modelEditForm.providerId,
-        name: modelEditForm.name,
-        contextWindow: modelEditForm.contextWindow ? Number(modelEditForm.contextWindow) : undefined,
-        capabilityTags: splitCommaSeparated(modelEditForm.capabilityTags),
-        notes: modelEditForm.notes.trim() || undefined,
-        enabled: modelEditForm.enabled,
-      }),
-    onSuccess: async (model) => {
-      await queryClient.invalidateQueries({ queryKey: ["model-definitions"] });
-      setModelSuccess(`Model "${model.name}" updated.`);
-      setModelError(null);
-      setEditingModel(null);
-    },
-    onError: (error) => {
-      setModelError(String(error));
-      setModelSuccess(null);
-    },
-  });
-
-  const deleteModelMutation = useMutation({
-    mutationFn: (id: string) => deleteModelDefinition(id),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["model-definitions"] });
-      setModelSuccess("Model deleted.");
-      setModelError(null);
-    },
-    onError: (error) => {
-      setModelError(String(error));
-      setModelSuccess(null);
-    },
-  });
-
-  const testConnectivity = async (id: string) => {
-    setTestResults((prev) => ({ ...prev, [id]: { status: "testing", message: "Testing..." } }));
-    try {
-      const result = await testProviderConnectivity(id);
-      setTestResults((prev) => ({ ...prev, [id]: { status: "success", message: result } }));
-    } catch (err: unknown) {
-      setTestResults((prev) => ({ ...prev, [id]: { status: "error", message: String(err) } }));
-    }
-  };
-
-  const applyPreset = (preset: "deepseek" | "lm_studio") => {
-    if (preset === "deepseek") {
-      setForm({
-        name: "DeepSeek (Hosted)",
-        providerType: "openai_compatible",
-        baseUrl: "https://api.deepseek.com/v1",
-        authSecretRef: "",
-      });
-      setProviderError(null);
-      setProviderSuccess(null);
-      setShowForm(true);
-      return;
-    }
-
-    setForm({
-      name: "LM Studio (Local)",
-      providerType: "openai_compatible",
-      baseUrl: "http://localhost:1234/v1",
-      authSecretRef: "",
-    });
-    setProviderError(null);
-    setProviderSuccess(null);
-    setShowForm(true);
-  };
-
-  const applySpeechSettings = async (providerId: string, modelName: string) => {
-    await Promise.all([
-      setSetting(SPEECH_PROVIDER_KEY, providerId),
-      setSetting(SPEECH_MODEL_KEY, modelName),
-    ]);
-    setProviderSuccess(`Speech settings now use ${modelName}.`);
-    setProviderError(null);
-  };
-
-  const visibleProviders = (providers ?? []).filter(
-    (provider) => !(provider.provider_type === "local_runtime" && provider.base_url === LEGACY_WHISPER_PLACEHOLDER_PATH),
-  );
 
   return (
     <div style={styles.page}>
@@ -359,77 +100,16 @@ export function ModelProviderListPage() {
       {providerError && <div style={styles.feedbackError}>{providerError}</div>}
       {modelSuccess && <div style={styles.feedbackSuccess}>{modelSuccess}</div>}
       {modelError && <div style={styles.feedbackError}>{modelError}</div>}
-      <div style={{ ...styles.form, marginBottom: 18 }}>
-        <div style={{ ...styles.title, fontSize: 16, marginBottom: 10 }}>Quick Start</div>
-        <div style={{ color: "#9aa0a6", fontSize: 13, lineHeight: 1.5, marginBottom: 14 }}>
-          Use DeepSeek hosted first if you want a quick end-to-end path. For fully local desktop voice, use the managed Whisper installs below instead of creating manual placeholder providers.
-        </div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button style={styles.btn} onClick={() => applyPreset("deepseek")}>Use DeepSeek Hosted</button>
-          <button style={{ ...styles.btn, backgroundColor: "#2c3139" }} onClick={() => applyPreset("lm_studio")}>Use LM Studio Local</button>
-        </div>
-      </div>
-      <div style={{ ...styles.form, marginBottom: 18 }}>
-        <div style={{ ...styles.title, fontSize: 16, marginBottom: 10 }}>Managed Local Speech Models</div>
-        <div style={{ color: "#9aa0a6", fontSize: 13, lineHeight: 1.5, marginBottom: 14 }}>
-          Install Whisper models into AruviStudio-managed storage, or register an existing local model file without typing absolute paths by hand.
-        </div>
-        <div style={styles.managedGrid}>
-          {MANAGED_LOCAL_MODELS.map((entry) => {
-            const installedProvider = (providers ?? []).find((provider) => provider.name === entry.providerName);
-            const installedModel = (modelDefinitions ?? []).find(
-              (model) => model.provider_id === installedProvider?.id && model.name === entry.modelName,
-            );
-            const isInstalled = Boolean(installedProvider && installedModel);
-            const isBusy = installLocalModelMutation.isPending || registerLocalModelMutation.isPending;
-
-            return (
-              <div key={entry.id} style={styles.managedCard}>
-                <div style={styles.managedTitle}>{entry.displayName}</div>
-                <div style={styles.managedBadgeRow}>
-                  <span style={styles.managedBadge}>{entry.sizeLabel}</span>
-                  <span style={styles.managedBadge}>speech_to_text</span>
-                  <span style={styles.managedBadge}>{isInstalled ? "installed" : "not installed"}</span>
-                </div>
-                <div style={styles.managedMeta}>{entry.notes}</div>
-                {installedProvider ? (
-                  <div style={{ ...styles.managedMeta, fontFamily: "monospace" }}>
-                    Provider path: {installedProvider.base_url}
-                  </div>
-                ) : null}
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-                  <button
-                    style={styles.btn}
-                    onClick={() => installLocalModelMutation.mutate(entry)}
-                    disabled={isBusy}
-                  >
-                    {installLocalModelMutation.isPending ? "Installing..." : isInstalled ? "Reinstall / Reuse" : "Install & Register"}
-                  </button>
-                  <button
-                    style={{ ...styles.btn, backgroundColor: "#2c3139" }}
-                    onClick={() => registerLocalModelMutation.mutate(entry)}
-                    disabled={isBusy}
-                  >
-                    Use Existing File
-                  </button>
-                  {installedProvider && installedModel ? (
-                    <button
-                      style={{ ...styles.btn, backgroundColor: "#355c2b" }}
-                      onClick={() => void applySpeechSettings(installedProvider.id, installedModel.name)}
-                      disabled={isBusy}
-                    >
-                      Use for Speech
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <div style={{ color: "#8f96a3", fontSize: 12, marginTop: 12 }}>
-          This release manages local Whisper models for speech. Local in-app hosting for GGUF chat/coding models is the next runtime step after speech.
-        </div>
-      </div>
+      <ModelProviderQuickStartPanel onApplyPreset={applyPreset} />
+      <ManagedLocalSpeechModelsPanel
+        providers={providers ?? []}
+        modelDefinitions={modelDefinitions ?? []}
+        isBusy={installLocalModelMutation.isPending || registerLocalModelMutation.isPending}
+        isInstallPending={installLocalModelMutation.isPending}
+        onInstall={(entry) => installLocalModelMutation.mutate(entry)}
+        onRegister={(entry) => registerLocalModelMutation.mutate(entry)}
+        onUseForSpeech={(providerId, modelName) => void applySpeechSettings(providerId, modelName)}
+      />
       {showForm && (
         <div style={styles.modalBackdrop}>
           <div style={styles.modal}>
@@ -545,73 +225,18 @@ export function ModelProviderListPage() {
       )}
       {isLoading ? (<div style={styles.empty}>Loading providers...</div>) : visibleProviders.length > 0 ? (
         <>
-          <div style={styles.grid}>
-            {visibleProviders.map((p: ModelProvider) => (
-              <div key={p.id} style={styles.card}>
-                <div style={styles.name}>{p.name}</div><div style={styles.type}>{p.provider_type}</div><div style={styles.url}>{p.base_url}</div>
-                <div style={styles.cardFooter}>
-                  <span style={{ ...styles.badge, backgroundColor: p.enabled ? "#1b3a2d" : "#3a1b1b", color: p.enabled ? "#4ec9b0" : "#f44747" }}>{p.enabled ? "Enabled" : "Disabled"}</span>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button style={{ ...styles.btnTest, backgroundColor: "#2c3139" }} onClick={() => {
-                      setEditingProvider(p);
-                      setProviderEditForm({
-                        name: p.name,
-                        providerType: p.provider_type,
-                        baseUrl: p.base_url,
-                        authSecretRef: "",
-                        enabled: p.enabled,
-                      });
-                    }}>Edit</button>
-                    <button style={styles.btnTest} onClick={() => testConnectivity(p.id)}>Test Connection</button>
-                  </div>
-                </div>
-                {testResults[p.id] && <div style={{ ...styles.testResult, backgroundColor: testResults[p.id].status === "success" ? "#1b3a2d" : testResults[p.id].status === "error" ? "#3a1b1b" : "#2a2a2a", color: testResults[p.id].status === "success" ? "#4ec9b0" : testResults[p.id].status === "error" ? "#f44747" : "#888" }}>{testResults[p.id].message}</div>}
-              </div>
-            ))}
-          </div>
-          <div style={{ ...styles.form, marginTop: 18 }}>
-            <div style={styles.sectionTitle}>Registered Models</div>
-            {modelDefinitions && modelDefinitions.length > 0 ? (
-              <div style={styles.subGrid}>
-                {modelDefinitions.map((model: ModelDefinition) => {
-                  const provider = visibleProviders.find((entry) => entry.id === model.provider_id)
-                    ?? (providers ?? []).find((entry) => entry.id === model.provider_id);
-                  return (
-                    <div key={model.id} style={styles.modelCard}>
-                      <div style={styles.modelName}>{model.name}</div>
-                      <div style={styles.modelMeta}>{provider?.name ?? "Unknown provider"}</div>
-                      <div style={styles.modelMeta}>Context: {model.context_window ?? "not set"}</div>
-                      <div style={styles.modelMeta}>Tags: {model.capability_tags.length > 0 ? model.capability_tags.join(", ") : "none"}</div>
-                      {model.notes ? <div style={styles.modelMeta}>{model.notes}</div> : null}
-                      <span style={{ ...styles.badge, backgroundColor: model.enabled ? "#1b3a2d" : "#3a1b1b", color: model.enabled ? "#4ec9b0" : "#f44747" }}>
-                        {model.enabled ? "Enabled" : "Disabled"}
-                      </span>
-                      <div style={{ marginTop: 8 }}>
-                        <button
-                          style={{ ...styles.btnTest, backgroundColor: "#2c3139" }}
-                          onClick={() => {
-                            setEditingModel(model);
-                            setModelEditForm({
-                              providerId: model.provider_id,
-                              name: model.name,
-                              contextWindow: model.context_window ? String(model.context_window) : "",
-                              capabilityTags: model.capability_tags.join(", "),
-                              notes: model.notes,
-                              enabled: model.enabled,
-                            });
-                          }}
-                        >
-                          Edit
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div style={styles.empty}>No model definitions yet. Add one so agents can be bound to a concrete model.</div>
-            )}
-          </div>
+          <ModelProviderGrid
+            providers={visibleProviders}
+            testResults={testResults}
+            onEditProvider={startEditingProvider}
+            onTestProvider={(providerId) => void testConnectivity(providerId)}
+          />
+          <RegisteredModelGrid
+            models={modelDefinitions ?? []}
+            visibleProviders={visibleProviders}
+            providers={providers ?? []}
+            onEditModel={startEditingModel}
+          />
         </>
       ) : (<div style={styles.empty}>No providers configured. Add DeepSeek (hosted) for a fast end-to-end path or LM Studio for local runs.</div>)}
 
@@ -695,11 +320,4 @@ export function ModelProviderListPage() {
       )}
     </div>
   );
-}
-
-function splitCommaSeparated(value: string): string[] {
-  return value
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
 }

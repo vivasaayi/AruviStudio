@@ -23,7 +23,7 @@ pub struct AgentWorkItem {
     pub run_id: String,
     pub feature_id: String,
     pub work_item_id: Option<String>,
-    pub module: String,
+    pub product_area: String,
     pub service_or_domain: Option<String>,
     pub priority: Option<String>,
     pub release_phase: Option<String>,

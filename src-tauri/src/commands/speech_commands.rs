@@ -25,26 +25,20 @@ fn model_supports_transcription(model: &crate::domain::model::ModelDefinition) -
 pub async fn transcribe_audio_command(
     state: State<'_, AppState>,
     provider_id: Option<String>,
-    providerId: Option<String>,
     model_name: Option<String>,
-    modelName: Option<String>,
     audio_bytes_base64: String,
-    audioBytesBase64: Option<String>,
     mime_type: String,
-    mimeType: Option<String>,
     locale: Option<String>,
 ) -> Result<SpeechToTextResponse, AppError> {
     let provider_setting = settings_repo::get_setting(&state.db, SPEECH_PROVIDER_KEY).await?;
     let model_setting = settings_repo::get_setting(&state.db, SPEECH_MODEL_KEY).await?;
     let provider_id = provider_id
-        .or(providerId)
         .filter(|value| !value.trim().is_empty())
         .or(provider_setting)
         .ok_or_else(|| {
             AppError::Validation("A speech transcription provider is required".to_string())
         })?;
     let requested_model_name = model_name
-        .or(modelName)
         .filter(|value| !value.trim().is_empty())
         .or(model_setting);
     let provider_models = model_repo::list_model_definitions(&state.db)
@@ -70,8 +64,8 @@ pub async fn transcribe_audio_command(
         "whisper-1".to_string()
     };
     let request = SpeechToTextRequest {
-        audio_bytes_base64: audioBytesBase64.unwrap_or(audio_bytes_base64),
-        mime_type: mimeType.unwrap_or(mime_type),
+        audio_bytes_base64,
+        mime_type,
         locale: locale.or(settings_repo::get_setting(&state.db, SPEECH_LOCALE_KEY).await?),
     };
     let provider = model_repo::get_provider(&state.db, &provider_id).await?;

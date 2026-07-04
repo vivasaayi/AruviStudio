@@ -142,3 +142,6 @@ pub async fn clear_database_path_override(state: State<'_, AppState>) -> Result<
         Err(error) => Err(error.into()),
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -10,7 +10,6 @@ use uuid::Uuid;
 
 pub struct WorkItemWorkspace {
     pub work_item_id: String,
-    pub workflow_run_id: String,
     pub base_path: PathBuf,
     pub repo_path: PathBuf,
 }
@@ -74,7 +73,6 @@ impl WorkItemWorkspace {
         info!(work_item_id = %work_item.id, workflow_run_id = %workflow_run_id, workspace_path = ?base_path, "Successfully created work item workspace");
         Ok(Self {
             work_item_id: work_item.id.clone(),
-            workflow_run_id: workflow_run_id.to_string(),
             base_path,
             repo_path,
         })
@@ -168,48 +166,10 @@ impl WorkItemWorkspace {
         })
     }
 
-    /// Apply code changes to the workspace
-    pub async fn apply_code_changes(&self, changes: &str) -> Result<(), AppError> {
-        info!(work_item_id = %self.work_item_id, workflow_run_id = %self.workflow_run_id, "Applying code changes to workspace");
-        // Parse the changes and apply them
-        // This is a simplified implementation - in production, this would parse
-        // structured output from the coding agent
-
-        // For now, assume changes are in a simple format
-        // TODO: Implement proper change parsing and application
-
-        // Create a changes directory to track modifications
-        let changes_dir = self.base_path.join("changes");
-        fs::create_dir_all(&changes_dir).await
-            .map_err(|e| {
-                error!(work_item_id = %self.work_item_id, changes_dir = ?changes_dir, error = %e, "Failed to create changes directory");
-                AppError::Io(e)
-            })?;
-
-        // Write changes summary
-        let changes_file = changes_dir.join("changes.txt");
-        fs::write(&changes_file, changes).await
-            .map_err(|e| {
-                error!(work_item_id = %self.work_item_id, changes_file = ?changes_file, error = %e, "Failed to write changes file");
-                AppError::Io(e)
-            })?;
-
-        info!(work_item_id = %self.work_item_id, workflow_run_id = %self.workflow_run_id, changes_file = ?changes_file, "Successfully applied code changes");
-        Ok(())
-    }
-
     /// Get the path to a file in the workspace
     pub fn get_file_path(&self, relative_path: &str) -> PathBuf {
         debug!(work_item_id = %self.work_item_id, relative_path = %relative_path, "Getting file path in workspace");
         self.repo_path.join(relative_path)
-    }
-
-    /// Check if a file exists in the workspace
-    pub async fn file_exists(&self, relative_path: &str) -> bool {
-        let path = self.get_file_path(relative_path);
-        let exists = path.exists();
-        debug!(work_item_id = %self.work_item_id, path = ?path, exists = exists, "Checked file existence");
-        exists
     }
 
     /// Read a file from the workspace
@@ -229,9 +189,7 @@ impl WorkItemWorkspace {
 
         // Ensure parent directory exists
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .await
-                .map_err(|e| AppError::Io(e))?;
+            fs::create_dir_all(parent).await.map_err(AppError::Io)?;
         }
 
         fs::write(&path, content).await.map_err(|e| {
@@ -276,7 +234,7 @@ impl WorkItemWorkspace {
         // In production, this should be more careful about what gets deleted
         fs::remove_dir_all(&self.base_path)
             .await
-            .map_err(|e| AppError::Io(e))?;
+            .map_err(AppError::Io)?;
         Ok(())
     }
 }

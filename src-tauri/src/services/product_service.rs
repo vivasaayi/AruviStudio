@@ -1,39 +1,48 @@
-use crate::domain::product::{
-    HierarchyNodeType, NodeKindConversionResult, SemanticTemplateApplicationResult,
-    SemanticTemplateKind,
-};
+use crate::domain::product::NodeKindConversionResult;
 use crate::error::AppError;
 use crate::persistence::{product_repo, settings_repo, work_item_repo};
+use crate::services::product_example_catalog::{
+    example_product_specs, ExampleCapabilitySpec, ExampleProductAreaSpec, ExampleProductSpec,
+};
+pub use crate::services::product_semantic_template::apply_semantic_template;
+pub(crate) use crate::services::product_semantic_template::ApplySemanticTemplateInput;
 use sqlx::SqlitePool;
 use tracing::info;
 
 pub const HIDE_EXAMPLE_PRODUCTS_KEY: &str = "catalog.hide_example_products";
 
-struct ExampleProductSpec {
-    id: &'static str,
-    name: &'static str,
-    description: &'static str,
-    vision: &'static str,
-    goals: &'static [&'static str],
-    tags: &'static [&'static str],
-    module: ExampleModuleSpec,
+struct CapabilityInputSpec<'a> {
+    id: &'a str,
+    product_area_id: &'a str,
+    parent_capability_id: Option<&'a str>,
+    name: &'a str,
+    description: &'a str,
+    acceptance_criteria: &'a str,
+    priority: &'a str,
+    risk: &'a str,
+    technical_notes: &'a str,
+    node_kind: Option<&'a str>,
 }
 
-struct ExampleModuleSpec {
-    id: &'static str,
-    name: &'static str,
-    description: &'static str,
-    purpose: &'static str,
-    capabilities: &'static [ExampleCapabilitySpec],
-}
-
-struct ExampleCapabilitySpec {
-    id: &'static str,
-    name: &'static str,
-    outcomes: &'static [&'static str],
-    priority: &'static str,
-    risk: &'static str,
-    technical_notes: &'static str,
+fn create_capability_input(
+    spec: CapabilityInputSpec<'_>,
+) -> product_repo::CreateCapabilityInput<'_> {
+    product_repo::CreateCapabilityInput {
+        id: spec.id,
+        product_area_id: spec.product_area_id,
+        parent_capability_id: spec.parent_capability_id,
+        name: spec.name,
+        description: spec.description,
+        acceptance_criteria: spec.acceptance_criteria,
+        priority: spec.priority,
+        risk: spec.risk,
+        technical_notes: spec.technical_notes,
+        node_kind: spec.node_kind,
+        explanation: "",
+        examples: "",
+        implementation_notes: "",
+        test_guidance: "",
+    }
 }
 
 pub async fn initialize_example_catalog(pool: &SqlitePool) -> Result<(), AppError> {
@@ -51,214 +60,6 @@ pub async fn initialize_example_catalog(pool: &SqlitePool) -> Result<(), AppErro
     Ok(())
 }
 
-pub async fn apply_semantic_template(
-    pool: &SqlitePool,
-    module_id: &str,
-    parent_capability_id: Option<&str>,
-    template_kind: &str,
-    name: &str,
-    description: &str,
-    priority: Option<&str>,
-    risk: Option<&str>,
-    explanation: &str,
-    examples: &str,
-    implementation_notes: &str,
-    test_guidance: &str,
-) -> Result<SemanticTemplateApplicationResult, AppError> {
-    let template_kind = SemanticTemplateKind::parse(template_kind).ok_or_else(|| {
-        AppError::Validation(
-            "Unsupported template_kind. Use operator_chapter or technical_topic_book.".to_string(),
-        )
-    })?;
-    let trimmed_name = name.trim();
-    if trimmed_name.is_empty() {
-        return Err(AppError::Validation(
-            "Template topic name cannot be empty.".to_string(),
-        ));
-    }
-
-    let priority = priority.unwrap_or("medium");
-    let risk = risk.unwrap_or("medium");
-    let chapter_description = if description.trim().is_empty() {
-        format!("{trimmed_name} book section.")
-    } else {
-        description.trim().to_string()
-    };
-    let topic_node = product_repo::create_capability(
-        pool,
-        &uuid::Uuid::new_v4().to_string(),
-        module_id,
-        parent_capability_id,
-        trimmed_name,
-        &chapter_description,
-        &format!(
-            "{} has definition, examples, implementation guidance, and test guidance captured.",
-            trimmed_name
-        ),
-        priority,
-        risk,
-        "Template-generated semantic chapter root.",
-        Some("capability"),
-        "",
-        "",
-        "",
-        "",
-    )
-    .await?;
-
-    let (definition_label, examples_label, implementation_label, tests_label) = match template_kind
-    {
-        SemanticTemplateKind::OperatorChapter => (
-            format!("{trimmed_name} Definition"),
-            format!("{trimmed_name} Examples"),
-            format!("{trimmed_name} Implementation"),
-            format!("{trimmed_name} Tests"),
-        ),
-        SemanticTemplateKind::TechnicalTopicBook => (
-            format!("{trimmed_name} Overview"),
-            format!("{trimmed_name} Examples"),
-            format!("{trimmed_name} Implementation"),
-            format!("{trimmed_name} Tests"),
-        ),
-    };
-
-    let definition_node = product_repo::create_capability(
-        pool,
-        &uuid::Uuid::new_v4().to_string(),
-        module_id,
-        Some(&topic_node.id),
-        &definition_label,
-        &format!("Explain what {trimmed_name} is and when it should be used."),
-        "",
-        priority,
-        risk,
-        "Feature chapter for explanation and conceptual boundaries.",
-        Some("feature"),
-        explanation,
-        "",
-        "",
-        "",
-    )
-    .await?;
-    let examples_node = product_repo::create_capability(
-        pool,
-        &uuid::Uuid::new_v4().to_string(),
-        module_id,
-        Some(&topic_node.id),
-        &examples_label,
-        &format!("Capture worked examples and expected behaviors for {trimmed_name}."),
-        "",
-        priority,
-        risk,
-        "Feature chapter for examples and concrete edge cases.",
-        Some("feature"),
-        "",
-        examples,
-        "",
-        "",
-    )
-    .await?;
-    let implementation_node = product_repo::create_capability(
-        pool,
-        &uuid::Uuid::new_v4().to_string(),
-        module_id,
-        Some(&topic_node.id),
-        &implementation_label,
-        &format!("Describe how {trimmed_name} should be implemented."),
-        "",
-        priority,
-        risk,
-        "Feature execution notes for implementation stories.",
-        Some("feature"),
-        "",
-        "",
-        implementation_notes,
-        "",
-    )
-    .await?;
-    let tests_node = product_repo::create_capability(
-        pool,
-        &uuid::Uuid::new_v4().to_string(),
-        module_id,
-        Some(&topic_node.id),
-        &tests_label,
-        &format!("Describe how {trimmed_name} should be validated."),
-        "",
-        priority,
-        risk,
-        "Feature execution notes for test and verification stories.",
-        Some("feature"),
-        "",
-        "",
-        "",
-        test_guidance,
-    )
-    .await?;
-
-    let implementation_work_item = work_item_repo::create_work_item(
-        pool,
-        &uuid::Uuid::new_v4().to_string(),
-        &resolve_product_id_for_module(pool, module_id).await?,
-        Some(module_id),
-        Some(&implementation_node.id),
-        Some(&implementation_node.id),
-        Some("capability"),
-        None,
-        &format!("Implement {trimmed_name}"),
-        &format!("{trimmed_name} needs implementation aligned to the authored chapter structure."),
-        implementation_notes,
-        &format!(
-            "{trimmed_name} is implemented and matches the documented behavior, examples, and edge cases."
-        ),
-        "Preserve the authored semantic structure and keep behavior deterministic.",
-        "feature",
-        priority,
-        "medium",
-    )
-    .await?;
-    let test_work_item = work_item_repo::create_work_item(
-        pool,
-        &uuid::Uuid::new_v4().to_string(),
-        &resolve_product_id_for_module(pool, module_id).await?,
-        Some(module_id),
-        Some(&tests_node.id),
-        Some(&tests_node.id),
-        Some("capability"),
-        None,
-        &format!("Write {trimmed_name} test cases"),
-        &format!(
-            "{trimmed_name} needs verification that matches the documented examples and risks."
-        ),
-        test_guidance,
-        &format!("Coverage validates happy paths, edge cases, and regressions for {trimmed_name}."),
-        "Keep tests aligned with the authored examples and implementation notes.",
-        "test",
-        priority,
-        "medium",
-    )
-    .await?;
-
-    Ok(SemanticTemplateApplicationResult {
-        template_kind,
-        parent_node_id: parent_capability_id
-            .map(ToString::to_string)
-            .unwrap_or_else(|| module_id.to_string()),
-        parent_node_type: if parent_capability_id.is_some() {
-            HierarchyNodeType::Capability
-        } else {
-            HierarchyNodeType::Module
-        },
-        topic_node,
-        created_nodes: vec![
-            definition_node,
-            examples_node,
-            implementation_node,
-            tests_node,
-        ],
-        created_work_items: vec![implementation_work_item, test_work_item],
-    })
-}
-
 pub async fn convert_capability_kind(
     pool: &SqlitePool,
     capability_id: &str,
@@ -274,71 +75,80 @@ async fn seed_example_product(
 ) -> Result<(), AppError> {
     if !record_exists(pool, "products", product.id).await? {
         info!(product_id = %product.id, product_name = %product.name, "Seeding example product");
+        let goals = serde_json::to_string(product.goals).unwrap_or_else(|_| "[]".to_string());
+        let tags = serde_json::to_string(&build_product_tags(product.tags))
+            .unwrap_or_else(|_| "[]".to_string());
         product_repo::create_product(
             pool,
-            product.id,
-            product.name,
-            product.description,
-            product.vision,
-            &serde_json::to_string(product.goals).unwrap_or_else(|_| "[]".to_string()),
-            &serde_json::to_string(&build_product_tags(product.tags))
-                .unwrap_or_else(|_| "[]".to_string()),
-            Some("active"),
-            Some("healthy"),
-            Some("Founder"),
-            Some("maintain"),
-            None,
-            None,
+            product_repo::CreateProductInput {
+                id: product.id,
+                name: product.name,
+                description: product.description,
+                vision: product.vision,
+                goals: &goals,
+                tags: &tags,
+                lifecycle: Some("active"),
+                health: Some("healthy"),
+                owner_label: Some("Founder"),
+                investment_status: Some("maintain"),
+                roadmap: None,
+                evidence: None,
+            },
         )
         .await?;
     }
 
-    let module = &product.module;
-    if !record_exists(pool, "modules", module.id).await? {
-        product_repo::create_module(
+    let product_area = &product.product_area;
+    if !record_exists(pool, "product_areas", product_area.id).await? {
+        product_repo::create_product_area(
             pool,
-            module.id,
-            product.id,
-            module.name,
-            module.description,
-            module.purpose,
-            None,
-            "",
-            "",
-            "",
-            "",
+            product_repo::CreateProductAreaInput {
+                id: product_area.id,
+                product_id: product.id,
+                name: product_area.name,
+                description: product_area.description,
+                purpose: product_area.purpose,
+                node_kind: None,
+                explanation: "",
+                examples: "",
+                implementation_notes: "",
+                test_guidance: "",
+            },
         )
         .await?;
     }
 
     let bootstrap_work_item_id = format!("{}-bootstrap-local-repo", product.id);
     if !record_exists(pool, "work_items", &bootstrap_work_item_id).await? {
+        let bootstrap_problem = format!(
+            "{} needs a local repository, git history, and starter test structure before delivery work should begin.",
+            product.name
+        );
         work_item_repo::create_work_item(
             pool,
-            &bootstrap_work_item_id,
-            product.id,
-            Some(module.id),
-            None,
-            None,
-            None,
-            None,
-            "Initialize local repository and test scaffold",
-            &format!(
-                "{} needs a local repository, git history, and starter test structure before delivery work should begin.",
-                product.name
-            ),
-            "Create or attach the local repository for this seeded example, initialize git if needed, add a minimal README, .gitignore, and tests folder, then attach that repository to product or module scope so downstream work items inherit it.",
-            "A local repository is attached to the seeded product, git is initialized, the default branch exists, a starter tests folder is present, and downstream work items can resolve the repository automatically.",
-            "Do not implement feature outcomes in this bootstrap work item. This step is only for repository and test scaffold readiness.",
-            "setup",
-            "high",
-            "low",
+            work_item_repo::CreateWorkItemInput {
+                id: &bootstrap_work_item_id,
+                product_id: product.id,
+                product_area_id: Some(product_area.id),
+                capability_id: None,
+                source_node_id: None,
+                source_node_type: None,
+                parent_work_item_id: None,
+                title: "Initialize local repository and test scaffold",
+                problem_statement: &bootstrap_problem,
+                description: "Create or attach the local repository for this seeded example, initialize git if needed, add a minimal README, .gitignore, and tests folder, then attach that repository to product or product area scope so downstream work items inherit it.",
+                acceptance_criteria: "A local repository is attached to the seeded product, git is initialized, the default branch exists, a starter tests folder is present, and downstream work items can resolve the repository automatically.",
+                constraints: "Do not implement feature outcomes in this bootstrap work item. This step is only for repository and test scaffold readiness.",
+                work_item_type: "setup",
+                priority: "high",
+                complexity: "low",
+            },
         )
         .await?;
     }
 
-    for capability in module.capabilities {
-        seed_example_capability(pool, product, module, capability).await?;
+    for capability in product_area.capabilities {
+        seed_example_capability(pool, product, product_area, capability).await?;
     }
 
     Ok(())
@@ -347,30 +157,30 @@ async fn seed_example_product(
 async fn seed_example_capability(
     pool: &SqlitePool,
     product: &ExampleProductSpec,
-    module: &ExampleModuleSpec,
+    product_area: &ExampleProductAreaSpec,
     capability: &ExampleCapabilitySpec,
 ) -> Result<(), AppError> {
     if !record_exists(pool, "capabilities", capability.id).await? {
+        let description = format!("{} capability for {}.", capability.name, product.name);
+        let acceptance_criteria = format!(
+            "{} ships these outcomes end-to-end: {}.",
+            capability.name,
+            capability.outcomes.join(", ")
+        );
         product_repo::create_capability(
             pool,
-            capability.id,
-            module.id,
-            None,
-            capability.name,
-            &format!("{} capability for {}.", capability.name, product.name),
-            &format!(
-                "{} ships these outcomes end-to-end: {}.",
-                capability.name,
-                capability.outcomes.join(", ")
-            ),
-            capability.priority,
-            capability.risk,
-            capability.technical_notes,
-            None,
-            "",
-            "",
-            "",
-            "",
+            create_capability_input(CapabilityInputSpec {
+                id: capability.id,
+                product_area_id: product_area.id,
+                parent_capability_id: None,
+                name: capability.name,
+                description: &description,
+                acceptance_criteria: &acceptance_criteria,
+                priority: capability.priority,
+                risk: capability.risk,
+                technical_notes: capability.technical_notes,
+                node_kind: None,
+            }),
         )
         .await?;
     }
@@ -380,76 +190,71 @@ async fn seed_example_capability(
         let work_item_id = format!("{}-ship", outcome_id);
 
         if !record_exists(pool, "capabilities", &outcome_id).await? {
+            let description = format!(
+                "Deliver the {} outcome under {} for {}.",
+                outcome_name, capability.name, product.name
+            );
+            let acceptance_criteria = format!(
+                "{} behaves correctly, keeps UI state coherent, and is ready for validation.",
+                outcome_name
+            );
+            let technical_notes = format!(
+                "Outcome belongs to the {} example product seed and should be delivered incrementally.",
+                product.name
+            );
             product_repo::create_capability(
                 pool,
-                &outcome_id,
-                module.id,
-                Some(capability.id),
-                outcome_name,
-                &format!(
-                    "Deliver the {} outcome under {} for {}.",
-                    outcome_name, capability.name, product.name
-                ),
-                &format!(
-                    "{} behaves correctly, keeps UI state coherent, and is ready for validation.",
-                    outcome_name
-                ),
-                capability.priority,
-                capability.risk,
-                    &format!(
-                        "Outcome belongs to the {} example product seed and should be delivered incrementally.",
-                        product.name
-                    ),
-                    None,
-                    "",
-                    "",
-                    "",
-                    "",
-                )
-                .await?;
+                create_capability_input(CapabilityInputSpec {
+                    id: &outcome_id,
+                    product_area_id: product_area.id,
+                    parent_capability_id: Some(capability.id),
+                    name: outcome_name,
+                    description: &description,
+                    acceptance_criteria: &acceptance_criteria,
+                    priority: capability.priority,
+                    risk: capability.risk,
+                    technical_notes: &technical_notes,
+                    node_kind: None,
+                }),
+            )
+            .await?;
         }
 
         if !record_exists(pool, "work_items", &work_item_id).await? {
+            let title = format!("Ship {}", outcome_name);
+            let problem_statement = format!(
+                "{} is defined in the {} product but not yet implemented end-to-end.",
+                outcome_name, product.name
+            );
+            let description = format!(
+                "Implement the {} outcome for {} inside the {} capability.",
+                outcome_name, product.name, capability.name
+            );
             work_item_repo::create_work_item(
                 pool,
-                &work_item_id,
-                product.id,
-                Some(module.id),
-                Some(&outcome_id),
-                None,
-                None,
-                None,
-                &format!("Ship {}", outcome_name),
-                &format!(
-                    "{} is defined in the {} product but not yet implemented end-to-end.",
-                    outcome_name, product.name
-                ),
-                &format!(
-                    "Implement the {} outcome for {} inside the {} capability.",
-                    outcome_name, product.name, capability.name
-                ),
-                "Implementation, unit tests, integration tests, and UI validation all pass. The user can inspect the change in the IDE and workflow artifacts.",
-                "Keep the implementation scoped to the seeded example product. Preserve existing behavior and leave artifacts ready for human review.",
-                "feature",
-                capability.priority,
-                "medium",
+                work_item_repo::CreateWorkItemInput {
+                    id: &work_item_id,
+                    product_id: product.id,
+                    product_area_id: Some(product_area.id),
+                    capability_id: Some(&outcome_id),
+                    source_node_id: None,
+                    source_node_type: None,
+                    parent_work_item_id: None,
+                    title: &title,
+                    problem_statement: &problem_statement,
+                    description: &description,
+                    acceptance_criteria: "Implementation, unit tests, integration tests, and UI validation all pass. The user can inspect the change in the IDE and workflow artifacts.",
+                    constraints: "Keep the implementation scoped to the seeded example product. Preserve existing behavior and leave artifacts ready for human review.",
+                    work_item_type: "story",
+                    priority: capability.priority,
+                    complexity: "medium",
+                },
             )
             .await?;
         }
     }
 
     Ok(())
-}
-
-async fn resolve_product_id_for_module(
-    pool: &SqlitePool,
-    module_id: &str,
-) -> Result<String, AppError> {
-    sqlx::query_scalar("SELECT product_id FROM modules WHERE id=?")
-        .bind(module_id)
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Module {module_id} not found")))
 }
 
 async fn record_exists(pool: &SqlitePool, table: &str, id: &str) -> Result<bool, AppError> {
@@ -468,387 +273,5 @@ fn slugify(value: &str) -> String {
     value
         .to_ascii_lowercase()
         .replace('&', "and")
-        .replace('/', "-")
-        .replace(' ', "-")
-}
-
-fn example_product_specs() -> Vec<ExampleProductSpec> {
-    vec![
-        ExampleProductSpec {
-            id: "example-product-calculator",
-            name: "Calculator",
-            description: "A staged React calculator used to pressure-test implementation, unit testing, integration testing, and UI validation agents.",
-            vision: "Ship calculator outcomes one by one and verify the full autonomous delivery loop.",
-            goals: &["Validate coding agents against a familiar React app", "Exercise testing agents on incremental mathematical outcomes"],
-            tags: &["react", "calculator", "testing_agents"],
-            module: ExampleModuleSpec {
-                id: "example-module-calculator-core",
-                name: "Calculator Core",
-                description: "Outcome-driven delivery module for calculator behavior and test coverage.",
-                purpose: "Stress the workflow by implementing one calculator outcome at a time.",
-                capabilities: &[
-                    ExampleCapabilitySpec {
-                        id: "example-capability-calculator-simple-math",
-                        name: "Simple Math",
-                        outcomes: &["Addition", "Subtraction", "Multiplication", "Division"],
-                        priority: "high",
-                        risk: "low",
-                        technical_notes: "Keep state handling explicit and easy to validate through unit and UI tests.",
-                    },
-                    ExampleCapabilitySpec {
-                        id: "example-capability-calculator-scientific",
-                        name: "Scientific",
-                        outcomes: &["Sin", "Cos", "Tan"],
-                        priority: "medium",
-                        risk: "medium",
-                        technical_notes: "Scientific functions should keep formatting and angle handling consistent.",
-                    },
-                    ExampleCapabilitySpec {
-                        id: "example-capability-calculator-exponents",
-                        name: "Exponents",
-                        outcomes: &["Square", "Cube", "Power of X"],
-                        priority: "medium",
-                        risk: "medium",
-                        technical_notes: "Avoid regressions in button sequencing and numeric precision.",
-                    },
-                    ExampleCapabilitySpec {
-                        id: "example-capability-calculator-roots",
-                        name: "Roots",
-                        outcomes: &["Square Root", "Cube Root"],
-                        priority: "medium",
-                        risk: "medium",
-                        technical_notes: "Negative and invalid inputs should surface predictable validation behavior.",
-                    },
-                    ExampleCapabilitySpec {
-                        id: "example-capability-calculator-programming",
-                        name: "Programming",
-                        outcomes: &["ASCII", "HEX"],
-                        priority: "low",
-                        risk: "medium",
-                        technical_notes: "Conversion outcomes should be deterministic and easy to snapshot test.",
-                    },
-                ],
-            },
-        },
-        ExampleProductSpec {
-            id: "example-product-budgeting-tool",
-            name: "Household Budgeting Tool",
-            description: "A personal finance workspace covering bill intake, transaction tracking, and budget reporting.",
-            vision: "Help a solo user manage household money through clear flows, ledgers, and forecast views.",
-            goals: &["Test forms-heavy CRUD flows", "Exercise reconciliation, reporting, and dashboard agents"],
-            tags: &["react", "finance", "dashboard"],
-            module: ExampleModuleSpec {
-                id: "example-module-budgeting-core",
-                name: "Budget Operations",
-                description: "Core household finance workflows.",
-                purpose: "Model recurring bills, day-to-day transactions, and budget health.",
-                capabilities: &[
-                    ExampleCapabilitySpec {
-                        id: "example-capability-budgeting-bill-tracker",
-                        name: "Bill Tracker",
-                        outcomes: &["Add Bill", "Mark Bill Paid", "Upcoming Bills View"],
-                        priority: "high",
-                        risk: "medium",
-                        technical_notes: "Recurring dates and overdue states should be explicit in tests.",
-                    },
-                    ExampleCapabilitySpec {
-                        id: "example-capability-budgeting-home-transactions",
-                        name: "Home Transactions",
-                        outcomes: &["Capture Expense", "Capture Income", "Category Ledger"],
-                        priority: "high",
-                        risk: "medium",
-                        technical_notes: "Ledger ordering and balance math should be covered by integration tests.",
-                    },
-                    ExampleCapabilitySpec {
-                        id: "example-capability-budgeting-budget-health",
-                        name: "Budget Health",
-                        outcomes: &["Monthly Summary", "Cash Flow Forecast", "Budget vs Actual"],
-                        priority: "medium",
-                        risk: "medium",
-                        technical_notes: "Summary tiles and chart adapters should remain presentation-friendly.",
-                    },
-                ],
-            },
-        },
-        ExampleProductSpec {
-            id: "example-product-ai-book-reader",
-            name: "AI Native Book Reader",
-            description: "A dynamic reading product where titles and sections are defined by the user and chapter content is generated with LLM support.",
-            vision: "Generate and present book content dynamically while keeping chapter structure and reading UX coherent.",
-            goals: &["Test AI-assisted content generation flows", "Validate hierarchical content rendering and reader state"],
-            tags: &["ai", "reader", "content_generation"],
-            module: ExampleModuleSpec {
-                id: "example-module-ai-book-reader",
-                name: "Book Experience",
-                description: "Authoring, generation, and reading workflows for dynamic books.",
-                purpose: "Let a user define a book outline and consume generated chapters cleanly.",
-                capabilities: &[
-                    ExampleCapabilitySpec {
-                        id: "example-capability-book-outline",
-                        name: "Book Outline",
-                        outcomes: &["Define Title", "Define Sections", "Reorder Chapter Outline"],
-                        priority: "high",
-                        risk: "low",
-                        technical_notes: "Outline changes should preserve stable identifiers for generated content.",
-                    },
-                    ExampleCapabilitySpec {
-                        id: "example-capability-book-generation",
-                        name: "Content Generation",
-                        outcomes: &["Generate Chapter Draft", "Regenerate Section", "Persist Generated Content"],
-                        priority: "high",
-                        risk: "high",
-                        technical_notes: "Token budgets and prompt provenance matter for reproducibility.",
-                    },
-                    ExampleCapabilitySpec {
-                        id: "example-capability-book-reader",
-                        name: "Reader UX",
-                        outcomes: &["Chapter Navigation", "Reading Progress", "Inline AI Notes"],
-                        priority: "medium",
-                        risk: "medium",
-                        technical_notes: "Reader state should survive refresh and avoid losing scroll progress.",
-                    },
-                ],
-            },
-        },
-        ExampleProductSpec {
-            id: "example-product-kubernetes-dashboard",
-            name: "Kubernetes Dashboard",
-            description: "A full dashboard for cluster overview, workload inspection, logs, and operational actions.",
-            vision: "Give operators a concise but powerful view into clusters, workloads, and incidents.",
-            goals: &["Stress dense data tables and filters", "Exercise observability and action-oriented workflows"],
-            tags: &["kubernetes", "dashboard", "operations"],
-            module: ExampleModuleSpec {
-                id: "example-module-kubernetes-dashboard",
-                name: "Cluster Operations",
-                description: "Cluster monitoring and workload management.",
-                purpose: "Render operational data and enable guided actions from the same console.",
-                capabilities: &[
-                    ExampleCapabilitySpec {
-                        id: "example-capability-k8s-cluster-overview",
-                        name: "Cluster Overview",
-                        outcomes: &["Namespace Summary", "Node Health", "Resource Utilization"],
-                        priority: "high",
-                        risk: "medium",
-                        technical_notes: "Tables should support incremental refresh without losing operator context.",
-                    },
-                    ExampleCapabilitySpec {
-                        id: "example-capability-k8s-workloads",
-                        name: "Workload Inspection",
-                        outcomes: &["Deployment Detail", "Pod Explorer", "ReplicaSet Release Status"],
-                        priority: "high",
-                        risk: "medium",
-                        technical_notes: "Hierarchical drill-down should stay fast with large lists.",
-                    },
-                    ExampleCapabilitySpec {
-                        id: "example-capability-k8s-observability",
-                        name: "Observability",
-                        outcomes: &["Pod Logs", "Event Timeline", "Alert Surface"],
-                        priority: "medium",
-                        risk: "high",
-                        technical_notes: "Logs and event panes should remain stream-friendly and filterable.",
-                    },
-                ],
-            },
-        },
-        ExampleProductSpec {
-            id: "example-product-email-client",
-            name: "Personal Email Client",
-            description: "A lightweight mail product for inbox triage, compose, search, and local organization.",
-            vision: "Help a solo user stay on top of mail without the weight of a full enterprise suite.",
-            goals: &["Exercise message lists, thread views, and compose workflows", "Validate search and folder state"],
-            tags: &["email", "productivity", "react"],
-            module: ExampleModuleSpec {
-                id: "example-module-email-client",
-                name: "Mailbox Experience",
-                description: "Inbox, compose, and thread management.",
-                purpose: "Model a practical communication workflow with rich list/detail patterns.",
-                capabilities: &[
-                    ExampleCapabilitySpec {
-                        id: "example-capability-email-inbox",
-                        name: "Inbox",
-                        outcomes: &["Thread List", "Unread Filters", "Pinned Conversations"],
-                        priority: "high",
-                        risk: "low",
-                        technical_notes: "Message state transitions should be easy to assert in tests.",
-                    },
-                    ExampleCapabilitySpec {
-                        id: "example-capability-email-compose",
-                        name: "Compose",
-                        outcomes: &["Compose Draft", "Attachment Stub", "Send Flow"],
-                        priority: "medium",
-                        risk: "medium",
-                        technical_notes: "Form preservation and validation errors should be explicit.",
-                    },
-                    ExampleCapabilitySpec {
-                        id: "example-capability-email-search",
-                        name: "Search",
-                        outcomes: &["Query Inbox", "Saved Search", "Filter by Sender"],
-                        priority: "medium",
-                        risk: "low",
-                        technical_notes: "Search UI should tolerate empty and large-result states.",
-                    },
-                ],
-            },
-        },
-        ExampleProductSpec {
-            id: "example-product-kanban-board",
-            name: "Kanban Delivery Board",
-            description: "A delivery planning board with lists, cards, swimlanes, and lightweight reporting.",
-            vision: "Track delivery work visually while keeping planning and throughput transparent.",
-            goals: &["Test drag-and-drop list behavior", "Exercise reporting from board state"],
-            tags: &["kanban", "planning", "workflow"],
-            module: ExampleModuleSpec {
-                id: "example-module-kanban-board",
-                name: "Board Flow",
-                description: "Board interactions and throughput reporting.",
-                purpose: "Provide a list-based planning surface that is fast to refine.",
-                capabilities: &[
-                    ExampleCapabilitySpec {
-                        id: "example-capability-kanban-board-core",
-                        name: "Board Core",
-                        outcomes: &["Create Card", "Move Card", "Swimlane View"],
-                        priority: "high",
-                        risk: "medium",
-                        technical_notes: "Movement rules should be deterministic and event-driven.",
-                    },
-                    ExampleCapabilitySpec {
-                        id: "example-capability-kanban-reporting",
-                        name: "Reporting",
-                        outcomes: &["Cycle Time Summary", "WIP Limits", "Delivery Snapshot"],
-                        priority: "medium",
-                        risk: "medium",
-                        technical_notes: "Reporting should not depend on hidden UI-only fields.",
-                    },
-                ],
-            },
-        },
-        ExampleProductSpec {
-            id: "example-product-recipe-planner",
-            name: "Recipe Planner",
-            description: "A meal and recipe planning app for storing recipes, weekly plans, and shopping lists.",
-            vision: "Turn recipe management into a practical weekly planning experience.",
-            goals: &["Exercise nested forms and detail views", "Validate derived shopping list flows"],
-            tags: &["planner", "recipes", "household"],
-            module: ExampleModuleSpec {
-                id: "example-module-recipe-planner",
-                name: "Meal Planning",
-                description: "Recipe storage and weekly planning.",
-                purpose: "Translate saved recipes into a weekly plan and ingredient list.",
-                capabilities: &[
-                    ExampleCapabilitySpec {
-                        id: "example-capability-recipe-library",
-                        name: "Recipe Library",
-                        outcomes: &["Add Recipe", "Ingredient List", "Cooking Steps"],
-                        priority: "medium",
-                        risk: "low",
-                        technical_notes: "Structured recipe content should be easy to edit incrementally.",
-                    },
-                    ExampleCapabilitySpec {
-                        id: "example-capability-recipe-weekly-plan",
-                        name: "Weekly Plan",
-                        outcomes: &["Plan Meal", "Daily View", "Shopping List"],
-                        priority: "medium",
-                        risk: "medium",
-                        technical_notes: "Derived list generation should remain predictable across edits.",
-                    },
-                ],
-            },
-        },
-        ExampleProductSpec {
-            id: "example-product-habit-tracker",
-            name: "Habit Tracker",
-            description: "A habit product covering streaks, daily check-ins, and progress summaries.",
-            vision: "Help a user build consistency with lightweight daily feedback loops.",
-            goals: &["Test time-based state and summaries", "Exercise compact mobile-friendly workflows"],
-            tags: &["habits", "tracker", "personal"],
-            module: ExampleModuleSpec {
-                id: "example-module-habit-tracker",
-                name: "Habit Engine",
-                description: "Daily check-in and progress workflows.",
-                purpose: "Support habit creation, completion logging, and streak reporting.",
-                capabilities: &[
-                    ExampleCapabilitySpec {
-                        id: "example-capability-habit-setup",
-                        name: "Habit Setup",
-                        outcomes: &["Create Habit", "Target Frequency", "Habit Categories"],
-                        priority: "medium",
-                        risk: "low",
-                        technical_notes: "Configuration should stay simple and highly testable.",
-                    },
-                    ExampleCapabilitySpec {
-                        id: "example-capability-habit-progress",
-                        name: "Progress Tracking",
-                        outcomes: &["Daily Check-in", "Streak View", "Completion Calendar"],
-                        priority: "medium",
-                        risk: "medium",
-                        technical_notes: "Date handling should be isolated from rendering concerns.",
-                    },
-                ],
-            },
-        },
-        ExampleProductSpec {
-            id: "example-product-doc-portal",
-            name: "Documentation Portal",
-            description: "A docs product with navigation, search, and embedded examples.",
-            vision: "Present structured technical documentation clearly and keep examples easy to discover.",
-            goals: &["Exercise content tree rendering", "Validate search and detail panes"],
-            tags: &["documentation", "portal", "search"],
-            module: ExampleModuleSpec {
-                id: "example-module-doc-portal",
-                name: "Docs Experience",
-                description: "Navigation, search, and content presentation.",
-                purpose: "Render structured documentation with fast lookup and readable layouts.",
-                capabilities: &[
-                    ExampleCapabilitySpec {
-                        id: "example-capability-doc-navigation",
-                        name: "Navigation",
-                        outcomes: &["Sidebar Tree", "Breadcrumbs", "Section Anchor Links"],
-                        priority: "medium",
-                        risk: "low",
-                        technical_notes: "Navigation should stay consistent across large trees.",
-                    },
-                    ExampleCapabilitySpec {
-                        id: "example-capability-doc-search",
-                        name: "Docs Search",
-                        outcomes: &["Search Index", "Result Highlighting", "Recent Queries"],
-                        priority: "medium",
-                        risk: "medium",
-                        technical_notes: "Search should degrade cleanly when index content is sparse.",
-                    },
-                ],
-            },
-        },
-        ExampleProductSpec {
-            id: "example-product-incident-center",
-            name: "Incident Command Center",
-            description: "An operational product for incident timelines, responders, and remediation tracking.",
-            vision: "Make incident handling visible, auditable, and faster to coordinate.",
-            goals: &["Exercise high-signal dashboards and logs", "Validate approval and review workflows"],
-            tags: &["incident_response", "operations", "coordination"],
-            module: ExampleModuleSpec {
-                id: "example-module-incident-center",
-                name: "Incident Response",
-                description: "Incident lifecycle and responder coordination.",
-                purpose: "Capture incidents, coordinate responders, and track remediation to closure.",
-                capabilities: &[
-                    ExampleCapabilitySpec {
-                        id: "example-capability-incident-intake",
-                        name: "Incident Intake",
-                        outcomes: &["Declare Incident", "Severity Routing", "Responder Assignment"],
-                        priority: "high",
-                        risk: "medium",
-                        technical_notes: "Routing and severity changes should be easy to audit.",
-                    },
-                    ExampleCapabilitySpec {
-                        id: "example-capability-incident-execution",
-                        name: "Execution",
-                        outcomes: &["Timeline Log", "Action Checklist", "Resolution Summary"],
-                        priority: "high",
-                        risk: "high",
-                        technical_notes: "Timeline fidelity matters for postmortem usefulness.",
-                    },
-                ],
-            },
-        },
-    ]
+        .replace(['/', ' '], "-")
 }

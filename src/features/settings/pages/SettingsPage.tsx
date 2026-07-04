@@ -1,139 +1,69 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  clearDatabasePathOverride,
-  getActiveDatabasePath,
-  getDatabaseHealth,
-  getDatabasePathOverride,
   getMcpBridgeStatus,
   getMobileBridgeStatus,
-  getSetting,
-  listModelDefinitions,
-  listProviders,
-  routePlannerContact,
-  sendTwilioWhatsappMessage,
-  seedExampleProducts,
-  startTwilioVoiceCall,
-  setDatabasePathOverride,
-  setSetting,
 } from "../../../lib/tauri";
-import type { DatabaseHealth, McpBridgeStatus, MobileBridgeStatus, ModelDefinition, ModelProvider } from "../../../lib/types";
-
-const AUTO_START_AFTER_APPROVAL_KEY = "workflow.auto_start_after_work_item_approval";
-const AUTO_APPROVE_PLAN_KEY = "workflow.auto_approve_plan";
-const AUTO_APPROVE_TEST_REVIEW_KEY = "workflow.auto_approve_test_review";
-const HIDE_EXAMPLE_PRODUCTS_KEY = "catalog.hide_example_products";
-const PLANNER_DEFAULT_PROVIDER_KEY = "planner.default_provider_id";
-const PLANNER_DEFAULT_MODEL_KEY = "planner.default_model_name";
-const PLANNER_CHANNEL_PREFERENCE_KEY = "planner.channel_preference";
-const PLANNER_ESCALATE_TO_CALL_KEY = "planner.escalate_to_call_on_ambiguity";
-const PLANNER_CALL_QUIET_HOURS_START_KEY = "planner.call_quiet_hours_start";
-const PLANNER_CALL_QUIET_HOURS_END_KEY = "planner.call_quiet_hours_end";
-const SPEECH_PROVIDER_KEY = "speech.transcription_provider_id";
-const SPEECH_MODEL_KEY = "speech.transcription_model_name";
-const SPEECH_LOCALE_KEY = "speech.locale";
-const SPEECH_NATIVE_VOICE_KEY = "speech.native_voice";
-const SPEECH_ENABLE_MIC_KEY = "speech.enable_mic";
-const SPEECH_AUTO_SPEAK_REPLIES_KEY = "speech.auto_speak_replies";
-const SPEECH_REVIEW_BEFORE_SEND_KEY = "speech.review_before_send";
-const MCP_API_TOKEN_KEY = "mcp.api_token";
-const MOBILE_API_TOKEN_KEY = "mobile.api_token";
-const MOBILE_BIND_HOST_KEY = "mobile.bind_host";
-const MOBILE_BIND_PORT_KEY = "mobile.bind_port";
-const TWILIO_ACCOUNT_SID_KEY = "twilio.account_sid";
-const TWILIO_AUTH_TOKEN_KEY = "twilio.auth_token";
-const TWILIO_WHATSAPP_FROM_KEY = "twilio.whatsapp_from";
-const TWILIO_VOICE_FROM_KEY = "twilio.voice_from";
-const TWILIO_WEBHOOK_BASE_URL_KEY = "twilio.webhook_base_url";
-const PLANNER_CONTACT_TARGET_KEY = "planner.contact_target";
-const PLANNER_CONTACT_OPENING_MESSAGE_KEY = "planner.contact_opening_message";
-
-function parseBooleanSetting(value: string | null | undefined, fallback: boolean) {
-  if (value == null) return fallback;
-  switch (value.trim().toLowerCase()) {
-    case "1":
-    case "true":
-    case "yes":
-    case "on":
-      return true;
-    case "0":
-    case "false":
-    case "no":
-    case "off":
-      return false;
-    default:
-      return fallback;
-  }
-}
-
-const styles: Record<string, React.CSSProperties> = {
-  page: { maxWidth: 700, margin: "0 auto" },
-  title: { fontSize: 20, fontWeight: 600, color: "#e0e0e0", marginBottom: 24 },
-  section: { marginBottom: 32 },
-  sectionTitle: { fontSize: 14, fontWeight: 600, color: "#cccccc", marginBottom: 12, borderBottom: "1px solid #333", paddingBottom: 8 },
-  row: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #2a2a2a" },
-  label: { fontSize: 13, color: "#e0e0e0" },
-  desc: { fontSize: 11, color: "#888" },
-  toggle: { width: 40, height: 22, borderRadius: 11, border: "none", cursor: "pointer", position: "relative" as const, transition: "background 0.2s" },
-  settingRow: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: "1px solid #2a2a2a" },
-  input: { width: 300, padding: "6px 10px", backgroundColor: "#1e1e1e", border: "1px solid #444", borderRadius: 4, color: "#e0e0e0", fontSize: 13 },
-  btn: { padding: "6px 16px", fontSize: 13, backgroundColor: "#0e639c", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", marginLeft: 8 },
-  saved: { fontSize: 12, color: "#4ec9b0", marginLeft: 8 },
-  healthCard: { backgroundColor: "#1f1f1f", border: "1px solid #333", borderRadius: 8, padding: 16, marginTop: 12 },
-  healthGrid: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, marginBottom: 16 },
-  healthLabel: { fontSize: 11, color: "#888", textTransform: "uppercase" as const, letterSpacing: 0.6 },
-  healthValue: { fontSize: 18, fontWeight: 700, color: "#e0e0e0", marginTop: 4 },
-  migrationList: { display: "flex", flexDirection: "column" as const, gap: 8, maxHeight: 220, overflowY: "auto" as const },
-  migrationRow: { display: "flex", justifyContent: "space-between", gap: 12, padding: "8px 10px", backgroundColor: "#181818", border: "1px solid #2a2a2a", borderRadius: 6 },
-  badge: { padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 700 },
-  codeBox: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, color: "#d7e3ff", backgroundColor: "#171b24", border: "1px solid #2d3a52", borderRadius: 6, padding: "8px 10px" },
-};
+import type { McpBridgeStatus, MobileBridgeStatus } from "../../../lib/types";
+import {
+  McpBridgeStatusCard,
+  MobileBridgeStatusCard,
+} from "../components/SettingsBridgeStatusCards";
+import { SettingsDatabaseSections } from "../components/SettingsDatabaseSections";
+import {
+  AUTO_APPROVE_PLAN_KEY,
+  AUTO_APPROVE_TEST_REVIEW_KEY,
+  AUTO_START_AFTER_APPROVAL_KEY,
+  HIDE_EXAMPLE_PRODUCTS_KEY,
+  MCP_API_TOKEN_KEY,
+  MOBILE_API_TOKEN_KEY,
+  MOBILE_BIND_HOST_KEY,
+  MOBILE_BIND_PORT_KEY,
+  PLANNER_CONTACT_TARGET_KEY,
+  PLANNER_CONTACT_OPENING_MESSAGE_KEY,
+  TWILIO_ACCOUNT_SID_KEY,
+  TWILIO_AUTH_TOKEN_KEY,
+  TWILIO_VOICE_FROM_KEY,
+  TWILIO_WEBHOOK_BASE_URL_KEY,
+  TWILIO_WHATSAPP_FROM_KEY,
+} from "../lib/settingsKeys";
+import { useSettingsModelOptions } from "../hooks/useSettingsModelOptions";
+import { useSettingsPageState } from "../hooks/useSettingsPageState";
+import {
+  useSettingsLoader,
+  useSettingsPageActions,
+} from "../hooks/useSettingsPersistence";
+import { SettingsPlannerDefaultsSection } from "../components/SettingsPlannerDefaultsSection";
+import { SettingsSpeechSection } from "../components/SettingsSpeechSection";
+import { styles } from "../lib/settingsPageStyles";
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
-  const [dockerHost, setDockerHost] = useState("");
-  const [maxRetries, setMaxRetries] = useState("3");
-  const [autoStartAfterApproval, setAutoStartAfterApproval] = useState(true);
-  const [autoApprovePlan, setAutoApprovePlan] = useState(true);
-  const [autoApproveTestReview, setAutoApproveTestReview] = useState(true);
-  const [hideExampleProducts, setHideExampleProducts] = useState(true);
-  const [savedMsg, setSavedMsg] = useState<string | null>(null);
-  const [dbHealth, setDbHealth] = useState<DatabaseHealth | null>(null);
-  const [dbHealthError, setDbHealthError] = useState<string | null>(null);
-  const [activeDbPath, setActiveDbPath] = useState("");
-  const [dbPathOverrideInput, setDbPathOverrideInput] = useState("");
-  const [dbPathOverrideSaved, setDbPathOverrideSaved] = useState<string | null>(null);
-  const [dbPathOverrideError, setDbPathOverrideError] = useState<string | null>(null);
-  const [catalogActionMsg, setCatalogActionMsg] = useState<string | null>(null);
-  const [catalogActionError, setCatalogActionError] = useState<string | null>(null);
-  const [plannerDefaultProviderId, setPlannerDefaultProviderId] = useState("");
-  const [plannerDefaultModelName, setPlannerDefaultModelName] = useState("");
-  const [plannerChannelPreference, setPlannerChannelPreference] = useState("hybrid");
-  const [plannerEscalateToCall, setPlannerEscalateToCall] = useState(true);
-  const [plannerCallQuietHoursStart, setPlannerCallQuietHoursStart] = useState("21:00");
-  const [plannerCallQuietHoursEnd, setPlannerCallQuietHoursEnd] = useState("08:00");
-  const [speechProviderId, setSpeechProviderId] = useState("");
-  const [speechModelName, setSpeechModelName] = useState("");
-  const [speechLocale, setSpeechLocale] = useState("en-US");
-  const [speechNativeVoice, setSpeechNativeVoice] = useState("");
-  const [speechEnableMic, setSpeechEnableMic] = useState(true);
-  const [speechAutoSpeakReplies, setSpeechAutoSpeakReplies] = useState(false);
-  const [speechReviewBeforeSend, setSpeechReviewBeforeSend] = useState(false);
-  const [mcpApiToken, setMcpApiToken] = useState("");
-  const [mobileApiToken, setMobileApiToken] = useState("");
-  const [mobileBindHost, setMobileBindHost] = useState("127.0.0.1");
-  const [mobileBindPort, setMobileBindPort] = useState("8787");
-  const [twilioAccountSid, setTwilioAccountSid] = useState("");
-  const [twilioAuthToken, setTwilioAuthToken] = useState("");
-  const [twilioWhatsappFrom, setTwilioWhatsappFrom] = useState("");
-  const [twilioVoiceFrom, setTwilioVoiceFrom] = useState("");
-  const [twilioWebhookBaseUrl, setTwilioWebhookBaseUrl] = useState("");
-  const [plannerContactTarget, setPlannerContactTarget] = useState("");
-  const [plannerContactOpeningMessage, setPlannerContactOpeningMessage] = useState("Call me and ask what work should be prioritized next.");
-  const [plannerContactMsg, setPlannerContactMsg] = useState<string | null>(null);
-  const [plannerContactError, setPlannerContactError] = useState<string | null>(null);
-  const { data: providers = [] } = useQuery<ModelProvider[]>({ queryKey: ["settingsProviders"], queryFn: listProviders });
-  const { data: models = [] } = useQuery<ModelDefinition[]>({ queryKey: ["settingsModels"], queryFn: listModelDefinitions });
+  const settingsState = useSettingsPageState();
+  const {
+    dockerHost, setDockerHost, maxRetries, setMaxRetries,
+    autoStartAfterApproval, setAutoStartAfterApproval,
+    autoApprovePlan, setAutoApprovePlan, autoApproveTestReview, setAutoApproveTestReview,
+    hideExampleProducts, setHideExampleProducts, savedMsg,
+    dbHealth, dbHealthError, activeDbPath,
+    dbPathOverrideInput, setDbPathOverrideInput, dbPathOverrideSaved,
+    dbPathOverrideError, catalogActionMsg,
+    catalogActionError, plannerDefaultProviderId,
+    setPlannerDefaultProviderId, plannerDefaultModelName, setPlannerDefaultModelName,
+    plannerChannelPreference, setPlannerChannelPreference, plannerEscalateToCall,
+    setPlannerEscalateToCall, plannerCallQuietHoursStart, setPlannerCallQuietHoursStart,
+    plannerCallQuietHoursEnd, setPlannerCallQuietHoursEnd, speechProviderId,
+    setSpeechProviderId, speechModelName, setSpeechModelName, speechLocale, setSpeechLocale,
+    speechNativeVoice, setSpeechNativeVoice, speechEnableMic, setSpeechEnableMic,
+    speechAutoSpeakReplies, setSpeechAutoSpeakReplies, speechReviewBeforeSend,
+    setSpeechReviewBeforeSend, mcpApiToken, setMcpApiToken, mobileApiToken, setMobileApiToken,
+    mobileBindHost, setMobileBindHost, mobileBindPort, setMobileBindPort,
+    twilioAccountSid, setTwilioAccountSid, twilioAuthToken, setTwilioAuthToken,
+    twilioWhatsappFrom, setTwilioWhatsappFrom, twilioVoiceFrom, setTwilioVoiceFrom,
+    twilioWebhookBaseUrl, setTwilioWebhookBaseUrl, plannerContactTarget,
+    setPlannerContactTarget, plannerContactOpeningMessage, setPlannerContactOpeningMessage,
+    plannerContactMsg, plannerContactError,
+  } = settingsState;
   const { data: mcpBridgeStatus } = useQuery<McpBridgeStatus>({
     queryKey: ["mcpBridgeStatus"],
     queryFn: getMcpBridgeStatus,
@@ -143,59 +73,11 @@ export function SettingsPage() {
     queryFn: getMobileBridgeStatus,
   });
 
-  const speechProviderOptions = useMemo(
-    () => providers.filter((provider) => provider.enabled),
-    [providers],
-  );
-  const speechModelOptions = useMemo(() => {
-    const looksLikeSpeechModel = (model: ModelDefinition) =>
-      model.capability_tags.some((tag) => ["speech_to_text", "transcription", "audio"].includes(tag))
-      || /whisper|transcrib/i.test(model.name);
-    return models.filter((model) => model.enabled && looksLikeSpeechModel(model) && (!speechProviderId || model.provider_id === speechProviderId));
-  }, [models, speechProviderId]);
+  const { speechProviderOptions, speechModelOptions } = useSettingsModelOptions({
+    speechProviderId,
+  });
 
-  useEffect(() => {
-    getSetting("docker_host").then((v) => { if (v) setDockerHost(v); });
-    getSetting("max_workflow_retries").then((v) => { if (v) setMaxRetries(v); });
-    getSetting(AUTO_START_AFTER_APPROVAL_KEY).then((v) => setAutoStartAfterApproval(parseBooleanSetting(v, true)));
-    getSetting(AUTO_APPROVE_PLAN_KEY).then((v) => setAutoApprovePlan(parseBooleanSetting(v, true)));
-    getSetting(AUTO_APPROVE_TEST_REVIEW_KEY).then((v) => setAutoApproveTestReview(parseBooleanSetting(v, true)));
-    getSetting(HIDE_EXAMPLE_PRODUCTS_KEY).then((v) => setHideExampleProducts(parseBooleanSetting(v, true)));
-    getSetting(PLANNER_DEFAULT_PROVIDER_KEY).then((v) => { if (v) setPlannerDefaultProviderId(v); });
-    getSetting(PLANNER_DEFAULT_MODEL_KEY).then((v) => { if (v) setPlannerDefaultModelName(v); });
-    getSetting(PLANNER_CHANNEL_PREFERENCE_KEY).then((v) => { if (v) setPlannerChannelPreference(v); });
-    getSetting(PLANNER_ESCALATE_TO_CALL_KEY).then((v) => setPlannerEscalateToCall(parseBooleanSetting(v, true)));
-    getSetting(PLANNER_CALL_QUIET_HOURS_START_KEY).then((v) => { if (v) setPlannerCallQuietHoursStart(v); });
-    getSetting(PLANNER_CALL_QUIET_HOURS_END_KEY).then((v) => { if (v) setPlannerCallQuietHoursEnd(v); });
-    getSetting(SPEECH_PROVIDER_KEY).then((v) => { if (v) setSpeechProviderId(v); });
-    getSetting(SPEECH_MODEL_KEY).then((v) => { if (v) setSpeechModelName(v); });
-    getSetting(SPEECH_LOCALE_KEY).then((v) => { if (v) setSpeechLocale(v); });
-    getSetting(SPEECH_NATIVE_VOICE_KEY).then((v) => { if (v) setSpeechNativeVoice(v); });
-    getSetting(SPEECH_ENABLE_MIC_KEY).then((v) => setSpeechEnableMic(parseBooleanSetting(v, true)));
-    getSetting(SPEECH_AUTO_SPEAK_REPLIES_KEY).then((v) => setSpeechAutoSpeakReplies(parseBooleanSetting(v, false)));
-    getSetting(SPEECH_REVIEW_BEFORE_SEND_KEY).then((v) => setSpeechReviewBeforeSend(parseBooleanSetting(v, false)));
-    getSetting(MCP_API_TOKEN_KEY).then((v) => { if (v) setMcpApiToken(v); });
-    getSetting(MOBILE_API_TOKEN_KEY).then((v) => { if (v) setMobileApiToken(v); });
-    getSetting(MOBILE_BIND_HOST_KEY).then((v) => { if (v) setMobileBindHost(v); });
-    getSetting(MOBILE_BIND_PORT_KEY).then((v) => { if (v) setMobileBindPort(v); });
-    getSetting(TWILIO_ACCOUNT_SID_KEY).then((v) => { if (v) setTwilioAccountSid(v); });
-    getSetting(TWILIO_AUTH_TOKEN_KEY).then((v) => { if (v) setTwilioAuthToken(v); });
-    getSetting(TWILIO_WHATSAPP_FROM_KEY).then((v) => { if (v) setTwilioWhatsappFrom(v); });
-    getSetting(TWILIO_VOICE_FROM_KEY).then((v) => { if (v) setTwilioVoiceFrom(v); });
-    getSetting(TWILIO_WEBHOOK_BASE_URL_KEY).then((v) => { if (v) setTwilioWebhookBaseUrl(v); });
-    getSetting(PLANNER_CONTACT_TARGET_KEY).then((v) => { if (v) setPlannerContactTarget(v); });
-    getSetting(PLANNER_CONTACT_OPENING_MESSAGE_KEY).then((v) => { if (v) setPlannerContactOpeningMessage(v); });
-    getActiveDatabasePath().then(setActiveDbPath).catch((error) => setDbPathOverrideError(String(error)));
-    getDatabasePathOverride().then((v) => { if (v) setDbPathOverrideInput(v); });
-    getDatabaseHealth()
-      .then((health) => {
-        setDbHealth(health);
-        setDbHealthError(null);
-      })
-      .catch((error) => {
-        setDbHealthError(String(error));
-      });
-  }, []);
+  useSettingsLoader(settingsState);
 
   useEffect(() => {
     if (!speechProviderId || speechModelName === "") {
@@ -206,96 +88,16 @@ export function SettingsPage() {
     }
   }, [speechModelName, speechModelOptions, speechProviderId]);
 
-  const saveSetting = async (key: string, value: string) => {
-    await setSetting(key, value);
-    await queryClient.invalidateQueries({ queryKey: ["setting"] });
-    await queryClient.invalidateQueries({ queryKey: ["mcpBridgeStatus"] });
-    await queryClient.invalidateQueries({ queryKey: ["mobileBridgeStatus"] });
-    if (key === HIDE_EXAMPLE_PRODUCTS_KEY) {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["products"] }),
-        queryClient.invalidateQueries({ queryKey: ["productTree"] }),
-        queryClient.invalidateQueries({ queryKey: ["sidebarProductTree"] }),
-        queryClient.invalidateQueries({ queryKey: ["inspectorProductTree"] }),
-      ]);
-    }
-    setSavedMsg(key);
-    setTimeout(() => setSavedMsg(null), 2000);
-  };
-
-  const saveDbOverride = async () => {
-    try {
-      setDbPathOverrideError(null);
-      await setDatabasePathOverride(dbPathOverrideInput);
-      setDbPathOverrideSaved("saved");
-      setTimeout(() => setDbPathOverrideSaved(null), 2500);
-    } catch (error) {
-      setDbPathOverrideError(String(error));
-    }
-  };
-
-  const clearDbOverride = async () => {
-    try {
-      setDbPathOverrideError(null);
-      await clearDatabasePathOverride();
-      setDbPathOverrideInput("");
-      setDbPathOverrideSaved("cleared");
-      setTimeout(() => setDbPathOverrideSaved(null), 2500);
-    } catch (error) {
-      setDbPathOverrideError(String(error));
-    }
-  };
-
-  const copyText = async (value: string) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setSavedMsg(`copied:${value}`);
-      setTimeout(() => setSavedMsg(null), 2000);
-    } catch {
-      setSavedMsg(null);
-    }
-  };
-
-  const autoRoutePlannerContact = async () => {
-    try {
-      setPlannerContactError(null);
-      setPlannerContactMsg(null);
-      const result = await routePlannerContact({
-        to: plannerContactTarget.trim(),
-        content: plannerContactOpeningMessage.trim(),
-      });
-      const channelLabel = result.channel === "voice" ? "voice call" : "WhatsApp";
-      if (result.status === "blocked") {
-        setPlannerContactError(`Auto-routing blocked: ${result.reason}`);
-        return;
-      }
-      setPlannerContactMsg(`Auto-routed to ${channelLabel}. ${result.reason}`);
-    } catch (error) {
-      setPlannerContactError(String(error));
-    }
-  };
-
-  const sendPlannerWhatsapp = async () => {
-    try {
-      setPlannerContactError(null);
-      setPlannerContactMsg(null);
-      await sendTwilioWhatsappMessage({ to: plannerContactTarget.trim(), content: plannerContactOpeningMessage.trim() });
-      setPlannerContactMsg("WhatsApp message queued through Twilio.");
-    } catch (error) {
-      setPlannerContactError(String(error));
-    }
-  };
-
-  const startPlannerVoiceCall = async () => {
-    try {
-      setPlannerContactError(null);
-      setPlannerContactMsg(null);
-      await startTwilioVoiceCall({ to: plannerContactTarget.trim(), initialPrompt: plannerContactOpeningMessage.trim() || undefined });
-      setPlannerContactMsg("Voice call requested through Twilio.");
-    } catch (error) {
-      setPlannerContactError(String(error));
-    }
-  };
+  const {
+    autoRoutePlannerContact,
+    clearDbOverride,
+    copyText,
+    saveDbOverride,
+    saveSetting,
+    seedExampleCatalog,
+    sendPlannerWhatsapp,
+    startPlannerVoiceCall,
+  } = useSettingsPageActions({ queryClient, settings: settingsState });
 
   return (
     <div style={styles.page}>
@@ -324,23 +126,7 @@ export function SettingsPage() {
           <div style={{ display: "flex", alignItems: "center" }}>
             <button
               style={styles.btn}
-              onClick={async () => {
-                try {
-                  setCatalogActionError(null);
-                  await seedExampleProducts();
-                  await Promise.all([
-                    queryClient.invalidateQueries({ queryKey: ["products"] }),
-                    queryClient.invalidateQueries({ queryKey: ["productTree"] }),
-                    queryClient.invalidateQueries({ queryKey: ["sidebarProductTree"] }),
-                    queryClient.invalidateQueries({ queryKey: ["inspectorProductTree"] }),
-                    queryClient.invalidateQueries({ queryKey: ["workItems"] }),
-                  ]);
-                  setCatalogActionMsg("Example catalog is present and up to date.");
-                  setTimeout(() => setCatalogActionMsg(null), 2500);
-                } catch (error) {
-                  setCatalogActionError(String(error));
-                }
-              }}
+              onClick={() => void seedExampleCatalog()}
             >
               Seed / Repair
             </button>
@@ -360,134 +146,42 @@ export function SettingsPage() {
           <div style={{ display: "flex", alignItems: "center" }}><input style={{ ...styles.input, width: 80 }} type="number" value={maxRetries} onChange={(e) => setMaxRetries(e.target.value)} /><button style={styles.btn} onClick={() => saveSetting("max_workflow_retries", maxRetries)}>Save</button>{savedMsg === "max_workflow_retries" && <span style={styles.saved}>Saved!</span>}</div>
         </div>
       </div>
-      <div style={styles.section}>
-        <div style={styles.sectionTitle}>Planner Defaults</div>
-        <div style={styles.settingRow}>
-          <div><div style={styles.label}>Default Provider Id</div><div style={styles.desc}>Used by WhatsApp/call planner sessions when no provider is specified in the UI.</div></div>
-          <div style={{ display: "flex", alignItems: "center" }}><input style={styles.input} value={plannerDefaultProviderId} onChange={(e) => setPlannerDefaultProviderId(e.target.value)} placeholder="provider uuid" /><button style={styles.btn} onClick={() => saveSetting(PLANNER_DEFAULT_PROVIDER_KEY, plannerDefaultProviderId)}>Save</button>{savedMsg === PLANNER_DEFAULT_PROVIDER_KEY && <span style={styles.saved}>Saved!</span>}</div>
-        </div>
-        <div style={styles.settingRow}>
-          <div><div style={styles.label}>Default Model Name</div><div style={styles.desc}>Model name used by external planner channels when a new session is created.</div></div>
-          <div style={{ display: "flex", alignItems: "center" }}><input style={styles.input} value={plannerDefaultModelName} onChange={(e) => setPlannerDefaultModelName(e.target.value)} placeholder="gpt-4.1-mini or local model name" /><button style={styles.btn} onClick={() => saveSetting(PLANNER_DEFAULT_MODEL_KEY, plannerDefaultModelName)}>Save</button>{savedMsg === PLANNER_DEFAULT_MODEL_KEY && <span style={styles.saved}>Saved!</span>}</div>
-        </div>
-        <div style={styles.settingRow}>
-          <div><div style={styles.label}>Outbound Channel Preference</div><div style={styles.desc}>Controls how planner outreach routes by default. Hybrid uses WhatsApp for routine updates and escalates ambiguous planning turns to calls.</div></div>
-          <div style={{ display: "flex", alignItems: "center" }}>
-            <select style={styles.input} value={plannerChannelPreference} onChange={(e) => setPlannerChannelPreference(e.target.value)}>
-              <option value="hybrid">Hybrid</option>
-              <option value="whatsapp">Prefer WhatsApp</option>
-              <option value="voice">Prefer Voice Calls</option>
-            </select>
-            <button style={styles.btn} onClick={() => saveSetting(PLANNER_CHANNEL_PREFERENCE_KEY, plannerChannelPreference)}>Save</button>
-            {savedMsg === PLANNER_CHANNEL_PREFERENCE_KEY && <span style={styles.saved}>Saved!</span>}
-          </div>
-        </div>
-        <div style={styles.row}>
-          <div>
-            <div style={styles.label}>Escalate Ambiguous Planning To Call</div>
-            <div style={styles.desc}>When enabled, hybrid mode promotes exploratory or high-ambiguity outreach to a voice call instead of WhatsApp.</div>
-          </div>
-          <button
-            style={{ ...styles.toggle, backgroundColor: plannerEscalateToCall ? "#0e639c" : "#444" }}
-            onClick={async () => {
-              const next = !plannerEscalateToCall;
-              setPlannerEscalateToCall(next);
-              await saveSetting(PLANNER_ESCALATE_TO_CALL_KEY, String(next));
-            }}
-          />
-        </div>
-        <div style={styles.settingRow}>
-          <div><div style={styles.label}>Call Quiet Hours Start</div><div style={styles.desc}>Calls auto-fall back to WhatsApp during quiet hours. Uses this machine&apos;s local time.</div></div>
-          <div style={{ display: "flex", alignItems: "center" }}><input style={{ ...styles.input, width: 120 }} value={plannerCallQuietHoursStart} onChange={(e) => setPlannerCallQuietHoursStart(e.target.value)} placeholder="21:00" /><button style={styles.btn} onClick={() => saveSetting(PLANNER_CALL_QUIET_HOURS_START_KEY, plannerCallQuietHoursStart)}>Save</button>{savedMsg === PLANNER_CALL_QUIET_HOURS_START_KEY && <span style={styles.saved}>Saved!</span>}</div>
-        </div>
-        <div style={styles.settingRow}>
-          <div><div style={styles.label}>Call Quiet Hours End</div><div style={styles.desc}>End of the quiet-hours window in `HH:MM` 24-hour format.</div></div>
-          <div style={{ display: "flex", alignItems: "center" }}><input style={{ ...styles.input, width: 120 }} value={plannerCallQuietHoursEnd} onChange={(e) => setPlannerCallQuietHoursEnd(e.target.value)} placeholder="08:00" /><button style={styles.btn} onClick={() => saveSetting(PLANNER_CALL_QUIET_HOURS_END_KEY, plannerCallQuietHoursEnd)}>Save</button>{savedMsg === PLANNER_CALL_QUIET_HOURS_END_KEY && <span style={styles.saved}>Saved!</span>}</div>
-        </div>
-      </div>
-      <div style={styles.section}>
-        <div style={styles.sectionTitle}>Speech</div>
-        <div style={styles.row}>
-          <div>
-            <div style={styles.label}>Enable Voice Input By Default</div>
-            <div style={styles.desc}>Controls whether planner and chat start with microphone input enabled.</div>
-          </div>
-          <button
-            style={{ ...styles.toggle, backgroundColor: speechEnableMic ? "#0e639c" : "#444" }}
-            onClick={async () => {
-              const next = !speechEnableMic;
-              setSpeechEnableMic(next);
-              await saveSetting(SPEECH_ENABLE_MIC_KEY, String(next));
-            }}
-          />
-        </div>
-        <div style={styles.row}>
-          <div>
-            <div style={styles.label}>Speak Assistant Replies By Default</div>
-            <div style={styles.desc}>Uses native macOS voice when available. This affects planner and direct chat voice replies.</div>
-          </div>
-          <button
-            style={{ ...styles.toggle, backgroundColor: speechAutoSpeakReplies ? "#0e639c" : "#444" }}
-            onClick={async () => {
-              const next = !speechAutoSpeakReplies;
-              setSpeechAutoSpeakReplies(next);
-              await saveSetting(SPEECH_AUTO_SPEAK_REPLIES_KEY, String(next));
-            }}
-          />
-        </div>
-        <div style={styles.row}>
-          <div>
-            <div style={styles.label}>Review Transcript Before Sending</div>
-            <div style={styles.desc}>Turn this on if you want voice input to pause for transcript editing. Leave it off for a hands-free flow that sends speech straight to the planner.</div>
-          </div>
-          <button
-            style={{ ...styles.toggle, backgroundColor: speechReviewBeforeSend ? "#0e639c" : "#444" }}
-            onClick={async () => {
-              const next = !speechReviewBeforeSend;
-              setSpeechReviewBeforeSend(next);
-              await saveSetting(SPEECH_REVIEW_BEFORE_SEND_KEY, String(next));
-            }}
-          />
-        </div>
-        <div style={styles.settingRow}>
-          <div><div style={styles.label}>Speech Provider</div><div style={styles.desc}>Explicit provider used for planner voice transcription. Leave blank to allow automatic discovery.</div></div>
-          <div style={{ display: "flex", alignItems: "center" }}>
-            <select style={styles.input} value={speechProviderId} onChange={(e) => setSpeechProviderId(e.target.value)}>
-              <option value="">Automatic</option>
-              {speechProviderOptions.map((provider) => (
-                <option key={provider.id} value={provider.id}>
-                  {provider.name}
-                </option>
-              ))}
-            </select>
-            <button style={styles.btn} onClick={() => saveSetting(SPEECH_PROVIDER_KEY, speechProviderId)}>Save</button>
-            {savedMsg === SPEECH_PROVIDER_KEY && <span style={styles.saved}>Saved!</span>}
-          </div>
-        </div>
-        <div style={styles.settingRow}>
-          <div><div style={styles.label}>Speech Model</div><div style={styles.desc}>Pick a Whisper/transcription model explicitly so desktop and mobile voice use the same backend speech path.</div></div>
-          <div style={{ display: "flex", alignItems: "center" }}>
-            <select style={styles.input} value={speechModelName} onChange={(e) => setSpeechModelName(e.target.value)}>
-              <option value="">Automatic</option>
-              {speechModelOptions.map((model) => (
-                <option key={model.id} value={model.name}>
-                  {model.name}
-                </option>
-              ))}
-            </select>
-            <button style={styles.btn} onClick={() => saveSetting(SPEECH_MODEL_KEY, speechModelName)}>Save</button>
-            {savedMsg === SPEECH_MODEL_KEY && <span style={styles.saved}>Saved!</span>}
-          </div>
-        </div>
-        <div style={styles.settingRow}>
-          <div><div style={styles.label}>Speech Locale</div><div style={styles.desc}>Locale hint for transcription and spoken replies, for example `en-US`.</div></div>
-          <div style={{ display: "flex", alignItems: "center" }}><input style={styles.input} value={speechLocale} onChange={(e) => setSpeechLocale(e.target.value)} placeholder="en-US" /><button style={styles.btn} onClick={() => saveSetting(SPEECH_LOCALE_KEY, speechLocale)}>Save</button>{savedMsg === SPEECH_LOCALE_KEY && <span style={styles.saved}>Saved!</span>}</div>
-        </div>
-        <div style={styles.settingRow}>
-          <div><div style={styles.label}>Native Speech Voice</div><div style={styles.desc}>Optional macOS `say` voice, for example `Samantha`, used for planner replies when native speech is enabled.</div></div>
-          <div style={{ display: "flex", alignItems: "center" }}><input style={styles.input} value={speechNativeVoice} onChange={(e) => setSpeechNativeVoice(e.target.value)} placeholder="Samantha" /><button style={styles.btn} onClick={() => saveSetting(SPEECH_NATIVE_VOICE_KEY, speechNativeVoice)}>Save</button>{savedMsg === SPEECH_NATIVE_VOICE_KEY && <span style={styles.saved}>Saved!</span>}</div>
-        </div>
-      </div>
+      <SettingsPlannerDefaultsSection
+        plannerDefaultProviderId={plannerDefaultProviderId}
+        onPlannerDefaultProviderIdChange={setPlannerDefaultProviderId}
+        plannerDefaultModelName={plannerDefaultModelName}
+        onPlannerDefaultModelNameChange={setPlannerDefaultModelName}
+        plannerChannelPreference={plannerChannelPreference}
+        onPlannerChannelPreferenceChange={setPlannerChannelPreference}
+        plannerEscalateToCall={plannerEscalateToCall}
+        onPlannerEscalateToCallChange={setPlannerEscalateToCall}
+        plannerCallQuietHoursStart={plannerCallQuietHoursStart}
+        onPlannerCallQuietHoursStartChange={setPlannerCallQuietHoursStart}
+        plannerCallQuietHoursEnd={plannerCallQuietHoursEnd}
+        onPlannerCallQuietHoursEndChange={setPlannerCallQuietHoursEnd}
+        savedMsg={savedMsg}
+        saveSetting={saveSetting}
+      />
+      <SettingsSpeechSection
+        speechProviderId={speechProviderId}
+        onSpeechProviderIdChange={setSpeechProviderId}
+        speechModelName={speechModelName}
+        onSpeechModelNameChange={setSpeechModelName}
+        speechLocale={speechLocale}
+        onSpeechLocaleChange={setSpeechLocale}
+        speechNativeVoice={speechNativeVoice}
+        onSpeechNativeVoiceChange={setSpeechNativeVoice}
+        speechEnableMic={speechEnableMic}
+        onSpeechEnableMicChange={setSpeechEnableMic}
+        speechAutoSpeakReplies={speechAutoSpeakReplies}
+        onSpeechAutoSpeakRepliesChange={setSpeechAutoSpeakReplies}
+        speechReviewBeforeSend={speechReviewBeforeSend}
+        onSpeechReviewBeforeSendChange={setSpeechReviewBeforeSend}
+        speechProviderOptions={speechProviderOptions}
+        speechModelOptions={speechModelOptions}
+        savedMsg={savedMsg}
+        saveSetting={saveSetting}
+      />
       <div style={styles.section}>
         <div style={styles.sectionTitle}>Agents / MCP</div>
         <div style={styles.settingRow}>
@@ -497,45 +191,7 @@ export function SettingsPage() {
         <div style={{ ...styles.desc, marginTop: 8 }}>
           Aruvi hosts MCP on the same embedded HTTP bridge as the mobile companion, so the bind host and port below also control the MCP endpoint agents connect to.
         </div>
-        <div style={styles.healthCard}>
-          <div style={{ ...styles.label, marginBottom: 8 }}>Embedded MCP Status</div>
-          {mcpBridgeStatus ? (
-            <>
-              <div style={styles.healthGrid}>
-                <div>
-                  <div style={styles.healthLabel}>Bind Scope</div>
-                  <div style={styles.healthValue}>{mcpBridgeStatus.bind_scope}</div>
-                </div>
-                <div>
-                  <div style={styles.healthLabel}>Auth Mode</div>
-                  <div style={styles.healthValue}>{mcpBridgeStatus.auth_mode}</div>
-                </div>
-              </div>
-              <div style={{ ...styles.desc, marginBottom: 8 }}>
-                {mcpBridgeStatus.guidance}
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <div style={styles.healthLabel}>Local MCP Endpoint</div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
-                  <div style={{ ...styles.codeBox, flex: 1 }}>{mcpBridgeStatus.endpoint_url}</div>
-                  <button style={{ ...styles.btn, marginLeft: 0 }} onClick={() => copyText(mcpBridgeStatus.endpoint_url)}>Copy</button>
-                </div>
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <div style={styles.healthLabel}>LAN MCP Endpoint</div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
-                  <div style={{ ...styles.codeBox, flex: 1 }}>{mcpBridgeStatus.lan_endpoint_url ?? "Keep bind host on 127.0.0.1 for local-only agent access, or switch to 0.0.0.0 and restart for same-LAN clients."}</div>
-                  {mcpBridgeStatus.lan_endpoint_url && <button style={{ ...styles.btn, marginLeft: 0 }} onClick={() => copyText(mcpBridgeStatus.lan_endpoint_url!)}>Copy</button>}
-                </div>
-              </div>
-              <div style={styles.desc}>
-                Token configured: {mcpBridgeStatus.token_configured ? "yes" : "no"}. Requests allowed: {mcpBridgeStatus.requests_allowed ? "yes" : "no"}. Origin policy: {mcpBridgeStatus.origin_policy} {mcpBridgeStatus.env_overrides_settings ? "Environment variables currently override these settings. " : ""}{mcpBridgeStatus.bind_changes_require_restart ? "Restart AruviStudio after changing bind host or port." : ""}
-              </div>
-            </>
-          ) : (
-            <div style={styles.desc}>Loading MCP bridge status…</div>
-          )}
-        </div>
+        <McpBridgeStatusCard status={mcpBridgeStatus} onCopy={(value) => void copyText(value)} />
       </div>
       <div style={styles.section}>
         <div style={styles.sectionTitle}>Mobile Companion</div>
@@ -554,45 +210,7 @@ export function SettingsPage() {
         <div style={{ ...styles.desc, marginTop: 8 }}>
           The phone client uses the same planner and speech APIs as the desktop UI. To reach the desktop from an iPhone, expose the webhook server on a reachable host and connect with this token.
         </div>
-        <div style={styles.healthCard}>
-          <div style={{ ...styles.label, marginBottom: 8 }}>LAN Ready Status</div>
-          {mobileBridgeStatus ? (
-            <>
-              <div style={styles.healthGrid}>
-                <div>
-                  <div style={styles.healthLabel}>Bind Scope</div>
-                  <div style={styles.healthValue}>{mobileBridgeStatus.bind_scope}</div>
-                </div>
-                <div>
-                  <div style={styles.healthLabel}>Detected Mac LAN IP</div>
-                  <div style={styles.healthValue}>{mobileBridgeStatus.detected_lan_ip ?? "Unavailable"}</div>
-                </div>
-              </div>
-              <div style={{ ...styles.desc, marginBottom: 8 }}>
-                {mobileBridgeStatus.guidance}
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <div style={styles.healthLabel}>Desktop Base URL</div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
-                  <div style={{ ...styles.codeBox, flex: 1 }}>{mobileBridgeStatus.desktop_base_url}</div>
-                  <button style={{ ...styles.btn, marginLeft: 0 }} onClick={() => copyText(mobileBridgeStatus.desktop_base_url)}>Copy</button>
-                </div>
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <div style={styles.healthLabel}>Phone Base URL</div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
-                  <div style={{ ...styles.codeBox, flex: 1 }}>{mobileBridgeStatus.phone_base_url ?? "Set bind host to 0.0.0.0 and restart to enable same-LAN access."}</div>
-                  {mobileBridgeStatus.phone_base_url && <button style={{ ...styles.btn, marginLeft: 0 }} onClick={() => copyText(mobileBridgeStatus.phone_base_url!)}>Copy</button>}
-                </div>
-              </div>
-              <div style={styles.desc}>
-                Bind host source: {mobileBridgeStatus.host_source}. Port source: {mobileBridgeStatus.port_source}. {mobileBridgeStatus.env_overrides_settings ? "Environment variables currently override these settings. " : ""}{mobileBridgeStatus.bind_changes_require_restart ? "Restart AruviStudio after changing bind host or port." : ""}
-              </div>
-            </>
-          ) : (
-            <div style={styles.desc}>Loading mobile bridge status…</div>
-          )}
-        </div>
+        <MobileBridgeStatusCard status={mobileBridgeStatus} onCopy={(value) => void copyText(value)} />
       </div>
       <div style={styles.section}>
         <div style={styles.sectionTitle}>Twilio</div>
@@ -689,74 +307,17 @@ export function SettingsPage() {
           />
         </div>
       </div>
-      <div style={styles.section}>
-        <div style={styles.sectionTitle}>Database Source</div>
-        <div style={styles.settingRow}>
-          <div>
-            <div style={styles.label}>Active Database</div>
-            <div style={styles.desc}>{activeDbPath || "Unknown"}</div>
-          </div>
-        </div>
-        <div style={styles.settingRow}>
-          <div>
-            <div style={styles.label}>Override Database Path</div>
-            <div style={styles.desc}>Set an absolute SQLite path for next app launch. Restart required.</div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center" }}>
-            <input
-              style={{ ...styles.input, width: 380 }}
-              value={dbPathOverrideInput}
-              onChange={(e) => setDbPathOverrideInput(e.target.value)}
-              placeholder="/absolute/path/to/aruvi-live.db"
-            />
-            <button style={styles.btn} onClick={saveDbOverride}>Save</button>
-            <button style={{ ...styles.btn, backgroundColor: "#3a4556" }} onClick={clearDbOverride}>Clear</button>
-          </div>
-        </div>
-        {dbPathOverrideSaved === "saved" && <div style={styles.saved}>DB override saved. Restart AruviStudio to apply.</div>}
-        {dbPathOverrideSaved === "cleared" && <div style={styles.saved}>DB override cleared. Restart AruviStudio to use default DB.</div>}
-        {dbPathOverrideError && <div style={{ ...styles.desc, color: "#f48771", marginTop: 8 }}>{dbPathOverrideError}</div>}
-      </div>
-      <div style={styles.section}>
-        <div style={styles.sectionTitle}>Database Health</div>
-        <div style={styles.healthCard}>
-          {dbHealthError && <div style={{ ...styles.desc, color: "#f48771" }}>{dbHealthError}</div>}
-          {dbHealth && (
-            <>
-              <div style={styles.healthGrid}>
-                <div>
-                  <div style={styles.healthLabel}>Applied Migrations</div>
-                  <div style={styles.healthValue}>{dbHealth.applied_migrations}</div>
-                </div>
-                <div>
-                  <div style={styles.healthLabel}>Latest Version</div>
-                  <div style={styles.healthValue}>{dbHealth.latest_version ?? "N/A"}</div>
-                </div>
-              </div>
-              <div style={styles.migrationList}>
-                {dbHealth.migrations.map((migration) => (
-                  <div key={migration.version} style={styles.migrationRow}>
-                    <div>
-                      <div style={styles.label}>v{migration.version} · {migration.description}</div>
-                      <div style={styles.desc}>Installed {migration.installed_on}</div>
-                    </div>
-                    <span
-                      style={{
-                        ...styles.badge,
-                        color: migration.success ? "#4ec9b0" : "#f48771",
-                        backgroundColor: migration.success ? "rgba(78, 201, 176, 0.12)" : "rgba(244, 135, 113, 0.12)",
-                      }}
-                    >
-                      {migration.success ? "Applied" : "Failed"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-          {!dbHealth && !dbHealthError && <div style={styles.desc}>Loading migration metadata…</div>}
-        </div>
-      </div>
+      <SettingsDatabaseSections
+        activeDbPath={activeDbPath}
+        dbPathOverrideInput={dbPathOverrideInput}
+        dbPathOverrideSaved={dbPathOverrideSaved}
+        dbPathOverrideError={dbPathOverrideError}
+        dbHealth={dbHealth}
+        dbHealthError={dbHealthError}
+        onDbPathOverrideInputChange={setDbPathOverrideInput}
+        onSaveDbOverride={() => void saveDbOverride()}
+        onClearDbOverride={() => void clearDbOverride()}
+      />
     </div>
   );
 }

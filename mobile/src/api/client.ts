@@ -8,6 +8,7 @@ import type {
   PlannerTurnResponse,
   Product,
   ProductTree,
+  ProductTreeSummary,
 } from "../types";
 
 type RequestOptions = {
@@ -59,6 +60,10 @@ export class PlannerMobileClient {
 
   getProductTree(productId: string) {
     return this.request<ProductTree>(`/api/mobile/products/${encodeURIComponent(productId)}/tree`);
+  }
+
+  getProductSummary(productId: string) {
+    return this.request<ProductTreeSummary>(`/api/mobile/products/${encodeURIComponent(productId)}/summary`);
   }
 
   createPlannerSession(body?: { provider_id?: string; model_name?: string }) {

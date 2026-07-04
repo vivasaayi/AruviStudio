@@ -1,8 +1,8 @@
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
-import { browseForRepositoryPath, deleteRepository, getProductTree, listProducts, listRepositories, registerRepository, updateRepository } from "../../../lib/tauri";
+import { browseForRepositoryPath, deleteRepository, getCapability, listProductAreas, listProducts, listRepositories, registerRepository, updateRepository } from "../../../lib/tauri";
 import type { Repository } from "../../../lib/types";
 
 const styles: Record<string, React.CSSProperties> = {
@@ -31,7 +31,7 @@ const styles: Record<string, React.CSSProperties> = {
 
 export function RepositoryListPage() {
   const queryClient = useQueryClient();
-  const { activeProductId, activeModuleId, activeCapabilityId, setActiveProduct } = useWorkspaceStore();
+  const { activeProductId, activeProductAreaId, activeCapabilityId, setActiveProduct } = useWorkspaceStore();
   const [showForm, setShowForm] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [form, setForm] = useState({ name: "", localPath: "", remoteUrl: "", defaultBranch: "main" });
@@ -53,28 +53,18 @@ export function RepositoryListPage() {
       setActiveProduct(selectedProductId);
     }
   }, [activeProductId, productsLoading, selectedProductId, setActiveProduct]);
-  const { data: activeProductTree } = useQuery({
-    queryKey: ["repositoryProductTree", selectedProductId],
-    queryFn: () => getProductTree(selectedProductId!),
+  const { data: activeProductAreas = [] } = useQuery({
+    queryKey: ["repositoryProductAreas", selectedProductId],
+    queryFn: () => listProductAreas(selectedProductId!),
     enabled: !!selectedProductId,
   });
+  const { data: activeCapability = null } = useQuery({
+    queryKey: ["repositoryCapability", activeCapabilityId],
+    queryFn: () => getCapability(activeCapabilityId!),
+    enabled: !!activeCapabilityId,
+  });
   const activeProduct = products.find((product) => product.id === selectedProductId) ?? null;
-  const activeModule = activeProductTree?.modules.find((moduleTree) => moduleTree.module.id === activeModuleId)?.module ?? null;
-  const activeCapability = useMemo(() => {
-    if (!activeCapabilityId || !activeProductTree) {
-      return null;
-    }
-    const stack = [...activeProductTree.modules.flatMap((moduleTree) => moduleTree.features)];
-    while (stack.length > 0) {
-      const current = stack.pop();
-      if (!current) continue;
-      if (current.capability.id === activeCapabilityId) {
-        return current.capability;
-      }
-      stack.push(...current.children);
-    }
-    return null;
-  }, [activeCapabilityId, activeProductTree]);
+  const activeProductArea = activeProductAreas.find((productArea) => productArea.id === activeProductAreaId) ?? null;
 
   const createMutation = useMutation({
     mutationFn: () => registerRepository(form),
@@ -122,7 +112,7 @@ export function RepositoryListPage() {
           <ScopeBreadcrumb
             label="Current Scope"
             productName={activeProduct?.name}
-            moduleName={activeModule?.name}
+            productAreaName={activeProductArea?.name}
             capabilityName={activeCapability?.name}
           />
         </div>

@@ -6,36 +6,36 @@ test("planner supports deterministic create, refine, packet, and apply flow", as
   await expect(page.getByTestId("planner-input")).toBeVisible();
   await page.getByLabel("Planner product").selectOption("example-product-calculator");
 
-  await page.getByTestId("planner-input").fill("Design input, history, reporting, and expression modules for this product");
+  await page.getByTestId("planner-input").fill("Design input, history, reporting, and expression product areas for this product");
   await page.getByTestId("planner-send").click();
 
   await page.getByTestId("planner-view-draft").click();
   await expect(page.getByTestId("draft-node-draft-product-calculator")).toBeVisible();
-  await expect(page.getByTestId("draft-node-draft-module-input-experience")).toBeVisible();
-  await expect(page.getByTestId("draft-node-draft-module-calculation-history")).toBeVisible();
+  await expect(page.getByTestId("draft-node-draft-product_area-input-experience")).toBeVisible();
+  await expect(page.getByTestId("draft-node-draft-product_area-calculation-history")).toBeVisible();
 
-  await page.getByTestId("draft-node-draft-module-input-experience").click();
+  await page.getByTestId("draft-node-draft-product_area-input-experience").click();
   await page.getByTestId("draft-node-rename-input").fill("Input Workspace");
   await page.getByTestId("draft-node-rename-save").click();
   await expect(page.getByText("Input Workspace").first()).toBeVisible();
 
   await page.getByTestId("draft-node-draft-product-calculator").click();
-  await page.getByTestId("draft-node-add-child-type").selectOption("module");
+  await page.getByTestId("draft-node-add-child-type").selectOption("product_area");
   await page.getByTestId("draft-node-add-child-name").fill("Concierge Experience");
   await page.getByTestId("draft-node-add-child-summary").fill("Handle concierge requests and premium guest experiences.");
   await page.getByTestId("draft-node-add-child-save").click();
   await expect(page.getByText("Concierge Experience").first()).toBeVisible();
 
   await page.getByTestId("draft-node-delete").click();
-  await expect(page.getByTestId("draft-node-draft-module-concierge-experience")).toHaveCount(0);
+  await expect(page.getByTestId("draft-node-draft-product_area-concierge-experience")).toHaveCount(0);
 
   await page.getByTestId("draft-node-draft-product-calculator").click();
   await page.getByTestId("planner-input").fill("Add email and WhatsApp notifications to this product");
   await page.getByTestId("planner-send").click();
-  await expect(page.getByTestId("draft-node-draft-module-notifications-messaging")).toBeVisible();
+  await expect(page.getByTestId("draft-node-draft-product_area-notifications-messaging")).toBeVisible();
 
-  await page.getByTestId("draft-node-draft-module-notifications-messaging").click();
-  await page.getByTestId("planner-input").fill("Enhance this module with guest notification preferences and outbound delivery tracking");
+  await page.getByTestId("draft-node-draft-product_area-notifications-messaging").click();
+  await page.getByTestId("planner-input").fill("Enhance this product area with guest notification preferences and outbound delivery tracking");
   await page.getByTestId("planner-send").click();
   await expect(page.getByTestId("draft-node-draft-capability-outbound-delivery-tracking")).toBeVisible();
 
@@ -83,13 +83,13 @@ test("planner voice commands can select, switch views, and apply the staged desi
   await page.goto("/");
   await page.getByLabel("Planner product").selectOption("example-product-calculator");
 
-  await page.getByTestId("planner-input").fill("Design input, history, reporting, and expression modules for this product");
+  await page.getByTestId("planner-input").fill("Design input, history, reporting, and expression product areas for this product");
   await page.getByTestId("planner-send").click();
 
   await expect(page.getByTestId("draft-node-draft-product-calculator")).toBeVisible();
 
   await page.evaluate(async () => {
-    await window.__ARUVI_E2E__?.runPlannerVoiceTranscript?.("select module calculation history");
+    await window.__ARUVI_E2E__?.runPlannerVoiceTranscript?.("select product area calculation history");
   });
   await expect(page.getByTestId("draft-node-rename-input")).toHaveValue("Calculation History");
 

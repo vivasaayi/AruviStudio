@@ -76,8 +76,135 @@ test("delivery builder shows owner badges and product-level ownership", async ({
   await expect(page.getByText("Owner: Product", { exact: true })).toBeVisible();
   await expect(page.getByText("Owner: Capability", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Calculator / Core Math Engine / Expression Evaluation", { exact: true })).toBeVisible();
-  await expect(page.getByText("Owner: Feature", { exact: true })).toBeVisible();
-  await expect(page.getByText("Calculator / Core Math Engine / Expression Evaluation / Scientific Mode Slice", { exact: true })).toBeVisible();
+  await expect(page.getByText("Owner: Feature", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Calculator / Core Math Engine / Expression Evaluation / Scientific Mode Slice", { exact: true }).first()).toBeVisible();
+});
+
+test("delivery backlog virtualizes large work-item pages and polls only rendered rows", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => window.__ARUVI_E2E__.seedLargeBacklog(120));
+  await page.getByTestId("nav-work-items").click();
+
+  await expect(page.getByRole("heading", { name: "Delivery / Builder" })).toBeVisible();
+  await expect(page.getByText("Virtual backlog story 001", { exact: true })).toBeVisible();
+  await expect(page.getByText("Virtual backlog story 050", { exact: true })).toHaveCount(0);
+  await page.waitForTimeout(200);
+
+  const initialWorkflowPolls = await page.evaluate(() =>
+    window.__ARUVI_E2E__.getInvokeCallCount("get_latest_workflow_run_for_work_item"),
+  );
+  expect(initialWorkflowPolls).toBeGreaterThan(0);
+  expect(initialWorkflowPolls).toBeLessThan(40);
+
+  await page.getByTestId("work-item-virtual-list").evaluate((element) => {
+    element.scrollTo(0, 6200);
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  await expect(page.getByText("Virtual backlog story 050", { exact: true })).toBeVisible();
+});
+
+test("product management renders every child task for the selected story", async ({ page }) => {
+  await page.goto("/products");
+
+  await page.getByRole("button", { name: "Product Management" }).click();
+  await page.getByRole("button", { name: "Work Items" }).click();
+  await page.getByText("Make story task lists reliable after task creation", { exact: true }).click();
+
+  await expect(page.getByText("Make story task lists reliable after task creation", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Load selected story tasks through get_sub_work_items", { exact: true })).toBeVisible();
+  await expect(page.getByText("Add regression coverage for multi-task story display", { exact: true })).toBeVisible();
+  await expect(page.getByText("Tasks", { exact: true })).toBeVisible();
+});
+
+test("product overview avoids full tree and work item loads until a chapter is opened", async ({ page }) => {
+  await page.goto("/products");
+
+  await expect(page.getByRole("heading", { name: "Products" })).toBeVisible();
+  await page.waitForTimeout(200);
+  expect(await page.evaluate(() => window.__ARUVI_E2E__.getInvokeCallCount("get_product_tree"))).toBe(0);
+  expect(await page.evaluate(() => window.__ARUVI_E2E__.getInvokeCallCount("summarize_product_tree"))).toBeGreaterThan(0);
+  await page.evaluate(() => window.__ARUVI_E2E__.clearInvokeCalls());
+
+  await page.getByRole("button", { name: "Product Overview", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Product Book" })).toBeVisible();
+  await expect(page.getByText("Product areas read as chapters. Capabilities and features read as sections. Stories and tasks remain delivery notes.")).toBeVisible();
+  await page.waitForTimeout(200);
+
+  const overviewLoadCalls = await page.evaluate(() => ({
+    fullTree: window.__ARUVI_E2E__.getInvokeCallCount("get_product_tree"),
+    workItems: window.__ARUVI_E2E__.getInvokeCallCount("list_work_items"),
+    pagedWorkItems: window.__ARUVI_E2E__.getInvokeCallCount("list_work_items_page"),
+  }));
+  expect(overviewLoadCalls.fullTree).toBe(0);
+  expect(overviewLoadCalls.workItems).toBe(0);
+  expect(overviewLoadCalls.pagedWorkItems).toBe(0);
+
+  await page.evaluate(() => window.__ARUVI_E2E__.clearInvokeCalls());
+  await page.getByRole("button", { name: "Refresh Overview" }).click();
+  await expect(page.getByRole("button", { name: "Refresh Overview" })).toBeVisible();
+  await page.waitForTimeout(200);
+
+  const refreshCalls = await page.evaluate(() => ({
+    productAreas: window.__ARUVI_E2E__.getInvokeCallCount("list_product_areas"),
+    treeSummary: window.__ARUVI_E2E__.getInvokeCallCount("summarize_product_tree"),
+    workItems: window.__ARUVI_E2E__.getInvokeCallCount("list_work_items"),
+    pagedWorkItems: window.__ARUVI_E2E__.getInvokeCallCount("list_work_items_page"),
+    fullTree: window.__ARUVI_E2E__.getInvokeCallCount("get_product_tree"),
+  }));
+  expect(refreshCalls.productAreas).toBeGreaterThan(0);
+  expect(refreshCalls.treeSummary).toBeGreaterThan(0);
+  expect(refreshCalls.workItems).toBe(0);
+  expect(refreshCalls.pagedWorkItems).toBe(0);
+  expect(refreshCalls.fullTree).toBe(0);
+
+  await page.getByText("Core Math Engine", { exact: true }).click();
+  await expect(page.getByText("Expression Evaluation", { exact: true })).toBeVisible();
+
+  const lazyCapabilityCallCount = await page.evaluate(() => window.__ARUVI_E2E__.getInvokeCallCount("list_capabilities"));
+  const getProductTreeCallCountAfterOpen = await page.evaluate(() => window.__ARUVI_E2E__.getInvokeCallCount("get_product_tree"));
+  expect(lazyCapabilityCallCount).toBe(1);
+  expect(getProductTreeCallCountAfterOpen).toBe(0);
+});
+
+test("product status defaults to aggregate work status without full tree loads", async ({ page }) => {
+  await page.goto("/products");
+
+  await expect(page.getByRole("heading", { name: "Products" })).toBeVisible();
+  await page.evaluate(() => window.__ARUVI_E2E__.clearInvokeCalls());
+
+  await page.getByRole("button", { name: "Product Status" }).click();
+  await expect(page.getByLabel("Status pivot")).toHaveValue("work_status");
+  await expect(page.getByText("Work Status", { exact: true }).first()).toBeVisible();
+  await page.waitForTimeout(200);
+
+  const statusLoadCalls = await page.evaluate(() => ({
+    fullTree: window.__ARUVI_E2E__.getInvokeCallCount("get_product_tree"),
+    treeSummary: window.__ARUVI_E2E__.getInvokeCallCount("summarize_product_tree"),
+    scopeSummary: window.__ARUVI_E2E__.getInvokeCallCount("summarize_work_items_by_scope"),
+    workItems: window.__ARUVI_E2E__.getInvokeCallCount("list_work_items"),
+    pagedWorkItems: window.__ARUVI_E2E__.getInvokeCallCount("list_work_items_page"),
+  }));
+  expect(statusLoadCalls.fullTree).toBe(0);
+  expect(statusLoadCalls.scopeSummary).toBeGreaterThan(0);
+  expect(statusLoadCalls.workItems).toBe(0);
+  expect(statusLoadCalls.pagedWorkItems).toBe(0);
+
+  await page.evaluate(() => window.__ARUVI_E2E__.clearInvokeCalls());
+  await page.getByRole("button", { name: "Refresh Status" }).click();
+  await page.waitForTimeout(200);
+
+  const statusRefreshCalls = await page.evaluate(() => ({
+    fullTree: window.__ARUVI_E2E__.getInvokeCallCount("get_product_tree"),
+    treeSummary: window.__ARUVI_E2E__.getInvokeCallCount("summarize_product_tree"),
+    scopeSummary: window.__ARUVI_E2E__.getInvokeCallCount("summarize_work_items_by_scope"),
+    workItems: window.__ARUVI_E2E__.getInvokeCallCount("list_work_items"),
+    pagedWorkItems: window.__ARUVI_E2E__.getInvokeCallCount("list_work_items_page"),
+  }));
+  expect(statusRefreshCalls.fullTree).toBe(0);
+  expect(statusRefreshCalls.treeSummary).toBeGreaterThan(0);
+  expect(statusRefreshCalls.scopeSummary).toBeGreaterThan(0);
+  expect(statusRefreshCalls.workItems).toBe(0);
+  expect(statusRefreshCalls.pagedWorkItems).toBe(0);
 });
 
 test("portfolio and products expose cross-product capability dependencies", async ({ page }) => {
@@ -103,7 +230,7 @@ test("portfolio manage tab edits strategy hierarchy with modals and double-confi
   await page.getByRole("button", { name: "Manage" }).click();
 
   await expect(page.getByText("Strategy Hierarchy")).toBeVisible();
-  await page.getByRole("button", { name: "Add Strategic Area" }).click();
+  await page.getByRole("button", { name: "Add Strategic Product Area" }).click();
   await expect(page.getByText("Add Strategy Node")).toBeVisible();
   await page.getByLabel("Strategy node name").fill("Connected Devices");
   await page.getByLabel("Owner or hat").fill("Founder");

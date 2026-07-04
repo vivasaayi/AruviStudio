@@ -122,7 +122,7 @@ pub fn static_resources() -> &'static [PlanningResource] {
 
 pub fn build_node_kind_constraints_resource() -> NodeKindConstraintsResource {
     let node_kinds = [
-        HierarchyNodeKind::Area,
+        HierarchyNodeKind::ProductArea,
         HierarchyNodeKind::Capability,
         HierarchyNodeKind::Feature,
     ]
@@ -145,7 +145,7 @@ pub fn build_node_kind_constraints_resource() -> NodeKindConstraintsResource {
     NodeKindConstraintsResource {
         default_root_kind: HierarchyNodeKind::default_root().to_string(),
         root_kinds: [
-            HierarchyNodeKind::Area,
+            HierarchyNodeKind::ProductArea,
         ]
         .into_iter()
         .map(|kind| kind.to_string())

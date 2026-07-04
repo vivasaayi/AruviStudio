@@ -6,23 +6,16 @@ use crate::persistence::{agent_repo, model_call_repo, workflow_repo};
 use crate::state::AppState;
 use tauri::State;
 
-fn resolve_work_item_id(
-    work_item_id: Option<String>,
-    work_item_id_legacy: Option<String>,
-) -> Result<String, AppError> {
-    work_item_id
-        .or(work_item_id_legacy)
-        .ok_or_else(|| AppError::Validation("missing work item id".to_string()))
+fn resolve_work_item_id(work_item_id: Option<String>) -> Result<String, AppError> {
+    work_item_id.ok_or_else(|| AppError::Validation("missing work item id".to_string()))
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn start_work_item_workflow(
     state: State<'_, AppState>,
     work_item_id: Option<String>,
-    workItemId: Option<String>,
 ) -> Result<String, AppError> {
-    let work_item_id = resolve_work_item_id(work_item_id, workItemId)?;
+    let work_item_id = resolve_work_item_id(work_item_id)?;
     let workflow_service = state.workflow_service.lock().await;
     let workflow_run = workflow_service
         .start_work_item_workflow(&work_item_id)
@@ -31,39 +24,31 @@ pub async fn start_work_item_workflow(
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn get_workflow_run(
     state: State<'_, AppState>,
     workflow_run_id: Option<String>,
-    workflowRunId: Option<String>,
 ) -> Result<WorkflowRun, AppError> {
     let workflow_run_id = workflow_run_id
-        .or(workflowRunId)
         .ok_or_else(|| AppError::Validation("missing workflow run id".to_string()))?;
     let workflow_service = state.workflow_service.lock().await;
     workflow_service.get_workflow_run(&workflow_run_id).await
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn get_latest_workflow_run_for_work_item(
     state: State<'_, AppState>,
     work_item_id: Option<String>,
-    workItemId: Option<String>,
 ) -> Result<Option<WorkflowRun>, AppError> {
-    let work_item_id = resolve_work_item_id(work_item_id, workItemId)?;
+    let work_item_id = resolve_work_item_id(work_item_id)?;
     workflow_repo::get_latest_workflow_run_for_work_item(&state.db, &work_item_id).await
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn get_workflow_history(
     state: State<'_, AppState>,
     workflow_run_id: Option<String>,
-    workflowRunId: Option<String>,
 ) -> Result<Vec<WorkflowStageHistory>, AppError> {
     let workflow_run_id = workflow_run_id
-        .or(workflowRunId)
         .ok_or_else(|| AppError::Validation("missing workflow run id".to_string()))?;
     let workflow_service = state.workflow_service.lock().await;
     workflow_service
@@ -72,16 +57,13 @@ pub async fn get_workflow_history(
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn handle_workflow_user_action(
     state: State<'_, AppState>,
     workflow_run_id: Option<String>,
-    workflowRunId: Option<String>,
     action: String,
     notes: Option<String>,
 ) -> Result<(), AppError> {
     let workflow_run_id = workflow_run_id
-        .or(workflowRunId)
         .ok_or_else(|| AppError::Validation("missing workflow run id".to_string()))?;
     let parsed_action = match action.as_str() {
         "approve" => UserAction::Approve,
@@ -103,55 +85,43 @@ pub async fn handle_workflow_user_action(
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn advance_workflow(
     state: State<'_, AppState>,
     workflow_run_id: Option<String>,
-    workflowRunId: Option<String>,
 ) -> Result<(), AppError> {
     let workflow_run_id = workflow_run_id
-        .or(workflowRunId)
         .ok_or_else(|| AppError::Validation("missing workflow run id".to_string()))?;
     let workflow_service = state.workflow_service.lock().await;
     workflow_service.advance_workflow(&workflow_run_id).await
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn list_agent_runs_for_workflow(
     state: State<'_, AppState>,
     workflow_run_id: Option<String>,
-    workflowRunId: Option<String>,
 ) -> Result<Vec<AgentRun>, AppError> {
     let workflow_run_id = workflow_run_id
-        .or(workflowRunId)
         .ok_or_else(|| AppError::Validation("missing workflow run id".to_string()))?;
     agent_repo::list_agent_runs_for_workflow(&state.db, &workflow_run_id).await
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn list_agent_model_calls_for_workflow(
     state: State<'_, AppState>,
     workflow_run_id: Option<String>,
-    workflowRunId: Option<String>,
 ) -> Result<Vec<ModelCall>, AppError> {
     let workflow_run_id = workflow_run_id
-        .or(workflowRunId)
         .ok_or_else(|| AppError::Validation("missing workflow run id".to_string()))?;
     model_call_repo::list_model_calls_for_workflow(&state.db, &workflow_run_id).await
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn mark_workflow_run_failed(
     state: State<'_, AppState>,
     workflow_run_id: Option<String>,
-    workflowRunId: Option<String>,
     reason: Option<String>,
 ) -> Result<(), AppError> {
     let workflow_run_id = workflow_run_id
-        .or(workflowRunId)
         .ok_or_else(|| AppError::Validation("missing workflow run id".to_string()))?;
     let run = workflow_repo::get_workflow_run(&state.db, &workflow_run_id).await?;
     if run.current_stage != "failed" {
@@ -186,14 +156,11 @@ pub async fn mark_workflow_run_failed(
 }
 
 #[tauri::command]
-#[allow(non_snake_case)]
 pub async fn restart_workflow_run(
     state: State<'_, AppState>,
     workflow_run_id: Option<String>,
-    workflowRunId: Option<String>,
 ) -> Result<String, AppError> {
     let workflow_run_id = workflow_run_id
-        .or(workflowRunId)
         .ok_or_else(|| AppError::Validation("missing workflow run id".to_string()))?;
     let run = workflow_repo::get_workflow_run(&state.db, &workflow_run_id).await?;
     let workflow_service = state.workflow_service.lock().await;
@@ -202,3 +169,6 @@ pub async fn restart_workflow_run(
         .await?;
     Ok(next.id)
 }
+
+#[cfg(test)]
+mod tests;

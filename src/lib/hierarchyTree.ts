@@ -11,8 +11,8 @@ export function getWorkItemOwnerKey(workItem: WorkItem) {
   if (workItem.capability_id) {
     return `capability:${workItem.capability_id}`;
   }
-  if (workItem.module_id) {
-    return `module:${workItem.module_id}`;
+  if (workItem.product_area_id) {
+    return `product_area:${workItem.product_area_id}`;
   }
   return "product";
 }
@@ -104,6 +104,9 @@ export function getHierarchyNodeSectionId(
 ) {
   if (!node) {
     return "product-overview-top";
+  }
+  if (node.node_type === "product_area") {
+    return `product-area-${node.id}`;
   }
   return `${node.node_type}-${node.id}`;
 }

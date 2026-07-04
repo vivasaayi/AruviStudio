@@ -74,7 +74,7 @@ pub struct BulkImportProductAreaRow {
 #[derive(Debug, Clone)]
 pub struct BulkImportCapabilityRow {
     pub id: String,
-    pub module_id: String,
+    pub product_area_id: String,
     pub parent_capability_id: Option<String>,
     pub level: i64,
     pub node_kind: String,
@@ -95,7 +95,7 @@ pub struct BulkImportCapabilityRow {
 pub struct BulkImportWorkItemRow {
     pub id: String,
     pub product_id: String,
-    pub module_id: Option<String>,
+    pub product_area_id: Option<String>,
     pub capability_id: Option<String>,
     pub source_node_id: Option<String>,
     pub source_node_type: Option<String>,

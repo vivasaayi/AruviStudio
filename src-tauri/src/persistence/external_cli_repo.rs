@@ -65,16 +65,20 @@ pub async fn create_external_cli_run(
     get_external_cli_run(pool, id).await
 }
 
+pub struct CompleteExternalCliRunInput<'a> {
+    pub id: &'a str,
+    pub status: &'a str,
+    pub exit_code: Option<i64>,
+    pub duration_ms: i64,
+    pub stdout_chars: i64,
+    pub stderr_chars: i64,
+    pub output_artifact_id: Option<&'a str>,
+    pub error_message: Option<&'a str>,
+}
+
 pub async fn complete_external_cli_run(
     pool: &SqlitePool,
-    id: &str,
-    status: &str,
-    exit_code: Option<i64>,
-    duration_ms: i64,
-    stdout_chars: i64,
-    stderr_chars: i64,
-    output_artifact_id: Option<&str>,
-    error_message: Option<&str>,
+    input: CompleteExternalCliRunInput<'_>,
 ) -> Result<ExternalCliRun, AppError> {
     sqlx::query(
         "UPDATE external_cli_runs
@@ -88,17 +92,17 @@ pub async fn complete_external_cli_run(
              ended_at=datetime('now')
          WHERE id=?",
     )
-    .bind(status)
-    .bind(exit_code)
-    .bind(duration_ms)
-    .bind(stdout_chars)
-    .bind(stderr_chars)
-    .bind(output_artifact_id)
-    .bind(error_message)
-    .bind(id)
+    .bind(input.status)
+    .bind(input.exit_code)
+    .bind(input.duration_ms)
+    .bind(input.stdout_chars)
+    .bind(input.stderr_chars)
+    .bind(input.output_artifact_id)
+    .bind(input.error_message)
+    .bind(input.id)
     .execute(pool)
     .await?;
-    get_external_cli_run(pool, id).await
+    get_external_cli_run(pool, input.id).await
 }
 
 pub async fn append_external_cli_run_event(
