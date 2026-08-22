@@ -2,7 +2,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import { revealInFinder } from "../../../lib/tauri";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
-import { usePlannerAssistantSpeech } from "./usePlannerAssistantSpeech";
 import { usePlannerComposerSubmit } from "./usePlannerComposerSubmit";
 import { usePlannerDesignPacketExport } from "./usePlannerDesignPacketExport";
 import { usePlannerDraftActions } from "./usePlannerDraftActions";
@@ -10,14 +9,15 @@ import { usePlannerDraftEditorState } from "./usePlannerDraftEditorState";
 import { usePlannerPageLifecycle } from "./usePlannerPageLifecycle";
 import { usePlannerPageViewModel } from "./usePlannerPageViewModel";
 import { usePlannerPageCoreState } from "./usePlannerPageCoreState";
+import {
+  usePlannerPageVoiceCapture,
+  usePlannerPageVoiceSubmission,
+} from "./usePlannerPageVoiceCapture";
 import { usePlannerMutationResultHandler } from "./usePlannerMutationResultHandler";
 import { usePlannerPendingPlanActions } from "./usePlannerPendingPlanActions";
 import { usePlannerRepositoryAnalysis } from "./usePlannerRepositoryAnalysis";
 import { usePlannerSpeechSettingsState } from "./usePlannerSpeechSettingsState";
 import { usePlannerTurnMutations } from "./usePlannerTurnMutations";
-import { usePlannerVoiceCapture } from "./usePlannerVoiceCapture";
-import { usePlannerVoiceSubmission } from "./usePlannerVoiceSubmission";
-import { usePlannerVoiceTranscriptHandler } from "./usePlannerVoiceTranscriptHandler";
 import { usePlannerWindowWidth } from "./usePlannerWindowWidth";
 
 export function usePlannerPageController() {
@@ -67,12 +67,9 @@ export function usePlannerPageController() {
     speechNativeVoiceSetting,
     reviewVoiceBeforeSend,
   } = usePlannerSpeechSettingsState();
-  const { speakAssistantReply } = usePlannerAssistantSpeech({
-    speechLocaleSetting,
-    speechNativeVoiceSetting,
-  });
   const windowWidth = usePlannerWindowWidth();
   const {
+    speakAssistantReply,
     isListening,
     isTranscribing,
     isVoiceSubmitting,
@@ -91,13 +88,14 @@ export function usePlannerPageController() {
     submitPendingVoiceTranscript,
     retryVoiceCapture,
     toggleListening,
-  } = usePlannerVoiceCapture({
+  } = usePlannerPageVoiceCapture({
     voiceEnabled,
     reviewVoiceBeforeSend,
-    getSpeechModelSelection: () => speechModelSelectionRef.current,
     speechLocaleSetting,
-    isPlannerBusy: () => plannerBusyRef.current,
-    onSubmitVoiceTranscript: (transcript) => submitVoiceTranscriptRef.current(transcript),
+    speechNativeVoiceSetting,
+    speechModelSelectionRef,
+    plannerBusyRef,
+    submitVoiceTranscriptRef,
   });
 
   const {
@@ -345,39 +343,33 @@ export function usePlannerPageController() {
     draftEditMutation,
   });
 
-  const handleVoiceTranscript = usePlannerVoiceTranscriptHandler({
+  usePlannerPageVoiceSubmission({
     autoSpeak,
+    clearPendingVoiceReview,
+    collapseAllDraftNodes,
+    composerRef,
     draftTreeNodes,
+    expandAllDraftNodes,
+    isPlannerBusy,
     latestTraceEvents,
-    selectedProductId,
-    sessionId,
-    setSessionId,
-    providerId,
     modelName,
+    onPlannerMutationSuccess: handlePlannerMutationSuccess,
+    providerId,
     selectedDraftNodeId,
     selectedDraftNodePath,
-    setPendingVoiceTranscript,
-    setEditableVoiceTranscript,
-    setVoiceActivity,
-    setMessages,
-    setPlannerView,
-    setExpandedDraftNodeIds,
-    expandAllDraftNodes,
-    collapseAllDraftNodes,
-    onPlannerMutationSuccess: handlePlannerMutationSuccess,
-    speakAssistantReply,
-  });
-  usePlannerVoiceSubmission({
-    clearPendingVoiceReview,
-    composerRef,
-    handleVoiceTranscript,
-    isPlannerBusy,
     selectedProductId,
+    sessionId,
     setDraft,
+    setEditableVoiceTranscript,
+    setExpandedDraftNodeIds,
     setIsVoiceSubmitting,
+    setMessages,
     setPendingVoiceTranscript,
+    setPlannerView,
+    setSessionId,
     setSpeechError,
     setVoiceActivity,
+    speakAssistantReply,
     submitVoiceTranscriptRef,
   });
 
