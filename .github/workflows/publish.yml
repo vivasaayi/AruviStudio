@@ -7,19 +7,22 @@ on:
         description: Existing release tag to build, for example v0.2.0
         required: true
         type: string
+  push:
+    tags:
+      - "v*"
 
 permissions:
   contents: write
 
 concurrency:
-  group: desktop-release-candidate-${{ inputs.tag }}
+  group: desktop-release-candidate-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   quality-gate:
     runs-on: ubuntu-22.04
     env:
-      RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     outputs:
       git_sha: ${{ steps.metadata.outputs.git_sha }}
 
@@ -27,7 +30,7 @@ jobs:
       - name: Checkout tagged source
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.tag || github.ref_name }}
           fetch-depth: 0
 
       - name: Capture release metadata
@@ -110,7 +113,7 @@ jobs:
       - name: Checkout tested source
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.tag || github.ref_name }}
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -217,10 +220,10 @@ jobs:
         with:
           projectPath: .
           tauriScript: npm run tauri --
-          tagName: ${{ inputs.tag }}
-          releaseName: AruviStudio ${{ inputs.tag }}
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: AruviStudio ${{ inputs.tag || github.ref_name }}
           releaseBody: |
-            Desktop release candidate for `${{ inputs.tag }}`.
+            Desktop release candidate for `${{ inputs.tag || github.ref_name }}`.
 
             Tested commit: `${{ needs.quality-gate.outputs.git_sha }}`
 
@@ -237,7 +240,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
-      RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
       TESTED_GIT_SHA: ${{ needs.quality-gate.outputs.git_sha }}
 
     steps:

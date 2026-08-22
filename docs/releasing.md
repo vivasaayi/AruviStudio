@@ -31,7 +31,7 @@ Pushing a tag does not publish a release.
 
 ## 2. Build a release candidate
 
-In GitHub Actions, manually run **Build Desktop Release Candidate** and enter the existing `vX.Y.Z` tag.
+Pushing the `vX.Y.Z` tag automatically runs **Build Desktop Release Candidate**. The workflow can also be run manually with an existing tag when a candidate needs to be retried.
 
 The workflow:
 

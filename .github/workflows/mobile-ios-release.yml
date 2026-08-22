@@ -27,6 +27,12 @@ concurrency:
 jobs:
   ios-release:
     runs-on: ubuntu-latest
+    env:
+      APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+      APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APP_STORE_CONNECT_TEAM_ID: ${{ secrets.APP_STORE_CONNECT_TEAM_ID }}
+      APP_STORE_CONNECT_TEAM_TYPE: ${{ secrets.APP_STORE_CONNECT_TEAM_TYPE }}
     defaults:
       run:
         shell: bash
@@ -68,16 +74,16 @@ jobs:
         run: npm install
 
       - name: Write App Store Connect API key
-        if: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 != '' && secrets.APP_STORE_CONNECT_KEY_ID != '' && secrets.APP_STORE_CONNECT_ISSUER_ID != '' }}
+        if: ${{ env.APP_STORE_CONNECT_API_KEY_P8 != '' && env.APP_STORE_CONNECT_KEY_ID != '' && env.APP_STORE_CONNECT_ISSUER_ID != '' }}
         run: |
-          key_path="$RUNNER_TEMP/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8"
-          printf '%s' "${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}" > "$key_path"
+          key_path="$RUNNER_TEMP/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
+          printf '%s' "$APP_STORE_CONNECT_API_KEY_P8" > "$key_path"
           {
             echo "EXPO_ASC_API_KEY_PATH=$key_path"
-            echo "EXPO_ASC_KEY_ID=${{ secrets.APP_STORE_CONNECT_KEY_ID }}"
-            echo "EXPO_ASC_ISSUER_ID=${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
-            echo "EXPO_APPLE_TEAM_ID=${{ secrets.APP_STORE_CONNECT_TEAM_ID }}"
-            echo "EXPO_APPLE_TEAM_TYPE=${{ secrets.APP_STORE_CONNECT_TEAM_TYPE }}"
+            echo "EXPO_ASC_KEY_ID=$APP_STORE_CONNECT_KEY_ID"
+            echo "EXPO_ASC_ISSUER_ID=$APP_STORE_CONNECT_ISSUER_ID"
+            echo "EXPO_APPLE_TEAM_ID=$APP_STORE_CONNECT_TEAM_ID"
+            echo "EXPO_APPLE_TEAM_TYPE=$APP_STORE_CONNECT_TEAM_TYPE"
           } >> "$GITHUB_ENV"
 
       - name: Trigger EAS iOS build
