@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui/nicegui/main/nicegui/elements/tauri-conf-schema.json",
   "productName": "AruviStudio",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "identifier": "com.aruvi.studio",
   "build": {
     "beforeDevCommand": "npm run dev",

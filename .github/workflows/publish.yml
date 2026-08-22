@@ -219,7 +219,7 @@ jobs:
           APPLE_API_KEY_PATH: ${{ runner.os == 'macOS' && steps.notarization_key.outputs.path || '' }}
         with:
           projectPath: .
-          tauriScript: npm run tauri --
+          tauriScript: npm run tauri
           tagName: ${{ inputs.tag || github.ref_name }}
           releaseName: AruviStudio ${{ inputs.tag || github.ref_name }}
           releaseBody: |
