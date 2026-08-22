@@ -210,13 +210,34 @@ jobs:
           printf '%s' "$APPLE_API_KEY_P8" > "$key_path"
           echo "path=$key_path" >> "$GITHUB_OUTPUT"
 
-      - name: Build and upload draft desktop bundles
+      - name: Build and upload notarized draft desktop bundles
+        if: runner.os == 'macOS' && steps.macos_signing.outputs.has_certificate == 'true' && steps.macos_signing.outputs.has_notary_api == 'true'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ steps.macos_signing.outputs.identity }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ steps.notarization_key.outputs.path }}
+        with:
+          projectPath: .
+          tauriScript: npm run tauri
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: AruviStudio ${{ inputs.tag || github.ref_name }}
+          releaseBody: |
+            Desktop release candidate for `${{ inputs.tag || github.ref_name }}`.
+
+            Tested commit: `${{ needs.quality-gate.outputs.git_sha }}`
+
+            This release remains a draft until the exact uploaded artifacts pass acceptance testing and are promoted by the separate production workflow.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+
+      - name: Build and upload test draft desktop bundles
+        if: runner.os != 'macOS' || steps.macos_signing.outputs.has_certificate != 'true' || steps.macos_signing.outputs.has_notary_api != 'true'
         uses: tauri-apps/tauri-action@v0
         env:
           APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && steps.macos_signing.outputs.identity || '' }}
-          APPLE_API_ISSUER: ${{ runner.os == 'macOS' && secrets.APPLE_API_ISSUER || '' }}
-          APPLE_API_KEY: ${{ runner.os == 'macOS' && secrets.APPLE_API_KEY || '' }}
-          APPLE_API_KEY_PATH: ${{ runner.os == 'macOS' && steps.notarization_key.outputs.path || '' }}
         with:
           projectPath: .
           tauriScript: npm run tauri
