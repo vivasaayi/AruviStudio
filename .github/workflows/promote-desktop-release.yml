@@ -1,0 +1,67 @@
+name: Promote Desktop Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Draft release tag to promote, for example v0.2.0
+        required: true
+        type: string
+      confirmation:
+        description: Enter the same tag to confirm that this candidate passed acceptance testing
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-promotion-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-22.04
+    environment: production-release
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+
+    steps:
+      - name: Confirm tested candidate
+        shell: bash
+        run: |
+          if [[ "$CONFIRMATION" != "$RELEASE_TAG" ]]; then
+            echo "Confirmation must exactly match release tag $RELEASE_TAG." >&2
+            exit 1
+          fi
+
+      - name: Verify draft release
+        shell: bash
+        run: |
+          is_draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')"
+          if [[ "$is_draft" != "true" ]]; then
+            echo "Release $RELEASE_TAG is not a draft candidate." >&2
+            exit 1
+          fi
+
+          asset_count="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')"
+          if [[ "$asset_count" -lt 1 ]]; then
+            echo "Release $RELEASE_TAG has no candidate artifacts." >&2
+            exit 1
+          fi
+
+      - name: Verify candidate checksums
+        shell: bash
+        run: |
+          mkdir -p candidate-assets
+          gh release download "$RELEASE_TAG" --dir candidate-assets
+          test -s candidate-assets/SHA256SUMS.txt
+          test -s candidate-assets/RELEASE_MANIFEST.json
+          cd candidate-assets
+          sha256sum --check SHA256SUMS.txt
+
+      - name: Publish tested artifacts without rebuilding
+        run: gh release edit "$RELEASE_TAG" --draft=false

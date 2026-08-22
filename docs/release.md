@@ -1,5 +1,7 @@
 # AruviStudio Release Profiles
 
+The canonical customer-release process is the GitHub release-candidate and promotion factory documented in [`docs/releasing.md`](releasing.md). The local commands below are intended for development diagnostics, isolated testing, and emergency manual builds.
+
 ## Development
 
 Run the normal development app with:

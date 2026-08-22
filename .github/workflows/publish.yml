@@ -1,24 +1,94 @@
-name: Publish Desktop Release
+name: Build Desktop Release Candidate
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build, for example v0.2.0
+        required: true
+        type: string
 
 permissions:
   contents: write
 
+concurrency:
+  group: desktop-release-candidate-${{ inputs.tag }}
+  cancel-in-progress: false
+
 jobs:
-  publish:
+  quality-gate:
+    runs-on: ubuntu-22.04
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+    outputs:
+      git_sha: ${{ steps.metadata.outputs.git_sha }}
+
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+
+      - name: Capture release metadata
+        id: metadata
+        shell: bash
+        run: echo "git_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libwebkit2gtk-4.1-dev \
+            patchelf
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate release version
+        run: node scripts/ci/validate-release-version.mjs "$RELEASE_TAG"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: release-quality-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: release-quality-cargo-
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Run complete quality gate
+        run: npm run test:all
+
+      - name: Verify production frontend build
+        run: npm run build
+
+  build-candidate:
+    needs: quality-gate
     strategy:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
+          - runner: macos-15
             bundle_label: macos-arm64
             target: aarch64-apple-darwin
             args: --target aarch64-apple-darwin
-          - runner: macos-13
+          - runner: macos-15-intel
             bundle_label: macos-intel
             target: x86_64-apple-darwin
             args: --target x86_64-apple-darwin
@@ -37,8 +107,10 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
-      - name: Checkout
+      - name: Checkout tested source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -135,7 +207,7 @@ jobs:
           printf '%s' "$APPLE_API_KEY_P8" > "$key_path"
           echo "path=$key_path" >> "$GITHUB_OUTPUT"
 
-      - name: Build and publish desktop bundles
+      - name: Build and upload draft desktop bundles
         uses: tauri-apps/tauri-action@v0
         env:
           APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && steps.macos_signing.outputs.identity || '' }}
@@ -145,14 +217,60 @@ jobs:
         with:
           projectPath: .
           tauriScript: npm run tauri --
-          tagName: ${{ github.ref_name }}
-          releaseName: AruviStudio ${{ github.ref_name }}
+          tagName: ${{ inputs.tag }}
+          releaseName: AruviStudio ${{ inputs.tag }}
           releaseBody: |
-            Desktop release for `${{ github.ref_name }}`.
+            Desktop release candidate for `${{ inputs.tag }}`.
 
-            macOS notes:
-            - Developer ID signing and notarization run automatically when the Apple secrets are configured.
-            - If those secrets are absent, the workflow falls back to ad-hoc signing. Apple Silicon users can still install the app, but macOS may require opening it from Finder or allowing it in Privacy & Security the first time.
-          releaseDraft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
+            Tested commit: `${{ needs.quality-gate.outputs.git_sha }}`
+
+            This release remains a draft until the exact uploaded artifacts pass acceptance testing and are promoted by the separate production workflow.
+          releaseDraft: true
+          prerelease: false
           args: ${{ matrix.args }}
+
+  finalize-candidate:
+    needs:
+      - quality-gate
+      - build-candidate
+    runs-on: ubuntu-22.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      TESTED_GIT_SHA: ${{ needs.quality-gate.outputs.git_sha }}
+
+    steps:
+      - name: Download candidate artifacts
+        run: |
+          mkdir -p candidate-assets
+          gh release download "$RELEASE_TAG" --dir candidate-assets
+
+      - name: Create candidate manifest and checksums
+        shell: bash
+        run: |
+          asset_count="$(find candidate-assets -maxdepth 1 -type f | wc -l | tr -d ' ')"
+          if [[ "$asset_count" -lt 1 ]]; then
+            echo "Release $RELEASE_TAG has no candidate artifacts." >&2
+            exit 1
+          fi
+
+          jq -n \
+            --arg tag "$RELEASE_TAG" \
+            --arg gitSha "$TESTED_GIT_SHA" \
+            --arg createdAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{tag: $tag, gitSha: $gitSha, createdAt: $createdAt, status: "release-candidate"}' \
+            > candidate-assets/RELEASE_MANIFEST.json
+
+          find candidate-assets -maxdepth 1 -type f ! -name SHA256SUMS.txt -print0 \
+            | sort -z \
+            | xargs -0 sha256sum \
+            | sed 's#candidate-assets/##' > candidate-assets/SHA256SUMS.txt
+          test -s candidate-assets/SHA256SUMS.txt
+
+      - name: Attach candidate verification metadata
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            candidate-assets/RELEASE_MANIFEST.json \
+            candidate-assets/SHA256SUMS.txt \
+            --clobber

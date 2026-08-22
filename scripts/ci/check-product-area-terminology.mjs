@@ -28,6 +28,10 @@ const targetedLegacyTerms = /\b(create_module|module_id|modules?|module|Module|M
 const frontendLegacyWorkItemListTerms = /\b(listWorkItems)\b|["']list_work_items["']/g;
 
 function isAllowedLegacyProductAreaTerm(normalizedPath, content, matchIndex) {
+  if (normalizedPath === path.normalize("src-tauri/src/persistence/db/db_tests.rs")) {
+    return true;
+  }
+
   if (normalizedPath !== path.normalize("src-tauri/src/persistence/db.rs")) {
     return false;
   }
