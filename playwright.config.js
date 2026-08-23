@@ -1,14 +1,16 @@
 import { defineConfig } from "@playwright/test";
 
+const reportRoot = process.env.ARUVI_PLAYWRIGHT_REPORT_DIR || "reports/playwright";
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
   retries: process.env.CI ? 2 : 0,
-  outputDir: "reports/playwright/artifacts",
+  outputDir: `${reportRoot}/artifacts`,
   reporter: [
     ["list"],
-    ["html", { outputFolder: "reports/playwright/html", open: "never" }],
-    ["junit", { outputFile: "reports/playwright/junit.xml" }],
+    ["html", { outputFolder: `${reportRoot}/html`, open: "never" }],
+    ["junit", { outputFile: `${reportRoot}/junit.xml` }],
   ],
   use: {
     baseURL: "http://127.0.0.1:4173",

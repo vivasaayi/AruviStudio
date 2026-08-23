@@ -44,7 +44,11 @@ pub fn run() {
             let webhook_state = state.clone();
             app.manage(state);
             tauri::async_runtime::spawn(async move {
-                services::webhook_service::start_webhook_server(webhook_state).await;
+                if let Err(error) =
+                    services::webhook_service::start_webhook_server(webhook_state).await
+                {
+                    tracing::error!(error = %error, "embedded web server stopped");
+                }
             });
 
             Ok(())
@@ -239,4 +243,22 @@ pub fn run() {
 pub fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
     observability::logger::init_logging();
     mcp::run_stdio_server()
+}
+
+/// Run AruviStudio without a desktop window.
+///
+/// The headless process owns the same runtime, database, planner, workflows, agents,
+/// authenticated mobile API, remote web UI, and HTTP MCP surface as the desktop app.
+/// Runtime paths can be pinned explicitly with `ARUVI_APP_DATA_DIR` and
+/// `ARUVI_DB_PATH`, which is the recommended mode for a server installation.
+pub fn run_headless_server() -> Result<(), Box<dyn std::error::Error>> {
+    observability::logger::init_logging();
+    let runtime = tokio::runtime::Runtime::new()?;
+    runtime.block_on(async {
+        let state = bootstrap::initialize_app_state(Some("com.aruvi.studio")).await?;
+        services::webhook_service::start_webhook_server(state)
+            .await
+            .map_err(std::io::Error::other)?;
+        Ok(())
+    })
 }

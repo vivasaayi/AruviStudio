@@ -253,6 +253,24 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
+      - name: Build headless Linux server
+        if: runner.os == 'Linux'
+        run: cargo build --release --manifest-path src-tauri/Cargo.toml --bin aruvi-studio-server
+
+      - name: Upload headless Linux server
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          strip src-tauri/target/release/aruvi-studio-server
+          tar -C src-tauri/target/release \
+            -czf aruvi-studio-server-linux-x86_64.tar.gz \
+            aruvi-studio-server
+          gh release upload "$RELEASE_TAG" \
+            aruvi-studio-server-linux-x86_64.tar.gz \
+            --clobber
+
   finalize-candidate:
     needs:
       - quality-gate

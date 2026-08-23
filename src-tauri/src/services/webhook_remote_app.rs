@@ -11,4 +11,22 @@ mod tests {
         assert!(!REMOTE_APP_HTML
             .contains("/api/mobile/products/\" + encodeURIComponent(productId) + \"/tree"));
     }
+
+    #[test]
+    fn remote_app_exposes_operational_workflow_controls() {
+        for expected in [
+            "Submit Work",
+            "Approve &amp; Start",
+            "/api/mobile/work-items",
+            "/approve",
+            "/workflow/start",
+            "/delivery",
+            "/action",
+        ] {
+            assert!(
+                REMOTE_APP_HTML.contains(expected),
+                "remote app is missing {expected}"
+            );
+        }
+    }
 }

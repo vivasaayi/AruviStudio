@@ -2,6 +2,27 @@
 
 Aruvi Studio is a local-first Tauri app for product planning, repository execution, workflow orchestration, and checkpointing.
 
+## Headless server and remote Studio
+
+AruviStudio can also run without a desktop window. The headless server uses the same database,
+planner, agents, workflows, authenticated mobile API, remote web interface, and HTTP MCP bridge
+as the Tauri application.
+
+```bash
+ARUVI_APP_DATA_DIR="$PWD/.aruvi-server" \
+ARUVI_WEBHOOK_HOST=127.0.0.1 \
+ARUVI_WEBHOOK_PORT=8787 \
+ARUVI_MOBILE_API_TOKEN="replace-with-a-long-random-token" \
+cargo run --manifest-path src-tauri/Cargo.toml --bin aruvi-studio-server
+```
+
+Open `http://127.0.0.1:8787/remote`. The remote interface supports planning, product inspection,
+task creation, task approval and execution, workflow-gate actions, delivery status, and artifact
+summaries. Keep the server on localhost behind an authenticated HTTPS reverse proxy or private
+network when accessing it from an iPad, iPhone, or another computer.
+
+See [Headless AruviStudio deployment](docs/headless-server.md) for Linux VM and service setup.
+
 ## MCP
 
 Aruvi Studio now exposes MCP in two ways:

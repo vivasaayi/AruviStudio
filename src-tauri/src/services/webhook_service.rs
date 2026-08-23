@@ -18,6 +18,11 @@ use crate::services::webhook_mobile_chat::mobile_chat_completion;
 use crate::services::webhook_mobile_planner_chat::{
     mobile_create_planner_chat_session, mobile_submit_planner_chat_turn,
 };
+use crate::services::webhook_mobile_work::{
+    mobile_approve_work_item, mobile_create_work_item, mobile_get_work_item,
+    mobile_get_work_item_delivery, mobile_handle_workflow_action, mobile_list_work_items,
+    mobile_start_workflow,
+};
 use crate::services::webhook_remote_app::REMOTE_APP_HTML;
 use crate::services::webhook_twilio::{
     messaging_twiml, planner_reply_text, validate_twilio_signature, voice_gather_twiml,
@@ -253,14 +258,10 @@ async fn twilio_voice_entry_with_prompt(
     Html(voice_gather_twiml(&prompt))
 }
 
-pub async fn start_webhook_server(app_state: AppState) {
-    let bind_config = match resolve_webhook_bind_config(&app_state).await {
-        Ok(bind_config) => bind_config,
-        Err(error) => {
-            error!(error = %error, "failed to resolve webhook bind config");
-            return;
-        }
-    };
+pub async fn start_webhook_server(app_state: AppState) -> Result<(), String> {
+    let bind_config = resolve_webhook_bind_config(&app_state)
+        .await
+        .map_err(|error| format!("failed to resolve webhook bind config: {error}"))?;
     let host = bind_config.host;
     let port = bind_config.port;
     let bind_target = if host.contains(':') {
@@ -268,13 +269,9 @@ pub async fn start_webhook_server(app_state: AppState) {
     } else {
         format!("{host}:{port}")
     };
-    let address: SocketAddr = match bind_target.parse() {
-        Ok(address) => address,
-        Err(error) => {
-            error!(error = %error, "invalid webhook bind address");
-            return;
-        }
-    };
+    let address: SocketAddr = bind_target
+        .parse()
+        .map_err(|error| format!("invalid webhook bind address: {error}"))?;
 
     let router = Router::new()
         .route("/health", get(healthcheck))
@@ -293,6 +290,30 @@ pub async fn start_webhook_server(app_state: AppState) {
             get(mobile_get_model_call),
         )
         .route("/api/mobile/products", get(mobile_list_products))
+        .route(
+            "/api/mobile/work-items",
+            get(mobile_list_work_items).post(mobile_create_work_item),
+        )
+        .route(
+            "/api/mobile/work-items/:work_item_id",
+            get(mobile_get_work_item),
+        )
+        .route(
+            "/api/mobile/work-items/:work_item_id/approve",
+            post(mobile_approve_work_item),
+        )
+        .route(
+            "/api/mobile/work-items/:work_item_id/workflow/start",
+            post(mobile_start_workflow),
+        )
+        .route(
+            "/api/mobile/work-items/:work_item_id/delivery",
+            get(mobile_get_work_item_delivery),
+        )
+        .route(
+            "/api/mobile/workflows/:workflow_run_id/action",
+            post(mobile_handle_workflow_action),
+        )
         .route(
             "/api/mobile/products/:product_id/summary",
             get(mobile_get_product_tree_summary),
@@ -346,16 +367,12 @@ pub async fn start_webhook_server(app_state: AppState) {
         .route("/webhooks/twilio/voice/gather", post(twilio_voice_gather))
         .with_state(WebhookState { app_state });
 
-    let listener = match tokio::net::TcpListener::bind(address).await {
-        Ok(listener) => listener,
-        Err(error) => {
-            error!(error = %error, "failed to bind webhook server");
-            return;
-        }
-    };
+    let listener = tokio::net::TcpListener::bind(address)
+        .await
+        .map_err(|error| format!("failed to bind webhook server: {error}"))?;
 
     info!(address = %address, "webhook server listening");
-    if let Err(error) = axum::serve(listener, router).await {
-        error!(error = %error, "webhook server failed");
-    }
+    axum::serve(listener, router)
+        .await
+        .map_err(|error| format!("webhook server failed: {error}"))
 }

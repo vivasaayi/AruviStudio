@@ -39,6 +39,7 @@
 
     button,
     input,
+    select,
     textarea {
       font: inherit;
     }
@@ -68,6 +69,7 @@
     }
 
     input,
+    select,
     textarea {
       width: 100%;
       border: 1px solid var(--border);
@@ -257,6 +259,7 @@
     .stack,
     .tree,
     .product-list,
+    .work-list,
     .tool-list {
       display: grid;
       gap: 10px;
@@ -295,6 +298,7 @@
 
     .tree-node,
     .product-card,
+    .work-card,
     .tool-card,
     .metric {
       border: 1px solid #394653;
@@ -306,19 +310,22 @@
     }
 
     button.tree-node,
-    button.product-card {
+    button.product-card,
+    button.work-card {
       min-height: auto;
       width: 100%;
     }
 
     .tree-node.selected,
-    .product-card.selected {
+    .product-card.selected,
+    .work-card.selected {
       border-color: #55a7d4;
       background: #183548;
     }
 
     .tree-title,
     .product-title,
+    .work-title,
     .tool-title {
       font-weight: 800;
       line-height: 1.35;
@@ -327,12 +334,14 @@
     .tree-meta,
     .tree-summary,
     .product-summary,
+    .work-summary,
     .tool-meta,
     .empty {
       margin-top: 5px;
     }
 
     .product-summary,
+    .work-summary,
     .tool-meta {
       color: var(--muted);
       font-size: 12px;
@@ -399,6 +408,7 @@
       <nav class="tabbar" aria-label="Aruvi mobile sections">
         <button class="tab-button active" data-tab="planner" type="button">Planner</button>
         <button class="tab-button" data-tab="products" type="button">Products</button>
+        <button class="tab-button" data-tab="work" type="button">Work</button>
         <button class="tab-button" data-tab="chat" type="button">Chat</button>
         <button class="tab-button" data-tab="voice" type="button">Voice</button>
         <button class="tab-button" data-tab="activity" type="button">Activity</button>
@@ -491,6 +501,69 @@
           </div>
         </section>
 
+        <section class="tab-panel" id="tab-work">
+          <div class="split">
+            <section class="panel">
+              <div class="panel-header">
+                <div class="panel-title">Submit Work</div>
+              </div>
+              <div class="panel-body stack">
+                <label>
+                  <span class="label">Product</span>
+                  <select id="workProductSelect"></select>
+                </label>
+                <label>
+                  <span class="label">Task title</span>
+                  <input id="workTitleInput" placeholder="What should Aruvi build or fix?" />
+                </label>
+                <label>
+                  <span class="label">Outcome and context</span>
+                  <textarea id="workDescriptionInput" placeholder="Describe the expected outcome, important context, and constraints"></textarea>
+                </label>
+                <label>
+                  <span class="label">Acceptance criteria</span>
+                  <textarea id="workAcceptanceInput" placeholder="How will we know this is complete?"></textarea>
+                </label>
+                <div class="button-row">
+                  <button id="createWorkButton" type="button">Create Task</button>
+                </div>
+                <div class="empty">Tasks are created as drafts. Review the task, then approve it to queue the coding workflow.</div>
+              </div>
+            </section>
+
+            <aside class="side-stack">
+              <section class="panel">
+                <div class="panel-header">
+                  <div class="panel-title">Work Items</div>
+                  <button class="secondary" id="refreshWorkButton" type="button">Refresh</button>
+                </div>
+                <div class="panel-body">
+                  <div class="work-list" id="workList"></div>
+                </div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-header">
+                  <div class="panel-title">Delivery</div>
+                  <div class="status" id="deliveryStatus">Select a task</div>
+                </div>
+                <div class="panel-body stack">
+                  <div id="deliveryDetails" class="tool-list"></div>
+                  <div class="button-row">
+                    <button id="approveWorkButton" type="button">Approve &amp; Start</button>
+                    <button class="secondary" id="startWorkButton" type="button">Start / Retry</button>
+                    <button class="secondary" id="refreshDeliveryButton" type="button">Refresh</button>
+                  </div>
+                  <div class="button-row" id="workflowActions">
+                    <button class="secondary" data-workflow-action="approve" type="button">Approve Gate</button>
+                    <button class="danger" data-workflow-action="reject" type="button">Reject Gate</button>
+                  </div>
+                </div>
+              </section>
+            </aside>
+          </div>
+        </section>
+
         <section class="tab-panel" id="tab-chat">
           <section class="panel">
             <div class="panel-header">
@@ -568,7 +641,8 @@
       locale: "aruvi.remote.locale",
       session: "aruvi.remote.session",
       selectedNode: "aruvi.remote.selected_node",
-      selectedProduct: "aruvi.remote.selected_product"
+      selectedProduct: "aruvi.remote.selected_product",
+      selectedWorkItem: "aruvi.remote.selected_work_item"
     };
 
     const mcpFileTools = [
@@ -586,9 +660,12 @@
       sessionId: localStorage.getItem(storageKeys.session) || "",
       selectedNodeId: localStorage.getItem(storageKeys.selectedNode) || "",
       selectedProductId: localStorage.getItem(storageKeys.selectedProduct) || "",
+      selectedWorkItemId: localStorage.getItem(storageKeys.selectedWorkItem) || "",
       draftTreeNodes: [],
       products: [],
       productSummary: null,
+      workItems: [],
+      delivery: null,
       chatMessages: [],
       voiceMessages: [],
       voiceRecording: null,
@@ -622,6 +699,19 @@
       productStatus: document.getElementById("productStatus"),
       productMetrics: document.getElementById("productMetrics"),
       productTree: document.getElementById("productTree"),
+      workProductSelect: document.getElementById("workProductSelect"),
+      workTitleInput: document.getElementById("workTitleInput"),
+      workDescriptionInput: document.getElementById("workDescriptionInput"),
+      workAcceptanceInput: document.getElementById("workAcceptanceInput"),
+      createWorkButton: document.getElementById("createWorkButton"),
+      refreshWorkButton: document.getElementById("refreshWorkButton"),
+      workList: document.getElementById("workList"),
+      deliveryStatus: document.getElementById("deliveryStatus"),
+      deliveryDetails: document.getElementById("deliveryDetails"),
+      approveWorkButton: document.getElementById("approveWorkButton"),
+      startWorkButton: document.getElementById("startWorkButton"),
+      refreshDeliveryButton: document.getElementById("refreshDeliveryButton"),
+      workflowActions: document.getElementById("workflowActions"),
       chatConversation: document.getElementById("chatConversation"),
       chatComposer: document.getElementById("chatComposer"),
       chatSendButton: document.getElementById("chatSendButton"),
@@ -699,6 +789,11 @@
         el.voiceSendButton,
         el.voiceSpeakToggle,
         el.refreshProductsButton,
+        el.createWorkButton,
+        el.refreshWorkButton,
+        el.approveWorkButton,
+        el.startWorkButton,
+        el.refreshDeliveryButton,
         el.newSessionButton,
         el.healthButton,
         el.saveButton,
@@ -711,6 +806,12 @@
       }
       el.confirmButton.disabled = nextBusy || !state.sessionId;
       el.clearButton.disabled = nextBusy || !state.sessionId;
+      el.approveWorkButton.disabled = nextBusy || !state.selectedWorkItemId;
+      el.startWorkButton.disabled = nextBusy || !state.selectedWorkItemId;
+      el.refreshDeliveryButton.disabled = nextBusy || !state.selectedWorkItemId;
+      Array.from(el.workflowActions.querySelectorAll("button")).forEach((button) => {
+        button.disabled = nextBusy || !state.delivery || !state.delivery.workflow_run;
+      });
     }
 
     function updateSessionStatus() {
@@ -728,6 +829,9 @@
       el.panels.forEach((panel) => panel.classList.toggle("active", panel.id === "tab-" + tabId));
       if (tabId === "products" && !state.products.length) {
         void loadProducts();
+      }
+      if (tabId === "work") {
+        void loadWorkItems();
       }
     }
 
@@ -1288,6 +1392,277 @@
       el.productTree.appendChild(note);
     }
 
+    function renderWorkProductOptions() {
+      el.workProductSelect.innerHTML = "";
+      if (!state.products.length) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "No products available";
+        el.workProductSelect.appendChild(option);
+        return;
+      }
+      if (!state.selectedProductId || !state.products.some((product) => product.id === state.selectedProductId)) {
+        state.selectedProductId = state.products[0].id;
+        localStorage.setItem(storageKeys.selectedProduct, state.selectedProductId);
+      }
+      state.products.forEach((product) => {
+        const option = document.createElement("option");
+        option.value = product.id;
+        option.textContent = product.name;
+        option.selected = product.id === state.selectedProductId;
+        el.workProductSelect.appendChild(option);
+      });
+    }
+
+    async function ensureWorkProducts() {
+      if (!state.products.length) {
+        state.products = await request("/api/mobile/products");
+      }
+      renderWorkProductOptions();
+    }
+
+    async function loadWorkItems() {
+      try {
+        setBusy(true);
+        setStatus("Loading work...", "warn");
+        await ensureWorkProducts();
+        if (!state.selectedProductId) {
+          state.workItems = [];
+          state.delivery = null;
+          renderWorkItems();
+          renderDelivery();
+          setStatus("Create a product first", "warn");
+          return;
+        }
+        const response = await request(
+          "/api/mobile/work-items?product_id=" + encodeURIComponent(state.selectedProductId) + "&limit=100"
+        );
+        state.workItems = response.items || [];
+        if (!state.workItems.some((item) => item.id === state.selectedWorkItemId)) {
+          state.selectedWorkItemId = state.workItems[0] ? state.workItems[0].id : "";
+          if (state.selectedWorkItemId) {
+            localStorage.setItem(storageKeys.selectedWorkItem, state.selectedWorkItemId);
+          } else {
+            localStorage.removeItem(storageKeys.selectedWorkItem);
+          }
+        }
+        renderWorkItems();
+        if (state.selectedWorkItemId) {
+          await loadDelivery(false);
+        } else {
+          state.delivery = null;
+          renderDelivery();
+        }
+        setStatus("Connected", "ok");
+      } catch (error) {
+        setStatus(error.message || String(error), "error");
+        renderWorkItems(error.message || String(error));
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    function renderWorkItems(errorMessage) {
+      el.workList.innerHTML = "";
+      if (errorMessage) {
+        const error = document.createElement("div");
+        error.className = "error";
+        error.textContent = errorMessage;
+        el.workList.appendChild(error);
+        return;
+      }
+      if (!state.workItems.length) {
+        const empty = document.createElement("div");
+        empty.className = "empty";
+        empty.textContent = "No work items for this product.";
+        el.workList.appendChild(empty);
+        return;
+      }
+      state.workItems.forEach((item) => {
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "work-card" + (item.id === state.selectedWorkItemId ? " selected" : "");
+        card.onclick = () => selectWorkItem(item.id);
+        const title = document.createElement("div");
+        title.className = "work-title";
+        title.textContent = item.title;
+        const summary = document.createElement("div");
+        summary.className = "work-summary";
+        summary.textContent = String(item.status || "draft").replaceAll("_", " ") + " · " + String(item.work_item_type || "task").replaceAll("_", " ");
+        card.appendChild(title);
+        card.appendChild(summary);
+        el.workList.appendChild(card);
+      });
+    }
+
+    async function selectWorkItem(workItemId) {
+      state.selectedWorkItemId = workItemId;
+      localStorage.setItem(storageKeys.selectedWorkItem, workItemId);
+      renderWorkItems();
+      await loadDelivery();
+    }
+
+    function appendDetailCard(titleText, detailText, kind) {
+      const card = document.createElement("div");
+      card.className = "tool-card";
+      const title = document.createElement("div");
+      title.className = "tool-title" + (kind ? " " + kind : "");
+      title.textContent = titleText;
+      const detail = document.createElement("div");
+      detail.className = "tool-meta";
+      detail.textContent = detailText;
+      card.appendChild(title);
+      card.appendChild(detail);
+      el.deliveryDetails.appendChild(card);
+    }
+
+    function renderDelivery() {
+      el.deliveryDetails.innerHTML = "";
+      const delivery = state.delivery;
+      if (!delivery) {
+        el.deliveryStatus.textContent = state.selectedWorkItemId ? "Loading" : "Select a task";
+        setBusy(state.busy);
+        return;
+      }
+      const workItem = delivery.work_item;
+      const workflow = delivery.workflow_run;
+      el.deliveryStatus.textContent = workflow
+        ? String(workflow.current_stage || workflow.status).replaceAll("_", " ")
+        : String(workItem.status || "draft").replaceAll("_", " ");
+      appendDetailCard(workItem.title, workItem.description || workItem.problem_statement || "No description");
+      appendDetailCard(
+        "Task status",
+        String(workItem.status || "draft").replaceAll("_", " "),
+        workItem.status === "done" ? "ok" : ""
+      );
+      if (workflow) {
+        appendDetailCard(
+          "Workflow",
+          "Stage: " + String(workflow.current_stage).replaceAll("_", " ") +
+            " · Status: " + String(workflow.status).replaceAll("_", " ") +
+            (workflow.error_message ? " · " + workflow.error_message : ""),
+          workflow.status === "failed" ? "error" : ""
+        );
+      } else {
+        appendDetailCard("Workflow", "Not started");
+      }
+      const artifacts = delivery.artifacts || [];
+      appendDetailCard("Artifacts", artifacts.length ? artifacts.map((artifact) => artifact.summary || artifact.artifact_type).join("\n") : "No artifacts yet");
+      setBusy(state.busy);
+    }
+
+    async function loadDelivery(manageBusy = true) {
+      if (!state.selectedWorkItemId) {
+        state.delivery = null;
+        renderDelivery();
+        return;
+      }
+      try {
+        if (manageBusy) setBusy(true);
+        state.delivery = await request(
+          "/api/mobile/work-items/" + encodeURIComponent(state.selectedWorkItemId) + "/delivery"
+        );
+        renderDelivery();
+        setStatus("Connected", "ok");
+      } catch (error) {
+        setStatus(error.message || String(error), "error");
+      } finally {
+        if (manageBusy) setBusy(false);
+      }
+    }
+
+    async function createWorkItem() {
+      const title = el.workTitleInput.value.trim();
+      const productId = el.workProductSelect.value || state.selectedProductId;
+      if (!productId || !title) {
+        setStatus("Choose a product and enter a task title", "warn");
+        return;
+      }
+      try {
+        setBusy(true);
+        setStatus("Creating task...", "warn");
+        const workItem = await request("/api/mobile/work-items", {
+          method: "POST",
+          body: {
+            product_id: productId,
+            title,
+            description: el.workDescriptionInput.value.trim(),
+            acceptance_criteria: el.workAcceptanceInput.value.trim(),
+            work_item_type: "task",
+            priority: "medium",
+            complexity: "medium"
+          }
+        });
+        state.selectedWorkItemId = workItem.id;
+        localStorage.setItem(storageKeys.selectedWorkItem, workItem.id);
+        el.workTitleInput.value = "";
+        el.workDescriptionInput.value = "";
+        el.workAcceptanceInput.value = "";
+        setStatus("Task created", "ok");
+      } catch (error) {
+        setStatus(error.message || String(error), "error");
+        return;
+      } finally {
+        setBusy(false);
+      }
+      await loadWorkItems();
+    }
+
+    async function approveAndStartWork() {
+      if (!state.selectedWorkItemId) return;
+      try {
+        setBusy(true);
+        setStatus("Approving and queueing workflow...", "warn");
+        await request(
+          "/api/mobile/work-items/" + encodeURIComponent(state.selectedWorkItemId) + "/approve",
+          { method: "POST", body: { notes: "Approved from remote Studio" } }
+        );
+        setStatus("Workflow queued", "ok");
+        window.setTimeout(() => void loadWorkItems(), 1200);
+      } catch (error) {
+        setStatus(error.message || String(error), "error");
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function startWork() {
+      if (!state.selectedWorkItemId) return;
+      try {
+        setBusy(true);
+        setStatus("Queueing workflow...", "warn");
+        await request(
+          "/api/mobile/work-items/" + encodeURIComponent(state.selectedWorkItemId) + "/workflow/start",
+          { method: "POST" }
+        );
+        setStatus("Workflow queued", "ok");
+        window.setTimeout(() => void loadWorkItems(), 1200);
+      } catch (error) {
+        setStatus(error.message || String(error), "error");
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function handleWorkflowAction(action) {
+      const workflow = state.delivery && state.delivery.workflow_run;
+      if (!workflow) return;
+      try {
+        setBusy(true);
+        setStatus(action === "approve" ? "Approving gate..." : "Rejecting gate...", "warn");
+        await request("/api/mobile/workflows/" + encodeURIComponent(workflow.id) + "/action", {
+          method: "POST",
+          body: { action, notes: "Action from remote Studio" }
+        });
+        await loadDelivery(false);
+        setStatus("Workflow updated", "ok");
+      } catch (error) {
+        setStatus(error.message || String(error), "error");
+      } finally {
+        setBusy(false);
+      }
+    }
+
     function renderMcpTools() {
       el.mcpToolList.innerHTML = "";
       mcpFileTools.forEach(([name, description]) => {
@@ -1324,6 +1699,21 @@
     el.clearButton.addEventListener("click", clearDraft);
     el.newSessionButton.addEventListener("click", newSession);
     el.refreshProductsButton.addEventListener("click", loadProducts);
+    el.workProductSelect.addEventListener("change", () => {
+      state.selectedProductId = el.workProductSelect.value;
+      localStorage.setItem(storageKeys.selectedProduct, state.selectedProductId);
+      state.selectedWorkItemId = "";
+      localStorage.removeItem(storageKeys.selectedWorkItem);
+      void loadWorkItems();
+    });
+    el.createWorkButton.addEventListener("click", createWorkItem);
+    el.refreshWorkButton.addEventListener("click", loadWorkItems);
+    el.approveWorkButton.addEventListener("click", approveAndStartWork);
+    el.startWorkButton.addEventListener("click", startWork);
+    el.refreshDeliveryButton.addEventListener("click", () => loadDelivery());
+    Array.from(el.workflowActions.querySelectorAll("button")).forEach((button) => {
+      button.addEventListener("click", () => handleWorkflowAction(button.dataset.workflowAction));
+    });
     [el.composer, el.chatComposer, el.voiceComposer].forEach((box) => {
       box.addEventListener("keydown", (event) => {
         if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
