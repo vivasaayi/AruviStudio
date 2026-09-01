@@ -41,3 +41,7 @@ sha1 = "0.10"
 urlencoding = "2"
 whisper-rs = "0.16"
 hound = "3.5"
+
+[dev-dependencies]
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }

@@ -273,7 +273,20 @@ pub async fn start_webhook_server(app_state: AppState) -> Result<(), String> {
         .parse()
         .map_err(|error| format!("invalid webhook bind address: {error}"))?;
 
-    let router = Router::new()
+    let router = build_webhook_router(app_state);
+
+    let listener = tokio::net::TcpListener::bind(address)
+        .await
+        .map_err(|error| format!("failed to bind webhook server: {error}"))?;
+
+    info!(address = %address, "webhook server listening");
+    axum::serve(listener, router)
+        .await
+        .map_err(|error| format!("webhook server failed: {error}"))
+}
+
+pub(crate) fn build_webhook_router(app_state: AppState) -> Router {
+    Router::new()
         .route("/health", get(healthcheck))
         .route("/remote", get(remote_app))
         .route("/remote/*path", get(remote_app))
@@ -365,14 +378,8 @@ pub async fn start_webhook_server(app_state: AppState) -> Result<(), String> {
             get(twilio_voice_entry_with_prompt).post(twilio_voice_entry),
         )
         .route("/webhooks/twilio/voice/gather", post(twilio_voice_gather))
-        .with_state(WebhookState { app_state });
-
-    let listener = tokio::net::TcpListener::bind(address)
-        .await
-        .map_err(|error| format!("failed to bind webhook server: {error}"))?;
-
-    info!(address = %address, "webhook server listening");
-    axum::serve(listener, router)
-        .await
-        .map_err(|error| format!("webhook server failed: {error}"))
+        .with_state(WebhookState { app_state })
 }
+
+#[cfg(test)]
+mod tests;

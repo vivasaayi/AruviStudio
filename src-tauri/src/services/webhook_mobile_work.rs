@@ -1,4 +1,6 @@
 use crate::domain::work_item::WorkItemStatus;
+use crate::domain::workflow::WorkflowRun;
+use crate::error::AppError;
 use crate::persistence::{approval_repo, artifact_repo, work_item_repo, workflow_repo};
 use crate::services::webhook_bridge::ensure_mobile_api_authorized;
 use crate::services::webhook_service::WebhookState;
@@ -47,6 +49,62 @@ pub(crate) struct MobileWorkflowActionRequest {
 
 fn bad_request(error: impl ToString) -> axum::response::Response {
     (StatusCode::BAD_REQUEST, error.to_string()).into_response()
+}
+
+fn workflow_start_error(
+    error: AppError,
+    workflow_run: Option<WorkflowRun>,
+) -> axum::response::Response {
+    let status = match &error {
+        AppError::NotFound(_) => StatusCode::NOT_FOUND,
+        AppError::Validation(_) => StatusCode::CONFLICT,
+        AppError::Provider(_) => StatusCode::BAD_GATEWAY,
+        AppError::Database(_)
+        | AppError::Git(_)
+        | AppError::Io(_)
+        | AppError::Serialization(_)
+        | AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    (
+        status,
+        Json(json!({
+            "error": error.to_string(),
+            "status": "failed",
+            "workflow_run": workflow_run,
+        })),
+    )
+        .into_response()
+}
+
+async fn start_workflow_response(
+    state: &WebhookState,
+    work_item_id: &str,
+) -> axum::response::Response {
+    let service = state.app_state.workflow_service.lock().await;
+    let started = match service.start_work_item_workflow(work_item_id).await {
+        Ok(run) => run,
+        Err(error) => {
+            let workflow_run = workflow_repo::get_latest_workflow_run_for_work_item(
+                &state.app_state.db,
+                work_item_id,
+            )
+            .await
+            .ok()
+            .flatten();
+            return workflow_start_error(error, workflow_run);
+        }
+    };
+    let current = match service.get_workflow_run(&started.id).await {
+        Ok(run) => run,
+        Err(error) => return workflow_start_error(error, Some(started)),
+    };
+
+    Json(json!({
+        "status": "started",
+        "work_item_id": work_item_id,
+        "workflow_run": current,
+    }))
+    .into_response()
 }
 
 pub(crate) async fn mobile_list_work_items(
@@ -200,31 +258,7 @@ pub(crate) async fn mobile_approve_work_item(
         }
     }
 
-    let workflow_service = state.app_state.workflow_service.clone();
-    let work_item_id_for_start = work_item_id.clone();
-    tokio::spawn(async move {
-        let service = workflow_service.lock().await;
-        if let Err(error) = service
-            .start_work_item_workflow(&work_item_id_for_start)
-            .await
-        {
-            tracing::error!(
-                work_item_id = %work_item_id_for_start,
-                error = %error,
-                "remote work item auto-start failed"
-            );
-        }
-    });
-
-    (
-        StatusCode::ACCEPTED,
-        Json(json!({
-            "status": "accepted",
-            "work_item_id": work_item_id,
-            "message": "Work item approved; workflow start has been queued."
-        })),
-    )
-        .into_response()
+    start_workflow_response(&state, &work_item_id).await
 }
 
 pub(crate) async fn mobile_start_workflow(
@@ -235,30 +269,7 @@ pub(crate) async fn mobile_start_workflow(
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await {
         return response;
     }
-    let workflow_service = state.app_state.workflow_service.clone();
-    let work_item_id_for_start = work_item_id.clone();
-    tokio::spawn(async move {
-        let service = workflow_service.lock().await;
-        if let Err(error) = service
-            .start_work_item_workflow(&work_item_id_for_start)
-            .await
-        {
-            tracing::error!(
-                work_item_id = %work_item_id_for_start,
-                error = %error,
-                "remote workflow start failed"
-            );
-        }
-    });
-    (
-        StatusCode::ACCEPTED,
-        Json(json!({
-            "status": "accepted",
-            "work_item_id": work_item_id,
-            "message": "Workflow start has been queued."
-        })),
-    )
-        .into_response()
+    start_workflow_response(&state, &work_item_id).await
 }
 
 pub(crate) async fn mobile_get_work_item_delivery(

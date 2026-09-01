@@ -105,6 +105,12 @@ and sends it as a bearer token for mobile API requests.
 4. Refresh Delivery to follow the workflow stage and generated artifacts.
 5. Use **Approve Gate** or **Reject Gate** when the workflow pauses for review.
 
+Workflow start requests wait until the initial execution reaches a stable stage and return the
+current `workflow_run`. A failed start returns a non-success HTTP status with a JSON `error` and,
+when a run was created before the failure, its latest `workflow_run` state. It does not report that
+work was queued successfully. Repeating a start request for a work item with an active workflow
+returns that same run rather than creating a duplicate.
+
 The current remote surface is intentionally operational rather than a copy of every desktop
 administration screen. Product, repository, provider, and agent configuration can remain a desktop
 setup activity while the remote workflow matures.

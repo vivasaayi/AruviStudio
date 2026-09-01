@@ -850,7 +850,12 @@
       });
       if (!response.ok) {
         const text = await response.text();
-        throw new Error(text || "Request failed with status " + response.status);
+        let message = text;
+        try {
+          const payload = JSON.parse(text);
+          message = payload.error || payload.message || text;
+        } catch {}
+        throw new Error(message || "Request failed with status " + response.status);
       }
       return response.json();
     }
@@ -1612,13 +1617,13 @@
       if (!state.selectedWorkItemId) return;
       try {
         setBusy(true);
-        setStatus("Approving and queueing workflow...", "warn");
-        await request(
+        setStatus("Approving and starting workflow...", "warn");
+        const result = await request(
           "/api/mobile/work-items/" + encodeURIComponent(state.selectedWorkItemId) + "/approve",
           { method: "POST", body: { notes: "Approved from remote Studio" } }
         );
-        setStatus("Workflow queued", "ok");
-        window.setTimeout(() => void loadWorkItems(), 1200);
+        setStatus("Workflow started · " + result.workflow_run.current_stage, "ok");
+        await loadWorkItems();
       } catch (error) {
         setStatus(error.message || String(error), "error");
       } finally {
@@ -1630,13 +1635,13 @@
       if (!state.selectedWorkItemId) return;
       try {
         setBusy(true);
-        setStatus("Queueing workflow...", "warn");
-        await request(
+        setStatus("Starting workflow...", "warn");
+        const result = await request(
           "/api/mobile/work-items/" + encodeURIComponent(state.selectedWorkItemId) + "/workflow/start",
           { method: "POST" }
         );
-        setStatus("Workflow queued", "ok");
-        window.setTimeout(() => void loadWorkItems(), 1200);
+        setStatus("Workflow started · " + result.workflow_run.current_stage, "ok");
+        await loadWorkItems();
       } catch (error) {
         setStatus(error.message || String(error), "error");
       } finally {
