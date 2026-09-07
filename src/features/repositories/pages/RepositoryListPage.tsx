@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
-import { browseForRepositoryPath, deleteRepository, getCapability, listProductAreas, listProducts, listRepositories, registerRepository, updateRepository } from "../../../lib/tauri";
+import { attachRepository, browseForRepositoryPath, deleteRepository, getCapability, listProductAreas, listProducts, listRepositories, registerRepository, updateRepository } from "../../../lib/tauri";
 import type { Repository } from "../../../lib/types";
 
 const styles: Record<string, React.CSSProperties> = {
@@ -67,14 +67,31 @@ export function RepositoryListPage() {
   const activeProductArea = activeProductAreas.find((productArea) => productArea.id === activeProductAreaId) ?? null;
 
   const createMutation = useMutation({
-    mutationFn: () => registerRepository(form),
+    mutationFn: async () => {
+      const repository = await registerRepository(form);
+      // Workspaces are created from a product-scoped screen. Make that intent
+      // real instead of leaving a globally registered but unusable folder.
+      if (selectedProductId) {
+        await attachRepository({ scopeType: "product", scopeId: selectedProductId, repositoryId: repository.id, isDefault: true });
+      }
+      return repository;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["repositories"] });
+      queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] });
       setForm({ name: "", localPath: "", remoteUrl: "", defaultBranch: "main" });
       setShowForm(false);
       setFormError(null);
     },
     onError: (error) => setFormError(String(error)),
+  });
+
+  const attachMutation = useMutation({
+    mutationFn: (repositoryId: string) => {
+      if (!selectedProductId) throw new Error("Select a product before attaching a workspace.");
+      return attachRepository({ scopeType: "product", scopeId: selectedProductId, repositoryId, isDefault: true });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] }),
   });
 
   const deleteMutation = useMutation({
@@ -211,6 +228,9 @@ export function RepositoryListPage() {
                     </>
                   )}
                   <div style={styles.btnRow}>
+                    <button style={styles.btn} onClick={() => attachMutation.mutate(r.id)} disabled={!selectedProductId || attachMutation.isPending}>
+                      {attachMutation.isPending ? "Attaching..." : `Use for ${activeProduct?.name ?? "current product"}`}
+                    </button>
                     <button style={styles.btnSecondary} onClick={() => startEditing(r)}>Edit</button>
                     <button style={styles.btnDanger} onClick={() => deleteMutation.mutate(r.id)}>Remove</button>
                   </div>
