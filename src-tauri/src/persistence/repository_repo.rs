@@ -66,9 +66,18 @@ pub async fn attach_repository(
     repository_id: &str,
     is_default: bool,
 ) -> Result<(), AppError> {
-    sqlx::query("INSERT INTO repository_attachments (id,scope_type,scope_id,repository_id,is_default) VALUES (?,?,?,?,?)")
+    let mut transaction = pool.begin().await?;
+    if is_default {
+        sqlx::query("UPDATE repository_attachments SET is_default=0 WHERE scope_type=? AND scope_id=?")
+            .bind(scope_type)
+            .bind(scope_id)
+            .execute(&mut *transaction)
+            .await?;
+    }
+    sqlx::query("INSERT INTO repository_attachments (id,scope_type,scope_id,repository_id,is_default) VALUES (?,?,?,?,?) ON CONFLICT(scope_type,scope_id,repository_id) DO UPDATE SET is_default=excluded.is_default")
         .bind(id).bind(scope_type).bind(scope_id).bind(repository_id).bind(is_default)
-        .execute(pool).await?;
+        .execute(&mut *transaction).await?;
+    transaction.commit().await?;
     Ok(())
 }
 

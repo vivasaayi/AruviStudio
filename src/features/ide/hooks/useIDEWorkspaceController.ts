@@ -272,7 +272,8 @@ export function useIDEWorkspaceController() {
           repositoryId: existing.id,
           isDefault: true,
         });
-        await queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] });
+        await queryClient.invalidateQueries({ queryKey: ["ideScopeRepo", selectedProductId, activeProductAreaId] });
+        await queryClient.refetchQueries({ queryKey: ["ideScopeRepo", selectedProductId, activeProductAreaId], type: "active" });
         handleSelectRepository(existing.id);
         return;
       }
@@ -289,7 +290,8 @@ export function useIDEWorkspaceController() {
         isDefault: true,
       });
       await queryClient.invalidateQueries({ queryKey: ["repositories"] });
-      await queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] });
+      await queryClient.invalidateQueries({ queryKey: ["ideScopeRepo", selectedProductId, activeProductAreaId] });
+      await queryClient.refetchQueries({ queryKey: ["ideScopeRepo", selectedProductId, activeProductAreaId], type: "active" });
       handleSelectRepository(created.id);
     } catch (error) {
       setFileError(String(error));
