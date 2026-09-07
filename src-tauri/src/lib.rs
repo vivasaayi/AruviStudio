@@ -129,6 +129,8 @@ pub fn run() {
             commands::repository_commands::list_repositories,
             commands::repository_commands::delete_repository,
             commands::repository_commands::attach_repository,
+            commands::repository_commands::list_repository_attachments,
+            commands::repository_commands::detach_repository,
             commands::repository_commands::resolve_repository_for_work_item,
             commands::repository_commands::resolve_repository_for_scope,
             commands::repository_commands::workspace::create_local_workspace,

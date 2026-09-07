@@ -12,6 +12,16 @@ pub struct Repository {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct RepositoryAttachment {
+    pub id: String,
+    pub scope_type: String,
+    pub scope_id: String,
+    pub repository_id: String,
+    pub is_default: bool,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepositoryTreeNode {
     pub name: String,

@@ -10,6 +10,7 @@ import {
   listProducts,
   listProviders,
   listRepositories,
+  listRepositoryAttachments,
   listRepositoryTree,
   readRepositoryFile,
   registerRepository,
@@ -97,6 +98,17 @@ export function useIDEWorkspaceController() {
     enabled: !!activeWorkItemId,
     staleTime: 30000,
   });
+  const { data: productRepositoryAttachments = [] } = useQuery({
+    queryKey: ["repositoryAttachments", "product", selectedProductId],
+    queryFn: () => listRepositoryAttachments({ scopeType: "product", scopeId: selectedProductId! }),
+    enabled: !!selectedProductId,
+  });
+  const attachedRepositories = React.useMemo(
+    () => repositories.filter((repository) =>
+      productRepositoryAttachments.some((attachment) => attachment.repository_id === repository.id),
+    ),
+    [productRepositoryAttachments, repositories],
+  );
 
   const { data: repositoryTree = [], isFetching: isTreeRefreshing, refetch: refetchTree } = useQuery({
     queryKey: ["ideRepositoryTree", selectedRepoId],
@@ -106,9 +118,12 @@ export function useIDEWorkspaceController() {
   });
 
   useEffect(() => {
+    const selectedAttachedRepository = attachedRepositories.find((repository) => repository.id === selectedRepoId);
     const preferredRepoId =
       workItemResolvedRepo?.id ??
+      selectedAttachedRepository?.id ??
       scopeResolvedRepo?.id ??
+      attachedRepositories[0]?.id ??
       null;
 
     if (!preferredRepoId || !selectedProductId) {
@@ -134,7 +149,7 @@ export function useIDEWorkspaceController() {
       setExpandedDirs({});
       setFileError(null);
     });
-  }, [repositories, scopeResolvedRepo?.id, selectedProductId, selectedRepoId, setActiveRepo, workItemResolvedRepo?.id]);
+  }, [attachedRepositories, repositories, scopeResolvedRepo?.id, selectedProductId, selectedRepoId, setActiveRepo, workItemResolvedRepo?.id]);
 
   const filteredTree = filterTreeNodes(repositoryTree, deferredTreeFilter);
   const selectedRepository = repositories.find((repo) => repo.id === selectedRepoId) ?? null;
@@ -339,6 +354,7 @@ export function useIDEWorkspaceController() {
     activeFileRepositoryId,
     activeProduct,
     activeProductArea,
+    attachedRepositories,
     contextBudgetChars,
     copilotDraft,
     copilotError,
@@ -354,6 +370,7 @@ export function useIDEWorkspaceController() {
     fileError,
     filteredTree,
     handleSelectProduct,
+    handleSelectRepository,
     includeActiveFileContext,
     isApplyingProposal,
     isCopilotSending,

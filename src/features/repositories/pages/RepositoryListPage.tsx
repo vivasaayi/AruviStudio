@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ScopeBreadcrumb } from "../../../app/layout/ScopeBreadcrumb";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
-import { attachRepository, browseForRepositoryPath, deleteRepository, getCapability, listProductAreas, listProducts, listRepositories, registerRepository, updateRepository } from "../../../lib/tauri";
+import { attachRepository, browseForRepositoryPath, deleteRepository, detachRepository, getCapability, listProductAreas, listProducts, listRepositories, listRepositoryAttachments, registerRepository, updateRepository } from "../../../lib/tauri";
 import type { Repository } from "../../../lib/types";
 
 const styles: Record<string, React.CSSProperties> = {
@@ -27,6 +27,7 @@ const styles: Record<string, React.CSSProperties> = {
   inputNoMargin: { width: "100%", padding: "8px 12px", backgroundColor: "#1e1e1e", border: "1px solid #444", borderRadius: 4, color: "#e0e0e0", fontSize: 13, boxSizing: "border-box" as const },
   helperText: { fontSize: 11, color: "#888", marginTop: 4 },
   errorText: { fontSize: 12, color: "#ff7b72", marginBottom: 12 },
+  scopeBadge: { display: "inline-flex", padding: "3px 8px", borderRadius: 999, fontSize: 11, fontWeight: 700, marginBottom: 10 },
 };
 
 export function RepositoryListPage() {
@@ -65,6 +66,20 @@ export function RepositoryListPage() {
   });
   const activeProduct = products.find((product) => product.id === selectedProductId) ?? null;
   const activeProductArea = activeProductAreas.find((productArea) => productArea.id === activeProductAreaId) ?? null;
+  const { data: attachments = [] } = useQuery({
+    queryKey: ["repositoryAttachments", "product", selectedProductId],
+    queryFn: () => listRepositoryAttachments({ scopeType: "product", scopeId: selectedProductId! }),
+    enabled: !!selectedProductId,
+  });
+  const attachmentByRepository = new Map(attachments.map((attachment) => [attachment.repository_id, attachment]));
+  const normalizedPath = (path: string) => path.replace(/\/+$/, "");
+  const pathCounts = new Map<string, number>();
+  for (const repository of repos ?? []) pathCounts.set(normalizedPath(repository.local_path), (pathCounts.get(normalizedPath(repository.local_path)) ?? 0) + 1);
+
+  const refreshScope = () => {
+    void queryClient.invalidateQueries({ queryKey: ["repositoryAttachments"] });
+    void queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] });
+  };
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -72,13 +87,13 @@ export function RepositoryListPage() {
       // Workspaces are created from a product-scoped screen. Make that intent
       // real instead of leaving a globally registered but unusable folder.
       if (selectedProductId) {
-        await attachRepository({ scopeType: "product", scopeId: selectedProductId, repositoryId: repository.id, isDefault: true });
+        await attachRepository({ scopeType: "product", scopeId: selectedProductId, repositoryId: repository.id, isDefault: attachments.length === 0 });
       }
       return repository;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["repositories"] });
-      queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] });
+      refreshScope();
       setForm({ name: "", localPath: "", remoteUrl: "", defaultBranch: "main" });
       setShowForm(false);
       setFormError(null);
@@ -87,11 +102,19 @@ export function RepositoryListPage() {
   });
 
   const attachMutation = useMutation({
-    mutationFn: (repositoryId: string) => {
+    mutationFn: ({ repositoryId, isDefault }: { repositoryId: string; isDefault: boolean }) => {
       if (!selectedProductId) throw new Error("Select a product before attaching a workspace.");
-      return attachRepository({ scopeType: "product", scopeId: selectedProductId, repositoryId, isDefault: true });
+      return attachRepository({ scopeType: "product", scopeId: selectedProductId, repositoryId, isDefault });
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ideScopeRepo"] }),
+    onSuccess: refreshScope,
+  });
+
+  const detachMutation = useMutation({
+    mutationFn: (repositoryId: string) => {
+      if (!selectedProductId) throw new Error("Select a product before detaching a workspace.");
+      return detachRepository({ scopeType: "product", scopeId: selectedProductId, repositoryId });
+    },
+    onSuccess: refreshScope,
   });
 
   const deleteMutation = useMutation({
@@ -132,6 +155,7 @@ export function RepositoryListPage() {
             productAreaName={activeProductArea?.name}
             capabilityName={activeCapability?.name}
           />
+          <div style={styles.helperText}>A product can use multiple repositories. One repository is the default opened by the IDE and used when no work item override is set.</div>
         </div>
         <button style={styles.btn} onClick={() => setShowForm(!showForm)}>{showForm ? "Cancel" : "+ Add Workspace"}</button>
       </div>
@@ -219,6 +243,8 @@ export function RepositoryListPage() {
                 </>
               ) : (
                 <>
+                  {attachmentByRepository.get(r.id) ? <div style={{ ...styles.scopeBadge, color: attachmentByRepository.get(r.id)?.is_default ? "#075f3d" : "#2459c7", background: attachmentByRepository.get(r.id)?.is_default ? "#dff5e9" : "#e7efff" }}>{attachmentByRepository.get(r.id)?.is_default ? "Default for current product" : "Attached to current product"}</div> : <div style={{ ...styles.scopeBadge, color: "#667085", background: "#eef1f5" }}>Available workspace</div>}
+                  {(pathCounts.get(normalizedPath(r.local_path)) ?? 0) > 1 && <div style={{ ...styles.scopeBadge, color: "#9a5a05", background: "#fff3d7", marginLeft: 6 }}>Duplicate path registration</div>}
                   <div style={styles.cardName}>{r.name}</div><div style={styles.cardPath}>{r.local_path}</div>
                   <div style={styles.cardBranch}>Version history enabled</div>
                   {showAdvanced && (
@@ -228,12 +254,13 @@ export function RepositoryListPage() {
                     </>
                   )}
                   <div style={styles.btnRow}>
-                    <button style={styles.btn} onClick={() => attachMutation.mutate(r.id)} disabled={!selectedProductId || attachMutation.isPending}>
-                      {attachMutation.isPending ? "Attaching..." : `Use for ${activeProduct?.name ?? "current product"}`}
-                    </button>
+                    {!attachmentByRepository.has(r.id) && <button style={styles.btn} onClick={() => attachMutation.mutate({ repositoryId: r.id, isDefault: attachments.length === 0 })} disabled={!selectedProductId || attachMutation.isPending}>{attachMutation.isPending ? "Attaching..." : "Attach to product"}</button>}
+                    {attachmentByRepository.has(r.id) && !attachmentByRepository.get(r.id)?.is_default && <button style={styles.btn} onClick={() => attachMutation.mutate({ repositoryId: r.id, isDefault: true })} disabled={attachMutation.isPending}>Make default</button>}
+                    {attachmentByRepository.has(r.id) && <button style={styles.btnSecondary} onClick={() => detachMutation.mutate(r.id)} disabled={detachMutation.isPending}>Detach</button>}
                     <button style={styles.btnSecondary} onClick={() => startEditing(r)}>Edit</button>
-                    <button style={styles.btnDanger} onClick={() => deleteMutation.mutate(r.id)}>Remove</button>
+                    <button style={styles.btnDanger} onClick={() => deleteMutation.mutate(r.id)}>Delete globally</button>
                   </div>
+                  {(attachMutation.error || detachMutation.error) && <div style={styles.errorText}>{String(attachMutation.error ?? detachMutation.error)}</div>}
                 </>
               )}
             </div>

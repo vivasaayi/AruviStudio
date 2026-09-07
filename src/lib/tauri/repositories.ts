@@ -5,6 +5,15 @@ import type {
   WorkspaceProvisionResult,
 } from "../types";
 
+export type RepositoryAttachment = {
+  id: string;
+  scope_type: "product" | "product_area";
+  scope_id: string;
+  repository_id: string;
+  is_default: boolean;
+  created_at: string;
+};
+
 // Repository commands
 export const registerRepository = (data: { name: string; localPath: string; remoteUrl: string; defaultBranch: string }) =>
   invoke<Repository>("register_repository", {
@@ -90,6 +99,10 @@ export const attachRepository = (data: { scopeType: "product" | "product_area"; 
     repositoryId: data.repositoryId,
     isDefault: data.isDefault,
   });
+export const listRepositoryAttachments = (data: { scopeType: "product" | "product_area"; scopeId: string }) =>
+  invoke<RepositoryAttachment[]>("list_repository_attachments", { scopeType: data.scopeType, scopeId: data.scopeId });
+export const detachRepository = (data: { scopeType: "product" | "product_area"; scopeId: string; repositoryId: string }) =>
+  invoke<void>("detach_repository", { scopeType: data.scopeType, scopeId: data.scopeId, repositoryId: data.repositoryId });
 export const resolveRepositoryForWorkItem = (workItemId: string) => invoke<Repository | null>("resolve_repository_for_work_item", { work_item_id: workItemId });
 export const resolveRepositoryForScope = (data: { productId?: string | null; productAreaId?: string | null }) =>
   invoke<Repository | null>("resolve_repository_for_scope", {

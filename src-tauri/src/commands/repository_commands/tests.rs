@@ -140,6 +140,116 @@ async fn repository_resolution_prefers_product_area_attachment_over_product_atta
 }
 
 #[tokio::test]
+async fn product_supports_multiple_repositories_with_one_default_and_detach_fallback() {
+    let app: tauri::App<MockRuntime> = make_test_app("repository_commands_multiple").await;
+    let state = app.state::<AppState>();
+    let (product_id, _, _) = create_work_item_with_product_area(
+        state.clone(),
+        "Multi Repository Product",
+        "Primary Area",
+        "Initial Work Item",
+    )
+    .await;
+    let first = register_repository(
+        state.clone(),
+        "First Repo".to_string(),
+        "/tmp/first-repo".to_string(),
+        "".to_string(),
+        "main".to_string(),
+    )
+    .await
+    .expect("first repository should be created");
+    let second = register_repository(
+        state.clone(),
+        "Second Repo".to_string(),
+        "/tmp/second-repo".to_string(),
+        "".to_string(),
+        "main".to_string(),
+    )
+    .await
+    .expect("second repository should be created");
+
+    attach_repository(
+        state.clone(),
+        "product".into(),
+        product_id.clone(),
+        first.id.clone(),
+        false,
+    )
+    .await
+    .expect("first attachment should become the default");
+    attach_repository(
+        state.clone(),
+        "product".into(),
+        product_id.clone(),
+        second.id.clone(),
+        false,
+    )
+    .await
+    .expect("second attachment should be added");
+    attach_repository(
+        state.clone(),
+        "product".into(),
+        product_id.clone(),
+        second.id.clone(),
+        true,
+    )
+    .await
+    .expect("second attachment should become default without duplication");
+
+    let attachments =
+        list_repository_attachments(state.clone(), "product".into(), product_id.clone())
+            .await
+            .expect("attachments should list");
+    assert_eq!(attachments.len(), 2);
+    assert_eq!(attachments.iter().filter(|item| item.is_default).count(), 1);
+    assert!(attachments
+        .iter()
+        .any(|item| item.repository_id == second.id && item.is_default));
+
+    detach_repository(
+        state.clone(),
+        "product".into(),
+        product_id.clone(),
+        second.id,
+    )
+    .await
+    .expect("default attachment should detach");
+    let remaining = list_repository_attachments(state, "product".into(), product_id)
+        .await
+        .expect("remaining attachments should list");
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].repository_id, first.id);
+    assert!(remaining[0].is_default);
+}
+
+#[tokio::test]
+async fn registering_the_same_workspace_path_is_idempotent() {
+    let app: tauri::App<MockRuntime> = make_test_app("repository_commands_path_dedupe").await;
+    let state = app.state::<AppState>();
+    let first = register_repository(
+        state.clone(),
+        "Workspace".into(),
+        "/tmp/aruvi-same-workspace/".into(),
+        "".into(),
+        "main".into(),
+    )
+    .await
+    .expect("first registration should succeed");
+    let repeated = register_repository(
+        state,
+        "Workspace duplicate".into(),
+        "/tmp/aruvi-same-workspace".into(),
+        "".into(),
+        "main".into(),
+    )
+    .await
+    .expect("repeat registration should return the existing workspace");
+
+    assert_eq!(first.id, repeated.id);
+}
+
+#[tokio::test]
 async fn updating_repository_propagates_new_default_branch_to_assigned_work_items() {
     let app: tauri::App<MockRuntime> = make_test_app("repository_commands_update").await;
     let state = app.state::<AppState>();

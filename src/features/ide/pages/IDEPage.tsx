@@ -15,6 +15,7 @@ export function IDEPage() {
     activeFileRepositoryId,
     activeProduct,
     activeProductArea,
+    attachedRepositories,
     modelOptions,
     copilotMode,
     setCopilotMode,
@@ -47,6 +48,7 @@ export function IDEPage() {
     fileError,
     filteredTree,
     handleSelectProduct,
+    handleSelectRepository,
     isSaving,
     isTreeRefreshing,
     openFolder,
@@ -123,6 +125,7 @@ export function IDEPage() {
             </div>
           </div>
           <div style={styles.leftBody}>
+            {attachedRepositories.length > 0 && <select style={styles.input} aria-label="Product repository" value={selectedRepoId} onChange={(event) => handleSelectRepository(event.target.value)}>{attachedRepositories.map((repository) => <option key={repository.id} value={repository.id}>{repository.name}{scopeResolvedRepo?.id === repository.id ? " (default)" : ""}</option>)}</select>}
             <input
               style={styles.input}
               value={treeFilter}
