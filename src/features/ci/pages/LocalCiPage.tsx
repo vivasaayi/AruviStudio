@@ -1,68 +1,30 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  getLocalCiStatus,
-  listLocalCiRuns,
-  listLocalCiTargets,
-  openLocalPreview,
-  queueLocalPreview,
-  type LocalCiRun,
-} from "../../../lib/tauri/ci";
+import { getLocalCiStatus, listLocalCiRuns, listLocalCiTargets, openLocalPreview, queueLocalPreview, type LocalCiRun } from "../../../lib/tauri/ci";
 
+type Tab = "builds" | "operations";
 const styles: Record<string, React.CSSProperties> = {
-  page: { maxWidth: 1080, margin: "0 auto", color: "#d4d4d4" },
-  header: { display: "flex", justifyContent: "space-between", gap: 16, alignItems: "start", marginBottom: 20 },
-  card: { background: "#252526", border: "1px solid #3a3a3a", borderRadius: 8, padding: 16, marginBottom: 12 },
-  row: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" },
-  button: { border: 0, borderRadius: 4, background: "#0e639c", color: "white", padding: "7px 11px", cursor: "pointer" },
-  secondary: { border: "1px solid #555", borderRadius: 4, background: "#2d2d30", color: "white", padding: "7px 11px", cursor: "pointer" },
-  input: { flex: 1, minWidth: 340, padding: "8px", background: "#1e1e1e", color: "white", border: "1px solid #555", borderRadius: 4, fontFamily: "monospace" },
-  badge: { borderRadius: 99, padding: "2px 8px", background: "#333", fontSize: 12 },
-  muted: { color: "#9da0a6", fontSize: 13 },
+  page: { maxWidth: 1180, margin: "0 auto", color: "#202938", paddingBottom: 36 }, header: { display: "flex", justifyContent: "space-between", gap: 18, alignItems: "start", marginBottom: 18 }, eyebrow: { color: "#4268ad", fontWeight: 700, fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 5 }, title: { margin: 0, fontSize: 30, letterSpacing: "-.035em" }, muted: { color: "#657085", fontSize: 13, lineHeight: 1.45 }, card: { background: "#fff", border: "1px solid #d9dfeb", borderRadius: 12, padding: 16, boxShadow: "0 1px 2px rgba(35,50,80,.04)" }, grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(175px, 1fr))", gap: 12, marginBottom: 16 }, row: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }, button: { border: 0, borderRadius: 7, background: "#2864dc", color: "white", padding: "8px 12px", cursor: "pointer", fontWeight: 650 }, secondary: { border: "1px solid #c8d1e1", borderRadius: 7, background: "#fff", color: "#27344b", padding: "8px 12px", cursor: "pointer", fontWeight: 600 }, input: { flex: 1, minWidth: 340, padding: "9px 10px", background: "#fff", color: "#263249", border: "1px solid #b8c4d7", borderRadius: 7, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }, badge: { borderRadius: 99, padding: "3px 8px", background: "#eef2f8", fontSize: 12, fontWeight: 650, whiteSpace: "nowrap" }, tab: { border: 0, background: "transparent", color: "#667085", padding: "9px 14px", borderBottom: "2px solid transparent", cursor: "pointer", fontWeight: 650 }, tabActive: { border: 0, background: "transparent", color: "#2459c7", padding: "9px 14px", borderBottom: "2px solid #2864dc", cursor: "pointer", fontWeight: 700 }, metricValue: { fontSize: 27, fontWeight: 760, letterSpacing: "-.04em", marginTop: 5 }, code: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, color: "#485974" },
 };
-
-const runColor = (status: string) => status === "passed" ? "#3fb950" : status === "failed" ? "#f85149" : "#d29922";
-
-function RunCard({ run }: { run: LocalCiRun }) {
-  return <div style={styles.card}>
-    <div style={{ ...styles.row, justifyContent: "space-between" }}>
-      <strong>#{run.id} · {run.target}</strong>
-      <span style={{ ...styles.badge, color: runColor(run.status) }}>{run.status}</span>
-    </div>
-    <div style={{ ...styles.muted, fontFamily: "monospace", marginTop: 8 }}>{run.commit}</div>
-    <div style={{ ...styles.row, marginTop: 10 }}>
-      {run.stages.map((stage) => <span key={stage.name} style={{ ...styles.badge, color: runColor(stage.status) }}>{stage.name}: {stage.status}</span>)}
-    </div>
-    {run.error && <div style={{ color: "#f85149", marginTop: 10 }}>{run.error}</div>}
-  </div>;
-}
+const color = (s: string) => s === "passed" || s === "online" || s === "ready" ? "#16834b" : s === "failed" || s === "offline" ? "#c23636" : "#9a5a05";
+const label = (s: string) => s.replaceAll("_", " ");
+function Badge({ status }: { status: string }) { return <span style={{ ...styles.badge, color: color(status), background: `${color(status)}12` }}>{label(status)}</span>; }
+function Metric({ title, value, note, status }: { title: string; value: string | number; note: string; status?: string }) { return <div style={styles.card}><div style={styles.muted}>{title}</div><div style={{ ...styles.metricValue, color: status ? color(status) : undefined }}>{value}</div><div style={{ ...styles.muted, marginTop: 4 }}>{note}</div></div>; }
+function RunCard({ run }: { run: LocalCiRun }) { return <div style={styles.card}><div style={{ ...styles.row, justifyContent: "space-between" }}><strong>Run #{run.id} · {run.target}</strong><Badge status={run.status} /></div><div style={{ ...styles.code, marginTop: 6 }}>{run.commit.slice(0, 12)} · {run.created_at}</div><div style={{ ...styles.row, marginTop: 12 }}>{run.stages.map((stage) => <span key={stage.name} style={{ ...styles.badge, color: color(stage.status) }}>{stage.name}: {label(stage.status)}</span>)}</div>{run.error && <div style={{ color: "#c23636", marginTop: 10, fontSize: 13 }}>{run.error}</div>}</div>; }
 
 export function LocalCiPage() {
-  const client = useQueryClient();
-  const [commit, setCommit] = useState("");
-  const status = useQuery({ queryKey: ["local-ci-status"], queryFn: getLocalCiStatus, retry: false });
-  const targets = useQuery({ queryKey: ["local-ci-targets"], queryFn: listLocalCiTargets, retry: false });
+  const client = useQueryClient(); const [tab, setTab] = useState<Tab>("builds"); const [commit, setCommit] = useState("");
+  const status = useQuery({ queryKey: ["local-ci-status"], queryFn: getLocalCiStatus, retry: false, refetchInterval: 5000 });
+  const targets = useQuery({ queryKey: ["local-ci-targets"], queryFn: listLocalCiTargets, retry: false, refetchInterval: 10000 });
   const runs = useQuery({ queryKey: ["local-ci-runs"], queryFn: listLocalCiRuns, retry: false, refetchInterval: 3000 });
-  const queue = useMutation({
-    mutationFn: () => queueLocalPreview(commit),
-    onSuccess: () => { setCommit(""); void client.invalidateQueries({ queryKey: ["local-ci-runs"] }); },
-  });
-  const open = useMutation({ mutationFn: openLocalPreview });
+  const queue = useMutation({ mutationFn: () => queueLocalPreview(commit), onSuccess: () => { setCommit(""); void client.invalidateQueries({ queryKey: ["local-ci-runs"] }); } });
+  const open = useMutation({ mutationFn: openLocalPreview }); const allRuns = runs.data ?? []; const online = status.data?.status === "online"; const previewConfigured = (targets.data ?? []).some((target) => target.id === "aruvi-studio-preview");
+  const metrics = useMemo(() => ({ running: allRuns.filter((r) => r.status === "running").length, queued: allRuns.filter((r) => r.status === "queued").length, failed: allRuns.filter((r) => r.status === "failed").length, passed: allRuns.filter((r) => r.status === "passed").length }), [allRuns]);
   const error = status.error ?? targets.error ?? runs.error ?? queue.error ?? open.error;
-  const previewConfigured = (targets.data ?? []).some((target) => target.id === "aruvi-studio-preview");
   return <div style={styles.page}>
-    <div style={styles.header}>
-      <div><h1 style={{ margin: 0 }}>Local CI & Preview</h1><p style={styles.muted}>Build verified candidates locally. Production promotion is intentionally not available here.</p></div>
-      <button style={styles.secondary} onClick={() => void open.mutateAsync()}>Open Preview</button>
-    </div>
-    <div style={styles.card}>
-      <div style={styles.row}><strong>Service</strong><span style={{ ...styles.badge, color: status.data?.status === "online" ? "#3fb950" : "#f85149" }}>{status.data?.status ?? "offline"}</span><span style={styles.muted}>{previewConfigured ? "Preview target approved/configured" : "Preview target not available"}</span></div>
-      <p style={styles.muted}>Queue only a committed revision. Aruvici performs the isolated build, verification, and safe side-by-side Preview update.</p>
-      <div style={styles.row}><input aria-label="Committed revision" style={styles.input} value={commit} onChange={(event) => setCommit(event.target.value.trim())} placeholder="40-character committed Git SHA" /><button style={styles.button} disabled={!previewConfigured || queue.isPending} onClick={() => queue.mutate()}>{queue.isPending ? "Queueing…" : "Build Preview"}</button></div>
-    </div>
-    {error && <div style={{ ...styles.card, color: "#f85149" }}>{String(error)}</div>}
-    <h2>Build history</h2>
-    {(runs.data ?? []).map((run) => <RunCard key={run.id} run={run} />)}
-    {!runs.data?.length && !runs.isLoading && <div style={styles.muted}>No local CI runs yet.</div>}
+    <div style={styles.header}><div><div style={styles.eyebrow}>Aruvici local delivery</div><h1 style={styles.title}>CI & Preview</h1><div style={styles.muted}>Build candidates locally, test them safely, then deliberately promote a verified production artifact.</div></div><div style={styles.row}><Badge status={online ? "online" : "offline"} /><button style={styles.secondary} onClick={() => void open.mutateAsync()} disabled={open.isPending}>Open Preview</button></div></div>
+    <div style={{ display: "flex", gap: 2, borderBottom: "1px solid #d9dfeb", marginBottom: 18 }}><button style={tab === "builds" ? styles.tabActive : styles.tab} onClick={() => setTab("builds")}>Product builds</button><button style={tab === "operations" ? styles.tabActive : styles.tab} onClick={() => setTab("operations")}>Operations wallboard</button></div>
+    {tab === "builds" ? <><div style={styles.card}><div style={{ ...styles.row, justifyContent: "space-between" }}><strong>Build a Preview candidate</strong>{previewConfigured ? <Badge status="ready" /> : <span style={styles.muted}>Target unavailable</span>}</div><p style={styles.muted}>Use a committed revision. Aruvici builds it in an isolated checkout, verifies it, and updates Preview only when Preview is closed.</p><div style={styles.row}><input aria-label="Committed revision" style={styles.input} value={commit} onChange={(e) => setCommit(e.target.value.trim())} placeholder="40-character committed Git SHA" /><button style={styles.button} disabled={!online || !previewConfigured || queue.isPending} onClick={() => queue.mutate()}>{queue.isPending ? "Queueing…" : "Build Preview"}</button></div>{!online && <div style={{ ...styles.muted, marginTop: 10 }}>Start the local CI service: <code>aruvici ci --platform platform.toml serve</code></div>}</div><h2 style={{ marginTop: 25 }}>Recent builds</h2><div style={{ display: "grid", gap: 10 }}>{allRuns.slice(0, 10).map((run) => <RunCard key={run.id} run={run} />)}</div>{!allRuns.length && !runs.isLoading && <div style={{ ...styles.card, ...styles.muted }}>No local CI history is available while the service is offline.</div>}</> : <><div style={styles.grid}><Metric title="CI service" value={online ? "Online" : "Offline"} note={online ? "Private local socket connected" : "No worker/service connection"} status={online ? "online" : "offline"} /><Metric title="Active builds" value={metrics.running} note={`${metrics.queued} waiting in queue`} status={metrics.running ? "queued" : undefined} /><Metric title="Passing runs" value={metrics.passed} note="Recorded local build history" status="passed" /><Metric title="Needs attention" value={metrics.failed} note="Failed runs retained for diagnosis" status={metrics.failed ? "failed" : undefined} /></div><div style={{ ...styles.card, marginBottom: 16 }}><strong>Local worker policy</strong><div style={{ ...styles.grid, marginTop: 12, marginBottom: 0 }}><div><div style={styles.muted}>Release capacity</div><div style={{ fontWeight: 700, marginTop: 3 }}>1 serialized build</div></div><div><div style={styles.muted}>Preview safety</div><div style={{ fontWeight: 700, marginTop: 3 }}>Defer while app runs</div></div><div><div style={styles.muted}>Production policy</div><div style={{ fontWeight: 700, marginTop: 3 }}>Explicit promotion only</div></div></div></div><h2>Target fleet</h2><div style={{ display: "grid", gap: 10 }}>{(targets.data ?? []).map((target) => { const latest = allRuns.find((run) => run.target === target.id); return <div key={target.id} style={{ ...styles.card, display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 16, alignItems: "center" }}><div><strong>{target.id}</strong><div style={{ ...styles.muted, marginTop: 4 }}>{target.profile}</div></div><div style={{ textAlign: "right" }}>{latest ? <><Badge status={latest.status} /><div style={{ ...styles.code, marginTop: 5 }}>run #{latest.id}</div></> : <span style={styles.muted}>No run recorded</span>}</div></div>; })}{!(targets.data ?? []).length && <div style={{ ...styles.card, ...styles.muted }}>Connect the local CI service to see configured targets and current worker state.</div>}</div></>}
+    {error && <div style={{ ...styles.card, color: "#c23636", marginTop: 16 }}><strong>Local CI connection</strong><div style={{ marginTop: 4 }}>{String(error)}</div></div>}
   </div>;
 }
