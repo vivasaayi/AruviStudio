@@ -113,6 +113,15 @@ pub async fn list_repository_attachments(
         .map_err(Into::into)
 }
 
+pub async fn list_all_repository_attachments(
+    pool: &SqlitePool,
+) -> Result<Vec<RepositoryAttachment>, AppError> {
+    sqlx::query_as::<_, RepositoryAttachment>("SELECT id,scope_type,scope_id,repository_id,is_default,created_at FROM repository_attachments ORDER BY scope_type,scope_id,is_default DESC,created_at,id")
+        .fetch_all(pool)
+        .await
+        .map_err(Into::into)
+}
+
 pub async fn detach_repository(
     pool: &SqlitePool,
     scope_type: &str,

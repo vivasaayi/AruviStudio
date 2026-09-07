@@ -101,6 +101,7 @@ export const attachRepository = (data: { scopeType: "product" | "product_area"; 
   });
 export const listRepositoryAttachments = (data: { scopeType: "product" | "product_area"; scopeId: string }) =>
   invoke<RepositoryAttachment[]>("list_repository_attachments", { scopeType: data.scopeType, scopeId: data.scopeId });
+export const listAllRepositoryAttachments = () => invoke<RepositoryAttachment[]>("list_all_repository_attachments");
 export const detachRepository = (data: { scopeType: "product" | "product_area"; scopeId: string; repositoryId: string }) =>
   invoke<void>("detach_repository", { scopeType: data.scopeType, scopeId: data.scopeId, repositoryId: data.repositoryId });
 export const resolveRepositoryForWorkItem = (workItemId: string) => invoke<Repository | null>("resolve_repository_for_work_item", { work_item_id: workItemId });

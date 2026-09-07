@@ -194,6 +194,13 @@ pub async fn list_repository_attachments(
 }
 
 #[tauri::command]
+pub async fn list_all_repository_attachments(
+    state: State<'_, AppState>,
+) -> Result<Vec<RepositoryAttachment>, AppError> {
+    repository_repo::list_all_repository_attachments(&state.db).await
+}
+
+#[tauri::command]
 pub async fn detach_repository(
     state: State<'_, AppState>,
     scope_type: String,

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { listProducts, listRepositories } from "../../../lib/tauri";
+import { listProducts, listRepositories, listRepositoryAttachments } from "../../../lib/tauri";
 import {
   listCiRepositoryBranches,
   listCiRepositoryCommits,
@@ -28,11 +28,12 @@ export function ScopedBuildPanel({ online, targets }: { online: boolean; targets
   const products = useQuery({ queryKey: ["products"], queryFn: listProducts });
   const repositories = useQuery({ queryKey: ["repositories"], queryFn: listRepositories });
   const bindings = useQuery({ queryKey: ["ci-target-bindings"], queryFn: listCiTargetBindings });
+  const attachments = useQuery({ queryKey: ["repositoryAttachments", "product", productId], queryFn: () => listRepositoryAttachments({ scopeType: "product", scopeId: productId }), enabled: Boolean(productId) });
   const branches = useQuery({ queryKey: ["ci-repository-branches", repositoryId], queryFn: () => listCiRepositoryBranches(repositoryId), enabled: Boolean(repositoryId) });
   const commits = useQuery({ queryKey: ["ci-repository-commits", repositoryId], queryFn: () => listCiRepositoryCommits(repositoryId), enabled: Boolean(repositoryId) });
 
   const scopedBindings = useMemo(() => (bindings.data ?? []).filter((binding) => binding.product_id === productId), [bindings.data, productId]);
-  const scopedRepositoryIds = useMemo(() => new Set(scopedBindings.map((binding) => binding.repository_id)), [scopedBindings]);
+  const scopedRepositoryIds = useMemo(() => new Set((attachments.data ?? []).map((attachment) => attachment.repository_id)), [attachments.data]);
   const scopedRepositories = useMemo(() => (repositories.data ?? []).filter((repository) => scopedRepositoryIds.has(repository.id)), [repositories.data, scopedRepositoryIds]);
   const selectedProduct = (products.data ?? []).find((product) => product.id === productId);
   const previewConfigured = scopedBindings.some((binding) => binding.repository_id === repositoryId && binding.target_id === "aruvi-studio-preview") && targets.some((target) => target.id === "aruvi-studio-preview");
@@ -64,11 +65,12 @@ export function ScopedBuildPanel({ online, targets }: { online: boolean; targets
         <option value="">Select a product</option>{(products.data ?? []).map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
       </select>
       <select aria-label="CI scoped repository" style={field} value={repositoryId} onChange={(event) => setRepositoryId(event.target.value)} disabled={!productId}>
-        <option value="">{productId ? "Select an approved repository" : "Select a product first"}</option>{scopedRepositories.map((repository) => <option key={repository.id} value={repository.id}>{repository.name}</option>)}
+        <option value="">{productId ? "Select a product workspace" : "Select a product first"}</option>{scopedRepositories.map((repository) => <option key={repository.id} value={repository.id}>{repository.name}</option>)}
       </select>
       {selectedProduct && <span style={{ color: "#4268ad", fontWeight: 650 }}>{selectedProduct.name}</span>}
     </div>
-    {productId && !scopedRepositories.length && <p style={{ color: "#9a5a05", fontSize: 13 }}>This product has no approved CI repository binding yet. Add one in Operations wallboard.</p>}
+    {productId && !scopedRepositories.length && <p style={{ color: "#9a5a05", fontSize: 13 }}>This product has no workspace. Create or attach one in Workspaces.</p>}
+    {repositoryId && !scopedBindings.some((binding) => binding.repository_id === repositoryId) && <p style={{ color: "#9a5a05", fontSize: 13 }}>This workspace is attached, but it is not approved for CI yet. Add its target in Operations wallboard.</p>}
     <hr style={{ border: 0, borderTop: "1px solid #e4e8f0", margin: "16px 0" }} />
     <strong>Choose the revision to build</strong><p style={{ color: "#657085", fontSize: 13, marginTop: 5 }}>A branch is resolved to its current immutable commit when you queue it; choosing history builds that exact commit.</p>
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
