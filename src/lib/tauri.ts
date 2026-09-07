@@ -9,3 +9,4 @@ export * from "./tauri/workflows";
 export * from "./tauri/settings";
 export * from "./tauri/artifacts";
 export * from "./tauri/planner";
+export * from "./tauri/ci";

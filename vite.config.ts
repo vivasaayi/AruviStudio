@@ -11,7 +11,8 @@ export default defineConfig({
   },
   clearScreen: false,
   server: {
-    port: 1420,
+    // Reserved for AruviStudio development. Preview and production do not use Vite.
+    port: 14210,
     strictPort: true,
     watch: {
       ignored: ["**/src-tauri/**"],
