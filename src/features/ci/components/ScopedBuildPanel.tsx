@@ -15,7 +15,7 @@ const field: React.CSSProperties = { minWidth: 180, flex: "1 1 210px", padding: 
 const button: React.CSSProperties = { border: 0, borderRadius: 7, background: "#2864dc", color: "#fff", padding: "9px 12px", cursor: "pointer", fontWeight: 650 };
 
 /** Product-scoped, immutable build handoff. Branches are resolved locally to a SHA. */
-export function ScopedBuildPanel({ online, targets }: { online: boolean; targets: Array<{ id: string }> }) {
+export function ScopedBuildPanel({ online, targets }: { online: boolean; targets: Array<{ id: string; repository?: string }> }) {
   const client = useQueryClient();
   const activeProductId = useWorkspaceStore((state) => state.activeProductId);
   const setActiveProduct = useWorkspaceStore((state) => state.setActiveProduct);
@@ -36,8 +36,10 @@ export function ScopedBuildPanel({ online, targets }: { online: boolean; targets
   const scopedRepositoryIds = useMemo(() => new Set((attachments.data ?? []).map((attachment) => attachment.repository_id)), [attachments.data]);
   const scopedRepositories = useMemo(() => (repositories.data ?? []).filter((repository) => scopedRepositoryIds.has(repository.id)), [repositories.data, scopedRepositoryIds]);
   const selectedProduct = (products.data ?? []).find((product) => product.id === productId);
-  const previewConfigured = scopedBindings.some((binding) => binding.repository_id === repositoryId && binding.target_id === "aruvi-studio-preview") && targets.some((target) => target.id === "aruvi-studio-preview");
-  const releaseConfigured = targets.some((target) => target.id === releaseTarget);
+  const selectedRepository = scopedRepositories.find((repository) => repository.id === repositoryId);
+  const sameRepository = (target: { repository?: string }) => Boolean(selectedRepository && target.repository && target.repository.replace(/\/+$/, "") === selectedRepository.local_path.replace(/\/+$/, ""));
+  const previewConfigured = scopedBindings.some((binding) => binding.repository_id === repositoryId && binding.target_id === "aruvi-studio-preview") && targets.some((target) => target.id === "aruvi-studio-preview" && sameRepository(target));
+  const releaseConfigured = targets.some((target) => target.id === releaseTarget && sameRepository(target));
   const reference = mode === "branch" ? { branch } : { commit };
   const canQueue = Boolean(productId && repositoryId && (mode === "branch" ? branch : commit) && online);
 
@@ -79,11 +81,11 @@ export function ScopedBuildPanel({ online, targets }: { online: boolean; targets
     </div>
     {selectedRevision && <div style={{ marginTop: 9, color: "#485974", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12 }}>Will build {selectedRevision.sha} · {selectedRevision.summary}</div>}
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 16, alignItems: "center" }}>
-      <button style={button} disabled={!canQueue || !previewConfigured || preview.isPending} onClick={() => preview.mutate()}>{preview.isPending ? "Queueing…" : "Build Preview"}</button>
+      <button style={{ ...button, opacity: !canQueue || !previewConfigured ? .45 : 1, cursor: !canQueue || !previewConfigured ? "not-allowed" : "pointer" }} disabled={!canQueue || !previewConfigured || preview.isPending} onClick={() => preview.mutate()}>{preview.isPending ? "Queueing…" : previewConfigured ? "Build Preview" : "Preview not approved"}</button>
       <select aria-label="Production architecture" style={{ ...field, flex: "0 1 220px" }} value={releaseTarget} onChange={(event) => setReleaseTarget(event.target.value as typeof releaseTarget)}><option value="aruvi-studio">Apple Silicon artifact</option><option value="aruvi-studio-intel">Intel artifact</option></select>
-      <button style={{ ...button, background: "#34425c" }} disabled={!canQueue || !releaseConfigured || release.isPending} onClick={() => release.mutate()}>{release.isPending ? "Queueing…" : "Build production artifact"}</button>
+      <button style={{ ...button, background: "#34425c", opacity: !canQueue || !releaseConfigured ? .45 : 1, cursor: !canQueue || !releaseConfigured ? "not-allowed" : "pointer" }} disabled={!canQueue || !releaseConfigured || release.isPending} onClick={() => release.mutate()}>{release.isPending ? "Queueing…" : "Build production artifact"}</button>
     </div>
     <p style={{ color: "#657085", fontSize: 12, marginBottom: 0 }}>Production build creates a signed, verified ZIP only. It cannot install, replace, or launch the production app.</p>
-    {(preview.error || release.error) && <div style={{ color: "#c23636", marginTop: 8, fontSize: 13 }}>{String(preview.error ?? release.error)}</div>}
+    {((previewConfigured && preview.error) || (releaseConfigured && release.error)) && <div style={{ color: "#c23636", marginTop: 8, fontSize: 13 }}>{String(preview.error ?? release.error)}</div>}
   </section>;
 }

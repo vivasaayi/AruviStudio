@@ -17,7 +17,7 @@ export type CiGitCommit = { sha: string; summary: string; committed_at: number }
 export type CiGitBranch = { name: string; commit: CiGitCommit };
 
 export const getLocalCiStatus = () => invoke<{ status: string; protocol: number }>("get_local_ci_status");
-export const listLocalCiTargets = () => invoke<Array<{ id: string; profile: string }>>("list_local_ci_targets");
+export const listLocalCiTargets = () => invoke<Array<{ id: string; profile: string; repository?: string }>>("list_local_ci_targets");
 export const listLocalCiRuns = () => invoke<LocalCiRun[]>("list_local_ci_runs");
 export const queueLocalPreview = (commit: string, productId?: string) =>
   invoke<{ run_id: number }>("queue_local_preview", { commit, productId });
