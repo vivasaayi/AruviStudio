@@ -54,6 +54,12 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            // Local CI commands (Preview only; never production promotion)
+            commands::ci_commands::get_local_ci_status,
+            commands::ci_commands::list_local_ci_targets,
+            commands::ci_commands::list_local_ci_runs,
+            commands::ci_commands::queue_local_preview,
+            commands::ci_commands::open_local_preview,
             // Product commands
             commands::product_commands::create_product,
             commands::product_commands::get_product,

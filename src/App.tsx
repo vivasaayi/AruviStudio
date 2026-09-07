@@ -17,6 +17,7 @@ const ChatPage = lazy(() => import("./features/chat/pages/ChatPage").then((page)
 const VoiceChatPage = lazy(() => import("./features/chat/pages/VoiceChatPage").then((page) => ({ default: page.VoiceChatPage })));
 const PlannerPage = lazy(() => import("./features/planner/pages/PlannerPage").then((page) => ({ default: page.PlannerPage })));
 const ModelCallsPage = lazy(() => import("./features/calls/pages/ModelCallsPage").then((page) => ({ default: page.ModelCallsPage })));
+const LocalCiPage = lazy(() => import("./features/ci/pages/LocalCiPage").then((page) => ({ default: page.LocalCiPage })));
 
 const fallback = <div style={{ padding: 16, color: "#8f96a3" }}>Loading workspace…</div>;
 
@@ -40,6 +41,7 @@ function App() {
             <Route path="/chat" element={<ChatPage />} />
             <Route path="/voice-chat" element={<VoiceChatPage />} />
             <Route path="/calls" element={<ModelCallsPage />} />
+            <Route path="/ci" element={<LocalCiPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/ide" element={<IDEPage />} />
           </Routes>

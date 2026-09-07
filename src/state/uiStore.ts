@@ -12,7 +12,7 @@ interface UIState {
   expandedCapabilities: Record<string, boolean>;
   showHierarchyWorkItems: boolean;
   productPickerCollapsed: boolean;
-  activeView: "portfolio" | "products" | "product-overview" | "work-items" | "planner" | "chat" | "voice-chat" | "calls" | "ide" | "repositories" | "agents" | "models" | "settings";
+  activeView: "portfolio" | "products" | "product-overview" | "work-items" | "planner" | "chat" | "voice-chat" | "calls" | "ide" | "repositories" | "agents" | "models" | "settings" | "ci";
   openProductDialog: (mode: "create" | "edit") => void;
   closeProductDialog: () => void;
   openProductAreaDialog: (mode: "create" | "edit") => void;
