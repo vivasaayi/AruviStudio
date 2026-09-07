@@ -359,6 +359,22 @@ pub async fn save_ci_target_binding(
 }
 
 #[tauri::command]
+pub async fn delete_ci_target_binding(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    let result = sqlx::query("DELETE FROM ci_target_bindings WHERE id=?")
+        .bind(id)
+        .execute(&state.db)
+        .await
+        .map_err(|error| error.to_string())?;
+    if result.rows_affected() == 0 {
+        return Err("CI binding was not found".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn create_ci_feedback(
     state: State<'_, AppState>,
     ci_run_id: i64,

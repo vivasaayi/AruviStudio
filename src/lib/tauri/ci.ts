@@ -32,5 +32,6 @@ export const queueLocalReleaseReference = (data: { target: "aruvi-studio" | "aru
 export const openLocalPreview = () => invoke<void>("open_local_preview");
 export const listCiTargetBindings = () => invoke<CiTargetBinding[]>("list_ci_target_bindings");
 export const saveCiTargetBinding = (request: { product_id: string; repository_id: string; target_id: string; auto_preview: boolean }) => invoke<CiTargetBinding>("save_ci_target_binding", { request });
+export const deleteCiTargetBinding = (id: string) => invoke<void>("delete_ci_target_binding", { id });
 export const listCiFeedback = (ciRunId: number) => invoke<CiFeedback[]>("list_ci_feedback", { ciRunId });
 export const createCiFeedback = (data: { ciRunId: number; commitSha: string; productId?: string; workItemId?: string; verdict: CiFeedback["verdict"]; notes: string }) => invoke<CiFeedback>("create_ci_feedback", data);

@@ -67,6 +67,7 @@ pub fn run() {
             commands::ci_commands::open_local_preview,
             commands::ci_commands::list_ci_target_bindings,
             commands::ci_commands::save_ci_target_binding,
+            commands::ci_commands::delete_ci_target_binding,
             commands::ci_commands::create_ci_feedback,
             commands::ci_commands::list_ci_feedback,
             // Product commands
