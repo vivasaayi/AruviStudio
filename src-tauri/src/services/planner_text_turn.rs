@@ -13,7 +13,7 @@ use crate::services::planner_session::{
 use crate::services::planner_text_turn_commit::commit_confirmed_draft_plan;
 use crate::services::planner_text_turn_response::{
     clarification_response, planner_error_response, proposal_response, selection_required_response,
-    session_draft_tree_nodes,
+    session_draft_tree_nodes, ProposalResponseInput,
 };
 use crate::services::planner_tool_loop::{run_tool_loop, PlannerToolLoopInput};
 use crate::services::planner_turn_policy::{
@@ -78,18 +78,17 @@ pub async fn submit_planner_turn(
     };
 
     let normalized = user_input.trim().to_lowercase();
-    if matches!(normalized.as_str(), "yes" | "confirm" | "go ahead") {
-        if session.draft_plan.is_some() {
-            return commit_confirmed_draft_plan(
-                planner_service,
-                state,
-                session_id,
-                &user_input,
-                session,
-                trace,
-            )
-            .await;
-        }
+    if matches!(normalized.as_str(), "yes" | "confirm" | "go ahead") && session.draft_plan.is_some()
+    {
+        return commit_confirmed_draft_plan(
+            planner_service,
+            state,
+            session_id,
+            &user_input,
+            session,
+            trace,
+        )
+        .await;
     }
 
     if selected_product.is_none() && session.draft_plan.is_none() {
@@ -250,16 +249,16 @@ pub async fn submit_planner_turn(
         });
         let mut service = planner_service.lock().await;
         service.save_session(&session_id, session.clone());
-        return Ok(proposal_response(
+        return Ok(proposal_response(ProposalResponseInput {
             session_id,
-            plan.assistant_response.clone(),
-            plan,
+            assistant_message: plan.assistant_response.clone(),
+            pending_plan: plan,
             tree_nodes,
-            updated_draft_tree_nodes,
-            session.selected_draft_node_id.clone(),
-            vec!["Updated the design plan.".to_string()],
-            trace,
-        ));
+            draft_tree_nodes: updated_draft_tree_nodes,
+            selected_draft_node_id: session.selected_draft_node_id.clone(),
+            execution_lines: vec!["Updated the design plan.".to_string()],
+            trace_events: trace,
+        }));
     }
 
     if requires_confirmation(&plan) {
@@ -279,16 +278,16 @@ pub async fn submit_planner_turn(
         let selected_draft_node_id = session.selected_draft_node_id.clone();
         let mut service = planner_service.lock().await;
         service.save_session(&session_id, session);
-        return Ok(proposal_response(
+        return Ok(proposal_response(ProposalResponseInput {
             session_id,
-            plan.assistant_response.clone(),
-            plan,
+            assistant_message: plan.assistant_response.clone(),
+            pending_plan: plan,
             tree_nodes,
             draft_tree_nodes,
             selected_draft_node_id,
-            vec![],
-            trace,
-        ));
+            execution_lines: vec![],
+            trace_events: trace,
+        }));
     }
 
     if plan.actions.is_empty() {

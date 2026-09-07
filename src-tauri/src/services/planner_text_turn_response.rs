@@ -53,27 +53,29 @@ pub(crate) fn selection_required_response(
     }
 }
 
-pub(crate) fn proposal_response(
-    session_id: String,
-    assistant_message: String,
-    pending_plan: PlannerPlan,
-    tree_nodes: Option<Vec<PlannerTreeNode>>,
-    draft_tree_nodes: Option<Vec<PlannerTreeNode>>,
-    selected_draft_node_id: Option<String>,
-    execution_lines: Vec<String>,
-    trace_events: Vec<PlannerTraceEvent>,
-) -> PlannerTurnResponse {
+pub(crate) struct ProposalResponseInput {
+    pub(crate) session_id: String,
+    pub(crate) assistant_message: String,
+    pub(crate) pending_plan: PlannerPlan,
+    pub(crate) tree_nodes: Option<Vec<PlannerTreeNode>>,
+    pub(crate) draft_tree_nodes: Option<Vec<PlannerTreeNode>>,
+    pub(crate) selected_draft_node_id: Option<String>,
+    pub(crate) execution_lines: Vec<String>,
+    pub(crate) trace_events: Vec<PlannerTraceEvent>,
+}
+
+pub(crate) fn proposal_response(input: ProposalResponseInput) -> PlannerTurnResponse {
     PlannerTurnResponse {
-        session_id,
+        session_id: input.session_id,
         status: "proposal".to_string(),
-        assistant_message,
-        pending_plan: Some(pending_plan),
-        tree_nodes,
-        draft_tree_nodes,
-        selected_draft_node_id,
-        execution_lines,
+        assistant_message: input.assistant_message,
+        pending_plan: Some(input.pending_plan),
+        tree_nodes: input.tree_nodes,
+        draft_tree_nodes: input.draft_tree_nodes,
+        selected_draft_node_id: input.selected_draft_node_id,
+        execution_lines: input.execution_lines,
         execution_errors: vec![],
-        trace_events,
+        trace_events: input.trace_events,
     }
 }
 
