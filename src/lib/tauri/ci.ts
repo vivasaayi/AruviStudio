@@ -19,6 +19,8 @@ export const listLocalCiTargets = () => invoke<Array<{ id: string; profile: stri
 export const listLocalCiRuns = () => invoke<LocalCiRun[]>("list_local_ci_runs");
 export const queueLocalPreview = (commit: string, productId?: string) =>
   invoke<{ run_id: number }>("queue_local_preview", { commit, productId });
+export const queueLocalRelease = (target: "aruvi-studio" | "aruvi-studio-intel", commit: string, productId?: string) =>
+  invoke<{ run_id: number }>("queue_local_release", { target, commit, productId });
 export const openLocalPreview = () => invoke<void>("open_local_preview");
 export const listCiTargetBindings = () => invoke<CiTargetBinding[]>("list_ci_target_bindings");
 export const saveCiTargetBinding = (request: { product_id: string; repository_id: string; target_id: string; auto_preview: boolean }) => invoke<CiTargetBinding>("save_ci_target_binding", { request });

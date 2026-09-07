@@ -99,16 +99,45 @@ pub fn list_local_ci_runs() -> Result<Value, String> {
 
 #[tauri::command]
 pub fn queue_local_preview(commit: String, product_id: Option<String>) -> Result<Value, String> {
+    queue_target(
+        "aruvi-studio-preview",
+        commit,
+        product_id,
+        "aruvi-studio-ui",
+    )
+}
+
+fn queue_target(
+    target: &str,
+    commit: String,
+    product_id: Option<String>,
+    trigger: &str,
+) -> Result<Value, String> {
     if !matches!(commit.len(), 40 | 64) || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err("Preview builds require a committed 40- or 64-character Git revision".into());
+        return Err("builds require a committed 40- or 64-character Git revision".into());
     }
     request(json!({
         "method":"enqueue",
-        "target":"aruvi-studio-preview",
+        "target":target,
         "commit":commit,
-        "key":format!("studio-preview-{commit}"),
-        "context":{"trigger":"aruvi-studio-ui","product_id":product_id},
+        "key":format!("studio-{target}-{commit}"),
+        "context":{"trigger":trigger,"product_id":product_id},
     }))
+}
+
+#[tauri::command]
+pub fn queue_local_release(
+    target: String,
+    commit: String,
+    product_id: Option<String>,
+) -> Result<Value, String> {
+    if !["aruvi-studio", "aruvi-studio-intel"].contains(&target.as_str()) {
+        return Err(
+            "only the registered ARM64 and Intel AruviStudio release targets may be queued here"
+                .into(),
+        );
+    }
+    queue_target(&target, commit, product_id, "aruvi-studio-release-ui")
 }
 
 #[tauri::command]
