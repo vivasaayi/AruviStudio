@@ -83,10 +83,12 @@ export const exportProductOverviewPdf = (data: {
   });
 export const attachRepository = (data: { scopeType: "product" | "product_area"; scopeId: string; repositoryId: string; isDefault: boolean }) =>
   invoke("attach_repository", {
-    scope_type: data.scopeType,
-    scope_id: data.scopeId,
-    repository_id: data.repositoryId,
-    is_default: data.isDefault,
+    // Tauri command arguments use camelCase. Keep the Rust field names local
+    // to the backend; sending snake_case makes the command reject scopeType.
+    scopeType: data.scopeType,
+    scopeId: data.scopeId,
+    repositoryId: data.repositoryId,
+    isDefault: data.isDefault,
   });
 export const resolveRepositoryForWorkItem = (workItemId: string) => invoke<Repository | null>("resolve_repository_for_work_item", { work_item_id: workItemId });
 export const resolveRepositoryForScope = (data: { productId?: string | null; productAreaId?: string | null }) =>
