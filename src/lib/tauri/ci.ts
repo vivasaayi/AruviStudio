@@ -13,6 +13,8 @@ export type LocalCiRun = {
 };
 export type CiTargetBinding = { id: string; product_id: string; repository_id: string; target_id: string; auto_preview: boolean; created_at: string; updated_at: string };
 export type CiFeedback = { id: string; ci_run_id: number; commit_sha: string; product_id?: string | null; work_item_id?: string | null; verdict: "works" | "needs_changes" | "blocked"; notes: string; created_at: string };
+export type CiGitCommit = { sha: string; summary: string; committed_at: number };
+export type CiGitBranch = { name: string; commit: CiGitCommit };
 
 export const getLocalCiStatus = () => invoke<{ status: string; protocol: number }>("get_local_ci_status");
 export const listLocalCiTargets = () => invoke<Array<{ id: string; profile: string }>>("list_local_ci_targets");
@@ -21,6 +23,12 @@ export const queueLocalPreview = (commit: string, productId?: string) =>
   invoke<{ run_id: number }>("queue_local_preview", { commit, productId });
 export const queueLocalRelease = (target: "aruvi-studio" | "aruvi-studio-intel", commit: string, productId?: string) =>
   invoke<{ run_id: number }>("queue_local_release", { target, commit, productId });
+export const listCiRepositoryBranches = (repositoryId: string) => invoke<CiGitBranch[]>("list_ci_repository_branches", { repositoryId });
+export const listCiRepositoryCommits = (repositoryId: string) => invoke<CiGitCommit[]>("list_ci_repository_commits", { repositoryId });
+export const queueLocalPreviewReference = (data: { repositoryId: string; branch?: string; commit?: string; productId?: string }) =>
+  invoke<{ run_id: number }>("queue_local_preview_reference", data);
+export const queueLocalReleaseReference = (data: { target: "aruvi-studio" | "aruvi-studio-intel"; repositoryId: string; branch?: string; commit?: string; productId?: string }) =>
+  invoke<{ run_id: number }>("queue_local_release_reference", data);
 export const openLocalPreview = () => invoke<void>("open_local_preview");
 export const listCiTargetBindings = () => invoke<CiTargetBinding[]>("list_ci_target_bindings");
 export const saveCiTargetBinding = (request: { product_id: string; repository_id: string; target_id: string; auto_preview: boolean }) => invoke<CiTargetBinding>("save_ci_target_binding", { request });
