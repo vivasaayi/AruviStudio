@@ -364,3 +364,57 @@ async fn migration_43_upgrades_legacy_module_physical_schema() {
     );
     assert_canonical_work_item_summary_indexes(&upgraded_pool).await;
 }
+
+#[tokio::test]
+async fn migration_48_preserves_ci_dispatches_and_allows_multiple_targets() {
+    let (legacy_pool, database_url) = create_unmigrated_test_pool("ci_multi_target_upgrade").await;
+    migrate_through_version(&legacy_pool, 47).await;
+
+    sqlx::query("INSERT INTO products(id,name) VALUES('product-1','Product')")
+        .execute(&legacy_pool)
+        .await
+        .expect("product should insert");
+    sqlx::query(
+        "INSERT INTO repositories(id,name,local_path) VALUES('repo-1','Repo','/tmp/repo-1')",
+    )
+    .execute(&legacy_pool)
+    .await
+    .expect("repository should insert");
+    sqlx::query("INSERT INTO repository_attachments(id,scope_type,scope_id,repository_id,is_default) VALUES('attachment-1','product','product-1','repo-1',1)")
+        .execute(&legacy_pool)
+        .await
+        .expect("attachment should insert");
+    sqlx::query("INSERT INTO ci_target_bindings(id,product_id,repository_id,target_id,auto_preview) VALUES('binding-preview','product-1','repo-1','desktop-preview',1)")
+        .execute(&legacy_pool)
+        .await
+        .expect("legacy binding should insert");
+    sqlx::query("INSERT INTO ci_dispatches(id,binding_id,commit_sha,status) VALUES('dispatch-1','binding-preview','0123456789abcdef','queued')")
+        .execute(&legacy_pool)
+        .await
+        .expect("legacy dispatch should insert");
+
+    legacy_pool.close().await;
+    let upgraded_pool = create_pool(&database_url)
+        .await
+        .expect("normal app migrator should upgrade CI bindings");
+
+    let preserved: (String, String) =
+        sqlx::query_as("SELECT binding_id,status FROM ci_dispatches WHERE id='dispatch-1'")
+            .fetch_one(&upgraded_pool)
+            .await
+            .expect("existing dispatch should be preserved");
+    assert_eq!(preserved, ("binding-preview".into(), "queued".into()));
+
+    sqlx::query("INSERT INTO ci_target_bindings(id,product_id,repository_id,target_id,auto_preview) VALUES('binding-release','product-1','repo-1','desktop-arm64',0)")
+        .execute(&upgraded_pool)
+        .await
+        .expect("a second target should be allowed for one product repository");
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ci_target_bindings WHERE product_id='product-1' AND repository_id='repo-1'",
+    )
+    .fetch_one(&upgraded_pool)
+    .await
+    .expect("bindings should be countable");
+    assert_eq!(count, 2);
+    assert!(sqlite_object_exists(&upgraded_pool, "index", "idx_ci_dispatches_status").await);
+}

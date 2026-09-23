@@ -15,7 +15,7 @@ const navItems = [
   { key: "planner", label: "Planner" },
   { key: "products", label: "Products" },
   { key: "work-items", label: "Delivery / Builder" },
-  { key: "ci", label: "CI / Preview" },
+  { key: "ci", label: "CI / Build Targets" },
   { key: "ide", label: "IDE" },
   { key: "repositories", label: "Workspaces" },
   { key: "agents", label: "Agents" },

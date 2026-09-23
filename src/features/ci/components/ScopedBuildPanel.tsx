@@ -5,8 +5,10 @@ import {
   listCiRepositoryBranches,
   listCiRepositoryCommits,
   listCiTargetBindings,
-  queueLocalPreviewReference,
-  queueLocalReleaseReference,
+  ciTargetActionLabel,
+  ciTargetDescription,
+  queueLocalTargetReference,
+  type LocalCiTarget,
 } from "../../../lib/tauri/ci";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 
@@ -15,7 +17,7 @@ const field: React.CSSProperties = { minWidth: 180, flex: "1 1 210px", padding: 
 const button: React.CSSProperties = { border: 0, borderRadius: 7, background: "#2864dc", color: "#fff", padding: "9px 12px", cursor: "pointer", fontWeight: 650 };
 
 /** Product-scoped, immutable build handoff. Branches are resolved locally to a SHA. */
-export function ScopedBuildPanel({ online, targets }: { online: boolean; targets: Array<{ id: string; repository?: string }> }) {
+export function ScopedBuildPanel({ online, targets }: { online: boolean; targets: LocalCiTarget[] }) {
   const client = useQueryClient();
   const activeProductId = useWorkspaceStore((state) => state.activeProductId);
   const setActiveProduct = useWorkspaceStore((state) => state.setActiveProduct);
@@ -24,7 +26,6 @@ export function ScopedBuildPanel({ online, targets }: { online: boolean; targets
   const [mode, setMode] = useState<SelectionMode>("branch");
   const [branch, setBranch] = useState("");
   const [commit, setCommit] = useState("");
-  const [releaseTarget, setReleaseTarget] = useState<"aruvi-studio" | "aruvi-studio-intel">("aruvi-studio");
   const products = useQuery({ queryKey: ["products"], queryFn: listProducts });
   const repositories = useQuery({ queryKey: ["repositories"], queryFn: listRepositories });
   const bindings = useQuery({ queryKey: ["ci-target-bindings"], queryFn: listCiTargetBindings });
@@ -38,8 +39,7 @@ export function ScopedBuildPanel({ online, targets }: { online: boolean; targets
   const selectedProduct = (products.data ?? []).find((product) => product.id === productId);
   const selectedRepository = scopedRepositories.find((repository) => repository.id === repositoryId);
   const sameRepository = (target: { repository?: string }) => Boolean(selectedRepository && target.repository && target.repository.replace(/\/+$/, "") === selectedRepository.local_path.replace(/\/+$/, ""));
-  const previewConfigured = scopedBindings.some((binding) => binding.repository_id === repositoryId && binding.target_id === "aruvi-studio-preview") && targets.some((target) => target.id === "aruvi-studio-preview" && sameRepository(target));
-  const releaseConfigured = targets.some((target) => target.id === releaseTarget && sameRepository(target));
+  const approvedTargets = useMemo(() => targets.filter((target) => sameRepository(target) && scopedBindings.some((binding) => binding.repository_id === repositoryId && binding.target_id === target.id)), [targets, scopedBindings, repositoryId, selectedRepository]);
   const reference = mode === "branch" ? { branch } : { commit };
   const canQueue = Boolean(productId && repositoryId && (mode === "branch" ? branch : commit) && online);
 
@@ -50,12 +50,8 @@ export function ScopedBuildPanel({ online, targets }: { online: boolean; targets
   useEffect(() => { if (mode === "branch" && branches.data?.length && !branches.data.some((item) => item.name === branch)) setBranch(branches.data[0].name); }, [branches.data, branch, mode]);
   useEffect(() => { if (mode === "commit" && commits.data?.length && !commits.data.some((item) => item.sha === commit)) setCommit(commits.data[0].sha); }, [commits.data, commit, mode]);
 
-  const preview = useMutation({
-    mutationFn: () => queueLocalPreviewReference({ repositoryId, productId, ...reference }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ["local-ci-runs"] }),
-  });
-  const release = useMutation({
-    mutationFn: () => queueLocalReleaseReference({ target: releaseTarget, repositoryId, productId, ...reference }),
+  const build = useMutation({
+    mutationFn: (targetId: string) => queueLocalTargetReference({ targetId, repositoryId, productId, ...reference }),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["local-ci-runs"] }),
   });
   const selectedRevision = mode === "branch" ? branches.data?.find((item) => item.name === branch)?.commit : commits.data?.find((item) => item.sha === commit);
@@ -72,7 +68,7 @@ export function ScopedBuildPanel({ online, targets }: { online: boolean; targets
       {selectedProduct && <span style={{ color: "#4268ad", fontWeight: 650 }}>{selectedProduct.name}</span>}
     </div>
     {productId && !scopedRepositories.length && <p style={{ color: "#9a5a05", fontSize: 13 }}>This product has no workspace. Create or attach one in Workspaces.</p>}
-    {repositoryId && !scopedBindings.some((binding) => binding.repository_id === repositoryId) && <p style={{ color: "#9a5a05", fontSize: 13 }}>This workspace is attached, but it is not approved for CI yet. Add its target in Operations wallboard.</p>}
+    {repositoryId && !scopedBindings.some((binding) => binding.repository_id === repositoryId) && <p style={{ color: "#9a5a05", fontSize: 13 }}>This workspace is attached, but it has no approved build targets yet. Add one in Operations wallboard.</p>}
     <hr style={{ border: 0, borderTop: "1px solid #e4e8f0", margin: "16px 0" }} />
     <strong>Choose the revision to build</strong><p style={{ color: "#657085", fontSize: 13, marginTop: 5 }}>A branch is resolved to its current immutable commit when you queue it; choosing history builds that exact commit.</p>
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -80,12 +76,11 @@ export function ScopedBuildPanel({ online, targets }: { online: boolean; targets
       {mode === "branch" ? <select aria-label="Git branch" style={field} value={branch} onChange={(event) => setBranch(event.target.value)} disabled={!repositoryId || branches.isLoading}><option value="">Select a branch</option>{(branches.data ?? []).map((item) => <option key={item.name} value={item.name}>{item.name} · {item.commit.sha.slice(0, 12)}</option>)}</select> : <select aria-label="Git commit" style={{ ...field, flex: "2 1 420px" }} value={commit} onChange={(event) => setCommit(event.target.value)} disabled={!repositoryId || commits.isLoading}><option value="">Select a commit from local history</option>{(commits.data ?? []).map((item) => <option key={item.sha} value={item.sha}>{item.sha.slice(0, 12)} · {item.summary}</option>)}</select>}
     </div>
     {selectedRevision && <div style={{ marginTop: 9, color: "#485974", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12 }}>Will build {selectedRevision.sha} · {selectedRevision.summary}</div>}
-    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 16, alignItems: "center" }}>
-      <button style={{ ...button, opacity: !canQueue || !previewConfigured ? .45 : 1, cursor: !canQueue || !previewConfigured ? "not-allowed" : "pointer" }} disabled={!canQueue || !previewConfigured || preview.isPending} onClick={() => preview.mutate()}>{preview.isPending ? "Queueing…" : previewConfigured ? "Build Preview" : "Preview not approved"}</button>
-      <select aria-label="Production architecture" style={{ ...field, flex: "0 1 220px" }} value={releaseTarget} onChange={(event) => setReleaseTarget(event.target.value as typeof releaseTarget)}><option value="aruvi-studio">Apple Silicon artifact</option><option value="aruvi-studio-intel">Intel artifact</option></select>
-      <button style={{ ...button, background: "#34425c", opacity: !canQueue || !releaseConfigured ? .45 : 1, cursor: !canQueue || !releaseConfigured ? "not-allowed" : "pointer" }} disabled={!canQueue || !releaseConfigured || release.isPending} onClick={() => release.mutate()}>{release.isPending ? "Queueing…" : "Build production artifact"}</button>
+    <div style={{ display: "grid", gap: 8, marginTop: 16 }}>
+      {!approvedTargets.length && <div style={{ color: "#9a5a05", fontSize: 13 }}>No approved target matches this product workspace and repository path.</div>}
+      {approvedTargets.map((target) => <div key={target.id} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", padding: "9px 10px", border: "1px solid #e2e7f0", borderRadius: 8 }}><div><strong>{target.id}</strong><div style={{ color: "#657085", fontSize: 12, marginTop: 2 }}>{ciTargetDescription(target)}</div></div><button style={{ ...button, background: target.id.endsWith("-preview") ? "#2864dc" : "#34425c", opacity: !canQueue || build.isPending ? .45 : 1 }} disabled={!canQueue || build.isPending} onClick={() => build.mutate(target.id)}>{build.isPending ? "Queueing…" : ciTargetActionLabel(target)}</button></div>)}
     </div>
-    <p style={{ color: "#657085", fontSize: 12, marginBottom: 0 }}>Production build creates a signed, verified ZIP only. It cannot install, replace, or launch the production app.</p>
-    {((previewConfigured && preview.error) || (releaseConfigured && release.error)) && <div style={{ color: "#c23636", marginTop: 8, fontSize: 13 }}>{String(preview.error ?? release.error)}</div>}
+    <p style={{ color: "#657085", fontSize: 12, marginBottom: 0 }}>Builds produce verified artifacts or a safe Preview candidate. Deployment and production installation remain unavailable here.</p>
+    {build.error && <div style={{ color: "#c23636", marginTop: 8, fontSize: 13 }}>{String(build.error)}</div>}
   </section>;
 }

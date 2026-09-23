@@ -17,33 +17,38 @@ async fn queue_automatic_preview(
     let Some(product_id) = product_id else {
         return Ok(());
     };
-    let binding = sqlx::query_as::<_, (String, String)>(
-        "SELECT id,target_id FROM ci_target_bindings WHERE product_id=? AND repository_id=? AND auto_preview=1",
+    let bindings = sqlx::query_as::<_, (String, String)>(
+        "SELECT b.id,b.target_id FROM ci_target_bindings b JOIN repository_attachments a ON a.scope_type='product' AND a.scope_id=b.product_id AND a.repository_id=b.repository_id WHERE b.product_id=? AND b.repository_id=? AND b.auto_preview=1 AND b.target_id LIKE '%-preview' ORDER BY b.target_id",
     )
     .bind(product_id)
     .bind(repository_id)
-    .fetch_optional(db)
+    .fetch_all(db)
     .await?;
-    let Some((binding_id, target_id)) = binding else {
+    if bindings.is_empty() {
         return Ok(());
-    };
-    let dispatch_id = Uuid::new_v4().to_string();
-    sqlx::query("INSERT INTO ci_dispatches(id,binding_id,work_item_id,workflow_run_id,commit_sha) VALUES(?,?,?,?,?) ON CONFLICT(binding_id,commit_sha) DO NOTHING")
-        .bind(&dispatch_id).bind(&binding_id).bind(work_item_id).bind(workflow_run_id).bind(commit_sha).execute(db).await?;
-    let payload = serde_json::json!({"method":"enqueue","target":target_id,"commit":commit_sha,"key":format!("studio-{workflow_run_id}-{commit_sha}"),"context":{"trigger":"workflow-checkpoint","product_id":product_id,"work_item_id":work_item_id,"workflow_run_id":workflow_run_id}});
-    match crate::commands::ci_commands::request(payload) {
-        Ok(result) => {
-            sqlx::query("UPDATE ci_dispatches SET status='queued',ci_run_id=?,error_message=NULL,updated_at=datetime('now') WHERE binding_id=? AND commit_sha=?")
-                .bind(result["run_id"].as_i64()).bind(binding_id).bind(commit_sha).execute(db).await?;
-            info!(work_item_id, commit_sha, "queued automatic Preview build");
-        }
-        Err(error) => {
-            sqlx::query("UPDATE ci_dispatches SET error_message=?,updated_at=datetime('now') WHERE binding_id=? AND commit_sha=?")
-                .bind(&error).bind(binding_id).bind(commit_sha).execute(db).await?;
-            warn!(
-                work_item_id,
-                commit_sha, error, "Preview dispatch retained for retry"
-            );
+    }
+    for (binding_id, target_id) in bindings {
+        let dispatch_id = Uuid::new_v4().to_string();
+        sqlx::query("INSERT INTO ci_dispatches(id,binding_id,work_item_id,workflow_run_id,commit_sha) VALUES(?,?,?,?,?) ON CONFLICT(binding_id,commit_sha) DO NOTHING")
+            .bind(&dispatch_id).bind(&binding_id).bind(work_item_id).bind(workflow_run_id).bind(commit_sha).execute(db).await?;
+        let payload = serde_json::json!({"method":"enqueue","target":target_id,"commit":commit_sha,"key":format!("studio-{workflow_run_id}-{target_id}-{commit_sha}"),"context":{"trigger":"workflow-checkpoint","product_id":product_id,"repository_id":repository_id,"work_item_id":work_item_id,"workflow_run_id":workflow_run_id}});
+        match crate::commands::ci_commands::request(payload) {
+            Ok(result) => {
+                sqlx::query("UPDATE ci_dispatches SET status='queued',ci_run_id=?,error_message=NULL,updated_at=datetime('now') WHERE binding_id=? AND commit_sha=?")
+                    .bind(result["run_id"].as_i64()).bind(&binding_id).bind(commit_sha).execute(db).await?;
+                info!(
+                    work_item_id,
+                    commit_sha, target_id, "queued automatic Preview build"
+                );
+            }
+            Err(error) => {
+                sqlx::query("UPDATE ci_dispatches SET error_message=?,updated_at=datetime('now') WHERE binding_id=? AND commit_sha=?")
+                    .bind(&error).bind(&binding_id).bind(commit_sha).execute(db).await?;
+                warn!(
+                    work_item_id,
+                    commit_sha, target_id, error, "Preview dispatch retained for retry"
+                );
+            }
         }
     }
     Ok(())

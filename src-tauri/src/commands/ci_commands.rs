@@ -1,6 +1,6 @@
 //! Narrow bridge to Aruvici's private local CI socket.
 //!
-//! The UI may inspect and queue approved Preview builds. Production approval,
+//! The UI may inspect and queue approved build targets. Production approval,
 //! deployment, and arbitrary command execution deliberately remain unavailable.
 use crate::persistence::repository_repo;
 use crate::state::AppState;
@@ -10,9 +10,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::FromRow;
 use std::{
+    fs,
     io::{BufReader, Read, Write},
     os::unix::net::UnixStream,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Command,
     time::Duration,
 };
@@ -100,6 +101,11 @@ pub struct CiGitBranch {
     pub commit: CiGitCommit,
 }
 
+#[derive(Debug, Deserialize)]
+struct LocalCiTarget {
+    repository: Option<String>,
+}
+
 fn open_registered_git_repository(path: &str) -> Result<GitRepository, String> {
     GitRepository::open(path).map_err(|error| {
         format!("registered repository is not available as a Git repository: {error}")
@@ -125,6 +131,102 @@ async fn registered_repository_path(
         .await
         .map(|repository| repository.local_path)
         .map_err(|error| format!("registered repository was not found: {error}"))
+}
+
+fn normalized_repository_path(path: &str) -> Result<PathBuf, String> {
+    let path = Path::new(path);
+    if !path.is_absolute() {
+        return Err("repository path must be absolute".into());
+    }
+    fs::canonicalize(path).map_err(|error| {
+        format!(
+            "repository path must exist and be accessible ({}): {error}",
+            path.display()
+        )
+    })
+}
+
+fn target_metadata(target_id: &str) -> Result<LocalCiTarget, String> {
+    let targets = request(json!({"method":"targets"}))?;
+    targets
+        .as_array()
+        .and_then(|items| {
+            items.iter().find_map(|item| {
+                (item.get("id").and_then(Value::as_str) == Some(target_id))
+                    .then(|| serde_json::from_value::<LocalCiTarget>(item.clone()).ok())
+                    .flatten()
+            })
+        })
+        .ok_or_else(|| format!("CI target '{target_id}' is not registered in Aruvici"))
+}
+
+async fn validate_target_binding(
+    state: &AppState,
+    product_id: &str,
+    repository_id: &str,
+    target_id: &str,
+) -> Result<(), String> {
+    if product_id.trim().is_empty() || repository_id.trim().is_empty() {
+        return Err("a product and repository are required for an approved build target".into());
+    }
+    let bound: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM ci_target_bindings WHERE product_id=? AND repository_id=? AND target_id=?)",
+    )
+    .bind(product_id)
+    .bind(repository_id)
+    .bind(target_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|error| error.to_string())?;
+    if !bound {
+        return Err(format!(
+            "CI target '{target_id}' is not approved for this product and repository"
+        ));
+    }
+
+    validate_repository_attachment(state, product_id, repository_id).await?;
+    validate_target_repository(state, repository_id, target_id).await
+}
+
+async fn validate_repository_attachment(
+    state: &AppState,
+    product_id: &str,
+    repository_id: &str,
+) -> Result<(), String> {
+    let attached: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM repository_attachments WHERE scope_type='product' AND scope_id=? AND repository_id=?)",
+    )
+    .bind(product_id)
+    .bind(repository_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|error| error.to_string())?;
+    if !attached {
+        return Err("the repository must be attached to the selected product before approving or queueing a build target".into());
+    }
+    Ok(())
+}
+
+async fn validate_target_repository(
+    state: &AppState,
+    repository_id: &str,
+    target_id: &str,
+) -> Result<(), String> {
+    let repository_path = registered_repository_path(state, repository_id).await?;
+    let target = target_metadata(target_id)?;
+    let Some(target_path) = target.repository.as_deref() else {
+        return Err(format!(
+            "CI target '{target_id}' has no repository metadata"
+        ));
+    };
+    let registered = normalized_repository_path(&repository_path)?;
+    let configured = normalized_repository_path(target_path)?;
+    if registered != configured {
+        return Err(format!(
+            "CI target '{target_id}' repository does not match the registered repository path"
+        ));
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -250,11 +352,37 @@ pub async fn queue_local_preview_reference(
     product_id: Option<String>,
 ) -> Result<Value, String> {
     let revision = resolve_ci_revision(&state, &repository_id, branch, commit).await?;
+    if let Some(product_id) = product_id.as_deref() {
+        validate_target_binding(&state, product_id, &repository_id, "aruvi-studio-preview").await?;
+    }
     queue_target(
         "aruvi-studio-preview",
         revision,
         product_id,
         "aruvi-studio-ui",
+    )
+}
+
+/// Queue any explicitly approved target from a product's registered
+/// repository. The target/repository binding and Aruvici's target metadata are
+/// checked immediately before dispatch; branch names are resolved to immutable
+/// Git SHAs in the registered checkout.
+#[tauri::command]
+pub async fn queue_local_target_reference(
+    state: State<'_, AppState>,
+    target_id: String,
+    repository_id: String,
+    branch: Option<String>,
+    commit: Option<String>,
+    product_id: String,
+) -> Result<Value, String> {
+    validate_target_binding(&state, &product_id, &repository_id, &target_id).await?;
+    let revision = resolve_ci_revision(&state, &repository_id, branch, commit).await?;
+    queue_target(
+        &target_id,
+        revision,
+        Some(product_id),
+        "aruvi-studio-target-ui",
     )
 }
 
@@ -332,7 +460,7 @@ pub fn open_local_preview() -> Result<(), String> {
 pub async fn list_ci_target_bindings(
     state: State<'_, AppState>,
 ) -> Result<Vec<CiTargetBinding>, String> {
-    sqlx::query_as("SELECT id,product_id,repository_id,target_id,auto_preview,created_at,updated_at FROM ci_target_bindings ORDER BY created_at")
+    sqlx::query_as("SELECT id,product_id,repository_id,target_id,auto_preview,created_at,updated_at FROM ci_target_bindings ORDER BY product_id,repository_id,target_id,created_at")
         .fetch_all(&state.db).await.map_err(|e| e.to_string())
 }
 
@@ -352,8 +480,10 @@ pub async fn save_ci_target_binding(
     if request.auto_preview && !request.target_id.ends_with("-preview") {
         return Err("automatic delivery is restricted to Preview targets".into());
     }
+    validate_repository_attachment(&state, &request.product_id, &request.repository_id).await?;
+    validate_target_repository(&state, &request.repository_id, &request.target_id).await?;
     let id = Uuid::new_v4().to_string();
-    sqlx::query_as("INSERT INTO ci_target_bindings(id,product_id,repository_id,target_id,auto_preview) VALUES(?,?,?,?,?) ON CONFLICT(product_id,repository_id) DO UPDATE SET target_id=excluded.target_id,auto_preview=excluded.auto_preview,updated_at=datetime('now') RETURNING id,product_id,repository_id,target_id,auto_preview,created_at,updated_at")
+    sqlx::query_as("INSERT INTO ci_target_bindings(id,product_id,repository_id,target_id,auto_preview) VALUES(?,?,?,?,?) ON CONFLICT(product_id,repository_id,target_id) DO UPDATE SET auto_preview=excluded.auto_preview,updated_at=datetime('now') RETURNING id,product_id,repository_id,target_id,auto_preview,created_at,updated_at")
         .bind(id).bind(request.product_id).bind(request.repository_id).bind(request.target_id).bind(request.auto_preview)
         .fetch_one(&state.db).await.map_err(|e| e.to_string())
 }

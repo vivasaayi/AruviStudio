@@ -11,13 +11,32 @@ export type LocalCiRun = {
   stages: Array<{ name: string; status: string; details?: Record<string, unknown> }>;
   artifacts: Array<{ id: number; kind: string; sha256: string }>;
 };
+export type LocalCiTarget = { id: string; profile: string; repository?: string; plan?: Record<string, unknown> };
 export type CiTargetBinding = { id: string; product_id: string; repository_id: string; target_id: string; auto_preview: boolean; created_at: string; updated_at: string };
 export type CiFeedback = { id: string; ci_run_id: number; commit_sha: string; product_id?: string | null; work_item_id?: string | null; verdict: "works" | "needs_changes" | "blocked"; notes: string; created_at: string };
 export type CiGitCommit = { sha: string; summary: string; committed_at: number };
 export type CiGitBranch = { name: string; commit: CiGitCommit };
 
+export type CiTargetKind = "preview" | "release" | "docker";
+export const ciTargetKind = (target: Pick<LocalCiTarget, "id" | "profile">): CiTargetKind =>
+  target.id.endsWith("-preview") ? "preview" : target.profile === "rust-docker@1" ? "docker" : "release";
+export const ciTargetActionLabel = (target: Pick<LocalCiTarget, "id" | "profile">) => {
+  switch (ciTargetKind(target)) {
+    case "preview": return "Build Preview";
+    case "docker": return "Build OCI artifact";
+    default: return "Build release artifact";
+  }
+};
+export const ciTargetDescription = (target: Pick<LocalCiTarget, "id" | "profile">) => {
+  switch (ciTargetKind(target)) {
+    case "preview": return "Safe local Preview candidate";
+    case "docker": return "Verified OCI archive; deployment unavailable";
+    default: return "Signed release artifact; installation unavailable";
+  }
+};
+
 export const getLocalCiStatus = () => invoke<{ status: string; protocol: number }>("get_local_ci_status");
-export const listLocalCiTargets = () => invoke<Array<{ id: string; profile: string; repository?: string }>>("list_local_ci_targets");
+export const listLocalCiTargets = () => invoke<LocalCiTarget[]>("list_local_ci_targets");
 export const listLocalCiRuns = () => invoke<LocalCiRun[]>("list_local_ci_runs");
 export const queueLocalPreview = (commit: string, productId?: string) =>
   invoke<{ run_id: number }>("queue_local_preview", { commit, productId });
@@ -27,6 +46,8 @@ export const listCiRepositoryBranches = (repositoryId: string) => invoke<CiGitBr
 export const listCiRepositoryCommits = (repositoryId: string) => invoke<CiGitCommit[]>("list_ci_repository_commits", { repositoryId });
 export const queueLocalPreviewReference = (data: { repositoryId: string; branch?: string; commit?: string; productId?: string }) =>
   invoke<{ run_id: number }>("queue_local_preview_reference", data);
+export const queueLocalTargetReference = (data: { targetId: string; repositoryId: string; branch?: string; commit?: string; productId: string }) =>
+  invoke<{ run_id: number }>("queue_local_target_reference", data);
 export const queueLocalReleaseReference = (data: { target: "aruvi-studio" | "aruvi-studio-intel"; repositoryId: string; branch?: string; commit?: string; productId?: string }) =>
   invoke<{ run_id: number }>("queue_local_release_reference", data);
 export const openLocalPreview = () => invoke<void>("open_local_preview");

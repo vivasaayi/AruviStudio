@@ -54,12 +54,13 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            // Local CI commands (Preview only; never production promotion)
+            // Local CI commands (approved targets only; never production promotion)
             commands::ci_commands::get_local_ci_status,
             commands::ci_commands::list_local_ci_targets,
             commands::ci_commands::list_local_ci_runs,
             commands::ci_commands::queue_local_preview,
             commands::ci_commands::queue_local_preview_reference,
+            commands::ci_commands::queue_local_target_reference,
             commands::ci_commands::queue_local_release,
             commands::ci_commands::queue_local_release_reference,
             commands::ci_commands::list_ci_repository_branches,
