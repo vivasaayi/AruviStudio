@@ -13,6 +13,12 @@ Browser-origin MCP requests on the worktree's dynamically published port returne
 403, while the same unauthenticated request without an Origin reached authentication
 and returned 401. Browser-to-MCP integration requires a secure origin fix and test.
 
+On the dedicated `codex/aruvi-web-docker` branch, the worktree image rebuilt and the
+deployed smoke, 17 remote UI, simulated CI and 17 isolated workflow tests passed.
+The remote UI tests include a delayed simulated planner response to check that scope
+and draft selection remain locked during a turn. Host Chrome also checked all 13
+sections at phone and desktop widths, and 14 mocked Tauri browser tests passed.
+
 This is a working inventory, not a claim of tested parity. The desktop routes in
 `src/App.tsx` are the baseline. The web UI is `src-tauri/src/services/remote_app.html`;
 MCP handlers are under `src-tauri/src/mcp/tools`. An MCP action being present does

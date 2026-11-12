@@ -42,6 +42,42 @@ test("planner sends its explicit product scope", async ({ page }) => {
   expect(turns[1].product_id).toBeNull();
 });
 
+test("planner locks product and draft selection while a turn is pending", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("aruvi.remote.token", "synthetic-token"));
+  await page.route("**/api/mobile/products", (route) => route.fulfill({ json: [{ id: "product-a", name: "Product A" }] }));
+  await page.route("**/api/mobile/planner/sessions", (route) => route.fulfill({ json: { session_id: "session-1" } }));
+  let releaseTurn;
+  let notifyTurn;
+  const turnReceived = new Promise((resolve) => { notifyTurn = resolve; });
+  let holdTurn = false;
+  const turns = [];
+  await page.route("**/api/mobile/planner/sessions/*/turn", async (route) => {
+    turns.push(route.request().postDataJSON());
+    if (holdTurn) await new Promise((resolve) => { releaseTurn = resolve; notifyTurn(); });
+    await route.fulfill({ json: { session_id: "session-1", assistant_message: "Ready", draft_tree_nodes: [{ id: "node-1", label: "Draft node" }] } });
+  });
+  await page.goto("/remote");
+  await expect(page.locator("#plannerProductSelect")).toBeEnabled();
+  await page.locator("#plannerProductSelect").selectOption("product-a");
+  await page.locator("#composer").fill("Create a draft");
+  await page.locator("#sendButton").click();
+  await page.getByRole("button", { name: "Draft node" }).click();
+  holdTurn = true;
+  await page.locator("#composer").fill("Refine the draft");
+  await page.locator("#sendButton").click();
+  try {
+    await Promise.race([turnReceived, new Promise((_, reject) => setTimeout(() => reject(new Error("Planner request did not arrive")), 5000))]);
+    await expect(page.locator("#plannerProductSelect")).toBeDisabled();
+    await expect(page.locator("#refreshPlannerProductsButton")).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Draft node" })).toBeDisabled();
+    expect(turns[1]).toMatchObject({ product_id: "product-a", selected_draft_node_id: "node-1" });
+  } finally {
+    if (releaseTurn) releaseTurn();
+  }
+  await expect(page.locator("#plannerProductSelect")).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Draft node" })).toBeEnabled();
+});
+
 test("CI view reports an offline service and renders service data safely", async ({ page, request }) => {
   test.skip(!token, "Set ARUVI_MOBILE_API_TOKEN for a running remote server");
   expect((await request.get("/api/mobile/ci/status")).status()).toBe(401);
