@@ -103,36 +103,67 @@ fn is_allowed_origin_host(candidate: &str, bind_host: &str, detected_lan_ip: Opt
     }
 }
 
+fn origin_matches_request(origin: &str, host: &str, bind_host: &str, lan_ip: Option<&str>) -> bool {
+    let Ok(origin_url) = Url::parse(origin) else { return false; };
+    if !matches!(origin_url.scheme(), "http" | "https")
+        || origin_url.origin().ascii_serialization() != origin
+        || host.is_empty()
+        || host.contains(['/', '@', '?', '#', '\\'])
+    {
+        return false;
+    }
+    let Ok(request_url) = Url::parse(&format!("{}://{}", origin_url.scheme(), host)) else { return false; };
+    let Some(origin_host) = origin_url.host_str() else { return false; };
+    origin_url.origin() == request_url.origin()
+        && is_allowed_origin_host(origin_host, bind_host, lan_ip)
+}
+
 pub(crate) async fn ensure_mcp_origin_allowed(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<(), Response> {
-    let Some(origin) = headers.get("origin").and_then(|value| value.to_str().ok()) else {
+    let mut origins = headers.get_all(axum::http::header::ORIGIN).iter();
+    let Some(origin_header) = origins.next() else {
         return Ok(());
     };
+    if origins.next().is_some() {
+        return Err(forbidden("MCP origin validation failed."));
+    }
+    let origin = origin_header.to_str().map_err(|_| forbidden("MCP origin validation failed."))?;
     if origin.trim().is_empty() || origin.eq_ignore_ascii_case("null") {
         return Err(forbidden("MCP origin validation failed."));
     }
 
-    let origin_url = Url::parse(origin).map_err(|_| forbidden("MCP origin validation failed."))?;
     let bind_config = resolve_webhook_bind_config(state)
         .await
         .map_err(unavailable)?;
     let detected_lan_ip = detect_primary_lan_ip();
-    let origin_host = origin_url
-        .host_str()
-        .ok_or_else(|| forbidden("MCP origin validation failed."))?;
-    let origin_port = origin_url
-        .port_or_known_default()
-        .ok_or_else(|| forbidden("MCP origin validation failed."))?;
-
-    if origin_port != bind_config.port
-        || !is_allowed_origin_host(origin_host, &bind_config.host, detected_lan_ip.as_deref())
-    {
+    let mut hosts = headers.get_all(axum::http::header::HOST).iter();
+    let host = hosts.next().and_then(|value| value.to_str().ok()).unwrap_or("");
+    if hosts.next().is_some() {
+        return Err(forbidden("MCP origin validation failed."));
+    }
+    if !origin_matches_request(origin, host, &bind_config.host, detected_lan_ip.as_deref()) {
         return Err(forbidden("MCP origin validation failed."));
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod origin_tests {
+    use super::origin_matches_request;
+
+    #[test]
+    fn validates_published_origin_and_rejects_cross_origin_requests() {
+        assert!(origin_matches_request("http://127.0.0.1:55002", "127.0.0.1:55002", "0.0.0.0", None));
+        assert!(origin_matches_request("http://[::1]:55002", "[::1]:55002", "0.0.0.0", None));
+        assert!(!origin_matches_request("http://127.0.0.1:55003", "127.0.0.1:55002", "0.0.0.0", None));
+        assert!(!origin_matches_request("http://evil.example:55002", "evil.example:55002", "0.0.0.0", None));
+        assert!(!origin_matches_request("http://127.0.0.1:55002/path", "127.0.0.1:55002", "0.0.0.0", None));
+        assert!(!origin_matches_request("http://127.0.0.1:55002", "", "0.0.0.0", None));
+        assert!(!origin_matches_request("http://127.0.0.1:55002", "evil.example@127.0.0.1:55002", "0.0.0.0", None));
+    }
 }
 
 pub(crate) async fn ensure_mcp_api_authorized(

@@ -9,9 +9,13 @@ the previously failing hierarchy deletion cases. Real providers, real CI integra
 and complete desktop feature parity remain unverified. Historical notes below
 describe results and limitations at the time they were recorded.
 
-Browser-origin MCP requests on the worktree's dynamically published port returned
-403, while the same unauthenticated request without an Origin reached authentication
-and returned 401. Browser-to-MCP integration requires a secure origin fix and test.
+Browser-origin MCP requests previously failed because the server compared the
+browser's published port to the container's internal port. It now compares Origin
+with the request Host and still restricts allowed hostnames and requires the MCP
+token. A host-Chrome test sent an authenticated MCP ping through the dynamically
+published port and verified that missing credentials, another port, and a null
+origin are rejected. Reverse-proxy deployments and public hostnames require separate
+configuration and validation; forwarded host headers are not trusted by this check.
 
 On the dedicated `codex/aruvi-web-docker` branch, the worktree image rebuilt and the
 deployed smoke, 17 remote UI, simulated CI and 17 isolated workflow tests passed.
@@ -45,7 +49,7 @@ handlers. An available handler is not evidence of a successful real-model workfl
 | Desktop action | Browser and MCP status |
 | --- | --- |
 | Create or update a planner session and choose provider/model | Browser connection settings create/update a session; `aruvi_planner` provides both operations. |
-| Submit a planner turn with selected draft node and product | The working-tree browser now presents a product selector and sends its selected node and product; MCP accepts both. The browser change is not yet in the running image. |
+| Submit a planner turn with selected draft node and product | Browser presents a product selector and sends its selected node and product; MCP accepts both. Tests simulate planner responses; real-provider behavior remains unverified. |
 | Select and inspect the staged draft tree | Browser renders/selects nodes; desktop additionally shows node details, validation, suggested prompts and recent actions. |
 | Rename a draft node, add a child or delete a draft node | Available through `aruvi_planner`; the browser has no equivalent controls. |
 | Analyze a registered repository into a design draft | Available through `aruvi_planner`; the browser has no equivalent control. Container paths and actual provider access still need validation. |
@@ -54,6 +58,15 @@ handlers. An available handler is not evidence of a successful real-model workfl
 | Voice transcription, voice planner commands and native speech | Browser has transcription and device speech controls; MCP exposes speech and voice-turn operations. Desktop view-switch commands, physical microphone and real speech services remain unverified. |
 | WhatsApp or phone contact routing | Desktop uses Twilio commands; MCP has channel operations. Equivalent browser planner controls and real-service tests were not found. |
 
+For each desktop action, parity requires a real backend operation, an appropriate
+browser or MCP entry point, and tests for success, failure, authorization and
+persistence. Native-only behavior such as revealing a file in Finder needs an
+explicit browser alternative or a documented platform limitation. The shared planner
+draft operations load a session snapshot and persist updates in separate steps;
+concurrent edits from multiple clients have not been proven safe and need a
+conflict/serialization design and regression tests before browser editing is treated
+as complete.
+
 The 14 host desktop Playwright tests use mocked Tauri calls and cover a deterministic
 planner flow, repository analysis and voice commands. They do not prove these actions
 work through the running web server or with a real model provider.
@@ -61,8 +74,8 @@ work through the running web server or with a real model provider.
 A host Chrome test served the working-tree remote HTML with simulated HTTP responses
 and verified selected-product and explicitly unscoped planner turns, including clearing
 a stale draft-node selection after changing product. If product loading fails, the
-user must retry or explicitly choose an unscoped turn. The Docker rebuild and actual
-backend integration test remain pending while shared Docker storage is full.
+user must retry or explicitly choose an unscoped turn. This does not establish
+end-to-end behavior with a real model provider.
 The same simulated-response test holds a planner turn open and verifies that product
 and draft-node controls cannot be changed until it finishes, and that the submitted
 node matches the selection made before the request.
