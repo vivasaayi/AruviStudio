@@ -331,6 +331,61 @@ pub fn list_local_ci_runs() -> Result<Value, String> {
 }
 
 #[tauri::command]
+pub fn get_local_ci_run(id: i64) -> Result<Value, String> {
+    request(json!({"method":"run","id":id}))
+}
+
+#[tauri::command]
+pub fn cancel_local_ci_run(id: i64) -> Result<Value, String> {
+    request(json!({"method":"cancel","id":id}))
+}
+
+#[tauri::command]
+pub fn retry_local_ci_run(id: i64) -> Result<Value, String> {
+    request(json!({
+        "method":"retry",
+        "id":id,
+        "key":format!("studio-retry-{id}-{}", Uuid::new_v4()),
+    }))
+}
+
+#[tauri::command]
+pub fn get_local_ci_log(id: i64, stage: String, offset: Option<u64>) -> Result<Value, String> {
+    request(json!({"method":"logs","id":id,"stage":stage,"offset":offset.unwrap_or(0)}))
+}
+
+#[tauri::command]
+pub fn get_ci_promotion_readiness(artifact_id: i64) -> Result<Value, String> {
+    request(json!({"method":"promotion_readiness","id":artifact_id}))
+}
+
+/// Reveal only a manager-recorded artifact selected by numeric ID. The UI
+/// cannot supply a filesystem path through this command.
+#[tauri::command]
+pub fn reveal_ci_artifact(artifact_id: i64) -> Result<(), String> {
+    // Promotion readiness validates run ownership, path confinement, size and
+    // hash for every artifact kind before Finder receives the stored path.
+    let artifact = request(json!({"method":"promotion_readiness","id":artifact_id}))?;
+    let path = artifact["path"]
+        .as_str()
+        .ok_or("Aruvici returned an artifact without a path")?;
+    let path =
+        fs::canonicalize(path).map_err(|error| format!("artifact is unavailable: {error}"))?;
+    if !path.is_file() {
+        return Err("artifact is not a regular file".into());
+    }
+    let status = Command::new("/usr/bin/open")
+        .arg("-R")
+        .arg(&path)
+        .status()
+        .map_err(|error| format!("reveal artifact in Finder: {error}"))?;
+    if !status.success() {
+        return Err("Finder could not reveal the artifact".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub fn queue_local_preview(commit: String, product_id: Option<String>) -> Result<Value, String> {
     queue_target(
         "aruvi-studio-preview",

@@ -1,17 +1,57 @@
 import { invoke } from "./core";
 
+export type LocalCiArtifact = {
+  id: number;
+  run_id: number;
+  stage: string;
+  kind: string;
+  path: string;
+  sha256: string;
+  size: number;
+  created_at: string;
+};
+export type LocalCiStage = { name: string; status: string; details?: Record<string, unknown>; updated_at?: string };
 export type LocalCiRun = {
   id: number;
   target: string;
   commit: string;
+  plan_digest: string;
   status: string;
+  context?: Record<string, unknown>;
+  cancellation_requested?: boolean;
   created_at: string;
+  started_at?: string | null;
   finished_at?: string | null;
   error?: string | null;
-  stages: Array<{ name: string; status: string; details?: Record<string, unknown> }>;
-  artifacts: Array<{ id: number; kind: string; sha256: string }>;
+  stages: LocalCiStage[];
+  artifacts: LocalCiArtifact[];
 };
-export type LocalCiTarget = { id: string; profile: string; repository?: string; plan?: Record<string, unknown> };
+export type LocalCiApproval = { approved: boolean; status: "approved" | "approval_required" | "pipeline_changed" | "invalid_approval_record"; current_digest: string; approved_digest?: string | null; approved_at?: string | null; error?: string };
+export type LocalCiTarget = {
+  id: string;
+  profile: string;
+  repository?: string;
+  plan?: { digest?: string; issues?: string[]; stages?: Array<{ id: string; label: string }> };
+  approval?: LocalCiApproval;
+  capabilities?: { build?: boolean; preview?: boolean; cancel?: boolean; retry?: boolean; logs?: boolean; artifacts?: boolean };
+};
+export type LocalCiHealth = {
+  status: string;
+  protocol: number;
+  ready?: boolean;
+  database?: string;
+  schema?: number;
+  queue?: { total: number; queued: number; running: number; terminal: number };
+  storage?: { run_directory: string; run_directory_exists: boolean };
+  last_run_at?: string | null;
+  last_finished_at?: string | null;
+};
+export type CiPromotionReadiness = {
+  artifact_id: number; run_id: number; target: string; commit: string; plan_digest: string;
+  kind: string; stage: string; path: string; sha256: string; size: number;
+  run_status: string; eligible: boolean; promotion_eligible: boolean; reason: string;
+  manual_promotion_only: true;
+};
 export type CiTargetBinding = { id: string; product_id: string; repository_id: string; target_id: string; auto_preview: boolean; created_at: string; updated_at: string };
 export type CiFeedback = { id: string; ci_run_id: number; commit_sha: string; product_id?: string | null; work_item_id?: string | null; verdict: "works" | "needs_changes" | "blocked"; notes: string; created_at: string };
 export type CiGitCommit = { sha: string; summary: string; committed_at: number };
@@ -35,9 +75,15 @@ export const ciTargetDescription = (target: Pick<LocalCiTarget, "id" | "profile"
   }
 };
 
-export const getLocalCiStatus = () => invoke<{ status: string; protocol: number }>("get_local_ci_status");
+export const getLocalCiStatus = () => invoke<LocalCiHealth>("get_local_ci_status");
 export const listLocalCiTargets = () => invoke<LocalCiTarget[]>("list_local_ci_targets");
 export const listLocalCiRuns = () => invoke<LocalCiRun[]>("list_local_ci_runs");
+export const getLocalCiRun = (id: number) => invoke<LocalCiRun>("get_local_ci_run", { id });
+export const cancelLocalCiRun = (id: number) => invoke<LocalCiRun>("cancel_local_ci_run", { id });
+export const retryLocalCiRun = (id: number) => invoke<LocalCiRun & { run_id: number }>("retry_local_ci_run", { id });
+export const getLocalCiLog = (id: number, stage: string, offset = 0) => invoke<{ text: string; next_offset: number }>("get_local_ci_log", { id, stage, offset });
+export const getCiPromotionReadiness = (artifactId: number) => invoke<CiPromotionReadiness>("get_ci_promotion_readiness", { artifactId });
+export const revealCiArtifact = (artifactId: number) => invoke<void>("reveal_ci_artifact", { artifactId });
 export const queueLocalPreview = (commit: string, productId?: string) =>
   invoke<{ run_id: number }>("queue_local_preview", { commit, productId });
 export const queueLocalRelease = (target: "aruvi-studio" | "aruvi-studio-intel", commit: string, productId?: string) =>
