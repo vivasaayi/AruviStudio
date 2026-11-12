@@ -14,7 +14,8 @@ browser's published port to the container's internal port. It now compares Origi
 with the request Host and still restricts allowed hostnames and requires the MCP
 token. A host-Chrome test sent an authenticated MCP ping through the dynamically
 published port and verified that missing credentials, another port, and a null
-origin are rejected. Reverse-proxy deployments and public hostnames require separate
+origin are rejected. The same test verifies that an untrusted host and duplicate
+Origin headers are rejected. Reverse-proxy deployments and public hostnames require separate
 configuration and validation; forwarded host headers are not trusted by this check.
 
 On the dedicated `codex/aruvi-web-docker` branch, the worktree image rebuilt and the
@@ -27,6 +28,20 @@ This is a working inventory, not a claim of tested parity. The desktop routes in
 `src/App.tsx` are the baseline. The web UI is `src-tauri/src/services/remote_app.html`;
 MCP handlers are under `src-tauri/src/mcp/tools`. An MCP action being present does
 not establish that all desktop behavior is available or works in a container.
+
+### Audit findings before merge
+
+- Planner draft rename, add, delete and repository analysis are available through
+  shared Rust services and MCP but lack browser controls. Concurrent draft edits
+  require an explicit safety design and tests.
+- Real model and transcription providers, physical microphone and speech playback,
+  and a real Aruvici connection have not been validated. Automated workflow and CI
+  tests use simulated services.
+- The desktop IDE, native file reveal, local model runtime management, channel
+  routing and remaining settings need action-by-action comparison or a documented
+  browser alternative. Passing section navigation does not establish full parity.
+- Staging, production promotion and release acceptance have not been validated.
+  The worktree build uses its own image, loopback port and persistent worktree volumes.
 
 | Desktop area | Current remote UI | Relevant MCP | Initial assessment |
 | --- | --- | --- | --- |

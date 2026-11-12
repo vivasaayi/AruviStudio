@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { chromium } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { request as httpRequest } from "node:http";
 
 const plan = JSON.parse(execFileSync("bash", ["scripts/env", "worktree", "plan"], { encoding: "utf8" }));
 const envFile = `${plan.state}/environment.env`;
@@ -28,5 +29,13 @@ try {
   assert.equal(crossOrigin.status, 403);
   const nullOrigin = await fetch(`${base}/api/mcp`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, Origin: "null" }, body });
   assert.equal(nullOrigin.status, 403);
+  const untrustedHost = await fetch(`${base}/api/mcp`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, Host: "untrusted.example:55010", Origin: "http://untrusted.example:55010" }, body });
+  assert.equal(untrustedHost.status, 403);
+  const duplicateOriginStatus = await new Promise((resolve, reject) => {
+    const req = httpRequest(`${base}/api/mcp`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, Origin: [base, base] } }, (res) => { res.resume(); res.on("end", () => resolve(res.statusCode)); });
+    req.on("error", reject);
+    req.end(body);
+  });
+  assert.ok([400, 403].includes(duplicateOriginStatus), `Duplicate Origin returned ${duplicateOriginStatus}`);
   console.log("Published-port browser MCP works; missing tokens and cross-origin requests are rejected.");
 } finally { await browser.close(); }
