@@ -54,84 +54,45 @@ async fn queue_automatic_preview(
     Ok(())
 }
 
-pub(crate) async fn execute_git_push_stage(
-    db: &SqlitePool,
-    workflow_run_id: &str,
-) -> Result<(), AppError> {
+pub(crate) async fn is_retryable_git_delivery(db: &SqlitePool, workflow_run_id: &str) -> Result<bool, AppError> {
+    let run = workflow_repo::get_workflow_run(db, workflow_run_id).await?;
+    if run.status != "failed" || run.current_stage != "failed" { return Ok(false); }
+    let latest: Option<String> = sqlx::query_scalar("SELECT id FROM workflow_runs WHERE work_item_id=? ORDER BY rowid DESC LIMIT 1")
+        .bind(&run.work_item_id).fetch_optional(db).await?;
+    if latest.as_deref() != Some(workflow_run_id) { return Ok(false); }
+    let failure_stage: Option<String> = sqlx::query_scalar("SELECT from_stage FROM workflow_stage_history WHERE workflow_run_id=? AND to_stage='failed' ORDER BY rowid DESC LIMIT 1")
+        .bind(workflow_run_id).fetch_optional(db).await?;
+    if failure_stage.as_deref() != Some("git_push") { return Ok(false); }
+    Ok(crate::services::workflow_delivery_manifest::load(db, workflow_run_id).await?.is_some_and(|manifest| !manifest.files.is_empty()))
+}
+
+pub(crate) async fn execute_git_push_stage(db: &SqlitePool, workflow_run_id: &str) -> Result<(), AppError> {
     let workflow_run = workflow_repo::get_workflow_run(db, workflow_run_id).await?;
     let work_item = work_item_repo::get_work_item(db, &workflow_run.work_item_id).await?;
-
-    if let Some(repo_id) = &work_item.active_repo_id {
-        let repo = repository_repo::get_repository(db, repo_id).await?;
-        let branch_name = work_item
-            .branch_name
-            .clone()
-            .unwrap_or_else(|| "main".to_string());
-        let commit_message = format!("Implement work item: {}", work_item.title);
-
-        match GitOperations::create_commit(&repo.local_path, &commit_message) {
-            Ok(commit_id) => {
-                GitOperations::push_to_remote(&repo.local_path, "origin", &branch_name)?;
-                info!(
-                    "Successfully pushed commit {} for work item {}",
-                    commit_id, work_item.id
-                );
-                queue_automatic_preview(
-                    db,
-                    &repo.id,
-                    work_item.product_id.as_deref(),
-                    &work_item.id,
-                    workflow_run_id,
-                    &commit_id.to_string(),
-                )
-                .await?;
+    let repo_id = work_item.active_repo_id.as_deref().ok_or_else(|| AppError::Validation("No active repository is available for workflow delivery".to_string()))?;
+    let repo = repository_repo::get_repository(db, repo_id).await?;
+    let branch = work_item.branch_name.as_deref().unwrap_or("main");
+    let mut manifest = crate::services::workflow_delivery_manifest::load(db, workflow_run_id).await?
+        .ok_or_else(|| AppError::Validation("No workflow delivery manifest exists; review the repository and rerun coding before delivery".to_string()))?;
+    if manifest.repository_id != repo_id { return Err(AppError::Validation("The workflow delivery repository changed after coding".to_string())); }
+    let commit = match manifest.commit.clone() {
+        Some(commit) => commit,
+        None => {
+            let message = format!("Implement work item: {}", work_item.title);
+            let commit = GitOperations::create_workflow_commit(&repo.local_path, branch, &manifest, &message)?;
+            manifest.commit = Some(commit.clone());
+            if let Err(error) = crate::services::workflow_delivery_manifest::save(db, workflow_run_id, &manifest).await {
+                return Err(AppError::Internal(format!("Created local commit {commit}, but could not record it; inspect the repository before retrying: {error}")));
             }
-            Err(AppError::Internal(message)) if message.contains("No changes to commit") => {
-                warn!(
-                    work_item_id = %work_item.id,
-                    repo_id = %repo.id,
-                    "Skipping git push because no repository changes were produced for this work item"
-                );
-            }
-            Err(error) => return Err(error),
+            commit
         }
-    }
-
+    };
+    GitOperations::push_to_remote(&repo.local_path, "origin", branch, &commit)?;
+    info!(work_item_id = %work_item.id, commit_id = %commit, "Successfully pushed workflow commit");
+    queue_automatic_preview(db, repo_id, work_item.product_id.as_deref(), &work_item.id, workflow_run_id, &commit).await?;
     Ok(())
 }
 
-pub(crate) async fn push_workflow_changes(
-    db: &SqlitePool,
-    workflow_run: &WorkflowRun,
-) -> Result<(), AppError> {
-    let work_item = work_item_repo::get_work_item(db, &workflow_run.work_item_id).await?;
-    if let Some(repo_id) = &work_item.active_repo_id {
-        let repo = repository_repo::get_repository(db, repo_id).await?;
-        GitOperations::stage_all_changes(&repo.local_path)?;
-
-        let commit_message = format!("Implement work item: {}", work_item.title);
-        let commit_id = GitOperations::create_commit(&repo.local_path, &commit_message)?;
-
-        GitOperations::push_to_remote(
-            &repo.local_path,
-            "origin",
-            &work_item.branch_name.unwrap_or_else(|| "main".to_string()),
-        )?;
-
-        info!(
-            "Successfully pushed commit {} for work item {}",
-            commit_id, work_item.id
-        );
-        queue_automatic_preview(
-            db,
-            &repo.id,
-            work_item.product_id.as_deref(),
-            &work_item.id,
-            &workflow_run.id,
-            &commit_id.to_string(),
-        )
-        .await?;
-    }
-
-    Ok(())
+pub(crate) async fn push_workflow_changes(db: &SqlitePool, workflow_run: &WorkflowRun) -> Result<(), AppError> {
+    execute_git_push_stage(db, &workflow_run.id).await
 }

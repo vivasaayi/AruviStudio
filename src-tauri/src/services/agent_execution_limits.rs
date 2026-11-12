@@ -5,6 +5,7 @@ use std::path::Path;
 use std::time::Instant;
 
 #[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct AgentExecutionBoundaries {
     pub(crate) instructions: Option<String>,
     pub(crate) max_tokens: Option<i64>,
@@ -21,8 +22,10 @@ pub(crate) struct AgentExecutionBoundaries {
     pub(crate) max_tool_steps: Option<usize>,
 }
 
-pub(crate) fn parse_boundaries(raw: &serde_json::Value) -> AgentExecutionBoundaries {
-    serde_json::from_value::<AgentExecutionBoundaries>(raw.clone()).unwrap_or_default()
+pub(crate) fn parse_boundaries(raw: &serde_json::Value) -> Result<AgentExecutionBoundaries, AppError> {
+    if !raw.is_object() { return Err(AppError::Validation("Agent execution boundaries must be a JSON object".to_string())); }
+    serde_json::from_value::<AgentExecutionBoundaries>(raw.clone())
+        .map_err(|error| AppError::Validation(format!("Invalid agent execution boundaries: {error}")))
 }
 
 pub(crate) fn resolve_context_char_budget(
@@ -352,5 +355,19 @@ mod tests {
             "observation should be capped before it is reused in prompts"
         );
         assert!(observation.contains("truncated for model context"));
+    }
+}
+
+#[cfg(test)]
+mod boundary_validation_tests {
+    use super::*;
+
+    #[test]
+    fn invalid_and_unknown_boundaries_fail_instead_of_using_defaults() {
+        assert!(parse_boundaries(&serde_json::json!({})).is_ok());
+        assert!(parse_boundaries(&serde_json::json!({"allowed_paths":["src"], "max_tokens":500})).is_ok());
+        assert!(parse_boundaries(&serde_json::json!({"allowed_paths":"src"})).is_err());
+        assert!(parse_boundaries(&serde_json::json!({"blocked_path":["secret"]})).is_err());
+        assert!(parse_boundaries(&serde_json::Value::Null).is_err());
     }
 }

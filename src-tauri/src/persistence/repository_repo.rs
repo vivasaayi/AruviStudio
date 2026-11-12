@@ -122,6 +122,20 @@ pub async fn list_all_repository_attachments(
         .map_err(Into::into)
 }
 
+pub async fn set_default_repository(pool: &SqlitePool, scope_type: &str, scope_id: &str, repository_id: &str) -> Result<(), AppError> {
+    let mut transaction = pool.begin().await?;
+    // Acquire the write lock before testing existence, and roll the change back if the target is absent.
+    sqlx::query("UPDATE repository_attachments SET is_default=0 WHERE scope_type=? AND scope_id=? AND is_default=1")
+        .bind(scope_type).bind(scope_id).execute(&mut *transaction).await?;
+    let result = sqlx::query("UPDATE repository_attachments SET is_default=1 WHERE scope_type=? AND scope_id=? AND repository_id=?")
+        .bind(scope_type).bind(scope_id).bind(repository_id).execute(&mut *transaction).await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::Validation("Workspace is not attached to this scope".into()));
+    }
+    transaction.commit().await?;
+    Ok(())
+}
+
 pub async fn detach_repository(
     pool: &SqlitePool,
     scope_type: &str,

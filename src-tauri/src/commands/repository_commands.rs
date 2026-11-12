@@ -19,6 +19,16 @@ pub async fn register_repository(
     remote_url: String,
     default_branch: String,
 ) -> Result<Repository, AppError> {
+    register_repository_for_state(&state, name, local_path, remote_url, default_branch).await
+}
+
+pub(crate) async fn register_repository_for_state(
+    state: &AppState,
+    name: String,
+    local_path: String,
+    remote_url: String,
+    default_branch: String,
+) -> Result<Repository, AppError> {
     let local_path = normalize_repository_path(&local_path)?;
     if let Some(existing) =
         repository_repo::find_repository_by_local_path(&state.db, &local_path).await?

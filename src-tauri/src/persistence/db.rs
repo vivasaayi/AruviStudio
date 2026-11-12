@@ -1,5 +1,5 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-use sqlx::SqlitePool;
+use sqlx::{Acquire, SqlitePool};
 use std::str::FromStr;
 
 pub async fn create_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
@@ -10,6 +10,10 @@ pub async fn create_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> 
 
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
+        .after_release(|connection, _| Box::pin(async move {
+            sqlx::query("PRAGMA foreign_keys = ON").execute(connection).await?;
+            Ok(true)
+        }))
         .connect_with(options)
         .await?;
 
@@ -36,13 +40,13 @@ async fn repair_legacy_workflow_stage_history_fk(pool: &SqlitePool) -> Result<()
         return Ok(());
     }
 
-    sqlx::query("PRAGMA foreign_keys = OFF")
-        .execute(pool)
-        .await?;
-    sqlx::query("ALTER TABLE workflow_stage_history RENAME TO workflow_stage_history_legacy_fix")
-        .execute(pool)
-        .await?;
-    sqlx::query(
+    let mut connection = pool.acquire().await?;
+    sqlx::query("PRAGMA foreign_keys = OFF").execute(&mut *connection).await?;
+    let repair = async {
+        let mut tx = connection.begin().await?;
+        sqlx::query("ALTER TABLE workflow_stage_history RENAME TO workflow_stage_history_legacy_fix")
+            .execute(&mut *tx).await?;
+        sqlx::query(
         "CREATE TABLE workflow_stage_history (
             id TEXT PRIMARY KEY NOT NULL,
             workflow_run_id TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
@@ -53,7 +57,7 @@ async fn repair_legacy_workflow_stage_history_fk(pool: &SqlitePool) -> Result<()
             transitioned_at TEXT NOT NULL DEFAULT (datetime('now'))
         )",
     )
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
     sqlx::query(
         "INSERT INTO workflow_stage_history (
@@ -63,19 +67,19 @@ async fn repair_legacy_workflow_stage_history_fk(pool: &SqlitePool) -> Result<()
             id, workflow_run_id, from_stage, to_stage, trigger, notes, transitioned_at
         FROM workflow_stage_history_legacy_fix",
     )
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
     sqlx::query("DROP TABLE workflow_stage_history_legacy_fix")
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_stage_history_workflow ON workflow_stage_history(workflow_run_id)")
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
-    sqlx::query("PRAGMA foreign_keys = ON")
-        .execute(pool)
-        .await?;
-
-    Ok(())
+        tx.commit().await
+    }.await;
+    let restore = sqlx::query("PRAGMA foreign_keys = ON").execute(&mut *connection).await;
+    if let Err(error) = restore { connection.close().await?; return Err(error); }
+    repair
 }
 
 #[cfg(test)]

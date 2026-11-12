@@ -15,6 +15,11 @@ pub async fn set_setting(pool: &SqlitePool, key: &str, value: &str) -> Result<()
     Ok(())
 }
 
+pub async fn delete_setting(pool: &SqlitePool, key: &str) -> Result<(), AppError> {
+    sqlx::query("DELETE FROM settings WHERE key=?").bind(key).execute(pool).await?;
+    Ok(())
+}
+
 pub async fn get_bool_setting(
     pool: &SqlitePool,
     key: &str,

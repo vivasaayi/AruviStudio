@@ -18,6 +18,8 @@ pub mod channel_contact_policy;
 pub mod channel_service;
 pub mod channel_twilio;
 pub mod docker_service;
+pub(crate) mod workflow_test_runner;
+pub(crate) mod workflow_delivery_manifest;
 pub mod external_cli_events;
 pub mod external_cli_finalization;
 pub mod external_cli_provider;

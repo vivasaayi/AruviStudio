@@ -88,25 +88,28 @@ pub(super) fn repository_git_status(
 
 pub(super) fn repository_git_diff(local_path: &str, max_bytes: i64) -> Result<Value, AppError> {
     let repo = git2::Repository::open(local_path)?;
+    let head_tree = repo.head().ok().and_then(|head| head.peel_to_tree().ok());
+    let staged = repo.diff_tree_to_index(head_tree.as_ref(), None, None)?;
     let mut options = git2::DiffOptions::new();
-    options.include_untracked(true).recurse_untracked_dirs(true);
-    let diff = repo.diff_index_to_workdir(None, Some(&mut options))?;
-    let mut diff_text = String::new();
-    diff.print(git2::DiffFormat::Patch, |_delta, _hunk, line| {
-        match line.origin() {
-            '+' | '-' | ' ' => diff_text.push(line.origin()),
-            _ => {}
-        }
-        diff_text.push_str(&String::from_utf8_lossy(line.content()));
-        true
-    })?;
-    let max_bytes = max_bytes.clamp(1_024, 2_000_000) as usize;
-    let truncated = diff_text.len() > max_bytes;
-    if truncated {
-        diff_text.truncate(max_bytes);
+    options.include_untracked(true).recurse_untracked_dirs(true).show_untracked_content(true);
+    let unstaged = repo.diff_index_to_workdir(None, Some(&mut options))?;
+    let limit = max_bytes.clamp(1_024, 2_000_000) as usize;
+    let mut bytes = Vec::with_capacity(limit.min(32 * 1024));
+    let mut truncated = false;
+    fn append_bounded(target: &mut Vec<u8>, part: &[u8], limit: usize, truncated: &mut bool) {
+        let remaining = limit.saturating_sub(target.len());
+        target.extend_from_slice(&part[..part.len().min(remaining)]);
+        *truncated |= part.len() > remaining;
     }
-    Ok(json!({
-        "diff": diff_text,
-        "truncated": truncated
-    }))
+    for (title, diff) in [("--- Staged changes ---\n", &staged), ("\n--- Working tree changes ---\n", &unstaged)] {
+        append_bounded(&mut bytes, title.as_bytes(), limit, &mut truncated);
+        diff.print(git2::DiffFormat::Patch, |_delta, _hunk, line| {
+            if matches!(line.origin(), '+' | '-' | ' ') {
+                append_bounded(&mut bytes, &[line.origin() as u8], limit, &mut truncated);
+            }
+            append_bounded(&mut bytes, line.content(), limit, &mut truncated);
+            true
+        })?;
+    }
+    Ok(json!({"diff":String::from_utf8_lossy(&bytes).into_owned(), "truncated":truncated}))
 }

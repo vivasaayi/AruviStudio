@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+org_root=${ORG_DEV_ROOT:-$HOME/work/.org}
+if [[ ${2:-} != plan && " $* " != *" --dry-run "* ]]; then
+  python3 "$root/scripts/prepare-environment.py" "${1:-}" "${2:-}"
+fi
+exec python3 "$org_root/bin/product-env.py" --repo "$root" "$@"

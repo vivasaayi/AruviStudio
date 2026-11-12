@@ -2008,6 +2008,8 @@
           return ok("mock-chat-stream");
         case "register_repository":
           return ok(registerRepository(args || {}));
+        case "list_all_repository_attachments":
+          return ok([]);
         case "analyze_repository_for_planner_command":
           return ok(analyzeRepositoryForPlanner(args || {}));
         case "browse_for_repository_path":

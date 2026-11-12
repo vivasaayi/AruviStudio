@@ -1,7 +1,7 @@
 use super::WorkflowService;
 use crate::domain::workflow::{TransitionTrigger, WorkflowStage};
 use crate::error::AppError;
-use crate::persistence::workflow_repo;
+use crate::persistence::{settings_repo, workflow_repo};
 use crate::services::{workflow_agent_stage, workflow_approval_gate};
 use tracing::info;
 
@@ -68,6 +68,7 @@ impl WorkflowService {
         )
         .await?
             && workflow_approval_gate::is_auto_test_review_enabled(self.db.as_ref()).await?
+            && settings_repo::get_setting(self.db.as_ref(), &format!("workflow.test_result.{workflow_run_id}")).await?.as_deref() == Some("passed")
         {
             let workflow_run = workflow_repo::get_workflow_run(&self.db, workflow_run_id).await?;
             workflow_approval_gate::record_test_review_approval(

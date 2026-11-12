@@ -33,6 +33,8 @@ impl AgentService {
                 .map(|output| output.content);
         };
         let repo = crate::persistence::repository_repo::get_repository(&self.db, repo_id).await?;
+        let delivery_base = crate::services::workflow_delivery_manifest::repository_head(&repo.local_path);
+        let previous_files = crate::services::workflow_delivery_manifest::previous_files(&self.db, &agent_run.workflow_run_id, &repo.id, &delivery_base).await?;
         let workspace = WorkItemWorkspace::create(
             &work_item,
             &agent_run.workflow_run_id,
@@ -228,9 +230,13 @@ impl AgentService {
         }
 
         if !changed_files_list.is_empty() {
+            if crate::services::workflow_delivery_manifest::repository_head(&repo.local_path) != delivery_base {
+                return Err(AppError::Validation("Repository HEAD changed during coding; review before retrying".to_string()));
+            }
             workspace
-                .sync_files_back(&repo.local_path, &changed_files_list)
+                .sync_files_back(&repo.local_path, &changed_files_list, &previous_files)
                 .await?;
+            crate::services::workflow_delivery_manifest::record(&self.db, &agent_run.workflow_run_id, &repo.id, &repo.local_path, &workspace.repo_path, &changed_files_list, delivery_base).await?;
 
             let applied_files_path = artifact_dir.join("applied_files.txt");
             tokio::fs::write(&applied_files_path, changed_files_list.join("\n")).await?;

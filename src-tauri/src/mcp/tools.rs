@@ -10,6 +10,7 @@ mod agents;
 mod catalog;
 mod catalog_bulk_import;
 mod channels;
+mod ci;
 mod checkpoints;
 mod definitions;
 mod feature_context;
@@ -71,6 +72,7 @@ async fn dispatch_namespace_tool(
         "aruvi_models" => models::handle(state, payload).await,
         "aruvi_settings" => settings::handle(state, payload).await,
         "aruvi_channels" => channels::handle(state, payload).await,
+        "aruvi_ci" => ci::handle(state, payload).await,
         "aruvi_speech" => speech::handle(state, payload).await,
         _ => Err(AppError::Validation(format!(
             "Unknown MCP namespace tool: {tool_name}"

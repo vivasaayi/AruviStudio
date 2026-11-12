@@ -261,11 +261,30 @@ async fn close_orphaned_coordinator_reviews_only_closes_invalid_running_reviews(
         .expect("workflow run should be inserted");
     }
 
+    create_test_agent(&pool, "coordinator-disabled", "Disabled Coordinator", "manager").await;
+    create_test_agent(&pool, "coordinator-outsider", "Outside Coordinator", "manager").await;
+    sqlx::query("UPDATE agent_definitions SET enabled=0 WHERE id='coordinator-disabled'").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO agent_teams (id,name) VALUES ('replacement-team','Replacement'),('empty-team','Empty')").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO agent_team_memberships (id,team_id,agent_id) VALUES ('replacement-member','replacement-team','coordinator-valid')").execute(&pool).await.unwrap();
+    for (id, team_id, coordinator_id) in [
+        ("workflow-replace-disabled", "replacement-team", Some("coordinator-disabled")),
+        ("workflow-replace-null", "replacement-team", None),
+        ("workflow-replace-nonmember", "replacement-team", Some("coordinator-outsider")),
+        ("workflow-outside-team", "empty-team", Some("coordinator-valid")),
+    ] {
+        sqlx::query("INSERT INTO workflow_runs (id,work_item_id,status,current_stage,assigned_team_id,coordinator_agent_id) VALUES (?,?,'running','coordinator_review',?,?)")
+            .bind(id).bind("work-item-orphans").bind(team_id).bind(coordinator_id).execute(&pool).await.unwrap();
+    }
+
     let affected = close_orphaned_coordinator_reviews(&pool)
         .await
         .expect("orphan cleanup should succeed");
 
-    assert_eq!(affected, 2);
+    assert_eq!(affected, 3);
+    for id in ["workflow-replace-disabled", "workflow-replace-null", "workflow-replace-nonmember"] {
+        assert_eq!(get_workflow_run(&pool, id).await.unwrap().status, "running");
+    }
+    assert_eq!(get_workflow_run(&pool, "workflow-outside-team").await.unwrap().status, "failed");
 
     let null_review = get_workflow_run(&pool, "workflow-orphan-null")
         .await

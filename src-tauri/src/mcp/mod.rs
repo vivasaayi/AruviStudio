@@ -6,6 +6,7 @@ mod tools;
 
 use crate::bootstrap;
 pub use server::handle_json_rpc_value;
+pub(crate) use tools::dispatch_tool;
 
 pub fn run_stdio_server() -> Result<(), Box<dyn std::error::Error>> {
     let runtime = tokio::runtime::Runtime::new()?;

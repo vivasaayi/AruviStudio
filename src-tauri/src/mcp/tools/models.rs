@@ -20,6 +20,11 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
     let args = tool_action.args();
 
     match tool_action.action.as_str() {
+        "read_model_call_snapshot" => {
+            let id = args.required_string(&["id"], "id")?;
+            let kind = args.required_string(&["kind"], "kind")?;
+            action_result("read_model_call_snapshot", crate::commands::model_commands::read_snapshot_for_state(state, &id, &kind, Some(1024 * 1024)).await?)
+        }
         "create_provider" => {
             let id = uuid::Uuid::new_v4().to_string();
             let stored_secret_ref = secrets::store_provider_secret(

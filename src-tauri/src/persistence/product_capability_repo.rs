@@ -363,9 +363,6 @@ pub async fn reorder_capabilities(
 }
 
 pub async fn delete_capability(pool: &SqlitePool, id: &str) -> Result<(), AppError> {
-    sqlx::query("DELETE FROM capabilities WHERE id=?")
-        .bind(id)
-        .execute(pool)
-        .await?;
+    crate::persistence::hierarchy_delete_repo::delete_hierarchy_node(pool, "capability", id, None).await?;
     Ok(())
 }

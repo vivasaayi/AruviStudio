@@ -81,6 +81,9 @@ async fn auto_test_review_continues_to_done_by_default() {
     let workflow_service =
         WorkflowService::new(Arc::clone(&db_arc), Arc::new(Mutex::new(agent_service)));
 
+    crate::persistence::settings_repo::set_setting(&pool, "workflow.test_argv", r#"["true"]"#)
+        .await.expect("configure a successful test command");
+
     AgentService::set_test_model_outputs_for_any_workflow(vec![
         "requirement analysis complete".to_string(),
         "planning complete".to_string(),

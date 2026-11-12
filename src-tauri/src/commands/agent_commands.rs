@@ -44,10 +44,9 @@ pub async fn set_primary_agent_model_binding(
     model_id: String,
 ) -> Result<AgentModelBinding, AppError> {
     info!(agent_id = %agent_id, model_id = %model_id, "set_primary_agent_model_binding requested");
-    agent_repo::delete_agent_model_bindings_for_agent(&state.db, &agent_id).await?;
     let id = uuid::Uuid::new_v4().to_string();
     let result =
-        agent_repo::create_agent_model_binding(&state.db, &id, &agent_id, &model_id, 1).await;
+        agent_repo::replace_primary_agent_model_binding(&state.db, &id, &agent_id, &model_id).await;
     match &result {
         Ok(binding) => info!(binding_id = %binding.id, "set_primary_agent_model_binding succeeded"),
         Err(err) => {

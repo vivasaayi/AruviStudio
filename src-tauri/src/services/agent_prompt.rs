@@ -127,6 +127,9 @@ fn append_context(prompt: &mut String, context: &HashMap<String, String>, stage_
             "constraints",
             "requirement_analysis",
             "implementation_plan",
+            "agent_skills",
+            "team_skills",
+            "skill_instructions",
         ] {
             if let Some(value) = context.get(key) {
                 let limit = match key {
@@ -134,6 +137,7 @@ fn append_context(prompt: &mut String, context: &HashMap<String, String>, stage_
                     "requirement_analysis" => 1_500,
                     "acceptance_criteria" => 1_000,
                     "constraints" => 800,
+                    "skill_instructions" => 4_000,
                     _ => 600,
                 };
                 prompt.push_str(&format!(
@@ -179,5 +183,20 @@ fn append_boundaries(prompt: &mut String, boundaries: &AgentExecutionBoundaries)
                 prompt.push('\n');
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod skill_prompt_tests {
+    use super::*;
+
+    #[test]
+    fn coding_context_includes_bounded_skill_instructions() {
+        let mut context = HashMap::new();
+        context.insert("skill_instructions".to_string(), "é".repeat(4_100));
+        let mut prompt = String::new();
+        append_context(&mut prompt, &context, "coding");
+        assert!(prompt.starts_with("Context:\nskill_instructions: "));
+        assert_eq!(prompt.matches('é').count(), 4_000);
     }
 }

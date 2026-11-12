@@ -9,8 +9,11 @@ pub use crate::persistence::agent_definition_repo::{
     update_agent_definition, CreateAgentDefinitionInput, UpdateAgentDefinitionPatch,
 };
 pub use crate::persistence::agent_model_binding_repo::{
-    create_agent_model_binding, delete_agent_model_bindings_for_agent, get_agent_model_bindings,
-    list_agent_model_bindings,
+    get_agent_model_bindings, list_agent_model_bindings, replace_primary_agent_model_binding,
+};
+#[cfg(test)]
+pub use crate::persistence::agent_model_binding_repo::{
+    create_agent_model_binding, delete_agent_model_bindings_for_agent,
 };
 pub use crate::persistence::agent_run_repo::{
     add_agent_run_token_usage, create_agent_run, list_agent_runs_for_workflow,
@@ -145,13 +148,20 @@ pub async fn assign_team_scope(
     scope_type: &str,
     scope_id: &str,
 ) -> Result<TeamAssignment, AppError> {
-    sqlx::query("INSERT INTO team_assignments (id,team_id,scope_type,scope_id) VALUES (?,?,?,?)")
-        .bind(id)
-        .bind(team_id)
-        .bind(scope_type)
-        .bind(scope_id)
-        .execute(pool)
-        .await?;
+    let scope_check = match scope_type {
+        "product" => "SELECT 1 FROM products WHERE id=?",
+        "product_area" => "SELECT 1 FROM product_areas WHERE id=?",
+        "capability" => "SELECT 1 FROM capabilities WHERE id=?",
+        _ => return Err(AppError::Validation("Unsupported team assignment scope".to_string())),
+    };
+    // Check the target within the insert so deletion cannot race the validation.
+    let sql = format!("INSERT INTO team_assignments (id,team_id,scope_type,scope_id) SELECT ?,?,?,? WHERE EXISTS ({scope_check}) AND EXISTS (SELECT 1 FROM agent_teams WHERE id=?)");
+    let result = sqlx::query(&sql)
+        .bind(id).bind(team_id).bind(scope_type).bind(scope_id).bind(scope_id).bind(team_id)
+        .execute(pool).await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::Validation("Team or assignment scope does not exist".to_string()));
+    }
     sqlx::query_as::<_, TeamAssignment>(
         "SELECT id,team_id,scope_type,scope_id,created_at FROM team_assignments WHERE id=?",
     )
@@ -191,7 +201,7 @@ pub async fn resolve_team_for_work_item(
              FROM team_assignments ta
              JOIN agent_teams t ON t.id = ta.team_id
              WHERE ta.scope_type=? AND ta.scope_id=? AND t.enabled=1
-             ORDER BY ta.created_at ASC
+             ORDER BY ta.created_at ASC, ta.rowid ASC
              LIMIT 1",
         )
         .bind(candidate.0)
@@ -261,22 +271,18 @@ pub async fn find_team_coordinator(
     Ok(lead)
 }
 
-fn row_to_workflow_stage_policy(row: sqlx::sqlite::SqliteRow) -> WorkflowStagePolicy {
-    WorkflowStagePolicy {
+pub(crate) fn row_to_workflow_stage_policy(row: sqlx::sqlite::SqliteRow) -> Result<WorkflowStagePolicy, sqlx::Error> {
+    let primary = row.get::<String, _>("primary_roles");
+    let fallback = row.get::<String, _>("fallback_roles");
+    Ok(WorkflowStagePolicy {
         id: row.get("id"),
         stage_name: row.get("stage_name"),
-        primary_roles: serde_json::from_str::<Vec<String>>(
-            row.get::<String, _>("primary_roles").as_str(),
-        )
-        .unwrap_or_default(),
-        fallback_roles: serde_json::from_str::<Vec<String>>(
-            row.get::<String, _>("fallback_roles").as_str(),
-        )
-        .unwrap_or_default(),
+        primary_roles: serde_json::from_str::<Vec<String>>(&primary).map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
+        fallback_roles: serde_json::from_str::<Vec<String>>(&fallback).map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
         coordinator_required: row.get("coordinator_required"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
-    }
+    })
 }
 
 pub async fn list_workflow_stage_policies(
@@ -285,7 +291,7 @@ pub async fn list_workflow_stage_policies(
     sqlx::query(
         "SELECT id,stage_name,primary_roles,fallback_roles,coordinator_required,created_at,updated_at FROM workflow_stage_policies ORDER BY stage_name ASC"
     )
-    .map(row_to_workflow_stage_policy)
+    .try_map(row_to_workflow_stage_policy)
     .fetch_all(pool)
     .await
     .map_err(|e| e.into())
@@ -299,7 +305,7 @@ pub async fn get_workflow_stage_policy(
         "SELECT id,stage_name,primary_roles,fallback_roles,coordinator_required,created_at,updated_at FROM workflow_stage_policies WHERE stage_name=?"
     )
     .bind(stage_name)
-    .map(row_to_workflow_stage_policy)
+    .try_map(row_to_workflow_stage_policy)
     .fetch_optional(pool)
     .await
     .map_err(|e| e.into())
@@ -348,4 +354,57 @@ pub async fn delete_workflow_stage_policy(
         .execute(pool)
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod scope_assignment_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn malformed_routing_roles_do_not_silently_become_defaults() {
+        let dir = std::env::temp_dir().join(format!("aruvi-routing-validation-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pool = crate::persistence::db::create_pool(&format!("sqlite://{}", dir.join("test.db").display())).await.unwrap();
+        sqlx::query("INSERT INTO workflow_stage_policies (id,stage_name,primary_roles,fallback_roles) VALUES ('bad','coding','not-json','[]')").execute(&pool).await.unwrap();
+        assert!(get_workflow_stage_policy(&pool, "coding").await.is_err());
+        assert!(list_workflow_stage_policies(&pool).await.is_err());
+        pool.close().await;
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn most_specific_enabled_team_wins_and_same_time_uses_insertion_order() {
+        let dir = std::env::temp_dir().join(format!("aruvi-team-routing-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pool = crate::persistence::db::create_pool(&format!("sqlite://{}", dir.join("test.db").display())).await.unwrap();
+        for sql in [
+            "INSERT INTO products (id,name) VALUES ('p','Product')",
+            "INSERT INTO product_areas (id,product_id,name) VALUES ('a','p','Area')",
+            "INSERT INTO capabilities (id,product_area_id,name) VALUES ('c','a','Capability')",
+            "INSERT INTO work_items (id,product_id,product_area_id,capability_id,title) VALUES ('w','p','a','c','Work')",
+        ] { sqlx::query(sql).execute(&pool).await.unwrap(); }
+        for id in ["product-team", "area-team", "first-team", "second-team"] {
+            create_agent_team(&pool, id, id, "", "", true, 2).await.unwrap();
+        }
+        assert!(assign_team_scope(&pool, "missing", "product-team", "capability", "missing").await.is_err());
+        assert!(assign_team_scope(&pool, "wrong", "product-team", "unknown", "c").await.is_err());
+        assert!(assign_team_scope(&pool, "missing-team", "missing", "product", "p").await.is_err());
+        for (id, team, scope, target) in [
+            ("one", "product-team", "product", "p"), ("two", "area-team", "product_area", "a"),
+            ("three", "first-team", "capability", "c"), ("four", "second-team", "capability", "c"),
+        ] { assign_team_scope(&pool, id, team, scope, target).await.unwrap(); }
+        sqlx::query("UPDATE team_assignments SET created_at='2020-01-01 00:00:00'").execute(&pool).await.unwrap();
+        let work = crate::persistence::work_item_repo::get_work_item(&pool, "w").await.unwrap();
+        assert_eq!(resolve_team_for_work_item(&pool, &work).await.unwrap().unwrap().id, "first-team");
+        sqlx::query("UPDATE agent_teams SET enabled=0 WHERE id='first-team'").execute(&pool).await.unwrap();
+        assert_eq!(resolve_team_for_work_item(&pool, &work).await.unwrap().unwrap().id, "second-team");
+        remove_team_assignment(&pool, "four").await.unwrap();
+        assert_eq!(resolve_team_for_work_item(&pool, &work).await.unwrap().unwrap().id, "area-team");
+        remove_team_assignment(&pool, "two").await.unwrap();
+        assert_eq!(resolve_team_for_work_item(&pool, &work).await.unwrap().unwrap().id, "product-team");
+        sqlx::query("UPDATE agent_teams SET enabled=0 WHERE id='product-team'").execute(&pool).await.unwrap();
+        assert!(resolve_team_for_work_item(&pool, &work).await.unwrap().is_none());
+        pool.close().await;
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

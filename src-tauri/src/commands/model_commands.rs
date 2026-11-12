@@ -285,8 +285,12 @@ pub async fn read_model_call_snapshot(
     id: String,
     kind: String,
 ) -> Result<String, AppError> {
-    let call = model_call_repo::get_model_call(&state.db, &id).await?;
-    let snapshot_path = match kind.as_str() {
+    read_snapshot_for_state(&state, &id, &kind, None).await
+}
+
+pub(crate) async fn read_snapshot_for_state(state: &AppState, id: &str, kind: &str, limit: Option<u64>) -> Result<String, AppError> {
+    let call = model_call_repo::get_model_call(&state.db, id).await?;
+    let snapshot_path = match kind {
         "request" => call.request_snapshot_path,
         "response" => call.response_snapshot_path,
         _ => {
@@ -297,16 +301,53 @@ pub async fn read_model_call_snapshot(
     }
     .ok_or_else(|| AppError::NotFound(format!("Model call {id} has no {kind} snapshot")))?;
 
+    read_snapshot_file(&state.artifact_base_path, &snapshot_path, limit).await
+}
+
+async fn read_snapshot_file(artifact_base: &std::path::Path, snapshot_path: &str, limit: Option<u64>) -> Result<String, AppError> {
+    use tokio::io::AsyncReadExt;
     let requested_path = PathBuf::from(snapshot_path);
     let canonical_path = tokio::fs::canonicalize(&requested_path).await?;
-    let canonical_artifact_base = tokio::fs::canonicalize(&state.artifact_base_path).await?;
+    let canonical_artifact_base = tokio::fs::canonicalize(artifact_base).await?;
     if !canonical_path.starts_with(&canonical_artifact_base) {
         return Err(AppError::Validation(
             "Snapshot path is outside the artifact directory".to_string(),
         ));
     }
 
-    tokio::fs::read_to_string(canonical_path)
-        .await
-        .map_err(AppError::from)
+    if let Some(limit) = limit {
+        let file = tokio::fs::File::open(canonical_path).await?;
+        if !file.metadata().await?.is_file() { return Err(AppError::Validation("Snapshot is not a regular file".into())); }
+        let mut bytes = Vec::new();
+        file.take(limit + 1).read_to_end(&mut bytes).await?;
+        if bytes.len() as u64 > limit { return Err(AppError::Validation("Snapshot exceeds the remote read limit".into())); }
+        String::from_utf8(bytes).map_err(|_| AppError::Validation("Snapshot is not valid UTF-8".into()))
+    } else {
+        tokio::fs::read_to_string(canonical_path).await.map_err(AppError::from)
+    }
+}
+
+#[cfg(test)]
+mod remote_snapshot_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn snapshot_reads_are_confined_and_bounded() {
+        let dir = std::env::temp_dir().join(format!("aruvi-snapshot-{}", uuid::Uuid::new_v4()));
+        let artifacts = dir.join("artifacts");
+        tokio::fs::create_dir_all(&artifacts).await.unwrap();
+        let valid = artifacts.join("request.json");
+        let outside = dir.join("outside.txt");
+        tokio::fs::write(&valid, "snapshot").await.unwrap();
+        tokio::fs::write(&outside, "private").await.unwrap();
+        assert_eq!(read_snapshot_file(&artifacts, valid.to_str().unwrap(), Some(8)).await.unwrap(), "snapshot");
+        assert!(read_snapshot_file(&artifacts, valid.to_str().unwrap(), Some(7)).await.is_err());
+        assert!(read_snapshot_file(&artifacts, outside.to_str().unwrap(), Some(100)).await.is_err());
+        #[cfg(unix)] {
+            let link = artifacts.join("escape");
+            std::os::unix::fs::symlink(&outside, &link).unwrap();
+            assert!(read_snapshot_file(&artifacts, link.to_str().unwrap(), Some(100)).await.is_err());
+        }
+        tokio::fs::remove_dir_all(dir).await.unwrap();
+    }
 }

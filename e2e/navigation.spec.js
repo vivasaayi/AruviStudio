@@ -89,10 +89,10 @@ test("scope-aware utility routes avoid full product tree loads without capabilit
   await expect(page.getByRole("heading", { name: "Workspaces" })).toBeVisible();
   await page.waitForTimeout(200);
   const workspaceCalls = await page.evaluate(() => ({
-    productAreas: window.__ARUVI_E2E__.getInvokeCallCount("list_product_areas"),
+    attachments: window.__ARUVI_E2E__.getInvokeCallCount("list_all_repository_attachments"),
     fullTree: window.__ARUVI_E2E__.getInvokeCallCount("get_product_tree"),
   }));
-  expect(workspaceCalls.productAreas).toBeGreaterThan(0);
+  expect(workspaceCalls.attachments).toBeGreaterThan(0);
   expect(workspaceCalls.fullTree).toBe(0);
 
   await page.evaluate(() => window.__ARUVI_E2E__.clearInvokeCalls());
@@ -143,9 +143,11 @@ test("scope-aware utility routes use targeted capability reads with capability c
   await page.waitForTimeout(200);
   const workspaceCalls = await page.evaluate(() => ({
     capability: window.__ARUVI_E2E__.getInvokeCallCount("get_capability"),
+    attachments: window.__ARUVI_E2E__.getInvokeCallCount("list_all_repository_attachments"),
     fullTree: window.__ARUVI_E2E__.getInvokeCallCount("get_product_tree"),
   }));
-  expect(workspaceCalls.capability).toBeGreaterThan(0);
+  expect(workspaceCalls.attachments).toBeGreaterThan(0);
+  expect(workspaceCalls.capability).toBe(0);
   expect(workspaceCalls.fullTree).toBe(0);
 
   await page.evaluate(() => window.__ARUVI_E2E__.clearInvokeCalls());

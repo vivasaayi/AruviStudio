@@ -15,6 +15,41 @@ async fn create_test_pool(name: &str) -> SqlitePool {
         .expect("test database should be migrated")
 }
 
+#[tokio::test]
+async fn pooled_connections_restore_foreign_key_enforcement() {
+    let pool = create_test_pool("foreign_keys_reset").await;
+    let mut connection = pool.acquire().await.unwrap();
+    sqlx::query("PRAGMA foreign_keys = OFF").execute(&mut *connection).await.unwrap();
+    let disabled: i64 = sqlx::query_scalar("PRAGMA foreign_keys").fetch_one(&mut *connection).await.unwrap();
+    assert_eq!(disabled, 0);
+    drop(connection);
+    let mut connections = Vec::new();
+    for _ in 0..5 { connections.push(pool.acquire().await.unwrap()); }
+    for connection in &mut connections {
+        let enabled: i64 = sqlx::query_scalar("PRAGMA foreign_keys").fetch_one(&mut **connection).await.unwrap();
+        assert_eq!(enabled, 1);
+    }
+}
+
+#[tokio::test]
+async fn legacy_history_repair_is_atomic_and_restores_foreign_keys() {
+    let pool = SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
+    sqlx::query("PRAGMA foreign_keys = ON").execute(&pool).await.unwrap();
+    sqlx::query("CREATE TABLE workflow_runs(id TEXT PRIMARY KEY)").execute(&pool).await.unwrap();
+    sqlx::query("CREATE TABLE workflow_stage_history(id TEXT PRIMARY KEY, workflow_run_id TEXT REFERENCES workflow_runs_legacy(id), from_stage TEXT NOT NULL, to_stage TEXT NOT NULL, trigger TEXT NOT NULL, notes TEXT NOT NULL, transitioned_at TEXT NOT NULL)").execute(&pool).await.unwrap();
+    sqlx::query("CREATE TABLE workflow_stage_history_legacy_fix(id TEXT)").execute(&pool).await.unwrap();
+    assert!(repair_legacy_workflow_stage_history_fk(&pool).await.is_err());
+    let enabled: i64 = sqlx::query_scalar("PRAGMA foreign_keys").fetch_one(&pool).await.unwrap();
+    assert_eq!(enabled, 1);
+    let original: String = sqlx::query_scalar("SELECT sql FROM sqlite_master WHERE name='workflow_stage_history'").fetch_one(&pool).await.unwrap();
+    assert!(original.contains("workflow_runs_legacy"));
+    sqlx::query("DROP TABLE workflow_stage_history_legacy_fix").execute(&pool).await.unwrap();
+    repair_legacy_workflow_stage_history_fk(&pool).await.unwrap();
+    let repaired: String = sqlx::query_scalar("SELECT sql FROM sqlite_master WHERE name='workflow_stage_history'").fetch_one(&pool).await.unwrap();
+    assert!(!repaired.contains("workflow_runs_legacy"));
+    assert_eq!(sqlx::query_scalar::<_, i64>("PRAGMA foreign_keys").fetch_one(&pool).await.unwrap(), 1);
+}
+
 async fn create_unmigrated_test_pool(name: &str) -> (SqlitePool, String) {
     let temp_root = make_temp_dir(name);
     std::fs::create_dir_all(&temp_root).expect("temp dir should be created");

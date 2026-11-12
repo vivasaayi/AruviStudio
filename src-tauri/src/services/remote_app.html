@@ -408,9 +408,16 @@
       <nav class="tabbar" aria-label="Aruvi mobile sections">
         <button class="tab-button active" data-tab="planner" type="button">Planner</button>
         <button class="tab-button" data-tab="products" type="button">Products</button>
+        <button class="tab-button" data-tab="workspaces" type="button">Workspaces</button>
         <button class="tab-button" data-tab="work" type="button">Work</button>
         <button class="tab-button" data-tab="chat" type="button">Chat</button>
         <button class="tab-button" data-tab="voice" type="button">Voice</button>
+        <button class="tab-button" data-tab="models" type="button">Models</button>
+        <button class="tab-button" data-tab="agents" type="button">Agents</button>
+        <button class="tab-button" data-tab="teams" type="button">Teams</button>
+        <button class="tab-button" data-tab="skills" type="button">Skills</button>
+        <button class="tab-button" data-tab="routing" type="button">Routing</button>
+        <button class="tab-button" data-tab="ci" type="button">CI</button>
         <button class="tab-button" data-tab="activity" type="button">Activity</button>
       </nav>
 
@@ -423,6 +430,9 @@
                 <div class="status" id="sessionStatus">No session</div>
               </div>
               <div class="panel-body">
+                <label><span class="label">Planner product scope</span><select id="plannerProductSelect" disabled><option value="">No product scope</option></select></label>
+                <button class="secondary" id="refreshPlannerProductsButton" type="button">Refresh planner products</button>
+                <div class="empty" id="plannerProductStatus">Save a connection token to load products.</div>
                 <div class="conversation" id="conversation"></div>
                 <div class="composer">
                   <textarea id="composer" placeholder="Tell the planner what to change"></textarea>
@@ -483,7 +493,12 @@
                 <div class="panel-title">Products</div>
                 <button class="secondary" id="refreshProductsButton" type="button">Refresh</button>
               </div>
-              <div class="panel-body">
+              <div class="panel-body stack">
+                <form id="createProductForm" class="stack">
+                  <label><span class="label">Product name</span><input id="newProductName" required maxlength="200" /></label>
+                  <label><span class="label">Description</span><textarea id="newProductDescription"></textarea></label>
+                  <button id="createProductButton" type="submit">Create product</button>
+                </form>
                 <div class="product-list" id="productList"></div>
               </div>
             </section>
@@ -495,10 +510,64 @@
               </div>
               <div class="panel-body stack">
                 <div class="metrics" id="productMetrics"></div>
+                <form id="createAreaForm" class="stack">
+                  <label><span class="label">New product area</span><input id="newAreaName" maxlength="200" required /></label>
+                  <button id="createAreaButton" type="submit" disabled>Add product area</button>
+                </form>
                 <div class="tree" id="productTree"></div>
+                <details id="resetPlanSection"><summary>Reset product plan</summary>
+                  <form id="resetPlanForm" class="stack">
+                    <p>Delete all product areas, capabilities, and features. Scoped references move to the product; scoped team and workspace attachments are removed. Delivery work is retained and unlinked unless you choose to delete it below.</p>
+                    <label><span class="label">Type product name to reset</span><input id="resetPlanName" required /></label>
+                    <label><input id="resetPlanConfirm" type="checkbox" required /> I understand the hierarchy will be deleted.</label>
+                    <label><input id="resetPlanDeleteDelivery" type="checkbox" /> Also delete delivery work and agent-work records.</label>
+                    <button id="resetPlanButton" type="submit" class="danger" disabled>Reset plan</button>
+                  </form>
+                </details>
               </div>
             </section>
           </div>
+        </section>
+
+        <section class="tab-panel" id="tab-workspaces">
+          <div class="split">
+            <section class="panel">
+              <div class="panel-header"><div class="panel-title">Register workspace</div><button class="secondary" id="refreshWorkspacesButton" type="button">Refresh</button></div>
+              <div class="panel-body stack">
+                <p class="empty">Register a Git repository accessible inside the server container. Repositories in the persistent volume are under /repositories.</p>
+                <form id="repositoryForm" class="stack">
+                  <label><span class="label">Workspace name</span><input id="repositoryName" required /></label>
+                  <label><span class="label">Container repository path</span><input id="repositoryPath" required placeholder="/repositories/my-project" /></label>
+                  <button id="registerRepositoryButton" type="submit">Register workspace</button>
+                </form>
+                <div id="repositoryList" class="tool-list"></div>
+              </div>
+            </section>
+            <section class="panel">
+              <div class="panel-header"><div class="panel-title">Attach to product or area</div></div>
+              <div class="panel-body stack">
+                <form id="repositoryAttachForm" class="stack">
+                  <label><span class="label">Product for workspace</span><select id="repositoryProduct" required></select></label>
+                  <label><span class="label">Product area</span><select id="repositoryArea"><option value="">Whole product</option></select></label>
+                  <label><span class="label">Registered workspace</span><select id="repositorySelect" required></select></label>
+                  <label><input id="repositoryDefault" type="checkbox" /> Make default for this scope</label>
+                  <button id="attachRepositoryButton" type="submit">Attach workspace</button>
+                </form>
+                <div id="repositoryAttachmentList" class="tool-list"></div>
+              </div>
+            </section>
+          </div>
+          <section class="panel" style="margin-top: 16px">
+            <div class="panel-header"><div class="panel-title">Workspace files</div><div id="repositoryInspectStatus" class="status">Select a workspace</div></div>
+            <div class="panel-body stack">
+              <div id="repositoryGitStatus" class="empty"></div>
+              <button id="repositoryDiffButton" type="button" class="secondary" disabled>Show Git diff</button>
+              <pre id="repositoryDiff" style="white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto"></pre>
+              <div id="repositoryTree" class="tree"></div>
+              <label><span class="label">Selected file</span><textarea id="repositoryFileContent" readonly rows="18" aria-label="Selected file contents"></textarea></label>
+              <div class="button-row"><button id="saveRepositoryFileButton" type="button" disabled>Save file</button><button id="discardRepositoryFileButton" class="secondary" type="button" disabled>Discard file edits</button></div>
+            </div>
+          </section>
         </section>
 
         <section class="tab-panel" id="tab-work">
@@ -513,9 +582,10 @@
                   <select id="workProductSelect"></select>
                 </label>
                 <label>
-                  <span class="label">Task title</span>
+                  <span class="label">Work item title</span>
                   <input id="workTitleInput" placeholder="What should Aruvi build or fix?" />
                 </label>
+                <label><span class="label">New work problem statement</span><textarea id="workProblemInput" placeholder="What problem should this address?"></textarea></label>
                 <label>
                   <span class="label">Outcome and context</span>
                   <textarea id="workDescriptionInput" placeholder="Describe the expected outcome, important context, and constraints"></textarea>
@@ -524,14 +594,37 @@
                   <span class="label">Acceptance criteria</span>
                   <textarea id="workAcceptanceInput" placeholder="How will we know this is complete?"></textarea>
                 </label>
-                <div class="button-row">
-                  <button id="createWorkButton" type="button">Create Task</button>
+                <label><span class="label">New work constraints</span><textarea id="workConstraintsInput" placeholder="Limits or requirements to respect"></textarea></label>
+                <label><span class="label">Work type</span><select id="workTypeInput"><option value="task">Task</option><option value="story">Story</option><option value="setup">Setup</option><option value="bug">Bug</option><option value="refactor">Refactor</option><option value="test">Test</option><option value="review">Review</option><option value="security_fix">Security fix</option><option value="performance_improvement">Performance improvement</option></select></label>
+                <label><span class="label">Priority</span><select id="workPriorityInput"><option value="medium">Medium</option><option value="critical">Critical</option><option value="high">High</option><option value="low">Low</option></select></label>
+                <label><span class="label">Complexity</span><select id="workComplexityInput"><option value="medium">Medium</option><option value="trivial">Trivial</option><option value="low">Low</option><option value="high">High</option><option value="very_high">Very high</option></select></label>
+                <div class="stack">
+                  <button class="secondary" id="loadWorkScopeButton" type="button">Load hierarchy and parent items</button>
+                  <div class="empty" id="workScopeStatus">Optional: load placement choices for this product.</div>
+                  <label><span class="label">Hierarchy placement</span><select id="workScopeInput"><option value="">Product level</option></select></label>
+                  <label><span class="label">Parent work item</span><select id="workParentInput"><option value="">No parent</option></select></label>
+                  <button class="secondary" id="loadMoreWorkParentsButton" type="button" hidden>Load more parent items</button>
                 </div>
-                <div class="empty">Tasks are created as drafts. Review the task, then approve it to queue the coding workflow.</div>
+                <div class="button-row">
+                  <button id="createWorkButton" type="button">Create work item</button>
+                </div>
+                <div class="empty">Work items are created as drafts. Review the item, then approve it to start the workflow.</div>
               </div>
             </section>
 
             <aside class="side-stack">
+              <section class="panel">
+                <div class="panel-header"><div class="panel-title">Workflow test command</div></div>
+                <div class="panel-body stack">
+                  <p class="empty">For the selected product, run a command in its repository inside the server container. Enter an executable and arguments as a JSON array; no shell expansion is performed. Commands run as the server user.</p>
+                  <p id="workflowTestScopeStatus" class="empty">Select a product.</p>
+                  <form id="workflowTestForm" class="stack">
+                    <label><span class="label">Test command policy</span><select id="workflowTestMode"><option value="inherit">Use default command</option><option value="custom">Use product command</option><option value="disabled">Skip tests and require manual review</option></select></label>
+                    <label><span class="label">Test command arguments</span><textarea id="workflowTestArgv" placeholder='["npm", "test"]'></textarea></label>
+                    <button id="saveWorkflowTestButton" type="submit">Save test command</button>
+                  </form>
+                </div>
+              </section>
               <section class="panel">
                 <div class="panel-header">
                   <div class="panel-title">Work Items</div>
@@ -549,10 +642,20 @@
                 </div>
                 <div class="panel-body stack">
                   <div id="deliveryDetails" class="tool-list"></div>
+                  <button class="secondary" id="editWorkButton" type="button">Edit task</button>
+                  <form id="editWorkForm" hidden><div class="stack">
+                    <label><span class="label">Edit title</span><input id="editWorkTitle" required /></label>
+                    <label><span class="label">Problem statement</span><textarea id="editWorkProblem"></textarea></label>
+                    <label><span class="label">Edit outcome and context</span><textarea id="editWorkDescription"></textarea></label>
+                    <label><span class="label">Edit acceptance criteria</span><textarea id="editWorkAcceptance"></textarea></label>
+                    <label><span class="label">Constraints</span><textarea id="editWorkConstraints"></textarea></label>
+                    <div class="button-row"><button id="saveWorkEditButton" type="submit">Save task</button><button id="cancelWorkEditButton" class="secondary" type="button">Cancel edit</button></div>
+                  </div></form>
                   <div class="button-row">
                     <button id="approveWorkButton" type="button">Approve &amp; Start</button>
                     <button class="secondary" id="startWorkButton" type="button">Start / Retry</button>
                     <button class="secondary" id="refreshDeliveryButton" type="button">Refresh</button>
+                    <button class="secondary" id="retryGitDeliveryButton" type="button" hidden>Retry Git delivery</button>
                   </div>
                   <div class="button-row" id="workflowActions">
                     <button class="secondary" data-workflow-action="approve" type="button">Approve Gate</button>
@@ -590,6 +693,12 @@
             </div>
             <div class="panel-body">
               <div class="conversation" id="voiceConversation"></div>
+              <div class="stack">
+                <label><span class="label">Transcription provider</span><select id="voiceProvider" aria-label="Transcription provider"><option value="">Use server default</option></select></label>
+                <label><span class="label">Transcription model</span><input id="voiceModel" aria-label="Transcription model" placeholder="Server default (or whisper-1)" /></label>
+                <label><span class="label">Speech locale</span><input id="voiceLocale" aria-label="Speech locale" placeholder="Server default" /></label>
+                <label><input id="voiceReview" type="checkbox" checked /> Review transcript before sending</label>
+              </div>
               <div class="composer">
                 <textarea id="voiceComposer" placeholder="Voice transcript"></textarea>
                 <div class="button-row">
@@ -597,12 +706,127 @@
                   <button id="voiceSendButton" type="button">Submit</button>
                   <button class="secondary" id="voiceSpeakToggle" type="button">Speak On</button>
                 </div>
-                <div class="empty" id="voiceMeta">Record sends WAV audio to the desktop speech settings, then speaks the reply on this device when supported.</div>
+                <div class="empty" id="voiceMeta">Choose a transcription provider and model, or use server defaults. Record sends WAV audio for transcription; replies can be spoken on this device.</div>
               </div>
             </div>
           </section>
         </section>
 
+        <section class="tab-panel" id="tab-models">
+          <div class="split">
+            <section class="panel">
+              <div class="panel-header"><div class="panel-title">Add model provider</div><button class="secondary" id="refreshModelsButton" type="button">Refresh</button></div>
+              <div class="panel-body stack">
+                <form id="providerForm" class="stack">
+                  <label><span class="label">Provider name</span><input id="providerName" required /></label>
+                  <label><span class="label">API base URL</span><input id="providerUrl" type="url" required placeholder="https://example.com/v1" /></label>
+                  <label><span class="label">API key (optional)</span><input id="providerKey" type="password" autocomplete="off" /></label>
+                  <button type="submit" id="createProviderButton">Add provider</button>
+                </form>
+                <div id="providerList" class="tool-list"></div>
+              </div>
+            </section>
+            <section class="panel">
+              <div class="panel-header"><div class="panel-title">Add model</div></div>
+              <div class="panel-body stack">
+                <form id="modelForm" class="stack">
+                  <label><span class="label">Provider for model</span><select id="modelProvider" required></select></label>
+                  <label><span class="label">Model name</span><input id="newModelName" required /></label>
+                  <button type="submit" id="createModelButton">Add model</button>
+                </form>
+                <div id="modelList" class="tool-list"></div>
+              </div>
+            </section>
+            <section class="panel">
+              <div class="panel-header"><div class="panel-title">Agent model bindings</div></div>
+              <div class="panel-body stack">
+                <p class="empty">Choose the model an agent should use for workflow execution. Saving replaces that agent's existing model bindings.</p>
+                <form id="agentBindingForm" class="stack">
+                  <label><span class="label">Agent</span><select id="bindingAgent" required></select></label>
+                  <label><span class="label">Agent model</span><select id="bindingModel" required></select></label>
+                  <button id="saveAgentBindingButton" type="submit">Save agent model</button>
+                </form>
+                <div id="agentBindingList" class="tool-list"></div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="tab-panel" id="tab-agents">
+          <div class="split">
+            <section class="panel"><div class="panel-header"><div class="panel-title">Create agent</div><button class="secondary" id="refreshAgentsButton" type="button">Refresh</button></div>
+              <div class="panel-body"><p class="empty">An empty allowed-tools list uses the default repository tools, including writing. To restrict access, list exact tool names: repo.list_tree, repo.read_file, repo.search, repo.write_file, repo.replace_range or repo.apply_patch. Supported legacy aliases also work; unrecognized names grant no tools. Agent model bindings are managed under Models; team and skill links are managed under Teams and Skills. Prompt template references are stored but are not currently applied to agent prompts.</p><div id="createAgentEditor"></div></div>
+            </section>
+            <section class="panel"><div class="panel-header"><div class="panel-title">Agent definitions</div></div><div class="panel-body"><div class="stack" id="agentList"></div></div></section>
+          </div>
+        </section>
+
+        <section class="tab-panel" id="tab-teams">
+          <div class="split">
+            <section class="panel">
+              <div class="panel-header"><div class="panel-title">Create team</div><button class="secondary" id="refreshTeamsButton" type="button">Refresh</button></div>
+              <div class="panel-body"><form id="createTeamForm" class="stack">
+                <label><span class="label">Team name</span><input id="teamName" aria-label="Team name" maxlength="200" required /></label>
+                <label><span class="label">Department</span><input id="teamDepartment" aria-label="Team department" maxlength="200" /></label>
+                <label><span class="label">Description</span><textarea id="teamDescription" aria-label="Team description" maxlength="10000"></textarea></label>
+                <label><span class="label">Maximum concurrent workflows</span><input id="teamCapacity" aria-label="Team capacity" type="number" min="1" max="2147483647" value="2" required /></label>
+                <button type="submit">Create team</button>
+              </form></div>
+            </section>
+            <section class="panel"><div class="panel-header"><div class="panel-title">Teams and members</div></div><div class="panel-body"><div class="stack" id="teamList"></div></div></section>
+          </div>
+        </section>
+
+        <section class="tab-panel" id="tab-skills">
+          <div class="split">
+            <section class="panel">
+              <div class="panel-header"><div class="panel-title">Create skill</div><button class="secondary" id="refreshSkillsButton" type="button">Refresh</button></div>
+              <div class="panel-body"><p class="empty">Agent runs include enabled linked skill instructions up to a combined limit of 4,000 characters; the model's context budget can make the limit smaller.</p><form id="createSkillForm" class="stack">
+                <label><span class="label">Skill name</span><input id="skillName" aria-label="Skill name" required /></label>
+                <label><span class="label">Category</span><input id="skillCategory" aria-label="Skill category" /></label>
+                <label><span class="label">Description</span><textarea id="skillDescription" aria-label="Skill description"></textarea></label>
+                <label><span class="label">Instructions</span><textarea id="skillInstructions" aria-label="Skill instructions"></textarea></label>
+                <button type="submit">Create skill</button>
+              </form></div>
+            </section>
+            <section class="panel"><div class="panel-header"><div class="panel-title">Skill catalog and links</div></div><div class="panel-body"><div class="stack" id="skillList"></div></div></section>
+          </div>
+        </section>
+
+        <section class="tab-panel" id="tab-routing">
+          <section class="panel">
+            <div class="panel-header"><div class="panel-title">Workflow stage routing</div><button class="secondary" id="refreshRoutingButton" type="button">Refresh</button></div>
+            <div class="panel-body"><p>Roles are checked in order, first among the assigned team and then among other active agents. Leave both lists empty to use the stage defaults.</p>
+              <p>Coordinator review runs only when an active coordinator is available. Push preparation and Git push are system stages, so their role lists do not select an agent.</p>
+              <div class="stack" id="routingList"></div>
+            </div>
+          </section>
+        </section>
+
+        <section class="tab-panel" id="tab-ci">
+          <section class="panel">
+            <div class="panel-header"><div class="panel-title">CI &amp; build targets</div><button class="secondary" id="refreshCiButton" type="button">Refresh</button></div>
+            <div class="panel-body stack">
+              <p>Assign targets to attached workspaces and queue a committed revision. Pipeline approval is managed separately in Aruvici.</p>
+              <div id="ciStatus" role="status">Not checked</div>
+              <h3>Targets</h3><pre id="ciTargets" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
+              <h3>Build target assignment</h3>
+              <label>Product <select id="ciProduct"></select></label>
+              <label>Attached workspace <select id="ciRepository"></select></label>
+              <label>Matching target <select id="ciTarget"></select></label>
+              <label><input type="checkbox" id="ciAutoPreview"> Automatically queue Preview after workflow delivery</label>
+              <button type="button" id="ciAssign" class="secondary">Assign target</button>
+              <div id="ciBindings" class="stack"></div>
+              <h3>Queue build</h3>
+              <label>Revision type <select id="ciRevisionType"><option value="branch">Local branch</option><option value="commit">Full commit SHA</option></select></label>
+              <label>Revision <select id="ciRevision"><option value="">Select a workspace first</option></select></label>
+              <div id="ciRevisionStatus" role="status"></div>
+              <button type="button" id="ciQueue" class="secondary">Queue selected target</button>
+              <h3>Recent runs</h3><div id="ciRuns" class="stack"></div>
+              <div id="ciRunDetails" class="stack"></div>
+            </div>
+          </section>
+        </section>
         <section class="tab-panel" id="tab-activity">
           <div class="split">
             <section class="panel">
@@ -620,8 +844,18 @@
 
             <section class="panel">
               <div class="panel-header">
-                <div class="panel-title">File MCP Tools</div>
+                <div class="panel-title">Model Calls</div>
+                <button class="secondary" id="refreshModelCallsButton" type="button">Refresh</button>
               </div>
+              <div class="panel-body stack">
+                <label>Call source <select id="modelCallFilter"><option value="all">All</option><option value="desktop">Desktop</option><option value="mobile">Mobile</option><option value="workflow">Workflow</option><option value="planner">Planner</option><option value="failed">Failed</option></select></label>
+                <div id="modelCallSummary" class="empty"></div>
+                <div id="modelCallList" class="tool-list"></div>
+                <div id="modelCallDetails" class="tool-list"></div>
+              </div>
+            </section>
+            <section class="panel">
+              <div class="panel-header"><div class="panel-title">File MCP Tools</div></div>
               <div class="panel-body">
                 <div class="tool-list" id="mcpToolList"></div>
               </div>
@@ -639,6 +873,9 @@
       provider: "aruvi.remote.provider",
       model: "aruvi.remote.model",
       locale: "aruvi.remote.locale",
+      voiceProvider: "aruvi.remote.voice_provider",
+      voiceModel: "aruvi.remote.voice_model",
+      voiceReview: "aruvi.remote.voice_review",
       session: "aruvi.remote.session",
       selectedNode: "aruvi.remote.selected_node",
       selectedProduct: "aruvi.remote.selected_product",
@@ -669,6 +906,7 @@
       chatMessages: [],
       voiceMessages: [],
       voiceRecording: null,
+      voiceTogglePending: false,
       voiceRepliesEnabled: true,
       busy: false
     };
@@ -692,25 +930,107 @@
       saveButton: document.getElementById("saveButton"),
       copyLinkButton: document.getElementById("copyLinkButton"),
       newSessionButton: document.getElementById("newSessionButton"),
+      plannerProductSelect: document.getElementById("plannerProductSelect"),
+      plannerProductStatus: document.getElementById("plannerProductStatus"),
+      refreshPlannerProductsButton: document.getElementById("refreshPlannerProductsButton"),
       connectionMeta: document.getElementById("connectionMeta"),
       draftTree: document.getElementById("draftTree"),
       refreshProductsButton: document.getElementById("refreshProductsButton"),
+      createProductForm: document.getElementById("createProductForm"),
+      createProductButton: document.getElementById("createProductButton"),
+      createAreaForm: document.getElementById("createAreaForm"),
+      createAreaButton: document.getElementById("createAreaButton"),
+      newAreaName: document.getElementById("newAreaName"),
+      resetPlanSection: document.getElementById("resetPlanSection"),
+      resetPlanForm: document.getElementById("resetPlanForm"),
+      resetPlanName: document.getElementById("resetPlanName"),
+      resetPlanConfirm: document.getElementById("resetPlanConfirm"),
+      resetPlanDeleteDelivery: document.getElementById("resetPlanDeleteDelivery"),
+      resetPlanButton: document.getElementById("resetPlanButton"),
+      newProductName: document.getElementById("newProductName"),
+      newProductDescription: document.getElementById("newProductDescription"),
       productList: document.getElementById("productList"),
       productStatus: document.getElementById("productStatus"),
       productMetrics: document.getElementById("productMetrics"),
       productTree: document.getElementById("productTree"),
+      repositoryForm: document.getElementById("repositoryForm"),
+      repositoryName: document.getElementById("repositoryName"),
+      repositoryPath: document.getElementById("repositoryPath"),
+      registerRepositoryButton: document.getElementById("registerRepositoryButton"),
+      refreshWorkspacesButton: document.getElementById("refreshWorkspacesButton"),
+      repositoryList: document.getElementById("repositoryList"),
+      repositoryInspectStatus: document.getElementById("repositoryInspectStatus"),
+      repositoryGitStatus: document.getElementById("repositoryGitStatus"),
+      repositoryDiffButton: document.getElementById("repositoryDiffButton"),
+      repositoryDiff: document.getElementById("repositoryDiff"),
+      repositoryTree: document.getElementById("repositoryTree"),
+      repositoryFileContent: document.getElementById("repositoryFileContent"),
+      saveRepositoryFileButton: document.getElementById("saveRepositoryFileButton"),
+      discardRepositoryFileButton: document.getElementById("discardRepositoryFileButton"),
+      repositoryAttachForm: document.getElementById("repositoryAttachForm"),
+      repositoryProduct: document.getElementById("repositoryProduct"),
+      repositoryArea: document.getElementById("repositoryArea"),
+      repositorySelect: document.getElementById("repositorySelect"),
+      repositoryDefault: document.getElementById("repositoryDefault"),
+      attachRepositoryButton: document.getElementById("attachRepositoryButton"),
+      repositoryAttachmentList: document.getElementById("repositoryAttachmentList"),
+      providerForm: document.getElementById("providerForm"),
+      providerName: document.getElementById("providerName"),
+      providerUrl: document.getElementById("providerUrl"),
+      providerKey: document.getElementById("providerKey"),
+      createProviderButton: document.getElementById("createProviderButton"),
+      providerList: document.getElementById("providerList"),
+      modelForm: document.getElementById("modelForm"),
+      modelProvider: document.getElementById("modelProvider"),
+      newModelName: document.getElementById("newModelName"),
+      createModelButton: document.getElementById("createModelButton"),
+      modelList: document.getElementById("modelList"),
+      refreshModelsButton: document.getElementById("refreshModelsButton"),
+      agentBindingForm: document.getElementById("agentBindingForm"),
+      bindingAgent: document.getElementById("bindingAgent"),
+      bindingModel: document.getElementById("bindingModel"),
+      saveAgentBindingButton: document.getElementById("saveAgentBindingButton"),
+      agentBindingList: document.getElementById("agentBindingList"),
+      refreshModelCallsButton: document.getElementById("refreshModelCallsButton"),
+      modelCallList: document.getElementById("modelCallList"),
+      modelCallDetails: document.getElementById("modelCallDetails"),
       workProductSelect: document.getElementById("workProductSelect"),
+      workflowTestForm: document.getElementById("workflowTestForm"),
+      workflowTestArgv: document.getElementById("workflowTestArgv"),
+      workflowTestMode: document.getElementById("workflowTestMode"),
+      workflowTestScopeStatus: document.getElementById("workflowTestScopeStatus"),
+      saveWorkflowTestButton: document.getElementById("saveWorkflowTestButton"),
       workTitleInput: document.getElementById("workTitleInput"),
+      workProblemInput: document.getElementById("workProblemInput"),
       workDescriptionInput: document.getElementById("workDescriptionInput"),
       workAcceptanceInput: document.getElementById("workAcceptanceInput"),
+      workConstraintsInput: document.getElementById("workConstraintsInput"),
+      workTypeInput: document.getElementById("workTypeInput"),
+      workPriorityInput: document.getElementById("workPriorityInput"),
+      workComplexityInput: document.getElementById("workComplexityInput"),
+      workScopeInput: document.getElementById("workScopeInput"),
+      workParentInput: document.getElementById("workParentInput"),
+      workScopeStatus: document.getElementById("workScopeStatus"),
+      loadWorkScopeButton: document.getElementById("loadWorkScopeButton"),
+      loadMoreWorkParentsButton: document.getElementById("loadMoreWorkParentsButton"),
       createWorkButton: document.getElementById("createWorkButton"),
       refreshWorkButton: document.getElementById("refreshWorkButton"),
       workList: document.getElementById("workList"),
       deliveryStatus: document.getElementById("deliveryStatus"),
       deliveryDetails: document.getElementById("deliveryDetails"),
+      editWorkButton: document.getElementById("editWorkButton"),
+      editWorkForm: document.getElementById("editWorkForm"),
+      editWorkTitle: document.getElementById("editWorkTitle"),
+      editWorkProblem: document.getElementById("editWorkProblem"),
+      editWorkDescription: document.getElementById("editWorkDescription"),
+      editWorkAcceptance: document.getElementById("editWorkAcceptance"),
+      editWorkConstraints: document.getElementById("editWorkConstraints"),
+      saveWorkEditButton: document.getElementById("saveWorkEditButton"),
+      cancelWorkEditButton: document.getElementById("cancelWorkEditButton"),
       approveWorkButton: document.getElementById("approveWorkButton"),
       startWorkButton: document.getElementById("startWorkButton"),
       refreshDeliveryButton: document.getElementById("refreshDeliveryButton"),
+      retryGitDeliveryButton: document.getElementById("retryGitDeliveryButton"),
       workflowActions: document.getElementById("workflowActions"),
       chatConversation: document.getElementById("chatConversation"),
       chatComposer: document.getElementById("chatComposer"),
@@ -720,7 +1040,30 @@
       voiceRecordButton: document.getElementById("voiceRecordButton"),
       voiceSendButton: document.getElementById("voiceSendButton"),
       voiceSpeakToggle: document.getElementById("voiceSpeakToggle"),
+      routingList: document.getElementById("routingList"),
+      refreshRoutingButton: document.getElementById("refreshRoutingButton"),
+      agentList: document.getElementById("agentList"),
+      createAgentEditor: document.getElementById("createAgentEditor"),
+      refreshAgentsButton: document.getElementById("refreshAgentsButton"),
+      skillList: document.getElementById("skillList"),
+      createSkillForm: document.getElementById("createSkillForm"),
+      refreshSkillsButton: document.getElementById("refreshSkillsButton"),
+      skillName: document.getElementById("skillName"),
+      skillCategory: document.getElementById("skillCategory"),
+      skillDescription: document.getElementById("skillDescription"),
+      skillInstructions: document.getElementById("skillInstructions"),
+      teamList: document.getElementById("teamList"),
+      createTeamForm: document.getElementById("createTeamForm"),
+      refreshTeamsButton: document.getElementById("refreshTeamsButton"),
+      teamName: document.getElementById("teamName"),
+      teamDepartment: document.getElementById("teamDepartment"),
+      teamDescription: document.getElementById("teamDescription"),
+      teamCapacity: document.getElementById("teamCapacity"),
       voiceMeta: document.getElementById("voiceMeta"),
+      voiceProvider: document.getElementById("voiceProvider"),
+      voiceModel: document.getElementById("voiceModel"),
+      voiceLocale: document.getElementById("voiceLocale"),
+      voiceReview: document.getElementById("voiceReview"),
       bridgeState: document.getElementById("bridgeState"),
       bridgeUrl: document.getElementById("bridgeUrl"),
       healthDetails: document.getElementById("healthDetails"),
@@ -764,6 +1107,9 @@
       el.tokenInput.value = localStorage.getItem(storageKeys.token) || "";
       el.providerInput.value = localStorage.getItem(storageKeys.provider) || "";
       el.modelInput.value = localStorage.getItem(storageKeys.model) || "";
+      el.voiceModel.value = localStorage.getItem(storageKeys.voiceModel) || "";
+      el.voiceLocale.value = localStorage.getItem(storageKeys.locale) || "";
+      el.voiceReview.checked = localStorage.getItem(storageKeys.voiceReview) !== "false";
       el.connectionMeta.textContent = normalizeBaseUrl();
       updateSessionStatus();
     }
@@ -802,13 +1148,21 @@
         button.disabled = nextBusy;
       });
       if (state.voiceRecording) {
-        el.voiceRecordButton.disabled = false;
+        el.voiceRecordButton.disabled = nextBusy;
+        el.voiceSendButton.disabled = true;
+        el.chatSendButton.disabled = true;
+        el.sendButton.disabled = true;
       }
       el.confirmButton.disabled = nextBusy || !state.sessionId;
+      el.plannerProductSelect.disabled = nextBusy || plannerProductsLoading || !plannerProductsReady;
+      el.refreshPlannerProductsButton.disabled = nextBusy || plannerProductsLoading;
+      el.draftTree.querySelectorAll("button").forEach((button) => { button.disabled = nextBusy; });
       el.clearButton.disabled = nextBusy || !state.sessionId;
+      el.editWorkButton.disabled = nextBusy || !state.delivery || state.delivery.work_item.id !== state.selectedWorkItemId;
       el.approveWorkButton.disabled = nextBusy || !state.selectedWorkItemId;
       el.startWorkButton.disabled = nextBusy || !state.selectedWorkItemId;
       el.refreshDeliveryButton.disabled = nextBusy || !state.selectedWorkItemId;
+      el.retryGitDeliveryButton.disabled = nextBusy || !state.delivery || !state.delivery.retryable_git_delivery;
       Array.from(el.workflowActions.querySelectorAll("button")).forEach((button) => {
         button.disabled = nextBusy || !state.delivery || !state.delivery.workflow_run;
       });
@@ -827,11 +1181,44 @@
       localStorage.setItem(storageKeys.activeTab, tabId);
       el.tabs.forEach((button) => button.classList.toggle("active", button.dataset.tab === tabId));
       el.panels.forEach((panel) => panel.classList.toggle("active", panel.id === "tab-" + tabId));
+      if (tabId === "planner" && (el.tokenInput.value.trim() || localStorage.getItem(storageKeys.token))) {
+        void loadPlannerProducts();
+      }
       if (tabId === "products" && !state.products.length) {
         void loadProducts();
       }
       if (tabId === "work") {
         void loadWorkItems();
+      }
+      if (tabId === "workspaces") {
+        void loadWorkspaces();
+      }
+      if (tabId === "activity") {
+        void loadModelCalls();
+        scheduleModelCallRefresh();
+      } else {
+        clearTimeout(modelCallRefreshTimer);
+      }
+      if (tabId === "ci") {
+        void loadCi();
+      }
+      if (tabId === "voice") {
+        void loadVoiceProviders();
+      }
+      if (tabId === "routing") {
+        void loadRouting();
+      }
+      if (tabId === "agents") {
+        void loadAgents();
+      }
+      if (tabId === "skills") {
+        void loadSkills();
+      }
+      if (tabId === "teams") {
+        void loadTeams();
+      }
+      if (tabId === "models") {
+        void loadModelConfiguration();
       }
     }
 
@@ -937,12 +1324,32 @@
       });
     }
 
+    let voiceProvidersRequestId = 0;
+    async function loadVoiceProviders() {
+      const requestId = ++voiceProvidersRequestId;
+      try {
+        const providers = await request("/api/mobile/providers");
+        if (requestId !== voiceProvidersRequestId) return;
+        const selected = localStorage.getItem(storageKeys.voiceProvider) || "";
+        el.voiceProvider.replaceChildren(new Option("Use server default", ""));
+        providers.filter((provider) => provider.enabled).forEach((provider) => {
+          el.voiceProvider.add(new Option(provider.name, provider.id));
+        });
+        if (selected && !providers.some((provider) => provider.enabled && provider.id === selected)) {
+          el.voiceProvider.add(new Option("Previously selected provider unavailable", selected));
+        }
+        el.voiceProvider.value = selected;
+      } catch (error) { setVoiceMeta("Unable to load transcription providers: " + (error.message || String(error))); }
+    }
+
     async function transcribeVoiceBlob(blob) {
       const audio_bytes_base64 = await blobToBase64(blob);
       const response = await request("/api/mobile/speech/transcribe", {
         method: "POST",
         body: {
           audio_bytes_base64,
+          provider_id: el.voiceProvider.value || undefined,
+          model_name: el.voiceModel.value.trim() || undefined,
           mime_type: blob.type || "audio/wav",
           locale: localStorage.getItem(storageKeys.locale) || undefined
         }
@@ -955,22 +1362,41 @@
         throw new Error("Microphone capture is not available in this WebView.");
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-      const audioContext = new AudioContextCtor();
-      const source = audioContext.createMediaStreamSource(stream);
-      const processor = audioContext.createScriptProcessor(4096, 1, 1);
-      const chunks = [];
-      processor.onaudioprocess = (event) => {
-        chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
-        const output = event.outputBuffer.getChannelData(0);
-        output.fill(0);
-      };
-      source.connect(processor);
-      processor.connect(audioContext.destination);
-      state.voiceRecording = { stream, audioContext, source, processor, chunks, sampleRate: audioContext.sampleRate };
-      el.voiceRecordButton.textContent = "Stop";
-      setVoiceMeta("Listening...");
-      setBusy(false);
+      let audioContext;
+      try {
+        const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextCtor) throw new Error("Audio capture is not available in this browser.");
+        audioContext = new AudioContextCtor();
+        const source = audioContext.createMediaStreamSource(stream);
+        const processor = audioContext.createScriptProcessor(4096, 1, 1);
+        const chunks = [];
+        const maxSamples = Math.min(600000, Math.floor(audioContext.sampleRate * 30));
+        let sampleCount = 0;
+        let stopping = false;
+        processor.onaudioprocess = (event) => {
+          const input = event.inputBuffer.getChannelData(0);
+          const remaining = Math.max(0, maxSamples - sampleCount);
+          if (remaining) {
+            const chunk = new Float32Array(input.subarray(0, remaining));
+            chunks.push(chunk);
+            sampleCount += chunk.length;
+          }
+          event.outputBuffer.getChannelData(0).fill(0);
+          if (sampleCount >= maxSamples && !stopping && !state.busy) {
+            stopping = true;
+            queueMicrotask(() => { if (state.voiceRecording) void toggleVoiceRecording(); });
+          }
+        };
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+        state.voiceRecording = { stream, audioContext, source, processor, chunks, sampleRate: audioContext.sampleRate };
+        el.voiceRecordButton.textContent = "Stop";
+        setVoiceMeta("Listening (up to 30 seconds)...");
+      } catch (error) {
+        stream.getTracks().forEach((track) => track.stop());
+        if (audioContext) await audioContext.close().catch(() => undefined);
+        throw error;
+      }
     }
 
     async function stopVoiceRecording() {
@@ -993,10 +1419,13 @@
       }
       el.voiceComposer.value = transcript;
       setVoiceMeta("Transcript ready.");
-      await submitPrompt("voice");
+      if (!el.voiceReview.checked) await submitPrompt("voice");
     }
 
     async function toggleVoiceRecording() {
+      if (state.voiceTogglePending) return;
+      state.voiceTogglePending = true;
+      setBusy(true);
       try {
         if (state.voiceRecording) {
           await stopVoiceRecording();
@@ -1008,6 +1437,9 @@
         el.voiceRecordButton.textContent = "Record";
         setVoiceMeta(error.message || String(error));
         setStatus(error.message || String(error), "error");
+      } finally {
+        state.voiceTogglePending = false;
+        setBusy(false);
       }
     }
 
@@ -1024,6 +1456,7 @@
       function renderNode(node, depth) {
         const card = document.createElement("button");
         card.type = "button";
+        card.disabled = state.busy;
         card.className = "tree-node" + (node.id === state.selectedNodeId ? " selected" : "");
         card.style.marginLeft = Math.min(depth * 12, 36) + "px";
         card.onclick = () => {
@@ -1093,6 +1526,47 @@
       return state.sessionId;
     }
 
+    let plannerProductsRequestId = 0;
+    let plannerProductsLoading = false;
+    let plannerProductsReady = false;
+    async function loadPlannerProducts() {
+      if (state.busy) return;
+      const requestId = ++plannerProductsRequestId;
+      plannerProductsLoading = true;
+      plannerProductsReady = false;
+      el.plannerProductSelect.replaceChildren(new Option("No product scope", ""));
+      setBusy(state.busy);
+      el.plannerProductStatus.textContent = "Loading products…";
+      try {
+        const products = await request("/api/mobile/products");
+        if (requestId !== plannerProductsRequestId) return;
+        for (const product of products) el.plannerProductSelect.add(new Option(product.name, product.id));
+        if (products.some((product) => product.id === state.selectedProductId)) el.plannerProductSelect.value = state.selectedProductId;
+        el.plannerProductStatus.textContent = "Choose the product to include in planner turns, or leave unscoped.";
+        plannerProductsReady = true;
+      } catch (error) {
+        if (requestId === plannerProductsRequestId) {
+          el.plannerProductSelect.replaceChildren(new Option("Choose a scope…", "__choose__"), new Option("No product scope", ""));
+          plannerProductsReady = true;
+          el.plannerProductStatus.textContent = "Products unavailable: " + error.message + ". Retry or explicitly choose no product scope.";
+        }
+      } finally {
+        if (requestId === plannerProductsRequestId) {
+          plannerProductsLoading = false;
+          setBusy(state.busy);
+        }
+      }
+    }
+    el.plannerProductSelect.addEventListener("change", () => {
+      if (el.plannerProductSelect.value === "__choose__") return;
+      state.selectedProductId = el.plannerProductSelect.value;
+      localStorage.setItem(storageKeys.selectedProduct, state.selectedProductId);
+      state.selectedNodeId = "";
+      localStorage.removeItem(storageKeys.selectedNode);
+      renderDraftTree();
+    });
+    el.refreshPlannerProductsButton.addEventListener("click", loadPlannerProducts);
+
     async function checkHealth() {
       try {
         setBusy(true);
@@ -1154,6 +1628,12 @@
       if (!prompt) {
         return;
       }
+      if (mode === "planner" && (el.plannerProductSelect.disabled || el.plannerProductSelect.value === "__choose__")) {
+        setStatus("Choose a planner product scope before sending", "warn");
+        return;
+      }
+      const plannerProductId = mode === "planner" ? el.plannerProductSelect.value || null : null;
+      const plannerNodeId = mode === "planner" ? state.selectedNodeId || null : null;
       saveSettings();
       appendMessage(config.target, "user", prompt);
       config.box.value = "";
@@ -1198,7 +1678,8 @@
           method: "POST",
           body: {
             user_input: prompt,
-            selected_draft_node_id: state.selectedNodeId || null
+            selected_draft_node_id: plannerNodeId,
+            product_id: plannerProductId
           }
         });
         applyPlannerResponse(response, config.target);
@@ -1318,6 +1799,29 @@
       }
     }
 
+    async function createProduct(event) {
+      event.preventDefault();
+      const name = el.newProductName.value.trim();
+      if (!name) {
+        setStatus("Product name is required", "error");
+        return;
+      }
+      el.createProductButton.disabled = true;
+      try {
+        const product = await request("/api/mobile/products", { method: "POST", body: {
+          name, description: el.newProductDescription.value.trim()
+        }});
+        state.selectedProductId = product.id;
+        localStorage.setItem(storageKeys.selectedProduct, product.id);
+        el.createProductForm.reset();
+        await loadProducts();
+      } catch (error) {
+        setStatus(error.message || String(error), "error");
+      } finally {
+        el.createProductButton.disabled = false;
+      }
+    }
+
     function renderProducts(errorMessage) {
       el.productList.innerHTML = "";
       if (errorMessage) {
@@ -1339,7 +1843,11 @@
         card.type = "button";
         card.className = "product-card" + (product.id === state.selectedProductId ? " selected" : "");
         card.onclick = () => {
-          void loadProductSummary(product.id);
+          void loadProductSummary(product.id).catch((error) => {
+            if (state.selectedProductId !== product.id) return;
+            el.productStatus.textContent = "Unable to load product";
+            setStatus(error.message || String(error), "error");
+          });
         };
         const title = document.createElement("div");
         title.className = "product-title";
@@ -1358,7 +1866,14 @@
       localStorage.setItem(storageKeys.selectedProduct, productId);
       renderProducts();
       el.productStatus.textContent = "Loading";
-      state.productSummary = await request("/api/mobile/products/" + encodeURIComponent(productId) + "/summary");
+      state.productSummary = null;
+      el.createAreaButton.disabled = true;
+      el.resetPlanButton.disabled = true;
+      el.productMetrics.replaceChildren();
+      el.productTree.replaceChildren();
+      const summary = await request("/api/mobile/products/" + encodeURIComponent(productId) + "/summary");
+      if (state.selectedProductId !== productId) return;
+      state.productSummary = summary;
       renderProductSummary();
     }
 
@@ -1385,19 +1900,164 @@
         return;
       }
       const product = state.products.find((entry) => entry.id === state.selectedProductId);
+      el.createAreaButton.disabled = !product;
+      el.resetPlanButton.disabled = !product;
       el.productStatus.textContent = product ? product.name : "Loaded";
       el.productMetrics.appendChild(renderMetric(summary.product_area_count || 0, "Product Areas"));
       el.productMetrics.appendChild(renderMetric(summary.total_node_count || 0, "Nodes"));
       el.productMetrics.appendChild(renderMetric(summary.leaf_node_count || 0, "Leaf Nodes"));
       el.productMetrics.appendChild(renderMetric(product && product.status ? product.status : "active", "Status"));
 
-      const note = document.createElement("div");
-      note.className = "empty";
-      note.textContent = "Mobile loads aggregate product metrics only. Open the desktop Product Overview to browse the full semantic tree.";
-      el.productTree.appendChild(note);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "secondary";
+      button.textContent = "Load product tree";
+      button.addEventListener("click", () => void loadProductTree(state.selectedProductId, button));
+      el.productTree.appendChild(button);
+    }
+
+    async function loadProductTree(productId, button) {
+      button.disabled = true;
+      button.textContent = "Loading tree…";
+      try {
+        const tree = await request("/api/mobile/products/" + encodeURIComponent(productId) + "/tree");
+        if (state.selectedProductId !== productId) return;
+        el.productTree.replaceChildren();
+        const areas = tree.product_areas || [];
+        if (!areas.length) {
+          el.productTree.textContent = "No product areas yet.";
+          return;
+        }
+        const addNode = (parent, item, children, areaId) => {
+          const details = document.createElement("details");
+          const title = document.createElement("summary");
+          title.textContent = (item.node_kind || "node").replaceAll("_", " ") + ": " + item.name;
+          details.appendChild(title);
+          if (item.description) {
+            const description = document.createElement("p");
+            description.textContent = item.description;
+            details.appendChild(description);
+          }
+          children.forEach((child) => addNode(details, child.capability, child.children || [], areaId));
+          const editSection = document.createElement("details");
+          const editTitle = document.createElement("summary"); editTitle.textContent = "Edit details";
+          const editForm = document.createElement("form"); editForm.className = "stack";
+          const nameInput = document.createElement("input"); nameInput.required = true; nameInput.maxLength = 200;
+          nameInput.value = item.name; nameInput.setAttribute("aria-label", "Edit name for " + item.name);
+          const descriptionInput = document.createElement("textarea"); descriptionInput.value = item.description || "";
+          descriptionInput.setAttribute("aria-label", "Edit description for " + item.name);
+          const save = document.createElement("button"); save.type = "submit"; save.textContent = "Save details"; save.className = "secondary";
+          editForm.append(nameInput, descriptionInput, save); editSection.append(editTitle, editForm); details.appendChild(editSection);
+          editForm.addEventListener("submit", async (event) => {
+            event.preventDefault(); save.disabled = true;
+            try {
+              await request("/api/mobile/products/" + encodeURIComponent(productId) + "/hierarchy/update", { method: "POST", body: {
+                node_type: item.node_kind === "product_area" ? "product_area" : "capability", id: item.id,
+                expected_name: item.name, expected_description: item.description || "", name: nameInput.value, description: descriptionInput.value
+              }});
+              if (state.selectedProductId === productId) {
+                await loadProductSummary(productId);
+                const reload = el.productTree.querySelector("button");
+                if (reload && state.selectedProductId === productId) await loadProductTree(productId, reload);
+                setStatus("Hierarchy details saved", "ok");
+              }
+            } catch (error) { setStatus(error.message || String(error), "error"); }
+            finally { save.disabled = false; }
+          });
+          const deleteSection = document.createElement("details");
+          const deleteTitle = document.createElement("summary"); deleteTitle.textContent = "Delete node";
+          const deleteForm = document.createElement("form"); deleteForm.className = "stack";
+          const warning = document.createElement("p"); warning.textContent = "Deleting this node also deletes its child hierarchy. Delivery work is retained but unlinked; references move to the product. Scoped team assignments and area workspace attachments are removed.";
+          const confirmName = document.createElement("input"); confirmName.required = true;
+          confirmName.setAttribute("aria-label", "Type name to delete " + item.name); confirmName.placeholder = "Type " + item.name + " to confirm";
+          const confirmLabel = document.createElement("label"); const confirmCheck = document.createElement("input"); confirmCheck.type = "checkbox"; confirmCheck.required = true;
+          confirmLabel.append(confirmCheck, document.createTextNode(" I understand this deletes the node and child hierarchy."));
+          const remove = document.createElement("button"); remove.type = "submit"; remove.className = "danger"; remove.textContent = "Delete node";
+          deleteForm.append(warning, confirmName, confirmLabel, remove); deleteSection.append(deleteTitle, deleteForm); details.appendChild(deleteSection);
+          deleteForm.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            if (confirmName.value !== item.name || !confirmCheck.checked) { setStatus("Type the exact node name and confirm deletion", "error"); return; }
+            remove.disabled = true;
+            try {
+              await request("/api/mobile/products/" + encodeURIComponent(productId) + "/hierarchy/delete", { method: "POST", body: {
+                node_type: item.node_kind === "product_area" ? "product_area" : "capability", id: item.id, expected_name: item.name
+              }});
+              if (state.selectedProductId === productId) {
+                await loadProductSummary(productId);
+                const reload = el.productTree.querySelector("button");
+                if (reload && state.selectedProductId === productId) await loadProductTree(productId, reload);
+                setStatus("Hierarchy node deleted", "ok");
+              }
+            } catch (error) { setStatus(error.message || String(error), "error"); }
+            finally { remove.disabled = false; }
+          });
+          if (item.node_kind === "product_area" || item.node_kind === "capability") {
+            const kind = item.node_kind === "product_area" ? "capability" : "feature";
+            const form = document.createElement("form"); form.className = "stack";
+            const input = document.createElement("input"); input.required = true; input.maxLength = 200;
+            input.setAttribute("aria-label", "New " + kind + " in " + item.name); input.placeholder = "New " + kind + " name";
+            const submit = document.createElement("button"); submit.type = "submit"; submit.className = "secondary"; submit.textContent = "Add " + kind;
+            form.append(input, submit);
+            form.addEventListener("submit", async (event) => {
+              event.preventDefault(); submit.disabled = true;
+              try { await createHierarchyNode(productId, areaId, item.node_kind === "product_area" ? null : item.id, input.value); }
+              finally { submit.disabled = false; }
+            });
+            details.appendChild(form);
+          }
+          parent.appendChild(details);
+        };
+        areas.forEach((area) => addNode(el.productTree, area.product_area, area.features || [], area.product_area.id));
+      } catch (error) {
+        if (state.selectedProductId !== productId) return;
+        button.disabled = false;
+        button.textContent = "Retry loading product tree";
+        setStatus(error.message || String(error), "error");
+      }
+    }
+
+    async function resetProductPlan(event) {
+      event.preventDefault();
+      const productId = state.selectedProductId;
+      const product = state.products.find((entry) => entry.id === productId);
+      if (!product || el.resetPlanName.value !== product.name || !el.resetPlanConfirm.checked) {
+        setStatus("Type the exact product name and confirm the reset", "error"); return;
+      }
+      el.resetPlanButton.disabled = true;
+      try {
+        const result = await request("/api/mobile/products/" + encodeURIComponent(productId) + "/reset-plan", { method: "POST", body: {
+          expected_name: product.name, delete_delivery: el.resetPlanDeleteDelivery.checked
+        }});
+        if (state.selectedProductId !== productId) return;
+        el.resetPlanForm.reset(); el.resetPlanSection.open = false;
+        await loadProductSummary(productId);
+        setStatus("Plan reset: " + result.productAreasDeleted + " areas and " + result.capabilitiesDeleted + " nodes removed", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { if (state.selectedProductId === productId) el.resetPlanButton.disabled = !state.productSummary; }
+    }
+
+    async function createHierarchyNode(productId, areaId, parentId, name) {
+      if (!productId || !name.trim()) { setStatus("Enter a name", "error"); return; }
+      try {
+        await request("/api/mobile/products/" + encodeURIComponent(productId) + "/hierarchy", { method: "POST", body: { name: name.trim(), product_area_id: areaId, parent_capability_id: parentId } });
+        if (state.selectedProductId !== productId) return;
+        el.newAreaName.value = "";
+        await loadProductSummary(productId);
+        const button = el.productTree.querySelector("button");
+        if (button && state.selectedProductId === productId) await loadProductTree(productId, button);
+        setStatus("Product hierarchy updated", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+    }
+    async function createProductArea(event) {
+      event.preventDefault();
+      const productId = state.selectedProductId;
+      el.createAreaButton.disabled = true;
+      try { await createHierarchyNode(productId, null, null, el.newAreaName.value); }
+      finally { el.createAreaButton.disabled = !state.selectedProductId; }
     }
 
     function renderWorkProductOptions() {
+      const previousProduct = el.workProductSelect.value;
       el.workProductSelect.innerHTML = "";
       if (!state.products.length) {
         const option = document.createElement("option");
@@ -1417,6 +2077,7 @@
         option.selected = product.id === state.selectedProductId;
         el.workProductSelect.appendChild(option);
       });
+      if (el.workProductSelect.value !== previousProduct) resetWorkScope();
     }
 
     async function ensureWorkProducts() {
@@ -1431,6 +2092,7 @@
         setBusy(true);
         setStatus("Loading work...", "warn");
         await ensureWorkProducts();
+        void loadWorkflowTestConfig();
         if (!state.selectedProductId) {
           state.workItems = [];
           state.delivery = null;
@@ -1465,6 +2127,52 @@
       } finally {
         setBusy(false);
       }
+    }
+
+    let workflowTestRequest = 0;
+    function updateWorkflowTestControls() {
+      el.workflowTestArgv.disabled = el.workflowTestMode.disabled || el.workflowTestMode.value !== "custom";
+    }
+    async function loadWorkflowTestConfig() {
+      const productId = state.selectedProductId;
+      const requestId = ++workflowTestRequest;
+      el.workflowTestMode.disabled = true;
+      el.saveWorkflowTestButton.disabled = true;
+      updateWorkflowTestControls();
+      el.workflowTestScopeStatus.textContent = productId ? "Loading product test settings..." : "Select a product.";
+      if (!productId) return;
+      try {
+        const config = await request("/api/mobile/workflow-test-config?product_id=" + encodeURIComponent(productId));
+        if (requestId !== workflowTestRequest || productId !== state.selectedProductId) return;
+        el.workflowTestMode.value = config.mode;
+        el.workflowTestArgv.value = JSON.stringify(config.argv);
+        const product = state.products.find((item) => item.id === productId);
+        el.workflowTestScopeStatus.textContent = "Settings for " + (product ? product.name : productId) + (config.mode === "inherit" ? (config.argv.length ? " · using the default command" : " · no default command; manual review required") : "");
+        el.workflowTestMode.disabled = false;
+        el.saveWorkflowTestButton.disabled = false;
+        updateWorkflowTestControls();
+      } catch (error) { if (requestId === workflowTestRequest) setStatus(error.message || String(error), "error"); }
+    }
+
+    async function saveWorkflowTestConfig(event) {
+      event.preventDefault();
+      const productId = state.selectedProductId;
+      if (!productId) return;
+      el.saveWorkflowTestButton.disabled = true;
+      try {
+        let argv = [];
+        if (el.workflowTestMode.value === "custom") {
+          try { argv = JSON.parse(el.workflowTestArgv.value || "[]"); }
+          catch { throw new Error("Enter the test command as a JSON array of strings"); }
+          if (!Array.isArray(argv) || !argv.every((value) => typeof value === "string")) throw new Error("Enter the test command as a JSON array of strings");
+        }
+        await request("/api/mobile/workflow-test-config", { method: "POST", body: { product_id: productId, mode: el.workflowTestMode.value, argv } });
+        if (productId === state.selectedProductId) {
+          await loadWorkflowTestConfig();
+          setStatus("Workflow test command saved", "ok");
+        }
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { if (productId === state.selectedProductId && !el.workflowTestMode.disabled) el.saveWorkflowTestButton.disabled = false; }
     }
 
     function renderWorkItems(errorMessage) {
@@ -1503,7 +2211,10 @@
     async function selectWorkItem(workItemId) {
       state.selectedWorkItemId = workItemId;
       localStorage.setItem(storageKeys.selectedWorkItem, workItemId);
+      cancelWorkEdit();
+      state.delivery = null;
       renderWorkItems();
+      renderDelivery();
       await loadDelivery();
     }
 
@@ -1524,7 +2235,9 @@
     function renderDelivery() {
       el.deliveryDetails.innerHTML = "";
       const delivery = state.delivery;
-      if (!delivery) {
+      el.retryGitDeliveryButton.hidden = !delivery || !delivery.retryable_git_delivery;
+      if (editingWorkItemId && editingWorkItemId !== state.selectedWorkItemId) cancelWorkEdit();
+      if (!delivery || delivery.work_item.id !== state.selectedWorkItemId) {
         el.deliveryStatus.textContent = state.selectedWorkItemId ? "Loading" : "Select a task";
         setBusy(state.busy);
         return;
@@ -1535,6 +2248,9 @@
         ? String(workflow.current_stage || workflow.status).replaceAll("_", " ")
         : String(workItem.status || "draft").replaceAll("_", " ");
       appendDetailCard(workItem.title, workItem.description || workItem.problem_statement || "No description");
+      if (workItem.problem_statement) appendDetailCard("Problem statement", workItem.problem_statement);
+      if (workItem.acceptance_criteria) appendDetailCard("Acceptance criteria", workItem.acceptance_criteria);
+      if (workItem.constraints) appendDetailCard("Constraints", workItem.constraints);
       appendDetailCard(
         "Task status",
         String(workItem.status || "draft").replaceAll("_", " "),
@@ -1553,57 +2269,163 @@
       }
       const artifacts = delivery.artifacts || [];
       appendDetailCard("Artifacts", artifacts.length ? artifacts.map((artifact) => artifact.summary || artifact.artifact_type).join("\n") : "No artifacts yet");
+      artifacts.filter((artifact) => artifact.artifact_type === "workflow_test_result").forEach((artifact) => {
+        const card = document.createElement("div"); card.className = "tool-card";
+        const title = document.createElement("div"); title.textContent = artifact.summary;
+        const button = document.createElement("button"); button.type = "button"; button.className = "secondary"; button.textContent = "Show test result";
+        const output = document.createElement("pre"); output.style.whiteSpace = "pre-wrap"; output.style.overflowWrap = "anywhere";
+        button.addEventListener("click", async () => {
+          button.disabled = true;
+          try {
+            const result = await request("/api/mobile/work-items/" + encodeURIComponent(workItem.id) + "/test-results/" + encodeURIComponent(artifact.id));
+            output.textContent = result.content;
+          } catch (error) { output.textContent = error.message || String(error); }
+          finally { button.disabled = false; }
+        });
+        card.append(title, button, output); el.deliveryDetails.appendChild(card);
+      });
       setBusy(state.busy);
     }
 
+    let deliveryRequestId = 0;
+    let editingWorkItemId = "";
+    let editingWorkBaseline = null;
+    function taskFields(item) {
+      return { title: item.title, description: item.description, problem_statement: item.problem_statement,
+        acceptance_criteria: item.acceptance_criteria, constraints: item.constraints };
+    }
+    function cancelWorkEdit() {
+      editingWorkItemId = ""; editingWorkBaseline = null; el.editWorkForm.hidden = true;
+    }
+    function editWorkItem() {
+      if (!state.delivery || state.delivery.work_item.id !== state.selectedWorkItemId) return;
+      const item = state.delivery.work_item;
+      editingWorkItemId = item.id; editingWorkBaseline = taskFields(item);
+      el.editWorkTitle.value = item.title; el.editWorkProblem.value = item.problem_statement;
+      el.editWorkDescription.value = item.description; el.editWorkAcceptance.value = item.acceptance_criteria;
+      el.editWorkConstraints.value = item.constraints; el.editWorkForm.hidden = false;
+    }
+    async function saveWorkItemEdit(event) {
+      event.preventDefault();
+      const id = editingWorkItemId;
+      if (!id || id !== state.selectedWorkItemId || !editingWorkBaseline) return;
+      const fields = { title: el.editWorkTitle.value, problem_statement: el.editWorkProblem.value,
+        description: el.editWorkDescription.value, acceptance_criteria: el.editWorkAcceptance.value, constraints: el.editWorkConstraints.value };
+      el.saveWorkEditButton.disabled = true;
+      try {
+        await request("/api/mobile/work-items/" + encodeURIComponent(id), { method: "POST", body: { expected: editingWorkBaseline, fields } });
+        if (id === state.selectedWorkItemId) { cancelWorkEdit(); await loadWorkItems(); setStatus("Task saved", "ok"); }
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { el.saveWorkEditButton.disabled = false; }
+    }
     async function loadDelivery(manageBusy = true) {
-      if (!state.selectedWorkItemId) {
+      const requestId = ++deliveryRequestId;
+      const itemId = state.selectedWorkItemId;
+      if (!itemId) {
         state.delivery = null;
         renderDelivery();
         return;
       }
       try {
         if (manageBusy) setBusy(true);
-        state.delivery = await request(
-          "/api/mobile/work-items/" + encodeURIComponent(state.selectedWorkItemId) + "/delivery"
-        );
+        const delivery = await request("/api/mobile/work-items/" + encodeURIComponent(itemId) + "/delivery");
+        if (requestId !== deliveryRequestId || itemId !== state.selectedWorkItemId) return;
+        state.delivery = delivery;
         renderDelivery();
         setStatus("Connected", "ok");
       } catch (error) {
-        setStatus(error.message || String(error), "error");
+        if (requestId === deliveryRequestId) setStatus(error.message || String(error), "error");
       } finally {
-        if (manageBusy) setBusy(false);
+        if (manageBusy && requestId === deliveryRequestId) setBusy(false);
       }
     }
+
+    let workScopeGeneration = 0;
+    let workParentOffset = 0;
+    function resetWorkScope() {
+      workScopeGeneration++;
+      el.workScopeInput.replaceChildren(new Option("Product level", ""));
+      el.workParentInput.replaceChildren(new Option("No parent", ""));
+      el.workScopeInput.disabled = false;
+      el.loadMoreWorkParentsButton.hidden = true;
+      el.loadWorkScopeButton.disabled = false;
+      el.workScopeStatus.textContent = "Optional: load placement choices for this product.";
+      workParentOffset = 0;
+    }
+    async function loadWorkParents(productId, generation) {
+      const page = await request(`/api/mobile/work-items?product_id=${encodeURIComponent(productId)}&limit=100&offset=${workParentOffset}`);
+      if (generation !== workScopeGeneration || el.workProductSelect.value !== productId) return;
+      for (const item of page.items || []) {
+        if (!item.parent_work_item_id) el.workParentInput.add(new Option(`${item.title} · ${item.work_item_type}`, item.id));
+      }
+      workParentOffset += page.limit;
+      el.loadMoreWorkParentsButton.hidden = !page.has_more;
+    }
+    async function loadWorkScope() {
+      const productId = el.workProductSelect.value;
+      if (!productId) { setStatus("Choose a product first", "warn"); return; }
+      resetWorkScope();
+      const generation = workScopeGeneration;
+      el.loadWorkScopeButton.disabled = true;
+      el.workScopeStatus.textContent = "Loading placement choices…";
+      try {
+        const tree = await request(`/api/mobile/products/${encodeURIComponent(productId)}/tree`);
+        if (generation !== workScopeGeneration || el.workProductSelect.value !== productId) return;
+        const add = (node, prefix, type) => el.workScopeInput.add(new Option(`${prefix}${node.name}`, JSON.stringify({ id: node.id, type })));
+        const addChildren = (children, prefix) => { for (const entry of children) { add(entry.capability, prefix, "capability"); addChildren(entry.children || [], prefix + " › "); } };
+        for (const area of tree.product_areas || []) { add(area.product_area, "", "product_area"); addChildren(area.features || [], "  › "); }
+        await loadWorkParents(productId, generation);
+        if (generation === workScopeGeneration) el.workScopeStatus.textContent = "Select a hierarchy node or a parent. Child work inherits its parent's placement.";
+      } catch (error) { if (generation === workScopeGeneration) el.workScopeStatus.textContent = "Unable to load placement: " + error.message; }
+      finally { if (generation === workScopeGeneration) el.loadWorkScopeButton.disabled = false; }
+    }
+    el.loadWorkScopeButton.addEventListener("click", loadWorkScope);
+    el.loadMoreWorkParentsButton.addEventListener("click", async () => {
+      const generation = workScopeGeneration, productId = el.workProductSelect.value;
+      el.loadMoreWorkParentsButton.disabled = true;
+      try { await loadWorkParents(productId, generation); }
+      catch (error) { if (generation === workScopeGeneration) el.workScopeStatus.textContent = "Unable to load more parents: " + error.message; }
+      finally { el.loadMoreWorkParentsButton.disabled = false; }
+    });
+    el.workParentInput.addEventListener("change", () => { if (el.workParentInput.value) el.workScopeInput.value = ""; el.workScopeInput.disabled = Boolean(el.workParentInput.value); });
 
     async function createWorkItem() {
       const title = el.workTitleInput.value.trim();
       const productId = el.workProductSelect.value || state.selectedProductId;
       if (!productId || !title) {
-        setStatus("Choose a product and enter a task title", "warn");
+        setStatus("Choose a product and enter a work item title", "warn");
         return;
       }
       try {
+        const parentId = el.workParentInput.value;
+        const scope = el.workScopeInput.value ? JSON.parse(el.workScopeInput.value) : null;
         setBusy(true);
-        setStatus("Creating task...", "warn");
+        setStatus("Creating work item...", "warn");
         const workItem = await request("/api/mobile/work-items", {
           method: "POST",
           body: {
             product_id: productId,
             title,
+            problem_statement: el.workProblemInput.value.trim() || undefined,
             description: el.workDescriptionInput.value.trim(),
             acceptance_criteria: el.workAcceptanceInput.value.trim(),
-            work_item_type: "task",
-            priority: "medium",
-            complexity: "medium"
+            constraints: el.workConstraintsInput.value.trim(),
+            work_item_type: el.workTypeInput.value,
+            priority: el.workPriorityInput.value,
+            complexity: el.workComplexityInput.value,
+            source_node_id: scope?.id, source_node_type: scope?.type, parent_work_item_id: parentId || undefined
           }
         });
         state.selectedWorkItemId = workItem.id;
         localStorage.setItem(storageKeys.selectedWorkItem, workItem.id);
         el.workTitleInput.value = "";
+        el.workProblemInput.value = "";
         el.workDescriptionInput.value = "";
         el.workAcceptanceInput.value = "";
-        setStatus("Task created", "ok");
+        el.workConstraintsInput.value = "";
+        el.workTypeInput.value = "task"; el.workPriorityInput.value = "medium"; el.workComplexityInput.value = "medium";
+        resetWorkScope();
+        setStatus("Work item created", "ok");
       } catch (error) {
         setStatus(error.message || String(error), "error");
         return;
@@ -1625,6 +2447,7 @@
         setStatus("Workflow started · " + result.workflow_run.current_stage, "ok");
         await loadWorkItems();
       } catch (error) {
+        await loadDelivery(false);
         setStatus(error.message || String(error), "error");
       } finally {
         setBusy(false);
@@ -1649,6 +2472,18 @@
       }
     }
 
+    async function retryGitDelivery() {
+      const workflow = state.delivery && state.delivery.workflow_run;
+      if (!workflow || !state.delivery.retryable_git_delivery) return;
+      if (!window.confirm("Retry delivery? AruviStudio will commit the recorded workflow files if needed and push the recorded commit to the configured origin branch.")) return;
+      try {
+        setBusy(true); setStatus("Retrying Git delivery...", "warn");
+        await request("/api/mobile/workflows/" + encodeURIComponent(workflow.id) + "/retry-git-delivery", { method: "POST" });
+        await loadDelivery(false); setStatus("Git delivery completed", "ok");
+      } catch (error) { await loadDelivery(false); setStatus(error.message || String(error), "error"); }
+      finally { setBusy(false); }
+    }
+
     async function handleWorkflowAction(action) {
       const workflow = state.delivery && state.delivery.workflow_run;
       if (!workflow) return;
@@ -1662,6 +2497,7 @@
         await loadDelivery(false);
         setStatus("Workflow updated", "ok");
       } catch (error) {
+        await loadDelivery(false);
         setStatus(error.message || String(error), "error");
       } finally {
         setBusy(false);
@@ -1685,14 +2521,1144 @@
       });
     }
 
+    let workspaceRequestId = 0;
+    async function loadWorkspaces() {
+      const requestId = ++workspaceRequestId;
+      const selectedProduct = el.repositoryProduct.value || state.selectedProductId;
+      const selectedRepository = el.repositorySelect.value;
+      const selectedArea = el.repositoryArea.value;
+      el.attachRepositoryButton.disabled = true;
+      el.repositoryArea.disabled = true;
+      el.repositoryAttachmentList.textContent = "Loading workspace attachments...";
+      try {
+        const [products, repositories, attachments] = await Promise.all([
+          request("/api/mobile/products"), request("/api/mobile/repositories"), request("/api/mobile/repository-attachments")
+        ]);
+        if (requestId !== workspaceRequestId) return;
+        const productId = products.some((product) => product.id === selectedProduct) ? selectedProduct : (products[0]?.id || "");
+        const areas = productId ? await request("/api/mobile/products/" + encodeURIComponent(productId) + "/areas") : [];
+        if (requestId !== workspaceRequestId) return;
+        el.repositoryProduct.replaceChildren();
+        el.repositoryArea.replaceChildren();
+        el.repositorySelect.replaceChildren();
+        el.repositoryList.replaceChildren();
+        el.repositoryAttachmentList.replaceChildren();
+        products.forEach((product) => {
+          const option = document.createElement("option"); option.value = product.id; option.textContent = product.name;
+          el.repositoryProduct.appendChild(option);
+        });
+        el.repositoryProduct.value = productId;
+        const wholeProduct = document.createElement("option"); wholeProduct.value = ""; wholeProduct.textContent = "Whole product";
+        el.repositoryArea.appendChild(wholeProduct);
+        areas.forEach((area) => {
+          const option = document.createElement("option"); option.value = area.id; option.textContent = area.name;
+          el.repositoryArea.appendChild(option);
+        });
+        if (areas.some((area) => area.id === selectedArea)) el.repositoryArea.value = selectedArea;
+        repositories.forEach((repository) => {
+          const option = document.createElement("option"); option.value = repository.id; option.textContent = repository.name;
+          el.repositorySelect.appendChild(option);
+          const row = document.createElement("div"); row.className = "tool-card";
+          const label = document.createElement("div"); label.textContent = repository.name + " · " + repository.local_path;
+          const inspect = document.createElement("button"); inspect.type = "button"; inspect.className = "secondary"; inspect.textContent = "Browse workspace";
+          inspect.addEventListener("click", () => void inspectWorkspace(repository));
+          row.append(label, inspect); el.repositoryList.appendChild(row);
+        });
+        if (repositories.some((repository) => repository.id === selectedRepository)) el.repositorySelect.value = selectedRepository;
+        if (!repositories.length) el.repositoryList.textContent = "No workspaces registered.";
+        const product = products.find((entry) => entry.id === productId);
+        const visible = attachments.filter((attachment) => (attachment.scope_type === "product" && attachment.scope_id === productId) || (attachment.scope_type === "product_area" && areas.some((area) => area.id === attachment.scope_id)));
+        if (!visible.length) el.repositoryAttachmentList.textContent = "No workspace attachments for this product.";
+        visible.forEach((attachment) => {
+          const area = attachment.scope_type === "product_area" ? areas.find((entry) => entry.id === attachment.scope_id) : null;
+          const repository = repositories.find((entry) => entry.id === attachment.repository_id);
+          const row = document.createElement("div"); row.className = "tool-card";
+          const title = document.createElement("div");
+          title.textContent = (product?.name || productId) + (area ? " / " + area.name : "") + " · " + (repository?.name || attachment.repository_id) + (attachment.is_default ? " · default" : "");
+          row.appendChild(title);
+          if (!attachment.is_default) {
+            const makeDefault = document.createElement("button"); makeDefault.type = "button"; makeDefault.className = "secondary";
+            makeDefault.textContent = "Make default";
+            makeDefault.addEventListener("click", () => updateWorkspaceAttachment(productId, attachment, "default", makeDefault));
+            row.appendChild(makeDefault);
+          }
+          const detach = document.createElement("button"); detach.type = "button"; detach.className = "secondary";
+          detach.textContent = "Detach workspace";
+          detach.addEventListener("click", () => updateWorkspaceAttachment(productId, attachment, "detach", detach));
+          row.appendChild(detach);
+          el.repositoryAttachmentList.appendChild(row);
+        });
+        el.repositoryArea.disabled = !productId;
+        el.attachRepositoryButton.disabled = !productId || !repositories.length;
+      } catch (error) {
+        if (requestId === workspaceRequestId) setStatus(error.message || String(error), "error");
+      }
+    }
+
+    let inspectedRepositoryId = "";
+    let inspectRequestId = 0;
+    let fileRequestId = 0;
+    let openedFile = null;
+    let fileSaving = false;
+    function fileIsDirty() { return openedFile && el.repositoryFileContent.value !== openedFile.displayBaseline; }
+    function updateFileControls() {
+      const dirty = !!fileIsDirty();
+      el.saveRepositoryFileButton.disabled = !dirty || fileSaving || !openedFile.editable;
+      el.discardRepositoryFileButton.disabled = !dirty || fileSaving;
+    }
+    function canLeaveFile() {
+      if (fileSaving || fileIsDirty()) { setStatus("Save or discard file edits before opening another file or workspace", "warn"); return false; }
+      return true;
+    }
+    async function inspectWorkspace(repository) {
+      if (!canLeaveFile()) return;
+      openedFile = null; el.repositoryFileContent.readOnly = true; updateFileControls();
+      const requestId = ++inspectRequestId;
+      fileRequestId++;
+      inspectedRepositoryId = repository.id;
+      el.repositoryInspectStatus.textContent = "Loading " + repository.name + "...";
+      el.repositoryTree.replaceChildren(); el.repositoryFileContent.value = ""; el.repositoryGitStatus.textContent = "";
+      el.repositoryDiff.textContent = ""; el.repositoryDiffButton.disabled = true;
+      try {
+        const [tree, git] = await Promise.all([
+          request("/api/mobile/repository-inspect", { method: "POST", body: { action: "list_repository_tree", repository_id: repository.id } }),
+          request("/api/mobile/repository-inspect", { method: "POST", body: { action: "get_git_status", repository_id: repository.id } })
+        ]);
+        if (requestId !== inspectRequestId) return;
+        el.repositoryInspectStatus.textContent = repository.name;
+        el.repositoryDiffButton.disabled = false;
+        el.repositoryGitStatus.textContent = "Branch: " + (git.branch || "unborn or detached") + " · " + (git.dirty ? git.changedFiles.length + " changed file(s)" : "Clean");
+        function appendNodes(parent, nodes) {
+          nodes.forEach((node) => {
+            if (node.node_type === "directory") {
+              const details = document.createElement("details"); const summary = document.createElement("summary"); summary.textContent = node.name;
+              details.appendChild(summary); appendNodes(details, node.children || []); parent.appendChild(details);
+            } else {
+              const button = document.createElement("button"); button.type = "button"; button.className = "secondary"; button.textContent = node.name;
+              button.addEventListener("click", () => void inspectFile(repository.id, node.relative_path)); parent.appendChild(button);
+            }
+          });
+        }
+        appendNodes(el.repositoryTree, tree);
+        if (!tree.length) el.repositoryTree.textContent = "No visible files.";
+      } catch (error) {
+        if (requestId === inspectRequestId) { el.repositoryInspectStatus.textContent = "Unable to browse workspace"; setStatus(error.message || String(error), "error"); }
+      }
+    }
+    async function loadRepositoryDiff() {
+      const repositoryId = inspectedRepositoryId;
+      if (!repositoryId) return;
+      el.repositoryDiffButton.disabled = true;
+      el.repositoryDiff.textContent = "Loading Git diff...";
+      try {
+        const result = await request("/api/mobile/repository-inspect", { method: "POST", body: { action: "get_git_diff", repository_id: repositoryId } });
+        if (repositoryId !== inspectedRepositoryId) return;
+        el.repositoryDiff.textContent = result.diff + (result.truncated ? "\n[Diff truncated]" : "");
+      } catch (error) {
+        if (repositoryId === inspectedRepositoryId) el.repositoryDiff.textContent = error.message || String(error);
+      } finally { if (repositoryId === inspectedRepositoryId) el.repositoryDiffButton.disabled = false; }
+    }
+    async function inspectFile(repositoryId, path) {
+      if (!canLeaveFile()) return;
+      openedFile = null; el.repositoryFileContent.readOnly = true; updateFileControls();
+      const requestId = ++fileRequestId;
+      el.repositoryFileContent.value = "Loading " + path + "...";
+      try {
+        const file = await request("/api/mobile/repository-inspect", { method: "POST", body: { action: "read_repository_file", repository_id: repositoryId, relative_path: path } });
+        if (requestId !== fileRequestId || repositoryId !== inspectedRepositoryId) return;
+        el.repositoryInspectStatus.textContent = path; el.repositoryFileContent.value = file.content;
+        const withoutCrlf = file.content.replace(/\r\n/g, "");
+        const mixed = withoutCrlf.includes("\r") || (file.content.includes("\r\n") && withoutCrlf.includes("\n"));
+        openedFile = { repositoryId, path, expected: file.content, displayBaseline: el.repositoryFileContent.value,
+          crlf: file.content.includes("\r\n") && !mixed, editable: !mixed };
+        el.repositoryFileContent.readOnly = mixed;
+        if (mixed) setStatus("This file has mixed line endings and is available for reading only", "warn");
+        updateFileControls();
+      } catch (error) {
+        if (requestId === fileRequestId) { el.repositoryFileContent.value = ""; setStatus(error.message || String(error), "error"); }
+      }
+    }
+
+    async function saveRepositoryFile() {
+      if (!openedFile || !fileIsDirty() || fileSaving || !openedFile.editable) return;
+      const file = openedFile;
+      const content = file.crlf ? el.repositoryFileContent.value.replace(/\n/g, "\r\n") : el.repositoryFileContent.value;
+      fileSaving = true; el.repositoryFileContent.readOnly = true; updateFileControls();
+      try {
+        await request("/api/mobile/repository-file/save", { method: "POST", body: { repository_id: file.repositoryId,
+          relative_path: file.path, expected_content: file.expected, content } });
+        if (openedFile === file) { file.expected = content; file.displayBaseline = el.repositoryFileContent.value; setStatus("File saved", "ok"); }
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { fileSaving = false; if (openedFile === file) el.repositoryFileContent.readOnly = !file.editable; updateFileControls(); }
+    }
+    function discardRepositoryFileEdits() {
+      if (!openedFile || fileSaving) return;
+      el.repositoryFileContent.value = openedFile.displayBaseline; updateFileControls();
+    }
+
+    async function updateWorkspaceAttachment(productId, attachment, action, button) {
+      button.disabled = true;
+      try {
+        await request("/api/mobile/repository-attachments/" + action, { method: "POST", body: { product_id: productId, product_area_id: attachment.scope_type === "product_area" ? attachment.scope_id : null, repository_id: attachment.repository_id } });
+        await loadWorkspaces();
+        setStatus(action === "default" ? "Default workspace updated" : "Workspace detached", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { button.disabled = false; }
+    }
+
+    async function registerWorkspace(event) {
+      event.preventDefault();
+      el.registerRepositoryButton.disabled = true;
+      try {
+        const repository = await request("/api/mobile/repositories", { method: "POST", body: { name: el.repositoryName.value.trim(), local_path: el.repositoryPath.value.trim() } });
+        el.repositoryForm.reset();
+        await loadWorkspaces();
+        el.repositorySelect.value = repository.id;
+        setStatus("Workspace registered", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { el.registerRepositoryButton.disabled = false; }
+    }
+
+    async function attachWorkspace(event) {
+      event.preventDefault();
+      el.attachRepositoryButton.disabled = true;
+      try {
+        await request("/api/mobile/repository-attachments", { method: "POST", body: { product_id: el.repositoryProduct.value, product_area_id: el.repositoryArea.value || null, repository_id: el.repositorySelect.value, is_default: el.repositoryDefault.checked } });
+        await loadWorkspaces();
+        setStatus("Workspace attached", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { el.attachRepositoryButton.disabled = false; }
+    }
+
+    const routingStages = ["requirement_analysis", "planning", "coding", "unit_test_generation", "integration_test_generation", "ui_test_planning", "qa_validation", "security_review", "performance_review", "push_preparation", "git_push"];
+    function routingSnapshot(policy) {
+      return policy ? { id: policy.id, primary_roles: policy.primary_roles, fallback_roles: policy.fallback_roles, coordinator_required: policy.coordinator_required } : null;
+    }
+    let routingRequestId = 0;
+    async function loadRouting() {
+      const requestId = ++routingRequestId;
+      try {
+        const policies = await request("/api/mobile/routing-policies");
+        if (requestId !== routingRequestId) return;
+        el.routingList.replaceChildren();
+        routingStages.forEach((stage) => {
+          const policy = policies.find((item) => item.stage_name === stage);
+          const card = document.createElement("div"); card.className = "tool-card";
+          const title = document.createElement("div"); title.className = "tool-title"; title.textContent = stage.replaceAll("_", " ") + (policy ? " · custom" : " · default");
+          const details = document.createElement("details"); const summary = document.createElement("summary"); summary.textContent = "Manage routing";
+          const form = document.createElement("form"); form.className = "stack";
+          function roleInput(label, value) {
+            const wrapper = document.createElement("label"); const caption = document.createElement("span"); caption.className = "label"; caption.textContent = label;
+            const input = document.createElement("textarea"); input.setAttribute("aria-label", label + " " + stage); input.value = JSON.stringify(value, null, 2);
+            wrapper.append(caption, input); form.appendChild(wrapper); return input;
+          }
+          const primary = roleInput("Primary roles (JSON array)", policy ? policy.primary_roles : []);
+          const fallback = roleInput("Fallback roles (JSON array)", policy ? policy.fallback_roles : []);
+          const coordinatorLabel = document.createElement("label"); const coordinator = document.createElement("input"); coordinator.type = "checkbox";
+          coordinator.checked = policy ? policy.coordinator_required : stage !== "git_push";
+          coordinatorLabel.append(coordinator, document.createTextNode(" Request coordinator review when available"));
+          const save = document.createElement("button"); save.type = "submit"; save.textContent = "Save routing";
+          form.append(coordinatorLabel, save);
+          if (policy) {
+            const reset = document.createElement("button"); reset.type = "button"; reset.className = "danger"; reset.textContent = "Reset routing to default"; form.appendChild(reset);
+            reset.addEventListener("click", async () => {
+              if (!window.confirm("Reset " + stage.replaceAll("_", " ") + " routing to the built-in defaults?")) return;
+              reset.disabled = true;
+              try { await request("/api/mobile/routing-policies/delete", { method: "POST", body: { stage_name: stage, expected: routingSnapshot(policy) } });
+                await loadRouting(); setStatus("Routing reset", "ok");
+              } catch (error) { setStatus(error.message || String(error), "error"); }
+              finally { reset.disabled = false; }
+            });
+          }
+          form.addEventListener("submit", async (event) => {
+            event.preventDefault(); save.disabled = true;
+            try {
+              let first, second;
+              try { first = JSON.parse(primary.value); second = JSON.parse(fallback.value); }
+              catch { throw new Error("Role lists must be JSON arrays of strings."); }
+              if (!Array.isArray(first) || !Array.isArray(second) || !first.every((role) => typeof role === "string" && role.trim()) || !second.every((role) => typeof role === "string" && role.trim())) throw new Error("Role lists must be JSON arrays of nonblank strings.");
+              await request("/api/mobile/routing-policies", { method: "POST", body: { stage_name: stage, expected: routingSnapshot(policy), fields: { primary_roles: first, fallback_roles: second, coordinator_required: coordinator.checked } } });
+              await loadRouting(); setStatus("Routing saved", "ok");
+            } catch (error) { setStatus(error.message || String(error), "error"); }
+            finally { save.disabled = false; }
+          });
+          details.append(summary, form); card.append(title, details); el.routingList.appendChild(card);
+        });
+        const other = policies.filter((policy) => !routingStages.includes(policy.stage_name));
+        if (other.length) {
+          const notice = document.createElement("div"); notice.className = "empty";
+          notice.textContent = "Additional policies managed outside this screen: " + other.map((policy) => policy.stage_name).join(", ");
+          el.routingList.appendChild(notice);
+        }
+      } catch (error) { if (requestId === routingRequestId) setStatus(error.message || String(error), "error"); }
+    }
+
+    function agentFields(agent) {
+      return { name: agent.name, role: agent.role, description: agent.description, prompt_template_ref: agent.prompt_template_ref,
+        allowed_tools: agent.allowed_tools, skill_tags: agent.skill_tags, boundaries: agent.boundaries, enabled: agent.enabled, employment_status: agent.employment_status };
+    }
+
+    function makeAgentForm(agent) {
+      const creating = !agent;
+      const source = agent || { name: "", role: "developer", description: "", prompt_template_ref: "", allowed_tools: [], skill_tags: [], boundaries: {}, enabled: true, employment_status: "active" };
+      const suffix = creating ? "" : " " + agent.name;
+      const form = document.createElement("form"); form.className = "stack";
+      function field(label, value, multiline) {
+        const wrapper = document.createElement("label"); const text = document.createElement("span"); text.className = "label"; text.textContent = label;
+        const input = document.createElement(multiline ? "textarea" : "input"); input.value = value; input.setAttribute("aria-label", label + suffix);
+        wrapper.append(text, input); form.appendChild(wrapper); return input;
+      }
+      const name = field("Agent name", source.name, false); name.required = true;
+      const role = field("Agent role", source.role, false); role.required = true;
+      const description = field("Agent description", source.description, true);
+      const prompt = field("Prompt template reference", source.prompt_template_ref, false);
+      const tools = field("Allowed tools (JSON array)", JSON.stringify(source.allowed_tools, null, 2), true);
+      const tags = field("Skill tags (JSON array)", JSON.stringify(source.skill_tags, null, 2), true);
+      const boundaries = field("Execution boundaries (JSON object)", JSON.stringify(source.boundaries, null, 2), true);
+      const statusLabel = document.createElement("label"); const statusText = document.createElement("span"); statusText.className = "label"; statusText.textContent = "Employment status";
+      const status = document.createElement("select"); status.setAttribute("aria-label", "Employment status" + suffix);
+      ["active", "inactive", "terminated"].forEach((value) => status.add(new Option(value, value))); status.value = source.employment_status;
+      statusLabel.append(statusText, status); form.appendChild(statusLabel);
+      const enabledLabel = document.createElement("label"); const enabled = document.createElement("input"); enabled.type = "checkbox"; enabled.checked = source.enabled;
+      enabledLabel.append(enabled, document.createTextNode(" Agent enabled")); form.appendChild(enabledLabel);
+      const save = document.createElement("button"); save.type = "submit"; save.textContent = creating ? "Create agent" : "Save agent"; form.appendChild(save);
+      if (!creating) {
+        const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger"; remove.textContent = "Delete agent"; form.appendChild(remove);
+        remove.addEventListener("click", async () => {
+          if (!window.confirm("Delete agent " + agent.name + "? Memberships, skill links and model bindings will be removed. Agents with execution history cannot be deleted.")) return;
+          remove.disabled = true;
+          try { await request("/api/mobile/agents/delete", { method: "POST", body: { id: agent.id, expected: agentFields(agent) } });
+            await loadAgents(); setStatus("Agent deleted", "ok");
+          } catch (error) { setStatus(error.message || String(error), "error"); }
+          finally { remove.disabled = false; }
+        });
+      }
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault(); save.disabled = true;
+        try {
+          let parsedTools, parsedTags, parsedBoundaries;
+          try { parsedTools = JSON.parse(tools.value); parsedTags = JSON.parse(tags.value); parsedBoundaries = JSON.parse(boundaries.value); }
+          catch { throw new Error("Tools and tags must be JSON arrays; boundaries must be a JSON object."); }
+          if (!Array.isArray(parsedTools) || !parsedTools.every((value) => typeof value === "string") || !Array.isArray(parsedTags) || !parsedTags.every((value) => typeof value === "string") || !parsedBoundaries || typeof parsedBoundaries !== "object" || Array.isArray(parsedBoundaries)) {
+            throw new Error("Tools and tags must be arrays of strings; boundaries must be a JSON object.");
+          }
+          const fields = { name: name.value, role: role.value, description: description.value, prompt_template_ref: prompt.value,
+            allowed_tools: parsedTools, skill_tags: parsedTags, boundaries: parsedBoundaries, enabled: enabled.checked, employment_status: status.value };
+          await request(creating ? "/api/mobile/agents" : "/api/mobile/agents/update", { method: "POST", body: creating ? fields : { id: agent.id, expected: agentFields(agent), fields } });
+          if (creating) { form.reset(); tools.value = "[]"; tags.value = "[]"; boundaries.value = "{}"; role.value = "developer"; enabled.checked = true; status.value = "active"; }
+          await loadAgents(); setStatus(creating ? "Agent created" : "Agent saved", "ok");
+        } catch (error) { setStatus(error.message || String(error), "error"); }
+        finally { save.disabled = false; }
+      });
+      return form;
+    }
+
+    let agentRequestId = 0;
+    async function loadAgents() {
+      const requestId = ++agentRequestId;
+      try {
+        const agents = await request("/api/mobile/agents");
+        if (requestId !== agentRequestId) return;
+        el.agentList.replaceChildren();
+        if (!agents.length) el.agentList.textContent = "No agents configured.";
+        agents.forEach((agent) => {
+          const card = document.createElement("div"); card.className = "tool-card";
+          const heading = document.createElement("div"); heading.className = "tool-title";
+          heading.textContent = agent.name + " · " + agent.role + " · " + agent.employment_status + (agent.enabled ? "" : " · disabled");
+          const details = document.createElement("details"); const summary = document.createElement("summary"); summary.textContent = "Manage agent";
+          details.append(summary, makeAgentForm(agent)); card.append(heading, details); el.agentList.appendChild(card);
+        });
+      } catch (error) { if (requestId === agentRequestId) setStatus(error.message || String(error), "error"); }
+    }
+
+    function skillFields(skill) {
+      return { name: skill.name, category: skill.category, description: skill.description, instructions: skill.instructions, enabled: skill.enabled };
+    }
+
+    let skillRequestId = 0;
+    async function loadSkills() {
+      const requestId = ++skillRequestId;
+      try {
+        const [skills, links, agents, teams] = await Promise.all([
+          request("/api/mobile/skills"), request("/api/mobile/skill-links"), request("/api/mobile/agents"), request("/api/mobile/teams")
+        ]);
+        if (requestId !== skillRequestId) return;
+        el.skillList.replaceChildren();
+        if (!skills.length) el.skillList.textContent = "No skills configured.";
+        skills.forEach((skill) => {
+          const card = document.createElement("div"); card.className = "tool-card";
+          const heading = document.createElement("div"); heading.className = "tool-title";
+          heading.textContent = skill.name + (skill.category ? " · " + skill.category : "") + (skill.enabled ? "" : " · disabled");
+          const details = document.createElement("details"); const summary = document.createElement("summary"); summary.textContent = "Manage skill";
+          const form = document.createElement("form"); form.className = "stack";
+          function field(label, value, multiline) {
+            const input = document.createElement(multiline ? "textarea" : "input"); input.value = value;
+            input.setAttribute("aria-label", label + " " + skill.name); form.appendChild(input); return input;
+          }
+          const name = field("Edit skill name", skill.name, false); name.required = true;
+          const category = field("Edit skill category", skill.category, false);
+          const description = field("Edit skill description", skill.description, true);
+          const instructions = field("Edit skill instructions", skill.instructions, true);
+          const enabledLabel = document.createElement("label"); const enabled = document.createElement("input"); enabled.type = "checkbox"; enabled.checked = skill.enabled;
+          enabledLabel.append(enabled, document.createTextNode(" Skill enabled"));
+          const save = document.createElement("button"); save.type = "submit"; save.textContent = "Save skill";
+          const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger"; remove.textContent = "Delete skill";
+          form.append(enabledLabel, save, remove); details.append(summary, form); card.append(heading, details);
+          form.addEventListener("submit", async (event) => {
+            event.preventDefault(); save.disabled = true;
+            try { await request("/api/mobile/skills/update", { method: "POST", body: { id: skill.id, expected: skillFields(skill), fields: {
+              name: name.value, category: category.value, description: description.value, instructions: instructions.value, enabled: enabled.checked
+            } } }); await loadSkills(); setStatus("Skill saved", "ok");
+            } catch (error) { setStatus(error.message || String(error), "error"); }
+            finally { save.disabled = false; }
+          });
+          remove.addEventListener("click", async () => {
+            if (!window.confirm("Delete skill " + skill.name + "? Links to agents and teams will also be removed.")) return;
+            remove.disabled = true;
+            try { await request("/api/mobile/skills/delete", { method: "POST", body: { id: skill.id, expected: skillFields(skill) } });
+              await loadSkills(); setStatus("Skill deleted", "ok");
+            } catch (error) { setStatus(error.message || String(error), "error"); }
+            finally { remove.disabled = false; }
+          });
+          const linkSection = document.createElement("div"); linkSection.className = "stack";
+          const linkHeading = document.createElement("div"); linkHeading.className = "tool-title"; linkHeading.textContent = "Linked agents and teams"; linkSection.appendChild(linkHeading);
+          const agentLinks = links.agents.filter((link) => link.skill_id === skill.id);
+          const teamLinks = links.teams.filter((link) => link.skill_id === skill.id);
+          if (!agentLinks.length && !teamLinks.length) { const empty = document.createElement("div"); empty.textContent = "No links."; linkSection.appendChild(empty); }
+          function renderLink(link, targetType, targetId, labelText) {
+            const row = document.createElement("div"); row.className = "tool-card";
+            const label = document.createElement("span"); label.textContent = labelText;
+            const unlink = document.createElement("button"); unlink.type = "button"; unlink.className = "secondary"; unlink.textContent = "Remove link";
+            unlink.setAttribute("aria-label", "Remove " + labelText + " from " + skill.name);
+            unlink.addEventListener("click", async () => {
+              if (!window.confirm("Remove " + labelText + " from " + skill.name + "?")) return;
+              unlink.disabled = true;
+              try { await request("/api/mobile/skill-links/remove", { method: "POST", body: { id: link.id, skill_id: skill.id, target_type: targetType, target_id: targetId } });
+                await loadSkills(); setStatus("Skill link removed", "ok");
+              } catch (error) { setStatus(error.message || String(error), "error"); }
+              finally { unlink.disabled = false; }
+            });
+            row.append(label, unlink); linkSection.appendChild(row);
+          }
+          agentLinks.forEach((link) => { const agent = agents.find((item) => item.id === link.agent_id); renderLink(link, "agent", link.agent_id, "Agent: " + (agent ? agent.name : "Unknown") + " · " + link.proficiency); });
+          teamLinks.forEach((link) => { const team = teams.find((item) => item.id === link.team_id); renderLink(link, "team", link.team_id, "Team: " + (team ? team.name : "Unknown")); });
+          function linkForm(targetType, options) {
+            const link = document.createElement("form"); link.className = "stack";
+            const select = document.createElement("select"); select.required = true; select.setAttribute("aria-label", "Link " + targetType + " to " + skill.name);
+            select.add(new Option("Select " + targetType, "")); options.forEach((item) => select.add(new Option(item.name, item.id)));
+            const proficiency = document.createElement("select"); proficiency.setAttribute("aria-label", "Proficiency for " + skill.name);
+            [["Working", "working"], ["Learning", "learning"], ["Expert", "expert"]].forEach(([label, value]) => proficiency.add(new Option(label, value)));
+            const submit = document.createElement("button"); submit.type = "submit"; submit.textContent = "Link " + targetType;
+            link.appendChild(select); if (targetType === "agent") link.appendChild(proficiency); link.appendChild(submit);
+            link.addEventListener("submit", async (event) => {
+              event.preventDefault(); submit.disabled = true;
+              try { await request("/api/mobile/skill-links", { method: "POST", body: { skill_id: skill.id, target_type: targetType, target_id: select.value, proficiency: targetType === "agent" ? proficiency.value : undefined } });
+                await loadSkills(); setStatus("Skill linked", "ok");
+              } catch (error) { setStatus(error.message || String(error), "error"); }
+              finally { submit.disabled = false; }
+            });
+            return link;
+          }
+          linkSection.append(linkForm("agent", agents.filter((agent) => !agentLinks.some((link) => link.agent_id === agent.id))),
+            linkForm("team", teams.filter((team) => !teamLinks.some((link) => link.team_id === team.id))));
+          details.appendChild(linkSection); el.skillList.appendChild(card);
+        });
+      } catch (error) { if (requestId === skillRequestId) setStatus(error.message || String(error), "error"); }
+    }
+
+    async function createSkill(event) {
+      event.preventDefault(); const button = el.createSkillForm.querySelector("button"); button.disabled = true;
+      try { await request("/api/mobile/skills", { method: "POST", body: { name: el.skillName.value, category: el.skillCategory.value,
+        description: el.skillDescription.value, instructions: el.skillInstructions.value, enabled: true } });
+        el.createSkillForm.reset(); await loadSkills(); setStatus("Skill created", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { button.disabled = false; }
+    }
+
+    function teamFields(team) {
+      return { name: team.name, department: team.department, description: team.description,
+        enabled: team.enabled, max_concurrent_workflows: team.max_concurrent_workflows };
+    }
+
+    let teamRequestId = 0;
+    async function loadTeams() {
+      const requestId = ++teamRequestId;
+      try {
+        const [teams, members, agents, assignments, products] = await Promise.all([
+          request("/api/mobile/teams"), request("/api/mobile/team-members"), request("/api/mobile/agents"),
+          request("/api/mobile/team-assignments"), request("/api/mobile/products")
+        ]);
+        if (requestId !== teamRequestId) return;
+        el.teamList.replaceChildren();
+        if (!teams.length) el.teamList.textContent = "No teams configured.";
+        teams.forEach((team) => {
+          const card = document.createElement("div"); card.className = "tool-card";
+          const heading = document.createElement("div"); heading.className = "tool-title";
+          heading.textContent = team.name + (team.enabled ? "" : " · disabled");
+          const details = document.createElement("details");
+          const summary = document.createElement("summary"); summary.textContent = "Manage team";
+          const form = document.createElement("form"); form.className = "stack";
+          function input(label, type, value) {
+            const field = document.createElement("input"); field.type = type; field.value = value;
+            field.setAttribute("aria-label", label + " " + team.name); form.appendChild(field); return field;
+          }
+          const name = input("Edit team name", "text", team.name); name.required = true; name.maxLength = 200;
+          const department = input("Edit team department", "text", team.department); department.maxLength = 200;
+          const description = document.createElement("textarea"); description.value = team.description; description.maxLength = 10000;
+          description.setAttribute("aria-label", "Edit team description " + team.name); form.appendChild(description);
+          const capacity = input("Edit team capacity", "number", String(team.max_concurrent_workflows)); capacity.min = "1"; capacity.max = "2147483647"; capacity.required = true;
+          const enabledLabel = document.createElement("label"); const enabled = document.createElement("input"); enabled.type = "checkbox"; enabled.checked = team.enabled;
+          enabledLabel.append(enabled, document.createTextNode(" Team enabled")); form.appendChild(enabledLabel);
+          const save = document.createElement("button"); save.type = "submit"; save.textContent = "Save team";
+          const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger"; remove.textContent = "Delete team";
+          form.append(save, remove); details.append(summary, form); card.append(heading, details);
+          form.addEventListener("submit", async (event) => {
+            event.preventDefault(); save.disabled = true;
+            try {
+              await request("/api/mobile/teams/update", { method: "POST", body: { id: team.id, expected: teamFields(team), fields: {
+                name: name.value, department: department.value, description: description.value, enabled: enabled.checked, max_concurrent_workflows: Number(capacity.value)
+              } } });
+              await loadTeams(); setStatus("Team saved", "ok");
+            } catch (error) { setStatus(error.message || String(error), "error"); }
+            finally { save.disabled = false; }
+          });
+          remove.addEventListener("click", async () => {
+            if (!window.confirm("Delete team " + team.name + "? Its memberships, scope assignments and skill links will be removed, and assigned work will lose its team.")) return;
+            remove.disabled = true;
+            try { await request("/api/mobile/teams/delete", { method: "POST", body: { id: team.id, expected: teamFields(team) } });
+              await loadTeams(); setStatus("Team deleted", "ok");
+            } catch (error) { setStatus(error.message || String(error), "error"); }
+            finally { remove.disabled = false; }
+          });
+          const roster = document.createElement("div"); roster.className = "stack";
+          const rosterTitle = document.createElement("div"); rosterTitle.className = "tool-title"; rosterTitle.textContent = "Members"; roster.appendChild(rosterTitle);
+          const teamMembers = members.filter((member) => member.team_id === team.id);
+          if (!teamMembers.length) { const empty = document.createElement("div"); empty.textContent = "No members."; roster.appendChild(empty); }
+          teamMembers.forEach((member) => {
+            const row = document.createElement("div"); row.className = "tool-card";
+            const agent = agents.find((item) => item.id === member.agent_id);
+            const label = document.createElement("span"); label.textContent = (agent ? agent.name : "Unknown agent") + (member.title ? " · " + member.title : "") + (member.is_lead ? " · lead" : "");
+            const unlink = document.createElement("button"); unlink.type = "button"; unlink.className = "secondary"; unlink.textContent = "Remove member";
+            unlink.setAttribute("aria-label", "Remove " + (agent ? agent.name : "member") + " from " + team.name);
+            unlink.addEventListener("click", async () => {
+              if (!window.confirm("Remove " + (agent ? agent.name : "this member") + " from " + team.name + "?")) return;
+              unlink.disabled = true;
+              try { await request("/api/mobile/team-members/remove", { method: "POST", body: { id: member.id, team_id: team.id, agent_id: member.agent_id } });
+                await loadTeams(); setStatus("Member removed", "ok");
+              } catch (error) { setStatus(error.message || String(error), "error"); }
+              finally { unlink.disabled = false; }
+            });
+            row.append(label, unlink); roster.appendChild(row);
+          });
+          const add = document.createElement("form"); add.className = "stack";
+          const select = document.createElement("select"); select.setAttribute("aria-label", "Add agent to " + team.name); select.required = true;
+          select.add(new Option("Select agent", "")); agents.filter((agent) => !teamMembers.some((member) => member.agent_id === agent.id)).forEach((agent) => select.add(new Option(agent.name + " · " + agent.role, agent.id)));
+          const title = document.createElement("input"); title.setAttribute("aria-label", "Member title for " + team.name); title.placeholder = "Member title (optional)"; title.maxLength = 200;
+          const leadLabel = document.createElement("label"); const lead = document.createElement("input"); lead.type = "checkbox"; leadLabel.append(lead, document.createTextNode(" Team lead"));
+          const addButton = document.createElement("button"); addButton.type = "submit"; addButton.textContent = "Add member";
+          add.append(select, title, leadLabel, addButton); roster.appendChild(add); details.appendChild(roster);
+          add.addEventListener("submit", async (event) => {
+            event.preventDefault(); addButton.disabled = true;
+            try { await request("/api/mobile/team-members", { method: "POST", body: { team_id: team.id, agent_id: select.value, title: title.value, is_lead: lead.checked } });
+              await loadTeams(); setStatus("Member added", "ok");
+            } catch (error) { setStatus(error.message || String(error), "error"); }
+            finally { addButton.disabled = false; }
+          });
+          const scopeSection = document.createElement("div"); scopeSection.className = "stack";
+          const scopeHeading = document.createElement("div"); scopeHeading.className = "tool-title"; scopeHeading.textContent = "Scope assignments";
+          const scopeHelp = document.createElement("p"); scopeHelp.textContent = "A capability or feature takes precedence over its product area, which takes precedence over its product. When enabled teams share a scope, the earliest assignment takes precedence.";
+          scopeSection.append(scopeHeading, scopeHelp);
+          const teamAssignments = assignments.filter((assignment) => assignment.team_id === team.id);
+          if (!teamAssignments.length) { const empty = document.createElement("div"); empty.textContent = "No scopes assigned."; scopeSection.appendChild(empty); }
+          teamAssignments.forEach((assignment) => {
+            const row = document.createElement("div"); row.className = "tool-card";
+            const label = document.createElement("span");
+            label.textContent = (assignment.product_name || "Missing product") + " · " + assignment.scope_type.replaceAll("_", " ") + ": " + (assignment.scope_name || "Missing scope");
+            const unlink = document.createElement("button"); unlink.type = "button"; unlink.className = "secondary"; unlink.textContent = "Remove scope";
+            unlink.setAttribute("aria-label", "Remove scope " + (assignment.scope_name || assignment.scope_id) + " from " + team.name);
+            unlink.addEventListener("click", async () => {
+              if (!window.confirm("Remove this scope assignment from " + team.name + "?")) return;
+              unlink.disabled = true;
+              try { await request("/api/mobile/team-assignments/remove", { method: "POST", body: { id: assignment.id, team_id: team.id, scope_type: assignment.scope_type, scope_id: assignment.scope_id } });
+                await loadTeams(); setStatus("Scope removed", "ok");
+              } catch (error) { setStatus(error.message || String(error), "error"); }
+              finally { unlink.disabled = false; }
+            });
+            row.append(label, unlink); scopeSection.appendChild(row);
+          });
+          const assign = document.createElement("form"); assign.className = "stack";
+          const productSelect = document.createElement("select"); productSelect.required = true; productSelect.setAttribute("aria-label", "Assignment product for " + team.name);
+          productSelect.add(new Option("Select product", "")); products.forEach((product) => productSelect.add(new Option(product.name, product.id)));
+          const scopeSelect = document.createElement("select"); scopeSelect.required = true; scopeSelect.disabled = true; scopeSelect.setAttribute("aria-label", "Assignment scope for " + team.name);
+          scopeSelect.add(new Option("Select product first", ""));
+          const assignButton = document.createElement("button"); assignButton.type = "submit"; assignButton.textContent = "Assign scope";
+          assign.append(productSelect, scopeSelect, assignButton); scopeSection.appendChild(assign); details.appendChild(scopeSection);
+          let scopeRequestId = 0;
+          productSelect.addEventListener("change", async () => {
+            const selectionId = ++scopeRequestId; const productId = productSelect.value;
+            scopeSelect.replaceChildren(new Option(productId ? "Loading scopes…" : "Select product first", "")); scopeSelect.disabled = true;
+            if (!productId) return;
+            try {
+              const tree = await request("/api/mobile/products/" + encodeURIComponent(productId) + "/tree");
+              if (selectionId !== scopeRequestId || productSelect.value !== productId) return;
+              scopeSelect.replaceChildren(new Option("Select scope", ""));
+              function addScope(label, type, id) { scopeSelect.add(new Option(label, JSON.stringify({ scope_type: type, scope_id: id }))); }
+              addScope("Product: " + tree.product.name, "product", productId);
+              function addCapability(node, path) {
+                const label = path + " / " + node.capability.name;
+                addScope(label, "capability", node.capability.id);
+                (node.children || []).forEach((child) => addCapability(child, label));
+              }
+              (tree.product_areas || []).forEach((area) => {
+                const label = "Area: " + area.product_area.name;
+                addScope(label, "product_area", area.product_area.id);
+                (area.features || []).forEach((node) => addCapability(node, label));
+              });
+              scopeSelect.disabled = false;
+            } catch (error) { if (selectionId === scopeRequestId) setStatus(error.message || String(error), "error"); }
+          });
+          assign.addEventListener("submit", async (event) => {
+            event.preventDefault(); assignButton.disabled = true;
+            try { const scope = JSON.parse(scopeSelect.value);
+              await request("/api/mobile/team-assignments", { method: "POST", body: { team_id: team.id, product_id: productSelect.value, ...scope } });
+              await loadTeams(); setStatus("Scope assigned", "ok");
+            } catch (error) { setStatus(error.message || String(error), "error"); }
+            finally { assignButton.disabled = false; }
+          });
+          el.teamList.appendChild(card);
+        });
+      } catch (error) { if (requestId === teamRequestId) setStatus(error.message || String(error), "error"); }
+    }
+
+    async function createTeam(event) {
+      event.preventDefault(); const button = el.createTeamForm.querySelector("button"); button.disabled = true;
+      try { await request("/api/mobile/teams", { method: "POST", body: { name: el.teamName.value, department: el.teamDepartment.value,
+        description: el.teamDescription.value, enabled: true, max_concurrent_workflows: Number(el.teamCapacity.value) } });
+        el.createTeamForm.reset(); await loadTeams(); setStatus("Team created", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { button.disabled = false; }
+    }
+
+    let modelConfigRequestId = 0;
+    async function loadModelConfiguration() {
+      const requestId = ++modelConfigRequestId;
+      try {
+        const [providers, models, agents, bindings] = await Promise.all([request("/api/mobile/providers"), request("/api/mobile/models"), request("/api/mobile/agents"), request("/api/mobile/agent-model-bindings")]);
+        if (requestId !== modelConfigRequestId) return;
+        const previous = el.modelProvider.value;
+        const previousAgent = el.bindingAgent.value;
+        const previousModel = el.bindingModel.value;
+        el.modelProvider.replaceChildren();
+        el.providerList.replaceChildren();
+        el.modelList.replaceChildren();
+        el.bindingAgent.replaceChildren();
+        el.bindingModel.replaceChildren();
+        el.agentBindingList.replaceChildren();
+        if (!providers.length) el.providerList.textContent = "No providers configured.";
+        if (!models.length) el.modelList.textContent = "No models configured.";
+        providers.forEach((provider) => {
+          const option = document.createElement("option");
+          option.value = provider.id;
+          option.textContent = provider.name;
+          el.modelProvider.appendChild(option);
+          const card = document.createElement("div");
+          card.className = "tool-card";
+          const title = document.createElement("div");
+          title.textContent = provider.name + " · " + provider.base_url + (provider.enabled ? "" : " · disabled");
+          const test = document.createElement("button");
+          test.type = "button";
+          test.className = "secondary";
+          test.textContent = "Test connection";
+          test.addEventListener("click", async () => {
+            test.disabled = true;
+            try {
+              const result = await request("/api/mobile/providers/" + encodeURIComponent(provider.id) + "/test", { method: "POST" });
+              setStatus(result.message, result.message === "Connection successful" ? "ok" : "error");
+            } catch (error) { setStatus(error.message || String(error), "error"); }
+            finally { test.disabled = false; }
+          });
+          const edit = document.createElement("details"); const editSummary = document.createElement("summary"); editSummary.textContent = "Manage provider";
+          const form = document.createElement("form"); form.className = "stack";
+          const nameInput = document.createElement("input"); nameInput.value = provider.name; nameInput.required = true; nameInput.setAttribute("aria-label", "Edit provider name " + provider.name);
+          const urlInput = document.createElement("input"); urlInput.type = "url"; urlInput.value = provider.base_url; urlInput.required = true; urlInput.setAttribute("aria-label", "Edit provider URL " + provider.name);
+          const enabledLabel = document.createElement("label"); const enabled = document.createElement("input"); enabled.type = "checkbox"; enabled.checked = provider.enabled; enabledLabel.append(enabled, document.createTextNode(" Provider enabled"));
+          const save = document.createElement("button"); save.type = "submit"; save.textContent = "Save provider";
+          const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger"; remove.textContent = "Delete provider";
+          form.append(nameInput, urlInput, enabledLabel, save, remove); edit.append(editSummary, form);
+          form.addEventListener("submit", async (event) => {
+            event.preventDefault(); save.disabled = true;
+            try {
+              await request("/api/mobile/providers/update", { method: "POST", body: { id: provider.id,
+                expected: { name: provider.name, base_url: provider.base_url, enabled: provider.enabled },
+                fields: { name: nameInput.value, base_url: urlInput.value, enabled: enabled.checked } } });
+              await loadModelConfiguration(); setStatus("Provider saved", "ok");
+            } catch (error) { setStatus(error.message || String(error), "error"); }
+            finally { save.disabled = false; }
+          });
+          remove.addEventListener("click", async () => {
+            if (!window.confirm("Delete provider " + provider.name + "? Remove its models first. Stored credentials may remain in the keychain or configuration file.")) return;
+            remove.disabled = true;
+            try { await request("/api/mobile/providers/delete", { method: "POST", body: { id: provider.id, expected_name: provider.name } });
+              if (el.providerInput.value === provider.id) { el.providerInput.value = ""; el.modelInput.value = ""; saveSettings(); }
+              await loadModelConfiguration(); setStatus("Provider deleted", "ok");
+            } catch (error) { setStatus(error.message || String(error), "error"); }
+            finally { remove.disabled = false; }
+          });
+          const keyForm = document.createElement("form"); keyForm.className = "stack";
+          const keyInput = document.createElement("input"); keyInput.type = "password"; keyInput.autocomplete = "new-password"; keyInput.required = true;
+          keyInput.setAttribute("aria-label", "New API key for " + provider.name);
+          const keySave = document.createElement("button"); keySave.type = "submit"; keySave.textContent = "Replace API key";
+          keyForm.append(keyInput, keySave); edit.appendChild(keyForm);
+          keyForm.addEventListener("submit", async (event) => {
+            event.preventDefault(); keySave.disabled = true;
+            try {
+              await request("/api/mobile/providers/credential", { method: "POST", body: { id: provider.id,
+                expected: { name: provider.name, base_url: provider.base_url, enabled: provider.enabled }, api_key: keyInput.value } });
+              keyInput.value = ""; await loadModelConfiguration(); setStatus("Provider key replaced", "ok");
+            } catch (error) { setStatus(error.message || String(error), "error"); }
+            finally { keySave.disabled = false; }
+          });
+          const cleanup = document.createElement("button"); cleanup.type = "button"; cleanup.textContent = "Clean unused fallback keys";
+          edit.appendChild(cleanup);
+          cleanup.addEventListener("click", async () => {
+            if (!window.confirm("Remove unreferenced fallback entries matching this provider’s rotation-key format? Manually named entries can match. This does not revoke keys or remove keychain entries.")) return;
+            cleanup.disabled = true;
+            try {
+              const result = await request("/api/mobile/providers/credential/cleanup", { method: "POST", body: { id: provider.id,
+                expected: { name: provider.name, base_url: provider.base_url, enabled: provider.enabled } } });
+              setStatus("Removed " + result.removed + " unused fallback key(s)", "ok");
+            } catch (error) { setStatus(error.message || String(error), "error"); }
+            finally { cleanup.disabled = false; }
+          });
+          card.append(title, test, edit);
+          el.providerList.appendChild(card);
+        });
+        if (providers.some((provider) => provider.id === previous)) el.modelProvider.value = previous;
+        models.forEach((model) => {
+          if (model.enabled) {
+            const option = document.createElement("option");
+            option.value = model.id;
+            const provider = providers.find((entry) => entry.id === model.provider_id);
+            option.textContent = model.name + " · " + (provider ? provider.name : model.provider_id);
+            option.disabled = !provider || !provider.enabled;
+            el.bindingModel.appendChild(option);
+          }
+          const card = document.createElement("div");
+          card.className = "tool-card";
+          const title = document.createElement("div");
+          const provider = providers.find((entry) => entry.id === model.provider_id);
+          title.textContent = model.name + " · " + (provider ? provider.name : model.provider_id) + (model.enabled ? "" : " · disabled");
+          const use = document.createElement("button");
+          use.type = "button";
+          use.className = "secondary";
+          use.textContent = "Use for this browser";
+          use.disabled = !model.enabled || !provider || !provider.enabled;
+          use.addEventListener("click", () => {
+            el.providerInput.value = model.provider_id;
+            el.modelInput.value = model.name;
+            saveSettings();
+            setStatus("Model selected", "ok");
+          });
+          const edit = document.createElement("details"); const editSummary = document.createElement("summary"); editSummary.textContent = "Manage model";
+          const form = document.createElement("form"); form.className = "stack";
+          const nameInput = document.createElement("input"); nameInput.required = true; nameInput.value = model.name; nameInput.setAttribute("aria-label", "Edit model name " + model.name);
+          const providerSelect = document.createElement("select"); providerSelect.setAttribute("aria-label", "Edit model provider " + model.name);
+          providers.forEach((entry) => { const option = document.createElement("option"); option.value = entry.id; option.textContent = entry.name; providerSelect.appendChild(option); });
+          providerSelect.value = model.provider_id;
+          const context = document.createElement("input"); context.type = "number"; context.min = "1"; context.step = "1"; context.value = model.context_window ?? ""; context.setAttribute("aria-label", "Context window " + model.name);
+          const notes = document.createElement("textarea"); notes.value = model.notes; notes.setAttribute("aria-label", "Model notes " + model.name);
+          const enabledLabel = document.createElement("label"); const enabled = document.createElement("input"); enabled.type = "checkbox"; enabled.checked = model.enabled; enabledLabel.append(enabled, document.createTextNode(" Model enabled"));
+          const save = document.createElement("button"); save.type = "submit"; save.textContent = "Save model";
+          const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger"; remove.textContent = "Delete model";
+          form.append(nameInput, providerSelect, context, notes, enabledLabel, save, remove); edit.append(editSummary, form);
+          form.addEventListener("submit", async (event) => {
+            event.preventDefault(); save.disabled = true;
+            try {
+              const windowSize = context.value === "" ? null : Number(context.value);
+              if (windowSize !== null && (!Number.isSafeInteger(windowSize) || windowSize <= 0)) throw new Error("Context window must be a positive whole number");
+              const expected = { name: model.name, provider_id: model.provider_id, context_window: model.context_window, notes: model.notes, enabled: model.enabled };
+              const fields = { name: nameInput.value, provider_id: providerSelect.value, context_window: windowSize, notes: notes.value, enabled: enabled.checked };
+              await request("/api/mobile/models/update", { method: "POST", body: { id: model.id, expected, fields } });
+              if (el.providerInput.value === model.provider_id && el.modelInput.value === model.name) { el.providerInput.value = fields.provider_id; el.modelInput.value = fields.name.trim(); saveSettings(); }
+              await loadModelConfiguration(); setStatus("Model saved", "ok");
+            } catch (error) { setStatus(error.message || String(error), "error"); }
+            finally { save.disabled = false; }
+          });
+          remove.addEventListener("click", async () => {
+            if (!window.confirm("Delete model " + model.name + "? Its agent-model bindings will also be removed.")) return;
+            remove.disabled = true;
+            try {
+              await request("/api/mobile/models/delete", { method: "POST", body: { id: model.id, expected_name: model.name } });
+              if (el.providerInput.value === model.provider_id && el.modelInput.value === model.name) { el.providerInput.value = ""; el.modelInput.value = ""; saveSettings(); }
+              await loadModelConfiguration(); setStatus("Model deleted", "ok");
+            } catch (error) { setStatus(error.message || String(error), "error"); }
+            finally { remove.disabled = false; }
+          });
+          card.append(title, use, edit);
+          el.modelList.appendChild(card);
+        });
+        agents.forEach((agent) => {
+          const option = document.createElement("option");
+          option.value = agent.id; option.textContent = agent.name + (agent.enabled ? "" : " · disabled");
+          option.disabled = !agent.enabled;
+          el.bindingAgent.appendChild(option);
+        });
+        if (agents.some((agent) => agent.id === previousAgent)) el.bindingAgent.value = previousAgent;
+        if (models.some((model) => model.id === previousModel)) el.bindingModel.value = previousModel;
+        if (!bindings.length) el.agentBindingList.textContent = "No agent models configured.";
+        bindings.forEach((binding) => {
+          const agent = agents.find((entry) => entry.id === binding.agent_id);
+          const model = models.find((entry) => entry.id === binding.model_id);
+          const row = document.createElement("div"); row.className = "tool-card";
+          row.textContent = (agent?.name || binding.agent_id) + " · " + (model?.name || binding.model_id) + " · priority " + binding.priority;
+          el.agentBindingList.appendChild(row);
+        });
+      } catch (error) {
+        if (requestId === modelConfigRequestId) setStatus(error.message || String(error), "error");
+      }
+    }
+
+    async function createProvider(event) {
+      event.preventDefault();
+      el.createProviderButton.disabled = true;
+      try {
+        await request("/api/mobile/providers", { method: "POST", body: { name: el.providerName.value.trim(), base_url: el.providerUrl.value.trim(), api_key: el.providerKey.value || null } });
+        el.providerForm.reset();
+        await loadModelConfiguration();
+        setStatus("Provider added", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { el.createProviderButton.disabled = false; }
+    }
+
+    async function createModel(event) {
+      event.preventDefault();
+      el.createModelButton.disabled = true;
+      try {
+        await request("/api/mobile/models", { method: "POST", body: { provider_id: el.modelProvider.value, name: el.newModelName.value.trim() } });
+        el.newModelName.value = "";
+        await loadModelConfiguration();
+        setStatus("Model added", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { el.createModelButton.disabled = false; }
+    }
+
+    async function saveAgentBinding(event) {
+      event.preventDefault();
+      el.saveAgentBindingButton.disabled = true;
+      try {
+        await request("/api/mobile/agent-model-bindings", { method: "POST", body: { agent_id: el.bindingAgent.value, model_id: el.bindingModel.value } });
+        await loadModelConfiguration();
+        setStatus("Agent model saved", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { el.saveAgentBindingButton.disabled = false; }
+    }
+
+    let modelCallRequestId = 0;
+    let modelCallListRequestId = 0;
+    let modelCallRefreshTimer;
+    let selectedModelCallId = null;
+
+    async function loadCi() {
+      const status = document.getElementById("ciStatus");
+      const targets = document.getElementById("ciTargets");
+      const runs = document.getElementById("ciRuns");
+      status.textContent = "Checking CI service…";
+      targets.textContent = "";
+      runs.textContent = "";
+      try {
+        const [health, targetList, runList, products, repositories, attachments, bindings] = await Promise.all([request("/api/mobile/ci/status"), request("/api/mobile/ci/targets"), request("/api/mobile/ci/runs"), request("/api/mobile/products"), request("/api/mobile/repositories"), request("/api/mobile/repository-attachments"), request("/api/mobile/ci/bindings")]);
+        status.textContent = "Service: " + (health.status || "connected");
+        targets.textContent = JSON.stringify(targetList, null, 2);
+        ciData = { targets: targetList, products, repositories, attachments, bindings };
+        renderCiAssignments();
+        if (!Array.isArray(runList) || !runList.length) runs.textContent = "No runs available.";
+        else runList.forEach((run) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "secondary";
+          button.textContent = `Run #${run.id} · ${run.target || "unknown target"} · ${run.status || "unknown"}`;
+          button.addEventListener("click", () => void showCiRun(run.id));
+          runs.appendChild(button);
+        });
+      } catch (error) {
+        status.textContent = "CI unavailable: " + error.message;
+      }
+    }
+
+    let ciData = { targets: [], products: [], repositories: [], attachments: [], bindings: [] };
+    function fillCiSelect(select, options, placeholder) {
+      const old = select.value;
+      select.replaceChildren(new Option(placeholder, ""));
+      options.forEach(([value, label]) => select.add(new Option(label, value)));
+      if (options.some(([value]) => value === old)) select.value = old;
+    }
+    function renderCiAssignments() {
+      const product = document.getElementById("ciProduct"), repository = document.getElementById("ciRepository"), target = document.getElementById("ciTarget");
+      fillCiSelect(product, ciData.products.map((p) => [p.id, p.name]), "Select product");
+      const attached = ciData.attachments.filter((a) => a.scope_type === "product" && a.scope_id === product.value).map((a) => a.repository_id);
+      fillCiSelect(repository, ciData.repositories.filter((r) => attached.includes(r.id)).map((r) => [r.id, r.name]), "Select attached workspace");
+      const selected = ciData.repositories.find((r) => r.id === repository.value);
+      fillCiSelect(target, ciData.targets.filter((t) => selected && t.repository && t.repository.replace(/\/+$/, "") === selected.local_path.replace(/\/+$/, "")).map((t) => [t.id, t.id + (t.approval?.approved ? " · pipeline approved" : " · pipeline not approved")]), "Select matching target");
+      const list = document.getElementById("ciBindings"); list.replaceChildren();
+      ciData.bindings.forEach((binding) => {
+        const row = document.createElement("div"), label = document.createElement("span"), button = document.createElement("button");
+        const p = ciData.products.find((item) => item.id === binding.product_id), r = ciData.repositories.find((item) => item.id === binding.repository_id);
+        label.textContent = `${p?.name || binding.product_id} · ${r?.name || binding.repository_id} → ${binding.target_id}${binding.auto_preview ? " · automatic Preview" : ""} `;
+        button.type = "button"; button.className = "secondary"; button.textContent = "Remove assignment";
+        button.addEventListener("click", async () => { if (!confirm(`Remove assignment for ${binding.target_id}?`)) return; try { await request("/api/mobile/ci/bindings/delete", { method:"POST", body:{id:binding.id} }); await loadCi(); } catch (error) { alert(error.message); } });
+        row.append(label, button); list.appendChild(row);
+      });
+    }
+    let ciRevisionRequestId = 0;
+    async function loadCiRevisions() {
+      const id = document.getElementById("ciRepository").value, type = document.getElementById("ciRevisionType").value;
+      const select = document.getElementById("ciRevision"), status = document.getElementById("ciRevisionStatus");
+      const requestId = ++ciRevisionRequestId;
+      fillCiSelect(select, [], id ? "Loading revisions…" : "Select a workspace first"); status.textContent = "";
+      if (!id) return;
+      try {
+        const items = await request(`/api/mobile/ci/repositories/${encodeURIComponent(id)}/${type === "branch" ? "branches" : "commits"}`);
+        if (requestId !== ciRevisionRequestId) return;
+        fillCiSelect(select, items.map((item) => type === "branch" ? [item.name, `${item.name} · ${item.commit.sha.slice(0, 12)}`] : [item.sha, `${item.sha.slice(0, 12)} · ${item.summary}`]), "Select revision");
+        status.textContent = items.length ? "" : "No revisions available.";
+      } catch (error) { if (requestId === ciRevisionRequestId) status.textContent = "Revisions unavailable: " + error.message; }
+    }
+    document.getElementById("ciProduct").addEventListener("change", () => { renderCiAssignments(); void loadCiRevisions(); });
+    document.getElementById("ciRepository").addEventListener("change", () => { renderCiAssignments(); void loadCiRevisions(); });
+    document.getElementById("ciRevisionType").addEventListener("change", loadCiRevisions);
+    document.getElementById("ciAssign").addEventListener("click", async () => {
+      const body = { product_id:document.getElementById("ciProduct").value, repository_id:document.getElementById("ciRepository").value, target_id:document.getElementById("ciTarget").value, auto_preview:document.getElementById("ciAutoPreview").checked };
+      try { await request("/api/mobile/ci/bindings/save", { method:"POST", body }); await loadCi(); } catch (error) { alert(error.message); }
+    });
+    document.getElementById("ciQueue").addEventListener("click", async () => {
+      const body = { product_id:document.getElementById("ciProduct").value, repository_id:document.getElementById("ciRepository").value, target_id:document.getElementById("ciTarget").value };
+      const revision = document.getElementById("ciRevision").value.trim();
+      body[document.getElementById("ciRevisionType").value] = revision;
+      if (!body.product_id || !body.repository_id || !body.target_id || !revision) { alert("Select a product, workspace, target and revision."); return; }
+      if (!confirm(`Queue ${body.target_id} for ${revision}?`)) return;
+      try { const result = await request("/api/mobile/ci/bindings/queue", { method:"POST", body }); alert(`Build queued as run #${result.run_id}`); await loadCi(); } catch (error) { alert(error.message); }
+    });
+
+    let ciRunRequestId = 0;
+    async function showCiRun(id) {
+      const requestId = ++ciRunRequestId;
+      const details = document.getElementById("ciRunDetails");
+      details.textContent = "Loading run…";
+      try {
+        const run = await request(`/api/mobile/ci/runs/${encodeURIComponent(id)}`);
+        if (requestId !== ciRunRequestId) return;
+        details.replaceChildren();
+        const summary = document.createElement("pre");
+        summary.style.whiteSpace = "pre-wrap";
+        summary.style.overflowWrap = "anywhere";
+        summary.textContent = JSON.stringify(run, null, 2);
+        details.appendChild(summary);
+        const feedbackList = document.createElement("pre");
+        feedbackList.style.whiteSpace = "pre-wrap"; feedbackList.style.overflowWrap = "anywhere";
+        async function refreshFeedback() {
+          try { feedbackList.textContent = JSON.stringify(await request(`/api/mobile/ci/runs/${encodeURIComponent(id)}/feedback`), null, 2); }
+          catch (error) { feedbackList.textContent = "Feedback unavailable: " + error.message; }
+        }
+        details.appendChild(feedbackList); void refreshFeedback();
+        if (run.status === "passed") {
+          const verdict = document.createElement("select"), notes = document.createElement("textarea"), submit = document.createElement("button");
+          verdict.setAttribute("aria-label", "CI feedback verdict");
+          for (const [value, label] of [["works", "Works"], ["needs_changes", "Needs changes"], ["blocked", "Blocked"]]) verdict.add(new Option(label, value));
+          notes.setAttribute("aria-label", "CI feedback notes"); notes.maxLength = 20000; notes.placeholder = "What did you observe?";
+          submit.type = "button"; submit.className = "secondary"; submit.textContent = "Record feedback";
+          submit.addEventListener("click", async () => {
+            submit.disabled = true;
+            try { await request(`/api/mobile/ci/runs/${encodeURIComponent(id)}/feedback`, {method:"POST", body:{verdict:verdict.value, notes:notes.value}}); notes.value = ""; await refreshFeedback(); }
+            catch (error) { alert(error.message); }
+            finally { submit.disabled = false; }
+          });
+          details.append(verdict, notes, submit);
+        }
+        for (const artifact of run.artifacts || []) {
+          const button = document.createElement("button"), result = document.createElement("pre");
+          button.type = "button"; button.className = "secondary"; button.textContent = `Verify artifact #${artifact.id} · ${artifact.kind || "artifact"}`;
+          result.style.whiteSpace = "pre-wrap"; result.style.overflowWrap = "anywhere";
+          button.addEventListener("click", async () => {
+            button.disabled = true;
+            try { result.textContent = JSON.stringify(await request(`/api/mobile/ci/artifacts/${encodeURIComponent(artifact.id)}/readiness`), null, 2); }
+            catch (error) { result.textContent = "Artifact verification unavailable: " + error.message; }
+            finally { button.disabled = false; }
+          });
+          details.append(button, result);
+        }
+        const action = ["queued", "running"].includes(run.status) ? "cancel" : ["failed", "blocked", "cancelled", "interrupted"].includes(run.status) ? "retry" : null;
+        if (action) {
+          const button = document.createElement("button");
+          button.type = "button"; button.className = "secondary"; button.textContent = action === "cancel" ? "Cancel build" : "Retry build";
+          button.addEventListener("click", async () => {
+            if (!confirm(`${action === "cancel" ? "Cancel" : "Retry"} CI run #${id}?`)) return;
+            button.disabled = true;
+            try {
+              const result = await request(`/api/mobile/ci/runs/${encodeURIComponent(id)}/${action}`, { method: "POST" });
+              ciRunRequestId++;
+              details.textContent = action === "retry" ? `Retry queued${result.run_id ? ` as run #${result.run_id}` : ""}.` : "Cancellation requested.";
+              await loadCi();
+            } catch (error) { button.disabled = false; alert(error.message); }
+          });
+          details.appendChild(button);
+        }
+        const log = document.createElement("pre");
+        log.style.whiteSpace = "pre-wrap"; log.style.maxHeight = "320px"; log.style.overflow = "auto";
+        let offset = 0; let stage = ""; let logGeneration = 0; let logTimer;
+        for (const item of run.stages || []) {
+          const button = document.createElement("button");
+          button.type = "button"; button.className = "secondary"; button.textContent = `Log: ${item.name}`;
+          button.addEventListener("click", () => { clearTimeout(logTimer); stage = item.name; offset = 0; logGeneration++; log.textContent = ""; void loadLog(); });
+          details.appendChild(button);
+        }
+        const more = document.createElement("button");
+        more.type = "button"; more.className = "secondary"; more.textContent = "Load more log"; more.hidden = true;
+        async function loadLog() {
+          const generation = logGeneration;
+          more.disabled = true;
+          try {
+            const chunk = await request(`/api/mobile/ci/runs/${encodeURIComponent(id)}/logs?stage=${encodeURIComponent(stage)}&offset=${offset}`);
+            if (generation !== logGeneration || !details.isConnected || requestId !== ciRunRequestId) return;
+            if (!Number.isSafeInteger(chunk.next_offset) || chunk.next_offset < offset || (chunk.text && chunk.next_offset === offset)) throw new Error("Invalid log offset");
+            log.textContent = (log.textContent + (chunk.text || "")).slice(-1048576); offset = chunk.next_offset;
+            let active = ["queued", "running"].includes(run.status);
+            if (active && !chunk.text) {
+              const latest = await request(`/api/mobile/ci/runs/${encodeURIComponent(id)}`);
+              if (generation !== logGeneration || !details.isConnected || requestId !== ciRunRequestId) return;
+              run.status = latest.status; active = ["queued", "running"].includes(run.status);
+            }
+            more.hidden = active || !chunk.text;
+            if (active && state.activeTab === "ci") logTimer = setTimeout(loadLog, chunk.text ? 100 : 1500);
+          } catch (error) { if (generation === logGeneration) log.textContent += `\nLog unavailable: ${error.message}`; }
+          finally { if (generation === logGeneration) more.disabled = false; }
+        }
+        more.addEventListener("click", loadLog);
+        details.append(log, more);
+      } catch (error) { if (requestId === ciRunRequestId) details.textContent = "Run unavailable: " + error.message; }
+    }
+
+    let modelCallEntries = [];
+    function renderModelCallSessions() {
+      const filter = document.getElementById("modelCallFilter").value;
+      const matches = (call) => {
+        const kind = call.source_kind || "";
+        return filter === "all" || (filter === "failed" && call.status === "failed") ||
+          (filter === "desktop" && kind.startsWith("desktop")) || (filter === "mobile" && kind.startsWith("mobile")) ||
+          (filter === "workflow" && kind === "workflow_agent") || (filter === "planner" && (kind.includes("planner") || kind.includes("repository_analysis")));
+      };
+      const filtered = modelCallEntries.filter(matches);
+      if (selectedModelCallId && !filtered.some((call) => call.id === selectedModelCallId)) {
+        selectedModelCallId = null;
+        modelCallRequestId++;
+        el.modelCallDetails.replaceChildren();
+      }
+      const groups = new Map();
+      filtered.forEach((call) => {
+        const key = call.session_id ? `session:${call.session_id}` : call.workflow_run_id ? `workflow:${call.workflow_run_id}` : call.agent_run_id ? `agent-run:${call.agent_run_id}` : call.source_id ? `source:${call.source_kind}:${call.source_id}` : `call:${call.id}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(call);
+      });
+      document.getElementById("modelCallSummary").textContent = `${groups.size} sessions · ${filtered.length} calls · ${modelCallEntries.length} loaded (latest 300 maximum)`;
+      el.modelCallList.replaceChildren();
+      if (!groups.size) el.modelCallList.textContent = "No sessions match this filter.";
+      for (const calls of groups.values()) {
+        const ordered = [...calls].sort((a, b) => (a.call_index || 0) - (b.call_index || 0) || (a.created_at || "").localeCompare(b.created_at || ""));
+        const latest = calls.reduce((a, b) => (a.created_at || "") >= (b.created_at || "") ? a : b);
+        const total = (field) => { const values = calls.map((call) => call[field]).filter(Number.isFinite); return values.length ? values.reduce((a, b) => a + b, 0) : "n/a"; };
+        const section = document.createElement("section"), title = document.createElement("div");
+        section.className = "tool-card";
+        title.textContent = `${latest.source_label || latest.source_kind || "Model call"} · ${calls.length} calls · ${calls.some((call) => call.status === "failed") ? "failed" : latest.status || "unknown"} · input ${total("token_count_input")} · output ${total("token_count_output")} · ${latest.created_at || ""}`;
+        section.appendChild(title);
+        ordered.forEach((call) => {
+          const button = document.createElement("button");
+          button.type = "button"; button.className = "product-card";
+          button.textContent = [call.source_label || call.source_kind, call.model_name, `Call #${call.call_index || 1}`, call.status, call.created_at].filter(Boolean).join(" · ");
+          button.addEventListener("click", () => void loadModelCallDetails(call.id));
+          section.appendChild(button);
+        });
+        el.modelCallList.appendChild(section);
+      }
+    }
+
+    function scheduleModelCallRefresh() {
+      clearTimeout(modelCallRefreshTimer);
+      modelCallRefreshTimer = setTimeout(async () => {
+        if (state.activeTab !== "activity") return;
+        await loadModelCalls(true);
+        if (state.activeTab === "activity") scheduleModelCallRefresh();
+      }, 5000);
+    }
+
+    async function loadModelCalls(silent = false) {
+      const requestId = ++modelCallListRequestId;
+      if (!silent) el.refreshModelCallsButton.disabled = true;
+      if (!modelCallEntries.length) el.modelCallList.textContent = "Loading model calls…";
+      try {
+        const calls = await request("/api/mobile/model-calls?limit=300");
+        if (requestId !== modelCallListRequestId) return;
+        modelCallEntries = calls;
+        renderModelCallSessions();
+      } catch (error) {
+        if (requestId !== modelCallListRequestId) return;
+        if (!modelCallEntries.length) el.modelCallList.textContent = error.message || String(error);
+        else document.getElementById("modelCallSummary").textContent = "Refresh failed: " + (error.message || String(error));
+      } finally {
+        if (requestId === modelCallListRequestId) el.refreshModelCallsButton.disabled = false;
+      }
+    }
+
+    async function loadModelCallDetails(id) {
+      selectedModelCallId = id;
+      const requestId = ++modelCallRequestId;
+      el.modelCallDetails.textContent = "Loading call details…";
+      try {
+        const call = await request("/api/mobile/model-calls/" + encodeURIComponent(id));
+        if (requestId !== modelCallRequestId) return;
+        el.modelCallDetails.replaceChildren();
+        const fields = [["Source", call.source_label || call.source_kind], ["Source kind", call.source_kind], ["Source ID", call.source_id], ["Provider", call.provider_name || call.provider_id], ["Provider type", call.provider_type], ["Provider URL", call.provider_base_url],
+          ["Model", call.model_name], ["Status", call.status], ["Created", call.created_at],
+          ["Input tokens", call.token_count_input], ["Output tokens", call.token_count_output],
+          ["Duration (ms)", call.duration_ms], ["Call index", call.call_index], ["Messages", call.request_message_count], ["Prompt characters", call.prompt_chars], ["Response characters", call.response_chars], ["Max tokens", call.max_tokens], ["Temperature", call.temperature], ["Workflow run", call.workflow_run_id], ["Agent run", call.agent_run_id], ["Work item", call.work_item_id], ["Product", call.product_id], ["Session", call.session_id], ["Agent", call.agent_id], ["Stage", call.stage], ["Error", call.error_message]];
+        fields.forEach(([label, value]) => {
+          if (value === null || value === undefined || value === "") return;
+          const row = document.createElement("div");
+          row.className = "tool-card";
+          row.textContent = label + ": " + value;
+          el.modelCallDetails.appendChild(row);
+        });
+        for (const [kind, path] of [["request", call.request_snapshot_path], ["response", call.response_snapshot_path]]) {
+          if (!path) continue;
+          const button = document.createElement("button"), content = document.createElement("pre");
+          button.type = "button"; button.className = "secondary"; button.textContent = `Show ${kind} snapshot`;
+          content.style.whiteSpace = "pre-wrap"; content.style.overflowWrap = "anywhere"; content.style.maxHeight = "320px"; content.style.overflow = "auto";
+          button.addEventListener("click", async () => {
+            button.disabled = true; content.textContent = "Loading snapshot…";
+            try {
+              const result = await request(`/api/mobile/model-calls/${encodeURIComponent(id)}/snapshots/${kind}`);
+              if (requestId === modelCallRequestId) content.textContent = result.content;
+            } catch (error) { if (requestId === modelCallRequestId) content.textContent = "Snapshot unavailable: " + error.message; }
+            finally { button.disabled = false; }
+          });
+          el.modelCallDetails.append(button, content);
+        }
+      } catch (error) {
+        if (requestId !== modelCallRequestId) return;
+        el.modelCallDetails.textContent = error.message || String(error);
+      }
+    }
+
     el.tabs.forEach((button) => {
       button.addEventListener("click", () => switchTab(button.dataset.tab));
     });
-    el.saveButton.addEventListener("click", saveSettings);
+    el.saveButton.addEventListener("click", () => { saveSettings(); if (state.activeTab === "planner") void loadPlannerProducts(); });
     el.copyLinkButton.addEventListener("click", copySetupLink);
     el.healthButton.addEventListener("click", checkHealth);
     el.sendButton.addEventListener("click", () => submitPrompt("planner"));
     el.chatSendButton.addEventListener("click", () => submitPrompt("chat"));
+    el.voiceProvider.addEventListener("change", () => localStorage.setItem(storageKeys.voiceProvider, el.voiceProvider.value));
+    el.voiceModel.addEventListener("input", () => localStorage.setItem(storageKeys.voiceModel, el.voiceModel.value));
+    el.voiceLocale.addEventListener("input", () => localStorage.setItem(storageKeys.locale, el.voiceLocale.value.trim()));
+    el.voiceReview.addEventListener("change", () => localStorage.setItem(storageKeys.voiceReview, String(el.voiceReview.checked)));
     el.voiceRecordButton.addEventListener("click", () => toggleVoiceRecording());
     el.voiceSendButton.addEventListener("click", () => submitPrompt("voice"));
     el.voiceSpeakToggle.addEventListener("click", () => {
@@ -1704,7 +3670,34 @@
     el.clearButton.addEventListener("click", clearDraft);
     el.newSessionButton.addEventListener("click", newSession);
     el.refreshProductsButton.addEventListener("click", loadProducts);
+    el.createProductForm.addEventListener("submit", createProduct);
+    el.createAreaForm.addEventListener("submit", createProductArea);
+    el.resetPlanForm.addEventListener("submit", resetProductPlan);
+    el.refreshModelCallsButton.addEventListener("click", () => void loadModelCalls());
+    document.getElementById("modelCallFilter").addEventListener("change", renderModelCallSessions);
+    document.getElementById("refreshCiButton").addEventListener("click", loadCi);
+    el.refreshModelsButton.addEventListener("click", loadModelConfiguration);
+    el.refreshRoutingButton.addEventListener("click", loadRouting);
+    el.createAgentEditor.appendChild(makeAgentForm(null));
+    el.refreshAgentsButton.addEventListener("click", loadAgents);
+    el.refreshSkillsButton.addEventListener("click", loadSkills);
+    el.createSkillForm.addEventListener("submit", createSkill);
+    el.refreshTeamsButton.addEventListener("click", loadTeams);
+    el.createTeamForm.addEventListener("submit", createTeam);
+    el.refreshWorkspacesButton.addEventListener("click", loadWorkspaces);
+    el.repositoryDiffButton.addEventListener("click", loadRepositoryDiff);
+    el.repositoryFileContent.addEventListener("input", updateFileControls);
+    el.saveRepositoryFileButton.addEventListener("click", saveRepositoryFile);
+    el.discardRepositoryFileButton.addEventListener("click", discardRepositoryFileEdits);
+    window.addEventListener("beforeunload", (event) => { if (fileIsDirty()) { event.preventDefault(); event.returnValue = ""; } });
+    el.repositoryForm.addEventListener("submit", registerWorkspace);
+    el.repositoryAttachForm.addEventListener("submit", attachWorkspace);
+    el.repositoryProduct.addEventListener("change", loadWorkspaces);
+    el.providerForm.addEventListener("submit", createProvider);
+    el.modelForm.addEventListener("submit", createModel);
+    el.agentBindingForm.addEventListener("submit", saveAgentBinding);
     el.workProductSelect.addEventListener("change", () => {
+      resetWorkScope();
       state.selectedProductId = el.workProductSelect.value;
       localStorage.setItem(storageKeys.selectedProduct, state.selectedProductId);
       state.selectedWorkItemId = "";
@@ -1712,10 +3705,16 @@
       void loadWorkItems();
     });
     el.createWorkButton.addEventListener("click", createWorkItem);
+    el.editWorkButton.addEventListener("click", editWorkItem);
+    el.editWorkForm.addEventListener("submit", saveWorkItemEdit);
+    el.cancelWorkEditButton.addEventListener("click", cancelWorkEdit);
+    el.workflowTestForm.addEventListener("submit", saveWorkflowTestConfig);
+    el.workflowTestMode.addEventListener("change", updateWorkflowTestControls);
     el.refreshWorkButton.addEventListener("click", loadWorkItems);
     el.approveWorkButton.addEventListener("click", approveAndStartWork);
     el.startWorkButton.addEventListener("click", startWork);
     el.refreshDeliveryButton.addEventListener("click", () => loadDelivery());
+    el.retryGitDeliveryButton.addEventListener("click", retryGitDelivery);
     Array.from(el.workflowActions.querySelectorAll("button")).forEach((button) => {
       button.addEventListener("click", () => handleWorkflowAction(button.dataset.workflowAction));
     });

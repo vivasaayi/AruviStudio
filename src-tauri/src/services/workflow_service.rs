@@ -66,6 +66,28 @@ impl WorkflowService {
         Ok(())
     }
 
+    /// Retry a failed Git delivery after the user has corrected its cause.
+    pub async fn retry_git_delivery(&self, workflow_run_id: &str) -> Result<(), AppError> {
+        if !crate::services::workflow_git_push::is_retryable_git_delivery(&self.db, workflow_run_id).await? {
+            return Err(AppError::Validation("This workflow does not have a retryable failed Git delivery".to_string()));
+        }
+        let mut tx = self.db.begin().await?;
+        let changed = sqlx::query("UPDATE workflow_runs SET status='running',current_stage='git_push',error_message=NULL,ended_at=NULL,retry_count=retry_count+1,updated_at=datetime('now') WHERE id=? AND status='failed' AND current_stage='failed' AND rowid=(SELECT MAX(rowid) FROM workflow_runs WHERE work_item_id=(SELECT work_item_id FROM workflow_runs WHERE id=?)) AND (SELECT from_stage FROM workflow_stage_history WHERE workflow_run_id=? AND to_stage='failed' ORDER BY rowid DESC LIMIT 1)='git_push'")
+            .bind(workflow_run_id).bind(workflow_run_id).bind(workflow_run_id).execute(&mut *tx).await?;
+        if changed.rows_affected() != 1 { return Err(AppError::Validation("Workflow changed; refresh before retrying delivery".to_string())); }
+        sqlx::query("INSERT INTO workflow_stage_history (id,workflow_run_id,from_stage,to_stage,trigger,notes,transitioned_at) VALUES (?,?,'failed','git_push','manual_override','Git delivery retry requested',datetime('now'))")
+            .bind(uuid::Uuid::new_v4().to_string()).bind(workflow_run_id).execute(&mut *tx).await?;
+        tx.commit().await?;
+        if let Err(error) = self.execute_stage(workflow_run_id, WorkflowStage::GitPush).await {
+            let current = workflow_repo::get_workflow_run(&self.db, workflow_run_id).await?;
+            if current.status == "running" {
+                crate::services::workflow_failure::mark_workflow_failed(&self.db, workflow_run_id, &WorkflowStage::GitPush, &error).await?;
+            }
+            return Err(error);
+        }
+        Ok(())
+    }
+
     /// Advance workflow to the next stage
     pub async fn advance_workflow(&self, workflow_run_id: &str) -> Result<(), AppError> {
         workflow_advance::advance_workflow(self.db.as_ref(), &self.engine, workflow_run_id).await

@@ -197,6 +197,13 @@ pub async fn create_work_item(
     input: CreateWorkItemInput<'_>,
 ) -> Result<WorkItem, AppError> {
     let work_item_type = normalize_work_item_type(input.work_item_type)?;
+    let parent = if let Some(parent_id) = input.parent_work_item_id {
+        let parent = crate::persistence::work_item_read_repo::get_work_item(pool, parent_id).await?;
+        if parent.product_id.as_deref() != Some(input.product_id) {
+            return Err(AppError::Validation("Parent work item must belong to the selected product.".into()));
+        }
+        Some(parent)
+    } else { None };
     let (product_area_id, capability_id, source_node_id, source_node_type) = resolve_source_scope(
         pool,
         input.product_id,
@@ -207,6 +214,11 @@ pub async fn create_work_item(
         input.parent_work_item_id,
     )
     .await?;
+    if let Some(parent) = parent {
+        if parent.source_node_id != source_node_id || parent.source_node_type != source_node_type {
+            return Err(AppError::Validation("Child work item must use its parent's hierarchy scope.".into()));
+        }
+    }
     debug!(work_item_id = %input.id, product_id = %input.product_id, product_area_id = ?product_area_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, parent_work_item_id = ?input.parent_work_item_id, title = %input.title, "persist create_work_item");
     let next_sort_order: i64 = if let Some(parent_id) = input.parent_work_item_id {
         sqlx::query_scalar("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM work_items WHERE parent_work_item_id = ?")

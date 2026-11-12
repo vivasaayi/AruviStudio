@@ -1,4 +1,4 @@
-use crate::commands::repository_commands::create_local_workspace_for_scope;
+use crate::commands::repository_commands::{create_local_workspace_for_scope, register_repository_for_state};
 use crate::error::AppError;
 use crate::persistence::repository_repo;
 use crate::services::repo_service;
@@ -17,13 +17,12 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
 
     match tool_action.action.as_str() {
         "register_repository" => {
-            let repository = repository_repo::create_repository(
-                &state.db,
-                &uuid::Uuid::new_v4().to_string(),
-                &args.required_string(&["name"], "name")?,
-                &args.required_string(&["local_path", "localPath"], "local_path")?,
-                &args.string_or_default(&["remote_url", "remoteUrl"], "")?,
-                &args.string_or_default(&["default_branch", "defaultBranch"], "main")?,
+            let repository = register_repository_for_state(
+                state,
+                args.required_string(&["name"], "name")?,
+                args.required_string(&["local_path", "localPath"], "local_path")?,
+                args.string_or_default(&["remote_url", "remoteUrl"], "")?,
+                args.string_or_default(&["default_branch", "defaultBranch"], "main")?,
             )
             .await?;
             action_result("register_repository", repository)
@@ -58,6 +57,22 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                     "attachment_id": attachment_id
                 }
             }))
+        }
+        "list_repository_attachments" => {
+            let scope_type = normalize_repository_scope_type(&args.required_string(&["scope_type", "scopeType"], "scope_type")?)?;
+            let scope_id = args.required_string(&["scope_id", "scopeId"], "scope_id")?;
+            action_result("list_repository_attachments", repository_repo::list_repository_attachments(&state.db, &scope_type, &scope_id).await?)
+        }
+        "set_default_repository" | "detach_repository" => {
+            let scope_type = normalize_repository_scope_type(&args.required_string(&["scope_type", "scopeType"], "scope_type")?)?;
+            let scope_id = args.required_string(&["scope_id", "scopeId"], "scope_id")?;
+            let repository_id = args.required_string(&["repository_id", "repositoryId"], "repository_id")?;
+            if tool_action.action == "set_default_repository" {
+                repository_repo::set_default_repository(&state.db, &scope_type, &scope_id, &repository_id).await?;
+            } else {
+                repository_repo::detach_repository(&state.db, &scope_type, &scope_id, &repository_id).await?;
+            }
+            Ok(action_ok(&tool_action.action))
         }
         "resolve_repository_for_work_item" => {
             let work_item_id =

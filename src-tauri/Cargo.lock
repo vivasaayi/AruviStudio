@@ -79,6 +79,7 @@ dependencies = [
  "hound",
  "http-body-util",
  "keyring",
+ "libc",
  "regex",
  "reqwest 0.12.28",
  "serde",

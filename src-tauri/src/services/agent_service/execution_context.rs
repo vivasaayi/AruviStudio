@@ -14,32 +14,21 @@ impl AgentService {
         stage_name: &str,
     ) -> Result<TeamExecutionContext, AppError> {
         let team = if let Some(team_id) = workflow_run.assigned_team_id.as_deref() {
-            agent_repo::get_agent_team(&self.db, team_id).await.ok()
+            Some(agent_repo::get_agent_team(&self.db, team_id).await?)
         } else {
-            None
-        }
-        .or(agent_repo::resolve_team_for_work_item(&self.db, work_item).await?);
-
-        let coordinator =
-            if let Some(coordinator_id) = workflow_run.coordinator_agent_id.as_deref() {
-                agent_repo::get_agent_definition(&self.db, coordinator_id)
-                    .await
-                    .ok()
-            } else {
-                None
-            }
-            .or(match &team {
-                Some(team_entry) => {
-                    agent_repo::find_team_coordinator(&self.db, &team_entry.id).await?
-                }
-                None => None,
-            });
+            agent_repo::resolve_team_for_work_item(&self.db, work_item).await?
+        };
+        let coordinator = crate::services::workflow_coordinator_policy::resolve_active_coordinator(
+            &self.db,
+            workflow_run.coordinator_agent_id.as_deref(),
+            team.as_ref().map(|team| team.id.as_str()),
+        ).await?;
 
         if stage_name == "coordinator_review" {
             let stage_agent = coordinator.clone().ok_or_else(|| {
                 AppError::NotFound("No active coordinator found for coordinator review".to_string())
             })?;
-            if !is_coordinator_role(&stage_agent.role) {
+            if !crate::services::workflow_coordinator_policy::is_coordinator_role(&stage_agent.role) {
                 return Err(AppError::Validation(format!(
                     "Invalid coordinator role for coordinator review: {}",
                     stage_agent.role
@@ -72,7 +61,7 @@ impl AgentService {
         team: Option<&AgentTeam>,
     ) -> Result<(AgentDefinition, String), AppError> {
         debug!(stage_name = %stage_name, team_id = ?team.as_ref().map(|entry| entry.id.as_str()), "Finding agent for stage");
-        let expected_roles = self.stage_role_candidates(stage_name).await;
+        let expected_roles = self.stage_role_candidates(stage_name).await?;
 
         if let Some(team) = team {
             let team_agents = agent_repo::list_agents_for_team(&self.db, &team.id).await?;
@@ -98,17 +87,17 @@ impl AgentService {
         )))
     }
 
-    async fn stage_role_candidates(&self, stage_name: &str) -> Vec<String> {
-        if let Ok(Some(policy)) = agent_repo::get_workflow_stage_policy(&self.db, stage_name).await
-        {
+    async fn stage_role_candidates(&self, stage_name: &str) -> Result<Vec<String>, AppError> {
+        if let Some(policy) = agent_repo::get_workflow_stage_policy(&self.db, stage_name).await? {
+
             let mut roles = policy.primary_roles;
             roles.extend(policy.fallback_roles);
             if !roles.is_empty() {
-                return roles;
+                return Ok(roles);
             }
         }
 
-        match stage_name {
+        Ok(match stage_name {
             "coordinator_review" => vec!["manager", "team_lead"],
             "requirement_analysis" => {
                 vec!["manager", "architect", "analyst", "requirement_analysis"]
@@ -129,7 +118,7 @@ impl AgentService {
         }
         .into_iter()
         .map(str::to_string)
-        .collect()
+        .collect())
     }
 }
 
@@ -151,11 +140,4 @@ fn select_agent_for_roles(
                 .iter()
                 .any(|expected_role| expected_role.eq_ignore_ascii_case(&agent.role))
         })
-}
-
-fn is_coordinator_role(role: &str) -> bool {
-    matches!(
-        role.to_ascii_lowercase().as_str(),
-        "manager" | "team_lead" | "coordinator"
-    )
 }

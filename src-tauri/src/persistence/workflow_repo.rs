@@ -63,15 +63,22 @@ pub async fn close_orphaned_coordinator_reviews(pool: &SqlitePool) -> Result<u64
              updated_at=datetime('now')
          WHERE status='running'
            AND current_stage='coordinator_review'
-           AND (
-               coordinator_agent_id IS NULL
-               OR coordinator_agent_id NOT IN (
-                   SELECT id
-                   FROM agent_definitions
-                   WHERE enabled=1
-                     AND employment_status='active'
-                     AND lower(role) IN ('manager','team_lead','coordinator')
-               )
+           AND NOT EXISTS (
+               SELECT 1 FROM agent_definitions preferred
+               WHERE preferred.id=workflow_runs.coordinator_agent_id
+                 AND preferred.enabled=1 AND preferred.employment_status='active'
+                 AND lower(preferred.role) IN ('manager','team_lead','coordinator')
+                 AND (workflow_runs.assigned_team_id IS NULL OR EXISTS (
+                     SELECT 1 FROM agent_team_memberships membership
+                     WHERE membership.team_id=workflow_runs.assigned_team_id AND membership.agent_id=preferred.id
+                 ))
+           )
+           AND NOT EXISTS (
+               SELECT 1 FROM agent_team_memberships membership
+               JOIN agent_definitions candidate ON candidate.id=membership.agent_id
+               WHERE membership.team_id=workflow_runs.assigned_team_id
+                 AND candidate.enabled=1 AND candidate.employment_status='active'
+                 AND lower(candidate.role) IN ('manager','team_lead','coordinator')
            )",
     )
     .execute(pool)

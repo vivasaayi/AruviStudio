@@ -423,3 +423,40 @@ async fn reset_product_plan_deletes_delivery_and_agent_work_when_requested() {
     assert_eq!(remaining_work_items, 0);
     assert_eq!(remaining_runs, 0);
 }
+
+#[tokio::test]
+async fn reset_preserves_delivery_and_reconciles_scopes_atomically() {
+    let pool = create_test_pool("reset_scoped_records").await;
+    create_test_product(&pool, "reset-target", "Target").await;
+    create_test_product(&pool, "reset-other", "Other").await;
+    for sql in [
+        "INSERT INTO product_areas(id,product_id,name) VALUES('reset-area','reset-target','Area'),('keep-area','reset-other','Keep')",
+        "INSERT INTO capabilities(id,product_area_id,name,node_kind,level) VALUES('reset-cap','reset-area','Capability','capability',0)",
+        "INSERT INTO work_items(id,product_id,product_area_id,capability_id,source_node_id,source_node_type,title) VALUES('reset-work','reset-target','reset-area','reset-cap','reset-cap','capability','Work')",
+        "INSERT INTO agent_work_runs(id,product_id,roadmap_hash) VALUES('reset-run','reset-target','hash')",
+        "INSERT INTO agent_work_items(id,run_id,feature_id,product_area) VALUES('reset-ledger','reset-run','external-feature','Area')",
+        "INSERT INTO \"references\"(id,scope_type,scope_id,title) VALUES('reset-ref','capability','reset-cap','Preserve'),('keep-ref','product_area','keep-area','Keep')",
+        "INSERT INTO agent_teams(id,name) VALUES('reset-team','Team')",
+        "INSERT INTO team_assignments(id,team_id,scope_type,scope_id) VALUES('reset-assignment','reset-team','product_area','reset-area'),('keep-assignment','reset-team','product_area','keep-area')",
+        "INSERT INTO repositories(id,name,local_path) VALUES('reset-repo','Repo','/tmp/reset-test')",
+        "INSERT INTO repository_attachments(id,scope_type,scope_id,repository_id) VALUES('reset-attachment','product_area','reset-area','reset-repo'),('keep-attachment','product_area','keep-area','reset-repo')",
+        "CREATE TRIGGER reject_reset BEFORE DELETE ON product_areas WHEN OLD.id='reset-area' BEGIN SELECT RAISE(ABORT,'forced reset failure'); END",
+    ] { sqlx::query(sql).execute(&pool).await.unwrap(); }
+    assert!(reset_product_plan_checked(&pool, "reset-target", false, Some("stale name")).await.is_err());
+    assert!(reset_product_plan(&pool, "reset-target", true).await.is_err());
+    let counts: (i64, i64, i64, i64) = sqlx::query_as("SELECT (SELECT COUNT(*) FROM work_items WHERE id='reset-work'),(SELECT COUNT(*) FROM agent_work_runs WHERE id='reset-run'),(SELECT COUNT(*) FROM capabilities WHERE id='reset-cap'),(SELECT COUNT(*) FROM repository_attachments WHERE id='reset-attachment')").fetch_one(&pool).await.unwrap();
+    assert_eq!(counts, (1, 1, 1, 1));
+    let scope: (String, String) = sqlx::query_as("SELECT scope_type,scope_id FROM \"references\" WHERE id='reset-ref'").fetch_one(&pool).await.unwrap();
+    assert_eq!(scope, ("capability".into(), "reset-cap".into()));
+    sqlx::query("DROP TRIGGER reject_reset").execute(&pool).await.unwrap();
+    let result = reset_product_plan(&pool, "reset-target", false).await.unwrap();
+    assert_eq!((result.product_areas_deleted, result.capabilities_deleted, result.work_items_deleted), (1, 1, 0));
+    let work: (Option<String>, Option<String>, Option<String>, Option<String>) = sqlx::query_as("SELECT product_area_id,capability_id,source_node_id,source_node_type FROM work_items WHERE id='reset-work'").fetch_one(&pool).await.unwrap();
+    assert_eq!(work, (None, None, None, None));
+    let scope: (String, String) = sqlx::query_as("SELECT scope_type,scope_id FROM \"references\" WHERE id='reset-ref'").fetch_one(&pool).await.unwrap();
+    assert_eq!(scope, ("product".into(), "reset-target".into()));
+    let remaining: (i64, i64, i64, i64, i64, i64) = sqlx::query_as("SELECT (SELECT COUNT(*) FROM agent_work_runs WHERE id='reset-run'),(SELECT COUNT(*) FROM agent_work_items WHERE id='reset-ledger'),(SELECT COUNT(*) FROM team_assignments WHERE id='reset-assignment'),(SELECT COUNT(*) FROM team_assignments WHERE id='keep-assignment'),(SELECT COUNT(*) FROM repository_attachments WHERE id='reset-attachment'),(SELECT COUNT(*) FROM repository_attachments WHERE id='keep-attachment')").fetch_one(&pool).await.unwrap();
+    assert_eq!(remaining, (1, 1, 0, 1, 0, 1));
+    let keep_scope: (String, String) = sqlx::query_as("SELECT scope_type,scope_id FROM \"references\" WHERE id='keep-ref'").fetch_one(&pool).await.unwrap();
+    assert_eq!(keep_scope, ("product_area".into(), "keep-area".into()));
+}

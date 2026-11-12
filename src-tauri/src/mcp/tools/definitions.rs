@@ -15,6 +15,7 @@ pub struct ToolDefinition {
 
 pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
     vec![
+        action_tool("aruvi_ci", "Inspect Aruvici targets, revisions, runs and artifacts, manage target assignments, feedback and builds.", &["get_status", "list_targets", "list_runs", "get_run", "get_logs", "cancel_run", "retry_run", "artifact_readiness", "list_branches", "list_commits", "list_bindings", "save_binding", "delete_binding", "queue_build", "list_feedback", "create_feedback"]),
         action_tool(
             "aruvi_catalog",
             "Manage products, product areas, capabilities, features, and attached delivery stories/tasks.",
@@ -25,6 +26,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "seed_example_products",
                 "update_product",
                 "archive_product",
+                "reset_product_plan",
                 "create_product_area",
                 "list_product_areas",
                 "update_product_area",
@@ -71,6 +73,9 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "list_repositories",
                 "delete_repository",
                 "attach_repository",
+                "list_repository_attachments",
+                "set_default_repository",
+                "detach_repository",
                 "resolve_repository_for_work_item",
                 "resolve_repository_for_scope",
                 "create_local_workspace",
@@ -111,6 +116,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "get_workflow_history",
                 "handle_workflow_user_action",
                 "advance_workflow",
+                "retry_git_delivery",
                 "list_agent_runs_for_workflow",
                 "mark_workflow_run_failed",
                 "restart_workflow_run",
@@ -223,6 +229,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "register_local_runtime_model",
                 "install_managed_local_model",
                 "run_model_chat_completion",
+                "read_model_call_snapshot",
             ],
         ),
         action_tool(

@@ -71,14 +71,6 @@ async fn planning_auto_approval_continues_directly_to_coding_by_default() {
     let workflow_service =
         WorkflowService::new(Arc::clone(&db_arc), Arc::new(Mutex::new(agent_service)));
 
-    settings_repo::set_setting(
-        &pool,
-        workflow_approval_gate::AUTO_APPROVE_TEST_REVIEW_KEY,
-        "false",
-    )
-    .await
-    .expect("failed to disable auto test review for auto-plan test");
-
     AgentService::set_test_model_outputs_for_any_workflow(vec![
         "requirement analysis complete".to_string(),
         "planning complete".to_string(),
@@ -116,6 +108,8 @@ async fn planning_auto_approval_continues_directly_to_coding_by_default() {
         .await
         .expect("failed to load workflow after auto plan approval");
     assert_eq!(after_planning.current_stage, "pending_test_review");
+    let artifacts = artifact_repo::list_work_item_artifacts(&pool, &work_item.id).await.unwrap();
+    assert!(artifacts.iter().any(|artifact| artifact.artifact_type == "workflow_test_result" && artifact.summary.contains("not run")));
 
     let approvals = crate::persistence::approval_repo::list_approvals(&pool, &work_item.id)
         .await

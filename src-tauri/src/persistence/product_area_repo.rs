@@ -109,10 +109,7 @@ pub async fn update_product_area(
 }
 
 pub async fn delete_product_area(pool: &SqlitePool, id: &str) -> Result<(), AppError> {
-    sqlx::query("DELETE FROM product_areas WHERE id=?")
-        .bind(id)
-        .execute(pool)
-        .await?;
+    crate::persistence::hierarchy_delete_repo::delete_hierarchy_node(pool, "product_area", id, None).await?;
     Ok(())
 }
 

@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$root"
+case "${1:-}" in
+  unit) npm run terminology-check && npm run unit-test && npm run test:frontend ;;
+  integration) npm run integration-test ;;
+  host-layout) node scripts/test-host-layout.mjs ;;
+  host-planner-scope) node scripts/test-host-planner-scope.mjs ;;
+  ui|staging)
+    profile=worktree
+    [[ $1 == staging ]] && profile=staging
+    plan=$(bash scripts/env "$profile" plan)
+    project=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["project"])' <<<"$plan")
+    state=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])' <<<"$plan")
+    port=$(docker compose --project-name "$project" --project-directory "$root" --env-file "$state/environment.env" -f "deploy/compose.$profile.yaml" port app 8787)
+    port=${port##*:}
+    docker run --rm --env-file "$state/environment.env" -e "ARUVI_REMOTE_URL=http://host.docker.internal:$port" \
+      -v "$root:/project:ro" -w /tmp/app mcr.microsoft.com/playwright:v1.58.2-noble sh -c '
+        cp /project/package.json /project/package-lock.json /project/playwright.remote.config.js ./ &&
+        cp -R /project/e2e-remote ./ && npm ci --silent &&
+        npx playwright test -c playwright.remote.config.js remote.spec.js -g "remote UI connects and opens each operational section"
+      '
+    if [[ $profile == worktree ]]; then
+      bash scripts/test-container-remote.sh
+      bash scripts/test-container-ci.sh
+      bash scripts/test-container-workflow.sh
+    fi ;;
+  *) printf '%s\n' 'Usage: scripts/test unit|integration|ui|staging|host-layout|host-planner-scope' >&2; exit 2 ;;
+esac

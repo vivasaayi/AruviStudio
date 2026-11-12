@@ -81,6 +81,12 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             workflow_service.advance_workflow(&workflow_run_id).await?;
             Ok(action_ok("advance_workflow"))
         }
+        "retry_git_delivery" => {
+            let workflow_run_id = args.required_string(&["workflow_run_id", "workflowRunId"], "workflow_run_id")?;
+            let workflow_service = state.workflow_service.lock().await;
+            workflow_service.retry_git_delivery(&workflow_run_id).await?;
+            Ok(action_ok("retry_git_delivery"))
+        }
         "list_agent_runs_for_workflow" => {
             let workflow_run_id =
                 args.required_string(&["workflow_run_id", "workflowRunId"], "workflow_run_id")?;

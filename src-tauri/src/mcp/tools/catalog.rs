@@ -110,6 +110,11 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 product_repo::archive_product(&state.db, &id).await?,
             )
         }
+        "reset_product_plan" => {
+            let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
+            let delete_delivery = args.bool_or_default(&["delete_delivery", "deleteDelivery"], false)?;
+            action_result("reset_product_plan", product_repo::reset_product_plan(&state.db, &product_id, delete_delivery).await?)
+        }
         action @ "create_product_area" => {
             let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
             let name = args.required_string(&["name"], "name")?;

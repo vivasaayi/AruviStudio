@@ -119,36 +119,15 @@ impl AgentService {
         }
 
         let skills = agent_repo::list_skills(&self.db).await?;
-        let skill_name_by_id = skills
-            .into_iter()
-            .map(|skill| (skill.id, skill.name))
-            .collect::<HashMap<_, _>>();
-
-        let agent_skill_links = agent_repo::list_agent_skill_links(&self.db).await?;
-        let agent_skills = agent_skill_links
-            .into_iter()
-            .filter(|link| link.agent_id == execution_context.stage_agent.id)
-            .filter_map(|link| {
-                skill_name_by_id
-                    .get(&link.skill_id)
-                    .map(|name| format!("{name} ({})", link.proficiency))
-            })
-            .collect::<Vec<_>>();
-        if !agent_skills.is_empty() {
-            context.insert("agent_skills".to_string(), agent_skills.join(", "));
-        }
-
-        if let Some(team) = &execution_context.team {
-            let team_skill_links = agent_repo::list_team_skill_links(&self.db).await?;
-            let team_skills = team_skill_links
-                .into_iter()
-                .filter(|link| link.team_id == team.id)
-                .filter_map(|link| skill_name_by_id.get(&link.skill_id).cloned())
-                .collect::<Vec<_>>();
-            if !team_skills.is_empty() {
-                context.insert("team_skills".to_string(), team_skills.join(", "));
-            }
-        }
+        let agent_links = agent_repo::list_agent_skill_links(&self.db).await?;
+        let team_links = agent_repo::list_team_skill_links(&self.db).await?;
+        let (agent_skills, team_skills, skill_instructions) = build_skill_context(
+            &skills, &agent_links, &team_links, &execution_context.stage_agent.id,
+            execution_context.team.as_ref().map(|team| team.id.as_str()), context_budget_chars.min(4_000),
+        );
+        if !agent_skills.is_empty() { context.insert("agent_skills".to_string(), agent_skills); }
+        if !team_skills.is_empty() { context.insert("team_skills".to_string(), team_skills); }
+        if !skill_instructions.is_empty() { context.insert("skill_instructions".to_string(), skill_instructions); }
 
         info!(work_item_id = %work_item.id, workflow_run_id = %workflow_run.id, stage_name = %stage_name, context_keys = context.len(), "Successfully built agent context");
         Ok(context)
@@ -209,5 +188,57 @@ impl AgentService {
         .await?;
 
         Ok(())
+    }
+}
+
+// Include only enabled skills linked to the executing agent or assigned team. Instructions are
+// deduplicated and bounded so a large catalog cannot consume the agent's whole context window.
+fn build_skill_context(
+    skills: &[crate::domain::agent::Skill],
+    agent_links: &[crate::domain::agent::AgentSkillLink],
+    team_links: &[crate::domain::agent::TeamSkillLink],
+    agent_id: &str,
+    team_id: Option<&str>,
+    instruction_budget: usize,
+) -> (String, String, String) {
+    let active: HashMap<&str, &crate::domain::agent::Skill> = skills.iter().filter(|skill| skill.enabled).map(|skill| (skill.id.as_str(), skill)).collect();
+    let mut selected = std::collections::HashSet::new();
+    let agent_skills = agent_links.iter().filter(|link| link.agent_id == agent_id).filter_map(|link| {
+        active.get(link.skill_id.as_str()).map(|skill| { selected.insert(skill.id.as_str()); format!("{} ({})", skill.name, link.proficiency) })
+    }).collect::<Vec<_>>().join(", ").chars().take(1_000).collect();
+    let team_skills = team_links.iter().filter(|link| Some(link.team_id.as_str()) == team_id).filter_map(|link| {
+        active.get(link.skill_id.as_str()).map(|skill| { selected.insert(skill.id.as_str()); skill.name.clone() })
+    }).collect::<Vec<_>>().join(", ").chars().take(1_000).collect();
+    let mut instructions = String::new();
+    let mut remaining = instruction_budget;
+    for skill in skills.iter().filter(|skill| skill.enabled && selected.contains(skill.id.as_str()) && !skill.instructions.trim().is_empty()) {
+        if remaining == 0 { break; }
+        let header = format!("Skill: {}\n", skill.name.chars().take(256).collect::<String>());
+        for character in header.chars().chain(skill.instructions.trim().chars()).chain(std::iter::once('\n')).take(remaining) {
+            instructions.push(character);
+            remaining -= 1;
+        }
+    }
+    (agent_skills, team_skills, instructions)
+}
+
+#[cfg(test)]
+mod skill_context_tests {
+    use super::*;
+    use crate::domain::agent::{AgentSkillLink, Skill, TeamSkillLink};
+
+    #[test]
+    fn active_links_are_deduplicated_and_instructions_are_bounded() {
+        let skill = |id: &str, enabled: bool, text: &str| Skill { id: id.into(), name: id.into(), category: "".into(), description: "".into(), instructions: text.into(), enabled, created_at: "".into(), updated_at: "".into() };
+        let skills = vec![skill("active", true, "include ééé"), skill("disabled", false, "excluded"), skill("unlinked", true, "unlinked")];
+        let agent = |skill_id: &str| AgentSkillLink { id: skill_id.into(), agent_id: "agent".into(), skill_id: skill_id.into(), proficiency: "expert".into(), created_at: "".into() };
+        let team = |skill_id: &str| TeamSkillLink { id: skill_id.into(), team_id: "team".into(), skill_id: skill_id.into(), created_at: "".into() };
+        let (agent_names, team_names, instructions) = build_skill_context(&skills, &[agent("active"), agent("disabled")], &[team("active"), team("disabled")], "agent", Some("team"), 100);
+        assert_eq!(agent_names, "active (expert)");
+        assert_eq!(team_names, "active");
+        assert_eq!(instructions, "Skill: active\ninclude ééé\n");
+        let (_, _, capped) = build_skill_context(&skills, &[agent("active")], &[], "agent", None, 20);
+        assert_eq!(capped.chars().count(), 20);
+        assert!(!capped.contains("disabled"));
     }
 }

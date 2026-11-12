@@ -12,7 +12,7 @@ const MAX_TREE_DEPTH: usize = 12;
 const MAX_TREE_ENTRIES: usize = 10_000;
 const EXCLUDED_DIRECTORIES: [&str; 7] = [
     ".git",
-    "node_product_areas",
+    "node_modules",
     "dist",
     "build",
     "target",

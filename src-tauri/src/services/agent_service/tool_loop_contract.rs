@@ -41,29 +41,22 @@ pub(super) fn resolve_allowed_tools(configured_tools: &[String]) -> HashSet<Stri
     }
     for tool in configured_tools {
         let lowered = tool.trim().to_ascii_lowercase();
-        if lowered.contains("read") {
-            allowed.insert("repo.read_file".to_string());
-            allowed.insert("repo.list_tree".to_string());
-            allowed.insert("repo.search".to_string());
-        }
-        if lowered.contains("write") || lowered.contains("create") {
-            allowed.insert("repo.write_file".to_string());
-            allowed.insert("repo.replace_range".to_string());
-        }
-        if lowered.contains("modify") || lowered.contains("patch") {
-            allowed.insert("repo.apply_patch".to_string());
-            allowed.insert("repo.replace_range".to_string());
-        }
-        if lowered.starts_with("repo.") {
-            allowed.insert(lowered);
+        match lowered.as_str() {
+            "repo.list_tree" | "repo.read_file" | "repo.search" | "repo.write_file" | "repo.replace_range" | "repo.apply_patch" => { allowed.insert(lowered); },
+            "read" | "read_file" | "read_files" | "read_code" | "read_context" | "read_tests" => {
+                allowed.extend(["repo.read_file", "repo.list_tree", "repo.search"].into_iter().map(str::to_string));
+            },
+            "write" | "write_file" | "write_files" | "write_tests" | "create" | "create_file" | "create_files" => {
+                allowed.extend(["repo.write_file", "repo.replace_range"].into_iter().map(str::to_string));
+            },
+            "modify" | "modify_code" | "patch" | "apply_patch" => {
+                allowed.extend(["repo.apply_patch", "repo.replace_range"].into_iter().map(str::to_string));
+            },
+            _ => {},
         }
     }
-    if allowed.is_empty() {
-        allowed.insert("repo.read_file".to_string());
-        allowed.insert("repo.search".to_string());
-        allowed.insert("repo.write_file".to_string());
-        allowed.insert("repo.replace_range".to_string());
-    }
+    // An unrecognized nonempty configuration grants no tools. An empty configuration
+    // retains the historical defaults above for existing agents.
     allowed
 }
 
@@ -227,4 +220,19 @@ fn extract_json_payload(output: &str) -> Option<String> {
         return None;
     }
     Some(trimmed[start..=end].to_string())
+}
+
+#[cfg(test)]
+mod configured_tool_tests {
+    use super::*;
+
+    #[test]
+    fn unknown_nonempty_configuration_does_not_grant_write_access() {
+        assert!(resolve_allowed_tools(&["unrecognized_tool".into()]).is_empty());
+        assert!(!resolve_allowed_tools(&["read_files".into()]).contains("repo.write_file"));
+        assert!(resolve_allowed_tools(&["do_not_write".into()]).is_empty());
+        assert_eq!(resolve_allowed_tools(&["repo.read_file".into()]), ["repo.read_file".to_string()].into_iter().collect());
+        assert!(resolve_allowed_tools(&["write_files".into()]).contains("repo.write_file"));
+        assert!(resolve_allowed_tools(&[]).contains("repo.write_file"));
+    }
 }

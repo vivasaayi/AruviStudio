@@ -48,6 +48,9 @@ mod tool_loop_workspace;
 mod tool_loop_workspace_files;
 
 impl AgentService {
+    pub(crate) fn artifact_base_path(&self) -> &std::path::Path {
+        &self.artifact_base_path
+    }
     #[cfg(test)]
     pub(crate) fn set_test_model_outputs_for_workflow(workflow_run_id: &str, outputs: Vec<String>) {
         let map = TEST_MODEL_OUTPUTS.get_or_init(|| StdMutex::new(HashMap::new()));
@@ -113,7 +116,7 @@ impl AgentService {
         )
         .await?;
         let boundaries =
-            agent_execution_limits::parse_boundaries(&execution_context.stage_agent.boundaries);
+            agent_execution_limits::parse_boundaries(&execution_context.stage_agent.boundaries)?;
         let context_budget_chars =
             agent_execution_limits::resolve_context_char_budget(&model_def, &boundaries);
         let response_token_budget =

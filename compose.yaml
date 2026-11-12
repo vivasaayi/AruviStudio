@@ -1,0 +1,17 @@
+services:
+  aruvi-studio:
+    build: .
+    ports:
+      - "127.0.0.1:${ARUVI_PORT:-8787}:8787"
+    environment:
+      ARUVI_MOBILE_API_TOKEN: ${ARUVI_MOBILE_API_TOKEN:?Set ARUVI_MOBILE_API_TOKEN in .env}
+      ARUVI_MCP_API_TOKEN: ${ARUVI_MCP_API_TOKEN:?Set ARUVI_MCP_API_TOKEN in .env}
+      ARUVI_LLM_CONFIG_PATH: /data/llm-config.json
+    volumes:
+      - aruvi-data:/data
+      - aruvi-repositories:/repositories
+    restart: unless-stopped
+
+volumes:
+  aruvi-data:
+  aruvi-repositories:

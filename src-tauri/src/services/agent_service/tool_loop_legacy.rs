@@ -22,7 +22,7 @@ impl AgentService {
 
         let work_item = work_item_repo::get_work_item(&self.db, &work_item_id).await?;
         let agent_def = agent_repo::get_agent_definition(&self.db, &agent_run.agent_id).await?;
-        let boundaries = agent_execution_limits::parse_boundaries(&agent_def.boundaries);
+        let boundaries = agent_execution_limits::parse_boundaries(&agent_def.boundaries)?;
         let repo = if let Some(repo_id) = &work_item.active_repo_id {
             Some(crate::persistence::repository_repo::get_repository(&self.db, repo_id).await?)
         } else {
@@ -32,6 +32,8 @@ impl AgentService {
         if let Some(repo) = repo {
             debug!(agent_run_id = %agent_run.id, repo_id = %repo.id, repo_path = %repo.local_path, "Found active repository for work item");
 
+            let delivery_base = crate::services::workflow_delivery_manifest::repository_head(&repo.local_path);
+            let previous_files = crate::services::workflow_delivery_manifest::previous_files(&self.db, &agent_run.workflow_run_id, &repo.id, &delivery_base).await?;
             let workspace = WorkItemWorkspace::create(
                 &work_item,
                 &agent_run.workflow_run_id,
@@ -49,9 +51,13 @@ impl AgentService {
             if changed_files.is_empty() {
                 warn!(agent_run_id = %agent_run.id, "Coding stage produced no file edits");
             } else {
+                if crate::services::workflow_delivery_manifest::repository_head(&repo.local_path) != delivery_base {
+                    return Err(AppError::Validation("Repository HEAD changed during coding; review before retrying".to_string()));
+                }
                 workspace
-                    .sync_files_back(&repo.local_path, &changed_files)
+                    .sync_files_back(&repo.local_path, &changed_files, &previous_files)
                     .await?;
+                crate::services::workflow_delivery_manifest::record(&self.db, &agent_run.workflow_run_id, &repo.id, &repo.local_path, &workspace.repo_path, &changed_files, delivery_base).await?;
                 info!(agent_run_id = %agent_run.id, changed_files = changed_files.len(), repo_path = %repo.local_path, "Synced changed files back to repository");
 
                 let artifact_dir = self.artifact_base_path.join(&agent_run.id);

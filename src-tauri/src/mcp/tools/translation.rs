@@ -15,6 +15,7 @@ pub(super) fn is_legacy_tool_name(tool_name: &str) -> bool {
             | "aruvi_models"
             | "aruvi_settings"
             | "aruvi_channels"
+            | "aruvi_ci"
             | "aruvi_speech"
     )
 }

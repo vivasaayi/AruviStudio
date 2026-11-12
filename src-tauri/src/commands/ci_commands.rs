@@ -21,13 +21,24 @@ use tauri::State;
 use uuid::Uuid;
 
 fn socket_path() -> Result<PathBuf, String> {
+    if let Some(path) = std::env::var_os("ARUVI_CI_SOCKET") {
+        let path = PathBuf::from(path);
+        if !path.is_absolute() {
+            return Err("ARUVI_CI_SOCKET must be an absolute path".into());
+        }
+        return Ok(path);
+    }
     let base = BaseDirs::new().ok_or("cannot determine user data directory")?;
     Ok(base.data_dir().join("aruvici").join("ci.sock"))
 }
 
 pub(crate) fn request(value: Value) -> Result<Value, String> {
     let socket = socket_path()?;
-    let mut stream = UnixStream::connect(&socket).map_err(|_| {
+    request_at(&socket, value)
+}
+
+fn request_at(socket: &Path, value: Value) -> Result<Value, String> {
+    let mut stream = UnixStream::connect(socket).map_err(|_| {
         format!(
             "Aruvici is offline. Start its local CI service first ({})",
             socket.display()
@@ -36,6 +47,7 @@ pub(crate) fn request(value: Value) -> Result<Value, String> {
     stream
         .set_read_timeout(Some(Duration::from_secs(10)))
         .map_err(|e| e.to_string())?;
+    stream.set_write_timeout(Some(Duration::from_secs(10))).map_err(|e| e.to_string())?;
     serde_json::to_writer(&mut stream, &value).map_err(|e| e.to_string())?;
     stream.write_all(b"\n").map_err(|e| e.to_string())?;
     let mut response = String::new();
@@ -51,6 +63,34 @@ pub(crate) fn request(value: Value) -> Result<Value, String> {
             .as_str()
             .unwrap_or("Aruvici request failed")
             .to_owned())
+    }
+}
+
+#[cfg(test)]
+mod socket_tests {
+    use super::*;
+    use std::io::BufRead;
+    use std::os::unix::net::UnixListener;
+
+    #[test]
+    fn request_uses_json_protocol_and_reports_service_error() {
+        let dir = std::env::temp_dir().join(format!("aruvi-ci-test-{}", Uuid::new_v4()));
+        fs::create_dir(&dir).unwrap();
+        let socket = dir.join("ci.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let server = std::thread::spawn(move || {
+            for response in ["{\"ok\":true,\"result\":{\"status\":\"online\"}}\n", "{\"ok\":false,\"error\":\"synthetic failure\"}\n"] {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut line = String::new();
+                BufReader::new(stream.try_clone().unwrap()).read_line(&mut line).unwrap();
+                assert_eq!(serde_json::from_str::<Value>(&line).unwrap()["method"], "health");
+                stream.write_all(response.as_bytes()).unwrap();
+            }
+        });
+        assert_eq!(request_at(&socket, json!({"method":"health"})).unwrap()["status"], "online");
+        assert_eq!(request_at(&socket, json!({"method":"health"})).unwrap_err(), "synthetic failure");
+        server.join().unwrap();
+        fs::remove_dir_all(dir).unwrap();
     }
 }
 
@@ -104,6 +144,8 @@ pub struct CiGitBranch {
 #[derive(Debug, Deserialize)]
 struct LocalCiTarget {
     repository: Option<String>,
+    approval: Option<Value>,
+    plan: Option<Value>,
 }
 
 fn open_registered_git_repository(path: &str) -> Result<GitRepository, String> {
@@ -213,7 +255,8 @@ async fn validate_target_repository(
     target_id: &str,
 ) -> Result<(), String> {
     let repository_path = registered_repository_path(state, repository_id).await?;
-    let target = target_metadata(target_id)?;
+    let owned_target = target_id.to_owned();
+    let target = tokio::task::spawn_blocking(move || target_metadata(&owned_target)).await.map_err(|e| e.to_string())??;
     let Some(target_path) = target.repository.as_deref() else {
         return Err(format!(
             "CI target '{target_id}' has no repository metadata"
@@ -234,7 +277,11 @@ pub async fn list_ci_repository_branches(
     state: State<'_, AppState>,
     repository_id: String,
 ) -> Result<Vec<CiGitBranch>, String> {
-    let path = registered_repository_path(&state, &repository_id).await?;
+    list_repository_branches(&state, &repository_id).await
+}
+
+pub(crate) async fn list_repository_branches(state: &AppState, repository_id: &str) -> Result<Vec<CiGitBranch>, String> {
+    let path = registered_repository_path(state, repository_id).await?;
     let repository = open_registered_git_repository(&path)?;
     let mut branches = Vec::new();
     for branch in repository
@@ -262,7 +309,11 @@ pub async fn list_ci_repository_commits(
     state: State<'_, AppState>,
     repository_id: String,
 ) -> Result<Vec<CiGitCommit>, String> {
-    let path = registered_repository_path(&state, &repository_id).await?;
+    list_repository_commits(&state, &repository_id).await
+}
+
+pub(crate) async fn list_repository_commits(state: &AppState, repository_id: &str) -> Result<Vec<CiGitCommit>, String> {
+    let path = registered_repository_path(state, repository_id).await?;
     let repository = open_registered_git_repository(&path)?;
     let mut walk = repository.revwalk().map_err(|error| error.to_string())?;
     walk.set_sorting(Sort::TIME | Sort::TOPOLOGICAL)
@@ -431,14 +482,26 @@ pub async fn queue_local_target_reference(
     commit: Option<String>,
     product_id: String,
 ) -> Result<Value, String> {
-    validate_target_binding(&state, &product_id, &repository_id, &target_id).await?;
-    let revision = resolve_ci_revision(&state, &repository_id, branch, commit).await?;
-    queue_target(
-        &target_id,
-        revision,
-        Some(product_id),
-        "aruvi-studio-target-ui",
-    )
+    queue_target_reference(&state, target_id, repository_id, branch, commit, product_id).await
+}
+
+pub(crate) async fn queue_target_reference(state: &AppState, target_id: String, repository_id: String, branch: Option<String>, commit: Option<String>, product_id: String) -> Result<Value, String> {
+    validate_target_binding(state, &product_id, &repository_id, &target_id).await?;
+    let readiness_target = target_id.clone();
+    let metadata = tokio::task::spawn_blocking(move || target_metadata(&readiness_target)).await.map_err(|error| error.to_string())??;
+    let target_path = metadata.repository.as_deref().ok_or("CI target has no repository metadata")?;
+    if normalized_repository_path(&registered_repository_path(state, &repository_id).await?)? != normalized_repository_path(target_path)? {
+        return Err("CI target repository changed before queueing".into());
+    }
+    if metadata.approval.as_ref().and_then(|value| value.get("approved")).and_then(Value::as_bool) != Some(true) {
+        return Err("CI pipeline approval is required before queueing".into());
+    }
+    if metadata.plan.as_ref().and_then(|value| value.get("issues")).and_then(Value::as_array).is_some_and(|issues| !issues.is_empty()) {
+        return Err("CI target has configuration issues".into());
+    }
+    let revision = resolve_ci_revision(state, &repository_id, branch, commit).await?;
+    tokio::task::spawn_blocking(move || queue_target(&target_id, revision, Some(product_id), "aruvi-studio-target-ui"))
+        .await.map_err(|error| error.to_string())?
 }
 
 fn queue_target(
@@ -515,6 +578,10 @@ pub fn open_local_preview() -> Result<(), String> {
 pub async fn list_ci_target_bindings(
     state: State<'_, AppState>,
 ) -> Result<Vec<CiTargetBinding>, String> {
+    list_target_bindings(&state).await
+}
+
+pub(crate) async fn list_target_bindings(state: &AppState) -> Result<Vec<CiTargetBinding>, String> {
     sqlx::query_as("SELECT id,product_id,repository_id,target_id,auto_preview,created_at,updated_at FROM ci_target_bindings ORDER BY product_id,repository_id,target_id,created_at")
         .fetch_all(&state.db).await.map_err(|e| e.to_string())
 }
@@ -524,6 +591,10 @@ pub async fn save_ci_target_binding(
     state: State<'_, AppState>,
     request: SaveCiTargetBinding,
 ) -> Result<CiTargetBinding, String> {
+    save_target_binding(&state, request).await
+}
+
+pub(crate) async fn save_target_binding(state: &AppState, request: SaveCiTargetBinding) -> Result<CiTargetBinding, String> {
     if request.target_id.is_empty()
         || !request
             .target_id
@@ -535,12 +606,12 @@ pub async fn save_ci_target_binding(
     if request.auto_preview && !request.target_id.ends_with("-preview") {
         return Err("automatic delivery is restricted to Preview targets".into());
     }
-    validate_repository_attachment(&state, &request.product_id, &request.repository_id).await?;
-    validate_target_repository(&state, &request.repository_id, &request.target_id).await?;
+    validate_repository_attachment(state, &request.product_id, &request.repository_id).await?;
+    validate_target_repository(state, &request.repository_id, &request.target_id).await?;
     let id = Uuid::new_v4().to_string();
-    sqlx::query_as("INSERT INTO ci_target_bindings(id,product_id,repository_id,target_id,auto_preview) VALUES(?,?,?,?,?) ON CONFLICT(product_id,repository_id,target_id) DO UPDATE SET auto_preview=excluded.auto_preview,updated_at=datetime('now') RETURNING id,product_id,repository_id,target_id,auto_preview,created_at,updated_at")
-        .bind(id).bind(request.product_id).bind(request.repository_id).bind(request.target_id).bind(request.auto_preview)
-        .fetch_one(&state.db).await.map_err(|e| e.to_string())
+    sqlx::query_as("INSERT INTO ci_target_bindings(id,product_id,repository_id,target_id,auto_preview) SELECT ?,?,?,?,? WHERE EXISTS(SELECT 1 FROM repository_attachments WHERE scope_type='product' AND scope_id=? AND repository_id=?) ON CONFLICT(product_id,repository_id,target_id) DO UPDATE SET auto_preview=excluded.auto_preview,updated_at=datetime('now') RETURNING id,product_id,repository_id,target_id,auto_preview,created_at,updated_at")
+        .bind(id).bind(&request.product_id).bind(&request.repository_id).bind(&request.target_id).bind(request.auto_preview).bind(&request.product_id).bind(&request.repository_id)
+        .fetch_optional(&state.db).await.map_err(|e| e.to_string())?.ok_or_else(|| "repository attachment changed before assignment".into())
 }
 
 #[tauri::command]
@@ -548,6 +619,10 @@ pub async fn delete_ci_target_binding(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<(), String> {
+    delete_target_binding(&state, id).await
+}
+
+pub(crate) async fn delete_target_binding(state: &AppState, id: String) -> Result<(), String> {
     let result = sqlx::query("DELETE FROM ci_target_bindings WHERE id=?")
         .bind(id)
         .execute(&state.db)
@@ -569,6 +644,10 @@ pub async fn create_ci_feedback(
     verdict: String,
     notes: String,
 ) -> Result<CiFeedback, String> {
+    insert_ci_feedback(&state, ci_run_id, commit_sha, product_id, work_item_id, verdict, notes).await
+}
+
+pub(crate) async fn insert_ci_feedback(state: &AppState, ci_run_id: i64, commit_sha: String, product_id: Option<String>, work_item_id: Option<String>, verdict: String, notes: String) -> Result<CiFeedback, String> {
     if !["works", "needs_changes", "blocked"].contains(&verdict.as_str()) {
         return Err("invalid feedback verdict".into());
     }
@@ -585,6 +664,20 @@ pub async fn list_ci_feedback(
     state: State<'_, AppState>,
     ci_run_id: i64,
 ) -> Result<Vec<CiFeedback>, String> {
+    list_feedback(&state, ci_run_id).await
+}
+
+pub(crate) async fn list_feedback(state: &AppState, ci_run_id: i64) -> Result<Vec<CiFeedback>, String> {
     sqlx::query_as("SELECT id,ci_run_id,commit_sha,product_id,work_item_id,verdict,notes,created_at FROM ci_feedback WHERE ci_run_id=? ORDER BY created_at DESC")
         .bind(ci_run_id).fetch_all(&state.db).await.map_err(|e| e.to_string())
+}
+
+pub(crate) async fn record_verified_feedback(state: &AppState, id: i64, verdict: String, notes: String) -> Result<CiFeedback, String> {
+    if id <= 0 { return Err("invalid CI run ID".into()); }
+    let run = tokio::task::spawn_blocking(move || request(json!({"method":"run","id":id}))).await.map_err(|e| e.to_string())??;
+    if run.get("id").and_then(Value::as_i64) != Some(id) || run.get("status").and_then(Value::as_str) != Some("passed") {
+        return Err("feedback requires a passed CI run".into());
+    }
+    let commit = run.get("commit").and_then(Value::as_str).filter(|s| matches!(s.len(), 40 | 64) && s.bytes().all(|b| b.is_ascii_hexdigit())).ok_or("CI run has no valid commit SHA")?;
+    insert_ci_feedback(state, id, commit.to_owned(), None, None, verdict, notes).await
 }

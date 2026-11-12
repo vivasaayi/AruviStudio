@@ -315,6 +315,20 @@ async fn create_child_work_item_inherits_parent_source_scope() {
 }
 
 #[tokio::test]
+async fn child_rejects_cross_product_parent_and_conflicting_scope() {
+    let pool = create_test_pool("child_scope_validation").await;
+    create_test_product(&pool, "product-a").await;
+    create_test_product(&pool, "product-b").await;
+    create_test_product_area(&pool, "area-a", "product-a", "Area A").await;
+    create_test_product_area(&pool, "area-other", "product-a", "Other area").await;
+    create_work_item(&pool, CreateWorkItemInput { product_area_id: Some("area-a"), ..test_work_item_input("parent-a", "product-a", "Parent") }).await.unwrap();
+    let cross_product = create_work_item(&pool, CreateWorkItemInput { parent_work_item_id: Some("parent-a"), work_item_type: "task", ..test_work_item_input("cross-product", "product-b", "Child") }).await;
+    assert!(matches!(cross_product, Err(AppError::Validation(message)) if message.contains("selected product")));
+    let conflicting_scope = create_work_item(&pool, CreateWorkItemInput { parent_work_item_id: Some("parent-a"), product_area_id: Some("area-other"), work_item_type: "task", ..test_work_item_input("conflicting-scope", "product-a", "Child") }).await;
+    assert!(matches!(conflicting_scope, Err(AppError::Validation(message)) if message.contains("parent's hierarchy scope")));
+}
+
+#[tokio::test]
 async fn create_work_item_rejects_source_node_id_without_type() {
     let pool = create_test_pool("source_type_validation").await;
     create_test_product(&pool, "product-source-validation").await;

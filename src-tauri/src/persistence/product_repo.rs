@@ -11,7 +11,7 @@ pub use crate::persistence::product_hierarchy_repo::{
     update_capability, update_product_area, CreateCapabilityInput, CreateProductAreaInput,
     UpdateCapabilityPatch, UpdateProductAreaPatch,
 };
-pub use crate::persistence::product_plan_reset_repo::reset_product_plan;
+pub use crate::persistence::product_plan_reset_repo::{reset_product_plan, reset_product_plan_checked};
 pub use crate::persistence::product_reference_repo::{
     create_product_reference, delete_product_reference, list_product_references,
     CreateProductReferenceInput,

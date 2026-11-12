@@ -22,13 +22,11 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
         "set_primary_agent_model_binding" => {
             let agent_id = args.required_string(&["agent_id", "agentId"], "agent_id")?;
             let model_id = args.required_string(&["model_id", "modelId"], "model_id")?;
-            agent_repo::delete_agent_model_bindings_for_agent(&state.db, &agent_id).await?;
-            let binding = agent_repo::create_agent_model_binding(
+            let binding = agent_repo::replace_primary_agent_model_binding(
                 &state.db,
                 &uuid::Uuid::new_v4().to_string(),
                 &agent_id,
                 &model_id,
-                1,
             )
             .await?;
             action_result("set_primary_agent_model_binding", binding)

@@ -34,6 +34,24 @@ pub(crate) struct MobileCreateWorkItemRequest {
     work_item_type: Option<String>,
     priority: Option<String>,
     complexity: Option<String>,
+    source_node_id: Option<String>,
+    source_node_type: Option<String>,
+    parent_work_item_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileTaskFields {
+    title: String,
+    description: String,
+    problem_statement: String,
+    acceptance_criteria: String,
+    constraints: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileUpdateWorkItemRequest {
+    expected: MobileTaskFields,
+    fields: MobileTaskFields,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -152,6 +170,26 @@ pub(crate) async fn mobile_get_work_item(
     }
 }
 
+pub(crate) async fn mobile_update_work_item(
+    State(state): State<WebhookState>, headers: HeaderMap, Path(work_item_id): Path<String>, Json(body): Json<MobileUpdateWorkItemRequest>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    if body.fields.title.trim().is_empty() { return bad_request("A task title is required"); }
+    let f = &body.fields;
+    let e = &body.expected;
+    let result = sqlx::query("UPDATE work_items SET title=?, description=?, problem_statement=?, acceptance_criteria=?, constraints=?, updated_at=datetime('now') WHERE id=? AND title=? AND description=? AND problem_statement=? AND acceptance_criteria=? AND constraints=?")
+        .bind(f.title.trim()).bind(&f.description).bind(&f.problem_statement).bind(&f.acceptance_criteria).bind(&f.constraints)
+        .bind(&work_item_id).bind(&e.title).bind(&e.description).bind(&e.problem_statement).bind(&e.acceptance_criteria).bind(&e.constraints)
+        .execute(&state.app_state.db).await;
+    match result {
+        Ok(result) if result.rows_affected() == 1 => match work_item_repo::get_work_item(&state.app_state.db, &work_item_id).await {
+            Ok(item) => Json(item).into_response(), Err(error) => bad_request(error),
+        },
+        Ok(_) => (StatusCode::CONFLICT, "Task changed or was removed. Refresh and review your edits before saving.").into_response(),
+        Err(error) => bad_request(error),
+    }
+}
+
 pub(crate) async fn mobile_create_work_item(
     State(state): State<WebhookState>,
     headers: HeaderMap,
@@ -190,9 +228,9 @@ pub(crate) async fn mobile_create_work_item(
             product_id,
             product_area_id: None,
             capability_id: None,
-            source_node_id: None,
-            source_node_type: None,
-            parent_work_item_id: None,
+            source_node_id: body.source_node_id.as_deref(),
+            source_node_type: body.source_node_type.as_deref(),
+            parent_work_item_id: body.parent_work_item_id.as_deref(),
             title,
             problem_statement: &problem_statement,
             description: &description,
@@ -302,13 +340,56 @@ pub(crate) async fn mobile_get_work_item_delivery(
         Ok(approvals) => approvals,
         Err(error) => return bad_request(error),
     };
+    let retryable_git_delivery = match &workflow_run {
+        Some(run) => match crate::services::workflow_git_push::is_retryable_git_delivery(&state.app_state.db, &run.id).await {
+            Ok(value) => value, Err(error) => return bad_request(error),
+        },
+        None => false,
+    };
     Json(json!({
         "work_item": work_item,
         "workflow_run": workflow_run,
+        "retryable_git_delivery": retryable_git_delivery,
         "artifacts": artifacts,
         "approvals": approvals,
     }))
     .into_response()
+}
+
+pub(crate) async fn mobile_get_workflow_test_result(
+    State(state): State<WebhookState>,
+    headers: HeaderMap,
+    Path((work_item_id, artifact_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let artifact = match artifact_repo::get_artifact(&state.app_state.db, &artifact_id).await {
+        Ok(value) if value.work_item_id == work_item_id && value.artifact_type == "workflow_test_result" => value,
+        _ => return (StatusCode::NOT_FOUND, "Test result not found").into_response(),
+    };
+    let base = match tokio::fs::canonicalize(&state.app_state.artifact_base_path).await {
+        Ok(value) => value, Err(error) => return bad_request(error),
+    };
+    let path = match tokio::fs::canonicalize(&artifact.storage_path).await {
+        Ok(value) if value.starts_with(&base) => value,
+        _ => return (StatusCode::NOT_FOUND, "Test result not found").into_response(),
+    };
+    match tokio::fs::metadata(&path).await {
+        Ok(metadata) if metadata.is_file() && metadata.len() <= 256 * 1024 => (),
+        _ => return bad_request("Test result is unavailable or too large"),
+    }
+    match tokio::fs::read_to_string(path).await {
+        Ok(content) => Json(json!({"content":content})).into_response(),
+        Err(error) => bad_request(error),
+    }
+}
+
+pub(crate) async fn mobile_retry_git_delivery(State(state): State<WebhookState>, headers: HeaderMap, Path(workflow_run_id): Path<String>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let service = state.app_state.workflow_service.lock().await;
+    match service.retry_git_delivery(&workflow_run_id).await {
+        Ok(()) => Json(json!({"status":"ok","workflow_run_id":workflow_run_id})).into_response(),
+        Err(error) => bad_request(error),
+    }
 }
 
 pub(crate) async fn mobile_handle_workflow_action(
