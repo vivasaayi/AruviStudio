@@ -355,6 +355,15 @@ pub fn store_provider_secret(
     }
 }
 
+// Keep explicit references intact; otherwise rotate to a new reference so a failed
+// provider update cannot replace the credential currently used by that provider.
+pub fn store_updated_provider_secret(provider_id: &str, input: &str) -> Result<Option<String>, AppError> {
+    let value = input.trim();
+    if value.is_empty() { return Ok(None); }
+    if value.starts_with("ref:") { return Ok(Some(value.to_string())); }
+    store_rotated_provider_secret(provider_id, value).map(Some)
+}
+
 // A new reference avoids changing the active credential until the database update commits.
 pub fn store_rotated_provider_secret(provider_id: &str, secret: &str) -> Result<String, AppError> {
     let secret = secret.trim();

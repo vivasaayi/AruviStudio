@@ -810,7 +810,7 @@ async fn model_action(state: &WebhookState, action: &str, arguments: serde_json:
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct ProviderEditFields { name: String, base_url: String, enabled: bool }
+pub(crate) struct ProviderEditFields { name: String, base_url: String, enabled: bool, protocol: Option<String> }
 #[derive(Debug, Deserialize)]
 pub(crate) struct ProviderEditRequest { id: String, expected: ProviderEditFields, fields: ProviderEditFields }
 #[derive(Debug, Deserialize)]
@@ -824,11 +824,14 @@ pub(crate) async fn mobile_update_provider(State(state): State<WebhookState>, he
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     let f = &body.fields; let e = &body.expected;
     let url = reqwest::Url::parse(f.base_url.trim());
-    if f.name.trim().is_empty() || !url.as_ref().is_ok_and(|u| matches!(u.scheme(), "http" | "https") && u.host_str().is_some() && u.username().is_empty() && u.password().is_none()) {
+    if f.name.trim().is_empty() || !url.as_ref().is_ok_and(|u| matches!(u.scheme(), "http" | "https") && u.host_str().is_some() && u.username().is_empty() && u.password().is_none() && u.query().is_none() && u.fragment().is_none()) {
         return (StatusCode::BAD_REQUEST, "A name and valid HTTP(S) base URL are required").into_response();
     }
-    let result = sqlx::query("UPDATE model_providers SET name=?,base_url=?,enabled=?,updated_at=datetime('now') WHERE id=? AND name=? AND base_url=? AND enabled=?")
-        .bind(f.name.trim()).bind(f.base_url.trim()).bind(f.enabled).bind(&body.id).bind(&e.name).bind(&e.base_url).bind(e.enabled).execute(&state.app_state.db).await;
+    if f.protocol.as_deref().is_some_and(|p| !matches!(p, "openai_compatible" | "anthropic")) {
+        return (StatusCode::BAD_REQUEST, "Unsupported provider protocol").into_response();
+    }
+    let result = sqlx::query("UPDATE model_providers SET name=?,base_url=?,enabled=?,protocol=COALESCE(?,protocol),updated_at=datetime('now') WHERE id=? AND name=? AND base_url=? AND enabled=? AND protocol=COALESCE(?,protocol) AND (provider_type='openai_compatible' OR COALESCE(?,protocol)='openai_compatible')")
+        .bind(f.name.trim()).bind(f.base_url.trim()).bind(f.enabled).bind(&f.protocol).bind(&body.id).bind(&e.name).bind(&e.base_url).bind(e.enabled).bind(&e.protocol).bind(&f.protocol).execute(&state.app_state.db).await;
     match result { Ok(result) if result.rows_affected() == 1 => Json(serde_json::json!({"ok":true})).into_response(),
         Ok(_) => (StatusCode::CONFLICT, "Provider changed or was removed. Refresh and review your edits.").into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response() }
@@ -841,8 +844,8 @@ pub(crate) async fn mobile_rotate_provider_credential(State(state): State<Webhoo
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     if body.api_key.trim().is_empty() || body.api_key.trim().len() > 16 * 1024 { return (StatusCode::BAD_REQUEST, "API key must contain 1 to 16384 bytes").into_response(); }
     let mut tx = match state.app_state.db.begin().await { Ok(tx) => tx, Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response() };
-    let locked = sqlx::query("UPDATE model_providers SET name=name WHERE id=? AND name=? AND base_url=? AND enabled=?")
-        .bind(&body.id).bind(&body.expected.name).bind(&body.expected.base_url).bind(body.expected.enabled).execute(&mut *tx).await;
+    let locked = sqlx::query("UPDATE model_providers SET name=name WHERE id=? AND name=? AND base_url=? AND enabled=? AND protocol=COALESCE(?,protocol)")
+        .bind(&body.id).bind(&body.expected.name).bind(&body.expected.base_url).bind(body.expected.enabled).bind(&body.expected.protocol).execute(&mut *tx).await;
     match locked {
         Ok(result) if result.rows_affected() == 1 => {},
         Ok(_) => return (StatusCode::CONFLICT, "Provider changed or was removed. Refresh before rotating its key.").into_response(),
@@ -866,8 +869,8 @@ pub(crate) struct ProviderCleanupRequest { id: String, expected: ProviderEditFie
 pub(crate) async fn mobile_cleanup_provider_credentials(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<ProviderCleanupRequest>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     let mut tx = match state.app_state.db.begin().await { Ok(tx) => tx, Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response() };
-    let locked = sqlx::query("UPDATE model_providers SET name=name WHERE id=? AND name=? AND base_url=? AND enabled=?")
-        .bind(&body.id).bind(&body.expected.name).bind(&body.expected.base_url).bind(body.expected.enabled).execute(&mut *tx).await;
+    let locked = sqlx::query("UPDATE model_providers SET name=name WHERE id=? AND name=? AND base_url=? AND enabled=? AND protocol=COALESCE(?,protocol)")
+        .bind(&body.id).bind(&body.expected.name).bind(&body.expected.base_url).bind(body.expected.enabled).bind(&body.expected.protocol).execute(&mut *tx).await;
     match locked { Ok(result) if result.rows_affected() == 1 => {},
         Ok(_) => return (StatusCode::CONFLICT, "Provider changed or was removed. Refresh before cleanup.").into_response(),
         Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response() }

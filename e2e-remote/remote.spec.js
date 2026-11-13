@@ -954,8 +954,8 @@ test("browser resets a product plan with and without delivery", async ({ page, r
   }
 });
 
-test("browser creates an Anthropic protocol provider", async ({ page, request }) => {
-  test.skip(!token, "Set ARUVI_MOBILE_API_TOKEN for a running remote server");
+test("browser and MCP edit an Anthropic provider protocol", async ({ page, request }) => {
+  test.skip(!token || !mcpToken, "Set mobile and MCP tokens for a running remote server");
   const name = `Claude fixture ${Date.now()}`;
   let provider;
   try {
@@ -973,6 +973,24 @@ test("browser creates an Anthropic protocol provider", async ({ page, request })
     provider = await response.json();
     expect(provider.protocol).toBe("anthropic");
     await expect(page.locator("#providerList")).toContainText(`${name} · anthropic`);
+    const card = page.locator("#providerList .tool-card").filter({ hasText: name });
+    await card.getByText("Manage provider", { exact: true }).click();
+    const protocol = card.getByLabel(`Edit provider protocol ${name}`);
+    await expect(protocol).toHaveValue("anthropic");
+    await protocol.selectOption("openai_compatible");
+    const saved = page.waitForResponse((r) => r.url().endsWith("/api/mobile/providers/update"));
+    await card.getByRole("button", { name: "Save provider" }).click();
+    expect((await saved).ok()).toBeTruthy();
+    await expect(page.locator("#providerList")).toContainText(`${name} · openai_compatible`);
+    const expected = { name, base_url: "https://api.anthropic.com", enabled: true, protocol: "anthropic" };
+    const stale = await request.post("/api/mobile/providers/update", { headers: { Authorization: `Bearer ${token}` }, data: { id: provider.id, expected, fields: expected } });
+    expect(stale.status()).toBe(409);
+    const mcp = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_models", arguments: { action: "update_provider", arguments: { id: provider.id, protocol: "anthropic" } } } } });
+    const result = (await mcp.json()).result;
+    expect(result.isError).not.toBeTruthy();
+    expect(result.structuredContent.result.protocol).toBe("anthropic");
+    const invalid = await request.post("/api/mobile/providers/update", { headers: { Authorization: `Bearer ${token}` }, data: { id: provider.id, expected, fields: { ...expected, protocol: "unknown" } } });
+    expect(invalid.status()).toBe(400);
   } finally {
     if (provider) {
       const response = await request.post("/api/mobile/providers/delete", { headers: { Authorization: `Bearer ${token}` }, data: { id: provider.id, expected_name: name } });

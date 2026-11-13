@@ -122,7 +122,7 @@ provider hosting into the model-host service as part of this work.
   Simulated tests cover fragmented streams, usage, errors, truncation and the
   desktop event bridge. A separate container running the crate's probe received
   20 text chunks from the native Model Host's `smol-metal-test`. Physical desktop
-  and live Claude tests, protocol edits, durable versioning, and broader voice
+  and live Claude tests, durable versioning, and broader voice
   validation remain open.
 - The streaming extraction passed 13 client tests, 150 Studio Rust tests (one
   ignored), and a separate OpenAI desktop adapter test. After rebuilding the
@@ -203,6 +203,17 @@ provider hosting into the model-host service as part of this work.
   rebuilding Studio, real Model Host coding passed through MCP and browser
   chat; the simulated browser suite passed 20 remote UI, one CI and 19 workflow
   tests.
+
+- Existing provider protocol can now be edited from desktop, web and MCP while
+  preserving provider IDs, models and credentials. The web editor rejects stale
+  protocol edits; invalid protocol/type combinations are rejected. Desktop and MCP
+  credential updates now write a new reference before changing the provider, so a
+  rejected update cannot replace the active credential; unused keys may remain.
+  Studio's Rust suite passed 151 tests (one ignored), the focused mocked desktop
+  provider tests passed, and the browser/MCP test switched a disposable provider's
+  protocol and rejected a stale edit. The full browser suites passed (20 remote,
+  one CI and 19 workflow cases), as did a real Model Host coding request through
+  MCP. Native desktop and live Claude service behavior remain unverified.
 
 ## Open design questions
 

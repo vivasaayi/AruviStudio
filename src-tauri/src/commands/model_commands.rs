@@ -87,12 +87,13 @@ pub async fn update_provider(
     id: String,
     name: Option<String>,
     provider_type: Option<String>,
+    protocol: Option<String>,
     base_url: Option<String>,
     auth_secret_ref: Option<String>,
     enabled: Option<bool>,
 ) -> Result<ModelProvider, AppError> {
     let stored_secret_ref = if let Some(secret_input) = auth_secret_ref.as_deref() {
-        secrets::store_provider_secret(&id, Some(secret_input))?
+        secrets::store_updated_provider_secret(&id, secret_input)?
     } else {
         None
     };
@@ -101,6 +102,7 @@ pub async fn update_provider(
         &id,
         name.as_deref(),
         provider_type.as_deref(),
+        protocol.as_deref(),
         base_url.as_deref(),
         stored_secret_ref.as_deref(),
         enabled,

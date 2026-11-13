@@ -330,7 +330,7 @@ export function useModelProviderPageActions({
     setEditingProvider(provider);
     setProviderEditForm({
       name: provider.name,
-      providerType: provider.provider_type,
+      providerType: provider.provider_type === "local_runtime" ? "local_runtime" : (provider.protocol ?? "openai_compatible"),
       baseUrl: provider.base_url,
       authSecretRef: "",
       enabled: provider.enabled,

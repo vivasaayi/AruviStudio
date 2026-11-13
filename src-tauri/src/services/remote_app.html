@@ -3268,16 +3268,19 @@
           const form = document.createElement("form"); form.className = "stack";
           const nameInput = document.createElement("input"); nameInput.value = provider.name; nameInput.required = true; nameInput.setAttribute("aria-label", "Edit provider name " + provider.name);
           const urlInput = document.createElement("input"); urlInput.type = "url"; urlInput.value = provider.base_url; urlInput.required = true; urlInput.setAttribute("aria-label", "Edit provider URL " + provider.name);
+          const protocolSelect = document.createElement("select"); protocolSelect.setAttribute("aria-label", "Edit provider protocol " + provider.name);
+          [["openai_compatible", "OpenAI compatible"], ["anthropic", "Anthropic Messages"]].forEach(([value, label]) => { const option = document.createElement("option"); option.value = value; option.textContent = label; protocolSelect.appendChild(option); });
+          protocolSelect.value = provider.protocol || "openai_compatible"; protocolSelect.disabled = provider.provider_type === "local_runtime";
           const enabledLabel = document.createElement("label"); const enabled = document.createElement("input"); enabled.type = "checkbox"; enabled.checked = provider.enabled; enabledLabel.append(enabled, document.createTextNode(" Provider enabled"));
           const save = document.createElement("button"); save.type = "submit"; save.textContent = "Save provider";
           const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger"; remove.textContent = "Delete provider";
-          form.append(nameInput, urlInput, enabledLabel, save, remove); edit.append(editSummary, form);
+          form.append(nameInput, urlInput, protocolSelect, enabledLabel, save, remove); edit.append(editSummary, form);
           form.addEventListener("submit", async (event) => {
             event.preventDefault(); save.disabled = true;
             try {
               await request("/api/mobile/providers/update", { method: "POST", body: { id: provider.id,
-                expected: { name: provider.name, base_url: provider.base_url, enabled: provider.enabled },
-                fields: { name: nameInput.value, base_url: urlInput.value, enabled: enabled.checked } } });
+                expected: { name: provider.name, base_url: provider.base_url, enabled: provider.enabled, protocol: provider.protocol },
+                fields: { name: nameInput.value, base_url: urlInput.value, enabled: enabled.checked, protocol: protocolSelect.value } } });
               await loadModelConfiguration(); setStatus("Provider saved", "ok");
             } catch (error) { setStatus(error.message || String(error), "error"); }
             finally { save.disabled = false; }
@@ -3300,7 +3303,7 @@
             event.preventDefault(); keySave.disabled = true;
             try {
               await request("/api/mobile/providers/credential", { method: "POST", body: { id: provider.id,
-                expected: { name: provider.name, base_url: provider.base_url, enabled: provider.enabled }, api_key: keyInput.value } });
+                expected: { name: provider.name, base_url: provider.base_url, enabled: provider.enabled, protocol: provider.protocol }, api_key: keyInput.value } });
               keyInput.value = ""; await loadModelConfiguration(); setStatus("Provider key replaced", "ok");
             } catch (error) { setStatus(error.message || String(error), "error"); }
             finally { keySave.disabled = false; }

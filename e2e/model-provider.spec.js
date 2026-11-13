@@ -46,3 +46,26 @@ test("desktop discovers and selects paged provider models", async ({ page }) => 
   await page.getByLabel("Available model").selectOption("second-model");
   await expect(page.getByLabel("Model name", { exact: true })).toHaveValue("second-model");
 });
+
+test("desktop editing sends the selected provider protocol", async ({ page }) => {
+  await page.goto("/models");
+  await page.evaluate(() => {
+    const original = window.__ARUVI_E2E__.invoke;
+    window.__providerUpdate = null;
+    window.__ARUVI_E2E__.invoke = async (command, args) => {
+      if (command === "update_provider") {
+        window.__providerUpdate = args;
+        return { id: args.id, name: args.name, provider_type: args.providerType, protocol: args.protocol,
+          base_url: args.baseUrl, auth_secret_ref: null, enabled: true, created_at: "", updated_at: "" };
+      }
+      return original(command, args);
+    };
+  });
+  const card = page.getByText("DeepSeek (Hosted)", { exact: true }).first().locator("..");
+  await card.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.locator("select").filter({ has: page.locator('option[value="anthropic"]') }).last().selectOption("anthropic");
+  await page.getByRole("button", { name: "Save Changes" }).click();
+  await expect.poll(() => page.evaluate(() => window.__providerUpdate)).toMatchObject({
+    id: "provider-deepseek-hosted", providerType: "openai_compatible", protocol: "anthropic",
+  });
+});

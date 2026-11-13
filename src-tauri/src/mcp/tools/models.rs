@@ -55,7 +55,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let stored_secret_ref = if let Some(secret_input) =
                 args.optional_string(&["auth_secret_ref", "authSecretRef"])?
             {
-                secrets::store_provider_secret(&id, Some(&secret_input))?
+                secrets::store_updated_provider_secret(&id, &secret_input)?
             } else {
                 None
             };
@@ -65,6 +65,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 args.optional_string(&["name"])?.as_deref(),
                 args.optional_string(&["provider_type", "providerType"])?
                     .as_deref(),
+                args.optional_string(&["protocol"])?.as_deref(),
                 args.optional_string(&["base_url", "baseUrl"])?.as_deref(),
                 stored_secret_ref.as_deref(),
                 args.optional_bool(&["enabled"])?,

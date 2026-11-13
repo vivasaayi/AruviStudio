@@ -283,6 +283,7 @@ export function ModelProviderListPage() {
                 <select style={styles.select} value={providerEditForm.providerType} onChange={(e) => setProviderEditForm({ ...providerEditForm, providerType: e.target.value })}>
                   <option value="openai_compatible">OpenAI Compatible</option>
                   <option value="local_runtime">Local Runtime</option>
+                  <option value="anthropic">Anthropic Messages</option>
                 </select>
                 <label style={styles.label}>Base URL</label>
                 <input style={styles.input} value={providerEditForm.baseUrl} onChange={(e) => setProviderEditForm({ ...providerEditForm, baseUrl: e.target.value })} />

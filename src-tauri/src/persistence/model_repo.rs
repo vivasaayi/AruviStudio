@@ -63,6 +63,7 @@ pub async fn update_provider(
     id: &str,
     name: Option<&str>,
     provider_type: Option<&str>,
+    protocol: Option<&str>,
     base_url: Option<&str>,
     auth_secret_ref: Option<&str>,
     enabled: Option<bool>,
@@ -71,18 +72,21 @@ pub async fn update_provider(
     let next_name = name.unwrap_or(&existing.name);
     let existing_provider_type = existing.provider_type.as_str().to_string();
     let next_provider_type = provider_type.unwrap_or(&existing_provider_type);
+    let next_protocol = protocol.unwrap_or(&existing.protocol);
+    validate_provider_protocol(next_provider_type, next_protocol)?;
     let next_base_url = base_url.unwrap_or(&existing.base_url);
     let next_auth_secret_ref = auth_secret_ref.or(existing.auth_secret_ref.as_deref());
     let next_enabled = enabled.unwrap_or(existing.enabled);
 
     sqlx::query_as::<_, ModelProvider>(
         "UPDATE model_providers
-         SET name=?, provider_type=?, base_url=?, auth_secret_ref=?, enabled=?, updated_at=datetime('now')
+         SET name=?, provider_type=?, protocol=?, base_url=?, auth_secret_ref=?, enabled=?, updated_at=datetime('now')
          WHERE id=?
          RETURNING id,name,provider_type,protocol,base_url,auth_secret_ref,enabled,created_at,updated_at",
     )
     .bind(next_name)
     .bind(next_provider_type)
+    .bind(next_protocol)
     .bind(next_base_url)
     .bind(next_auth_secret_ref)
     .bind(next_enabled)

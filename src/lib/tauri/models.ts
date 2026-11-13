@@ -33,8 +33,9 @@ export const updateProvider = (data: {
   invoke<ModelProvider>("update_provider", {
     id: data.id,
     name: data.name,
-    providerType: data.providerType,
-    provider_type: data.providerType,
+    providerType: data.providerType === "anthropic" ? "openai_compatible" : data.providerType,
+    provider_type: data.providerType === "anthropic" ? "openai_compatible" : data.providerType,
+    protocol: data.providerType === undefined ? undefined : (data.providerType === "anthropic" ? "anthropic" : "openai_compatible"),
     baseUrl: data.baseUrl,
     base_url: data.baseUrl,
     authSecretRef: data.authSecretRef,
