@@ -111,6 +111,11 @@ pub(super) fn build_coding_tool_prompt(
     prompt.push_str("\nWhen implementation is complete, return:");
     prompt.push_str("\n{\"type\":\"final\",\"summary\":\"...\",\"result\":\"...\"}");
     prompt.push_str("\nIf no files need to change, return type=final with no_changes_needed=true and explain why in summary. Otherwise write the files with a tool before finishing.");
+    if allowed_tools.contains("repo.read_file") {
+        prompt.push_str("\nAfter a successful write, inspect the current file if needed. Do not repeat an edit that already succeeded; finish when the requested implementation is complete.");
+    } else {
+        prompt.push_str("\nDo not repeat an edit that already succeeded; finish when the requested implementation is complete.");
+    }
     prompt.push_str(&format!("\nCurrent step: {}/{}", step, max_steps));
     if max_steps.saturating_sub(step) <= 2 {
         prompt.push_str(

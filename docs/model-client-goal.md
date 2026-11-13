@@ -161,14 +161,24 @@ provider hosting into the model-host service as part of this work.
   changed files without recording a write. Coding now retries both cases and
   accepts an explicit reasoned no-change result. Tests cover those paths, and
   missing-directory tool feedback explains that writing creates parents. The
-  1.5B and 7B models have not yet passed the real agent workflow: observed runs
-  produced no file, invalid JavaScript, or exhausted the tool-step limit. The
+  Initial 1.5B and 7B workflow runs produced no file, invalid JavaScript, or
+  exhausted the tool-step limit. The
   independent sandbox assertions and meaningful fixture check caught those
   failures. Do not treat the short function check as workflow-quality approval.
   After these changes, 151 Rust tests passed (one ignored), along with 20 remote
-  UI tests, one CI test and 19 simulated workflow tests. The real coding workflow
-  acceptance check remains failing and is intentionally not part of the green
-  simulated suite.
+  UI tests, one CI test and 19 simulated workflow tests. At that checkpoint, the
+  real coding workflow acceptance check was still failing.
+- The agent now receives a bounded preview of content it submitted for a
+  successful edit, without acquiring extra repository read access. The 7B model
+  subsequently completed three disposable product/work-item workflows and passed
+  generated JavaScript assertions; the latest run also verified that the checked
+  file reached its disposable Git remote. These runs exercised one small task,
+  and the model still repeated directory checks or writes in some traces, so
+  broader coding quality and reliability remain unproven. The workflow fixture
+  checks file existence inside Studio and runs functional assertions in a separate
+  network-isolated container before approving test review. This change passed 151
+  Rust tests (one ignored), 20 remote UI tests, one CI test, 19 simulated workflow
+  tests, and real MCP and browser chat checks.
 
 ## Open design questions
 

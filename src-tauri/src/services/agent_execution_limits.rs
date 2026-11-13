@@ -123,13 +123,29 @@ pub(crate) fn compact_tool_observation(
     reason: Option<String>,
     kind: &str,
     rendered: &str,
+    arguments: &serde_json::Value,
 ) -> String {
+    // Give the model a bounded record of the content it supplied for successful
+    // edits. This does not read additional repository content or grant a tool.
+    let written = if kind == "tool_result" {
+        match tool {
+            "repo.write_file" | "repo.replace_range" => arguments.get("content"),
+            "repo.apply_patch" => arguments.get("patch"),
+            _ => None,
+        }
+        .and_then(serde_json::Value::as_str)
+        .map(|value| truncate_for_model_context(value, 1_600))
+    } else {
+        None
+    };
+    let result_limit = if written.is_some() { 2_000 } else { 4_000 };
     format!(
-        "{kind} step={} tool={} reason={} result={}",
+        "{kind} step={} tool={} reason={} result={}{}",
         step,
         tool,
-        reason.unwrap_or_default(),
-        truncate_for_model_context(rendered, 4_000)
+        truncate_for_model_context(&reason.unwrap_or_default(), 300),
+        truncate_for_model_context(rendered, result_limit),
+        written.map(|value| format!(" submitted_edit={}", truncate_for_model_context(&serde_json::to_string(&value).unwrap_or_default(), 1_600))).unwrap_or_default(),
     )
 }
 
@@ -349,12 +365,25 @@ mod tests {
             Some("find usages".to_string()),
             "tool_result",
             &rendered,
+            &serde_json::json!({}),
         );
         assert!(
             observation.len() < 4_300,
             "observation should be capped before it is reused in prompts"
         );
         assert!(observation.contains("truncated for model context"));
+
+        let written = compact_tool_observation(
+            4, "repo.write_file", Some("write".into()), "tool_result",
+            r#"{"path":"src/file.js","bytes_written":10000}"#,
+            &serde_json::json!({"content": format!("function useful() {{}}{}", "\n".repeat(10_000))}),
+        );
+        assert!(written.contains("function useful()"));
+        assert!(written.contains("truncated for model context"));
+        assert!(written.len() < 4_300);
+
+        let search = compact_tool_observation(5, "repo.search", None, "tool_result", "{}", &serde_json::json!({"content":"not-an-edit"}));
+        assert!(!search.contains("not-an-edit"));
     }
 }
 

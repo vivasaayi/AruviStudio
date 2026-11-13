@@ -120,6 +120,7 @@ impl AgentService {
                                     reason,
                                     "tool_result",
                                     &rendered,
+                                    &arguments,
                                 ),
                             );
                             trace.push(ToolLoopTraceEntry {

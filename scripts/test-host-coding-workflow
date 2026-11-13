@@ -74,7 +74,7 @@ try:
     for agent in call("aruvi_agents", "list_agent_definitions", {}):
         if agent["enabled"]:
             call("aruvi_agents", "set_primary_agent_model_binding", {"agent_id": agent["id"], "model_id": model["id"]})
-    for key, value in [("workflow.auto_start_after_work_item_approval", "false"), ("workflow.auto_approve_plan", "false"), ("workflow.auto_approve_test_review", "false"), ("workflow.test_argv", json.dumps(["/bin/sh", "-c", "test -f src/math.js && grep -q 'function sumEven' src/math.js"]))]:
+    for key, value in [("workflow.auto_start_after_work_item_approval", "false"), ("workflow.auto_approve_plan", "false"), ("workflow.auto_approve_test_review", "false"), ("workflow.test_argv", json.dumps(["/bin/sh", "-c", "test -f src/math.js"]))]:
         call("aruvi_settings", "set_setting", {"key": key, "value": value})
     product = call("aruvi_catalog", "create_product", {"name": "Disposable real coding evaluation"})
     repo = call("aruvi_repositories", "register_repository", {"name": "Coding fixture", "local_path": "/repositories/coding-fixture", "default_branch": "main"})
@@ -105,10 +105,13 @@ try:
     assertions = "\nconst assert = require('node:assert/strict'); const f = module.exports.sumEven; assert.equal(f([1,2,3,4,-2]),4); assert.equal(f([]),0); console.log('generated code passed');\n"
     if not code or len(code.encode()) > 8192: raise ValueError("Generated file missing or oversized")
     check = subprocess.run(["docker", "run", "--rm", "-i", "--network", "none", "--read-only", "--memory", "256m", "--cpus", "1", "--pids-limit", "32", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", "65534:65534", "node:22-bookworm-slim", "node"], input=code+assertions, text=True, capture_output=True, timeout=30)
-    if check.returncode: raise ValueError("Workflow-generated code failed the isolated assertions")
+    if check.returncode:
+        raise ValueError("Workflow-generated code failed the isolated assertions: " + check.stderr.strip()[:500])
     call("aruvi_workflows", "handle_workflow_user_action", {"workflow_run_id": run_id, "action": "approve"})
     run = call("aruvi_workflows", "get_workflow_run", {"workflow_run_id": run_id})
     if run["current_stage"] != "done": raise ValueError("Workflow did not finish")
+    delivered = command(["docker", "exec", container, "git", "--git-dir=/repositories/coding-origin.git", "show", "main:src/math.js"])
+    if delivered.strip() != code.strip(): raise ValueError("The disposable Git remote does not contain the verified file")
     print("Disposable real-model workflow and generated-code assertions passed")
 except (OSError, KeyError, TypeError, ValueError, subprocess.SubprocessError) as error:
     print(f"Real coding workflow failed: {type(error).__name__}: {error if not isinstance(error, subprocess.CalledProcessError) else 'fixture command failed'}", file=sys.stderr)
