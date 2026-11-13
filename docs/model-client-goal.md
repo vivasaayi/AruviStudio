@@ -57,11 +57,20 @@ provider hosting into the model-host service as part of this work.
   metadata fixtures, fragmented streams and legacy JSON. Both native desktop
   stream adapter tests passed with metadata and unchanged usage telemetry, and
   the frontend production build passed. These are simulated-provider checks;
-  the updated branch container remains to be rebuilt and validated.
+  the updated branch container was subsequently rebuilt and validated below.
 - The independent consumer now pins `bf759c5a69c693252306c7946bd5d5f35738d9e8`;
   its eight network-isolated tests passed, including a public-API metadata
   assertion. A previously hanging oversized-response fixture now has a bounded
-  server write timeout on macOS.
+  server write timeout on macOS. The pinned client also passed real discovery,
+  completion, streaming and token-limit checks against the isolated
+  `qwen25-coder-7b-q4` host.
+- The branch release server was rebuilt and its running binary hash verified.
+  Linux Studio tests passed 151 with one live-provider test ignored; UI checks
+  passed 1 smoke, 20 remote, 1 CI and 19 isolated workflow cases. Real MCP
+  coding and token-limit checks, browser coding chat and generated voice audio
+  passed against Model Host. Docker storage filled during the rebuild; removing
+  only identified Aruvi consumer-test cache restored space and the branch
+  container is healthy again on its Docker-assigned port.
 
 ## Initial evidence — 2026-11-13
 
