@@ -132,3 +132,45 @@ async fn start_workflow_closes_orphaned_coordinator_review_and_creates_fresh_run
     AgentService::set_test_model_outputs_for_any_workflow(Vec::new());
     let _ = std::fs::remove_dir_all(temp_root);
 }
+
+#[tokio::test]
+async fn repository_preflight_failure_marks_the_current_stage_failed() {
+    let _guard = acquire_workflow_test_lock().await;
+    let temp_root = make_temp_dir("repository_preflight_failure");
+    let db_url = format!("sqlite:{}", temp_root.join("test.db").display());
+    let pool = db_service::create_pool(&db_url)
+        .await
+        .expect("create database");
+    let product = create_test_product(&pool, "preflight-product", "Product").await;
+    let item = work_item_repo::create_work_item(
+        &pool,
+        test_work_item_input("preflight-item", &product.id, None, "Work item"),
+    )
+    .await
+    .expect("create item");
+    sqlx::query("INSERT INTO workflow_runs (id, work_item_id, workflow_version, status, current_stage, retry_count, max_retries, started_at, updated_at) VALUES ('preflight-run', ?, 'v1', 'running', 'coding', 0, 3, datetime('now'), datetime('now'))")
+        .bind(&item.id).execute(&pool).await.expect("create workflow");
+    let db = Arc::new(pool.clone());
+    let model = Arc::new(ModelService::new(Arc::clone(&db)));
+    let agents = AgentService::new(
+        Arc::clone(&db),
+        model,
+        temp_root.join("artifacts"),
+        temp_root.join("workspaces"),
+    );
+    let workflow = WorkflowService::new(db, Arc::new(Mutex::new(agents)));
+    assert!(workflow
+        .execute_stage("preflight-run", crate::domain::workflow::WorkflowStage::Coding)
+        .await
+        .is_err());
+    let run = crate::persistence::workflow_repo::get_workflow_run(&pool, "preflight-run")
+        .await
+        .expect("load workflow");
+    assert_eq!(run.current_stage, "failed");
+    assert!(run
+        .error_message
+        .as_deref()
+        .unwrap_or_default()
+        .contains("Repository readiness failed"));
+    let _ = std::fs::remove_dir_all(temp_root);
+}

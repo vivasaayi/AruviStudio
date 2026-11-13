@@ -5,8 +5,6 @@ use crate::services::{
     workflow_coordinator_policy, workflow_coordinator_review, workflow_failure,
     workflow_repository_guard, workflow_stage_transition,
 };
-use std::future::Future;
-use std::pin::Pin;
 use tracing::{error, info, warn};
 
 impl WorkflowService {
@@ -23,30 +21,35 @@ impl WorkflowService {
         .await
     }
 
-    /// Execute a workflow stage.
-    pub(super) fn execute_stage<'a>(
-        &'a self,
-        workflow_run_id: &'a str,
-        stage: WorkflowStage,
-    ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'a>> {
-        self.execute_stage_internal(workflow_run_id, stage, false)
-    }
-
-    fn execute_stage_internal<'a>(
-        &'a self,
-        workflow_run_id: &'a str,
-        stage: WorkflowStage,
-        bypass_coordinator_review: bool,
-    ) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'a>> {
-        Box::pin(async move {
+    /// Execute automatic stage transitions without recursively polling prior stages.
+    pub(super) async fn execute_stage(
+        &self,
+        workflow_run_id: &str,
+        mut stage: WorkflowStage,
+    ) -> Result<(), AppError> {
+        let mut bypass_coordinator_review = false;
+        loop {
             info!(
                 "Executing stage {} for workflow run {}",
                 stage.as_str(),
                 workflow_run_id
             );
-
-            self.ensure_repository_ready_for_stage(workflow_run_id, &stage)
-                .await?;
+            if let Err(stage_error) = self
+                .ensure_repository_ready_for_stage(workflow_run_id, &stage)
+                .await
+            {
+                if let Err(mark_error) = workflow_failure::mark_workflow_failed(
+                    self.db.as_ref(),
+                    workflow_run_id,
+                    &stage,
+                    &stage_error,
+                )
+                .await
+                {
+                    error!(workflow_run_id = %workflow_run_id, stage = %stage.as_str(), error = %mark_error, "Failed to persist workflow failure state");
+                }
+                return Err(stage_error);
+            }
 
             if !bypass_coordinator_review
                 && workflow_coordinator_policy::requires_coordinator_review(
@@ -61,20 +64,27 @@ impl WorkflowService {
                 )
                 .await?
                 {
-                    self.route_through_coordinator_review(workflow_run_id, stage.clone())
-                        .await?;
-                    return Ok(());
+                    workflow_coordinator_review::prepare_coordinator_review(
+                        self.db.as_ref(),
+                        workflow_run_id,
+                        stage,
+                    )
+                    .await?;
+                    stage = WorkflowStage::CoordinatorReview;
+                    bypass_coordinator_review = true;
+                    continue;
                 }
-                warn!(
-                    workflow_run_id = %workflow_run_id,
-                    stage = %stage.as_str(),
-                    "Coordinator review required by policy but no active coordinator is available; bypassing coordinator stage"
-                );
+                warn!(workflow_run_id = %workflow_run_id, stage = %stage.as_str(), "Coordinator review required by policy but no active coordinator is available; bypassing coordinator stage");
             }
 
-            let execution_result = match stage.clone() {
+            let execution_result = match stage {
                 WorkflowStage::CoordinatorReview => {
-                    self.execute_coordinator_review(workflow_run_id).await
+                    workflow_coordinator_review::execute_coordinator_review(
+                        self.db.as_ref(),
+                        &self.agent_service,
+                        workflow_run_id,
+                    )
+                    .await
                 }
                 WorkflowStage::RequirementAnalysis => {
                     self.execute_requirement_analysis(workflow_run_id).await
@@ -107,67 +117,31 @@ impl WorkflowService {
                 WorkflowStage::GitPush => self.execute_git_push(workflow_run_id).await,
                 _ => {
                     warn!("Stage {} does not require execution", stage.as_str());
-                    Ok(())
+                    Ok(None)
                 }
             };
-
-            if let Err(stage_error) = execution_result {
-                error!(
-                    workflow_run_id = %workflow_run_id,
-                    stage = %stage.as_str(),
-                    error = %stage_error,
-                    "Stage execution failed"
-                );
-                if let Err(mark_error) = workflow_failure::mark_workflow_failed(
-                    self.db.as_ref(),
-                    workflow_run_id,
-                    &stage,
-                    &stage_error,
-                )
-                .await
-                {
-                    error!(
-                        workflow_run_id = %workflow_run_id,
-                        stage = %stage.as_str(),
-                        error = %mark_error,
-                        "Failed to persist workflow failure state"
-                    );
+            match execution_result {
+                Ok(Some(next_stage)) => {
+                    bypass_coordinator_review = stage == WorkflowStage::CoordinatorReview;
+                    stage = next_stage;
                 }
-                return Err(stage_error);
+                Ok(None) => return Ok(()),
+                Err(stage_error) => {
+                    error!(workflow_run_id = %workflow_run_id, stage = %stage.as_str(), error = %stage_error, "Stage execution failed");
+                    if let Err(mark_error) = workflow_failure::mark_workflow_failed(
+                        self.db.as_ref(),
+                        workflow_run_id,
+                        &stage,
+                        &stage_error,
+                    )
+                    .await
+                    {
+                        error!(workflow_run_id = %workflow_run_id, stage = %stage.as_str(), error = %mark_error, "Failed to persist workflow failure state");
+                    }
+                    return Err(stage_error);
+                }
             }
-
-            Ok(())
-        })
-    }
-
-    async fn route_through_coordinator_review(
-        &self,
-        workflow_run_id: &str,
-        target_stage: WorkflowStage,
-    ) -> Result<(), AppError> {
-        workflow_coordinator_review::prepare_coordinator_review(
-            self.db.as_ref(),
-            workflow_run_id,
-            target_stage,
-        )
-        .await?;
-        self.execute_stage_internal(workflow_run_id, WorkflowStage::CoordinatorReview, true)
-            .await
-    }
-
-    async fn execute_coordinator_review(&self, workflow_run_id: &str) -> Result<(), AppError> {
-        if let Some(target_stage) = workflow_coordinator_review::execute_coordinator_review(
-            self.db.as_ref(),
-            &self.agent_service,
-            workflow_run_id,
-        )
-        .await?
-        {
-            self.execute_stage_internal(workflow_run_id, target_stage, true)
-                .await?;
         }
-
-        Ok(())
     }
 
     /// Transition workflow to a new stage.

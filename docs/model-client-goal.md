@@ -853,6 +853,22 @@ provider hosting into the model-host service as part of this work.
   passed the browser smoke, 20 remote, one CI and 19 workflow cases; the real
   Model Host 7B coding MCP smoke also passed.
 
+## Iterative workflow execution checkpoint
+
+- Automatic workflow stages now return the next stage to an iterative driver
+  instead of recursively polling the entire preceding stage chain. Coordinator
+  review retains its one-stage bypass and approval gates still stop execution.
+  This avoids a reproducible default-stack overflow during the twelve-stage
+  automatic test-review and Git-delivery workflow. Repository preflight errors
+  mark the actual current stage failed; a targeted regression test verifies this.
+- On 2026-11-13 the macOS Rust library suite passed 176 tests with one live
+  test ignored using the default test-thread stack. The existing end-to-end
+  workflow test reproduced the overflow before the change and passes afterward.
+- The worktree container remains on the preceding image: Docker's shared virtual
+  disk has under 1 GB available. Rebuild and browser/MCP workflow validation of
+  this change remain necessary once sufficient space is available. Other projects'
+  containers, volumes, and caches were not removed to make room.
+
 ## Atomic planner application checkpoint
 
 - Applying a staged planner design now uses one SQLite transaction for product,

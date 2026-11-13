@@ -6,7 +6,10 @@ use crate::services::{workflow_agent_stage, workflow_approval_gate};
 use tracing::info;
 
 impl WorkflowService {
-    pub(super) async fn execute_planning(&self, workflow_run_id: &str) -> Result<(), AppError> {
+    pub(super) async fn execute_planning(
+        &self,
+        workflow_run_id: &str,
+    ) -> Result<Option<WorkflowStage>, AppError> {
         info!(workflow_run_id = %workflow_run_id, "Executing planning stage");
 
         if workflow_agent_stage::run_agent_stage_and_transition(
@@ -39,24 +42,23 @@ impl WorkflowService {
                     "Plan auto-approved by workflow setting".to_string(),
                 )
                 .await?;
-                self.execute_stage(workflow_run_id, WorkflowStage::Coding)
-                    .await?;
                 info!(
                     workflow_run_id = %workflow_run_id,
                     "Planning completed and auto-approved directly into coding"
                 );
+                return Ok(Some(WorkflowStage::Coding));
             } else {
                 info!(workflow_run_id = %workflow_run_id, "Successfully transitioned to plan approval stage");
             }
         }
 
-        Ok(())
+        Ok(None)
     }
 
     pub(super) async fn execute_performance_review(
         &self,
         workflow_run_id: &str,
-    ) -> Result<(), AppError> {
+    ) -> Result<Option<WorkflowStage>, AppError> {
         if workflow_agent_stage::run_agent_stage_and_transition(
             self.db.as_ref(),
             &self.agent_service,
@@ -68,7 +70,13 @@ impl WorkflowService {
         )
         .await?
             && workflow_approval_gate::is_auto_test_review_enabled(self.db.as_ref()).await?
-            && settings_repo::get_setting(self.db.as_ref(), &format!("workflow.test_result.{workflow_run_id}")).await?.as_deref() == Some("passed")
+            && settings_repo::get_setting(
+                self.db.as_ref(),
+                &format!("workflow.test_result.{workflow_run_id}"),
+            )
+            .await?
+            .as_deref()
+                == Some("passed")
         {
             let workflow_run = workflow_repo::get_workflow_run(&self.db, workflow_run_id).await?;
             workflow_approval_gate::record_test_review_approval(
@@ -87,10 +95,9 @@ impl WorkflowService {
                 "Test review auto-approved by workflow setting".to_string(),
             )
             .await?;
-            self.execute_stage(workflow_run_id, WorkflowStage::PushPreparation)
-                .await?;
+            return Ok(Some(WorkflowStage::PushPreparation));
         }
 
-        Ok(())
+        Ok(None)
     }
 }

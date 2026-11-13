@@ -8,7 +8,7 @@ impl WorkflowService {
     pub(super) async fn execute_requirement_analysis(
         &self,
         workflow_run_id: &str,
-    ) -> Result<(), AppError> {
+    ) -> Result<Option<WorkflowStage>, AppError> {
         info!(workflow_run_id = %workflow_run_id, "Executing requirement analysis stage");
 
         if workflow_agent_stage::run_agent_stage_and_transition(
@@ -22,15 +22,16 @@ impl WorkflowService {
         )
         .await?
         {
-            self.execute_stage(workflow_run_id, WorkflowStage::Planning)
-                .await?;
-            info!(workflow_run_id = %workflow_run_id, "Successfully transitioned to planning stage");
+            return Ok(Some(WorkflowStage::Planning));
         }
 
-        Ok(())
+        Ok(None)
     }
 
-    pub(super) async fn execute_coding(&self, workflow_run_id: &str) -> Result<(), AppError> {
+    pub(super) async fn execute_coding(
+        &self,
+        workflow_run_id: &str,
+    ) -> Result<Option<WorkflowStage>, AppError> {
         info!(workflow_run_id = %workflow_run_id, "Executing coding stage");
 
         if workflow_agent_stage::run_agent_stage_and_transition(
@@ -44,18 +45,16 @@ impl WorkflowService {
         )
         .await?
         {
-            self.execute_stage(workflow_run_id, WorkflowStage::UnitTestGeneration)
-                .await?;
-            info!(workflow_run_id = %workflow_run_id, "Successfully transitioned to unit test generation stage");
+            return Ok(Some(WorkflowStage::UnitTestGeneration));
         }
 
-        Ok(())
+        Ok(None)
     }
 
     pub(super) async fn execute_unit_test_generation(
         &self,
         workflow_run_id: &str,
-    ) -> Result<(), AppError> {
+    ) -> Result<Option<WorkflowStage>, AppError> {
         if workflow_agent_stage::run_agent_stage_and_transition(
             self.db.as_ref(),
             &self.agent_service,
@@ -67,17 +66,16 @@ impl WorkflowService {
         )
         .await?
         {
-            self.execute_stage(workflow_run_id, WorkflowStage::IntegrationTestGeneration)
-                .await?;
+            return Ok(Some(WorkflowStage::IntegrationTestGeneration));
         }
 
-        Ok(())
+        Ok(None)
     }
 
     pub(super) async fn execute_integration_test_generation(
         &self,
         workflow_run_id: &str,
-    ) -> Result<(), AppError> {
+    ) -> Result<Option<WorkflowStage>, AppError> {
         if workflow_agent_stage::run_agent_stage_and_transition(
             self.db.as_ref(),
             &self.agent_service,
@@ -89,17 +87,16 @@ impl WorkflowService {
         )
         .await?
         {
-            self.execute_stage(workflow_run_id, WorkflowStage::UiTestPlanning)
-                .await?;
+            return Ok(Some(WorkflowStage::UiTestPlanning));
         }
 
-        Ok(())
+        Ok(None)
     }
 
     pub(super) async fn execute_ui_test_planning(
         &self,
         workflow_run_id: &str,
-    ) -> Result<(), AppError> {
+    ) -> Result<Option<WorkflowStage>, AppError> {
         if workflow_agent_stage::run_agent_stage_and_transition(
             self.db.as_ref(),
             &self.agent_service,
@@ -111,17 +108,16 @@ impl WorkflowService {
         )
         .await?
         {
-            self.execute_stage(workflow_run_id, WorkflowStage::DockerTestExecution)
-                .await?;
+            return Ok(Some(WorkflowStage::DockerTestExecution));
         }
 
-        Ok(())
+        Ok(None)
     }
 
     pub(super) async fn execute_qa_validation(
         &self,
         workflow_run_id: &str,
-    ) -> Result<(), AppError> {
+    ) -> Result<Option<WorkflowStage>, AppError> {
         if workflow_agent_stage::run_agent_stage_and_transition(
             self.db.as_ref(),
             &self.agent_service,
@@ -133,17 +129,16 @@ impl WorkflowService {
         )
         .await?
         {
-            self.execute_stage(workflow_run_id, WorkflowStage::SecurityReview)
-                .await?;
+            return Ok(Some(WorkflowStage::SecurityReview));
         }
 
-        Ok(())
+        Ok(None)
     }
 
     pub(super) async fn execute_security_review(
         &self,
         workflow_run_id: &str,
-    ) -> Result<(), AppError> {
+    ) -> Result<Option<WorkflowStage>, AppError> {
         if workflow_agent_stage::run_agent_stage_and_transition(
             self.db.as_ref(),
             &self.agent_service,
@@ -155,10 +150,9 @@ impl WorkflowService {
         )
         .await?
         {
-            self.execute_stage(workflow_run_id, WorkflowStage::PerformanceReview)
-                .await?;
+            return Ok(Some(WorkflowStage::PerformanceReview));
         }
 
-        Ok(())
+        Ok(None)
     }
 }
