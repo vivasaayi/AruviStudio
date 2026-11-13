@@ -25,6 +25,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut chunks = 0;
     let stream = gateway.stream_completion(request(&model, "Reply with the word ready.", 100), &mut |_| { chunks += 1; }).await?;
     if stream.content.trim().is_empty() || chunks == 0 { return Err("Empty streamed completion".into()); }
+    if std::env::var_os("ARUVI_PROBE_JSON_MODE").is_some() {
+        let json = gateway.run_json_completion(request(&model, "Return a JSON object with type set to final and summary set to ready.", 100)).await?;
+        if json.content.trim().is_empty() { return Err("Empty JSON completion".into()); }
+        println!("Independent pinned client: JSON-object completion passed.");
+    }
     let short = gateway.run_completion(request(&model, "Write a detailed explanation of recursion with three code examples.", 1)).await;
     match short {
         Err(error) if error.to_string().contains("truncated by a token limit") => {},

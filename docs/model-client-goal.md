@@ -200,7 +200,12 @@ provider hosting into the model-host service as part of this work.
   limit. Two additional all-15B attempts failed during planning with token-limit
   errors before JSON mode applied. These examples do not prove general model
   quality. The branch server's binary hash matched the locked release build.
-  The independently pinned consumer still needs to be updated and tested.
+  The independent consumer pins `20e92bd275d5ac4beb5999ab4ed56acf3313c0ba`;
+  ten tests passed offline on macOS and with networking disabled in Linux. Its
+  separate dependency audit found no vulnerabilities or warnings. A non-root,
+  read-only container built offline from that pin successfully invoked JSON mode,
+  discovery, completion, streaming and token-limit handling on the real 15B
+  host. This confirms transport behavior, not reliable tool-loop behavior.
 
 ## Image capability assessment
 

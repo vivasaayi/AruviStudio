@@ -78,7 +78,8 @@ The probe builds the pinned dependency with vendored dependencies and no build
 network, then runs the binary in a read-only, non-root container. It reads the
 host token from its private environment file and passes it only on standard
 input. It validates discovery, ordinary and streamed text, and a token-limit
-error. The native host token grants whatever authority the host assigned it;
+error. Add `--json-mode` to also test JSON-object completion when the chosen
+model supports it. The native host token grants whatever authority the host assigned it;
 this check does not modify host configuration, register models or prove model
 quality. Use `--environment staging` only when that deployment has the selected
 model installed and resources available.
@@ -95,7 +96,7 @@ Studio Git repository as the shared source and pin an immutable, tested commit:
 
 ```toml
 [dependencies]
-aruvi-model-client = { git = "https://github.com/vivasaayi/AruviStudio.git", rev = "78095c0173cd7f8b58fba21db96bc0f484ca0616" }
+aruvi-model-client = { git = "https://github.com/vivasaayi/AruviStudio.git", rev = "20e92bd275d5ac4beb5999ab4ed56acf3313c0ba" }
 ```
 
 This revision is an integration checkpoint, not a release or a promise of API

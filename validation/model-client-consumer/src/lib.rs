@@ -70,6 +70,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn uses_json_object_mode_from_an_independent_project() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut data = Vec::new(); let mut buffer = [0; 4096];
+            let end = loop { let count = socket.read(&mut buffer).unwrap(); assert_ne!(count, 0); data.extend_from_slice(&buffer[..count]); if let Some(index) = data.windows(4).position(|part| part == b"\r\n\r\n") { break index + 4; } };
+            let headers = String::from_utf8_lossy(&data[..end]).to_lowercase();
+            let length: usize = headers.lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().trim().parse().unwrap();
+            while data.len() < end + length { let count = socket.read(&mut buffer).unwrap(); assert_ne!(count, 0); data.extend_from_slice(&buffer[..count]); }
+            let body: serde_json::Value = serde_json::from_slice(&data[end..end + length]).unwrap();
+            assert_eq!(body["response_format"]["type"], "json_object");
+            let response = serde_json::json!({"choices":[{"message":{"content":"{\"ok\":true}"},"finish_reason":"stop"}]}).to_string();
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).unwrap();
+        });
+        let client: Box<dyn ModelGateway> = Box::new(OpenAiCompatibleClient::new(format!("http://{address}"), None));
+        let request = CompletionRequest { model: "fixture".into(), messages: vec![ChatMessage { role: "user".into(), content: "Return JSON".into() }], temperature: None, max_tokens: Some(10) };
+        let response = client.run_json_completion(request).await.unwrap();
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&response.content).unwrap()["ok"], true);
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
     async fn rejects_openai_token_limit_finish() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();

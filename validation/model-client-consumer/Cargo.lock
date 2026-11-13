@@ -7,13 +7,14 @@ name = "aruvi-independent-consumer-check"
 version = "0.0.0"
 dependencies = [
  "aruvi-model-client",
+ "serde_json",
  "tokio",
 ]
 
 [[package]]
 name = "aruvi-model-client"
 version = "0.1.0"
-source = "git+https://github.com/vivasaayi/AruviStudio.git?rev=78095c0173cd7f8b58fba21db96bc0f484ca0616#78095c0173cd7f8b58fba21db96bc0f484ca0616"
+source = "git+https://github.com/vivasaayi/AruviStudio.git?rev=20e92bd275d5ac4beb5999ab4ed56acf3313c0ba#20e92bd275d5ac4beb5999ab4ed56acf3313c0ba"
 dependencies = [
  "async-trait",
  "reqwest",
