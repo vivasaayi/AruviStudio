@@ -286,6 +286,34 @@ provider hosting into the model-host service as part of this work.
   this check. The eight simulated consumer tests also passed offline. This is a
   single small-model integration check, not proof of broader coding quality.
 
+## Dependency security checkpoint — 2026-11-13
+
+- `npm audit --json` reported no npm advisories. `cargo-audit` 0.23.0
+  against Studio's committed `src-tauri/Cargo.lock` reported 23 vulnerabilities
+  and additional unmaintained/unsound warnings. The separately pinned consumer's
+  lockfile reported no vulnerabilities. These scans describe dependency
+  advisories, not confirmed exploitability in this application.
+- A **pending, untested and undeployed** Studio lockfile update resolves 21 of
+  those vulnerability reports by upgrading `h2`, `libz-sys`, `openssl`, `plist`,
+  `quick-xml`, `rustls` and `rustls-webpki` within the existing manifest
+  constraints. A repeat audit reports two remaining vulnerabilities and 23
+  unmaintained/unsound warnings; do not treat the candidate as release-ready.
+- [RUSTSEC-2026-0459](https://rustsec.org/advisories/RUSTSEC-2026-0459.html)
+  concerns the bundled SQLite version when opening an attacker-controlled database
+  and WAL pair. Studio currently reaches `libsqlite3-sys` 0.30.1 through SQLx
+  0.8.6; the advisory's fixed bundled version is 0.39.0 or later. Verify the
+  actual database trust boundary and a compatible upstream upgrade or other
+  mitigation before release.
+- [RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html)
+  reports an RSA timing issue. `rsa` 0.9.10 appears in the lockfile, but `cargo
+  tree --target all -i rsa` printed no path for Studio's selected features. This
+  is not a claim about every possible build configuration.
+- Docker Desktop's shared filesystem had approximately 1.2 GiB free when this
+  candidate was prepared; earlier full builds needed more space. The running
+  branch image still uses the previously committed lockfile. Increase available
+  Docker storage, then run the full Rust suite, rebuild and revalidate the branch
+  deployment before committing the candidate. Do not prune other products' data.
+
 ## Open design questions
 
 - Decide whether to move the Git-pinned client to a separately maintained
