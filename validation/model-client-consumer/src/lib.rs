@@ -86,6 +86,7 @@ mod tests {
             write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).unwrap();
         });
         let client: Box<dyn ModelGateway> = Box::new(OpenAiCompatibleClient::new(format!("http://{address}"), None));
+        assert!(client.supports_json_object_completion());
         let request = CompletionRequest { model: "fixture".into(), messages: vec![ChatMessage { role: "user".into(), content: "Return JSON".into() }], temperature: None, max_tokens: Some(10) };
         let response = client.run_json_completion(request).await.unwrap();
         assert_eq!(serde_json::from_str::<serde_json::Value>(&response.content).unwrap()["ok"], true);
@@ -112,6 +113,7 @@ mod tests {
     async fn unified_gateway_exposes_capabilities_and_unsupported_voice() {
         let client: Box<dyn ModelGateway> = Box::new(AnthropicClient::new("http://127.0.0.1:1".into(), "synthetic-key".into()).unwrap());
         let capabilities = client.transport_capabilities();
+        assert!(!client.supports_json_object_completion());
         assert!(capabilities.text_streaming);
         assert!(!capabilities.speech);
         let input = aruvi_model_client::SpeechRequest { model: "voice".into(), input: "hi".into(), voice: None, speed: None, response_format: "wav".into() };

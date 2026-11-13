@@ -594,6 +594,22 @@ provider hosting into the model-host service as part of this work.
   coding and browser speech checks. Native desktop and Windows dependency paths
   remain unverified. No other products' data were pruned.
 
+## JSON mode capability checkpoint
+
+- The shared `ModelGateway` trait now exposes
+  `supports_json_object_completion()`. It defaults to false for existing custom
+  implementations and returns true for the OpenAI-compatible transport. This is
+  transport support only; an endpoint or model can still reject JSON-object mode.
+  Anthropic reports false and continues returning `UnsupportedOperation`.
+- The crate's 31 tests passed. An independent Git consumer was repinned to
+  `fcd94c6a2490689436da800da5c870cb0a7b64bd` and its 10 locked, offline macOS
+  tests passed, including trait-object capability checks for both providers. The
+  same independent consumer passed on Linux with vendored dependencies and
+  networking disabled. Studio's Linux and macOS suites each passed 170 tests
+  (one live test ignored). This snapshot remains a provisional Git pin, not a release. Real 7B Model Host
+  coding MCP and browser repository-analysis/confirmation tests passed after
+  rebuilding the branch image.
+
 ## Planner action validation checkpoint
 
 - Planner responses reject unknown action types and reject a mixture of staged
