@@ -320,6 +320,16 @@ pub(crate) async fn persist_draft_state(
     Ok(())
 }
 
+pub(crate) async fn persist_manual_draft_state(
+    db: &SqlitePool,
+    session_id: &str,
+    draft_plan: Option<&PlannerDraftPlan>,
+    selected_draft_node_id: Option<&str>,
+) -> Result<(), AppError> {
+    let serialized = draft_plan.map(serde_json::to_string).transpose()?;
+    planner_repo::replace_draft_and_clear_pending(db, session_id, serialized.as_deref(), selected_draft_node_id).await
+}
+
 pub(crate) async fn append_conversation(
     db: &SqlitePool,
     session_id: &str,

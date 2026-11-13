@@ -608,3 +608,30 @@ async fn planner_session_lock_is_released_when_process_is_killed() {
     let acquired = tokio::time::timeout(Duration::from_secs(2), crate::services::planner_session::lock_planner_session(&state.planner_service, &state.db, &session.session_id)).await.unwrap().unwrap();
     drop(acquired);
 }
+
+#[tokio::test]
+async fn failed_manual_draft_edits_preserve_pending_plan_and_draft() {
+    use crate::services::planner_draft_commands::{add_planner_draft_child, delete_planner_draft_node, rename_planner_draft_node};
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("manual_draft_write_failure").await;
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let draft = apply_actions_to_draft(None, None, &normalize_actions(vec![
+        json!({"type":"create_product", "name":"Draft root"}),
+        json!({"type":"create_product_area", "target":"Draft root", "product_area_name":"Draft area"}),
+    ])).unwrap();
+    let root = draft.nodes.iter().find(|node| node.node_type == "product").unwrap().id.clone();
+    let area = draft.nodes.iter().find(|node| node.node_type == "product_area").unwrap().id.clone();
+    persist_draft_state(&state.db, &session.session_id, Some(&draft), Some(&root)).await.unwrap();
+    let pending = json!({"assistant_response":"Review", "needs_confirmation":true, "clarification_question":null, "actions":[]}).to_string();
+    crate::persistence::planner_repo::update_pending_plan(&state.db, &session.session_id, Some(&pending)).await.unwrap();
+    let before = crate::persistence::planner_repo::get_session(&state.db, &session.session_id).await.unwrap();
+    sqlx::query("CREATE TRIGGER fail_draft_edit BEFORE UPDATE OF draft_plan_json ON planner_sessions BEGIN SELECT RAISE(ABORT, 'injected failure'); END")
+        .execute(&state.db).await.unwrap();
+    assert!(rename_planner_draft_node(state.planner_service.clone(), &state.db, session.session_id.clone(), area.clone(), "Renamed".into()).await.is_err());
+    assert!(add_planner_draft_child(state.planner_service.clone(), &state.db, session.session_id.clone(), root.clone(), "product_area".into(), "Added".into(), None).await.is_err());
+    assert!(delete_planner_draft_node(state.planner_service.clone(), &state.db, session.session_id.clone(), area).await.is_err());
+    let after = crate::persistence::planner_repo::get_session(&state.db, &session.session_id).await.unwrap();
+    assert_eq!(after.pending_plan_json, before.pending_plan_json);
+    assert_eq!(after.draft_plan_json, before.draft_plan_json);
+    assert_eq!(after.selected_draft_node_id, before.selected_draft_node_id);
+}

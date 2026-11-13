@@ -314,6 +314,26 @@ pub async fn clear_staged_design(pool: &SqlitePool, id: &str) -> Result<(), AppE
     Ok(())
 }
 
+pub async fn replace_draft_and_clear_pending(
+    pool: &SqlitePool,
+    id: &str,
+    draft_plan_json: Option<&str>,
+    selected_draft_node_id: Option<&str>,
+) -> Result<(), AppError> {
+    let result = sqlx::query(
+        "UPDATE planner_sessions SET pending_plan_json = NULL, draft_plan_json = ?, selected_draft_node_id = ?, updated_at = datetime('now') WHERE id = ?",
+    )
+    .bind(draft_plan_json)
+    .bind(selected_draft_node_id)
+    .bind(id)
+    .execute(pool)
+    .await?;
+    if result.rows_affected() != 1 {
+        return Err(AppError::NotFound(format!("Planner session {id} not found")));
+    }
+    Ok(())
+}
+
 pub async fn update_draft_state(
     pool: &SqlitePool,
     id: &str,

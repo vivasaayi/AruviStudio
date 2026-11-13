@@ -7,8 +7,7 @@ use crate::services::planner_draft_mutation::{
 };
 use crate::services::planner_service::{PlannerPlan, PlannerTraceEvent, PlannerTurnResponse};
 use crate::services::planner_session::{
-    get_or_load_session, lock_planner_session, persist_draft_state, persist_pending_plan,
-    PlannerService,
+    get_or_load_session, lock_planner_session, persist_manual_draft_state, PlannerService,
 };
 use serde_json::json;
 use sqlx::SqlitePool;
@@ -72,8 +71,7 @@ pub async fn rename_planner_draft_node(
     session.draft_plan = Some(draft_plan.clone());
     session.selected_draft_node_id = Some(renamed.id.clone());
     session.pending_plan = None;
-    persist_pending_plan(db, &session_id, None).await?;
-    persist_draft_state(
+    persist_manual_draft_state(
         db,
         &session_id,
         Some(&draft_plan),
@@ -191,8 +189,7 @@ pub async fn add_planner_draft_child(
     session.draft_plan = Some(draft_plan.clone());
     session.selected_draft_node_id = Some(created.id.clone());
     session.pending_plan = None;
-    persist_pending_plan(db, &session_id, None).await?;
-    persist_draft_state(
+    persist_manual_draft_state(
         db,
         &session_id,
         Some(&draft_plan),
@@ -280,8 +277,7 @@ pub async fn delete_planner_draft_node(
     };
     session.selected_draft_node_id = fallback_parent_id;
     session.pending_plan = None;
-    persist_pending_plan(db, &session_id, None).await?;
-    persist_draft_state(
+    persist_manual_draft_state(
         db,
         &session_id,
         session.draft_plan.as_ref(),

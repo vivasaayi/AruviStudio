@@ -44,6 +44,19 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Atomic manual planner edits
+
+- Rename, add and delete draft operations now save the draft, selection and
+  pending-plan removal in one SQLite update. An injected database failure test
+  verifies all three operations preserve the original plan, draft and selection.
+  This covers manual draft edits; model-driven turns still have separate
+  persistence steps and are not claimed to be fully crash-atomic.
+- The macOS library suite passed 192 tests, with two live tests ignored. The
+  rebuilt worktree image passed the two-server planner fixture, browser suites
+  (one smoke, 21 remote, one CI, 20 workflow), and a real 7B Model Host planner
+  proposal and confirmation through MCP. Running server SHA-256:
+  `aa891322671708d66bbeec44d1a7184e79caaacb3ce6817a7616a67595ae5bd9`.
+
 ## Planner coordination across Unix processes
 
 - Cooperating macOS and Linux Studio processes running as the same OS user and
