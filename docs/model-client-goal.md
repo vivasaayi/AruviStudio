@@ -44,6 +44,18 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Disabled transcription providers
+
+- Transcription now rejects disabled providers at the shared Studio service
+  boundary before decoding audio, contacting a remote endpoint or loading a local
+  Whisper model. Desktop, web and MCP use this boundary; enabled providers are
+  unaffected. A Rust test covers both provider types and an isolated workflow
+  test covers rejection through the web API and MCP.
+- The macOS Rust suite passed 178 tests with one live test ignored; the isolated
+  workflow suite passed 20 tests. The rebuilt worktree container passed the real
+  MCP Piper-to-Whisper speech round trip and remained healthy. Its server SHA-256
+  is `9760104441b96b115529d2826bfc7971ef509dbf0b3eb71f320787a94d15b0c7`.
+
 ## Real speech and browser coding checkpoint
 
 - On 2026-11-13 the standard worktree image generated real `piper-ljspeech`

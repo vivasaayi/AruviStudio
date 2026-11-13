@@ -305,6 +305,25 @@ test("isolated provider key rotation uses the new credential", async ({ page, re
 });
 
 
+test("disabled providers cannot transcribe through web or MCP", async ({ request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires an isolated server");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const created = await request.post("/api/mobile/providers", { headers, data: { name: "Disabled speech fixture", base_url: process.env.ARUVI_TEST_MODEL_URL } });
+  expect(created.ok()).toBeTruthy();
+  const provider = await created.json();
+  const expected = { name: provider.name, base_url: provider.base_url, enabled: true };
+  const updated = await request.post("/api/mobile/providers/update", { headers, data: { id: provider.id, expected, fields: { ...expected, enabled: false } } });
+  expect(updated.ok()).toBeTruthy();
+  const payload = { provider_id: provider.id, model_name: "synthetic-stt-model", audio_bytes_base64: "AA==", mime_type: "audio/wav" };
+  const web = await request.post("/api/mobile/speech/transcribe", { headers, data: payload });
+  expect(web.status()).toBe(400);
+  expect(await web.text()).toContain("Selected provider is disabled");
+  const response = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_speech", arguments: { action: "transcribe_audio", arguments: payload } } } });
+  const mcp = (await response.json()).result;
+  expect(mcp.isError).toBeTruthy();
+  expect(JSON.stringify(mcp.content)).toContain("Selected provider is disabled");
+});
+
 test("voice records, reviews, and sends a transcribed message", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };

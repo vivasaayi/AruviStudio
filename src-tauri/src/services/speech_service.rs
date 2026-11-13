@@ -52,6 +52,9 @@ pub async fn transcribe_audio_with_provider(
     model_name: &str,
     request: SpeechToTextRequest,
 ) -> Result<SpeechToTextResponse, AppError> {
+    if !provider.enabled {
+        return Err(AppError::Validation("Selected provider is disabled".into()));
+    }
     if matches!(provider.provider_type, ProviderType::LocalRuntime) {
         return transcribe_audio_locally(provider, request).await;
     }
@@ -326,4 +329,25 @@ fn run_whisper_transcription(
     }
 
     Ok(transcript)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn disabled_transcription_providers_are_rejected_before_io() {
+        for provider_type in [ProviderType::OpenaiCompatible, ProviderType::LocalRuntime] {
+            let provider = ModelProvider {
+                id: "disabled".into(), name: "Disabled".into(), provider_type,
+                protocol: "openai_compatible".into(), base_url: "invalid".into(),
+                auth_secret_ref: None, enabled: false, created_at: "".into(), updated_at: "".into(),
+            };
+            let request = SpeechToTextRequest {
+                audio_bytes_base64: "invalid base64".into(), mime_type: "audio/wav".into(), locale: None,
+            };
+            let error = transcribe_audio_with_provider(&provider, "whisper", request).await.unwrap_err();
+            assert!(matches!(error, AppError::Validation(ref message) if message == "Selected provider is disabled"));
+        }
+    }
 }
