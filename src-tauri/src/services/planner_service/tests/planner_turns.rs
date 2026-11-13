@@ -248,3 +248,66 @@ async fn concurrent_draft_edits_are_serialized_per_session() {
         );
     }
 }
+
+#[tokio::test]
+async fn explicit_planner_model_never_falls_back_to_another_provider() {
+    use crate::persistence::model_repo;
+    use crate::services::planner_model::resolve_planner_model_binding;
+
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("explicit_planner_binding").await;
+    model_repo::create_provider(
+        &state.db,
+        "planner-test-provider",
+        "Planner Test",
+        "openai_compatible",
+        "http://localhost:12345/v1",
+        None,
+    )
+    .await
+    .unwrap();
+    model_repo::create_model_definition(
+        &state.db,
+        "planner-test-model",
+        "planner-test-provider",
+        "planner-test-name",
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let resolve = |provider: Option<&str>, model: Option<&str>| {
+        resolve_planner_model_binding(
+            &state.db,
+            provider.map(str::to_owned),
+            model.map(str::to_owned),
+        )
+    };
+    assert_eq!(
+        resolve(Some("planner-test-provider"), Some("planner-test-name"))
+            .await
+            .unwrap(),
+        (
+            Some("planner-test-provider".into()),
+            Some("planner-test-name".into())
+        )
+    );
+    assert!(
+        resolve(Some("planner-test-provider"), Some("missing-model"))
+            .await
+            .is_err()
+    );
+    assert!(resolve(Some("missing-provider"), Some("planner-test-name"))
+        .await
+        .is_err());
+    assert!(resolve(Some("missing-provider"), None).await.is_err());
+    assert!(resolve(None, Some("missing-model")).await.is_err());
+    assert_eq!(
+        resolve(Some("planner-test-provider"), None).await.unwrap(),
+        (
+            Some("planner-test-provider".into()),
+            Some("planner-test-name".into())
+        )
+    );
+}

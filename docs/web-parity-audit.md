@@ -73,7 +73,7 @@ handlers. An available handler is not evidence of a successful real-model workfl
 | Desktop action | Browser and MCP status |
 | --- | --- |
 | Create or update a planner session and choose provider/model | Browser connection settings create/update a session; `aruvi_planner` provides both operations. |
-| Submit a planner turn with selected draft node and product | Browser presents a product selector and sends its selected node and product; MCP accepts both. Tests simulate planner responses; real-provider behavior remains unverified. |
+| Submit a planner turn with selected draft node and product | Browser presents a product selector and sends its selected node and product; MCP accepts both. Simulated browser tests cover scope. An isolated MCP test exercised a scoped proposal and confirmation with the real 7B Model Host; other models and real-provider browser turns remain unverified. |
 | Select and inspect the staged draft tree | Browser renders/selects nodes; desktop additionally shows node details, validation, suggested prompts and recent actions. |
 | Rename a draft node, add a child or delete a draft node | Browser and `aruvi_planner` expose these operations. An isolated Docker browser test exercised the real authenticated API and verified the actual product remained unchanged; a Rust API test checked draft persistence. Concurrent session mutations within one server process are serialized; a regression test preserves both simultaneous draft edits. Cross-process access to the same database remains unverified. |
 | Analyze a registered repository into a design draft | Available through `aruvi_planner`; the browser has no equivalent control. Container paths and actual provider access still need validation. |

@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""Run a real local model-backed planner workflow in a disposable Studio fixture container."""
+import argparse
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+
+root = Path(__file__).resolve().parent.parent
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("host", nargs="?", type=Path, default=root.parent / "aruvi-model-host-studio-validation")
+args = parser.parse_args()
+host = args.host.expanduser().resolve()
+container = None
+volume = None
+container_created = False
+volume_owned = False
+
+def command(argv, **kwargs):
+    return subprocess.check_output(argv, text=True, **kwargs).strip()
+
+def environment(path):
+    return dict(line.split("=", 1) for line in path.read_text().splitlines() if line and not line.startswith("#") and "=" in line)
+
+try:
+    studio = json.loads(command(["bash", "scripts/env", "worktree", "plan"], cwd=root))
+    envfile = Path(studio["state"]) / "environment.env"
+    studio_env = environment(envfile)
+    native_env = dict(os.environ, ARUVI_MODEL_HOST_ENV="native")
+    plan = json.loads(command(["bash", "scripts/env", "worktree", "plan"], cwd=host, env=native_env))
+    status = json.loads(command(["bash", "scripts/env", "worktree", "status"], cwd=host, env=native_env))
+    native_url = status["endpoint"]["url"]
+    if not status["registered"] or not native_url.startswith("http://127.0.0.1:"):
+        raise ValueError("Expected a running loopback native host worktree")
+    token = environment(Path(plan["state"]) / "environment.env")["MODEL_HOST_TOKEN"]
+    host_port = int(native_url.rsplit(":", 1)[1])
+    suffix = str(os.getpid())
+    container = f'{studio["project"]}-real-planner-{suffix}'
+    volume = f'{studio["project"]}_real_planner_socket_{suffix}'
+    if subprocess.run(["docker", "inspect", container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+        raise ValueError("Disposable fixture container name is already in use")
+    if subprocess.run(["docker", "volume", "inspect", volume], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+        raise ValueError("Disposable fixture volume name is already in use")
+    volume_owned = True
+    compose_env = dict(os.environ, APP_IMAGE=studio_env["APP_IMAGE"], PRODUCT_SOURCE=str(root), TEST_SOCKET_NAME=volume, COMPOSE_IGNORE_ORPHANS="true")
+    compose = ["docker", "compose", "--project-name", studio["project"], "--project-directory", str(root), "--env-file", str(envfile), "-f", str(root / "deploy/compose.test.yaml")]
+    command(compose + ["run", "--rm", "-d", "--name", container, "-p", "127.0.0.1::8787", "fixture"], env=compose_env)
+    container_created = True
+    subprocess.run(["docker", "exec", "-i", container, "sh", "-c", "umask 077; cat > /data/llm-config.json"], input=json.dumps({"refs": {"coding-fixture": token}}), text=True, check=True)
+    address = command(["docker", "port", container, "8787/tcp"]).splitlines()[0]
+    if not address.startswith("127.0.0.1:"):
+        raise ValueError("Fixture endpoint is not loopback-only")
+    deadline = time.monotonic() + 30
+    while True:
+        try:
+            with urllib.request.urlopen(f"http://{address}/health", timeout=2) as response:
+                if response.status == 200: break
+        except (OSError, urllib.error.URLError):
+            if time.monotonic() >= deadline: raise ValueError("Disposable Studio fixture did not become healthy")
+            time.sleep(0.25)
+    def call(tool, action, arguments):
+        payload = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": {"action": action, "arguments": arguments}}}).encode()
+        request = urllib.request.Request(f"http://{address}/api/mcp", data=payload, headers={"Authorization": "Bearer workflow-mcp-test", "Content-Type": "application/json", "Accept": "application/json"})
+        with urllib.request.urlopen(request, timeout=240) as response:
+            result = json.load(response)
+        if "error" in result: raise ValueError(result["error"].get("message", "MCP failed"))
+        result = result["result"]
+        if result.get("isError"): raise ValueError("MCP " + action + " failed: " + "; ".join(item.get("text", "") for item in result.get("content", []))[:500])
+        return result["structuredContent"]["result"]
+    provider = call("aruvi_models", "create_provider", {"name": "Real planner fixture", "base_url": f"http://host.docker.internal:{host_port}/v1", "auth_secret_ref": "ref:coding-fixture"})
+    model_name = os.environ.get("ARUVI_CODING_TEST_MODEL", "qwen25-coder-7b-q4")
+    call("aruvi_models", "create_model_definition", {"provider_id": provider["id"], "name": model_name})
+    product = call("aruvi_catalog", "create_product", {"name": "Planner validation product"})
+    session = call("aruvi_planner", "create_planner_session", {"provider_id": provider["id"], "model_name": model_name})
+    if session.get("provider_id") != provider["id"] or session.get("model_name") != model_name:
+        raise ValueError("Planner did not bind the requested provider and model")
+    result = call("aruvi_planner", "submit_planner_turn", {
+        "session_id": session["session_id"], "product_id": product["id"],
+        "user_input": "Add one product area named Inventory Management for tracking stock levels to this product."
+    })
+    model_events = [event for event in result.get("trace_events", []) if event.get("stage") == "model"]
+    retries = sum(event.get("stage") == "format_retry" for event in result.get("trace_events", []))
+    print(f"Planner status: {result.get('status')}; model calls: {len(model_events)}; format retries: {retries}", flush=True)
+    if result.get("status") == "error" or result.get("execution_errors"):
+        print("Planner model trace:", json.dumps([event for event in result.get("trace_events", []) if event.get("stage") in ("model", "error")], ensure_ascii=False)[:6000], flush=True)
+        raise ValueError("Planner returned an error: " + str(result.get("assistant_message"))[:700])
+    if not model_events:
+        raise ValueError("Planner response did not contain evidence of a model completion")
+    def flatten(nodes):
+        for node in nodes or []:
+            yield node
+            yield from flatten(node.get("children"))
+    nodes = list(flatten(result.get("draft_tree_nodes")))
+    if not any(node.get("node_type") == "product_area" and "inventory" in node.get("label", "").lower() for node in nodes):
+        raise ValueError("Expected an Inventory product area in the staged draft; response: " + json.dumps(result, ensure_ascii=False)[:3000])
+    before = call("aruvi_catalog", "list_product_areas", {"product_id": product["id"]})
+    if before:
+        raise ValueError("Draft was persisted before confirmation")
+    confirmed = call("aruvi_planner", "confirm_planner_plan", {"session_id": session["session_id"]})
+    if confirmed.get("status") == "error" or confirmed.get("execution_errors"):
+        raise ValueError("Confirmation failed: " + json.dumps(confirmed)[:1000])
+    areas = call("aruvi_catalog", "list_product_areas", {"product_id": product["id"]})
+    if not any("inventory" in area.get("name", "").lower() for area in areas):
+        raise ValueError("Confirmed product area was not saved")
+    print(f"Real model {model_name} created and confirmed a planner draft through MCP", flush=True)
+except (OSError, KeyError, TypeError, ValueError, subprocess.SubprocessError) as error:
+    print(f"Real planner workflow failed: {type(error).__name__}: {error if not isinstance(error, subprocess.CalledProcessError) else 'fixture command failed'}", file=sys.stderr)
+    sys.exit(1)
+finally:
+    if container_created:
+        subprocess.run(["docker", "rm", "-f", container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if volume_owned:
+        subprocess.run(["docker", "volume", "rm", volume], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

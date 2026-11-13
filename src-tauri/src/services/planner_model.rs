@@ -1,8 +1,8 @@
 use crate::error::AppError;
 use crate::persistence::{model_call_repo, model_repo, settings_repo};
 use crate::planning_doctrine;
-use crate::services::model_service::create_gateway;
 use crate::providers::types::{ChatMessage, CompletionRequest};
+use crate::services::model_service::create_gateway;
 use sqlx::SqlitePool;
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -182,6 +182,51 @@ pub(crate) async fn resolve_planner_model_binding(
         .into_iter()
         .filter(|model| model.enabled && enabled_provider_ids.contains(&model.provider_id))
         .collect::<Vec<_>>();
+
+    // Never silently route an explicitly selected model to a different provider.
+    // Provider defaults may fill a missing model only when they match the selection.
+    if let (Some(provider), Some(model)) = (&requested_provider_id, &requested_model_name) {
+        if enabled_models
+            .iter()
+            .any(|candidate| &candidate.provider_id == provider && &candidate.name == model)
+        {
+            return Ok((Some(provider.clone()), Some(model.clone())));
+        }
+        return Err(AppError::Validation(
+            "The requested planner provider and model are not enabled or configured together"
+                .into(),
+        ));
+    }
+    if let Some(provider) = &requested_provider_id {
+        let models = enabled_models
+            .iter()
+            .filter(|model| &model.provider_id == provider)
+            .collect::<Vec<_>>();
+        if let Some(model) = models
+            .iter()
+            .find(|model| Some(&model.name) == default_model_name.as_ref())
+        {
+            return Ok((Some(provider.clone()), Some(model.name.clone())));
+        }
+        if models.len() == 1 {
+            return Ok((Some(provider.clone()), Some(models[0].name.clone())));
+        }
+        return Err(AppError::Validation(
+            "Select an enabled model for the requested planner provider".into(),
+        ));
+    }
+    if let Some(name) = &requested_model_name {
+        let models = enabled_models
+            .iter()
+            .filter(|model| &model.name == name)
+            .collect::<Vec<_>>();
+        if models.len() == 1 {
+            return Ok((Some(models[0].provider_id.clone()), Some(name.clone())));
+        }
+        return Err(AppError::Validation(
+            "Select an enabled provider for the requested planner model".into(),
+        ));
+    }
 
     let first_valid_pair = |pairs: Vec<(Option<String>, Option<String>)>| {
         pairs.into_iter().find_map(|(provider_id, model_name)| {

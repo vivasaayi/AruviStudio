@@ -594,6 +594,33 @@ provider hosting into the model-host service as part of this work.
   coding and browser speech checks. Native desktop and Windows dependency paths
   remain unverified. No other products' data were pruned.
 
+## Real Model Host planner checkpoint
+
+- `bash scripts/test host-planner` creates a disposable Studio fixture, binds the
+  registered `qwen25-coder-7b-q4` Model Host provider/model explicitly, creates
+  a product, requests an inventory product area through MCP, checks a model
+  completion and staged draft, verifies no area exists before confirmation, then
+  confirms and checks the stored area. It removes its fixture and socket volume.
+  The host can be selected by the optional path argument; `ARUVI_CODING_TEST_MODEL`
+  selects an installed model. This is a nondeterministic real-model test, not a
+  guarantee of planner quality or evidence for every model and operation.
+- On 2026-11-13 the first 7B run returned a malformed final envelope, and 15B
+  hit the 1,800-token limit. Studio now retries malformed planner envelopes at
+  most twice within the existing six-step limit, asking the model to correct its
+  own response; it does not invent or commit actions. A mock provider checks both
+  successful recovery and the retry bound. After the change, two 7B runs staged
+  and confirmed the requested area; the second recorded two model calls and one
+  format retry. A token-limit error is still reported, not retried or accepted.
+- Explicit planner provider/model choices now fail validation if unavailable or
+  ambiguous instead of silently using another default provider. Regression tests
+  exercise valid and invalid explicit selections; defaults still apply when no
+  explicit choice is supplied. This avoids accidentally sending prompts to an
+  unintended provider. Existing configurations with an unregistered or disabled
+  explicitly selected pair now need to select an enabled, registered model.
+- The rebuilt worktree image passed 166 Rust tests on each of macOS and Linux
+  (one live-provider test ignored), the browser smoke, 20 remote, one CI and 19
+  workflow tests. The real planner checks above use a separate disposable database.
+
 ## Planner concurrency checkpoint
 
 - Browser, MCP and native planner mutations sharing one `PlannerService` now

@@ -166,6 +166,7 @@ pub(crate) async fn run_tool_loop(
         content: user_context,
     });
 
+    let mut format_retries = 0;
     for step in 0..6 {
         let completion = run_completion(
             input.db,
@@ -188,7 +189,29 @@ pub(crate) async fn run_tool_loop(
             format!("Model completion {}", step + 1),
             completion.clone(),
         );
-        match parse_agent_turn(&completion)? {
+        let parsed = match parse_agent_turn(&completion) {
+            Ok(parsed) => parsed,
+            Err(error) if format_retries < 2 => {
+                format_retries += 1;
+                push_trace(
+                    trace,
+                    "format_retry",
+                    "Invalid planner response",
+                    error.to_string(),
+                );
+                messages.push(ChatMessage {
+                    role: "assistant".to_string(),
+                    content: completion,
+                });
+                messages.push(ChatMessage {
+                    role: "user".to_string(),
+                    content: "Your previous answer did not follow the required JSON envelope. Return one JSON object with type final, assistant_response (string), needs_confirmation (boolean), clarification_question (string or null), and actions (array). Put each requested design action inside actions, not at the top level. Do not use Markdown.".to_string(),
+                });
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        match parsed {
             Ok(tool_call) => {
                 push_trace(
                     trace,
@@ -383,5 +406,97 @@ mod tests {
                 .and_then(serde_json::Value::as_i64),
             Some(2)
         );
+    }
+    #[tokio::test]
+    async fn repairs_invalid_model_envelope_and_bounds_retries() {
+        use crate::persistence::model_repo;
+        use axum::{extract::State, routing::post, Json, Router};
+        use std::sync::{
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+            Arc,
+        };
+
+        #[derive(Clone)]
+        struct Fixture {
+            count: Arc<AtomicUsize>,
+            always_invalid: Arc<AtomicBool>,
+        }
+        async fn complete(
+            State(fixture): State<Fixture>,
+            Json(request): Json<Value>,
+        ) -> Json<Value> {
+            let count = fixture.count.fetch_add(1, Ordering::SeqCst);
+            if count > 0 {
+                assert!(request["messages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|message| message["content"]
+                        .as_str()
+                        .unwrap_or("")
+                        .contains("previous answer did not follow")));
+            }
+            let content = if count == 0 || fixture.always_invalid.load(Ordering::SeqCst) {
+                r#"{"type":"create_product_area","actions":[]}"#
+            } else {
+                r#"{"type":"final","assistant_response":"Draft prepared","needs_confirmation":false,"clarification_question":null,"actions":[{"type":"create_product_area","name":"Inventory"}]}"#
+            };
+            Json(
+                json!({"id":"fixture", "model":"fixture", "choices":[{"message":{"role":"assistant","content":content},"finish_reason":"stop"}]}),
+            )
+        }
+        let fixture = Fixture {
+            count: Arc::new(AtomicUsize::new(0)),
+            always_invalid: Arc::new(AtomicBool::new(false)),
+        };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server_fixture = fixture.clone();
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new()
+                    .route("/v1/chat/completions", post(complete))
+                    .with_state(server_fixture),
+            )
+            .await
+            .unwrap()
+        });
+        let pool = create_test_pool("format_repair").await;
+        model_repo::create_provider(
+            &pool,
+            "format-provider",
+            "Fixture",
+            "openai_compatible",
+            &format!("http://{address}/v1"),
+            None,
+        )
+        .await
+        .unwrap();
+        let artifacts = make_temp_dir("format_artifacts");
+        std::fs::create_dir_all(&artifacts).unwrap();
+        let input = || PlannerToolLoopInput {
+            db: &pool,
+            artifact_base_path: &artifacts,
+            session_id: "fixture",
+            provider_id: "format-provider",
+            model_name: "fixture",
+            conversation: &[],
+            pending_plan: None,
+            draft_plan: None,
+            selected_draft_node_id: None,
+            selected_product: None,
+            user_input: "Add inventory",
+        };
+        let mut trace = Vec::new();
+        let plan = run_tool_loop(input(), &mut trace).await.unwrap();
+        assert_eq!(plan.actions[0]["name"], "Inventory");
+        assert_eq!(fixture.count.load(Ordering::SeqCst), 2);
+        assert!(trace.iter().any(|event| event.stage == "format_retry"));
+        fixture.count.store(0, Ordering::SeqCst);
+        fixture.always_invalid.store(true, Ordering::SeqCst);
+        assert!(run_tool_loop(input(), &mut Vec::new()).await.is_err());
+        assert_eq!(fixture.count.load(Ordering::SeqCst), 3);
+        server.abort();
     }
 }
