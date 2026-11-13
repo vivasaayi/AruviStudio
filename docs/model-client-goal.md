@@ -467,6 +467,21 @@ provider hosting into the model-host service as part of this work.
   These are limited checks, not a general model reliability claim. Windows and
   other untested target builds remain open.
 
+## Progress — async runtime and yanked dependency updates
+
+- Updated the locked Tokio version from 1.49.0 to 1.54.1, addressing
+  [RUSTSEC-2026-0386](https://rustsec.org/advisories/RUSTSEC-2026-0386.html),
+  and updated the yanked `async-executor`, `spin` and `uds_windows` releases to
+  1.14.1, 0.9.9 and 1.2.1 respectively. The Tokio upgrade also updated its
+  compatible macro, system and socket dependencies. The final audit reports no
+  yanked packages, one RSA vulnerability in the lockfile, 13 unmaintained and six
+  unsound warnings. The scanner does not review the local SQLx patch itself.
+- The full macOS and Linux Rust suites each passed 160 tests with one live test
+  ignored. The worktree release binary hash matched the deployed binary; the
+  browser suites passed one remote smoke, 20 remote, one CI and 19 isolated
+  workflow cases. Real 7B MCP coding and browser speech checks passed. Windows
+  builds and `uds_windows` runtime behavior remain unverified.
+
 ## Dependency security checkpoint — 2026-11-13
 
 - `npm audit --json` reported no npm advisories. `cargo-audit` 0.23.0
