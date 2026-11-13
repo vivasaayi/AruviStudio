@@ -205,7 +205,7 @@ pub(crate) async fn run_tool_loop(
                 });
                 messages.push(ChatMessage {
                     role: "user".to_string(),
-                    content: "Your previous answer did not follow the required JSON envelope. Return one JSON object with type final, assistant_response (string), needs_confirmation (boolean), clarification_question (string or null), and actions (array). Put each requested design action inside actions, not at the top level. Do not use Markdown.".to_string(),
+                    content: format!("Validation error: {}. Your previous answer did not follow the required JSON envelope. Return one JSON object with type final, assistant_response (string), needs_confirmation (boolean), clarification_question (string or null), and actions (array). Put each requested design action inside actions, not at the top level. Do not use Markdown.", error),
                 });
                 continue;
             }

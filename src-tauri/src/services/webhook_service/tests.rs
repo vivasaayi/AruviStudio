@@ -482,7 +482,8 @@ async fn remote_repository_analysis_requires_auth_and_stages_design() {
             json!([{"node_type":"product_area", "name":"Inventory", "details":{"type":"create_product_area"}}])
         } else {
             assert!(request["messages"].as_array().unwrap().iter().any(|message| message["content"].as_str().unwrap_or("").contains("Correct the previous response")));
-            json!([{"type":"create_product_area", "name":"Inventory", "target":{"productName":"Analysis Product"}}])
+            if count == 1 { json!([{"type":"start_workflow"}]) }
+            else { json!([{"type":"create_product_area", "name":"Inventory", "target":{"productName":"Analysis Product"}}]) }
         };
         Json(json!({"id":"fixture", "model":"fixture", "choices":[{"message":{"role":"assistant", "content":json!({"type":"final", "assistant_response":"Proposed inventory area", "needs_confirmation":false, "clarification_question":null, "actions":actions}).to_string()}, "finish_reason":"stop"}]}))
     }
@@ -516,7 +517,7 @@ async fn remote_repository_analysis_requires_auth_and_stages_design() {
     let (status, body) = send_json(&router, Method::POST, &path, Some("analysis-token"), Some(payload)).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let result = parse_json(&body);
-    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
     assert!(result["trace_events"].as_array().unwrap().iter().any(|event| event["stage"] == "format_retry"));
     assert_eq!(result["draft_tree_nodes"][0]["children"][0]["label"], "Inventory");
     let saved = crate::services::planner_session::load_session_from_db(&state.db, &session.session_id).await.unwrap();

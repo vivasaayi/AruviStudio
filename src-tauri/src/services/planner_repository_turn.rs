@@ -168,6 +168,25 @@ pub async fn analyze_repository_for_planner(
             completion.clone(),
         );
         let result = parse_final_response(&completion).and_then(|plan| {
+            if plan.actions.iter().any(|action| {
+                !matches!(
+                    action.get("type").and_then(serde_json::Value::as_str),
+                    Some(
+                        "update_product"
+                            | "create_product_area"
+                            | "update_product_area"
+                            | "create_capability"
+                            | "update_capability"
+                            | "create_work_item"
+                            | "update_work_item"
+                            | "report_tree"
+                    )
+                )
+            }) {
+                return Err(AppError::Validation(
+                    "Repository analysis returned an unsupported action".into(),
+                ));
+            }
             if plan.actions.is_empty()
                 && plan
                     .clarification_question
@@ -198,7 +217,7 @@ pub async fn analyze_repository_for_planner(
                     role: "assistant".to_string(),
                     content: completion,
                 });
-                messages.push(ChatMessage { role: "user".to_string(), content: "Correct the previous response. Return the required final JSON envelope. Every action must have top-level type, name, and target fields; do not return draft nodes or put type inside details. Example action: {\"type\":\"create_product_area\",\"name\":\"Inventory\",\"target\":{\"productName\":\"Selected product name\"}}. If evidence is insufficient, return an empty actions array and a nonempty clarification_question.".to_string() });
+                messages.push(ChatMessage { role: "user".to_string(), content: format!("Validation error: {}. {}", error, "Correct the previous response. Return the required final JSON envelope. Every action must have top-level type, name, and target fields; do not return draft nodes or put type inside details. Example action: {\"type\":\"create_product_area\",\"name\":\"Inventory\",\"target\":{\"productName\":\"Selected product name\"}}. If evidence is insufficient, return an empty actions array and a nonempty clarification_question.") });
             }
             Err(error) => return Err(error),
         }

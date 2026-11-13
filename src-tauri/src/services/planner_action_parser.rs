@@ -97,6 +97,52 @@ pub(crate) fn parse_final_response(raw: &str) -> Result<PlannerPlan, AppError> {
                 })
         })
         .collect::<Result<Vec<_>, _>>()?;
+    let mut has_draft = false;
+    let mut has_operation = false;
+    let mut has_status_report = false;
+    for (index, action) in actions.iter().enumerate() {
+        let kind = action
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        match kind {
+            "create_product"
+            | "update_product"
+            | "archive_product"
+            | "create_product_area"
+            | "update_product_area"
+            | "delete_product_area"
+            | "create_capability"
+            | "update_capability"
+            | "delete_capability"
+            | "apply_capability_template"
+            | "convert_capability_kind"
+            | "create_work_item"
+            | "update_work_item"
+            | "delete_work_item" => has_draft = true,
+            "approve_work_item"
+            | "reject_work_item"
+            | "approve_work_item_plan"
+            | "reject_work_item_plan"
+            | "approve_work_item_test_review"
+            | "start_workflow"
+            | "workflow_action" => has_operation = true,
+            "report_status" => has_status_report = true,
+            "report_tree" => {}
+            _ => {
+                return Err(AppError::Validation(format!(
+                    "Planner action {} has unsupported type {}",
+                    index + 1,
+                    kind
+                )))
+            }
+        }
+    }
+    if has_draft && (has_operation || has_status_report) {
+        return Err(AppError::Validation(
+            "Planner cannot combine staged design changes with workflow actions or status reports in one plan".into(),
+        ));
+    }
     Ok(PlannerPlan {
         assistant_response: parsed.assistant_response,
         needs_confirmation: parsed.needs_confirmation,
@@ -248,5 +294,25 @@ mod malformed_response_tests {
     fn rejects_partially_malformed_actions_instead_of_dropping_them() {
         let raw = json!({"assistant_response":"Ready", "needs_confirmation":false, "actions":[{"type":"create_product_area", "name":"First"}, {"node_type":"product_area", "name":"Second"}]}).to_string();
         assert!(parse_final_response(&raw).is_err());
+    }
+    #[test]
+    fn rejects_unknown_or_mixed_workflow_actions_without_losing_supported_edits() {
+        let response = |actions: Value| {
+            json!({"assistant_response":"Ready", "needs_confirmation":false, "actions":actions})
+                .to_string()
+        };
+        assert!(parse_final_response(&response(json!([{ "type":"create_product_area", "name":"Inventory" }, {"type":"invented_operation"}]))).is_err());
+        assert!(parse_final_response(&response(
+            json!([{ "type":"create_product_area", "name":"Inventory" }, {"type":"start_workflow"}])
+        ))
+        .is_err());
+        assert!(parse_final_response(&response(
+            json!([{ "type":"create_product_area", "name":"Inventory" }, {"type":"report_tree"}])
+        ))
+        .is_ok());
+        assert!(parse_final_response(&response(
+            json!([{ "type":"start_workflow" }, {"type":"approve_work_item"}])
+        ))
+        .is_ok());
     }
 }

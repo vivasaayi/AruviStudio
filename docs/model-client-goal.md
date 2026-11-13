@@ -594,6 +594,19 @@ provider hosting into the model-host service as part of this work.
   coding and browser speech checks. Native desktop and Windows dependency paths
   remain unverified. No other products' data were pruned.
 
+## Planner action validation checkpoint
+
+- Planner responses reject unknown action types and reject a mixture of staged
+  draft changes with workflow operations or status reports. Previously the draft
+  application path could silently skip those other actions. Repository analysis
+  additionally rejects action types outside its supported design operations.
+  Bounded correction requests include the validation error, and no partial plan
+  is staged from an invalid response. Tests cover mixed actions, supported
+  report-tree combinations and model correction of unsupported actions.
+- Validation: macOS and Linux each passed 170 Rust tests (one live test
+  ignored), all browser suites passed, and the real 7B browser repository
+  analysis and MCP confirmation fixture passed.
+
 ## Repository snapshot privacy checkpoint
 
 - Repository analysis no longer sends the configured remote URL or absolute
