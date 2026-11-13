@@ -286,6 +286,17 @@ provider hosting into the model-host service as part of this work.
   this check. The eight simulated consumer tests also passed offline. This is a
   single small-model integration check, not proof of broader coding quality.
 
+- A native macOS ARM64 debug binary was built from the branch with Rust 1.99.1
+  and a separate temporary toolchain and application data profile. Its own
+  authenticated MCP endpoint registered a disposable provider and returned a
+  real `qwen25-coder-7b-q4` completion from the native Model Host. Real Piper
+  synthesis and Whisper transcription also passed through that native process;
+  the short transcript was approximate. Two native mocked Tauri stream-event
+  tests passed, one per protocol. The Mac was locked during the attempted UI
+  inspection, so actual desktop window interaction, physical audio devices and
+  desktop feature parity remain unverified. The native test app, Vite server
+  and private test data are temporary; the branch Docker deployment is separate.
+
 ## Dependency security checkpoint — 2026-11-13
 
 - `npm audit --json` reported no npm advisories. `cargo-audit` 0.23.0
@@ -303,7 +314,11 @@ provider hosting into the model-host service as part of this work.
   and WAL pair. Studio currently reaches `libsqlite3-sys` 0.30.1 through SQLx
   0.8.6; the advisory's fixed bundled version is 0.39.0 or later. Verify the
   actual database trust boundary and a compatible upstream upgrade or other
-  mitigation before release.
+  mitigation before release. As checked on 2026-11-13, the latest published
+  SQLx 0.9.0 still requires `libsqlite3-sys <0.38`, so that upgrade alone would
+  not reach the fixed version. SQLx supports dynamic SQLite linkage, but that
+  requires a patched system library on every target and has not been adopted or
+  verified here. See [SQLx SQLite linkage](https://docs.rs/crate/sqlx-sqlite/0.8.6).
 - [RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html)
   reports an RSA timing issue. `rsa` 0.9.10 appears in the lockfile, but `cargo
   tree --target all -i rsa` printed no path for Studio's selected features. This
