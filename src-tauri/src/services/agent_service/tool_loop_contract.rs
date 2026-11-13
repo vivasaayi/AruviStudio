@@ -18,6 +18,8 @@ pub(super) enum ToolLoopResponse {
     Final {
         summary: Option<String>,
         result: Option<String>,
+        #[serde(default)]
+        no_changes_needed: bool,
     },
 }
 
@@ -85,6 +87,7 @@ pub(super) fn build_coding_tool_prompt(
     prompt.push_str(
         "\n- repo.write_file -> {\"path\":\"relative/path.ext\",\"content\":\"full file content\"}",
     );
+    prompt.push_str("\n  For new files, repo.write_file creates missing parent directories automatically; do not stop because a directory is absent. Its content must include the complete implementation, including definitions for exported functions, not just export statements.");
     prompt.push_str(
         "\n- repo.replace_range -> {\"path\":\"relative/path.ext\",\"start_line\":10,\"end_line\":22,\"content\":\"replacement text\"}",
     );
@@ -107,6 +110,7 @@ pub(super) fn build_coding_tool_prompt(
     );
     prompt.push_str("\nWhen implementation is complete, return:");
     prompt.push_str("\n{\"type\":\"final\",\"summary\":\"...\",\"result\":\"...\"}");
+    prompt.push_str("\nIf no files need to change, return type=final with no_changes_needed=true and explain why in summary. Otherwise write the files with a tool before finishing.");
     prompt.push_str(&format!("\nCurrent step: {}/{}", step, max_steps));
     if max_steps.saturating_sub(step) <= 2 {
         prompt.push_str(
@@ -176,7 +180,7 @@ impl AgentService {
             .await?
             .content;
         match parse_tool_loop_response(&model_output) {
-            Some(ToolLoopResponse::Final { summary, result }) => {
+            Some(ToolLoopResponse::Final { summary, result, .. }) => {
                 Ok(Some(summary.or(result).unwrap_or_else(|| {
                     "Coding stage finalized after tool-loop completion.".to_string()
                 })))

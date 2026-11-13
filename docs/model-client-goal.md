@@ -147,6 +147,28 @@ provider hosting into the model-host service as part of this work.
   fixtures without registering them. The client suite passed 17 tests; the
   Studio suite passed 151 (one ignored), plus targeted simulated Anthropic
   MCP/web pagination tests, 20 remote UI tests, one CI test and 19 workflow tests.
+- An isolated native Model Host worktree now runs the pinned Qwen2.5-Coder 1.5B
+  and 7B Q4 fixtures, with the 7B worker currently loaded. Studio's separate
+  `Aruvi Model Host (Studio Coding Validation)` provider and model definitions
+  use this host; no agent bindings were changed. The staging host remains on its
+  original four ready workers. The 1.5B and 7B each generated a small JavaScript
+  function through MCP that passed isolated assertions; authenticated browser
+  chat also returned real coding output. The host's dynamic port changed on
+  restart and `scripts/configure-native-model-host` refreshed Studio's provider
+  without duplicating it. This refresh is manual, not automatic.
+- A disposable real-model workflow exposed false success when malformed output
+  was treated as a legacy file-block response, and when an agent claimed it had
+  changed files without recording a write. Coding now retries both cases and
+  accepts an explicit reasoned no-change result. Tests cover those paths, and
+  missing-directory tool feedback explains that writing creates parents. The
+  1.5B and 7B models have not yet passed the real agent workflow: observed runs
+  produced no file, invalid JavaScript, or exhausted the tool-step limit. The
+  independent sandbox assertions and meaningful fixture check caught those
+  failures. Do not treat the short function check as workflow-quality approval.
+  After these changes, 151 Rust tests passed (one ignored), along with 20 remote
+  UI tests, one CI test and 19 simulated workflow tests. The real coding workflow
+  acceptance check remains failing and is intentionally not part of the green
+  simulated suite.
 
 ## Open design questions
 

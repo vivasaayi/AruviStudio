@@ -147,7 +147,19 @@ impl AgentService {
                         }
                     }
                 }
-                Some(ToolLoopResponse::Final { summary, result }) => {
+                Some(ToolLoopResponse::Final { summary, result, no_changes_needed }) => {
+                    if changed_files.is_empty()
+                        && (!no_changes_needed || summary.as_deref().is_none_or(|value| value.trim().is_empty()))
+                    {
+                        let observation = format!(
+                            "tool_error step={} tool=final error=No files were changed; use a write tool or explicitly report no_changes_needed with a reason",
+                            step
+                        );
+                        tool_observations.push(observation.clone());
+                        trace.push(ToolLoopTraceEntry { step, kind: "tool_error".to_string(), payload: observation });
+                        write_tool_trace_snapshot(&trace_path, &trace).await?;
+                        continue;
+                    }
                     let resolved = summary
                         .or(result)
                         .unwrap_or_else(|| "Coding stage completed by tool loop.".to_string());
@@ -166,28 +178,34 @@ impl AgentService {
                         let legacy_changed = self
                             .parse_and_apply_changes(&workspace, &model_output, boundaries)
                             .await?;
-                        for path in legacy_changed {
-                            changed_files.insert(path);
+                        if !legacy_changed.is_empty() {
+                            for path in legacy_changed {
+                                changed_files.insert(path);
+                            }
+                            final_summary = Some(
+                                "Applied legacy coding response format (File blocks)".to_string(),
+                            );
+                            trace.push(ToolLoopTraceEntry {
+                                step,
+                                kind: "legacy_fallback".to_string(),
+                                payload: "Used legacy File-block parser".to_string(),
+                            });
+                            write_tool_trace_snapshot(&trace_path, &trace).await?;
+                            break;
                         }
-                        final_summary =
-                            Some("Applied legacy coding response format (File blocks)".to_string());
-                        trace.push(ToolLoopTraceEntry {
-                            step,
-                            kind: "legacy_fallback".to_string(),
-                            payload: "Used legacy File-block parser".to_string(),
-                        });
-                        write_tool_trace_snapshot(&trace_path, &trace).await?;
-                        break;
                     }
-                    tool_observations.push(format!(
+                    let observation = format!(
                         "tool_error step={} tool=parser error=Response did not match tool/final JSON contract",
                         step
-                    ));
+                    );
+                    tool_observations.push(observation.clone());
+                    trace.push(ToolLoopTraceEntry { step, kind: "tool_error".to_string(), payload: observation });
+                    write_tool_trace_snapshot(&trace_path, &trace).await?;
                 }
             }
         }
 
-        if final_summary.is_none() {
+        if final_summary.is_none() && !changed_files.is_empty() {
             if let Some(summary) = self
                 .try_force_tool_loop_finalization(
                     agent_run,

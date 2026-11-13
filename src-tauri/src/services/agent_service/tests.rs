@@ -65,7 +65,7 @@ async fn coding_stage_creates_tool_trace_artifact() {
     .expect("failed to bind coding agent to test model");
     sqlx::query(
             "UPDATE agent_definitions
-             SET boundaries='{\"max_tool_steps\":4,\"keep_workspace\":false,\"max_file_chars\":4000}',
+             SET boundaries='{\"max_tool_steps\":5,\"keep_workspace\":false,\"max_file_chars\":4000}',
                  enabled=1,
                  employment_status='active'
              WHERE id='coding-agent'",
@@ -164,6 +164,9 @@ async fn coding_stage_creates_tool_trace_artifact() {
     AgentService::set_test_model_outputs_for_workflow(
         &workflow_run.id,
         vec![
+            "Tool call:\n{\"type\":\"tool_call\",\"tool\":\"repo.search\"}\n\nFinal answer:\n{\"type\":\"final\"}".to_string(),
+            json!({"type":"final", "summary":"Claimed changes without writing files"}).to_string(),
+            json!({"type":"tool_call", "tool":"repo.list_tree", "arguments":{"path":"missing-directory"}}).to_string(),
             json!({
                 "type": "tool_call",
                 "tool": "repo.write_file",
@@ -220,6 +223,9 @@ async fn coding_stage_creates_tool_trace_artifact() {
     );
     let trace_content =
         std::fs::read_to_string(&trace_artifact.storage_path).expect("failed to read trace file");
+    assert!(trace_content.contains("Response did not match tool/final JSON contract"));
+    assert!(trace_content.contains("No files were changed"));
+    assert!(trace_content.contains("repo.write_file creates parent directories"));
     assert!(
         trace_content.contains("tool_result"),
         "trace artifact did not include tool_result entry"
@@ -232,6 +238,17 @@ async fn coding_stage_creates_tool_trace_artifact() {
     let applied_file = std::fs::read_to_string(repo_dir.join("hello.txt"))
         .expect("expected file written by coding tool loop");
     assert_eq!(applied_file, "hello from tool loop\n");
+
+    let no_change_run = workflow_repo::create_workflow_run(&pool, "test-no-change-run", &work_item.id)
+        .await
+        .expect("create no-change workflow");
+    AgentService::set_test_model_outputs_for_workflow(
+        &no_change_run.id,
+        vec![json!({"type":"final", "summary":"The requested behavior already exists", "no_changes_needed":true}).to_string()],
+    );
+    let no_change_agent = service.run_agent_for_stage(&no_change_run.id, "coding").await
+        .expect("explicit no-change outcome should complete");
+    assert_eq!(no_change_agent.status, crate::domain::agent::AgentRunStatus::Completed);
 
     let _ = std::fs::remove_dir_all(temp_root);
 }

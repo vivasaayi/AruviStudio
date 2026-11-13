@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""Connect Studio's current worktree to an existing native Model Host worktree.
+
+Credentials travel over loopback via scripts/mcp stdin and are never printed.
+The provider URL is refreshed after a native worktree restart changes its port.
+"""
+import argparse
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import urllib.request
+from urllib.parse import urlsplit
+
+root = Path(__file__).resolve().parent.parent
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("host_worktree", type=Path, help="Path to the native Model Host worktree")
+parser.add_argument("--model", default="qwen25-coder-15b-q4", help="Installed Model Host ID")
+parser.add_argument("--name", default="Aruvi Model Host (Studio Coding Validation)")
+args = parser.parse_args()
+
+
+def mcp(action, arguments):
+    payload = json.dumps({"action": action, "arguments": arguments})
+    result = subprocess.run([str(root / "scripts/mcp"), "call", "aruvi_models", "-"], cwd=root,
+                            input=payload, text=True, capture_output=True, check=True)
+    return json.loads(result.stdout)["result"]
+
+
+try:
+    host = args.host_worktree.expanduser().resolve(strict=True)
+    env = dict(os.environ, ARUVI_MODEL_HOST_ENV="native")
+    def host_info(action):
+        return json.loads(subprocess.check_output(["bash", "scripts/env", "worktree", action], cwd=host, env=env, text=True))
+    plan, status = host_info("plan"), host_info("status")
+    endpoint = urlsplit(status["endpoint"]["url"])
+    if not status["registered"] or endpoint.scheme != "http" or endpoint.hostname != "127.0.0.1" or endpoint.port is None:
+        raise ValueError("Expected a running loopback-only native Model Host worktree")
+    token = next(line.split("=", 1)[1] for line in (Path(plan["state"]) / "environment.env").read_text().splitlines()
+                 if line.startswith("MODEL_HOST_TOKEN="))
+    if not token:
+        raise ValueError("Native Model Host token is empty")
+    discovery_request = urllib.request.Request(status["endpoint"]["url"].rstrip("/") + "/v1/models", headers={"Authorization": "Bearer " + token})
+    with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(discovery_request, timeout=20) as response:
+        body = response.read(2 * 1024 * 1024 + 1)
+        if len(body) > 2 * 1024 * 1024:
+            raise ValueError("Model Host discovery response is too large")
+        available = json.loads(body)
+    if not any(model.get("id") == args.model for model in available.get("data", [])):
+        raise ValueError("Requested model is not installed on the selected host")
+    base_url = f"http://host.docker.internal:{endpoint.port}/v1"
+    matches = [p for p in mcp("list_providers", {}) if p["name"] == args.name]
+    if len(matches) > 1:
+        raise ValueError("More than one provider has the requested name")
+    if matches:
+        existing = matches[0]
+        if existing["provider_type"] != "openai_compatible" or existing["protocol"] != "openai_compatible" or not existing["base_url"].startswith("http://host.docker.internal:"):
+            raise ValueError("Existing provider is not an owned native-host configuration")
+        provider = mcp("update_provider", {"id": existing["id"], "base_url": base_url, "auth_secret_ref": token})
+    else:
+        provider = mcp("create_provider", {"name": args.name, "provider_type": "openai_compatible", "base_url": base_url, "auth_secret_ref": token})
+    page = mcp("discover_provider_models", {"id": provider["id"]})
+    if not any(model["id"] == args.model for model in page["models"]):
+        raise ValueError("Requested model is not installed on the selected host")
+    models = [model for model in mcp("list_model_definitions", {}) if model["provider_id"] == provider["id"] and model["name"] == args.model]
+    if not models:
+        mcp("create_model_definition", {"provider_id": provider["id"], "name": args.model, "capability_tags": ["coding", "text"], "notes": "Isolated Model Host validation model"})
+    print(json.dumps({"provider": provider["name"], "provider_id": provider["id"], "base_url": base_url, "model": args.model}, indent=2))
+except (OSError, ValueError, KeyError, TypeError, StopIteration, subprocess.CalledProcessError) as error:
+    # Do not echo subprocess output: it may include provider response content.
+    print(f"Unable to configure native Model Host: {type(error).__name__}: {error if not isinstance(error, subprocess.CalledProcessError) else 'MCP or host command failed'}", file=sys.stderr)
+    sys.exit(1)

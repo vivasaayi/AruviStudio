@@ -136,7 +136,12 @@ impl AgentService {
         } else {
             workspace.repo_path.clone()
         };
-        if !root.exists() || !root.is_dir() {
+        if !root.exists() {
+            return Err(AppError::Validation(
+                "repo.list_tree directory does not exist; repo.write_file creates parent directories for new files".to_string(),
+            ));
+        }
+        if !root.is_dir() {
             return Err(AppError::Validation(
                 "repo.list_tree target is not a directory".to_string(),
             ));

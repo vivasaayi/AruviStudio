@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+"""Run a real local coding workflow in a disposable Studio fixture container."""
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+
+root = Path(__file__).resolve().parent.parent
+host = Path(sys.argv[1] if len(sys.argv) > 1 else root.parent / "aruvi-model-host-studio-validation").resolve()
+container = None
+volume = None
+container_created = False
+volume_owned = False
+
+def command(argv, **kwargs):
+    return subprocess.check_output(argv, text=True, **kwargs).strip()
+
+def environment(path):
+    return dict(line.split("=", 1) for line in path.read_text().splitlines() if line and not line.startswith("#") and "=" in line)
+
+try:
+    studio = json.loads(command(["bash", "scripts/env", "worktree", "plan"], cwd=root))
+    envfile = Path(studio["state"]) / "environment.env"
+    studio_env = environment(envfile)
+    native_env = dict(os.environ, ARUVI_MODEL_HOST_ENV="native")
+    plan = json.loads(command(["bash", "scripts/env", "worktree", "plan"], cwd=host, env=native_env))
+    status = json.loads(command(["bash", "scripts/env", "worktree", "status"], cwd=host, env=native_env))
+    native_url = status["endpoint"]["url"]
+    if not status["registered"] or not native_url.startswith("http://127.0.0.1:"):
+        raise ValueError("Expected a running loopback native host worktree")
+    token = environment(Path(plan["state"]) / "environment.env")["MODEL_HOST_TOKEN"]
+    host_port = int(native_url.rsplit(":", 1)[1])
+    suffix = str(os.getpid())
+    container = f'{studio["project"]}-real-coding-{suffix}'
+    volume = f'{studio["project"]}_real_coding_socket_{suffix}'
+    if subprocess.run(["docker", "inspect", container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+        raise ValueError("Disposable fixture container name is already in use")
+    if subprocess.run(["docker", "volume", "inspect", volume], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+        raise ValueError("Disposable fixture volume name is already in use")
+    volume_owned = True
+    compose_env = dict(os.environ, APP_IMAGE=studio_env["APP_IMAGE"], PRODUCT_SOURCE=str(root), TEST_SOCKET_NAME=volume, COMPOSE_IGNORE_ORPHANS="true")
+    compose = ["docker", "compose", "--project-name", studio["project"], "--project-directory", str(root), "--env-file", str(envfile), "-f", str(root / "deploy/compose.test.yaml")]
+    command(compose + ["run", "--rm", "-d", "--name", container, "-p", "127.0.0.1::8787", "fixture"], env=compose_env)
+    container_created = True
+    subprocess.run(["docker", "exec", "-i", container, "sh", "-c", "umask 077; cat > /data/llm-config.json"], input=json.dumps({"refs": {"coding-fixture": token}}), text=True, check=True)
+    command(["docker", "exec", container, "sh", "-c", 'mkdir -p /repositories/coding-fixture && git init -q -b main /repositories/coding-fixture && git -C /repositories/coding-fixture config user.name "Fixture" && git -C /repositories/coding-fixture config user.email "fixture@example.invalid" && printf "# Fixture\\n" > /repositories/coding-fixture/README.md && git -C /repositories/coding-fixture add README.md && git -C /repositories/coding-fixture commit -q -m initial && git init -q --bare /repositories/coding-origin.git && git -C /repositories/coding-fixture remote add origin /repositories/coding-origin.git && git -C /repositories/coding-fixture push -q -u origin main'])
+    address = command(["docker", "port", container, "8787/tcp"]).splitlines()[0]
+    if not address.startswith("127.0.0.1:"):
+        raise ValueError("Fixture endpoint is not loopback-only")
+    deadline = time.monotonic() + 30
+    while True:
+        try:
+            with urllib.request.urlopen(f"http://{address}/health", timeout=2) as response:
+                if response.status == 200: break
+        except (OSError, urllib.error.URLError):
+            if time.monotonic() >= deadline: raise ValueError("Disposable Studio fixture did not become healthy")
+            time.sleep(0.25)
+    def call(tool, action, arguments):
+        payload = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": {"action": action, "arguments": arguments}}}).encode()
+        request = urllib.request.Request(f"http://{address}/api/mcp", data=payload, headers={"Authorization": "Bearer workflow-mcp-test", "Content-Type": "application/json", "Accept": "application/json"})
+        with urllib.request.urlopen(request, timeout=240) as response:
+            result = json.load(response)
+        if "error" in result: raise ValueError(result["error"].get("message", "MCP failed"))
+        result = result["result"]
+        if result.get("isError"): raise ValueError("MCP " + action + " failed: " + "; ".join(item.get("text", "") for item in result.get("content", []))[:500])
+        return result["structuredContent"]["result"]
+    provider = call("aruvi_models", "create_provider", {"name": "Real coding fixture", "base_url": f"http://host.docker.internal:{host_port}/v1", "auth_secret_ref": "ref:coding-fixture"})
+    model_name = os.environ.get("ARUVI_CODING_TEST_MODEL", "qwen25-coder-15b-q4")
+    model = call("aruvi_models", "create_model_definition", {"provider_id": provider["id"], "name": model_name})
+    for agent in call("aruvi_agents", "list_agent_definitions", {}):
+        if agent["enabled"]:
+            call("aruvi_agents", "set_primary_agent_model_binding", {"agent_id": agent["id"], "model_id": model["id"]})
+    for key, value in [("workflow.auto_start_after_work_item_approval", "false"), ("workflow.auto_approve_plan", "false"), ("workflow.auto_approve_test_review", "false"), ("workflow.test_argv", json.dumps(["/bin/sh", "-c", "test -f src/math.js && grep -q 'function sumEven' src/math.js"]))]:
+        call("aruvi_settings", "set_setting", {"key": key, "value": value})
+    product = call("aruvi_catalog", "create_product", {"name": "Disposable real coding evaluation"})
+    repo = call("aruvi_repositories", "register_repository", {"name": "Coding fixture", "local_path": "/repositories/coding-fixture", "default_branch": "main"})
+    call("aruvi_repositories", "attach_repository", {"scope_type": "product", "scope_id": product["id"], "repository_id": repo["id"], "is_default": True})
+    item = call("aruvi_work_items", "create_work_item", {"product_id": product["id"], "title": "Add sumEven", "description": "Create src/math.js containing function sumEven(numbers) that returns the sum of even integers, and export it as module.exports = { sumEven }. Return 0 for an empty array.", "work_item_type": "task"})
+    call("aruvi_checkpoints", "approve_work_item", {"work_item_id": item["id"]})
+    run_id = call("aruvi_workflows", "start_work_item_workflow", {"work_item_id": item["id"]})["workflow_run_id"]
+    run = call("aruvi_workflows", "get_workflow_run", {"workflow_run_id": run_id})
+    print("Stage after planning:", run["current_stage"], flush=True)
+    if run["current_stage"] != "pending_plan_approval": raise ValueError("Workflow did not reach plan approval")
+    def print_coding_trace():
+        artifacts = call("aruvi_checkpoints", "list_work_item_artifacts", {"work_item_id": item["id"]})
+        for artifact in artifacts:
+            if artifact.get("artifact_type") == "coding_tool_trace":
+                trace = call("aruvi_checkpoints", "read_artifact_content", {"artifact_id": artifact["id"]})
+                print("Coding trace:", trace["content"][:5000], flush=True)
+    try:
+        call("aruvi_workflows", "handle_workflow_user_action", {"workflow_run_id": run_id, "action": "approve"})
+    except ValueError:
+        print_coding_trace()
+        raise
+    run = call("aruvi_workflows", "get_workflow_run", {"workflow_run_id": run_id})
+    print("Stage after coding:", run["current_stage"], flush=True)
+    if run["current_stage"] != "pending_test_review": raise ValueError("Workflow did not reach test review")
+    print_coding_trace()
+    file = call("aruvi_repositories", "read_repository_file", {"repository_id": repo["id"], "relative_path": "src/math.js"})
+    code = file["content"]
+    assertions = "\nconst assert = require('node:assert/strict'); const f = module.exports.sumEven; assert.equal(f([1,2,3,4,-2]),4); assert.equal(f([]),0); console.log('generated code passed');\n"
+    if not code or len(code.encode()) > 8192: raise ValueError("Generated file missing or oversized")
+    check = subprocess.run(["docker", "run", "--rm", "-i", "--network", "none", "--read-only", "--memory", "256m", "--cpus", "1", "--pids-limit", "32", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", "65534:65534", "node:22-bookworm-slim", "node"], input=code+assertions, text=True, capture_output=True, timeout=30)
+    if check.returncode: raise ValueError("Workflow-generated code failed the isolated assertions")
+    call("aruvi_workflows", "handle_workflow_user_action", {"workflow_run_id": run_id, "action": "approve"})
+    run = call("aruvi_workflows", "get_workflow_run", {"workflow_run_id": run_id})
+    if run["current_stage"] != "done": raise ValueError("Workflow did not finish")
+    print("Disposable real-model workflow and generated-code assertions passed")
+except (OSError, KeyError, TypeError, ValueError, subprocess.SubprocessError) as error:
+    print(f"Real coding workflow failed: {type(error).__name__}: {error if not isinstance(error, subprocess.CalledProcessError) else 'fixture command failed'}", file=sys.stderr)
+    sys.exit(1)
+finally:
+    if container_created:
+        subprocess.run(["docker", "rm", "-f", container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if volume_owned:
+        subprocess.run(["docker", "volume", "rm", volume], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
