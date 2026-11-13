@@ -100,7 +100,11 @@ provider hosting into the model-host service as part of this work.
   and [server tools](https://platform.claude.com/docs/en/agents-and-tools/tool-use/server-tools).
   The independent consumer now pins `78095c0173cd7f8b58fba21db96bc0f484ca0616`
   and passed nine offline native tests, including a completed server-tool turn.
-  The deployed branch still needs to be rebuilt and validated.
+  A native desktop stream adapter test verified an error event and failed
+  telemetry after partial text; both existing stream success tests also passed.
+  The locked Linux server was rebuilt and its deployed binary hash verified.
+  The healthy branch passed real 7B MCP coding and token-limit checks and
+  authenticated browser chat.
 
 ## Initial evidence — 2026-11-13
 

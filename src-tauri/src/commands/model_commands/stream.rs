@@ -152,6 +152,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn anthropic_server_tool_stream_emits_error_and_records_failure() {
+        async fn endpoint() -> impl axum::response::IntoResponse {
+            ([(axum::http::header::CONTENT_TYPE, "text/event-stream")], concat!(
+                "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}\n\n",
+                "data: {\"type\":\"content_block_start\",\"content_block\":{\"type\":\"server_tool_use\"}}\n\n",
+                "data: {\"type\":\"message_stop\"}\n\n"))
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, axum::Router::new().route("/v1/messages", post(endpoint))).await.unwrap(); });
+        let app = make_test_app("anthropic_server_tool_desktop_stream").await;
+        let provider = ModelProvider { id: "anthropic-fixture".into(), name: "Fixture".into(),
+            provider_type: ProviderType::OpenaiCompatible, protocol: "anthropic".into(),
+            base_url: format!("http://{address}"), auth_secret_ref: Some("sk-test-synthetic-key-123456".into()),
+            enabled: true, created_at: "".into(), updated_at: "".into() };
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<(String, Value)>();
+        for event_name in ["chat_stream_chunk", "chat_stream_done", "chat_stream_error"] {
+            let sender = sender.clone();
+            app.listen_any(event_name, move |event| { sender.send((event_name.into(), serde_json::from_str(event.payload()).unwrap())).unwrap(); });
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        let request = ModelChatCommand { stream_id: Some(id.clone()), provider_id: provider.id.clone(), model: "claude-test".into(),
+            messages: vec![ChatMessage { role: "user".into(), content: "Hello".into() }], temperature: None, max_tokens: Some(20),
+            source_kind: None, source_id: None, source_label: None };
+        start_provider_stream(app.handle().clone(), app.state::<AppState>(), provider, request, id.clone()).await.unwrap();
+        let (kind, payload) = tokio::time::timeout(std::time::Duration::from_secs(10), receiver.recv()).await.unwrap().unwrap();
+        assert_eq!(kind, "chat_stream_chunk");
+        assert_eq!(payload["delta"], "partial");
+        let (kind, payload) = tokio::time::timeout(std::time::Duration::from_secs(10), receiver.recv()).await.unwrap().unwrap();
+        assert_eq!(kind, "chat_stream_error");
+        assert!(payload["error"].as_str().unwrap().contains("tool-use"));
+        let status: String = sqlx::query_scalar("SELECT status FROM model_calls WHERE source_id=?")
+            .bind(&id).fetch_one(&app.state::<AppState>().db).await.unwrap();
+        assert_eq!(status, "failed");
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn openai_desktop_stream_emits_incremental_events_and_records_usage() {
         // A real HTTP fixture exercises the desktop adapter as well as the shared parser.
         async fn endpoint(headers: axum::http::HeaderMap, Json(body): Json<Value>) -> impl axum::response::IntoResponse {
