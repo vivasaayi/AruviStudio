@@ -19,6 +19,8 @@ struct ChatStreamChunkEvent {
 #[derive(Debug, Clone, Serialize)]
 struct ChatStreamDoneEvent {
     stream_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    metadata: Option<aruvi_model_client::CompletionMetadata>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -83,7 +85,7 @@ async fn start_provider_stream<R: tauri::Runtime>(
         }).await { warn!(error = %record_error, "Failed to record stream telemetry"); }
         match error_message {
             Some(error) => { let _ = app.emit("chat_stream_error", ChatStreamErrorEvent { stream_id: task_id, error }); }
-            None => { let _ = app.emit("chat_stream_done", ChatStreamDoneEvent { stream_id: task_id }); }
+            None => { let _ = app.emit("chat_stream_done", ChatStreamDoneEvent { stream_id: task_id, metadata: result.ok().and_then(|response| response.metadata) }); }
         }
     });
     Ok(stream_id)
@@ -107,7 +109,7 @@ mod tests {
             assert_eq!(headers.get("x-api-key").unwrap(), "sk-test-synthetic-key-123456");
             assert_eq!(body["stream"], true);
             ([(axum::http::header::CONTENT_TYPE, "text/event-stream")], concat!(
-                "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":4}}}\n\n",
+                "data: {\"type\":\"message_start\",\"message\":{\"id\":\"stream-id\",\"usage\":{\"input_tokens\":4}}}\n\n",
                 "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n",
                 "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\" there\"}}\n\n",
                 "data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":2}}\n\n",
@@ -135,7 +137,10 @@ mod tests {
         loop {
             let (kind, payload) = tokio::time::timeout(std::time::Duration::from_secs(10), receiver.recv()).await.unwrap().unwrap();
             assert_eq!(payload["stream_id"], id);
-            if kind == "chat_stream_done" { break; }
+            if kind == "chat_stream_done" {
+                assert_eq!(payload["metadata"]["response_id"], "stream-id");
+                break;
+            }
             assert_eq!(kind, "chat_stream_chunk", "{payload}");
             text.push_str(payload["delta"].as_str().unwrap());
         }
@@ -153,7 +158,7 @@ mod tests {
             assert_eq!(headers.get("authorization").unwrap(), "Bearer sk-test-synthetic-key-123456");
             assert_eq!(body["stream"], true);
             ([(axum::http::header::CONTENT_TYPE, "text/event-stream")], concat!(
-                "data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n\n",
+                "data: {\"id\":\"stream-id\",\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n\n",
                 "data: {\"choices\":[{\"delta\":{\"content\":\" there\"}}]}\n\n",
                 "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2}}\n\n",
                 "data: [DONE]\n\n"))
@@ -180,7 +185,10 @@ mod tests {
         loop {
             let (kind, payload) = tokio::time::timeout(std::time::Duration::from_secs(10), receiver.recv()).await.unwrap().unwrap();
             assert_eq!(payload["stream_id"], id);
-            if kind == "chat_stream_done" { break; }
+            if kind == "chat_stream_done" {
+                assert_eq!(payload["metadata"]["response_id"], "stream-id");
+                break;
+            }
             assert_eq!(kind, "chat_stream_chunk", "{payload}");
             text.push_str(payload["delta"].as_str().unwrap());
         }

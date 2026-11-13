@@ -38,4 +38,10 @@ export interface ChatCompletionResponse {
   content: string;
   token_count_input: number | null;
   token_count_output: number | null;
+  metadata?: {
+    response_id: string | null;
+    model: string | null;
+    finish_reason: string | null;
+    usage: Record<string, unknown> | null;
+  };
 }

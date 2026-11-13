@@ -126,17 +126,20 @@ struct StreamState {
     input_tokens: Option<i64>,
     output_tokens: Option<i64>,
     stopped: bool,
+    metadata: Option<crate::CompletionMetadata>,
 }
 
 impl StreamState {
     fn event<F: FnMut(&str)>(&mut self, event: &Value, on_delta: &mut F) -> Result<(), ClientError> {
         match event.get("type").and_then(Value::as_str) {
             Some("message_start") => {
+                if let Some(message) = event.get("message") { crate::CompletionMetadata::merge(&mut self.metadata, message, message.get("stop_reason")); }
                 self.input_tokens = event.pointer("/message/usage/input_tokens").and_then(Value::as_i64);
                 self.output_tokens = event.pointer("/message/usage/output_tokens").and_then(Value::as_i64);
             }
             Some("message_delta") => {
                 AnthropicClient::validate_stop_reason(event.pointer("/delta/stop_reason"))?;
+                crate::CompletionMetadata::merge(&mut self.metadata, event, event.pointer("/delta/stop_reason"));
                 self.input_tokens = event.pointer("/usage/input_tokens").and_then(Value::as_i64).or(self.input_tokens);
                 self.output_tokens = event.pointer("/usage/output_tokens").and_then(Value::as_i64).or(self.output_tokens);
             }
@@ -161,7 +164,7 @@ impl StreamState {
 
     fn finish(self) -> Result<CompletionResponse, ClientError> {
         if self.content.is_empty() { return Err(ClientError::Provider("Anthropic returned no text content".into())); }
-        Ok(CompletionResponse { content: self.content, token_count_input: self.input_tokens, token_count_output: self.output_tokens })
+        Ok(CompletionResponse { content: self.content, token_count_input: self.input_tokens, token_count_output: self.output_tokens, metadata: self.metadata })
     }
 }
 
@@ -212,7 +215,9 @@ impl ModelGateway for AnthropicClient {
         }
         let content = blocks.iter().filter(|block| block.get("type").and_then(Value::as_str) == Some("text")).filter_map(|block| block.get("text").and_then(Value::as_str)).collect::<String>();
         if content.is_empty() { return Err(ClientError::Provider("Anthropic returned no text content".into())); }
-        Ok(CompletionResponse { content, token_count_input: json.pointer("/usage/input_tokens").and_then(Value::as_i64), token_count_output: json.pointer("/usage/output_tokens").and_then(Value::as_i64) })
+        let mut metadata = None;
+        crate::CompletionMetadata::merge(&mut metadata, &json, json.get("stop_reason"));
+        Ok(CompletionResponse { content, token_count_input: json.pointer("/usage/input_tokens").and_then(Value::as_i64), token_count_output: json.pointer("/usage/output_tokens").and_then(Value::as_i64), metadata })
     }
 }
 
@@ -245,12 +250,15 @@ mod tests {
             assert_eq!(body["system"], "First\n\nSecond");
             assert_eq!(body["messages"], json!([{"role":"user","content":"Hello"}]));
             assert_eq!(body["max_tokens"], 20);
-            let reply = r#"{"content":[{"type":"text","text":"Hello"},{"type":"text","text":" there"}],"usage":{"input_tokens":5,"output_tokens":2}}"#;
+            let reply = r#"{"id":"msg-1","model":"fixture-v1","stop_reason":"end_turn","content":[{"type":"text","text":"Hello"},{"type":"text","text":" there"}],"usage":{"input_tokens":5,"output_tokens":2,"cache_read_input_tokens":4}}"#;
             write!(socket,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",reply.len(),reply).unwrap();
         });
         let client = AnthropicClient::new(format!("http://{addr}/v1"), "test-key".into()).unwrap();
         let response = client.run_completion(CompletionRequest { model:"fixture".into(), messages:vec![message("system","First"),message("system","Second"),message("user","Hello")], temperature:Some(0.2), max_tokens:Some(20) }).await.unwrap();
         assert_eq!(response.content, "Hello there");
+        let meta = response.metadata.as_ref().unwrap();
+        assert_eq!((meta.response_id.as_deref(), meta.model.as_deref(), meta.finish_reason.as_deref()), (Some("msg-1"), Some("fixture-v1"), Some("end_turn")));
+        assert_eq!(meta.usage.as_ref().unwrap()["cache_read_input_tokens"], 4);
         assert_eq!((response.token_count_input,response.token_count_output), (Some(5),Some(2)));
         server.join().unwrap();
     }
@@ -325,16 +333,19 @@ mod tests {
     #[tokio::test]
     async fn streams_fragmented_utf8_and_preserves_usage() {
         let body = concat!(
-            "event: message_start\r\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":7}}}\r\n\r\n",
+            "event: message_start\r\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg-stream\",\"model\":\"fixture-v1\",\"usage\":{\"input_tokens\":7,\"cache_read_input_tokens\":2}}}\r\n\r\n",
             "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"Hé\"}}\n\n",
             "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"llo\"}}\n\n",
-            "data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":3}}\n\n",
+            "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":3}}\n\n",
             "data: {\"type\":\"message_stop\"}\n\n");
         let (result, chunks) = stream_fixture(body).await;
         let response = result.unwrap();
         assert_eq!(chunks, ["Hé", "llo"]);
         assert_eq!(response.content, "Héllo");
         assert_eq!((response.token_count_input, response.token_count_output), (Some(7), Some(3)));
+        let meta = response.metadata.unwrap();
+        assert_eq!((meta.response_id.as_deref(), meta.model.as_deref(), meta.finish_reason.as_deref()), (Some("msg-stream"), Some("fixture-v1"), Some("end_turn")));
+        assert_eq!(meta.usage.unwrap(), json!({"input_tokens":7,"output_tokens":3,"cache_read_input_tokens":2}));
     }
 
     #[tokio::test]

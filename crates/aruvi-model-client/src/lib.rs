@@ -69,11 +69,40 @@ pub struct ChatMessage {
     pub content: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CompletionResponse {
     pub content: String,
     pub token_count_input: Option<i64>,
     pub token_count_output: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<CompletionMetadata>,
+}
+
+/// Selected provider metadata, using the provider’s native finish reason and usage fields.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct CompletionMetadata {
+    pub response_id: Option<String>,
+    pub model: Option<String>,
+    pub finish_reason: Option<String>,
+    pub usage: Option<serde_json::Value>,
+}
+
+impl CompletionMetadata {
+    pub(crate) fn merge(target: &mut Option<Self>, source: &serde_json::Value, finish_reason: Option<&serde_json::Value>) {
+        let id = source.get("id").and_then(serde_json::Value::as_str);
+        let model = source.get("model").and_then(serde_json::Value::as_str);
+        let reason = finish_reason.and_then(serde_json::Value::as_str);
+        let usage = source.get("usage").and_then(serde_json::Value::as_object);
+        if id.is_none() && model.is_none() && reason.is_none() && usage.is_none() { return; }
+        let meta = target.get_or_insert_with(Self::default);
+        if let Some(value) = id { meta.response_id = Some(value.to_owned()); }
+        if let Some(value) = model { meta.model = Some(value.to_owned()); }
+        if let Some(value) = reason { meta.finish_reason = Some(value.to_owned()); }
+        if let Some(value) = usage {
+            let accumulated = meta.usage.get_or_insert_with(|| serde_json::json!({}));
+            if let Some(fields) = accumulated.as_object_mut() { fields.extend(value.clone()); }
+        }
+    }
 }
 
 /// A model as advertised by the provider. Metadata is provider-specific and
@@ -122,5 +151,18 @@ pub trait ModelGateway: Send + Sync {
     }
     async fn generate_speech(&self, _request: SpeechRequest) -> Result<Vec<u8>, ClientError> {
         Err(ClientError::UnsupportedOperation("speech generation"))
+    }
+}
+
+#[cfg(test)]
+mod response_compatibility_tests {
+    use super::*;
+
+    #[test]
+    fn old_json_without_metadata_round_trips_without_a_new_null_field() {
+        let old = serde_json::json!({"content":"hello","token_count_input":null,"token_count_output":2});
+        let response: CompletionResponse = serde_json::from_value(old.clone()).unwrap();
+        assert!(response.metadata.is_none());
+        assert_eq!(serde_json::to_value(response).unwrap(), old);
     }
 }

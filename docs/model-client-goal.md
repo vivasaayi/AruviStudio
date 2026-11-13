@@ -44,6 +44,22 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Progress — completion response metadata
+
+- The shared client preserves provider response ID, model, native finish/stop
+  reason and usage in successful ordinary and streamed completions. Anthropic
+  streaming usage is merged across events. Metadata is optional when absent;
+  incomplete and failed responses still return errors. Desktop stream completion
+  events expose the metadata without changing telemetry storage. Existing JSON
+  without metadata remains compatible, while Rust struct literals require the
+  new field or `..Default::default()`.
+- The client suite passed 28 tests, including OpenAI-compatible and Anthropic
+  metadata fixtures, fragmented streams and legacy JSON. Both native desktop
+  stream adapter tests passed with metadata and unchanged usage telemetry, and
+  the frontend production build passed. These are simulated-provider checks;
+  the updated branch container and independently pinned consumer remain to be
+  rebuilt and validated.
+
 ## Initial evidence — 2026-11-13
 
 - Native model-host staging is healthy at `127.0.0.1:20680`, revision

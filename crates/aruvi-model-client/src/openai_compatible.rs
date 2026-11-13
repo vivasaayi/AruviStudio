@@ -70,7 +70,7 @@ impl OpenAiCompatibleClient {
     }
 
     fn parse_sse_fallback(raw_body: &str) -> Result<CompletionResponse, ClientError> {
-        let mut result = CompletionResponse { content: String::new(), token_count_input: None, token_count_output: None };
+        let mut result = CompletionResponse::default();
         let mut data = Vec::new();
         let mut done = false;
         // A final newline is accepted for compatibility with providers that omit
@@ -87,7 +87,9 @@ impl OpenAiCompatibleClient {
                 if event.get("error").is_some_and(|value| !value.is_null()) {
                     return Err(ClientError::Provider("Model stream returned an error".into()));
                 }
-                if let Some(choice) = event.get("choices").and_then(|v| v.as_array()).and_then(|v| v.first()) {
+                let choice = event.get("choices").and_then(|v| v.as_array()).and_then(|v| v.first());
+                crate::CompletionMetadata::merge(&mut result.metadata, &event, choice.and_then(|v| v.get("finish_reason")));
+                if let Some(choice) = choice {
                     Self::reject_non_text_choice(choice, "delta")?;
                     if let Some(content) = Self::extract_choice_content(choice) { result.content.push_str(&content); }
                 }
@@ -147,7 +149,7 @@ impl OpenAiCompatibleClient {
         if !response.status().is_success() {
             return Err(ClientError::Provider(format!("Model stream API error {}", response.status())));
         }
-        let mut result = CompletionResponse { content: String::new(), token_count_input: None, token_count_output: None };
+        let mut result = CompletionResponse::default();
         crate::sse::read_sse(response, "Model", |data| {
             if data == b"[DONE]" { return Ok(true); }
             let event: serde_json::Value = serde_json::from_slice(data)
@@ -159,7 +161,9 @@ impl OpenAiCompatibleClient {
                 result.token_count_input = usage.get("prompt_tokens").and_then(|value| value.as_i64()).or(result.token_count_input);
                 result.token_count_output = usage.get("completion_tokens").and_then(|value| value.as_i64()).or(result.token_count_output);
             }
-            if let Some(choice) = event.get("choices").and_then(|value| value.as_array()).and_then(|values| values.first()) {
+            let choice = event.get("choices").and_then(|value| value.as_array()).and_then(|values| values.first());
+            crate::CompletionMetadata::merge(&mut result.metadata, &event, choice.and_then(|v| v.get("finish_reason")));
+            if let Some(choice) = choice {
                 Self::reject_non_text_choice(choice, "delta")?;
                 if let Some(content) = choice.pointer("/delta/content").and_then(|value| value.as_str()) {
                     if !content.is_empty() { result.content.push_str(content); on_delta(content); }
@@ -311,8 +315,11 @@ impl ModelGateway for OpenAiCompatibleClient {
         let content = Self::extract_choice_content(choice)
             .ok_or_else(|| ClientError::Provider("Model completion returned no text".into()))?;
 
+        let mut metadata = None;
+        crate::CompletionMetadata::merge(&mut metadata, &json, choice.get("finish_reason"));
         Ok(CompletionResponse {
             content,
+            metadata,
             token_count_input: json
                 .get("usage")
                 .and_then(|usage| usage.get("prompt_tokens"))
@@ -360,12 +367,15 @@ mod tests {
             assert_eq!(body["model"], "fixture");
             assert_eq!(body["messages"][0]["content"], "hello");
             assert_eq!(body["max_tokens"], 12);
-            let reply = r#"{"choices":[{"message":{"content":"response"}}],"usage":{"prompt_tokens":3,"completion_tokens":2}}"#;
+            let reply = r#"{"id":"chat-1","model":"fixture-v1","choices":[{"message":{"content":"response"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"prompt_tokens_details":{"cached_tokens":1}}}"#;
             write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", reply.len(), reply).unwrap();
         });
         let client = OpenAiCompatibleClient::new(format!("http://{addr}/v1"), Some("test-key".into()));
         let result = client.run_completion(CompletionRequest { model: "fixture".into(), messages: vec![ChatMessage { role: "user".into(), content: "hello".into() }], temperature: None, max_tokens: Some(12) }).await.unwrap();
         assert_eq!(result.content, "response");
+        let meta = result.metadata.as_ref().unwrap();
+        assert_eq!((meta.response_id.as_deref(), meta.model.as_deref(), meta.finish_reason.as_deref()), (Some("chat-1"), Some("fixture-v1"), Some("stop")));
+        assert_eq!(meta.usage.as_ref().unwrap()["prompt_tokens_details"]["cached_tokens"], 1);
         assert_eq!((result.token_count_input, result.token_count_output), (Some(3), Some(2)));
         server.join().unwrap();
     }
@@ -377,6 +387,14 @@ mod tests {
         assert!(OpenAiCompatibleClient::reject_non_text_choice(&serde_json::json!({"message":{"content":"ok","tool_calls":[]}}), "message").is_ok());
         let stream = "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\ndata: [DONE]\n";
         assert_eq!(OpenAiCompatibleClient::parse_sse_fallback(stream).unwrap().content, "hello");
+        let stream = concat!(
+            "data: {\"id\":\"buffered\",\"model\":\"fixture\",\"choices\":[{\"delta\":{\"content\":\"hello\"},\"finish_reason\":\"stop\"}]}\n\n",
+            "data: {\"usage\":{\"prompt_tokens\":3}}\n\n",
+            "data: [DONE]\n\n");
+        let result = OpenAiCompatibleClient::parse_sse_fallback(stream).unwrap();
+        let meta = result.metadata.unwrap();
+        assert_eq!((meta.response_id.as_deref(), meta.model.as_deref(), meta.finish_reason.as_deref()), (Some("buffered"), Some("fixture"), Some("stop")));
+        assert_eq!(meta.usage.unwrap()["prompt_tokens"], 3);
         assert!(OpenAiCompatibleClient::parse_sse_fallback("data: [DONE]\n").is_err());
     }
 
@@ -505,9 +523,9 @@ mod tests {
     #[tokio::test]
     async fn streams_fragmented_openai_events_and_optional_usage() {
         let body = concat!(
-            "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\r\n\r\n",
+            "data: {\"id\":\"chat-stream\",\"model\":\"fixture-v1\",\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\r\n\r\n",
             "data: {\"choices\":[{\"delta\":{\"content\":\"Hé\"}}]}\n\n",
-            "data: {\"choices\":[{\"delta\":{\"content\":\"llo\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"llo\"},\"finish_reason\":\"stop\"}]}\n\n",
             "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2}}\n\n",
             "data: [DONE]\n\n");
         let (result, chunks) = openai_stream_fixture(body).await;
@@ -515,6 +533,9 @@ mod tests {
         assert_eq!(chunks, ["Hé", "llo"]);
         assert_eq!(response.content, "Héllo");
         assert_eq!((response.token_count_input, response.token_count_output), (Some(4), Some(2)));
+        let meta = response.metadata.unwrap();
+        assert_eq!((meta.response_id.as_deref(), meta.model.as_deref(), meta.finish_reason.as_deref()), (Some("chat-stream"), Some("fixture-v1"), Some("stop")));
+        assert_eq!(meta.usage.unwrap()["completion_tokens"], 2);
     }
 
     #[tokio::test]

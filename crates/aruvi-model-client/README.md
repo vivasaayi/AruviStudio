@@ -43,6 +43,12 @@ including streaming, after five minutes. Other applications can set both with
 cannot exceed the total timeout, and the total is capped at 24 hours. A streamed
 request can yield partial chunks before failing or timing out; consumers must
 check its final result before treating those chunks as a completed response.
+Successful completions and streams include optional `CompletionResponse.metadata`:
+provider response ID, model, native finish/stop reason and the provider usage
+object, when supplied. Stream usage objects are merged across events. No metadata
+is returned on an error, and availability depends on the provider. Adding this
+field changes Rust struct literals: update callers to set `metadata` or use
+`..Default::default()`. JSON without metadata remains compatible.
 
 Call `ModelGateway::list_models_page(None)` to discover a provider's available
 models and pass `next_cursor` back to fetch subsequent pages. OpenAI-compatible

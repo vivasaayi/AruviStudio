@@ -49,6 +49,7 @@ mod tests {
         let status = status.to_string();
         let handle = thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
+            socket.set_write_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
             let mut bytes = Vec::new(); let mut buffer = [0; 2048];
             loop {
                 let count = socket.read(&mut buffer).unwrap(); assert_ne!(count, 0);
