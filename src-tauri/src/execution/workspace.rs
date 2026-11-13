@@ -168,21 +168,20 @@ impl WorkItemWorkspace {
         })
     }
 
-    /// Get the path to a file in the workspace
-    pub fn get_file_path(&self, relative_path: &str) -> PathBuf {
-        debug!(work_item_id = %self.work_item_id, relative_path = %relative_path, "Getting file path in workspace");
-        self.repo_path.join(relative_path)
-    }
-
     /// Read a file from the workspace
     pub async fn read_file(&self, relative_path: &str) -> Result<String, AppError> {
         debug!(work_item_id = %self.work_item_id, relative_path = %relative_path, "Reading file from workspace");
-        let path = self.get_file_path(relative_path);
-        fs::read_to_string(&path).await
-            .map_err(|e| {
-                error!(work_item_id = %self.work_item_id, path = ?path, error = %e, "Failed to read file");
-                AppError::Internal(format!("Failed to read file {}: {}", path.display(), e))
-            })
+        let relative = safe_relative_path(relative_path)?;
+        let missing = || AppError::NotFound(format!("Repository file does not exist: {}", relative.display()));
+        let path = confined_file_path(&self.repo_path, &relative, false).map_err(|error| match error {
+            AppError::Io(ref source) if source.kind() == std::io::ErrorKind::NotFound => missing(),
+            other => other,
+        })?;
+        fs::read_to_string(&path).await.map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound { return missing(); }
+            error!(work_item_id = %self.work_item_id, path = ?path, error = %error, "Failed to read file");
+            AppError::Internal(format!("Failed to read repository file {}", relative.display()))
+        })
     }
 
     /// Write a file to the workspace
@@ -314,6 +313,33 @@ mod delivery_tests {
         assert!(result.is_err());
         assert!(!target.join("new.txt").exists());
         assert_eq!(std::fs::read_to_string(target.join("existing.txt")).unwrap(), "user content");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn workspace_reads_confined_files_and_reports_missing_relative_path() {
+        let root = std::env::temp_dir().join(format!("aruvi-read-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("visible.txt"), "content").unwrap();
+        let workspace = WorkItemWorkspace { work_item_id: "fixture".into(), base_path: root.clone(), repo_path: root.clone() };
+        assert_eq!(workspace.read_file("visible.txt").await.unwrap(), "content");
+        let error = workspace.read_file("new/file.txt").await.unwrap_err().to_string();
+        assert!(error.contains("Repository file does not exist: new/file.txt"));
+        assert!(!error.contains(root.to_str().unwrap()));
+        assert!(workspace.read_file("../outside").await.is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn workspace_read_rejects_symlink_escape() {
+        use std::os::unix::fs::symlink;
+        let root = std::env::temp_dir().join(format!("aruvi-read-link-{}", uuid::Uuid::new_v4()));
+        let repo = root.join("repo"); std::fs::create_dir_all(&repo).unwrap();
+        std::fs::write(root.join("secret.txt"), "private").unwrap();
+        symlink(root.join("secret.txt"), repo.join("link.txt")).unwrap();
+        let workspace = WorkItemWorkspace { work_item_id: "fixture".into(), base_path: root.clone(), repo_path: repo };
+        assert!(workspace.read_file("link.txt").await.is_err());
         std::fs::remove_dir_all(root).unwrap();
     }
 

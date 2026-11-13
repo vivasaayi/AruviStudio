@@ -82,11 +82,12 @@ pub(super) fn build_coding_tool_prompt(
     prompt.push_str(&allowed_tools.iter().cloned().collect::<Vec<_>>().join(", "));
     prompt.push_str("\nTool argument contract:");
     prompt.push_str(
-        "\n- repo.read_file -> {\"path\":\"relative/path.ext\",\"offset_chars\":0,\"length_chars\":12000,\"start_line\":1,\"end_line\":200}",
+        "\n- repo.read_file -> {\"path\":\"relative/path.ext\",\"offset_chars\":0,\"length_chars\":12000} OR {\"path\":\"relative/path.ext\",\"start_line\":1,\"end_line\":200}. Do not combine offset/length with line ranges.",
     );
     prompt.push_str(
         "\n- repo.write_file -> {\"path\":\"relative/path.ext\",\"content\":\"full file content\"}",
     );
+    prompt.push_str("\n  A missing file cannot be read. When the task requires a new file and writing is allowed, use repo.write_file with its complete content.");
     prompt.push_str("\n  For new files, repo.write_file creates missing parent directories automatically; do not stop because a directory is absent. Its content must include the complete implementation, including definitions for exported functions, not just export statements.");
     prompt.push_str(
         "\n- repo.replace_range -> {\"path\":\"relative/path.ext\",\"start_line\":10,\"end_line\":22,\"content\":\"replacement text\"}",
@@ -234,6 +235,14 @@ fn extract_json_payload(output: &str) -> Option<String> {
 #[cfg(test)]
 mod configured_tool_tests {
     use super::*;
+
+    #[test]
+    fn read_examples_use_alternative_ranges() {
+        let prompt = build_coding_tool_prompt("task", &resolve_allowed_tools(&[]), &[], 1, 8);
+        assert!(prompt.contains("Do not combine offset/length with line ranges"));
+        assert!(prompt.contains("A missing file cannot be read"));
+        assert!(!prompt.contains("\"length_chars\":12000,\"start_line\""));
+    }
 
     #[test]
     fn unknown_nonempty_configuration_does_not_grant_write_access() {

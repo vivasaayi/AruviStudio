@@ -74,7 +74,9 @@ mod socket_tests {
 
     #[test]
     fn request_uses_json_protocol_and_reports_service_error() {
-        let dir = std::env::temp_dir().join(format!("aruvi-ci-test-{}", Uuid::new_v4()));
+        // Unix socket paths are limited to 104 bytes on macOS; its default
+        // temporary directory is long, so use a short unique directory name.
+        let dir = std::env::temp_dir().join(format!("ci-{}", Uuid::new_v4().simple()));
         fs::create_dir(&dir).unwrap();
         let socket = dir.join("ci.sock");
         let listener = UnixListener::bind(&socket).unwrap();

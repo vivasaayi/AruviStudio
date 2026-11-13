@@ -121,6 +121,28 @@ provider hosting into the model-host service as part of this work.
   budget diagnostics on that failure path, without prompts or credentials. One
   pass and one failure are not a general reliability estimate.
 
+## Progress — coding tool feedback and native verification
+
+- The isolated host had both `qwen25-coder-7b-q4` and `qwen25-coder-15b-q4`
+  workers ready. Two 15B new-module workflows before the change and one after it
+  failed to produce a valid completed coding tool loop within eight steps. The
+  traces showed malformed or multiple JSON responses, repeated reads of a missing
+  file and false completion claims. These runs did not establish 15B reliability.
+- The tool prompt had shown mutually exclusive read ranges in one example. It now
+  gives alternatives and explains how to handle missing files. Workspace reads
+  use repository-confined path checks and return a relative missing-file message,
+  without exposing the internal absolute workspace path. Symlinked and hard-linked
+  files are rejected; as with the existing confinement checks, this is not a lock
+  against concurrent filesystem changes. Existing model tool permissions remain
+  enforced. A 7B workflow after the change generated code that passed isolated
+  assertions and reached the disposable Git remote, using forced finalization
+  after the eighth tool step. This single pass does not prove model reliability.
+- The full native Rust suite initially had one CI socket test fail because macOS
+  temporary paths exceeded the Unix socket length limit. A shorter test-only name
+  fixed it; the complete rerun passed 158 tests with one live test ignored. The
+  rebuilt worktree server passed the remote UI smoke, 20 remote, one CI and 19
+  isolated workflow tests. The running binary hash matched the release build.
+
 ## Image capability assessment
 
 - The deployed Model Host advertises an image model (`sd-v1-5-metal`) and
