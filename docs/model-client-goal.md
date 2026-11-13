@@ -57,8 +57,11 @@ provider hosting into the model-host service as part of this work.
   metadata fixtures, fragmented streams and legacy JSON. Both native desktop
   stream adapter tests passed with metadata and unchanged usage telemetry, and
   the frontend production build passed. These are simulated-provider checks;
-  the updated branch container and independently pinned consumer remain to be
-  rebuilt and validated.
+  the updated branch container remains to be rebuilt and validated.
+- The independent consumer now pins `bf759c5a69c693252306c7946bd5d5f35738d9e8`;
+  its eight network-isolated tests passed, including a public-API metadata
+  assertion. A previously hanging oversized-response fixture now has a bounded
+  server write timeout on macOS.
 
 ## Initial evidence — 2026-11-13
 

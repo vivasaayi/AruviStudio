@@ -131,7 +131,7 @@ mod tests {
                 assert_ne!(count, 0);
                 request.extend_from_slice(&buffer[..count]);
             }
-            let body = r#"{"choices":[{"message":{"content":"consumer fixture"}}],"usage":{"prompt_tokens":3,"completion_tokens":2}}"#;
+            let body = r#"{"id":"consumer-response","model":"fixture-v1","choices":[{"message":{"content":"consumer fixture"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2}}"#;
             write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
         });
         let client = OpenAiCompatibleClient::new(format!("http://{address}/v1"), Some("synthetic-test-key".into()));
@@ -141,6 +141,10 @@ mod tests {
         }).await.unwrap();
         assert_eq!(response.content, "consumer fixture");
         assert_eq!(response.token_count_input, Some(3));
+        let metadata = response.metadata.unwrap();
+        assert_eq!(metadata.response_id.as_deref(), Some("consumer-response"));
+        assert_eq!(metadata.finish_reason.as_deref(), Some("stop"));
+        assert_eq!(metadata.usage.unwrap()["completion_tokens"], 2);
         assert!(AnthropicClient::new("https://api.anthropic.com".into(), "synthetic-test-key".into()).is_ok());
         server.join().unwrap();
     }
