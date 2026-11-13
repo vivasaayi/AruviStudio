@@ -49,6 +49,10 @@ impl ModelGateway for SharedGatewayAdapter {
             .await
             .map_err(|error| AppError::Provider(error.to_string()))
     }
+
+    async fn run_json_completion(&self, request: CompletionRequest) -> Result<CompletionResponse, AppError> {
+        self.0.run_json_completion(request).await.map_err(|error| AppError::Provider(error.to_string()))
+    }
 }
 
 /// Select the transport from the saved provider protocol, resolving credentials

@@ -149,6 +149,7 @@ export function AgentProfileTab({
           </div>
           <div style={{ ...styles.field, ...styles.fullWidth }}>
             <label style={styles.label}>Boundaries (JSON object)</label>
+            <span>For supported OpenAI-compatible coding models, set <code>"json_object_output": true</code> to request JSON-object responses.</span>
             <textarea style={{ ...styles.textarea, minHeight: 120 }} value={agentDraft.boundaries} onChange={(e) => onAgentDraftChange((draft) => ({ ...draft, boundaries: e.target.value }))} />
           </div>
           <div style={{ ...styles.field, ...styles.fullWidth }}>

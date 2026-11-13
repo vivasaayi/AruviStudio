@@ -10,4 +10,5 @@ pub trait ModelGateway: Send + Sync {
         &self,
         request: CompletionRequest,
     ) -> Result<CompletionResponse, AppError>;
+    async fn run_json_completion(&self, request: CompletionRequest) -> Result<CompletionResponse, AppError>;
 }

@@ -16,6 +16,7 @@ impl AgentService {
         model_def: &ModelDefinition,
         prompt: &str,
         max_tokens: i64,
+        json_object: bool,
     ) -> Result<AgentModelOutput, AppError> {
         #[cfg(test)]
         if let Some(queue_map) = super::TEST_MODEL_OUTPUTS.get() {
@@ -82,7 +83,11 @@ impl AgentService {
                 .await?;
         let prompt_chars = agent_execution_limits::char_count_i64(prompt);
         let call_started = Instant::now();
-        let response = match gateway.run_completion(request).await {
+        let response = match if json_object {
+            gateway.run_json_completion(request).await
+        } else {
+            gateway.run_completion(request).await
+        } {
             Ok(response) => response,
             Err(err) => {
                 let duration_ms = agent_execution_limits::elapsed_ms(call_started);

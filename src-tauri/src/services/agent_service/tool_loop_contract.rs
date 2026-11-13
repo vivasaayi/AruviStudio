@@ -224,6 +224,7 @@ impl AgentService {
         model_def: &ModelDefinition,
         observations: &[String],
         response_token_budget: i64,
+        json_object: bool,
     ) -> Result<Option<String>, AppError> {
         if observations.is_empty() {
             return Ok(None);
@@ -244,6 +245,7 @@ impl AgentService {
                 model_def,
                 &prompt,
                 response_token_budget.min(1024),
+                json_object,
             )
             .await?
             .content;

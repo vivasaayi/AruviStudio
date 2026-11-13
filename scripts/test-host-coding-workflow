@@ -14,6 +14,8 @@ root = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("host", nargs="?", type=Path, default=root.parent / "aruvi-model-host-studio-validation")
 parser.add_argument("--scenario", choices=("new-module", "extend-module"), default="new-module")
+parser.add_argument("--json-mode", action="store_true", help="Opt the disposable coding agent into JSON-object output")
+parser.add_argument("--other-stage-model", help="Use another installed model for non-coding agents in this disposable fixture")
 args = parser.parse_args()
 host = args.host.expanduser().resolve()
 container = None
@@ -80,9 +82,18 @@ try:
     provider = call("aruvi_models", "create_provider", {"name": "Real coding fixture", "base_url": f"http://host.docker.internal:{host_port}/v1", "auth_secret_ref": "ref:coding-fixture"})
     model_name = os.environ.get("ARUVI_CODING_TEST_MODEL", "qwen25-coder-15b-q4")
     model = call("aruvi_models", "create_model_definition", {"provider_id": provider["id"], "name": model_name})
-    for agent in call("aruvi_agents", "list_agent_definitions", {}):
+    other = model if not args.other_stage_model or args.other_stage_model == model_name else call("aruvi_models", "create_model_definition", {"provider_id": provider["id"], "name": args.other_stage_model})
+    agents = call("aruvi_agents", "list_agent_definitions", {})
+    for agent in agents:
         if agent["enabled"]:
-            call("aruvi_agents", "set_primary_agent_model_binding", {"agent_id": agent["id"], "model_id": model["id"]})
+            selected = model if agent["id"] == "coding-agent" else other
+            call("aruvi_agents", "set_primary_agent_model_binding", {"agent_id": agent["id"], "model_id": selected["id"]})
+    if args.json_mode:
+        coding = next((agent for agent in agents if agent["id"] == "coding-agent" and agent["enabled"]), None)
+        if not coding: raise ValueError("Disposable coding agent is unavailable")
+        boundaries = dict(coding["boundaries"])
+        boundaries["json_object_output"] = True
+        call("aruvi_agents", "update_agent_definition", {"id": coding["id"], "boundaries": boundaries})
     for key, value in [("workflow.auto_start_after_work_item_approval", "false"), ("workflow.auto_approve_plan", "false"), ("workflow.auto_approve_test_review", "false"), ("workflow.test_argv", json.dumps(["/bin/sh", "-c", "test -f src/math.js"]))]:
         call("aruvi_settings", "set_setting", {"key": key, "value": value})
     product = call("aruvi_catalog", "create_product", {"name": "Disposable real coding evaluation"})

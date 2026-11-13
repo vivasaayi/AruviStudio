@@ -234,47 +234,14 @@ impl OpenAiCompatibleClient {
     }
 }
 
-#[async_trait]
-impl ModelGateway for OpenAiCompatibleClient {
-    fn transport_capabilities(&self) -> crate::TransportCapabilities {
-        crate::TransportCapabilities { text_completion: true, text_streaming: true, model_discovery: true, transcription: true, speech: true }
-    }
-    async fn stream_completion(&self, request: CompletionRequest, on_delta: &mut (dyn for<'a> FnMut(&'a str) + Send)) -> Result<CompletionResponse, ClientError> {
-        OpenAiCompatibleClient::stream_completion(self, request, |delta: &str| on_delta(delta)).await
-    }
-    async fn transcribe(&self, request: TranscriptionRequest) -> Result<String, ClientError> {
-        OpenAiCompatibleClient::transcribe(self, request).await
-    }
-    async fn generate_speech(&self, request: SpeechRequest) -> Result<Vec<u8>, ClientError> {
-        OpenAiCompatibleClient::generate_speech(self, request).await
-    }
-    async fn health_check(&self) -> Result<bool, ClientError> {
-        let url = self.endpoint_url("/models")?;
-        let mut req = self.client()?.get(&url);
-        if let Some(ref key) = self.api_key {
-            req = req.bearer_auth(key);
-        }
-        match req.send().await {
-            Ok(resp) => Ok(resp.status().is_success()),
-            Err(e) => Err(ClientError::Provider(format!("Health check failed: {e}"))),
-        }
-    }
-
-    async fn list_models_page(&self, cursor: Option<&str>) -> Result<crate::ModelPage, ClientError> {
-        if cursor.is_some() { return Err(ClientError::InvalidInput("OpenAI-compatible discovery does not support cursors".into())); }
-        let mut request = self.client()?.get(self.endpoint_url("/models")?);
-        if let Some(key) = &self.api_key { request = request.bearer_auth(key); }
-        let response = request.send().await.map_err(|error| ClientError::Provider(format!("Model discovery request failed: {error}")))?;
-        let body = crate::discovery::read_response(response).await?;
-        Ok(crate::ModelPage { models: crate::discovery::parse_models(&body)?, next_cursor: None })
-    }
-
-    async fn run_completion(
+impl OpenAiCompatibleClient {
+    async fn request_completion(
         &self,
         request: CompletionRequest,
+        json_object: bool,
     ) -> Result<CompletionResponse, ClientError> {
         let url = self.endpoint_url("/chat/completions")?;
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "model": request.model,
             "messages": request.messages.iter().map(|m| serde_json::json!({
                 "role": m.role,
@@ -284,6 +251,7 @@ impl ModelGateway for OpenAiCompatibleClient {
             "max_tokens": request.max_tokens.unwrap_or(4096),
         });
 
+        if json_object { body["response_format"] = serde_json::json!({"type":"json_object"}); }
         let mut req = self.client()?.post(&url).json(&body);
         if let Some(ref key) = self.api_key {
             req = req.bearer_auth(key);
@@ -332,6 +300,55 @@ impl ModelGateway for OpenAiCompatibleClient {
     }
 }
 
+#[async_trait]
+impl ModelGateway for OpenAiCompatibleClient {
+    fn transport_capabilities(&self) -> crate::TransportCapabilities {
+        crate::TransportCapabilities { text_completion: true, text_streaming: true, model_discovery: true, transcription: true, speech: true }
+    }
+    async fn stream_completion(&self, request: CompletionRequest, on_delta: &mut (dyn for<'a> FnMut(&'a str) + Send)) -> Result<CompletionResponse, ClientError> {
+        OpenAiCompatibleClient::stream_completion(self, request, |delta: &str| on_delta(delta)).await
+    }
+    async fn transcribe(&self, request: TranscriptionRequest) -> Result<String, ClientError> {
+        OpenAiCompatibleClient::transcribe(self, request).await
+    }
+    async fn generate_speech(&self, request: SpeechRequest) -> Result<Vec<u8>, ClientError> {
+        OpenAiCompatibleClient::generate_speech(self, request).await
+    }
+    async fn health_check(&self) -> Result<bool, ClientError> {
+        let url = self.endpoint_url("/models")?;
+        let mut req = self.client()?.get(&url);
+        if let Some(ref key) = self.api_key {
+            req = req.bearer_auth(key);
+        }
+        match req.send().await {
+            Ok(resp) => Ok(resp.status().is_success()),
+            Err(e) => Err(ClientError::Provider(format!("Health check failed: {e}"))),
+        }
+    }
+
+    async fn list_models_page(&self, cursor: Option<&str>) -> Result<crate::ModelPage, ClientError> {
+        if cursor.is_some() { return Err(ClientError::InvalidInput("OpenAI-compatible discovery does not support cursors".into())); }
+        let mut request = self.client()?.get(self.endpoint_url("/models")?);
+        if let Some(key) = &self.api_key { request = request.bearer_auth(key); }
+        let response = request.send().await.map_err(|error| ClientError::Provider(format!("Model discovery request failed: {error}")))?;
+        let body = crate::discovery::read_response(response).await?;
+        Ok(crate::ModelPage { models: crate::discovery::parse_models(&body)?, next_cursor: None })
+    }
+
+    async fn run_completion(&self, request: CompletionRequest) -> Result<CompletionResponse, ClientError> {
+        self.request_completion(request, false).await
+    }
+
+    async fn run_json_completion(&self, request: CompletionRequest) -> Result<CompletionResponse, ClientError> {
+        let response = self.request_completion(request, true).await?;
+        let value: serde_json::Value = serde_json::from_str(&response.content)
+            .map_err(|_| ClientError::Provider("Model did not return a JSON object".into()))?;
+        if !value.is_object() { return Err(ClientError::Provider("Model did not return a JSON object".into())); }
+        Ok(response)
+    }
+
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -367,6 +384,7 @@ mod tests {
             assert_eq!(body["model"], "fixture");
             assert_eq!(body["messages"][0]["content"], "hello");
             assert_eq!(body["max_tokens"], 12);
+            assert!(body.get("response_format").is_none());
             let reply = r#"{"id":"chat-1","model":"fixture-v1","choices":[{"message":{"content":"response"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"prompt_tokens_details":{"cached_tokens":1}}}"#;
             write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", reply.len(), reply).unwrap();
         });
@@ -378,6 +396,34 @@ mod tests {
         assert_eq!(meta.usage.as_ref().unwrap()["prompt_tokens_details"]["cached_tokens"], 1);
         assert_eq!((result.token_count_input, result.token_count_output), (Some(3), Some(2)));
         server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn json_mode_is_opt_in_and_validates_provider_output() {
+        for (content, valid) in [(r#"{"type":"final","summary":"ready"}"#, true), ("not JSON", false), ("[1,2]", false)] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            let content = content.to_owned();
+            let server = thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                let mut data = Vec::new(); let mut buffer = [0; 4096];
+                let end = loop { let n = socket.read(&mut buffer).unwrap(); assert_ne!(n, 0); data.extend_from_slice(&buffer[..n]); if let Some(i) = data.windows(4).position(|v| v == b"\r\n\r\n") { break i + 4; } };
+                let headers = String::from_utf8_lossy(&data[..end]).to_lowercase();
+                assert!(headers.contains("authorization: bearer test-key"));
+                let length: usize = headers.lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().trim().parse().unwrap();
+                while data.len() < end + length { let n = socket.read(&mut buffer).unwrap(); assert_ne!(n, 0); data.extend_from_slice(&buffer[..n]); }
+                let request: serde_json::Value = serde_json::from_slice(&data[end..end+length]).unwrap();
+                assert_eq!(request["response_format"]["type"], "json_object");
+                let body = serde_json::json!({"choices":[{"message":{"content":content},"finish_reason":"stop"}]}).to_string();
+                write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+            });
+            let client: Box<dyn ModelGateway> = Box::new(OpenAiCompatibleClient::new(format!("http://{addr}"), Some("test-key".into())));
+            let request = CompletionRequest { model:"fixture".into(), messages:vec![ChatMessage { role:"user".into(), content:"Return JSON".into() }], temperature:None, max_tokens:Some(20) };
+            let result = client.run_json_completion(request).await;
+            assert_eq!(result.is_ok(), valid);
+            if !valid { assert!(!result.unwrap_err().to_string().contains("not JSON")); }
+            server.join().unwrap();
+        }
     }
 
     #[test]

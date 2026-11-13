@@ -170,7 +170,7 @@ impl AgentService {
             .await
         } else {
             match self
-                .execute_agent_run(&agent_run, &model_def, &prompt, response_token_budget)
+                .execute_agent_run(&agent_run, &model_def, &prompt, response_token_budget, false)
                 .await
             {
                 Ok(output) => {

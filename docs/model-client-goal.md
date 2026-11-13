@@ -173,10 +173,34 @@ provider hosting into the model-host service as part of this work.
 - A direct synthetic request to the isolated 15B Model Host using
   `response_format: {"type":"json_object"}` returned a parseable JSON object and
   a successful finish. This is a single protocol probe, not proof of schema
-  adherence or full workflow support. OpenAI-compatible JSON mode is not yet
-  exposed by the shared client or Studio. Investigate an explicit opt-in with
-  provider-specific unsupported handling, contract tests and real workflow
-  validation; JSON validity alone cannot ensure safe or correct tool actions.
+  adherence or full workflow support. At that checkpoint, OpenAI-compatible
+  JSON mode was not yet exposed by the shared client or Studio. JSON validity
+  alone cannot ensure safe or correct tool actions.
+
+## Progress — opt-in coding JSON-object mode
+
+- The shared gateway offers a separate `run_json_completion` operation. The
+  OpenAI-compatible adapter sends `response_format: {"type":"json_object"}`
+  and rejects responses that are not JSON objects. Ordinary completions remain
+  unchanged. The default trait implementation, including Anthropic, reports an
+  explicit unsupported operation; incompatible remote models may reject the
+  parameter. JSON syntax is not action-schema or permission validation.
+- Studio permits `json_object_output: true` in a coding agent's execution
+  boundaries. It applies only to tool-loop and forced-final coding calls and
+  defaults off; it does not change planning, ordinary chat or other agents.
+  Both desktop and remote agent editors display the option. The simulated
+  end-to-end provider test verified the actual coding request format and that
+  non-coding calls did not receive it. The client suite passed 30 tests, the
+  macOS and Linux Studio suites each passed 163 with one live test ignored,
+  the frontend built, and the browser suites passed one smoke, 20 remote, one
+  CI and 19 isolated workflow cases.
+- With JSON mode enabled, a real 7B workflow generated code that passed isolated
+  assertions and reached the disposable Git remote. A 15B coding run used 7B
+  for other stages; its JSON responses still repeated reads until the step
+  limit. Two additional all-15B attempts failed during planning with token-limit
+  errors before JSON mode applied. These examples do not prove general model
+  quality. The branch server's binary hash matched the locked release build.
+  The independently pinned consumer still needs to be updated and tested.
 
 ## Image capability assessment
 

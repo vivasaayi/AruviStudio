@@ -2,6 +2,7 @@ import http from "node:http";
 
 let workflowCalls = 0;
 let workflowPrompts = [];
+let workflowRequests = [];
 let coordinatorCodingCalls = 0;
 const workflowOutputs = [
   "requirement analysis complete",
@@ -17,9 +18,12 @@ const server = http.createServer((request, response) => {
   if (request.method === "POST" && request.url === "/workflow/reset") {
     workflowCalls = 0;
     workflowPrompts = [];
+    workflowRequests = [];
     response.end(JSON.stringify({ ok: true }));
   } else if (request.method === "GET" && request.url === "/workflow/prompts") {
     response.end(JSON.stringify(workflowPrompts));
+  } else if (request.method === "GET" && request.url === "/workflow/requests") {
+    response.end(JSON.stringify(workflowRequests));
   } else if (request.method === "POST" && request.url === "/coordinator/reset") {
     coordinatorCodingCalls = 0;
     response.end(JSON.stringify({ ok: true }));
@@ -49,7 +53,7 @@ const server = http.createServer((request, response) => {
     const chunks = [];
     request.on("data", (chunk) => chunks.push(chunk));
     request.on("end", () => {
-      try { workflowPrompts.push(JSON.parse(Buffer.concat(chunks).toString("utf8")).messages); }
+      try { const body = JSON.parse(Buffer.concat(chunks).toString("utf8")); workflowPrompts.push(body.messages); workflowRequests.push({ response_format: body.response_format ?? null }); }
       catch { response.statusCode = 400; return response.end(JSON.stringify({ error: "Invalid workflow request" })); }
       response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content } }], usage: { prompt_tokens: 12, completion_tokens: 4 } }));
     });

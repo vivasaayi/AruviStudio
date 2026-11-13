@@ -347,6 +347,13 @@ Agent execution boundaries must be a JSON object containing recognized fields wi
 Supported fields are `instructions`, `max_tokens`, `max_context_chars`, `context_window_ratio`,
 `max_files_per_run`, `max_read_file_chars`, `max_write_file_chars`, `max_file_chars`,
 `max_repo_files_scanned`, `allowed_paths`, `blocked_paths`, `keep_workspace`, and
-`max_tool_steps`. Invalid JSON, invalid types, and unknown field names stop execution instead of
+`max_tool_steps`, and `json_object_output`. Set `json_object_output` to `true`
+only for a coding agent whose configured OpenAI-compatible provider and model
+support JSON-object mode; it defaults to `false`. It applies to coding tool
+turns and finalization, not planning or ordinary chat. The adapter checks that
+responses are JSON objects, but the coding loop still validates the action
+schema and permissions. Providers can reject the option; Anthropic currently
+returns an explicit unsupported error. No automatic fallback is attempted.
+Invalid JSON, invalid types, and unknown field names stop execution instead of
 silently dropping all limits. Review existing agent definitions after upgrading. Prompt template
 references are currently stored as metadata; the execution prompt builder does not apply them.

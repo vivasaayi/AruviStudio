@@ -141,6 +141,11 @@ pub trait ModelGateway: Send + Sync {
         Err(ClientError::Provider("This provider does not support model discovery".into()))
     }
     async fn run_completion(&self, request: CompletionRequest) -> Result<CompletionResponse, ClientError>;
+    /// Request a JSON object without assuming every remote model supports it.
+    /// The response is still validated by the adapter; no schema is implied.
+    async fn run_json_completion(&self, _request: CompletionRequest) -> Result<CompletionResponse, ClientError> {
+        Err(ClientError::UnsupportedOperation("JSON-object completion"))
+    }
     /// The final result must be checked even if text has already been emitted.
     /// Dropping the returned future cancels the request.
     async fn stream_completion(&self, _request: CompletionRequest, _on_delta: &mut (dyn for<'a> FnMut(&'a str) + Send)) -> Result<CompletionResponse, ClientError> {

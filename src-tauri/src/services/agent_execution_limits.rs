@@ -20,6 +20,7 @@ pub(crate) struct AgentExecutionBoundaries {
     pub(crate) blocked_paths: Option<Vec<String>>,
     pub(crate) keep_workspace: Option<bool>,
     pub(crate) max_tool_steps: Option<usize>,
+    pub(crate) json_object_output: Option<bool>,
 }
 
 pub(crate) fn parse_boundaries(raw: &serde_json::Value) -> Result<AgentExecutionBoundaries, AppError> {
@@ -394,7 +395,8 @@ mod boundary_validation_tests {
     #[test]
     fn invalid_and_unknown_boundaries_fail_instead_of_using_defaults() {
         assert!(parse_boundaries(&serde_json::json!({})).is_ok());
-        assert!(parse_boundaries(&serde_json::json!({"allowed_paths":["src"], "max_tokens":500})).is_ok());
+        assert!(parse_boundaries(&serde_json::json!({"allowed_paths":["src"], "max_tokens":500, "json_object_output":true})).is_ok());
+        assert!(parse_boundaries(&serde_json::json!({"json_object_output":"true"})).is_err());
         assert!(parse_boundaries(&serde_json::json!({"allowed_paths":"src"})).is_err());
         assert!(parse_boundaries(&serde_json::json!({"blocked_path":["secret"]})).is_err());
         assert!(parse_boundaries(&serde_json::Value::Null).is_err());

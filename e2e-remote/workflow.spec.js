@@ -38,7 +38,7 @@ for (const scenario of ["passed", "failed", "skipped"]) test(`isolated workflow 
   if (scenario === "passed") {
     assignedTeam = await api("/api/mobile/teams", { name: "Workflow owner", department: "Engineering", description: "", enabled: true, max_concurrent_workflows: 2 });
     await api("/api/mobile/team-assignments", { team_id: assignedTeam.id, product_id: product.id, scope_type: "product", scope_id: product.id });
-    assignedAgent = await api("/api/mobile/agents", { name: "Workflow coding specialist", role: "specialist_coder", description: "", prompt_template_ref: "", allowed_tools: ["repo.read_file", "repo.write_file"], skill_tags: [], boundaries: {}, enabled: true, employment_status: "active" });
+    assignedAgent = await api("/api/mobile/agents", { name: "Workflow coding specialist", role: "specialist_coder", description: "", prompt_template_ref: "", allowed_tools: ["repo.read_file", "repo.write_file"], skill_tags: [], boundaries: { json_object_output: true }, enabled: true, employment_status: "active" });
     await api("/api/mobile/team-members", { team_id: assignedTeam.id, agent_id: assignedAgent.id, title: "Developer", is_lead: false });
     await api("/api/mobile/agent-model-bindings", { agent_id: assignedAgent.id, model_id: model.id });
     codingPolicy = await api("/api/mobile/routing-policies", { stage_name: "coding", expected: null, fields: { primary_roles: ["specialist_coder"], fallback_roles: ["developer"], coordinator_required: false } });
@@ -114,6 +114,12 @@ for (const scenario of ["passed", "failed", "skipped"]) test(`isolated workflow 
     const prompts = await (await request.get("http://127.0.0.1:19876/workflow/prompts")).json();
     expect(prompts.length).toBeGreaterThanOrEqual(3);
     expect(JSON.stringify(prompts[2])).toContain("Follow the synthetic skill instruction.");
+    const providerRequests = await (await request.get("http://127.0.0.1:19876/workflow/requests")).json();
+    expect(providerRequests[0].response_format).toBeNull();
+    expect(providerRequests[1].response_format).toBeNull();
+    expect(providerRequests[2].response_format).toEqual({ type: "json_object" });
+    expect(providerRequests[3].response_format).toEqual({ type: "json_object" });
+    expect(providerRequests.slice(4).every((call) => call.response_format === null)).toBe(true);
     expect(JSON.stringify(prompts)).not.toContain("Do not include this synthetic instruction.");
     expect(JSON.stringify(prompts)).not.toContain("Workflow disabled skill");
     const runs = await mcp("aruvi_workflows", "list_agent_runs_for_workflow", { workflow_run_id: delivery.workflow_run.id });

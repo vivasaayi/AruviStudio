@@ -2902,6 +2902,9 @@
       const tools = field("Allowed tools (JSON array)", JSON.stringify(source.allowed_tools, null, 2), true);
       const tags = field("Skill tags (JSON array)", JSON.stringify(source.skill_tags, null, 2), true);
       const boundaries = field("Execution boundaries (JSON object)", JSON.stringify(source.boundaries, null, 2), true);
+      const jsonHint = document.createElement("div"); jsonHint.className = "empty";
+      jsonHint.textContent = 'For supported OpenAI-compatible coding models, set "json_object_output": true to request JSON-object responses.';
+      form.appendChild(jsonHint);
       const statusLabel = document.createElement("label"); const statusText = document.createElement("span"); statusText.className = "label"; statusText.textContent = "Employment status";
       const status = document.createElement("select"); status.setAttribute("aria-label", "Employment status" + suffix);
       ["active", "inactive", "terminated"].forEach((value) => status.add(new Option(value, value))); status.value = source.employment_status;

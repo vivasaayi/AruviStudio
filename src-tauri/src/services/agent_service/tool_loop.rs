@@ -28,7 +28,7 @@ impl AgentService {
         let Some(repo_id) = work_item.active_repo_id.as_deref() else {
             warn!(agent_run_id = %agent_run.id, work_item_id = %work_item.id, "No active repository found for coding tool loop; returning model output only");
             return self
-                .execute_agent_run(agent_run, model_def, base_prompt, response_token_budget)
+                .execute_agent_run(agent_run, model_def, base_prompt, response_token_budget, false)
                 .await
                 .map(|output| output.content);
         };
@@ -84,7 +84,7 @@ impl AgentService {
                 !changed_files.is_empty(),
             );
             let model_output = self
-                .execute_agent_run(agent_run, model_def, &step_prompt, response_token_budget)
+                .execute_agent_run(agent_run, model_def, &step_prompt, response_token_budget, boundaries.json_object_output.unwrap_or(false))
                 .await?
                 .content;
             trace.push(ToolLoopTraceEntry {
@@ -213,6 +213,7 @@ impl AgentService {
                     model_def,
                     &tool_observations,
                     response_token_budget,
+                    boundaries.json_object_output.unwrap_or(false),
                 )
                 .await?
             {
