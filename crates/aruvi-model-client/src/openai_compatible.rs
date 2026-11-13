@@ -2,8 +2,7 @@ use crate::ClientError;
 use crate::ModelGateway;
 use crate::{CompletionRequest, CompletionResponse, SpeechRequest, TranscriptionRequest};
 use async_trait::async_trait;
-use reqwest::{Client, redirect::Policy};
-use std::time::Duration;
+use reqwest::Client;
 
 pub struct OpenAiCompatibleClient {
     base_url: String,
@@ -13,17 +12,14 @@ pub struct OpenAiCompatibleClient {
 
 impl OpenAiCompatibleClient {
     pub fn new(base_url: String, api_key: Option<String>) -> Self {
-        let client = Client::builder()
-            .connect_timeout(Duration::from_secs(15))
-            .timeout(Duration::from_secs(300))
-            .redirect(Policy::none())
-            .build()
-            .ok();
-        Self {
-            base_url,
-            api_key,
-            client,
-        }
+        let client = crate::http::build_client(crate::ClientOptions::default()).ok();
+        Self { base_url, api_key, client }
+    }
+
+    /// Construct a client with explicitly bounded connection and total request timeouts.
+    pub fn with_options(base_url: String, api_key: Option<String>, options: crate::ClientOptions) -> Result<Self, ClientError> {
+        let client = crate::http::build_client(options)?;
+        Ok(Self { base_url, api_key, client: Some(client) })
     }
 
     fn client(&self) -> Result<&Client, ClientError> {

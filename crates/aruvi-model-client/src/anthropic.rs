@@ -1,9 +1,8 @@
 //! Anthropic Messages API client for text conversations.
 use crate::{ClientError, CompletionRequest, CompletionResponse, ModelGateway};
 use async_trait::async_trait;
-use reqwest::{Client, redirect::Policy};
+use reqwest::Client;
 use serde_json::{json, Value};
-use std::time::Duration;
 
 const API_VERSION: &str = "2023-06-01";
 const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
@@ -16,13 +15,17 @@ pub struct AnthropicClient {
 
 impl AnthropicClient {
     pub fn new(base_url: String, api_key: String) -> Result<Self, ClientError> {
+        Self::with_options(base_url, api_key, crate::ClientOptions::default())
+    }
+
+    /// Construct a client with explicitly bounded connection and total request timeouts.
+    pub fn with_options(base_url: String, api_key: String, options: crate::ClientOptions) -> Result<Self, ClientError> {
         if api_key.trim().is_empty() { return Err(ClientError::InvalidInput("Anthropic API key is required".into())); }
         let url = reqwest::Url::parse(&base_url).map_err(|_| ClientError::InvalidInput("Invalid Anthropic base URL".into()))?;
         if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() || !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() {
             return Err(ClientError::InvalidInput("Invalid Anthropic base URL".into()));
         }
-        let client = Client::builder().connect_timeout(Duration::from_secs(15)).timeout(Duration::from_secs(300)).redirect(Policy::none()).build()
-            .map_err(|error| ClientError::Provider(format!("Failed to initialize HTTP client: {error}")))?;
+        let client = crate::http::build_client(options)?;
         Ok(Self { base_url, api_key, client })
     }
 

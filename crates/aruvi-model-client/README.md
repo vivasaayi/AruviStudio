@@ -18,6 +18,14 @@ error bodies are not included in errors; the HTTP status remains available in
 the message. OpenAI-compatible and Anthropic requests reject redirects and
 base URLs containing credentials, queries, or fragments.
 
+By default, connections time out after 15 seconds and the complete request,
+including streaming, after five minutes. Other applications can set both with
+`ClientOptions` and `OpenAiCompatibleClient::with_options` or
+`AnthropicClient::with_options`. Both must be positive, the connection timeout
+cannot exceed the total timeout, and the total is capped at 24 hours. A streamed
+request can yield partial chunks before failing or timing out; consumers must
+check its final result before treating those chunks as a completed response.
+
 Call `ModelGateway::list_models_page(None)` to discover a provider's available
 models and pass `next_cursor` back to fetch subsequent pages. OpenAI-compatible
 discovery returns one page; Anthropic discovery exposes its pagination cursor.
@@ -43,7 +51,8 @@ aruvi-model-client = { git = "https://github.com/vivasaayi/AruviStudio.git", rev
 ```
 
 This revision is an integration checkpoint, not a release or a promise of API
-stability. Commit the consuming application's `Cargo.lock`. For an offline or
+stability and predates the configurable timeout API. Commit the consuming
+application's `Cargo.lock`. For an offline or
 network-isolated Docker build, prepare dependencies from that lockfile and include
 the resulting `vendor` directory and Cargo configuration in the build context:
 

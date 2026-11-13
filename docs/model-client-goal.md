@@ -215,6 +215,13 @@ provider hosting into the model-host service as part of this work.
   one CI and 19 workflow cases), as did a real Model Host coding request through
   MCP. Native desktop and live Claude service behavior remain unverified.
 
+- Both shared HTTP clients accept explicit connection and total request timeouts
+  through `ClientOptions`, while the existing constructors retain their 15-second
+  and five-minute defaults and redirect refusal. Invalid or unbounded settings
+  are rejected. The shared-client suite passed 24 tests, including stalled
+  response bodies for both provider protocols; Studio configuration does not yet
+  expose per-provider timeout settings.
+
 ## Open design questions
 
 - Decide whether to move the Git-pinned client to a separately maintained

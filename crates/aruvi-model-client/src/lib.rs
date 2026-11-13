@@ -19,6 +19,20 @@ pub enum ClientError {
     UnsupportedTranscription,
 }
 
+/// HTTP timeouts applied to all operations, including streamed responses.
+/// Dropping a request future also cancels it without spawning a background task.
+#[derive(Debug, Clone, Copy)]
+pub struct ClientOptions {
+    pub connect_timeout: std::time::Duration,
+    pub request_timeout: std::time::Duration,
+}
+
+impl Default for ClientOptions {
+    fn default() -> Self {
+        Self { connect_timeout: std::time::Duration::from_secs(15), request_timeout: std::time::Duration::from_secs(300) }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TranscriptionRequest {
     pub model: String,
