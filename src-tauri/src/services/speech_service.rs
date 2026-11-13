@@ -403,6 +403,27 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires an installed local Whisper model and a synthetic WAV fixture"]
+    async fn local_whisper_transcribes_synthetic_fixture() {
+        let model = std::env::var("ARUVI_LOCAL_WHISPER_MODEL").expect("set ARUVI_LOCAL_WHISPER_MODEL");
+        let audio_path = std::env::var("ARUVI_LOCAL_WHISPER_AUDIO").expect("set ARUVI_LOCAL_WHISPER_AUDIO");
+        let audio = std::fs::read(audio_path).expect("read WAV fixture");
+        let provider = ModelProvider {
+            id: "local-fixture".into(), name: "Local fixture".into(),
+            provider_type: ProviderType::LocalRuntime, protocol: "openai_compatible".into(),
+            base_url: model, auth_secret_ref: None, enabled: true,
+            created_at: "".into(), updated_at: "".into(),
+        };
+        let request = SpeechToTextRequest {
+            audio_bytes_base64: base64::engine::general_purpose::STANDARD.encode(audio),
+            mime_type: "audio/wav".into(), locale: Some("en".into()),
+        };
+        let transcript = transcribe_audio_with_provider(&provider, "whisper", request)
+            .await.expect("local transcription").transcript.to_lowercase();
+        assert!(transcript.contains("fox") && transcript.contains("dog"), "synthetic fixture was not recognized: {transcript}");
+    }
+
+    #[tokio::test]
     async fn disabled_transcription_providers_are_rejected_before_io() {
         for provider_type in [ProviderType::OpenaiCompatible, ProviderType::LocalRuntime] {
             let provider = ModelProvider {
