@@ -15,6 +15,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("host", nargs="?", type=Path, default=root.parent / "aruvi-model-host-studio-validation")
 parser.add_argument("--scenario", choices=("new-module", "extend-module"), default="new-module")
 parser.add_argument("--json-mode", action="store_true", help="Opt the disposable coding agent into JSON-object output")
+parser.add_argument("--verify-gate-rejects-invalid", action="store_true", help="Prove an invalid JavaScript fixture fails the workflow test gate")
 parser.add_argument("--other-stage-model", help="Use another installed model for non-coding agents in this disposable fixture")
 args = parser.parse_args()
 host = args.host.expanduser().resolve()
@@ -54,6 +55,20 @@ try:
     command(compose + ["run", "--rm", "-d", "--name", container, "-p", "127.0.0.1::8787", "fixture"], env=compose_env)
     container_created = True
     subprocess.run(["docker", "exec", "-i", container, "sh", "-c", "umask 077; cat > /data/llm-config.json"], input=json.dumps({"refs": {"coding-fixture": token}}), text=True, check=True)
+    # Syntax checking does not execute model-generated code. Copy only the Node
+    # executable into this disposable fixture; behavioral assertions below run
+    # separately with no network or access to the fixture's credentials.
+    producer = subprocess.Popen(["docker", "run", "--rm", "--network", "none", "--read-only", "--entrypoint", "cat", "node:22-bookworm-slim", "/usr/local/bin/node"], stdout=subprocess.PIPE)
+    try:
+        subprocess.run(["docker", "exec", "-i", container, "sh", "-c", "cat > /tmp/aruvi-fixture-node && chmod 755 /tmp/aruvi-fixture-node"], stdin=producer.stdout, check=True)
+    finally:
+        if producer.stdout: producer.stdout.close()
+        producer.wait()
+    if producer.returncode: raise ValueError("Unable to prepare the disposable syntax checker")
+    node_check = subprocess.run(["docker", "exec", container, "/tmp/aruvi-fixture-node", "--version"], text=True, capture_output=True)
+    if node_check.returncode: raise ValueError(f"Syntax checker could not start (exit {node_check.returncode}): " + node_check.stderr[:500])
+    if args.verify_gate_rejects_invalid:
+        subprocess.run(["docker", "exec", "-i", container, "sh", "-c", "cat > /tmp/aruvi-invalid-syntax.js"], input="function broken( {\n", text=True, check=True)
     command(["docker", "exec", container, "sh", "-c", 'mkdir -p /repositories/coding-fixture && git init -q -b main /repositories/coding-fixture && git -C /repositories/coding-fixture config user.name "Fixture" && git -C /repositories/coding-fixture config user.email "fixture@example.invalid" && printf "# Fixture\\n" > /repositories/coding-fixture/README.md && git -C /repositories/coding-fixture add README.md && git -C /repositories/coding-fixture commit -q -m initial && git init -q --bare /repositories/coding-origin.git && git -C /repositories/coding-fixture remote add origin /repositories/coding-origin.git && git -C /repositories/coding-fixture push -q -u origin main'])
     if args.scenario == "extend-module":
         original = "function sumEven(numbers) { return numbers.filter(n => n % 2 === 0).reduce((a, b) => a + b, 0); }\nmodule.exports = { sumEven };\n"
@@ -94,7 +109,8 @@ try:
         boundaries = dict(coding["boundaries"])
         boundaries["json_object_output"] = True
         call("aruvi_agents", "update_agent_definition", {"id": coding["id"], "boundaries": boundaries})
-    for key, value in [("workflow.auto_start_after_work_item_approval", "false"), ("workflow.auto_approve_plan", "false"), ("workflow.auto_approve_test_review", "false"), ("workflow.test_argv", json.dumps(["/bin/sh", "-c", "test -f src/math.js"]))]:
+    test_file = "/tmp/aruvi-invalid-syntax.js" if args.verify_gate_rejects_invalid else "src/math.js"
+    for key, value in [("workflow.auto_start_after_work_item_approval", "false"), ("workflow.auto_approve_plan", "false"), ("workflow.auto_approve_test_review", "false"), ("workflow.test_argv", json.dumps(["/tmp/aruvi-fixture-node", "--check", test_file]))]:
         call("aruvi_settings", "set_setting", {"key": key, "value": value})
     product = call("aruvi_catalog", "create_product", {"name": "Disposable real coding evaluation"})
     repo = call("aruvi_repositories", "register_repository", {"name": "Coding fixture", "local_path": "/repositories/coding-fixture", "default_branch": "main"})
@@ -121,8 +137,27 @@ try:
                 print("Coding trace:", trace["content"][:5000], flush=True)
     try:
         call("aruvi_workflows", "handle_workflow_user_action", {"workflow_run_id": run_id, "action": "approve"})
-    except ValueError:
+    except ValueError as failure:
         print_coding_trace()
+        if args.verify_gate_rejects_invalid:
+            artifacts = call("aruvi_checkpoints", "list_work_item_artifacts", {"work_item_id": item["id"]})
+            matches = [artifact for artifact in artifacts if artifact.get("artifact_type") == "workflow_test_result" and artifact.get("workflow_run_id") == run_id]
+            if len(matches) != 1: raise ValueError("Expected a failed workflow test artifact") from failure
+            report = json.loads(call("aruvi_checkpoints", "read_artifact_content", {"artifact_id": matches[0]["id"]})["content"])
+            if report.get("status") != "failed" or report.get("exit_code") in (None, 0): raise ValueError("Invalid syntax was not rejected by the workflow test gate") from failure
+            if "aruvi-invalid-syntax.js" not in report.get("stderr", ""): raise ValueError("Workflow test failed for an unexpected reason") from failure
+            remote_has_file = subprocess.run(["docker", "exec", container, "git", "--git-dir=/repositories/coding-origin.git", "cat-file", "-e", "main:src/math.js"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if remote_has_file.returncode == 0: raise ValueError("Failed test was delivered to the remote") from failure
+            print("Workflow test gate rejected invalid syntax and did not deliver", flush=True)
+            sys.exit(0)
+        try:
+            artifacts = call("aruvi_checkpoints", "list_work_item_artifacts", {"work_item_id": item["id"]})
+            for artifact in artifacts:
+                if artifact.get("artifact_type") == "workflow_test_result" and artifact.get("workflow_run_id") == run_id:
+                    report = call("aruvi_checkpoints", "read_artifact_content", {"artifact_id": artifact["id"]})
+                    print("Workflow test result:", report["content"][:2000], flush=True)
+        except (OSError, KeyError, TypeError, ValueError):
+            print("Workflow test result unavailable", flush=True)
         # The fixture is disposable and the ledger fields below contain no prompt,
         # completion, or provider credentials. They identify the failing stage
         # and token budget even when the workflow stops before test review.
@@ -140,6 +175,13 @@ try:
     print("Stage after coding:", run["current_stage"], flush=True)
     if run["current_stage"] != "pending_test_review": raise ValueError("Workflow did not reach test review")
     print_coding_trace()
+    artifacts = call("aruvi_checkpoints", "list_work_item_artifacts", {"work_item_id": item["id"]})
+    test_artifacts = [artifact for artifact in artifacts if artifact.get("artifact_type") == "workflow_test_result" and artifact.get("workflow_run_id") == run_id]
+    if len(test_artifacts) != 1: raise ValueError("Expected one workflow test result artifact")
+    test_result = json.loads(call("aruvi_checkpoints", "read_artifact_content", {"artifact_id": test_artifacts[0]["id"]})["content"])
+    if test_result.get("status") != "passed" or test_result.get("exit_code") != 0:
+        raise ValueError("Workflow syntax check did not pass")
+    print("Workflow syntax check passed", flush=True)
     file = call("aruvi_repositories", "read_repository_file", {"repository_id": repo["id"], "relative_path": "src/math.js"})
     code = file["content"]
     assertions = "\nconst assert = require('node:assert/strict'); const f = module.exports.sumEven; assert.equal(f([1,2,3,4,-2]),4); assert.equal(f([]),0);\n"

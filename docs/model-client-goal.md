@@ -143,6 +143,25 @@ provider hosting into the model-host service as part of this work.
   rebuilt worktree server passed the remote UI smoke, 20 remote, one CI and 19
   isolated workflow tests. The running binary hash matched the release build.
 
+## Real coding workflow test-gate checkpoint
+
+- The disposable real-model workflow now configures `node --check src/math.js`
+  as its in-workflow test instead of checking only whether the file exists. It
+  copies the Node executable from the existing Node fixture image to an
+  executable temporary path in the disposable container; syntax checking does
+  not execute generated JavaScript. Separate behavior assertions still execute
+  the generated code in a network-disabled container without the Studio fixture
+  credentials. The script checks that the workflow test artifact reports success
+  before it performs those assertions and approves delivery.
+- A real 7B JSON-mode workflow passed syntax checking and independent behavioral
+  assertions, then pushed the verified file to its disposable remote. With
+  `--verify-gate-rejects-invalid`, a separate 7B run fed a deterministic invalid
+  JavaScript file to the workflow test gate; the test artifact reported failure
+  and the script verified that the generated file was absent from the remote.
+  A 15B run exhausted its coding steps before reaching the test gate. This is
+  a fixture-specific JavaScript syntax check, not a general guarantee that
+  generated code is correct or safe.
+
 ## Coding model repair feedback checkpoint
 
 - When a single coding response fails the tool/final schema, Studio now includes
@@ -156,8 +175,8 @@ provider hosting into the model-host service as part of this work.
   reached test review and wrote a file, but the generated JavaScript contained
   literal newline escapes and failed isolated execution. The fixture was stopped
   before approval or delivery. This is an observed failure, not evidence of 15B
-  reliability; the fixture's in-workflow command only checks file existence, so
-  its later executable assertions provide the actual code-quality check. A 7B
+  reliability; in that run the fixture's in-workflow command only checked file
+  existence, so its later executable assertions provided the code-quality check. A 7B
   JSON-mode control run generated executable code, passed assertions, and
   delivered it to the disposable Git remote.
 - macOS and Linux suites each passed 171 Rust tests (one live test ignored);
