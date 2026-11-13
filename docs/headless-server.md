@@ -246,11 +246,13 @@ the running deployment does not change until recreated. Per-provider timeouts
 are not yet supported.
 
 Keep the database and its sibling `-wal` and `-shm` files in a directory writable
-only by the service account and trusted administrators. The current bundled
-SQLite is affected by [RUSTSEC-2026-0459](https://rustsec.org/advisories/RUSTSEC-2026-0459.html)
-when a crafted database and WAL pair is opened. Do not point `ARUVI_DB_PATH` or
-the desktop database override at files supplied by an untrusted party. Directory
-permissions reduce the attack surface; they do not patch the vulnerability.
+only by the service account and trusted administrators. The bundled
+SQLite in older builds is affected by [RUSTSEC-2026-0459](https://rustsec.org/advisories/RUSTSEC-2026-0459.html)
+when a crafted database and WAL pair is opened. The current source pins a
+locally patched SQLx driver to a binding bundling SQLite 3.54.1; existing
+installations must be rebuilt and verified to receive it. Do not point
+`ARUVI_DB_PATH` or the desktop database override at files supplied by an
+untrusted party. Directory permissions protect the database and its contents.
 
 ## systemd service
 

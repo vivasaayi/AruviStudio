@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libclang-dev clang cmake && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 COPY crates ./crates
+COPY vendor ./vendor
 COPY src-tauri ./src-tauri
 COPY docs ./docs
 COPY LICENSE NOTICE ./

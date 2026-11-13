@@ -49,3 +49,7 @@ libc = "0.2"
 [dev-dependencies]
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
+
+# Temporary security backport; see vendor/sqlx-sqlite/ARUVI-PATCH.md.
+[patch.crates-io]
+sqlx-sqlite = { path = "../vendor/sqlx-sqlite" }

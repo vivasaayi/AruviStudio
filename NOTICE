@@ -7,3 +7,7 @@ See the LICENSE file at the repository root for the full license text.
 Commercial use is not permitted under this license. For commercial licensing
 inquiries, contact Rajan Panneerselvam.
 
+
+The vendored SQLx SQLite driver in vendor/sqlx-sqlite is provided under its
+upstream MIT OR Apache-2.0 license. See that directory's license files and
+ARUVI-PATCH.md for its origin and local modification.

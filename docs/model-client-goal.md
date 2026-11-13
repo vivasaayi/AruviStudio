@@ -421,6 +421,29 @@ provider hosting into the model-host service as part of this work.
   a general reliability claim. `bash scripts/test host-coding-workflow --scenario
   extend-module` repeats it; set `ARUVI_CODING_TEST_MODEL` for the installed model.
 
+## Progress — SQLite security backport
+
+- A temporary, locally vendored copy of the published SQLx SQLite 0.8.6 driver
+  changes only its `libsqlite3-sys` dependency to 0.39.1 (bundled SQLite 3.54.1),
+  addressing the version affected by RUSTSEC-2026-0459. Provenance, upstream
+  licenses and the maintenance/removal plan are in `vendor/sqlx-sqlite`.
+  This dependency combination is not supported upstream; Windows and other
+  untested targets require validation before release.
+- Full Rust suites passed on macOS and Linux: 159 tests each, with one live test
+  ignored. A runtime SQL query test verifies SQLite is at least 3.54.0. A fresh
+  cargo-audit no longer reports the SQLite advisory; it reports one RSA advisory
+  in the lockfile, 13 unmaintained, 10 unsound and three yanked warnings. Cargo
+  audit does not independently review the locally patched SQLx source.
+- The worktree data volume was stopped and backed up to a private, owner-only
+  archive before upgrading. After deployment, the database passed integrity and
+  foreign-key checks; provider, agent, product and work-item counts matched the
+  backup. The binary hash matched the locked release build. The browser suites
+  passed one remote smoke, 20 remote, one CI and 19 isolated workflow cases;
+  real 7B MCP coding and browser speech checks passed. Existing deployments
+  retain their previous SQLite until rebuilt; staging and production were not
+  upgraded. The branch build used the existing host-mounted Linux toolchain and
+  Docker runtime stage to accommodate Docker Desktop's limited free space.
+
 ## Dependency security checkpoint — 2026-11-13
 
 - `npm audit --json` reported no npm advisories. `cargo-audit` 0.23.0
@@ -435,7 +458,7 @@ provider hosting into the model-host service as part of this work.
   the result as release-ready.
 - [RUSTSEC-2026-0459](https://rustsec.org/advisories/RUSTSEC-2026-0459.html)
   concerns the bundled SQLite version when opening an attacker-controlled database
-  and WAL pair. Studio currently reaches `libsqlite3-sys` 0.30.1 through SQLx
+  and WAL pair. The previous Studio build reached `libsqlite3-sys` 0.30.1 through SQLx
   0.8.6; the advisory's fixed bundled version is 0.39.0 or later. Verify the
   actual database trust boundary and a compatible upstream upgrade or other
   mitigation before release. As checked on 2026-11-13, the latest published
@@ -443,7 +466,7 @@ provider hosting into the model-host service as part of this work.
   not reach the fixed version. SQLx supports dynamic SQLite linkage, but that
   requires a patched system library on every target and has not been adopted or
   verified here. See [SQLx SQLite linkage](https://docs.rs/crate/sqlx-sqlite/0.8.6).
-  A feature-tree check confirms this build selects `libsqlite3-sys/bundled`,
+  A feature-tree check confirmed the previous build selected `libsqlite3-sys/bundled`,
   whose source declares SQLite 3.46.0. `bootstrap` opens `ARUVI_DB_PATH`, then
   the saved desktop override, then the application data directory, and enables
   WAL mode. In the running worktree container `/data` is owned by `aruvi`, mode
@@ -451,9 +474,8 @@ provider hosting into the model-host service as part of this work.
   administrators and the owning service account still can. The isolated native
   test data directory is mode 0700. These observations do not establish the
   permissions of a user's desktop override or any other deployment, and they do
-  not fix the bundled SQLite vulnerability. Do not open untrusted database/WAL
-  pairs; protect both the database directory and override configuration until a
-  fixed SQLite is available in every shipped build.
+  did not fix the bundled SQLite vulnerability. Do not open untrusted database/WAL
+  pairs; protect both the database directory and override configuration.
 - [RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html)
   reports an RSA timing issue. `rsa` 0.9.10 appears in the lockfile, but `cargo
   tree --target all -i rsa` printed no path for Studio's selected features. This

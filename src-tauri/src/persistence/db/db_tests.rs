@@ -16,6 +16,14 @@ async fn create_test_pool(name: &str) -> SqlitePool {
 }
 
 #[tokio::test]
+async fn linked_sqlite_includes_wal_disclosure_fix() {
+    let pool = SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
+    let version: String = sqlx::query_scalar("SELECT sqlite_version()").fetch_one(&pool).await.unwrap();
+    let parts: Vec<u32> = version.split('.').map(|part| part.parse().unwrap()).collect();
+    assert!(parts.len() == 3 && (parts[0], parts[1], parts[2]) >= (3, 54, 0), "SQLite {version} predates the WAL disclosure fix");
+}
+
+#[tokio::test]
 async fn pooled_connections_restore_foreign_key_enforcement() {
     let pool = create_test_pool("foreign_keys_reset").await;
     let mut connection = pool.acquire().await.unwrap();
