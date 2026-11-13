@@ -135,6 +135,9 @@ pub struct TransportCapabilities {
 #[async_trait]
 pub trait ModelGateway: Send + Sync {
     fn transport_capabilities(&self) -> TransportCapabilities { TransportCapabilities::default() }
+    /// Whether this transport can request JSON-object output. A particular
+    /// endpoint or model may still reject the option at runtime.
+    fn supports_json_object_completion(&self) -> bool { false }
     async fn health_check(&self) -> Result<bool, ClientError>;
     /// Fetch one page; pass the returned cursor to retrieve the next page.
     async fn list_models_page(&self, _cursor: Option<&str>) -> Result<ModelPage, ClientError> {
@@ -162,6 +165,22 @@ pub trait ModelGateway: Send + Sync {
 #[cfg(test)]
 mod response_compatibility_tests {
     use super::*;
+
+    struct LegacyGateway;
+
+    #[async_trait]
+    impl ModelGateway for LegacyGateway {
+        async fn health_check(&self) -> Result<bool, ClientError> { Ok(true) }
+        async fn run_completion(&self, _request: CompletionRequest) -> Result<CompletionResponse, ClientError> {
+            Ok(CompletionResponse::default())
+        }
+    }
+
+    #[test]
+    fn existing_gateway_implementations_default_json_support_to_false() {
+        let gateway: Box<dyn ModelGateway> = Box::new(LegacyGateway);
+        assert!(!gateway.supports_json_object_completion());
+    }
 
     #[test]
     fn old_json_without_metadata_round_trips_without_a_new_null_field() {

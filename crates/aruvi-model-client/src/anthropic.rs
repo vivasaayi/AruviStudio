@@ -335,6 +335,7 @@ mod tests {
         let speech = crate::SpeechRequest { model: "voice".into(), input: "hi".into(), voice: None, speed: None, response_format: "wav".into() };
         assert!(matches!(client.generate_speech(speech).await, Err(ClientError::UnsupportedOperation("speech generation"))));
         let request = CompletionRequest { model: "fixture".into(), messages: vec![message("user", "Return JSON")], temperature: None, max_tokens: Some(10) };
+        assert!(!client.supports_json_object_completion());
         assert!(matches!(client.run_json_completion(request).await, Err(ClientError::UnsupportedOperation("JSON-object completion"))));
         let audio = crate::TranscriptionRequest { model: "voice".into(), audio: vec![], mime_type: "audio/wav".into(), filename: "a.wav".into(), language: None };
         assert!(matches!(client.transcribe(audio).await, Err(ClientError::UnsupportedOperation("transcription"))));

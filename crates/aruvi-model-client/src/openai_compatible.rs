@@ -302,6 +302,7 @@ impl OpenAiCompatibleClient {
 
 #[async_trait]
 impl ModelGateway for OpenAiCompatibleClient {
+    fn supports_json_object_completion(&self) -> bool { true }
     fn transport_capabilities(&self) -> crate::TransportCapabilities {
         crate::TransportCapabilities { text_completion: true, text_streaming: true, model_discovery: true, transcription: true, speech: true }
     }
@@ -560,6 +561,7 @@ mod tests {
         });
         let client: Box<dyn ModelGateway> = Box::new(OpenAiCompatibleClient::new(format!("http://{addr}/v1"), Some("test-key".into())));
         assert!(client.transport_capabilities().text_streaming);
+        assert!(client.supports_json_object_completion());
         let mut chunks = Vec::new();
         let result = client.stream_completion(CompletionRequest { model:"fixture".into(), messages:vec![ChatMessage { role:"user".into(), content:"Hello".into() }], temperature:None, max_tokens:Some(20) }, &mut |delta| chunks.push(delta.to_owned())).await;
         server.join().unwrap();

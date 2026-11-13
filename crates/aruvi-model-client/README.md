@@ -36,7 +36,9 @@ JSON-object completion, text streaming, model discovery, remote transcription
 and WAV speech. `run_json_completion` sends OpenAI-compatible JSON-object mode
 and rejects output that is not a JSON object; it does not validate a schema.
 Prompt the model to produce JSON, and enable this only when the selected remote
-model supports the parameter. Anthropic returns `UnsupportedOperation` rather
+model supports the parameter. `supports_json_object_completion()` reports transport
+implementation support without a network request; the endpoint or selected model
+can still reject it. Anthropic returns `UnsupportedOperation` rather
 than silently changing formats. Ordinary completions do not send the option. A transport
 can return `UnsupportedOperation` for methods it does not implement; for example,
 Anthropic's text transport does not implement voice. `transport_capabilities()`
