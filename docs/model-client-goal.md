@@ -44,6 +44,20 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Local Whisper WAV bounds
+
+- Local Whisper rejects zero sample rates and recordings longer than ten minutes
+  before resampling. This prevents a low-rate WAV from expanding into an
+  unbounded 16 kHz allocation. The limit is specific to Studio's local Whisper
+  path and is an intentional change for longer recordings; remote transcription
+  continues to follow its provider's limits.
+- Crafted WAV and resampling tests cover invalid rates, excessive duration and
+  normal 8/16 kHz input. The macOS Rust suite passed 180 tests with one live test
+  ignored. The rebuilt worktree container remained healthy and passed the real
+  remote Piper-to-Whisper MCP round trip. A local Whisper model was not loaded for
+  these crafted-file checks. Running server SHA-256:
+  `59ff6ee9727e5039544ba3ccc8ffd6c653ffe4f42189c83e2c7359fe8c9cfd15`.
+
 ## Disabled transcription providers
 
 - Transcription now rejects disabled providers at the shared Studio service

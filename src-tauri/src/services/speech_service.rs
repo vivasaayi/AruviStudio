@@ -190,7 +190,7 @@ async fn transcribe_audio_locally(
         .decode(request.audio_bytes_base64.trim())
         .map_err(|error| AppError::Validation(format!("Invalid audio payload: {error}")))?;
     let (samples, sample_rate) = decode_wav_to_mono_f32(&audio_bytes)?;
-    let resampled = resample_mono_audio(&samples, sample_rate, 16_000);
+    let resampled = resample_mono_audio(&samples, sample_rate, 16_000)?;
     let language = normalize_whisper_language(request.locale.as_deref());
 
     tokio::task::spawn_blocking(move || {
@@ -210,6 +210,15 @@ fn decode_wav_to_mono_f32(bytes: &[u8]) -> Result<(Vec<f32>, u32), AppError> {
         return Err(AppError::Validation(
             "WAV audio must have at least one channel.".to_string(),
         ));
+    }
+    if spec.sample_rate == 0 {
+        return Err(AppError::Validation("WAV audio must have a positive sample rate.".to_string()));
+    }
+    // Whisper consumes 16 kHz samples. Reject long or malformed files before
+    // allocating decoded samples or multiplying their size during resampling.
+    const MAX_DURATION_SECONDS: u64 = 10 * 60;
+    if u64::from(reader.duration()) > u64::from(spec.sample_rate) * MAX_DURATION_SECONDS {
+        return Err(AppError::Validation("Local Whisper audio must be at most 10 minutes.".to_string()));
     }
 
     let samples = match (spec.sample_format, spec.bits_per_sample) {
@@ -252,9 +261,15 @@ fn decode_wav_to_mono_f32(bytes: &[u8]) -> Result<(Vec<f32>, u32), AppError> {
     Ok((mono, spec.sample_rate))
 }
 
-fn resample_mono_audio(samples: &[f32], source_rate: u32, target_rate: u32) -> Vec<f32> {
+fn resample_mono_audio(samples: &[f32], source_rate: u32, target_rate: u32) -> Result<Vec<f32>, AppError> {
+    if source_rate == 0 || target_rate == 0 {
+        return Err(AppError::Validation("Audio sample rates must be positive.".to_string()));
+    }
+    if samples.len() as u64 > u64::from(source_rate) * 600 {
+        return Err(AppError::Validation("Local Whisper audio must be at most 10 minutes.".to_string()));
+    }
     if source_rate == target_rate || samples.is_empty() {
-        return samples.to_vec();
+        return Ok(samples.to_vec());
     }
 
     let ratio = target_rate as f64 / source_rate as f64;
@@ -271,7 +286,7 @@ fn resample_mono_audio(samples: &[f32], source_rate: u32, target_rate: u32) -> V
         output.push(lower_value + (upper_value - lower_value) * fraction);
     }
 
-    output
+    Ok(output)
 }
 
 fn normalize_whisper_language(locale: Option<&str>) -> Option<String> {
@@ -334,6 +349,33 @@ fn run_whisper_transcription(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_resampling_rejects_zero_rate_and_excessive_duration() {
+        assert!(resample_mono_audio(&[0.0], 0, 16_000).is_err());
+        assert!(resample_mono_audio(&[0.0; 601], 1, 16_000).is_err());
+        assert_eq!(resample_mono_audio(&[0.5, -0.5], 16_000, 16_000).unwrap(), vec![0.5, -0.5]);
+        assert_eq!(resample_mono_audio(&[0.5, -0.5], 8_000, 16_000).unwrap().len(), 4);
+    }
+
+    #[test]
+    fn local_wav_validation_rejects_invalid_rate_and_long_audio() {
+        fn wav(rate: u32, samples: usize) -> Vec<u8> {
+            let mut bytes = Cursor::new(Vec::new());
+            {
+                let spec = hound::WavSpec { channels: 1, sample_rate: rate, bits_per_sample: 16, sample_format: SampleFormat::Int };
+                let mut writer = hound::WavWriter::new(&mut bytes, spec).unwrap();
+                for _ in 0..samples { writer.write_sample(0_i16).unwrap(); }
+                writer.finalize().unwrap();
+            }
+            bytes.into_inner()
+        }
+        let mut invalid = wav(8_000, 1);
+        invalid[24..28].copy_from_slice(&0_u32.to_le_bytes());
+        assert!(decode_wav_to_mono_f32(&invalid).is_err());
+        assert!(decode_wav_to_mono_f32(&wav(1, 601)).is_err());
+        assert_eq!(decode_wav_to_mono_f32(&wav(8_000, 2)).unwrap().0.len(), 2);
+    }
 
     #[tokio::test]
     async fn disabled_transcription_providers_are_rejected_before_io() {
