@@ -106,6 +106,38 @@ provider hosting into the model-host service as part of this work.
   The healthy branch passed real 7B MCP coding and token-limit checks and
   authenticated browser chat.
 
+## Progress — real model workflow revalidation
+
+- The independent consumer pinned at `78095c0173cd7f8b58fba21db96bc0f484ca0616`
+  passed real native Model Host discovery, completion, streaming and token-limit
+  handling with `qwen25-coder-7b-q4`. The probe used the private token over stdin;
+  this run was native rather than the non-root container probe.
+- Against the rebuilt branch, a disposable product-to-code-to-Git workflow
+  passed with the 7B model: the generated JavaScript passed isolated assertions
+  and the same file was present in the disposable Git remote. A preceding run
+  generated the requested file but failed before test review due to a truncated
+  model response. The original failure lacked enough ledger detail to attribute
+  its stage or token budget. The fixture now prints safe stage, status and token
+  budget diagnostics on that failure path, without prompts or credentials. One
+  pass and one failure are not a general reliability estimate.
+
+## Image capability assessment
+
+- The deployed Model Host advertises an image model (`sd-v1-5-metal`) and
+  documents `POST /v1/images/generations`, which returns PNG data as base64 and
+  supports host-specific size, step and seed controls. The isolated coding host
+  currently advertises only its two text models. These are discovery results,
+  not an image-generation test by Studio.
+- No Studio image-generation UI, MCP action or existing desktop image workflow
+  was found, and the shared Rust client currently has no image operation. Thus
+  image generation is a new capability rather than a demonstrated desktop
+  parity regression. Adding it requires its own API and security/size limits;
+  do not assume Model Host controls or response fields apply to all providers.
+  For example, OpenAI's current image API returns base64 for GPT image models
+  and does not accept the legacy `response_format` parameter for those models.
+  See [Model Host image contract](https://github.com/vivasaayi/aruvi-model-host/blob/main/docs/images.md) and
+  [OpenAI image generation](https://developers.openai.com/api/reference/resources/images/methods/generate).
+
 ## Initial evidence — 2026-11-13
 
 - Native model-host staging is healthy at `127.0.0.1:20680`, revision
