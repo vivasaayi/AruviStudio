@@ -13,7 +13,11 @@ import urllib.request
 root = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("host", nargs="?", type=Path, default=root.parent / "aruvi-model-host-studio-validation")
+parser.add_argument("--repository", action="store_true", help="Analyze a disposable workspace rather than submit a text turn")
+parser.add_argument("--browser", action="store_true", help="Drive repository analysis through a real browser")
 args = parser.parse_args()
+if args.browser and not args.repository:
+    parser.error("--browser requires --repository")
 host = args.host.expanduser().resolve()
 container = None
 volume = None
@@ -78,10 +82,27 @@ try:
     session = call("aruvi_planner", "create_planner_session", {"provider_id": provider["id"], "model_name": model_name})
     if session.get("provider_id") != provider["id"] or session.get("model_name") != model_name:
         raise ValueError("Planner did not bind the requested provider and model")
-    result = call("aruvi_planner", "submit_planner_turn", {
-        "session_id": session["session_id"], "product_id": product["id"],
-        "user_input": "Add one product area named Inventory Management for tracking stock levels to this product."
-    })
+    if args.repository:
+        command(["docker", "exec", container, "sh", "-c", "mkdir -p /repositories/planner-fixture/src/features/inventory && printf '# Inventory Management\nTrack inventory stock levels and quantities.\n' > /repositories/planner-fixture/README.md && printf 'export function Inventory() { return null; }\n' > /repositories/planner-fixture/src/features/inventory/Inventory.js"])
+        repo = call("aruvi_repositories", "register_repository", {"name": "Inventory fixture", "local_path": "/repositories/planner-fixture", "default_branch": "main"})
+        if args.browser:
+            browser = subprocess.run(["node", str(root / "scripts/test-host-planner-browser.mjs")], cwd=root, input=json.dumps({"address": address, "session": session["session_id"], "product": product["id"], "repository": repo["id"]}), text=True, capture_output=True, timeout=300)
+            if browser.returncode:
+                raise ValueError("Browser fixture failed: " + browser.stderr[-1500:])
+            result = json.loads(browser.stdout)
+        else:
+            payload = json.dumps({"repository_id": repo["id"], "product_id": product["id"]}).encode()
+            request = urllib.request.Request(f"http://{address}/api/mobile/planner/sessions/{session['session_id']}/analyze-repository", data=payload, headers={"Authorization": "Bearer workflow-mobile-test", "Content-Type": "application/json"})
+            try:
+                with urllib.request.urlopen(request, timeout=240) as response:
+                    result = json.load(response)
+            except urllib.error.HTTPError as error:
+                raise ValueError(f"Repository analysis HTTP {error.code}: {error.read(1000).decode(errors='replace')}") from error
+    else:
+        result = call("aruvi_planner", "submit_planner_turn", {
+            "session_id": session["session_id"], "product_id": product["id"],
+            "user_input": "Add one product area named Inventory Management for tracking stock levels to this product."
+        })
     model_events = [event for event in result.get("trace_events", []) if event.get("stage") == "model"]
     retries = sum(event.get("stage") == "format_retry" for event in result.get("trace_events", []))
     print(f"Planner status: {result.get('status')}; model calls: {len(model_events)}; format retries: {retries}", flush=True)
@@ -96,7 +117,8 @@ try:
             yield from flatten(node.get("children"))
     nodes = list(flatten(result.get("draft_tree_nodes")))
     if not any(node.get("node_type") == "product_area" and "inventory" in node.get("label", "").lower() for node in nodes):
-        raise ValueError("Expected an Inventory product area in the staged draft; response: " + json.dumps(result, ensure_ascii=False)[:3000])
+        print("Model output:", json.dumps(model_events, ensure_ascii=False)[:6000], flush=True)
+        raise ValueError("Expected an inventory-related product area in the staged draft; response: " + json.dumps(result, ensure_ascii=False)[:3000])
     before = call("aruvi_catalog", "list_product_areas", {"product_id": product["id"]})
     if before:
         raise ValueError("Draft was persisted before confirmation")
@@ -106,7 +128,7 @@ try:
     areas = call("aruvi_catalog", "list_product_areas", {"product_id": product["id"]})
     if not any("inventory" in area.get("name", "").lower() for area in areas):
         raise ValueError("Confirmed product area was not saved")
-    print(f"Real model {model_name} created and confirmed a planner draft through MCP", flush=True)
+    print(f"Real model {model_name} created and confirmed a planner draft through {'browser repository analysis' if args.browser else ('repository analysis API' if args.repository else 'MCP')}", flush=True)
 except (OSError, KeyError, TypeError, ValueError, subprocess.SubprocessError) as error:
     print(f"Real planner workflow failed: {type(error).__name__}: {error if not isinstance(error, subprocess.CalledProcessError) else 'fixture command failed'}", file=sys.stderr)
     sys.exit(1)

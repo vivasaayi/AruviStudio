@@ -80,8 +80,23 @@ pub(crate) fn parse_final_response(raw: &str) -> Result<PlannerPlan, AppError> {
     let actions = parsed
         .actions
         .into_iter()
-        .filter_map(normalize_planner_action)
-        .collect::<Vec<_>>();
+        .enumerate()
+        .map(|(index, action)| {
+            normalize_planner_action(action)
+                .filter(|action| {
+                    action
+                        .get("type")
+                        .and_then(Value::as_str)
+                        .is_some_and(|kind| !kind.trim().is_empty())
+                })
+                .ok_or_else(|| {
+                    AppError::Validation(format!(
+                        "Planner action {} is missing its top-level type",
+                        index + 1
+                    ))
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(PlannerPlan {
         assistant_response: parsed.assistant_response,
         needs_confirmation: parsed.needs_confirmation,
@@ -224,4 +239,14 @@ pub(crate) fn normalize_planner_action(action: Value) -> Option<Value> {
     }
 
     Some(action)
+}
+
+#[cfg(test)]
+mod malformed_response_tests {
+    use super::*;
+    #[test]
+    fn rejects_partially_malformed_actions_instead_of_dropping_them() {
+        let raw = json!({"assistant_response":"Ready", "needs_confirmation":false, "actions":[{"type":"create_product_area", "name":"First"}, {"node_type":"product_area", "name":"Second"}]}).to_string();
+        assert!(parse_final_response(&raw).is_err());
+    }
 }

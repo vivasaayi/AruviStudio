@@ -594,6 +594,24 @@ provider hosting into the model-host service as part of this work.
   coding and browser speech checks. Native desktop and Windows dependency paths
   remain unverified. No other products' data were pruned.
 
+## Real Model Host repository analysis checkpoint
+
+- `bash scripts/test host-planner --repository --browser` drives an actual
+  headless browser against a disposable Studio container and synthetic inventory
+  repository. It uses the local 7B model, checks a staged inventory area is shown,
+  verifies the catalog is unchanged before confirmation, confirms through MCP,
+  and checks the resulting persisted area. The API-only variant is
+  `bash scripts/test host-planner --repository`; each test removes its fixture.
+- Two initial 7B attempts returned draft-node objects with nested action types.
+  The old parser silently discarded those actions. It now rejects a response if
+  any action lacks a top-level type, preventing partial or empty success, and
+  repository analysis asks for a corrected envelope at most twice. A mock
+  provider test covers recovery and draft persistence. The prompt includes a
+  concrete action example; subsequent real API and browser runs both passed on
+  their first model response. These are narrow, nondeterministic observations,
+  not a quality guarantee for other codebases, models, or partial plans.
+- macOS and Linux Rust suites each passed 168 tests, with one live test ignored.
+
 ## Repository analysis parity checkpoint
 
 - The browser planner can load registered workspaces and request repository
@@ -605,8 +623,8 @@ provider hosting into the model-host service as part of this work.
   repository, successful draft persistence, and the unchanged product catalog.
   Browser tests cover product selection and disabling controls while analysis is
   pending. Repository scanning or model failures now keep the cached planner
-  session aligned with already persisted seed/selection state. Actual model-host
-  repository analysis and native desktop interaction remain unverified.
+  session aligned with already persisted seed/selection state. Native desktop
+  interaction remains unverified.
 - Validation on 2026-11-13: macOS and Linux suites each passed 167 tests
   (one live test ignored); browser suites passed one smoke, 21 remote, one CI,
   and 19 workflow cases. A real 7B Model Host planner proposal and confirmation

@@ -47,6 +47,8 @@ Rules:
 - Keep delivery execution in stories/tasks, not in strategy.
 - When a topic deserves book-grade depth, add explanation, examples, implementationNotes, and testGuidance fields instead of stopping at shallow summaries.
 - Use create_* when adding inferred structure to the staged design.
+- Each action must be an object with its own top-level "type", "name", and "target" fields. Do not return draft node objects with id, parent_id, node_type, or nested details.type.
+- Example: {"type":"create_product_area","name":"Inventory","target":{"productName":"Selected product name"},"description":"Inventory workflows"}.
 - Use update_* when refining an already selected/root design node from repository evidence.
 - Keep names concise and product-manager friendly.
 - Mention assumptions briefly in assistant_response.

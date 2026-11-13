@@ -59,7 +59,10 @@ pub async fn analyze_repository_for_planner(
             session.selected_draft_node_id.as_deref(),
         )
         .await?;
-        planner_service.lock().await.save_session(&session_id, session.clone());
+        planner_service
+            .lock()
+            .await
+            .save_session(&session_id, session.clone());
     }
 
     let provider_id = session.provider_id.clone().ok_or_else(|| {
@@ -85,7 +88,10 @@ pub async fn analyze_repository_for_planner(
     )
     .await?;
     // Keep the in-memory snapshot aligned if repository scanning or inference fails.
-    planner_service.lock().await.save_session(&session_id, session.clone());
+    planner_service
+        .lock()
+        .await
+        .save_session(&session_id, session.clone());
     let repository = repository_repo::get_repository(db, &repository_id).await?;
     let repo_snapshot = build_repository_analysis_snapshot(&repository)?;
     let repo_snapshot_json = serde_json::to_string_pretty(&repo_snapshot)?;
@@ -128,38 +134,78 @@ pub async fn analyze_repository_for_planner(
         truncate_text(&analysis_request, 12_000),
     );
 
-    let completion = run_completion(
-        db,
-        artifact_base_path,
-        &provider_id,
-        &model_name,
-        vec![
-            ChatMessage {
-                role: "system".to_string(),
-                content: repository_analysis_prompt().to_string(),
-            },
-            ChatMessage {
-                role: "user".to_string(),
-                content: analysis_request,
-            },
-        ],
-        PlannerModelCallContext {
-            source_kind: "desktop_repository_analysis",
-            source_id: Some(&session_id),
-            source_label: "Desktop Repository Analysis",
-            session_id: Some(&session_id),
-            product_id: Some(selected_product.id.as_str()),
+    let mut messages = vec![
+        ChatMessage {
+            role: "system".to_string(),
+            content: repository_analysis_prompt().to_string(),
         },
-    )
-    .await?;
-    push_trace(
-        &mut trace,
-        "model",
-        "Repository analysis completion",
-        completion.clone(),
-    );
-
-    let mut plan = parse_final_response(&completion)?;
+        ChatMessage {
+            role: "user".to_string(),
+            content: analysis_request,
+        },
+    ];
+    let mut parsed = None;
+    for attempt in 0..3 {
+        let completion = run_completion(
+            db,
+            artifact_base_path,
+            &provider_id,
+            &model_name,
+            messages.clone(),
+            PlannerModelCallContext {
+                source_kind: "desktop_repository_analysis",
+                source_id: Some(&session_id),
+                source_label: "Desktop Repository Analysis",
+                session_id: Some(&session_id),
+                product_id: Some(selected_product.id.as_str()),
+            },
+        )
+        .await?;
+        push_trace(
+            &mut trace,
+            "model",
+            format!("Repository analysis completion {}", attempt + 1),
+            completion.clone(),
+        );
+        let result = parse_final_response(&completion).and_then(|plan| {
+            if plan.actions.is_empty()
+                && plan
+                    .clarification_question
+                    .as_deref()
+                    .is_none_or(|question| question.trim().is_empty())
+            {
+                Err(AppError::Validation(
+                    "Repository analysis returned neither actions nor a clarification question"
+                        .into(),
+                ))
+            } else {
+                Ok(plan)
+            }
+        });
+        match result {
+            Ok(plan) => {
+                parsed = Some(plan);
+                break;
+            }
+            Err(error) if attempt < 2 => {
+                push_trace(
+                    &mut trace,
+                    "format_retry",
+                    "Invalid repository analysis response",
+                    error.to_string(),
+                );
+                messages.push(ChatMessage {
+                    role: "assistant".to_string(),
+                    content: completion,
+                });
+                messages.push(ChatMessage { role: "user".to_string(), content: "Correct the previous response. Return the required final JSON envelope. Every action must have top-level type, name, and target fields; do not return draft nodes or put type inside details. Example action: {\"type\":\"create_product_area\",\"name\":\"Inventory\",\"target\":{\"productName\":\"Selected product name\"}}. If evidence is insufficient, return an empty actions array and a nonempty clarification_question.".to_string() });
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    let mut plan = parsed.ok_or_else(|| {
+        AppError::Validation("Repository analysis did not return a valid plan".into())
+    })?;
     annotate_repository_analysis_plan(&repo_snapshot, &mut plan);
     scope_plan_to_selected_product(&mut plan, &selected_product);
     push_trace(

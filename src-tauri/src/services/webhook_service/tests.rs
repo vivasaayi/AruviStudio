@@ -468,13 +468,23 @@ async fn anthropic_protocol_routes_mcp_and_remote_chat() {
 async fn remote_repository_analysis_requires_auth_and_stages_design() {
     use crate::persistence::{model_repo, repository_repo};
     use crate::services::planner_service::create_planner_session;
-    use axum::{routing::post, Json, Router};
-    async fn completion() -> Json<Value> {
-        Json(json!({"id":"fixture", "model":"fixture", "choices":[{"message":{"role":"assistant", "content":json!({"type":"final", "assistant_response":"Proposed inventory area", "needs_confirmation":false, "clarification_question":null, "actions":[{"type":"create_product_area", "name":"Inventory", "target":{"productName":"Analysis Product"}}]}).to_string()}, "finish_reason":"stop"}]}))
+    use axum::{extract::State, routing::post, Json, Router};
+    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    async fn completion(State(calls): State<Arc<AtomicUsize>>, Json(request): Json<Value>) -> Json<Value> {
+        let count = calls.fetch_add(1, Ordering::SeqCst);
+        let actions = if count == 0 {
+            json!([{"node_type":"product_area", "name":"Inventory", "details":{"type":"create_product_area"}}])
+        } else {
+            assert!(request["messages"].as_array().unwrap().iter().any(|message| message["content"].as_str().unwrap_or("").contains("Correct the previous response")));
+            json!([{"type":"create_product_area", "name":"Inventory", "target":{"productName":"Analysis Product"}}])
+        };
+        Json(json!({"id":"fixture", "model":"fixture", "choices":[{"message":{"role":"assistant", "content":json!({"type":"final", "assistant_response":"Proposed inventory area", "needs_confirmation":false, "clarification_question":null, "actions":actions}).to_string()}, "finish_reason":"stop"}]}))
     }
+    let calls = Arc::new(AtomicUsize::new(0));
+    let server_calls = calls.clone();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
-    let server = tokio::spawn(async move { axum::serve(listener, Router::new().route("/v1/chat/completions", post(completion))).await.unwrap(); });
+    let server = tokio::spawn(async move { axum::serve(listener, Router::new().route("/v1/chat/completions", post(completion)).with_state(server_calls)).await.unwrap(); });
     let app: tauri::App<MockRuntime> = make_test_app("remote_repository_analysis").await;
     let state = app.state::<AppState>().inner().clone();
     settings_repo::set_setting(&state.db, "mobile.api_token", "analysis-token").await.unwrap();
@@ -500,6 +510,8 @@ async fn remote_repository_analysis_requires_auth_and_stages_design() {
     let (status, body) = send_json(&router, Method::POST, &path, Some("analysis-token"), Some(payload)).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let result = parse_json(&body);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert!(result["trace_events"].as_array().unwrap().iter().any(|event| event["stage"] == "format_retry"));
     assert_eq!(result["draft_tree_nodes"][0]["children"][0]["label"], "Inventory");
     let saved = crate::services::planner_session::load_session_from_db(&state.db, &session.session_id).await.unwrap();
     assert!(saved.draft_plan.unwrap().nodes.iter().any(|node| node.name == "Inventory"));
