@@ -119,6 +119,32 @@ configured default branch. These adapters have not yet been validated through a 
 staging deployment or promotion; do not infer release readiness from their presence.
 The original `compose.yaml` and its existing volumes remain a separate local deployment.
 
+### Calling the worktree MCP server
+
+After `bash scripts/env worktree up`, use `scripts/mcp` from this checkout. It finds
+the current loopback port and reads the worktree MCP token from its private state
+file; the token need not be placed on the command line. The wrapper prints JSON
+and returns a nonzero exit status for HTTP, protocol, or tool errors.
+
+```sh
+scripts/mcp tools
+scripts/mcp call aruvi_catalog '{"action":"list_products","arguments":{}}'
+scripts/mcp call aruvi_catalog '{"action":"create_product","arguments":{"name":"Example product"}}'
+scripts/mcp call aruvi_work_items '{"action":"list_work_items","arguments":{"product_id":"PRODUCT_ID"}}'
+```
+
+The result of an action is in `result`; use the returned product ID in later calls.
+Pass `-` instead of the JSON argument to read the argument object from standard input;
+use that form or a private input file when arguments contain sensitive information.
+Tool definitions include supported actions, and the `aruvi_workflows` and
+`aruvi_checkpoints` tools can start workflows and handle approval gates. These
+operations can run agents, execute configured test commands, and push to a configured
+repository; configure and review the target before starting a real workflow. The
+worktree's data and credentials are separate from the legacy Compose deployment.
+The worktree port may change when the container is recreated; the wrapper discovers
+it on every call. This wrapper is a command-line HTTP client; it does not register
+the server as a native tool in an already-running Codex session.
+
 ## Build
 
 On Ubuntu 22.04, install the current native build dependencies:

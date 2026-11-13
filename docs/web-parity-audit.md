@@ -31,6 +31,14 @@ not establish that all desktop behavior is available or works in a container.
 
 ### Audit findings before merge
 
+An isolated MCP-only lifecycle test now creates and updates a product, creates an
+area, capability and work item, attaches a Git repository, configures model bindings,
+approves both workflow gates, and reaches `done`. It verifies the generated file was
+pushed to a disposable local Git remote and that the browser displays the product.
+The model service is simulated; this is not proof of real-provider behavior. On the
+running worktree MCP discovery and product listing succeeded, but no repository was
+registered and the default LM Studio endpoint was unavailable.
+
 - Planner draft rename, add and delete now have browser controls backed by the same
   Rust services used by desktop and MCP. Repository analysis still lacks browser
   controls. Concurrent draft edits

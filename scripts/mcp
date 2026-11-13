@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+"""Call the current worktree's authenticated HTTP MCP endpoint."""
+import argparse
+import json
+import pathlib
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+
+root = pathlib.Path(__file__).resolve().parent.parent
+parser = argparse.ArgumentParser(description=__doc__)
+commands = parser.add_subparsers(dest="command", required=True)
+commands.add_parser("tools", help="List available MCP tools")
+call = commands.add_parser("call", help="Call a tool with JSON arguments")
+call.add_argument("tool")
+call.add_argument("arguments", nargs="?", default="{}", help="JSON object of tool arguments, or - to read JSON from stdin")
+args = parser.parse_args()
+
+try:
+    plan = json.loads(subprocess.check_output(["bash", "scripts/env", "worktree", "plan"], cwd=root, text=True))
+    env_file = pathlib.Path(plan["state"]) / "environment.env"
+    token = next(line.split("=", 1)[1] for line in env_file.read_text().splitlines() if line.startswith("ARUVI_MCP_API_TOKEN="))
+    address = subprocess.check_output(["docker", "compose", "--project-name", plan["project"], "--project-directory", str(root), "--env-file", str(env_file), "-f", str(root / "deploy/compose.worktree.yaml"), "port", "app", "8787"], cwd=root, text=True).strip()
+    if not address.startswith("127.0.0.1:"):
+        raise ValueError("Worktree MCP endpoint is not bound to IPv4 loopback")
+    if args.command == "tools":
+        method, params = "tools/list", {}
+    else:
+        arguments = json.load(sys.stdin) if args.arguments == "-" else json.loads(args.arguments)
+        if not isinstance(arguments, dict):
+            raise ValueError("Tool arguments must be a JSON object")
+        method, params = "tools/call", {"name": args.tool, "arguments": arguments}
+    payload = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode()
+    request = urllib.request.Request(f"http://{address}/api/mcp", data=payload, headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json", "Accept": "application/json"})
+    with urllib.request.urlopen(request, timeout=180) as response:
+        result = json.load(response)
+    if "error" in result:
+        raise ValueError(result["error"].get("message", "MCP request failed"))
+    result = result["result"]
+    if result.get("isError"):
+        raise ValueError("; ".join(item.get("text", "") for item in result.get("content", [])) or "MCP tool failed")
+    print(json.dumps(result.get("structuredContent", result), indent=2))
+except (OSError, StopIteration, ValueError, KeyError, subprocess.CalledProcessError, urllib.error.URLError) as error:
+    print(f"MCP request failed: {error}", file=sys.stderr)
+    sys.exit(1)
