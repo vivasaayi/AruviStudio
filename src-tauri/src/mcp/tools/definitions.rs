@@ -97,6 +97,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "create_planner_session",
                 "update_planner_session",
                 "clear_planner_pending",
+                "validate_planner_draft",
                 "submit_planner_turn",
                 "submit_planner_voice_turn",
                 "confirm_planner_plan",

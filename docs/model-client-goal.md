@@ -633,6 +633,22 @@ provider hosting into the model-host service as part of this work.
   coding and browser speech checks. Native desktop and Windows dependency paths
   remain unverified. No other products' data were pruned.
 
+## Shared planner validation checkpoint
+
+- The Rust planner service now computes draft readiness, node counts, duplicate
+  sibling warnings and empty-branch warnings using the existing desktop rules.
+  `aruvi_planner` exposes `validate_planner_draft`, and the authenticated browser
+  can request and display the result. The browser marks its result stale after
+  its own draft changes; another client can change a session after validation.
+- Tests cover empty and duplicate trees, authentication, persisted draft state,
+  matching HTTP/MCP results and the browser interaction. Desktop still computes
+  the equivalent validation in its frontend; switching it to the backend and
+  testing the native UI remain open. Design-review packet export and other parity
+  gaps remain open.
+- macOS and Linux each passed 172 Rust tests (one live test ignored); browser
+  suites passed one smoke, 21 remote, one CI and 19 workflow cases. The real 7B
+  browser repository-analysis and MCP confirmation flow also passed.
+
 ## OpenAI-compatible request validation checkpoint
 
 - Ordinary, JSON-object and streaming completion calls now consistently reject

@@ -78,6 +78,15 @@ async fn remote_planner_draft_edits_are_authenticated_and_persisted() {
     let (status, body) = send_json(&router, Method::POST, &format!("{base}/add"), Some("draft-test-token"), Some(json!({"node_id":root,"name":"Area","child_type":"product_area"}))).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let child = parse_json(&body)["selected_draft_node_id"].as_str().unwrap().to_string();
+    let validation = format!("/api/mobile/planner/sessions/{}/validation", session.session_id);
+    assert_eq!(send_json(&router, Method::GET, &validation, None, None).await.0, StatusCode::UNAUTHORIZED);
+    let (status, summary) = send_json(&router, Method::GET, &validation, Some("draft-test-token"), None).await;
+    assert_eq!(status, StatusCode::OK, "{summary}");
+    let summary = parse_json(&summary);
+    assert_eq!(summary["counts"]["product area"], 1);
+    assert_eq!(summary["score"], 88);
+    let via_mcp = crate::mcp::dispatch_tool(&state, "aruvi_planner", json!({"action":"validate_planner_draft", "arguments":{"session_id":session.session_id}})).await.unwrap();
+    assert_eq!(via_mcp["result"], summary);
     let (status, body) = send_json(&router, Method::POST, &format!("{base}/delete"), Some("draft-test-token"), Some(json!({"node_id":child}))).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let persisted = crate::persistence::planner_repo::get_session(&state.db, &session.session_id).await.unwrap();

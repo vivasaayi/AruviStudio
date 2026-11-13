@@ -63,6 +63,7 @@ pub mod planner_tool_loop;
 pub mod planner_turn_policy;
 pub mod planner_types;
 pub mod planner_voice_turn;
+pub mod planner_validation;
 pub mod product_example_catalog;
 pub mod product_semantic_template;
 pub mod product_service;

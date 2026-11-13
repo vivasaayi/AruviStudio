@@ -483,6 +483,8 @@
                 </div>
                 <div class="panel-body">
                   <div class="tree" id="draftTree"></div>
+                  <button type="button" class="secondary" id="validateDraftButton">Validate design</button>
+                  <div class="empty" id="draftValidation" aria-live="polite">Validate the staged design to see readiness and structural issues.</div>
                   <div class="empty">Use one client per planner session while editing; concurrent edits can overwrite each other.</div>
                   <label><span class="label">Draft node name</span><input id="draftNodeName" placeholder="Name for rename or new child" /></label>
                   <label><span class="label">New child type</span><select id="draftChildType"><option value="product_area">Product area</option><option value="capability">Capability</option><option value="work_item">Work item</option></select></label>
@@ -961,6 +963,8 @@
       plannerRepositoryStatus: document.getElementById("plannerRepositoryStatus"),
       connectionMeta: document.getElementById("connectionMeta"),
       draftTree: document.getElementById("draftTree"),
+      validateDraftButton: document.getElementById("validateDraftButton"),
+      draftValidation: document.getElementById("draftValidation"),
       draftNodeName: document.getElementById("draftNodeName"),
       draftChildType: document.getElementById("draftChildType"),
       draftChildSummary: document.getElementById("draftChildSummary"),
@@ -1205,6 +1209,7 @@
       el.draftTree.querySelectorAll("button").forEach((button) => { button.disabled = nextBusy; });
       const hasSelectedDraftNode = (nodes) => nodes.some((node) => node.id === state.selectedNodeId || hasSelectedDraftNode(node.children || []));
       [el.renameDraftNodeButton, el.addDraftChildButton, el.deleteDraftNodeButton].forEach((button) => { button.disabled = nextBusy || !state.sessionId || !hasSelectedDraftNode(state.draftTreeNodes); });
+      el.validateDraftButton.disabled = nextBusy || !state.sessionId;
       el.clearButton.disabled = nextBusy || !state.sessionId;
       el.editWorkButton.disabled = nextBusy || !state.delivery || state.delivery.work_item.id !== state.selectedWorkItemId;
       el.approveWorkButton.disabled = nextBusy || !state.selectedWorkItemId;
@@ -1574,6 +1579,7 @@
         localStorage.setItem(storageKeys.selectedNode, state.selectedNodeId);
       }
       state.draftTreeNodes = response.draft_tree_nodes || [];
+      el.draftValidation.textContent = "Design changed. Validate again for current results.";
       const lines = [
         response.assistant_message,
         ...(response.execution_lines || []),
@@ -1583,6 +1589,28 @@
       renderDraftTree();
       updateSessionStatus();
     }
+
+    async function validateDraft() {
+      if (state.busy || !state.sessionId) return;
+      try {
+        setBusy(true);
+        el.draftValidation.textContent = "Validating design…";
+        const result = await request("/api/mobile/planner/sessions/" + encodeURIComponent(state.sessionId) + "/validation");
+        el.draftValidation.replaceChildren();
+        const score = document.createElement("strong");
+        score.textContent = "Readiness: " + result.score + "/100";
+        el.draftValidation.appendChild(score);
+        const list = document.createElement("ul");
+        for (const issue of result.issues || []) {
+          const item = document.createElement("li");
+          item.textContent = issue.title + ": " + issue.detail;
+          list.appendChild(item);
+        }
+        el.draftValidation.appendChild(list);
+      } catch (error) { el.draftValidation.textContent = "Validation unavailable: " + (error.message || String(error)); }
+      finally { setBusy(false); }
+    }
+    el.validateDraftButton.addEventListener("click", () => void validateDraft());
 
     async function editDraftNode(action) {
       if (state.busy || !state.sessionId || !state.selectedNodeId) return;
@@ -1864,6 +1892,7 @@
         });
         state.draftTreeNodes = [];
         state.selectedNodeId = "";
+        el.draftValidation.textContent = "Design cleared. Validate again for current results.";
         localStorage.removeItem(storageKeys.selectedNode);
         renderDraftTree();
         setStatus("Cleared", "ok");
@@ -1878,6 +1907,7 @@
       state.sessionId = "";
       state.selectedNodeId = "";
       state.draftTreeNodes = [];
+      el.draftValidation.textContent = "Validate the staged design to see readiness and structural issues.";
       localStorage.removeItem(storageKeys.session);
       localStorage.removeItem(storageKeys.selectedNode);
       el.conversation.innerHTML = "";

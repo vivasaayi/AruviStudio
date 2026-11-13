@@ -5,6 +5,7 @@ use crate::services::planner_service::{
     rename_planner_draft_node, submit_planner_turn, submit_planner_voice_turn,
     update_planner_session,
 };
+use crate::services::planner_validation::validate_planner_draft;
 use crate::state::AppState;
 use serde_json::Value;
 
@@ -36,6 +37,10 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 args.optional_string(&["model_name", "modelName"])?,
             )
             .await?,
+        ),
+        "validate_planner_draft" => action_result(
+            "validate_planner_draft",
+            validate_planner_draft(state.planner_service.clone(), &state.db, args.required_string(&["session_id", "sessionId"], "session_id")?).await?,
         ),
         "clear_planner_pending" => action_result(
             "clear_planner_pending",

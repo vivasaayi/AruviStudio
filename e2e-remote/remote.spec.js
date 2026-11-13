@@ -134,9 +134,13 @@ test("browser edits a real planner draft through the authenticated API", async (
     await page.getByLabel("Draft node name").fill("Draft area");
     await page.getByRole("button", { name: "Add child" }).click();
     await expect(page.locator("#draftTree")).toContainText("Draft area");
+    await page.getByRole("button", { name: "Validate design" }).click();
+    await expect(page.locator("#draftValidation")).toContainText("Readiness: 88/100");
+    await expect(page.locator("#draftValidation")).toContainText("Draft area is empty");
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "Delete selected" }).click();
     await expect(page.locator("#draftTree")).not.toContainText("Draft area");
+    await expect(page.locator("#draftValidation")).toContainText("Validate again");
     const unchanged = await request.get(`/api/mobile/products/${product.id}/tree`, { headers });
     expect(JSON.stringify(await unchanged.json())).toContain(product.name);
   } finally {
