@@ -1,13 +1,26 @@
 use crate::error::AppError;
-use crate::persistence::{product_repo, work_item_repo};
+use crate::persistence::{product_area_repo, product_capability_repo, product_core_repo, product_repo, work_item_repo, work_item_write_repo};
+use sqlx::SqliteConnection;
 use crate::services::planner_action_fields::{format_joined, string_array_field, string_field};
 use crate::services::planner_draft::{build_draft_node_path, find_draft_ancestor_node_by_type};
 use crate::services::planner_service::PlannerDraftPlan;
+#[cfg(test)]
 use crate::state::AppState;
 use std::collections::HashMap;
 
+#[cfg(test)]
 pub(crate) async fn commit_draft_plan(
     state: &AppState,
+    draft_plan: &PlannerDraftPlan,
+) -> Result<Vec<String>, AppError> {
+    let mut tx = state.db.begin().await?;
+    let lines = commit_draft_plan_in_conn(&mut tx, draft_plan).await?;
+    tx.commit().await?;
+    Ok(lines)
+}
+
+pub(crate) async fn commit_draft_plan_in_conn(
+    conn: &mut SqliteConnection,
     draft_plan: &PlannerDraftPlan,
 ) -> Result<Vec<String>, AppError> {
     let mut lines = vec![];
@@ -37,9 +50,9 @@ pub(crate) async fn commit_draft_plan(
             .or_else(|| string_field(details, "investment_status"));
         let product_roadmap = string_field(details, "roadmap");
         let product_evidence = string_field(details, "evidence");
-        let existing_product = match product_repo::get_product(&state.db, &product_node.id).await {
+        let existing_product = match product_core_repo::get_product_in_conn(conn, &product_node.id).await {
             Ok(product) => Some(product),
-            Err(_) => product_repo::list_products(&state.db)
+            Err(_) => product_core_repo::list_products_in_conn(conn)
                 .await?
                 .into_iter()
                 .find(|product| {
@@ -48,8 +61,8 @@ pub(crate) async fn commit_draft_plan(
                 }),
         };
         let product = if let Some(existing_product) = existing_product {
-            product_repo::update_product(
-                &state.db,
+            product_core_repo::update_product_in_conn(
+                conn,
                 product_repo::UpdateProductPatch {
                     id: &existing_product.id,
                     name: Some(&product_node.name),
@@ -68,8 +81,8 @@ pub(crate) async fn commit_draft_plan(
             .await?
         } else {
             let id = uuid::Uuid::new_v4().to_string();
-            product_repo::create_product(
-                &state.db,
+            product_core_repo::create_product_in_conn(
+                conn,
                 product_repo::CreateProductInput {
                     id: &id,
                     name: &product_node.name,
@@ -116,8 +129,8 @@ pub(crate) async fn commit_draft_plan(
             let test_guidance = string_field(&product_area_node.details, "testGuidance")
                 .or_else(|| string_field(&product_area_node.details, "test_guidance"))
                 .unwrap_or_default();
-            let product_area = product_repo::create_product_area(
-                &state.db,
+            let product_area = product_area_repo::create_product_area_in_conn(
+                conn,
                 product_repo::CreateProductAreaInput {
                     id: &id,
                     product_id: &product.id,
@@ -214,8 +227,8 @@ pub(crate) async fn commit_draft_plan(
             let test_guidance = string_field(&capability_node.details, "testGuidance")
                 .or_else(|| string_field(&capability_node.details, "test_guidance"))
                 .unwrap_or_default();
-            let capability = product_repo::create_capability(
-                &state.db,
+            let capability = product_capability_repo::create_capability_in_conn(
+                conn,
                 product_repo::CreateCapabilityInput {
                     id: &id,
                     product_area_id: &product_area_id,
@@ -322,8 +335,8 @@ pub(crate) async fn commit_draft_plan(
             string_field(&work_item_node.details, "priority").unwrap_or_else(|| "medium".into());
         let complexity =
             string_field(&work_item_node.details, "complexity").unwrap_or_else(|| "medium".into());
-        let work_item = work_item_repo::create_work_item(
-            &state.db,
+        let work_item = work_item_write_repo::create_work_item_in_conn(
+            conn,
             work_item_repo::CreateWorkItemInput {
                 id: &id,
                 product_id: &product_id,

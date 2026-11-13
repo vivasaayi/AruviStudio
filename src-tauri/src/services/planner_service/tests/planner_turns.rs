@@ -311,3 +311,59 @@ async fn explicit_planner_model_never_falls_back_to_another_provider() {
         )
     );
 }
+
+#[tokio::test]
+async fn commit_draft_plan_rolls_back_catalog_on_late_failure() {
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("commit_draft_rollback").await;
+    let original = product_repo::create_product(
+        &state.db,
+        product_repo::CreateProductInput {
+            id: "rollback-product",
+            name: "Rollback Product",
+            description: "Original description",
+            vision: "", goals: "", tags: "", lifecycle: None, health: None,
+            owner_label: None, investment_status: None, roadmap: None, evidence: None,
+        },
+    ).await.expect("create original product");
+    let actions = normalize_actions(vec![
+        json!({"type":"create_product", "name":"Rollback Product", "description":"Changed description"}),
+        json!({"type":"create_product_area", "target":"Rollback Product", "product_area_name":"Area"}),
+        json!({"type":"create_capability", "target":"Area", "capability_name":"Capability"}),
+    ]);
+    let mut draft = apply_actions_to_draft(None, None, &actions).expect("build draft");
+    draft.nodes.iter_mut().find(|node| node.node_type == "capability")
+        .expect("capability").parent_id = Some("missing-parent".to_string());
+    assert!(commit_draft_plan(&state, &draft).await.is_err());
+    let product = product_repo::get_product(&state.db, &original.id).await.expect("load product");
+    assert_eq!(product.description, "Original description");
+    assert!(product_repo::list_product_areas(&state.db, &original.id).await.expect("list areas").is_empty());
+}
+
+#[tokio::test]
+async fn confirmation_rolls_back_catalog_if_conversation_write_fails() {
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("confirmation_rollback").await;
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None)
+        .await.expect("create session");
+    let actions = normalize_actions(vec![json!({"type":"create_product", "name":"Atomic Product"})]);
+    let draft = apply_actions_to_draft(None, None, &actions).expect("build draft");
+    {
+        let mut service = state.planner_service.lock().await;
+        let mut loaded = service.get_session(&session.session_id).expect("session");
+        loaded.draft_plan = Some(draft.clone());
+        service.save_session(&session.session_id, loaded);
+    }
+    persist_draft_state(&state.db, &session.session_id, Some(&draft), None).await.expect("persist draft");
+    sqlx::query("CREATE TRIGGER fail_assistant_entry BEFORE INSERT ON planner_conversation_entries WHEN NEW.role = 'assistant' BEGIN SELECT RAISE(ABORT, 'injected failure'); END")
+        .execute(&state.db).await.expect("create trigger");
+    let result = crate::services::planner_text_turn::confirm_planner_plan(
+        state.planner_service.clone(), &state, session.session_id.clone(),
+    ).await;
+    assert!(result.is_err());
+    assert!(product_repo::list_products(&state.db).await.expect("list products").iter().all(|p| p.name != "Atomic Product"));
+    let record = crate::persistence::planner_repo::get_session(&state.db, &session.session_id).await.expect("load session");
+    assert!(record.draft_plan_json.is_some());
+    assert!(crate::persistence::planner_repo::list_conversation_entries(&state.db, &session.session_id).await.expect("list conversation").is_empty());
+    assert!(state.planner_service.lock().await.get_session(&session.session_id).expect("cached session").draft_plan.is_some());
+}

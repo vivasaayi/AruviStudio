@@ -6,7 +6,7 @@ use crate::persistence::product_capability_read_repo::{get_capability, CAPABILIT
 use crate::persistence::product_hierarchy_rules::{
     parse_capability_node_kind, parse_root_node_kind, resolve_child_node_kind,
 };
-use sqlx::{Row, SqlitePool};
+use sqlx::{Row, SqliteConnection, SqlitePool};
 use tracing::{debug, trace};
 
 #[derive(Clone, Copy, Debug)]
@@ -110,16 +110,18 @@ async fn update_capability_subtree_levels(
     Ok(())
 }
 
-pub async fn create_capability(
-    pool: &SqlitePool,
-    input: CreateCapabilityInput<'_>,
-) -> Result<Capability, AppError> {
+pub async fn create_capability(pool: &SqlitePool, input: CreateCapabilityInput<'_>) -> Result<Capability, AppError> {
+    let mut conn = pool.acquire().await?;
+    create_capability_in_conn(&mut conn, input).await
+}
+
+pub(crate) async fn create_capability_in_conn(conn: &mut SqliteConnection, input: CreateCapabilityInput<'_>) -> Result<Capability, AppError> {
     debug!(capability_id = %input.id, product_area_id = %input.product_area_id, parent_capability_id = ?input.parent_capability_id, capability_name = %input.name, "persist create_capability");
     let (level, parent_kind) = if let Some(parent_id) = input.parent_capability_id {
         let parent =
             sqlx::query("SELECT level, product_area_id, node_kind FROM capabilities WHERE id = ?")
                 .bind(parent_id)
-                .fetch_optional(pool)
+                .fetch_optional(&mut *conn)
                 .await?
                 .ok_or_else(|| AppError::NotFound(format!("Capability {parent_id} not found")))?;
         let parent_product_area_id: String = parent.get("product_area_id");
@@ -134,7 +136,12 @@ pub async fn create_capability(
     } else {
         (
             0,
-            get_product_area_node_kind(pool, input.product_area_id).await?,
+            {
+                let value: String = sqlx::query_scalar("SELECT node_kind FROM product_areas WHERE id = ?")
+                    .bind(input.product_area_id).fetch_optional(&mut *conn).await?
+                    .ok_or_else(|| AppError::NotFound(format!("Product Area {} not found", input.product_area_id)))?;
+                parse_root_node_kind(&value)?
+            },
         )
     };
     let node_kind = resolve_child_node_kind(parent_kind, input.node_kind)?;
@@ -143,12 +150,12 @@ pub async fn create_capability(
         sqlx::query_scalar("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM capabilities WHERE product_area_id = ? AND parent_capability_id = ?")
             .bind(input.product_area_id)
             .bind(parent_id)
-            .fetch_one(pool)
+            .fetch_one(&mut *conn)
             .await?
     } else {
         sqlx::query_scalar("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM capabilities WHERE product_area_id = ? AND parent_capability_id IS NULL")
             .bind(input.product_area_id)
-            .fetch_one(pool)
+            .fetch_one(&mut *conn)
             .await?
     };
     trace!(capability_id = %input.id, sort_order = next_sort_order, "resolved capability sort order");
@@ -161,7 +168,7 @@ pub async fn create_capability(
         .bind(next_sort_order).bind(input.name).bind(input.description).bind(input.acceptance_criteria)
         .bind(input.explanation).bind(input.examples).bind(input.priority).bind(input.risk).bind(input.technical_notes)
         .bind(input.implementation_notes).bind(input.test_guidance)
-        .fetch_one(pool).await.map_err(|e| e.into())
+        .fetch_one(&mut *conn).await.map_err(|e| e.into())
 }
 
 pub async fn update_capability(

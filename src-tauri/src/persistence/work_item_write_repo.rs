@@ -1,7 +1,7 @@
 use crate::domain::product::HierarchyNodeType;
 use crate::domain::work_item::WorkItem;
 use crate::error::AppError;
-use sqlx::{Row, SqlitePool};
+use sqlx::{Row, SqliteConnection, SqlitePool};
 use tracing::{debug, error, trace};
 
 #[derive(Clone, Copy, Debug)]
@@ -67,7 +67,7 @@ fn normalize_work_item_type(value: &str) -> Result<String, AppError> {
 }
 
 async fn inherit_source_from_parent(
-    pool: &SqlitePool,
+    conn: &mut SqliteConnection,
     parent_work_item_id: &str,
 ) -> Result<
     (
@@ -82,7 +82,7 @@ async fn inherit_source_from_parent(
         "SELECT product_area_id, capability_id, source_node_id, source_node_type FROM work_items WHERE id = ?",
     )
     .bind(parent_work_item_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await?
     .ok_or_else(|| AppError::NotFound(format!("Work item {parent_work_item_id} not found")))?;
     let source_node_type = row
@@ -98,7 +98,7 @@ async fn inherit_source_from_parent(
 }
 
 async fn resolve_source_scope(
-    pool: &SqlitePool,
+    conn: &mut SqliteConnection,
     product_id: &str,
     product_area_id: Option<&str>,
     capability_id: Option<&str>,
@@ -127,7 +127,7 @@ async fn resolve_source_scope(
             resolved_source_node_id = Some(product_area_id);
             resolved_source_node_type = Some(HierarchyNodeType::ProductArea);
         } else if let Some(parent_work_item_id) = parent_work_item_id {
-            let inherited = inherit_source_from_parent(pool, parent_work_item_id).await?;
+            let inherited = inherit_source_from_parent(conn, parent_work_item_id).await?;
             resolved_product_area_id = inherited.0;
             resolved_capability_id = inherited.1;
             resolved_source_node_id = inherited.2;
@@ -142,7 +142,7 @@ async fn resolve_source_scope(
         (Some(node_id), Some(HierarchyNodeType::ProductArea)) => {
             let product_area_row = sqlx::query("SELECT product_id FROM product_areas WHERE id = ?")
                 .bind(node_id)
-                .fetch_optional(pool)
+                .fetch_optional(&mut *conn)
                 .await?
                 .ok_or_else(|| AppError::NotFound(format!("Product Area {node_id} not found")))?;
             let scoped_product_id: String = product_area_row.get("product_id");
@@ -159,7 +159,7 @@ async fn resolve_source_scope(
                 "SELECT c.product_area_id, pa.product_id FROM capabilities c JOIN product_areas pa ON pa.id = c.product_area_id WHERE c.id = ?",
             )
             .bind(node_id)
-            .fetch_optional(pool)
+            .fetch_optional(&mut *conn)
             .await?
             .ok_or_else(|| AppError::NotFound(format!("Capability {node_id} not found")))?;
             let scoped_product_id: String = capability_row.get("product_id");
@@ -192,20 +192,22 @@ async fn resolve_source_scope(
     ))
 }
 
-pub async fn create_work_item(
-    pool: &SqlitePool,
-    input: CreateWorkItemInput<'_>,
-) -> Result<WorkItem, AppError> {
+pub async fn create_work_item(pool: &SqlitePool, input: CreateWorkItemInput<'_>) -> Result<WorkItem, AppError> {
+    let mut conn = pool.acquire().await?;
+    create_work_item_in_conn(&mut conn, input).await
+}
+
+pub(crate) async fn create_work_item_in_conn(conn: &mut SqliteConnection, input: CreateWorkItemInput<'_>) -> Result<WorkItem, AppError> {
     let work_item_type = normalize_work_item_type(input.work_item_type)?;
     let parent = if let Some(parent_id) = input.parent_work_item_id {
-        let parent = crate::persistence::work_item_read_repo::get_work_item(pool, parent_id).await?;
+        let parent = crate::persistence::work_item_read_repo::get_work_item_in_conn(conn, parent_id).await?;
         if parent.product_id.as_deref() != Some(input.product_id) {
             return Err(AppError::Validation("Parent work item must belong to the selected product.".into()));
         }
         Some(parent)
     } else { None };
     let (product_area_id, capability_id, source_node_id, source_node_type) = resolve_source_scope(
-        pool,
+        conn,
         input.product_id,
         input.product_area_id,
         input.capability_id,
@@ -223,7 +225,7 @@ pub async fn create_work_item(
     let next_sort_order: i64 = if let Some(parent_id) = input.parent_work_item_id {
         sqlx::query_scalar("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM work_items WHERE parent_work_item_id = ?")
             .bind(parent_id)
-            .fetch_one(pool)
+            .fetch_one(&mut *conn)
             .await?
     } else if let (Some(source_node_id), Some(source_node_type)) =
         (source_node_id.as_deref(), source_node_type)
@@ -231,18 +233,18 @@ pub async fn create_work_item(
         sqlx::query_scalar("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM work_items WHERE source_node_id = ? AND source_node_type = ? AND parent_work_item_id IS NULL")
             .bind(source_node_id)
             .bind(source_node_type)
-            .fetch_one(pool)
+            .fetch_one(&mut *conn)
             .await?
     } else {
         sqlx::query_scalar("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM work_items WHERE product_id = ? AND product_area_id IS NULL AND capability_id IS NULL AND parent_work_item_id IS NULL")
             .bind(input.product_id)
-            .fetch_one(pool)
+            .fetch_one(&mut *conn)
             .await?
     };
     trace!(work_item_id = %input.id, sort_order = next_sort_order, "resolved work item sort order");
     let result = sqlx::query_as::<_, WorkItem>("INSERT INTO work_items (id,product_id,product_area_id,capability_id,source_node_id,source_node_type,parent_work_item_id,title,problem_statement,description,acceptance_criteria,constraints,work_item_type,priority,complexity,sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id,product_id,product_area_id,capability_id,source_node_id,source_node_type,parent_work_item_id,title,problem_statement,description,acceptance_criteria,constraints,work_item_type,priority,complexity,status,repo_override_id,active_repo_id,branch_name,sort_order,created_at,updated_at")
         .bind(input.id).bind(input.product_id).bind(&product_area_id).bind(&capability_id).bind(&source_node_id).bind(source_node_type).bind(input.parent_work_item_id).bind(input.title).bind(input.problem_statement).bind(input.description).bind(input.acceptance_criteria).bind(input.constraints).bind(&work_item_type).bind(input.priority).bind(input.complexity).bind(next_sort_order)
-        .fetch_one(pool).await.map_err(|e| e.into());
+        .fetch_one(&mut *conn).await.map_err(|e| e.into());
     if let Err(err) = &result {
         error!(work_item_id = %input.id, product_id = %input.product_id, product_area_id = ?product_area_id, capability_id = ?capability_id, source_node_id = ?source_node_id, source_node_type = ?source_node_type, parent_work_item_id = ?input.parent_work_item_id, error = %err, "persist create_work_item failed");
     }

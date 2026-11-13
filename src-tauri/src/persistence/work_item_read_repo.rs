@@ -3,7 +3,7 @@ use crate::error::AppError;
 use crate::observability::performance::{
     elapsed_ms, record_persistence_query, record_persistence_query_error,
 };
-use sqlx::SqlitePool;
+use sqlx::{SqliteConnection, SqlitePool};
 use std::time::Instant;
 use tracing::trace;
 
@@ -47,11 +47,16 @@ pub struct WorkItemPage {
 }
 
 pub async fn get_work_item(pool: &SqlitePool, id: &str) -> Result<WorkItem, AppError> {
+    let mut conn = pool.acquire().await?;
+    get_work_item_in_conn(&mut conn, id).await
+}
+
+pub(crate) async fn get_work_item_in_conn(conn: &mut SqliteConnection, id: &str) -> Result<WorkItem, AppError> {
     sqlx::query_as::<_, WorkItem>(&format!(
         "SELECT {WORK_ITEM_SELECT_COLUMNS} FROM work_items WHERE id=?"
     ))
     .bind(id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await?
     .ok_or_else(|| AppError::NotFound(format!("Work item {id} not found")))
 }

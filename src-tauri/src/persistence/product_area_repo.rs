@@ -1,7 +1,7 @@
 use crate::domain::product::ProductArea;
 use crate::error::AppError;
 use crate::persistence::product_hierarchy_rules::resolve_root_node_kind;
-use sqlx::SqlitePool;
+use sqlx::{SqliteConnection, SqlitePool};
 use tracing::{debug, trace};
 
 const PRODUCT_AREA_SELECT_COLUMNS: &str = "id, product_id, node_kind, name, description, purpose, explanation, examples, implementation_notes, test_guidance, sort_order, created_at, updated_at";
@@ -33,17 +33,19 @@ pub struct UpdateProductAreaPatch<'a> {
     pub test_guidance: Option<&'a str>,
 }
 
-pub async fn create_product_area(
-    pool: &SqlitePool,
-    input: CreateProductAreaInput<'_>,
-) -> Result<ProductArea, AppError> {
+pub async fn create_product_area(pool: &SqlitePool, input: CreateProductAreaInput<'_>) -> Result<ProductArea, AppError> {
+    let mut conn = pool.acquire().await?;
+    create_product_area_in_conn(&mut conn, input).await
+}
+
+pub(crate) async fn create_product_area_in_conn(conn: &mut SqliteConnection, input: CreateProductAreaInput<'_>) -> Result<ProductArea, AppError> {
     debug!(product_area_id = %input.id, product_id = %input.product_id, product_area_name = %input.name, "persist create_product_area");
     let node_kind = resolve_root_node_kind(input.node_kind)?;
     let next_sort_order: i64 = sqlx::query_scalar(
         "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM product_areas WHERE product_id = ?",
     )
     .bind(input.product_id)
-    .fetch_one(pool)
+    .fetch_one(&mut *conn)
     .await?;
     trace!(product_area_id = %input.id, product_id = %input.product_id, sort_order = next_sort_order, "resolved product_area sort order");
     sqlx::query_as::<_, ProductArea>(
@@ -54,7 +56,7 @@ pub async fn create_product_area(
         .bind(input.id).bind(input.product_id).bind(node_kind).bind(input.name).bind(input.description).bind(input.purpose)
         .bind(input.explanation).bind(input.examples).bind(input.implementation_notes).bind(input.test_guidance)
         .bind(next_sort_order)
-        .fetch_one(pool).await.map_err(|e| e.into())
+        .fetch_one(&mut *conn).await.map_err(|e| e.into())
 }
 
 pub async fn list_product_areas(

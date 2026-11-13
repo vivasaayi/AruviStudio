@@ -1,9 +1,8 @@
 use crate::error::AppError;
-use crate::services::planner_commit::commit_draft_plan;
+use crate::services::planner_commit::commit_draft_plan_in_conn;
 use crate::services::planner_response::push_trace;
 use crate::services::planner_session::{
-    append_conversation, persist_draft_state, persist_pending_plan, PlannerConversationEntry,
-    PlannerService, PlannerSession,
+    PlannerConversationEntry, PlannerService, PlannerSession,
 };
 use crate::services::planner_text_turn_response::planner_error_response;
 use crate::services::planner_types::{PlannerTraceEvent, PlannerTurnResponse};
@@ -35,7 +34,8 @@ pub(crate) async fn commit_confirmed_draft_plan(
         "Attempting draft commit",
         serde_json::to_string_pretty(&draft_plan)?,
     );
-    let execution_lines = match commit_draft_plan(state, &draft_plan).await {
+    let mut tx = state.db.begin().await?;
+    let execution_lines = match commit_draft_plan_in_conn(&mut tx, &draft_plan).await {
         Ok(lines) => lines,
         Err(error) => {
             push_trace(
@@ -53,18 +53,35 @@ pub(crate) async fn commit_confirmed_draft_plan(
             ));
         }
     };
-    append_conversation(&state.db, &session_id, "user", user_input).await?;
+    for (role, content) in [
+        ("user", user_input),
+        ("assistant", "Applied design to catalog."),
+    ] {
+        sqlx::query(
+            "INSERT INTO planner_conversation_entries (id, session_id, role, content) VALUES (?, ?, ?, ?)",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(&session_id)
+        .bind(role)
+        .bind(content)
+        .execute(&mut *tx)
+        .await?;
+    }
+    let updated = sqlx::query(
+        "UPDATE planner_sessions SET pending_plan_json = NULL, draft_plan_json = NULL, selected_draft_node_id = NULL, updated_at = datetime('now') WHERE id = ?",
+    )
+    .bind(&session_id)
+    .execute(&mut *tx)
+    .await?;
+    if updated.rows_affected() != 1 {
+        return Err(AppError::NotFound(format!("Planner session {session_id} not found")));
+    }
+    tx.commit().await?;
+
     session.conversation.push(PlannerConversationEntry {
         role: "user".to_string(),
         content: user_input.to_string(),
     });
-    append_conversation(
-        &state.db,
-        &session_id,
-        "assistant",
-        "Applied design to catalog.",
-    )
-    .await?;
     session.conversation.push(PlannerConversationEntry {
         role: "assistant".to_string(),
         content: "Applied design to catalog.".to_string(),
@@ -72,8 +89,6 @@ pub(crate) async fn commit_confirmed_draft_plan(
     session.pending_plan = None;
     session.draft_plan = None;
     session.selected_draft_node_id = None;
-    persist_pending_plan(&state.db, &session_id, None).await?;
-    persist_draft_state(&state.db, &session_id, None, None).await?;
     let mut service = planner_service.lock().await;
     service.save_session(&session_id, session);
     Ok(PlannerTurnResponse {

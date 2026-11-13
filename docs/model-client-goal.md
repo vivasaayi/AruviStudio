@@ -853,6 +853,28 @@ provider hosting into the model-host service as part of this work.
   passed the browser smoke, 20 remote, one CI and 19 workflow cases; the real
   Model Host 7B coding MCP smoke also passed.
 
+## Atomic planner application checkpoint
+
+- Applying a staged planner design now uses one SQLite transaction for product,
+  area, capability and work-item changes, conversation entries, and clearing the
+  staged session. The cached session changes only after the database commit.
+  Failure-injection tests cover a late hierarchy error and a failed assistant
+  conversation insert, verifying catalog changes roll back and the draft remains
+  available for retry.
+- This fixes partial application within a single server request; it does not solve
+  stale planner caches or concurrent writers in separate server processes. Existing
+  catalog matching and the creation of new child nodes are unchanged.
+- On 2026-11-13 the macOS Rust library suite passed 176 tests with one live
+  test ignored using `RUST_MIN_STACK=16777216`. A default-stack run aborted in a
+  workflow test with stack overflow; it is not evidence of a passing default run.
+  A real `qwen25-coder-7b-q4` Model Host planner proposal and confirmation
+  passed over MCP in an isolated fixture (two model calls, one format retry).
+  Browser suites passed one smoke, 21 remote, one CI, and 19 workflow cases.
+- Rebuilding filled Docker's shared virtual disk and the worktree server initially
+  failed with a SQLite I/O error. Removing only obsolete AruviStudio build-cache
+  records restored free space; the existing worktree volume was retained and the
+  rebuilt container restarted healthy. The dynamically assigned port can change.
+
 ## Open design questions
 
 - Decide whether to move the Git-pinned client to a separately maintained

@@ -1,6 +1,6 @@
 use crate::domain::product::Product;
 use crate::error::AppError;
-use sqlx::{Row, SqlitePool};
+use sqlx::{Row, SqliteConnection, SqlitePool};
 use tracing::{debug, error};
 
 const PRODUCT_SELECT_COLUMNS: &str = "id, name, description, vision, goals, tags, status, lifecycle, health, owner_label, investment_status, roadmap, evidence, created_at, updated_at";
@@ -59,10 +59,12 @@ fn row_to_product(row: sqlx::sqlite::SqliteRow) -> Product {
     }
 }
 
-pub async fn create_product(
-    pool: &SqlitePool,
-    input: CreateProductInput<'_>,
-) -> Result<Product, AppError> {
+pub async fn create_product(pool: &SqlitePool, input: CreateProductInput<'_>) -> Result<Product, AppError> {
+    let mut conn = pool.acquire().await?;
+    create_product_in_conn(&mut conn, input).await
+}
+
+pub(crate) async fn create_product_in_conn(conn: &mut SqliteConnection, input: CreateProductInput<'_>) -> Result<Product, AppError> {
     debug!(product_id = %input.id, product_name = %input.name, "persist create_product");
     let result = sqlx::query(&format!(
         "INSERT INTO products (id, name, description, vision, goals, tags, lifecycle, health, owner_label, investment_status, roadmap, evidence)
@@ -76,7 +78,7 @@ pub async fn create_product(
         .bind(input.roadmap.unwrap_or_default())
         .bind(input.evidence.unwrap_or_default())
         .map(row_to_product)
-        .fetch_one(pool).await.map_err(|e| e.into());
+        .fetch_one(&mut *conn).await.map_err(|e| e.into());
     if let Err(err) = &result {
         error!(product_id = %input.id, error = %err, "persist create_product failed");
     }
@@ -84,32 +86,44 @@ pub async fn create_product(
 }
 
 pub async fn get_product(pool: &SqlitePool, id: &str) -> Result<Product, AppError> {
+    let mut conn = pool.acquire().await?;
+    get_product_in_conn(&mut conn, id).await
+}
+
+pub(crate) async fn get_product_in_conn(conn: &mut SqliteConnection, id: &str) -> Result<Product, AppError> {
     sqlx::query(&format!(
         "SELECT {PRODUCT_SELECT_COLUMNS} FROM products WHERE id = ?"
     ))
     .bind(id)
     .map(row_to_product)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await?
     .ok_or_else(|| AppError::NotFound(format!("Product {id} not found")))
 }
 
 pub async fn list_products(pool: &SqlitePool) -> Result<Vec<Product>, AppError> {
+    let mut conn = pool.acquire().await?;
+    list_products_in_conn(&mut conn).await
+}
+
+pub(crate) async fn list_products_in_conn(conn: &mut SqliteConnection) -> Result<Vec<Product>, AppError> {
     sqlx::query(&format!(
         "SELECT {PRODUCT_SELECT_COLUMNS} FROM products ORDER BY created_at DESC"
     ))
     .map(row_to_product)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|e| e.into())
 }
 
-pub async fn update_product(
-    pool: &SqlitePool,
-    patch: UpdateProductPatch<'_>,
-) -> Result<Product, AppError> {
+pub async fn update_product(pool: &SqlitePool, patch: UpdateProductPatch<'_>) -> Result<Product, AppError> {
+    let mut conn = pool.acquire().await?;
+    update_product_in_conn(&mut conn, patch).await
+}
+
+pub(crate) async fn update_product_in_conn(conn: &mut SqliteConnection, patch: UpdateProductPatch<'_>) -> Result<Product, AppError> {
     debug!(product_id = %patch.id, "persist update_product");
-    let existing = get_product(pool, patch.id).await?;
+    let existing = get_product_in_conn(conn, patch.id).await?;
     let name = patch.name.unwrap_or(&existing.name);
     let description = patch.description.unwrap_or(&existing.description);
     let vision = patch.vision.unwrap_or(&existing.vision);
@@ -133,8 +147,8 @@ pub async fn update_product(
         .bind(patch.roadmap.unwrap_or(&existing.roadmap))
         .bind(patch.evidence.unwrap_or(&existing.evidence))
         .bind(patch.id)
-        .execute(pool).await?;
-    get_product(pool, patch.id).await
+        .execute(&mut *conn).await?;
+    get_product_in_conn(conn, patch.id).await
 }
 
 pub async fn archive_product(pool: &SqlitePool, id: &str) -> Result<Product, AppError> {
