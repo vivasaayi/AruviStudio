@@ -299,6 +299,21 @@ pub async fn update_pending_plan(
     .map_err(|error| error.into())
 }
 
+/// Clear both planner draft fields together so a failed write cannot leave a
+/// session with a pending plan but no draft, or vice versa.
+pub async fn clear_staged_design(pool: &SqlitePool, id: &str) -> Result<(), AppError> {
+    let result = sqlx::query(
+        "UPDATE planner_sessions SET pending_plan_json = NULL, draft_plan_json = NULL, selected_draft_node_id = NULL, updated_at = datetime('now') WHERE id = ?",
+    )
+    .bind(id)
+    .execute(pool)
+    .await?;
+    if result.rows_affected() != 1 {
+        return Err(AppError::NotFound(format!("Planner session {id} not found")));
+    }
+    Ok(())
+}
+
 pub async fn update_draft_state(
     pool: &SqlitePool,
     id: &str,

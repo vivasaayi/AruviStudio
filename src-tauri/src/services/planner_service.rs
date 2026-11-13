@@ -14,8 +14,9 @@ pub(crate) use crate::services::planner_draft_mutation::{
     add_draft_child_node, delete_draft_node, rename_draft_node,
 };
 use crate::services::planner_model::resolve_planner_model_binding;
+#[cfg(test)]
 pub(crate) use crate::services::planner_session::persist_draft_state;
-use crate::services::planner_session::{lock_planner_session, persist_pending_plan};
+use crate::services::planner_session::{get_or_load_session, lock_planner_session};
 pub use crate::services::planner_session::{PlannerService, PlannerSessionInfo};
 pub use crate::services::planner_text_turn::{confirm_planner_plan, submit_planner_turn};
 pub use crate::services::planner_types::{
@@ -58,8 +59,8 @@ pub async fn update_planner_session(
     let _session_guard = lock_planner_session(&planner_service, &session_id).await;
     let (provider_id, model_name) =
         resolve_planner_model_binding(db, provider_id, model_name).await?;
+    get_or_load_session(&planner_service, db, &session_id).await?;
     let mut service = planner_service.lock().await;
-    let info = service.update_session(&session_id, provider_id.clone(), model_name.clone())?;
     planner_repo::update_session(
         db,
         &session_id,
@@ -67,7 +68,7 @@ pub async fn update_planner_session(
         model_name.as_deref(),
     )
     .await?;
-    Ok(info)
+    service.update_session(&session_id, provider_id, model_name)
 }
 
 pub async fn clear_planner_pending(
@@ -76,11 +77,10 @@ pub async fn clear_planner_pending(
     session_id: String,
 ) -> Result<PlannerSessionInfo, AppError> {
     let _session_guard = lock_planner_session(&planner_service, &session_id).await;
+    get_or_load_session(&planner_service, db, &session_id).await?;
     let mut service = planner_service.lock().await;
-    let info = service.clear_pending(&session_id)?;
-    persist_pending_plan(db, &session_id, None).await?;
-    persist_draft_state(db, &session_id, None, None).await?;
-    Ok(info)
+    planner_repo::clear_staged_design(db, &session_id).await?;
+    service.clear_pending(&session_id)
 }
 
 pub async fn submit_planner_voice_turn(

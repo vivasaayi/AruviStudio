@@ -367,3 +367,70 @@ async fn confirmation_rolls_back_catalog_if_conversation_write_fails() {
     assert!(crate::persistence::planner_repo::list_conversation_entries(&state.db, &session.session_id).await.expect("list conversation").is_empty());
     assert!(state.planner_service.lock().await.get_session(&session.session_id).expect("cached session").draft_plan.is_some());
 }
+
+#[tokio::test]
+async fn persisted_session_can_be_updated_and_cleared_after_service_restart() {
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("session_after_restart").await;
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None)
+        .await.expect("create session");
+    let draft = apply_actions_to_draft(None, None, &normalize_actions(vec![
+        json!({"type":"create_product", "name":"Restart fixture"}),
+    ])).expect("build draft");
+    persist_draft_state(&state.db, &session.session_id, Some(&draft), None).await.expect("persist draft");
+    let restarted = Arc::new(Mutex::new(crate::services::planner_service::PlannerService::new()));
+    let info = crate::services::planner_service::update_planner_session(
+        restarted.clone(), &state.db, session.session_id.clone(), None, None,
+    ).await.expect("update persisted session after restart");
+    assert!(info.has_draft_plan);
+    let info = crate::services::planner_service::clear_planner_pending(
+        restarted, &state.db, session.session_id.clone(),
+    ).await.expect("clear persisted session after restart");
+    assert!(!info.has_draft_plan && !info.has_pending_plan);
+    let record = crate::persistence::planner_repo::get_session(&state.db, &session.session_id).await.expect("load session");
+    assert!(record.draft_plan_json.is_none() && record.pending_plan_json.is_none());
+}
+
+#[tokio::test]
+async fn failed_session_clear_keeps_persisted_and_cached_draft() {
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("session_clear_failure").await;
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None)
+        .await.expect("create session");
+    let draft = apply_actions_to_draft(None, None, &normalize_actions(vec![
+        json!({"type":"create_product", "name":"Failure fixture"}),
+    ])).expect("build draft");
+    persist_draft_state(&state.db, &session.session_id, Some(&draft), None).await.expect("persist draft");
+    let pending = json!({"assistant_response":"Review", "needs_confirmation":true, "clarification_question":null, "actions":[]}).to_string();
+    crate::persistence::planner_repo::update_pending_plan(&state.db, &session.session_id, Some(&pending)).await.unwrap();
+    let restarted = Arc::new(Mutex::new(crate::services::planner_service::PlannerService::new()));
+    sqlx::query("CREATE TRIGGER fail_clear BEFORE UPDATE OF draft_plan_json ON planner_sessions BEGIN SELECT RAISE(ABORT, 'injected failure'); END")
+        .execute(&state.db).await.expect("create trigger");
+    assert!(crate::services::planner_service::clear_planner_pending(
+        restarted.clone(), &state.db, session.session_id.clone(),
+    ).await.is_err());
+    let persisted = crate::persistence::planner_repo::get_session(&state.db, &session.session_id).await.unwrap();
+    assert!(persisted.draft_plan_json.is_some() && persisted.pending_plan_json.is_some());
+    let cached = restarted.lock().await.get_session(&session.session_id).unwrap();
+    assert!(cached.draft_plan.is_some() && cached.pending_plan.is_some());
+}
+
+#[tokio::test]
+async fn failed_session_update_keeps_cached_settings() {
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("session_update_failure").await;
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None)
+        .await.expect("create session");
+    crate::persistence::model_repo::create_provider(&state.db, "new-provider", "New provider", "openai_compatible", "http://localhost:12345", None).await.unwrap();
+    crate::persistence::model_repo::create_model_definition(&state.db, "new-model-id", "new-provider", "new-model", None, None, None).await.unwrap();
+    let restarted = Arc::new(Mutex::new(crate::services::planner_service::PlannerService::new()));
+    sqlx::query("CREATE TRIGGER fail_settings BEFORE UPDATE OF provider_id ON planner_sessions BEGIN SELECT RAISE(ABORT, 'injected failure'); END")
+        .execute(&state.db).await.expect("create trigger");
+    assert!(crate::services::planner_service::update_planner_session(
+        restarted.clone(), &state.db, session.session_id.clone(), Some("new-provider".into()), Some("new-model".into()),
+    ).await.is_err());
+    let persisted = crate::persistence::planner_repo::get_session(&state.db, &session.session_id).await.unwrap();
+    let cached = restarted.lock().await.get_session(&session.session_id).unwrap();
+    assert_eq!(cached.provider_id, persisted.provider_id);
+    assert_eq!(cached.model_name, persisted.model_name);
+}

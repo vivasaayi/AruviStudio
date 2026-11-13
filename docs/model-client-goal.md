@@ -44,6 +44,21 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Planner sessions after service restart
+
+- Updating model settings or clearing a persisted planner session now loads it
+  when the current service has no cached copy. Clearing pending and draft state
+  uses one database update, and both operations update the in-memory cache only
+  after the database write succeeds. Tests use a fresh service instance and
+  injected write failures to verify restart recovery and preservation of both
+  pending plan and draft. This does not solve concurrent edits from separate
+  server processes, which can still hold stale cached snapshots.
+- The macOS Rust suite passed 184 tests with two live tests ignored; the enhanced
+  failed-clear case passed separately. The rebuilt worktree image passed browser
+  suites (one smoke, 21 remote, one CI, 20 workflow) and a real 7B Model Host
+  planner proposal and confirmation through MCP. Running server SHA-256:
+  `808f24dbb08a53e170e733542531fdb595bb8a30deedeb6498de1cc174f6bf00`.
+
 ## Streaming cancellation contract
 
 - A transport-level regression test now holds an incomplete response open,
