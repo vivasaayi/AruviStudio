@@ -22,18 +22,34 @@ pub struct DraftValidationSummary {
     issues: Vec<DraftValidationIssue>,
 }
 
-fn validate(nodes: &[PlannerTreeNode]) -> DraftValidationSummary {
+pub fn validate_planner_tree(nodes: &[PlannerTreeNode]) -> DraftValidationSummary {
     fn visit(
         node: &PlannerTreeNode,
         counts: &mut BTreeMap<&'static str, usize>,
         issues: &mut Vec<DraftValidationIssue>,
     ) {
-        let kind = node.node_type.as_deref().unwrap_or("");
+        // Preserve the desktop's legacy metadata fallback for older tree nodes.
+        let kind = node
+            .node_type
+            .as_deref()
+            .filter(|kind| !kind.is_empty())
+            .unwrap_or_else(|| {
+                let meta = node.meta.as_deref().unwrap_or("");
+                if meta.contains("product") {
+                    "product"
+                } else if meta.contains("capability") {
+                    "capability"
+                } else if meta.contains("work item") {
+                    "work_item"
+                } else {
+                    ""
+                }
+            });
         let key = match kind {
             "product" => Some("product"),
-            "product_area" => Some("product area"),
+            "product_area" | "product area" => Some("product area"),
             "capability" => Some("capability"),
-            "work_item" => Some("work item"),
+            "work_item" | "work item" => Some("work item"),
             _ => None,
         };
         if let Some(key) = key {
@@ -55,7 +71,7 @@ fn validate(nodes: &[PlannerTreeNode]) -> DraftValidationSummary {
         if node.children.is_empty() {
             let issue = match kind {
                 "product" => Some((format!("{} needs product areas", node.label), "Products should usually have at least one product area before the design is applied.")),
-                "product_area" => Some((format!("{} is empty", node.label), "Product areas should contain capabilities, features, and starter stories so the plan is actionable.")),
+                "product_area" | "product area" => Some((format!("{} is empty", node.label), "Product areas should contain capabilities, features, and starter stories so the plan is actionable.")),
                 "capability" => Some((format!("{} has no features or stories", node.label), "Capabilities are stronger when they break down into concrete features with implementation-ready stories.")),
                 _ => None,
             };
@@ -111,7 +127,7 @@ pub async fn validate_planner_draft(
         .as_ref()
         .map(|draft| build_draft_tree_nodes(draft, session.selected_draft_node_id.as_deref()))
         .unwrap_or_default();
-    Ok(validate(&nodes))
+    Ok(validate_planner_tree(&nodes))
 }
 
 #[cfg(test)]
@@ -131,8 +147,19 @@ mod tests {
         }
     }
     #[test]
+    fn accepts_legacy_desktop_tree_without_evidence() {
+        let nodes: Vec<PlannerTreeNode> = serde_json::from_value(serde_json::json!([{
+            "id":"p", "label":"Product", "meta":"draft product", "children":[]
+        }]))
+        .unwrap();
+        let summary = validate_planner_tree(&nodes);
+        assert_eq!(summary.counts["product"], 1);
+        assert_eq!(summary.score, 88);
+    }
+
+    #[test]
     fn matches_desktop_validation_for_empty_and_duplicate_branches() {
-        let empty = validate(&[]);
+        let empty = validate_planner_tree(&[]);
         assert_eq!(empty.score, 88);
         assert_eq!(empty.issues[0].title, "No staged product root");
         let tree = vec![node(
@@ -144,7 +171,7 @@ mod tests {
                 node("b", " area ", "product_area", vec![]),
             ],
         )];
-        let summary = validate(&tree);
+        let summary = validate_planner_tree(&tree);
         assert_eq!(summary.counts["product"], 1);
         assert_eq!(summary.counts["product area"], 2);
         assert_eq!(summary.score, 64);

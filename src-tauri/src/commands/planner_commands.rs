@@ -9,6 +9,13 @@ use crate::state::AppState;
 use tauri::State;
 
 #[tauri::command]
+pub fn validate_planner_tree_command(
+    nodes: Vec<crate::services::planner_types::PlannerTreeNode>,
+) -> crate::services::planner_validation::DraftValidationSummary {
+    crate::services::planner_validation::validate_planner_tree(&nodes)
+}
+
+#[tauri::command]
 pub async fn create_planner_session_command(
     state: State<'_, AppState>,
     provider_id: Option<String>,

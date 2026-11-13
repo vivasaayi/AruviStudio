@@ -18,6 +18,7 @@ pub struct PlannerTreeNode {
     pub summary: Option<String>,
     pub source: Option<String>,
     pub confidence: Option<String>,
+    #[serde(default)]
     pub evidence: Vec<String>,
     pub children: Vec<PlannerTreeNode>,
 }

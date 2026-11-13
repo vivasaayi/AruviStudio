@@ -7,6 +7,9 @@ import type {
   SpeechToTextResponse,
 } from "../types";
 
+export const validatePlannerTree = <T>(nodes: unknown[]) =>
+  invoke<T>("validate_planner_tree_command", { nodes });
+
 // Planner commands
 export const createPlannerSession = (data?: { providerId?: string; modelName?: string }) =>
   invoke<PlannerSessionInfo>("create_planner_session_command", {

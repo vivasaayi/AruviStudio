@@ -641,11 +641,18 @@ provider hosting into the model-host service as part of this work.
   can request and display the result. The browser marks its result stale after
   its own draft changes; another client can change a session after validation.
 - Tests cover empty and duplicate trees, authentication, persisted draft state,
-  matching HTTP/MCP results and the browser interaction. Desktop still computes
-  the equivalent validation in its frontend; switching it to the backend and
-  testing the native UI remain open. Design-review packet export and other parity
-  gaps remain open.
-- macOS and Linux each passed 172 Rust tests (one live test ignored); browser
+  matching HTTP/MCP results and the browser interaction. The desktop frontend
+  now requests the shared Rust validation command for its displayed tree, with
+  its existing local calculation as a fallback while the command is pending or
+  unavailable. Headless desktop-frontend tests cover both the command result
+  and existing planner workflows; native UI verification remains open because
+  the Mac was locked. Design-review packet export and other parity gaps remain
+  open. The desktop command accepts legacy tree nodes without evidence and uses
+  the same metadata fallback as the previous frontend calculation.
+- For the desktop integration checkpoint, macOS and Linux each passed 173 Rust
+  tests (one live test ignored); 90 frontend tests and four headless desktop
+  planner flows passed. The rebuilt branch passed a real 7B coding MCP check.
+- At the earlier web-validation checkpoint, macOS and Linux each passed 172 Rust tests (one live test ignored); browser
   suites passed one smoke, 21 remote, one CI and 19 workflow cases. The real 7B
   browser repository-analysis and MCP confirmation flow also passed.
 

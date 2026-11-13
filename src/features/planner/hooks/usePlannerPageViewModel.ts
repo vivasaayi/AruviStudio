@@ -8,6 +8,7 @@ import {
   listProviders,
   listRepositories,
   listWorkItemsPage,
+  validatePlannerTree,
 } from "../../../lib/tauri";
 import type { ProductArea } from "../../../lib/types";
 import {
@@ -29,6 +30,7 @@ import {
   type PlannerMessage,
   type PlannerTreeNode,
   type ResolverContext,
+  type DraftValidationSummary,
 } from "../lib/plannerPageModel";
 
 type PlannerPageViewModelInput = {
@@ -133,10 +135,19 @@ export function usePlannerPageViewModel({
     () => getAllowedDraftChildTypes(selectedDraftNode),
     [selectedDraftNode],
   );
-  const draftValidation = useMemo(
+  const localDraftValidation = useMemo(
     () => buildDraftValidation(draftTreeNodes),
     [draftTreeNodes],
   );
+  const { data: serverDraftValidation } = useQuery({
+    queryKey: ["plannerDraftValidation", draftTreeNodes],
+    queryFn: () => validatePlannerTree<DraftValidationSummary>(draftTreeNodes),
+    staleTime: Infinity,
+    retry: false,
+  });
+  // Keep the existing local calculation while the request is pending or if the
+  // native bridge is unavailable; the shared Rust result is authoritative.
+  const draftValidation = serverDraftValidation ?? localDraftValidation;
   const selectedNodeRecentActions = useMemo(
     () => findRelevantPlanActions(latestDraftPlan, selectedDraftNode),
     [latestDraftPlan, selectedDraftNode],
