@@ -1,6 +1,6 @@
 use crate::persistence::{model_call_repo, model_repo, product_repo, repository_repo, settings_repo};
 use crate::services::planner_service::{
-    clear_planner_pending, confirm_planner_plan, create_planner_session, submit_planner_turn,
+    analyze_repository_for_planner, clear_planner_pending, confirm_planner_plan, create_planner_session, submit_planner_turn,
     submit_planner_voice_turn, update_planner_session,
 };
 use crate::services::product_service::HIDE_EXAMPLE_PRODUCTS_KEY;
@@ -1225,6 +1225,33 @@ pub(crate) async fn mobile_update_planner_session(
     .await
     {
         Ok(info) => Json(info).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+pub(crate) struct MobilePlannerRepositoryRequest {
+    repository_id: String,
+    selected_draft_node_id: Option<String>,
+    product_id: Option<String>,
+}
+
+pub(crate) async fn mobile_analyze_planner_repository(
+    State(state): State<WebhookState>,
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+    Json(body): Json<MobilePlannerRepositoryRequest>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await {
+        return response;
+    }
+    match analyze_repository_for_planner(
+        state.app_state.planner_service.clone(),
+        &state.app_state.db,
+        &state.app_state.artifact_base_path,
+        session_id, body.repository_id, body.selected_draft_node_id, body.product_id,
+    ).await {
+        Ok(response) => Json(response).into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
     }
 }

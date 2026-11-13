@@ -998,3 +998,34 @@ test("browser and MCP edit an Anthropic provider protocol", async ({ page, reque
     }
   }
 });
+
+test("planner analyzes a selected workspace into the selected product", async ({ page }) => {
+  test.skip(!token, "Requires remote fixture token");
+  await page.addInitScript((value) => localStorage.setItem("aruvi.remote.token", value), token);
+  await page.route("**/api/mobile/products", (route) => route.fulfill({ json: [{ id: "product-a", name: "Product A" }] }));
+  await page.route("**/api/mobile/repositories", (route) => route.fulfill({ json: [{ id: "repo-a", name: "Workspace A" }] }));
+  await page.route("**/api/mobile/planner/sessions", (route) => route.fulfill({ json: { session_id: "analysis-session" } }));
+  let release;
+  let received;
+  const pending = new Promise((resolve) => { received = resolve; });
+  await page.route("**/api/mobile/planner/sessions/*/analyze-repository", async (route) => {
+    received(route.request().postDataJSON());
+    await new Promise((resolve) => { release = resolve; });
+    await route.fulfill({ json: { session_id: "analysis-session", status: "proposal", assistant_message: "Workspace analyzed", draft_tree_nodes: [{ id: "root", label: "Product A", children: [{ id: "area", label: "Inventory", node_type: "product_area", children: [] }] }] } });
+  });
+  await page.goto("/remote");
+  await expect(page.locator("#plannerProductSelect")).toBeEnabled();
+  await page.locator("#refreshPlannerRepositoriesButton").click();
+  await page.locator("#plannerRepositorySelect").selectOption("repo-a");
+  await page.locator("#analyzePlannerRepositoryButton").click();
+  await expect(page.locator("#status")).toContainText("Select a planner product");
+  await page.locator("#plannerProductSelect").selectOption("product-a");
+  await page.locator("#analyzePlannerRepositoryButton").click();
+  try {
+    expect(await pending).toEqual({ repository_id: "repo-a", product_id: "product-a", selected_draft_node_id: null });
+    await expect(page.locator("#plannerProductSelect")).toBeDisabled();
+    await expect(page.locator("#plannerRepositorySelect")).toBeDisabled();
+  } finally { if (release) release(); }
+  await expect(page.getByRole("button", { name: /Inventory/ })).toBeVisible();
+  await expect(page.locator("#status")).toContainText("Workspace analyzed");
+});

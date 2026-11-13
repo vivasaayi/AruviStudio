@@ -59,6 +59,7 @@ pub async fn analyze_repository_for_planner(
             session.selected_draft_node_id.as_deref(),
         )
         .await?;
+        planner_service.lock().await.save_session(&session_id, session.clone());
     }
 
     let provider_id = session.provider_id.clone().ok_or_else(|| {
@@ -83,6 +84,8 @@ pub async fn analyze_repository_for_planner(
         session.selected_draft_node_id.as_deref(),
     )
     .await?;
+    // Keep the in-memory snapshot aligned if repository scanning or inference fails.
+    planner_service.lock().await.save_session(&session_id, session.clone());
     let repository = repository_repo::get_repository(db, &repository_id).await?;
     let repo_snapshot = build_repository_analysis_snapshot(&repository)?;
     let repo_snapshot_json = serde_json::to_string_pretty(&repo_snapshot)?;

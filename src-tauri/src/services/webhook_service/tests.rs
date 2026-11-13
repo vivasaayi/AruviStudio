@@ -463,3 +463,47 @@ async fn anthropic_protocol_routes_mcp_and_remote_chat() {
     assert!(body.contains("truncated"));
     server.abort();
 }
+
+#[tokio::test]
+async fn remote_repository_analysis_requires_auth_and_stages_design() {
+    use crate::persistence::{model_repo, repository_repo};
+    use crate::services::planner_service::create_planner_session;
+    use axum::{routing::post, Json, Router};
+    async fn completion() -> Json<Value> {
+        Json(json!({"id":"fixture", "model":"fixture", "choices":[{"message":{"role":"assistant", "content":json!({"type":"final", "assistant_response":"Proposed inventory area", "needs_confirmation":false, "clarification_question":null, "actions":[{"type":"create_product_area", "name":"Inventory", "target":{"productName":"Analysis Product"}}]}).to_string()}, "finish_reason":"stop"}]}))
+    }
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, Router::new().route("/v1/chat/completions", post(completion))).await.unwrap(); });
+    let app: tauri::App<MockRuntime> = make_test_app("remote_repository_analysis").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "analysis-token").await.unwrap();
+    model_repo::create_provider(&state.db, "analysis-provider", "Fixture", "openai_compatible", &format!("http://{address}/v1"), None).await.unwrap();
+    model_repo::create_model_definition(&state.db, "analysis-model", "analysis-provider", "fixture", None, None, None).await.unwrap();
+    let session = create_planner_session(state.planner_service.clone(), &state.db, Some("analysis-provider".into()), Some("fixture".into())).await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let (status, body) = send_json(&router, Method::POST, "/api/mobile/products", Some("analysis-token"), Some(json!({"name":"Analysis Product"}))).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let product = parse_json(&body)["id"].as_str().unwrap().to_string();
+    let root = std::env::temp_dir().join(format!("aruvi-repo-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(root.join("src/features/inventory")).unwrap();
+    std::fs::write(root.join("README.md"), "# Inventory application").unwrap();
+    repository_repo::create_repository(&state.db, "analysis-repo", "Fixture", root.to_str().unwrap(), "", "main").await.unwrap();
+    let path = format!("/api/mobile/planner/sessions/{}/analyze-repository", session.session_id);
+    let payload = json!({"repository_id":"analysis-repo", "product_id":product});
+    assert_eq!(send_json(&router, Method::POST, &path, None, Some(payload.clone())).await.0, StatusCode::UNAUTHORIZED);
+    let missing = json!({"repository_id":"missing-repository", "product_id":product});
+    assert_eq!(send_json(&router, Method::POST, &path, Some("analysis-token"), Some(missing)).await.0, StatusCode::BAD_REQUEST);
+    let cached = state.planner_service.lock().await.get_session(&session.session_id).unwrap();
+    let persisted = crate::services::planner_session::load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    assert_eq!(serde_json::to_value(&cached.draft_plan).unwrap(), serde_json::to_value(&persisted.draft_plan).unwrap());
+    let (status, body) = send_json(&router, Method::POST, &path, Some("analysis-token"), Some(payload)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let result = parse_json(&body);
+    assert_eq!(result["draft_tree_nodes"][0]["children"][0]["label"], "Inventory");
+    let saved = crate::services::planner_session::load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    assert!(saved.draft_plan.unwrap().nodes.iter().any(|node| node.name == "Inventory"));
+    assert!(product_repo::list_product_areas(&state.db, &product).await.unwrap().is_empty());
+    std::fs::remove_dir_all(root).unwrap();
+    server.abort();
+}

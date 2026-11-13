@@ -432,6 +432,9 @@
               <div class="panel-body">
                 <label><span class="label">Planner product scope</span><select id="plannerProductSelect" disabled><option value="">No product scope</option></select></label>
                 <button class="secondary" id="refreshPlannerProductsButton" type="button">Refresh planner products</button>
+                <label><span class="label">Repository to analyze</span><select id="plannerRepositorySelect"><option value="">Choose a workspace</option></select></label>
+                <div class="button-row"><button class="secondary" id="refreshPlannerRepositoriesButton" type="button">Load workspaces</button><button class="secondary" id="analyzePlannerRepositoryButton" type="button">Analyze workspace</button></div>
+                <div class="empty" id="plannerRepositoryStatus">Analysis sends a repository snapshot to the configured planner model.</div>
                 <div class="empty" id="plannerProductStatus">Save a connection token to load products.</div>
                 <div class="conversation" id="conversation"></div>
                 <div class="composer">
@@ -952,6 +955,10 @@
       plannerProductSelect: document.getElementById("plannerProductSelect"),
       plannerProductStatus: document.getElementById("plannerProductStatus"),
       refreshPlannerProductsButton: document.getElementById("refreshPlannerProductsButton"),
+      plannerRepositorySelect: document.getElementById("plannerRepositorySelect"),
+      refreshPlannerRepositoriesButton: document.getElementById("refreshPlannerRepositoriesButton"),
+      analyzePlannerRepositoryButton: document.getElementById("analyzePlannerRepositoryButton"),
+      plannerRepositoryStatus: document.getElementById("plannerRepositoryStatus"),
       connectionMeta: document.getElementById("connectionMeta"),
       draftTree: document.getElementById("draftTree"),
       draftNodeName: document.getElementById("draftNodeName"),
@@ -1192,6 +1199,9 @@
       el.confirmButton.disabled = nextBusy || !state.sessionId;
       el.plannerProductSelect.disabled = nextBusy || plannerProductsLoading || !plannerProductsReady;
       el.refreshPlannerProductsButton.disabled = nextBusy || plannerProductsLoading;
+      el.plannerRepositorySelect.disabled = nextBusy;
+      el.refreshPlannerRepositoriesButton.disabled = nextBusy;
+      el.analyzePlannerRepositoryButton.disabled = nextBusy;
       el.draftTree.querySelectorAll("button").forEach((button) => { button.disabled = nextBusy; });
       const hasSelectedDraftNode = (nodes) => nodes.some((node) => node.id === state.selectedNodeId || hasSelectedDraftNode(node.children || []));
       [el.renameDraftNodeButton, el.addDraftChildButton, el.deleteDraftNodeButton].forEach((button) => { button.disabled = nextBusy || !state.sessionId || !hasSelectedDraftNode(state.draftTreeNodes); });
@@ -1653,6 +1663,44 @@
       setBusy(state.busy);
     });
     el.refreshPlannerProductsButton.addEventListener("click", loadPlannerProducts);
+
+    async function loadPlannerRepositories() {
+      if (state.busy) return;
+      setBusy(true);
+      try {
+        const selected = el.plannerRepositorySelect.value;
+        const repositories = await request("/api/mobile/repositories");
+        el.plannerRepositorySelect.replaceChildren(new Option("Choose a workspace", ""));
+        for (const repository of repositories) el.plannerRepositorySelect.add(new Option(repository.name, repository.id));
+        if (repositories.some((repository) => repository.id === selected)) el.plannerRepositorySelect.value = selected;
+        el.plannerRepositoryStatus.textContent = repositories.length ? "Analysis sends a repository snapshot to the configured planner model." : "No registered workspaces found.";
+      } catch (error) {
+        el.plannerRepositorySelect.replaceChildren(new Option("Choose a workspace", ""));
+        el.plannerRepositoryStatus.textContent = "Workspaces unavailable: " + error.message;
+      } finally { setBusy(false); }
+    }
+
+    async function analyzePlannerRepository() {
+      if (state.busy) return;
+      const repositoryId = el.plannerRepositorySelect.value;
+      const productId = el.plannerProductSelect.value;
+      if (!repositoryId) { setStatus("Choose a workspace", "warn"); return; }
+      if (!plannerProductsReady || !productId || productId === "__choose__") { setStatus("Select a planner product", "warn"); return; }
+      const selectedNodeId = state.selectedNodeId || null;
+      try {
+        setBusy(true);
+        setStatus("Analyzing workspace...", "warn");
+        const sessionId = await ensureSession();
+        const response = await request("/api/mobile/planner/sessions/" + encodeURIComponent(sessionId) + "/analyze-repository", {
+          method: "POST", body: { repository_id: repositoryId, product_id: productId, selected_draft_node_id: selectedNodeId }
+        });
+        applyPlannerResponse(response, el.conversation);
+        setStatus(response.status === "error" ? "Analysis failed" : "Workspace analyzed", response.status === "error" ? "error" : "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { setBusy(false); }
+    }
+    el.refreshPlannerRepositoriesButton.addEventListener("click", () => void loadPlannerRepositories());
+    el.analyzePlannerRepositoryButton.addEventListener("click", () => void analyzePlannerRepository());
 
     async function checkHealth() {
       try {

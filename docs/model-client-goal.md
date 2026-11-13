@@ -594,6 +594,24 @@ provider hosting into the model-host service as part of this work.
   coding and browser speech checks. Native desktop and Windows dependency paths
   remain unverified. No other products' data were pruned.
 
+## Repository analysis parity checkpoint
+
+- The browser planner can load registered workspaces and request repository
+  analysis for its selected product and draft node. The UI states that a snapshot
+  is sent to the configured model. The authenticated server operation is the same
+  Rust service used by MCP and desktop; it stages results for review rather than
+  immediately changing the product catalog.
+- An isolated simulated provider test exercises authorization, a missing
+  repository, successful draft persistence, and the unchanged product catalog.
+  Browser tests cover product selection and disabling controls while analysis is
+  pending. Repository scanning or model failures now keep the cached planner
+  session aligned with already persisted seed/selection state. Actual model-host
+  repository analysis and native desktop interaction remain unverified.
+- Validation on 2026-11-13: macOS and Linux suites each passed 167 tests
+  (one live test ignored); browser suites passed one smoke, 21 remote, one CI,
+  and 19 workflow cases. A real 7B Model Host planner proposal and confirmation
+  also passed through MCP after the rebuild.
+
 ## Real Model Host planner checkpoint
 
 - `bash scripts/test host-planner` creates a disposable Studio fixture, binds the

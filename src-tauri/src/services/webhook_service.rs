@@ -9,7 +9,7 @@ pub use crate::services::webhook_bridge::{
     resolve_mcp_bridge_status, resolve_mobile_bridge_status, McpBridgeStatus, MobileBridgeStatus,
 };
 use crate::services::webhook_mobile_api::{
-    mobile_clear_planner_turn, mobile_confirm_planner_turn, mobile_create_planner_session, mobile_create_product, mobile_edit_planner_draft,
+    mobile_analyze_planner_repository, mobile_clear_planner_turn, mobile_confirm_planner_turn, mobile_create_planner_session, mobile_create_product, mobile_edit_planner_draft,
     mobile_get_model_call, mobile_get_product_tree, mobile_get_product_tree_summary, mobile_list_product_areas, mobile_create_hierarchy_node, mobile_update_hierarchy_node, mobile_delete_hierarchy_node, mobile_reset_product_plan,
     mobile_healthcheck, mobile_list_model_calls, mobile_model_call_snapshot, mobile_list_products, mobile_submit_planner_turn,
     mobile_list_providers, mobile_discover_provider_models, mobile_create_provider, mobile_update_provider, mobile_delete_provider, mobile_rotate_provider_credential, mobile_cleanup_provider_credentials, mobile_list_models, mobile_create_model, mobile_update_model, mobile_delete_model, mobile_test_provider,
@@ -411,6 +411,10 @@ pub(crate) fn build_webhook_router(app_state: AppState) -> Router {
         .route(
             "/api/mobile/planner/sessions/:session_id",
             post(mobile_update_planner_session),
+        )
+        .route(
+            "/api/mobile/planner/sessions/:session_id/analyze-repository",
+            post(mobile_analyze_planner_repository),
         )
         .route(
             "/api/mobile/planner/sessions/:session_id/turn",
