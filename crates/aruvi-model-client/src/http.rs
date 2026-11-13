@@ -52,6 +52,63 @@ mod tests {
         (format!("http://{addr}"), server)
     }
 
+    // Keep an incomplete response open after the first delta. Once the caller
+    // drops its future, the server must observe that the client closed the socket.
+    fn cancellable_stream(event: &'static str) -> (String, thread::JoinHandle<bool>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            let mut request = Vec::new();
+            let mut buf = [0; 4096];
+            let end = loop {
+                let n = socket.read(&mut buf).unwrap();
+                assert_ne!(n, 0);
+                request.extend_from_slice(&buf[..n]);
+                if let Some(i) = request.windows(4).position(|v| v == b"\r\n\r\n") { break i + 4; }
+            };
+            let headers = String::from_utf8_lossy(&request[..end]).to_lowercase();
+            let length: usize = headers.lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().trim().parse().unwrap();
+            while request.len() < end + length {
+                let n = socket.read(&mut buf).unwrap();
+                assert_ne!(n, 0);
+                request.extend_from_slice(&buf[..n]);
+            }
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 100000\r\nConnection: close\r\n\r\ndata: {event}\n\n").unwrap();
+            matches!(socket.read(&mut buf), Ok(0))
+        });
+        (format!("http://{addr}"), server)
+    }
+
+    #[tokio::test]
+    async fn dropping_stream_future_closes_both_provider_connections() {
+        for anthropic in [false, true] {
+            let event = if anthropic {
+                r#"{"type":"content_block_delta","delta":{"type":"text_delta","text":"partial"}}"#
+            } else {
+                r#"{"choices":[{"delta":{"content":"partial"}}]}"#
+            };
+            let (url, server) = cancellable_stream(event);
+            let (sent, received) = tokio::sync::oneshot::channel();
+            let task = tokio::spawn(async move {
+                let mut sent = Some(sent);
+                let mut callback = |_: &str| { if let Some(sent) = sent.take() { let _ = sent.send(()); } };
+                if anthropic {
+                    AnthropicClient::new(url, "synthetic-key".into()).unwrap()
+                        .stream_completion(request(), &mut callback).await
+                } else {
+                    OpenAiCompatibleClient::new(url, None)
+                        .stream_completion(request(), &mut callback).await
+                }
+            });
+            tokio::time::timeout(Duration::from_secs(5), received).await.expect("first delta timed out").expect("stream closed before delta");
+            task.abort();
+            assert!(task.await.unwrap_err().is_cancelled());
+            assert!(server.join().unwrap(), "server did not observe client disconnect");
+        }
+    }
+
     #[test]
     fn timeout_options_are_validated_for_both_providers() {
         let invalid = [

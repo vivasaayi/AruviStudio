@@ -44,6 +44,17 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Streaming cancellation contract
+
+- A transport-level regression test now holds an incomplete response open,
+  receives a text delta, drops the client future and verifies that the server
+  sees the HTTP connection close. It passed for both OpenAI-compatible and
+  Anthropic transports on macOS and Linux; all 37 shared-client tests passed on
+  macOS. This checks client-side connection cancellation, not whether a remote
+  provider immediately stops its own inference or billing after disconnection.
+- The change adds only test code and test dependency features. The independent
+  consumer's previously verified runtime pin remains unchanged.
+
 ## Dependency audit revalidation
 
 - On 2026-11-13, `npm audit` reported no advisories. `cargo-audit` against
