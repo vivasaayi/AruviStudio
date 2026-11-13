@@ -81,36 +81,29 @@ impl OpenAiCompatibleClient {
 
     fn parse_sse_fallback(raw_body: &str) -> Result<CompletionResponse, ClientError> {
         let mut result = CompletionResponse::default();
-        let mut data = Vec::new();
-        let mut done = false;
-        // A final newline is accepted for compatibility with providers that omit
-        // the last blank SSE separator, but a terminal [DONE] is still required.
-        for line in raw_body.lines().chain(std::iter::once("")) {
-            let line = line.strip_suffix('\r').unwrap_or(line);
-            if line.is_empty() {
-                if data.is_empty() { continue; }
-                let payload = data.join("\n");
-                data.clear();
-                if payload.trim() == "[DONE]" { done = true; break; }
-                let event: serde_json::Value = serde_json::from_str(&payload)
-                    .map_err(|_| ClientError::Provider("Invalid model stream event".into()))?;
-                if event.get("error").is_some_and(|value| !value.is_null()) {
-                    return Err(ClientError::Provider("Model stream returned an error".into()));
-                }
-                let choice = event.get("choices").and_then(|v| v.as_array()).and_then(|v| v.first());
-                crate::CompletionMetadata::merge(&mut result.metadata, &event, choice.and_then(|v| v.get("finish_reason")));
-                if let Some(choice) = choice {
-                    Self::reject_non_text_choice(choice, "delta")?;
-                    if let Some(content) = Self::extract_choice_content(choice) { result.content.push_str(&content); }
-                }
-                if let Some(usage) = event.get("usage") {
-                    result.token_count_input = usage.get("prompt_tokens").and_then(|v| v.as_i64()).or(result.token_count_input);
-                    result.token_count_output = usage.get("completion_tokens").and_then(|v| v.as_i64()).or(result.token_count_output);
-                }
-            } else if let Some(value) = line.strip_prefix("data:") {
-                data.push(value.strip_prefix(' ').unwrap_or(value));
+        // Buffered completions permit the final event without a blank separator,
+        // as before, while still requiring the provider's terminal marker.
+        let mut parser = crate::sse::EventParser::new(8 * 1024 * 1024 + 2);
+        let mut on_event = |payload: &[u8]| -> Result<bool, ClientError> {
+            if payload == b"[DONE]" { return Ok(true); }
+            let event: serde_json::Value = serde_json::from_slice(payload)
+                .map_err(|_| ClientError::Provider("Invalid model stream event".into()))?;
+            if event.get("error").is_some_and(|value| !value.is_null()) {
+                return Err(ClientError::Provider("Model stream returned an error".into()));
             }
-        }
+            let choice = event.get("choices").and_then(|v| v.as_array()).and_then(|v| v.first());
+            crate::CompletionMetadata::merge(&mut result.metadata, &event, choice.and_then(|v| v.get("finish_reason")));
+            if let Some(choice) = choice {
+                Self::reject_non_text_choice(choice, "delta")?;
+                if let Some(content) = Self::extract_choice_content(choice) { result.content.push_str(&content); }
+            }
+            if let Some(usage) = event.get("usage") {
+                result.token_count_input = usage.get("prompt_tokens").and_then(|v| v.as_i64()).or(result.token_count_input);
+                result.token_count_output = usage.get("completion_tokens").and_then(|v| v.as_i64()).or(result.token_count_output);
+            }
+            Ok(false)
+        };
+        let done = parser.push(raw_body.as_bytes(), &mut on_event)? || parser.push(b"\n\n", &mut on_event)?;
         if !done { return Err(ClientError::Provider("Model stream ended before its terminal event".into())); }
         if result.content.is_empty() { return Err(ClientError::Provider("Model stream returned no text".into())); }
         Ok(result)
@@ -279,7 +272,7 @@ impl OpenAiCompatibleClient {
         let json: serde_json::Value = match serde_json::from_str(raw_body) {
             Ok(value) => value,
             Err(_) => {
-                if raw_body.lines().any(|line| line.starts_with("data:")) { return Self::parse_sse_fallback(raw_body); }
+                if raw_body.trim_start_matches('\u{feff}').split(['\r', '\n']).any(|line| line.starts_with("data:")) { return Self::parse_sse_fallback(raw_body); }
                 return Err(ClientError::Provider("Invalid model completion response".into()));
             }
         };
@@ -443,6 +436,8 @@ mod tests {
         assert!(OpenAiCompatibleClient::reject_non_text_choice(&serde_json::json!({"message":{"content":"ok","tool_calls":[]}}), "message").is_ok());
         let stream = "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\ndata: [DONE]\n";
         assert_eq!(OpenAiCompatibleClient::parse_sse_fallback(stream).unwrap().content, "hello");
+        let cr_stream = "\u{feff}data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\r\rdata: [DONE]\r";
+        assert_eq!(OpenAiCompatibleClient::parse_sse_fallback(cr_stream).unwrap().content, "hello");
         let stream = concat!(
             "data: {\"id\":\"buffered\",\"model\":\"fixture\",\"choices\":[{\"delta\":{\"content\":\"hello\"},\"finish_reason\":\"stop\"}]}\n\n",
             "data: {\"usage\":{\"prompt_tokens\":3}}\n\n",
@@ -629,6 +624,16 @@ mod tests {
             let _ = socket.write_all(&response);
         });
         (format!("http://{address}"), server)
+    }
+
+    #[tokio::test]
+    async fn buffered_completion_accepts_cr_delimited_sse_with_bom() {
+        let body = "\u{feff}data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\r\rdata: [DONE]\r";
+        let reply = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).into_bytes();
+        let (url, server) = reply_fixture(reply);
+        let result = OpenAiCompatibleClient::new(url, None).run_completion(completion_request()).await.unwrap();
+        assert_eq!(result.content, "hello");
+        server.join().unwrap();
     }
 
     #[tokio::test]

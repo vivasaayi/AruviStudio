@@ -44,6 +44,14 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Buffered SSE compatibility checkpoint
+
+- Buffered OpenAI-compatible completions now share the bounded SSE parser used
+  by live streams, including BOM and CR-only line support. The buffered response
+  retains its 8 MiB HTTP limit and compatibility with an omitted final blank
+  separator; a `[DONE]` marker is still required. The 36 shared-client tests
+  passed, including an HTTP response exercising the buffered fallback.
+
 ## Streaming parser checkpoint
 
 - The shared streaming client now processes SSE bytes in linear time across
@@ -56,7 +64,7 @@ provider hosting into the model-host service as part of this work.
   also passed. This has not yet been rebuilt in the
   worktree container or independently re-pinned and tested by the sample consumer;
   Docker's shared virtual disk remains nearly full. The buffered completion SSE
-  fallback retains its separate parser and was not changed by this checkpoint.
+  fallback was subsequently unified as noted above.
 
 ## Progress — completion response metadata
 
