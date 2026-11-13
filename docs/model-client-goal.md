@@ -44,6 +44,25 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Current worktree deployment checkpoint
+
+- On 2026-11-13 the frontend and locked Linux release server were built from
+  `feac4c22f063df36f318b7e05504c9be190e937b`. Because Docker's shared virtual
+  disk was nearly full, the Linux toolchain and Cargo artifacts were mounted from
+  the Mac; the resulting binary was packaged into the existing worktree runtime
+  image. The binary SHA-256 is
+  `668e4eac48f52f5e0c6dc6e103e947d2787d9a021e2e8301020095ddbef52f5a`
+  and matched the running container. The previous image was retained for rollback.
+  The worktree container is healthy; its loopback port is dynamically assigned.
+- The macOS Rust suite passed 177 tests with one live test ignored using the
+  default stack. Browser tests passed one smoke, 21 remote, one CI and 19 workflow
+  cases. Through Studio MCP, the real `qwen25-coder-7b-q4` model passed coding
+  completion and token-limit handling and staged and confirmed a planner design
+  (two model calls, one format retry). Model-generated behavior is nondeterministic.
+- The Docker disk still has less than 1 GiB available. This was a worktree-only
+  build and deployment; staging, production, physical desktop interaction and
+  the independent consumer's Docker build were not revalidated here.
+
 ## Buffered SSE compatibility checkpoint
 
 - Buffered OpenAI-compatible completions now share the bounded SSE parser used
