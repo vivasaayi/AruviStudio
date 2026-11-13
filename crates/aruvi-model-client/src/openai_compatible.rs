@@ -35,6 +35,16 @@ impl OpenAiCompatibleClient {
         Ok(if trimmed.ends_with("/v1") { format!("{trimmed}{path}") } else { format!("{trimmed}/v1{path}") })
     }
 
+    fn validate_completion_request(request: &CompletionRequest) -> Result<(), ClientError> {
+        if request.model.trim().is_empty() || request.messages.is_empty() || request.max_tokens.is_some_and(|value| value <= 0) {
+            return Err(ClientError::InvalidInput("A model, messages and positive max_tokens are required".into()));
+        }
+        if request.temperature.is_some_and(|value| !value.is_finite()) {
+            return Err(ClientError::InvalidInput("Temperature must be finite".into()));
+        }
+        Ok(())
+    }
+
     fn extract_choice_content(choice: &serde_json::Value) -> Option<String> {
         if let Some(content) = choice
             .get("message")
@@ -135,9 +145,7 @@ impl OpenAiCompatibleClient {
     /// the HTTP request. Usage is returned when the server includes it.
     pub async fn stream_completion<F>(&self, request: CompletionRequest, mut on_delta: F) -> Result<CompletionResponse, ClientError>
     where F: FnMut(&str) + Send {
-        if request.model.trim().is_empty() || request.messages.is_empty() || request.max_tokens.is_some_and(|value| value <= 0) {
-            return Err(ClientError::InvalidInput("A model, messages and positive max_tokens are required".into()));
-        }
+        Self::validate_completion_request(&request)?;
         let body = serde_json::json!({
             "model": request.model, "messages": request.messages,
             "temperature": request.temperature.unwrap_or(0.7),
@@ -240,6 +248,7 @@ impl OpenAiCompatibleClient {
         request: CompletionRequest,
         json_object: bool,
     ) -> Result<CompletionResponse, ClientError> {
+        Self::validate_completion_request(&request)?;
         let url = self.endpoint_url("/chat/completions")?;
         let mut body = serde_json::json!({
             "model": request.model,
@@ -702,6 +711,22 @@ mod tests {
             let request = TranscriptionRequest { model: "fixture".into(), audio: vec![1, 2], mime_type: "audio/wav".into(), filename: "audio.wav".into(), language: None };
             let error = OpenAiCompatibleClient::new(url, None).transcribe(request).await.unwrap_err().to_string();
             assert!(!error.contains("synthetic-provider-secret")); server.join().unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn completion_modes_reject_invalid_inputs_before_network() {
+        let client = OpenAiCompatibleClient::new("http://127.0.0.1:1".into(), None);
+        let make = || CompletionRequest { model: "fixture".into(), messages: vec![crate::ChatMessage { role: "user".into(), content: "hello".into() }], temperature: None, max_tokens: Some(10) };
+        let mut invalid = Vec::new();
+        let mut request = make(); request.model = "  ".into(); invalid.push(request);
+        let mut request = make(); request.messages.clear(); invalid.push(request);
+        let mut request = make(); request.max_tokens = Some(0); invalid.push(request);
+        for temperature in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] { let mut request = make(); request.temperature = Some(temperature); invalid.push(request); }
+        for request in invalid {
+            assert!(matches!(client.run_completion(request.clone()).await, Err(ClientError::InvalidInput(_))));
+            assert!(matches!(client.run_json_completion(request.clone()).await, Err(ClientError::InvalidInput(_))));
+            assert!(matches!(client.stream_completion(request, |_| {}).await, Err(ClientError::InvalidInput(_))));
         }
     }
 

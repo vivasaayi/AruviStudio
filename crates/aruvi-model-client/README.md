@@ -23,6 +23,10 @@ For Anthropic, a supplied stop reason indicating token truncation, a paused turn
 a refusal, tool use, or an unknown outcome is returned as an error instead of a
 completed text response. Some compatible proxies omit stop reasons; their absence
 is accepted for compatibility, so completeness cannot be inferred from that field.
+OpenAI-compatible ordinary, JSON-object and streaming completions validate a
+nonempty model and message list, positive explicit token limit, and finite
+temperature before making a request. Provider-specific temperature ranges remain
+subject to the endpoint.
 OpenAI-compatible completion responses are capped at 8 MiB, transcription and
 discovery responses at 2 MiB, and WAV speech at 16 MiB. Anthropic completion and
 stream responses are capped at 2 MiB. These limits are fixed for now. Provider
