@@ -99,8 +99,12 @@ provider hosting into the model-host service as part of this work.
   shared-client tests, 147 Studio Rust tests (one ignored), 19 remote UI tests,
   and 19 isolated workflow tests passed after this change.
 - Studio's desktop streaming path still uses its prior implementation. Native
-  Anthropic, shared-library streaming, provider selection, durable versioning,
-  and broader voice validation remain open.
+  Anthropic is implemented in the shared crate for text, with simulated HTTP tests
+  for request mapping, usage, unsupported roles and redirect credential protection.
+  Studio does not yet route providers to it: adding an Anthropic provider type must
+  preserve SQLite foreign keys and existing model bindings. Live Anthropic access,
+  shared-library streaming, provider selection, durable versioning, and broader
+  voice validation remain open.
 
 ## Open design questions
 
