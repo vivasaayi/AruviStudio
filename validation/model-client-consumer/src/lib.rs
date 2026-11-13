@@ -189,4 +189,13 @@ mod tests {
         assert!(AnthropicClient::new("https://api.anthropic.com".into(), "synthetic-test-key".into()).is_ok());
         server.join().unwrap();
     }
+    #[tokio::test]
+    async fn invalid_completion_inputs_fail_before_network() {
+        let client = OpenAiCompatibleClient::new("http://127.0.0.1:1".into(), None);
+        let request = CompletionRequest { model: "fixture".into(), messages: vec![ChatMessage { role: "user".into(), content: "hello".into() }], temperature: Some(f64::NAN), max_tokens: Some(10) };
+        assert!(matches!(client.run_completion(request.clone()).await, Err(aruvi_model_client::ClientError::InvalidInput(_))));
+        assert!(matches!(client.run_json_completion(request.clone()).await, Err(aruvi_model_client::ClientError::InvalidInput(_))));
+        assert!(matches!(client.stream_completion(request, |_| {}).await, Err(aruvi_model_client::ClientError::InvalidInput(_))));
+    }
+
 }

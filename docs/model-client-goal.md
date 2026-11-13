@@ -633,6 +633,19 @@ provider hosting into the model-host service as part of this work.
   coding and browser speech checks. Native desktop and Windows dependency paths
   remain unverified. No other products' data were pruned.
 
+## OpenAI-compatible request validation checkpoint
+
+- Ordinary, JSON-object and streaming completion calls now consistently reject
+  blank model IDs, empty message lists, non-positive explicit token limits and
+  non-finite temperatures before network I/O. Tests use an unreachable endpoint
+  to verify that each mode returns input errors rather than sending the request.
+  Provider-specific finite temperature ranges remain provider-validated.
+- The client suite passed 32 tests; Studio passed 171 tests each on macOS and
+  Linux (one live test ignored). The independent Git consumer pinned to
+  `b460a7f77ee2ed835d2ebc486504eeef71475889` passed 11 tests on macOS and in
+  network-disabled Linux with vendored dependencies. The rebuilt branch passed
+  a real 7B Model Host coding and token-limit check through MCP.
+
 ## JSON mode capability checkpoint
 
 - The shared `ModelGateway` trait now exposes
