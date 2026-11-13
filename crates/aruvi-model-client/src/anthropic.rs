@@ -34,6 +34,16 @@ impl AnthropicClient {
         if base.ends_with("/v1") { format!("{base}{path}") } else { format!("{base}/v1{path}") }
     }
 
+    // Text-only requests cannot represent tool calls or their results, even
+    // when a provider completes a server-side tool and reports end_turn.
+    fn reject_tool_block(block: &Value) -> Result<(), ClientError> {
+        let kind = block.get("type").and_then(Value::as_str).unwrap_or("");
+        if matches!(kind, "tool_use" | "server_tool_use") || kind.ends_with("_tool_result") {
+            return Err(ClientError::Provider("Anthropic tool-use responses are not supported by the text client".into()));
+        }
+        Ok(())
+    }
+
     // Some compatible proxies omit stop_reason. When supplied, never let a
     // partial, paused, refused or unsupported tool turn appear complete.
     fn validate_stop_reason(reason: Option<&Value>) -> Result<(), ClientError> {
@@ -143,12 +153,12 @@ impl StreamState {
                 self.input_tokens = event.pointer("/usage/input_tokens").and_then(Value::as_i64).or(self.input_tokens);
                 self.output_tokens = event.pointer("/usage/output_tokens").and_then(Value::as_i64).or(self.output_tokens);
             }
-            Some("content_block_start") if event.pointer("/content_block/type").and_then(Value::as_str) == Some("tool_use") => {
-                return Err(ClientError::Provider("Anthropic tool-use responses are not supported by the text client".into()));
-            }
-            Some("content_block_start") if event.pointer("/content_block/type").and_then(Value::as_str) == Some("text") => {
-                if let Some(text) = event.pointer("/content_block/text").and_then(Value::as_str).filter(|text| !text.is_empty()) {
-                    self.content.push_str(text); on_delta(text);
+            Some("content_block_start") => {
+                if let Some(block) = event.get("content_block") { AnthropicClient::reject_tool_block(block)?; }
+                if event.pointer("/content_block/type").and_then(Value::as_str) == Some("text") {
+                    if let Some(text) = event.pointer("/content_block/text").and_then(Value::as_str).filter(|text| !text.is_empty()) {
+                        self.content.push_str(text); on_delta(text);
+                    }
                 }
             }
             Some("content_block_delta") if event.pointer("/delta/type").and_then(Value::as_str) == Some("text_delta") => {
@@ -210,9 +220,7 @@ impl ModelGateway for AnthropicClient {
         let json = Self::read_json(response).await?;
         Self::validate_stop_reason(json.get("stop_reason"))?;
         let blocks = json.get("content").and_then(Value::as_array).ok_or_else(|| ClientError::Provider("Anthropic response is missing content".into()))?;
-        if blocks.iter().any(|block| block.get("type").and_then(Value::as_str) == Some("tool_use")) {
-            return Err(ClientError::Provider("Anthropic tool-use responses are not supported by the text client".into()));
-        }
+        for block in blocks { Self::reject_tool_block(block)?; }
         let content = blocks.iter().filter(|block| block.get("type").and_then(Value::as_str) == Some("text")).filter_map(|block| block.get("text").and_then(Value::as_str)).collect::<String>();
         if content.is_empty() { return Err(ClientError::Provider("Anthropic returned no text content".into())); }
         let mut metadata = None;
@@ -372,6 +380,28 @@ mod tests {
         assert!(AnthropicClient::validate_stop_reason(Some(&json!("end_turn"))).is_ok());
         assert!(AnthropicClient::validate_stop_reason(Some(&json!("stop_sequence"))).is_ok());
         assert!(AnthropicClient::validate_stop_reason(Some(&json!(5))).is_err());
+    }
+
+    #[tokio::test]
+    async fn rejects_server_tools_in_successful_responses_and_streams() {
+        for kind in ["tool_use", "server_tool_use", "web_search_tool_result", "code_execution_tool_result"] {
+            let body = format!("data: {{\"type\":\"content_block_delta\",\"delta\":{{\"type\":\"text_delta\",\"text\":\"partial\"}}}}\n\ndata: {{\"type\":\"content_block_start\",\"content_block\":{{\"type\":\"{kind}\"}}}}\n\ndata: {{\"type\":\"message_stop\"}}\n\n");
+            let (result, chunks) = stream_fixture(&body).await;
+            assert_eq!(chunks, ["partial"]);
+            assert!(result.is_err(), "stream accepted {kind}");
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let body = json!({"content":[{"type":"text","text":"partial"},{"type":kind}],"stop_reason":"end_turn"}).to_string();
+            let server = thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                let mut request = [0; 4096]; let _ = socket.read(&mut request);
+                let _ = write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
+            });
+            let client = AnthropicClient::new(format!("http://{address}"), "test-key".into()).unwrap();
+            let request = CompletionRequest { model:"fixture".into(), messages:vec![message("user","Hello")], temperature:None, max_tokens:Some(20) };
+            assert!(client.run_completion(request).await.is_err(), "completion accepted {kind}");
+            server.join().unwrap();
+        }
     }
 
     #[tokio::test]

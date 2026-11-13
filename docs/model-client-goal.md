@@ -89,6 +89,17 @@ provider hosting into the model-host service as part of this work.
   authenticated browser chat, and browser voice generation passed. Staging and
   production deployments were not changed or exercised.
 
+## Progress — Anthropic server tool blocks
+
+- Anthropic messages can contain server-side tool calls and tool-result blocks
+  even in a completed turn. The text-only adapter now rejects these blocks in
+  ordinary and streamed responses instead of silently discarding them; a stream
+  may already have delivered partial text. The shared client passed 29 tests,
+  including fixtures for client and server tool calls and result blocks. See
+  [Anthropic streaming](https://platform.claude.com/docs/en/build-with-claude/streaming)
+  and [server tools](https://platform.claude.com/docs/en/agents-and-tools/tool-use/server-tools).
+  The pinned consumer and deployed branch must still be updated and validated.
+
 ## Initial evidence — 2026-11-13
 
 - Native model-host staging is healthy at `127.0.0.1:20680`, revision

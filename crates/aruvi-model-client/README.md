@@ -16,6 +16,9 @@ truncation, filtering, tool use or an unknown outcome is returned as an error.
 Missing or null finish reasons are accepted for compatible providers, and cannot
 prove response completeness. A streaming callback may have received partial text
 before the terminal error.
+For Anthropic, client tool calls, server-side tool calls and tool-result blocks
+are rejected even when the provider reports a completed turn. A streaming
+callback may already have received partial text before that error.
 For Anthropic, a supplied stop reason indicating token truncation, a paused turn,
 a refusal, tool use, or an unknown outcome is returned as an error instead of a
 completed text response. Some compatible proxies omit stop reasons; their absence
