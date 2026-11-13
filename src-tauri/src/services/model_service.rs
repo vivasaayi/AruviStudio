@@ -4,10 +4,10 @@ use crate::providers::gateway::ModelGateway;
 use crate::providers::types::{CompletionRequest, CompletionResponse};
 use crate::secrets;
 use aruvi_model_client::{anthropic::AnthropicClient, openai_compatible::OpenAiCompatibleClient};
-use aruvi_model_client::ModelGateway as SharedModelGateway;
+use aruvi_model_client::{ClientOptions, ModelGateway as SharedModelGateway};
 use async_trait::async_trait;
 use sqlx::SqlitePool;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 pub struct ModelService;
 
@@ -57,6 +57,42 @@ pub fn create_gateway(provider: &ModelProvider) -> Result<Box<dyn ModelGateway>,
     Ok(Box::new(SharedGatewayAdapter(create_shared_gateway(provider)?)))
 }
 
+// These service-wide bounds also apply to desktop, MCP, agents and remote voice.
+// Keep parsing separate from process environment access so validation is testable
+// without mutating environment variables shared by concurrent tests.
+fn model_client_options(connect: Option<&str>, request: Option<&str>) -> Result<ClientOptions, AppError> {
+    fn seconds(value: Option<&str>, name: &str, default: Duration) -> Result<Duration, AppError> {
+        match value {
+            None => Ok(default),
+            Some(value) => value.parse::<u64>().ok().filter(|value| *value > 0 && *value <= 86_400)
+                .map(Duration::from_secs)
+                .ok_or_else(|| AppError::Validation(format!("{name} must be a whole number of seconds between 1 and 86400"))),
+        }
+    }
+    let defaults = ClientOptions::default();
+    let options = ClientOptions {
+        connect_timeout: seconds(connect, "ARUVI_MODEL_CONNECT_TIMEOUT_SECS", defaults.connect_timeout)?,
+        request_timeout: seconds(request, "ARUVI_MODEL_REQUEST_TIMEOUT_SECS", defaults.request_timeout)?,
+    };
+    if options.connect_timeout > options.request_timeout {
+        return Err(AppError::Validation("Model connection timeout must not exceed request timeout".into()));
+    }
+    Ok(options)
+}
+
+fn configured_model_client_options() -> Result<ClientOptions, AppError> {
+    fn read(name: &str) -> Result<Option<String>, AppError> {
+        match std::env::var(name) {
+            Ok(value) => Ok(Some(value)),
+            Err(std::env::VarError::NotPresent) => Ok(None),
+            Err(std::env::VarError::NotUnicode(_)) => Err(AppError::Validation(format!("{name} must be valid text"))),
+        }
+    }
+    let connect = read("ARUVI_MODEL_CONNECT_TIMEOUT_SECS")?;
+    let request = read("ARUVI_MODEL_REQUEST_TIMEOUT_SECS")?;
+    model_client_options(connect.as_deref(), request.as_deref())
+}
+
 /// Build one shared transport for chat, streaming, discovery and remote voice.
 pub fn create_shared_gateway(provider: &ModelProvider) -> Result<Box<dyn SharedModelGateway>, AppError> {
     if provider.provider_type.as_str() != "openai_compatible" {
@@ -76,20 +112,73 @@ pub fn create_shared_gateway(provider: &ModelProvider) -> Result<Box<dyn SharedM
         ));
     }
     let api_key = secrets::resolve_provider_secret(provider)?;
+    create_transport(provider, api_key, configured_model_client_options()?)
+}
+
+fn create_transport(provider: &ModelProvider, api_key: Option<String>, options: ClientOptions) -> Result<Box<dyn SharedModelGateway>, AppError> {
     match provider.protocol.as_str() {
-        "openai_compatible" => Ok(Box::new(OpenAiCompatibleClient::new(
-            provider.base_url.clone(),
-            api_key,
-        ))),
+        "openai_compatible" => {
+            let client = OpenAiCompatibleClient::with_options(provider.base_url.clone(), api_key, options)
+                .map_err(|error| AppError::Validation(error.to_string()))?;
+            Ok(Box::new(client))
+        },
         "anthropic" => {
             let key = api_key
                 .ok_or_else(|| AppError::Validation("Anthropic API key is required".into()))?;
-            let client = AnthropicClient::new(provider.base_url.clone(), key)
+            let client = AnthropicClient::with_options(provider.base_url.clone(), key, options)
                 .map_err(|error| AppError::Validation(error.to_string()))?;
             Ok(Box::new(client))
         }
         protocol => Err(AppError::Validation(format!(
             "Unsupported provider protocol: {protocol}"
         ))),
+    }
+}
+
+#[cfg(test)]
+mod timeout_configuration_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn configured_timeout_interrupts_stalled_provider_response() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut buffer = [0; 4096];
+            let _ = socket.read(&mut buffer);
+            let _ = socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 50\r\nConnection: close\r\n\r\n");
+            std::thread::sleep(Duration::from_millis(1500));
+        });
+        let provider = ModelProvider { id: "fixture".into(), name: "fixture".into(),
+            provider_type: crate::domain::model::ProviderType::OpenaiCompatible,
+            protocol: "openai_compatible".into(), base_url: format!("http://{address}"),
+            auth_secret_ref: None, enabled: true, created_at: "".into(), updated_at: "".into() };
+        let options = model_client_options(Some("1"), Some("1")).unwrap();
+        let client = create_transport(&provider, None, options).unwrap();
+        let result = client.run_completion(CompletionRequest { model: "fixture".into(),
+            messages: vec![crate::providers::types::ChatMessage { role: "user".into(), content: "hi".into() }],
+            temperature: None, max_tokens: Some(4) }).await;
+        assert!(result.is_err());
+        assert!(!server.is_finished(), "the request must time out before the server closes");
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn accepts_defaults_and_configured_bounds() {
+        let defaults = model_client_options(None, None).unwrap();
+        assert_eq!((defaults.connect_timeout.as_secs(), defaults.request_timeout.as_secs()), (15, 300));
+        let custom = model_client_options(Some("20"), Some("3600")).unwrap();
+        assert_eq!((custom.connect_timeout.as_secs(), custom.request_timeout.as_secs()), (20, 3600));
+        assert_eq!(model_client_options(Some("1"), Some("86400")).unwrap().request_timeout.as_secs(), 86400);
+    }
+
+    #[test]
+    fn rejects_invalid_or_inconsistent_bounds() {
+        for (connect, request) in [(Some("0"), None), (Some("nan"), None), (Some(" 1"), None),
+            (None, Some("86401")), (Some("30"), Some("29")), (None, Some("1"))] {
+            assert!(model_client_options(connect, request).is_err(), "{connect:?} {request:?}");
+        }
     }
 }

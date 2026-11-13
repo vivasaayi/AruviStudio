@@ -221,6 +221,9 @@ and MCP tokens.
 export ARUVI_APP_DATA_DIR=/var/lib/aruvi-studio
 export ARUVI_DB_PATH=/var/lib/aruvi-studio/aruvi-studio.db
 export ARUVI_LLM_CONFIG_PATH=/etc/aruvi-studio/llm-config.json
+# Optional: override defaults for slow model hosts (applies to all providers).
+export ARUVI_MODEL_CONNECT_TIMEOUT_SECS=15
+export ARUVI_MODEL_REQUEST_TIMEOUT_SECS=300
 export ARUVI_WEBHOOK_HOST=127.0.0.1
 export ARUVI_WEBHOOK_PORT=8787
 export ARUVI_MOBILE_API_TOKEN=replace-with-a-long-random-token
@@ -231,6 +234,16 @@ export ARUVI_MCP_API_TOKEN=replace-with-a-different-long-random-token
 
 `ARUVI_LLM_CONFIG_PATH` is useful on a headless Linux service because a desktop keychain may not
 be available. Restrict that file to the service account because it contains provider credentials.
+
+The model timeout settings are service-wide: they apply to chat, agent and planner
+requests, discovery, streaming and remote speech. The defaults are 15 seconds to
+connect and 300 seconds for the complete request, including a streamed response.
+Both settings must be whole seconds from 1 to 86400, with the connection timeout
+no greater than the request timeout. Invalid settings make model operations fail
+with a validation error. For Compose, set the same names in the environment's
+private `environment.env` or the invoking environment and recreate its service;
+the running deployment does not change until recreated. Per-provider timeouts
+are not yet supported.
 
 Keep the database and its sibling `-wal` and `-shm` files in a directory writable
 only by the service account and trusted administrators. The current bundled

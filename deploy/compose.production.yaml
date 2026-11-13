@@ -7,6 +7,8 @@ services:
       ARUVI_MOBILE_API_TOKEN: ${ARUVI_MOBILE_API_TOKEN:?Missing environment token}
       ARUVI_MCP_API_TOKEN: ${ARUVI_MCP_API_TOKEN:?Missing environment token}
       ARUVI_LLM_CONFIG_PATH: /data/llm-config.json
+      ARUVI_MODEL_CONNECT_TIMEOUT_SECS: ${ARUVI_MODEL_CONNECT_TIMEOUT_SECS-15}
+      ARUVI_MODEL_REQUEST_TIMEOUT_SECS: ${ARUVI_MODEL_REQUEST_TIMEOUT_SECS-300}
     volumes:
       - data:/data
       - repositories:/repositories

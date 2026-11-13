@@ -72,6 +72,23 @@ provider hosting into the model-host service as part of this work.
   only identified Aruvi consumer-test cache restored space and the branch
   container is healthy again on its Docker-assigned port.
 
+## Progress — model request timeout configuration
+
+- Studio supports `ARUVI_MODEL_CONNECT_TIMEOUT_SECS` and
+  `ARUVI_MODEL_REQUEST_TIMEOUT_SECS` for its shared gateway, with unchanged
+  15-second and 300-second defaults. The settings cover chat, discovery, agents,
+  streaming and remote voice for both supported protocols; they are service-wide,
+  not per-provider. Invalid, zero, inconsistent and over-24-hour settings are
+  rejected. Compose propagates explicit values across its three configurations.
+- Three native gateway tests passed, including a stalled HTTP response with a
+  one-second timeout. Both native streaming adapter tests still passed, and a
+  Compose configuration check verified custom value propagation in all three
+  environment files. The locked Linux release server was rebuilt, its deployed
+  binary hash matched, and the worktree container was healthy. Its defaults were
+  present in the process environment; real 7B MCP completion and token-limit,
+  authenticated browser chat, and browser voice generation passed. Staging and
+  production deployments were not changed or exercised.
+
 ## Initial evidence — 2026-11-13
 
 - Native model-host staging is healthy at `127.0.0.1:20680`, revision
@@ -250,7 +267,7 @@ provider hosting into the model-host service as part of this work.
   response bodies for both provider protocols. An independent consumer passed
   five tests from the pinned revision in a network-disabled build. Studio rebuilt
   and passed real Model Host coding through MCP and browser speech generation;
-  Studio configuration does not yet expose per-provider timeout settings.
+  Studio now exposes service-wide timeouts; per-provider settings remain open.
 
 - The native-host setup helper supports an opt-in foreground watcher, which
   retries outages and refreshes the same Studio provider when a worktree's port
