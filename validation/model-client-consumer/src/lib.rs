@@ -38,6 +38,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rejects_anthropic_truncated_response() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0; 4096]; let _ = socket.read(&mut request).unwrap();
+            let body = r#"{"content":[{"type":"text","text":"partial"}],"stop_reason":"max_tokens"}"#;
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+        });
+        let client = AnthropicClient::new(format!("http://{address}"), "synthetic-key".into()).unwrap();
+        let result = client.run_completion(CompletionRequest { model: "fixture".into(), messages: vec![ChatMessage { role: "user".into(), content: "hello".into() }], temperature: None, max_tokens: Some(10) }).await;
+        assert!(result.unwrap_err().to_string().contains("truncated"));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
     async fn consumes_public_discovery_api() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();

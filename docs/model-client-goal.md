@@ -130,7 +130,7 @@ provider hosting into the model-host service as part of this work.
   workflow tests passed. These fixture tests do not replace a physical desktop run.
 - The library is independently consumable from the public Studio Git repository
   using a full commit pin. The separate `validation/model-client-consumer` fixture
-  pins `4dfc59af4ee4527418eb283c3af128edce3bd145`, commits its dependency lock,
+  pins `0a27533a35ce25f6bd8abbbd193521b20ea9c9ba`, commits its dependency lock,
   vendors the dependency graph, and tests authenticated completion and discovery
   inside a network-disabled Docker build. `bash scripts/test shared-client-consumer`
   repeats this check. Cargo's package listing includes the applicable license;
@@ -240,7 +240,9 @@ provider hosting into the model-host service as part of this work.
   inspect its final result. For compatibility, absent stop reasons are accepted
   and cannot establish completeness. The shared-client suite passed 25 tests;
   a simulated Studio integration test verified MCP and authenticated web chat
-  report truncation as an error.
+  report truncation as an error. An independently pinned consumer passed six
+  tests in its offline build, including the Anthropic truncation case. The rebuilt
+  branch deployment passed a real Model Host coding request through MCP.
   Behavior follows the [Anthropic stop-reason reference](https://platform.claude.com/docs/en/build-with-claude/handling-stop-reasons).
 
 ## Open design questions
