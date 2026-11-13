@@ -136,6 +136,17 @@ provider hosting into the model-host service as part of this work.
   repeats this check. Cargo's package listing includes the applicable license;
   there is no registry release. A separate repository and release policy remain
   open decisions rather than prerequisites for consuming this pinned snapshot.
+- Model discovery now uses the shared client for OpenAI-compatible providers
+  and Anthropic, including bounded responses and explicit Anthropic pagination.
+  Provider-specific metadata is preserved without assuming client capability.
+  MCP, desktop setup and authenticated web setup expose discovery separately
+  from model registration. Simulated provider tests cover authentication,
+  pagination, malformed and oversized responses; desktop browser tests exercise
+  selecting models across pages. Live MCP discovery returned the native host's
+  `smol-metal-test`, `whisper-tiny-metal`, `piper-ljspeech` and `sd-v1-5-metal`
+  fixtures without registering them. The client suite passed 17 tests; the
+  Studio suite passed 151 (one ignored), plus targeted simulated Anthropic
+  MCP/web pagination tests, 20 remote UI tests, one CI test and 19 workflow tests.
 
 ## Open design questions
 

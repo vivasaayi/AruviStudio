@@ -75,6 +75,10 @@ export const updateModelDefinition = (data: {
     },
   });
 export const deleteModelDefinition = (id: string) => invoke("delete_model_definition", { id });
+export interface DiscoveredModel { id: string; display_name: string | null; metadata: Record<string, unknown> }
+export interface ModelPage { models: DiscoveredModel[]; next_cursor: string | null }
+export const discoverProviderModels = (id: string, cursor?: string) =>
+  invoke<ModelPage>("discover_provider_models", { id, cursor: cursor ?? null });
 export const testProviderConnectivity = (id: string) => invoke<string>("test_provider_connectivity", { id });
 export const browseForLocalModelFile = () =>
   invoke<string | null>("browse_for_local_model_file");

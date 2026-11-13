@@ -12,7 +12,7 @@ use crate::services::webhook_mobile_api::{
     mobile_clear_planner_turn, mobile_confirm_planner_turn, mobile_create_planner_session, mobile_create_product, mobile_edit_planner_draft,
     mobile_get_model_call, mobile_get_product_tree, mobile_get_product_tree_summary, mobile_list_product_areas, mobile_create_hierarchy_node, mobile_update_hierarchy_node, mobile_delete_hierarchy_node, mobile_reset_product_plan,
     mobile_healthcheck, mobile_list_model_calls, mobile_model_call_snapshot, mobile_list_products, mobile_submit_planner_turn,
-    mobile_list_providers, mobile_create_provider, mobile_update_provider, mobile_delete_provider, mobile_rotate_provider_credential, mobile_cleanup_provider_credentials, mobile_list_models, mobile_create_model, mobile_update_model, mobile_delete_model, mobile_test_provider,
+    mobile_list_providers, mobile_discover_provider_models, mobile_create_provider, mobile_update_provider, mobile_delete_provider, mobile_rotate_provider_credential, mobile_cleanup_provider_credentials, mobile_list_models, mobile_create_model, mobile_update_model, mobile_delete_model, mobile_test_provider,
     mobile_list_repositories, mobile_register_repository, mobile_inspect_repository, mobile_save_repository_file, mobile_list_repository_attachments, mobile_attach_repository, mobile_set_default_repository, mobile_detach_repository,
     mobile_list_agents, mobile_create_agent, mobile_update_agent, mobile_delete_agent, mobile_list_agent_bindings, mobile_set_agent_binding,
     mobile_list_teams, mobile_create_team, mobile_update_team, mobile_delete_team,
@@ -341,6 +341,7 @@ pub(crate) fn build_webhook_router(app_state: AppState) -> Router {
         .route("/api/mobile/model-calls/:id/snapshots/:kind", get(mobile_model_call_snapshot))
         .route("/api/mobile/providers", get(mobile_list_providers).post(mobile_create_provider))
         .route("/api/mobile/providers/update", post(mobile_update_provider))
+        .route("/api/mobile/providers/discover", post(mobile_discover_provider_models))
         .route("/api/mobile/providers/delete", post(mobile_delete_provider))
         .route("/api/mobile/providers/credential", post(mobile_rotate_provider_credential))
         .route("/api/mobile/providers/credential/cleanup", post(mobile_cleanup_provider_credentials))

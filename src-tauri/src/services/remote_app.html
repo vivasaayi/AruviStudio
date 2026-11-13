@@ -748,6 +748,8 @@
               <div class="panel-body stack">
                 <form id="modelForm" class="stack">
                   <label><span class="label">Provider for model</span><select id="modelProvider" required></select></label>
+                  <div class="row"><button type="button" class="secondary" id="discoverModelsButton">Discover available models</button><button type="button" class="secondary" id="discoverMoreModelsButton" hidden>Load next page</button></div>
+                  <label id="discoveredModelsLabel" hidden><span class="label">Available model</span><select id="discoveredModels"><option value="">Select a discovered model</option></select></label>
                   <label><span class="label">Model name</span><input id="newModelName" required /></label>
                   <button type="submit" id="createModelButton">Add model</button>
                 </form>
@@ -1007,6 +1009,10 @@
       modelForm: document.getElementById("modelForm"),
       modelProvider: document.getElementById("modelProvider"),
       newModelName: document.getElementById("newModelName"),
+      discoverModelsButton: document.getElementById("discoverModelsButton"),
+      discoverMoreModelsButton: document.getElementById("discoverMoreModelsButton"),
+      discoveredModelsLabel: document.getElementById("discoveredModelsLabel"),
+      discoveredModels: document.getElementById("discoveredModels"),
       createModelButton: document.getElementById("createModelButton"),
       modelList: document.getElementById("modelList"),
       refreshModelsButton: document.getElementById("refreshModelsButton"),
@@ -3411,6 +3417,38 @@
       finally { el.createProviderButton.disabled = false; }
     }
 
+    let discoveryCursor = null;
+    let discoveryProvider = "";
+    function resetModelDiscovery() {
+      discoveryCursor = null;
+      discoveryProvider = "";
+      el.discoveredModels.replaceChildren(new Option("Select a discovered model", ""));
+      el.discoveredModelsLabel.hidden = true;
+      el.discoverMoreModelsButton.hidden = true;
+    }
+    async function discoverModels(nextPage) {
+      const provider = el.modelProvider.value;
+      if (!provider) { setStatus("Select a provider first", "error"); return; }
+      if (!nextPage) { resetModelDiscovery(); discoveryProvider = provider; }
+      if (discoveryProvider !== provider) return;
+      const cursor = nextPage ? discoveryCursor : null;
+      el.discoverModelsButton.disabled = true;
+      el.discoverMoreModelsButton.disabled = true;
+      try {
+        const page = await request("/api/mobile/providers/discover", { method: "POST", body: { id: provider, cursor } });
+        if (discoveryProvider !== provider || el.modelProvider.value !== provider) return;
+        for (const model of page.models) {
+          const option = new Option(model.display_name ? model.display_name + " (" + model.id + ")" : model.id, model.id);
+          el.discoveredModels.add(option);
+        }
+        discoveryCursor = page.next_cursor;
+        el.discoveredModelsLabel.hidden = false;
+        el.discoverMoreModelsButton.hidden = !discoveryCursor;
+        setStatus(page.models.length + " models discovered on this page", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { el.discoverModelsButton.disabled = false; el.discoverMoreModelsButton.disabled = false; }
+    }
+
     async function createModel(event) {
       event.preventDefault();
       el.createModelButton.disabled = true;
@@ -3780,6 +3818,10 @@
     el.repositoryProduct.addEventListener("change", loadWorkspaces);
     el.providerForm.addEventListener("submit", createProvider);
     el.modelForm.addEventListener("submit", createModel);
+    el.modelProvider.addEventListener("change", resetModelDiscovery);
+    el.discoverModelsButton.addEventListener("click", () => discoverModels(false));
+    el.discoverMoreModelsButton.addEventListener("click", () => discoverModels(true));
+    el.discoveredModels.addEventListener("change", () => { if (el.discoveredModels.value) el.newModelName.value = el.discoveredModels.value; });
     el.agentBindingForm.addEventListener("submit", saveAgentBinding);
     el.workProductSelect.addEventListener("change", () => {
       resetWorkScope();

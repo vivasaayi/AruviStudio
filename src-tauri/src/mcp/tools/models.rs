@@ -122,6 +122,14 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             model_repo::delete_model_definition(&state.db, &id).await?;
             Ok(action_ok("delete_model_definition"))
         }
+        "discover_provider_models" => {
+            let id = args.required_string(&["id", "provider_id", "providerId"], "provider_id")?;
+            let provider = model_repo::get_provider(&state.db, &id).await?;
+            if !provider.enabled { return Err(AppError::Validation("Selected provider is disabled".into())); }
+            let gateway = create_gateway(&provider)?;
+            let cursor = args.optional_string(&["cursor"])?;
+            action_result("discover_provider_models", gateway.list_models_page(cursor.as_deref()).await?)
+        }
         "test_provider_connectivity" => {
             let id = args.required_string(&["id"], "id")?;
             let provider = model_repo::get_provider(&state.db, &id).await?;

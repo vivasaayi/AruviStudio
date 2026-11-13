@@ -943,6 +943,14 @@ pub(crate) async fn mobile_create_model(State(state): State<WebhookState>, heade
     model_action(&state, "create_model_definition", serde_json::json!({"name": body.name.trim(), "provider_id": body.provider_id.trim()})).await
 }
 
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileDiscoverModelsRequest { id: String, cursor: Option<String> }
+
+pub(crate) async fn mobile_discover_provider_models(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileDiscoverModelsRequest>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    model_action(&state, "discover_provider_models", serde_json::json!({"id": body.id, "cursor": body.cursor})).await
+}
+
 pub(crate) async fn mobile_test_provider(State(state): State<WebhookState>, headers: HeaderMap, Path(id): Path<String>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     model_action(&state, "test_provider_connectivity", serde_json::json!({"id": id})).await

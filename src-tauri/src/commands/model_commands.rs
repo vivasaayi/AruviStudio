@@ -171,6 +171,15 @@ pub async fn delete_model_definition(
 }
 
 #[tauri::command]
+pub async fn discover_provider_models(
+    state: State<'_, AppState>, id: String, cursor: Option<String>,
+) -> Result<aruvi_model_client::ModelPage, AppError> {
+    let provider = model_repo::get_provider(&state.db, &id).await?;
+    if !provider.enabled { return Err(AppError::Validation("Selected provider is disabled".into())); }
+    create_gateway(&provider)?.list_models_page(cursor.as_deref()).await
+}
+
+#[tauri::command]
 pub async fn test_provider_connectivity(
     state: State<'_, AppState>,
     id: String,

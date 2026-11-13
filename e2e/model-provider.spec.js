@@ -23,3 +23,26 @@ test("desktop provider setup sends Anthropic protocol", async ({ page }) => {
     name: "Claude test", providerType: "openai_compatible", protocol: "anthropic", baseUrl: "https://api.anthropic.com",
   });
 });
+
+test("desktop discovers and selects paged provider models", async ({ page }) => {
+  await page.goto("/models");
+  await page.evaluate(() => {
+    const original = window.__ARUVI_E2E__.invoke;
+    window.__ARUVI_E2E__.invoke = async (command, args) => {
+      if (command === "discover_provider_models") {
+        return args.cursor
+          ? { models: [{ id: "second-model", display_name: "Second", metadata: {} }], next_cursor: null }
+          : { models: [{ id: "first-model", display_name: "First", metadata: {} }], next_cursor: "first-model" };
+      }
+      return original(command, args);
+    };
+  });
+  await page.getByRole("button", { name: "+ Add Model" }).click();
+  await page.getByLabel("Provider for model").selectOption("provider-deepseek-hosted");
+  await page.getByRole("button", { name: "Discover available models" }).click();
+  await page.getByLabel("Available model").selectOption("first-model");
+  await expect(page.getByLabel("Model name", { exact: true })).toHaveValue("first-model");
+  await page.getByRole("button", { name: "Load next page" }).click();
+  await page.getByLabel("Available model").selectOption("second-model");
+  await expect(page.getByLabel("Model name", { exact: true })).toHaveValue("second-model");
+});

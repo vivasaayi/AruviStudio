@@ -152,6 +152,27 @@ impl ModelGateway for AnthropicClient {
         Ok(response.status().is_success())
     }
 
+    async fn list_models_page(&self, cursor: Option<&str>) -> Result<crate::ModelPage, ClientError> {
+        if cursor.is_some_and(|value| value.trim().is_empty() || value.len() > 1024) {
+            return Err(ClientError::InvalidInput("Invalid model discovery cursor".into()));
+        }
+        let mut request = self.client.get(self.endpoint("/models"))
+            .header("x-api-key", &self.api_key).header("anthropic-version", API_VERSION);
+        if let Some(cursor) = cursor { request = request.query(&[("after_id", cursor)]); }
+        let response = request.send().await.map_err(|error| ClientError::Provider(format!("Anthropic discovery request failed: {error}")))?;
+        let body = crate::discovery::read_response(response).await?;
+        let models = crate::discovery::parse_models(&body)?;
+        let has_more = body.get("has_more").and_then(Value::as_bool)
+            .ok_or_else(|| ClientError::Provider("Anthropic discovery is missing pagination state".into()))?;
+        let next_cursor = if has_more {
+            let next = body.get("last_id").and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty() && value.len() <= 1024 && Some(*value) != cursor)
+                .ok_or_else(|| ClientError::Provider("Anthropic discovery returned an invalid next cursor".into()))?;
+            Some(next.to_owned())
+        } else { None };
+        Ok(crate::ModelPage { models, next_cursor })
+    }
+
     async fn run_completion(&self, request: CompletionRequest) -> Result<CompletionResponse, ClientError> {
         let body = Self::request_body(request)?;
         let response = self.client.post(self.endpoint("/messages")).header("x-api-key", &self.api_key).header("anthropic-version", API_VERSION).json(&body).send().await

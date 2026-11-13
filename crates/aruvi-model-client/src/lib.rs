@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub mod openai_compatible;
 pub mod anthropic;
 mod sse;
+mod discovery;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -58,8 +59,27 @@ pub struct CompletionResponse {
     pub token_count_output: Option<i64>,
 }
 
+/// A model as advertised by the provider. Metadata is provider-specific and
+/// does not imply that Studio or this client implements every capability.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscoveredModel {
+    pub id: String,
+    pub display_name: Option<String>,
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelPage {
+    pub models: Vec<DiscoveredModel>,
+    pub next_cursor: Option<String>,
+}
+
 #[async_trait]
 pub trait ModelGateway: Send + Sync {
     async fn health_check(&self) -> Result<bool, ClientError>;
+    /// Fetch one page; pass the returned cursor to retrieve the next page.
+    async fn list_models_page(&self, _cursor: Option<&str>) -> Result<ModelPage, ClientError> {
+        Err(ClientError::Provider("This provider does not support model discovery".into()))
+    }
     async fn run_completion(&self, request: CompletionRequest) -> Result<CompletionResponse, ClientError>;
 }

@@ -234,6 +234,15 @@ impl ModelGateway for OpenAiCompatibleClient {
         }
     }
 
+    async fn list_models_page(&self, cursor: Option<&str>) -> Result<crate::ModelPage, ClientError> {
+        if cursor.is_some() { return Err(ClientError::InvalidInput("OpenAI-compatible discovery does not support cursors".into())); }
+        let mut request = self.client.get(self.endpoint_url("/models"));
+        if let Some(key) = &self.api_key { request = request.bearer_auth(key); }
+        let response = request.send().await.map_err(|error| ClientError::Provider(format!("Model discovery request failed: {error}")))?;
+        let body = crate::discovery::read_response(response).await?;
+        Ok(crate::ModelPage { models: crate::discovery::parse_models(&body)?, next_cursor: None })
+    }
+
     async fn run_completion(
         &self,
         request: CompletionRequest,

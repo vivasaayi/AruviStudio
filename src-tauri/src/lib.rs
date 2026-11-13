@@ -215,6 +215,7 @@ pub fn run() {
             commands::model_commands::update_model_definition,
             commands::model_commands::delete_model_definition,
             commands::model_commands::test_provider_connectivity,
+            commands::model_commands::discover_provider_models,
             commands::model_commands::local_runtime::browse_for_local_model_file,
             commands::model_commands::local_runtime::register_local_runtime_model_command,
             commands::model_commands::local_runtime::install_managed_local_model_command,

@@ -37,6 +37,10 @@ impl ModelGateway for SharedGatewayAdapter {
             .map_err(|error| AppError::Provider(error.to_string()))
     }
 
+    async fn list_models_page(&self, cursor: Option<&str>) -> Result<aruvi_model_client::ModelPage, AppError> {
+        self.0.list_models_page(cursor).await.map_err(|error| AppError::Provider(error.to_string()))
+    }
+
     async fn run_completion(
         &self,
         request: CompletionRequest,

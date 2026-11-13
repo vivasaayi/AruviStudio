@@ -388,7 +388,7 @@ async fn remote_work_api_auth_create_start_approve_and_delivery_flow() {
 
 #[tokio::test]
 async fn anthropic_protocol_routes_mcp_and_remote_chat() {
-    use axum::{routing::post, Json};
+    use axum::{routing::{get, post}, extract::Query, Json};
     use crate::mcp::dispatch_tool;
     async fn messages(headers: axum::http::HeaderMap, Json(body): Json<Value>) -> Json<Value> {
         assert_eq!(headers.get("x-api-key").unwrap(), "sk-test-synthetic-key-123456");
@@ -398,10 +398,18 @@ async fn anthropic_protocol_routes_mcp_and_remote_chat() {
         assert_eq!(body["messages"][0]["role"], "user");
         Json(json!({"content":[{"type":"text","text":"Claude fixture response"}],"usage":{"input_tokens":4,"output_tokens":3}}))
     }
+    async fn models(headers: axum::http::HeaderMap, Query(query): Query<std::collections::HashMap<String, String>>) -> Json<Value> {
+        assert_eq!(headers.get("x-api-key").unwrap(), "sk-test-synthetic-key-123456");
+        if query.get("after_id").is_some_and(|value| value == "claude-first") {
+            Json(json!({"data":[{"id":"claude-second","display_name":"Claude second"}],"has_more":false,"last_id":"claude-second"}))
+        } else {
+            Json(json!({"data":[{"id":"claude-first","display_name":"Claude first"}],"has_more":true,"last_id":"claude-first"}))
+        }
+    }
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
-        axum::serve(listener, axum::Router::new().route("/v1/messages", post(messages))).await.unwrap();
+        axum::serve(listener, axum::Router::new().route("/v1/messages", post(messages)).route("/v1/models", get(models))).await.unwrap();
     });
     let app: tauri::App<MockRuntime> = make_test_app("anthropic_mcp_remote").await;
     let state = app.state::<AppState>().inner().clone();
@@ -423,7 +431,21 @@ async fn anthropic_protocol_routes_mcp_and_remote_chat() {
     }})).await.unwrap();
     assert_eq!(mcp["result"]["content"], "Claude fixture response");
     assert_eq!(mcp["result"]["token_count_input"], 4);
+    let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM model_definitions").fetch_one(&state.db).await.unwrap();
+    let page = dispatch_tool(&state, "aruvi_models", json!({"action":"discover_provider_models","arguments":{"id":id}})).await.unwrap();
+    assert_eq!(page["result"]["models"][0]["id"], "claude-first");
+    assert_eq!(page["result"]["next_cursor"], "claude-first");
+    let next = dispatch_tool(&state, "aruvi_models", json!({"action":"discover_provider_models","arguments":{"id":id,"cursor":"claude-first"}})).await.unwrap();
+    assert_eq!(next["result"]["models"][0]["id"], "claude-second");
+    assert!(next["result"]["next_cursor"].is_null());
+    let after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM model_definitions").fetch_one(&state.db).await.unwrap();
+    assert_eq!(before, after);
     let router = build_webhook_router(state);
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/providers/discover", None, Some(json!({"id":id}))).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, body) = send_json(&router, Method::POST, "/api/mobile/providers/discover", Some("anthropic-test-token"), Some(json!({"id":id,"cursor":"claude-first"}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(parse_json(&body)["models"][0]["id"], "claude-second");
     let (status, body) = send_json(&router, Method::POST, "/api/mobile/chat/completions", Some("anthropic-test-token"), Some(json!({
         "provider_id":id,"model_name":"claude-test","messages":[{"role":"user","content":"hello"}]
     }))).await;

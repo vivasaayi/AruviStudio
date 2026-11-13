@@ -361,7 +361,16 @@ test("browser configures and selects a model", async ({ page, request }) => {
       await expect(page.locator("#status")).toHaveText("Connection successful");
     }
     await page.getByLabel("Provider for model").selectOption(providerId);
-    await page.getByLabel("Model name", { exact: true }).fill("browser-test-model");
+    if (process.env.ARUVI_TEST_MODEL_URL) {
+      expect((await request.post("/api/mobile/providers/discover", { data: { id: providerId } })).status()).toBe(401);
+      const discovered = await call("aruvi_models", "discover_provider_models", { id: providerId });
+      expect(discovered.models.map((model) => model.id)).toContain("browser-test-model");
+      await page.getByRole("button", { name: "Discover available models" }).click();
+      await page.locator("#discoveredModels").selectOption("browser-test-model");
+      await expect(page.getByLabel("Model name", { exact: true })).toHaveValue("browser-test-model");
+    } else {
+      await page.getByLabel("Model name", { exact: true }).fill("browser-test-model");
+    }
     const modelResponse = page.waitForResponse((r) => r.url().endsWith("/api/mobile/models") && r.request().method() === "POST");
     await page.getByRole("button", { name: "Add model", exact: true }).click();
     const model = await modelResponse;

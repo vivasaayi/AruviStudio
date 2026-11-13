@@ -4,7 +4,7 @@ This provisional Rust crate contains reusable model transports without depending
 Studio or Tauri. Applications own provider settings, credentials, telemetry and
 workflow policy. The repository's PolyForm Noncommercial license applies.
 
-It supports OpenAI-compatible text completions and incremental streams, remote
+It supports paged model discovery, OpenAI-compatible text completions and incremental streams, remote
 multipart transcription and bounded WAV speech generation. It also implements
 Anthropic Messages text completions and streams. Studio selects these protocols
 for its chat and agent flows. Streaming bounds the total event data, reports
@@ -13,6 +13,15 @@ future is dropped. Text clients explicitly reject tool-use responses; full tools
 thinking, structured output and cross-provider capability negotiation remain open.
 The library does not currently apply consistent bounds to every non-streaming
 response.
+
+Call `ModelGateway::list_models_page(None)` to discover a provider's available
+models and pass `next_cursor` back to fetch subsequent pages. OpenAI-compatible
+discovery returns one page; Anthropic discovery exposes its pagination cursor.
+The `metadata` field preserves provider-supplied fields, including Model Host
+task labels. Those fields do not imply that the shared client supports every
+advertised capability. Studio exposes the same read-only operation as
+`aruvi_models` action `discover_provider_models` and in its model setup forms;
+discovery never registers a model automatically.
 
 `examples/stream_probe.rs` is a minimal OpenAI-compatible stream smoke test. Set
 `ARUVI_PROBE_BASE_URL` and `ARUVI_PROBE_MODEL`, then provide the API key on
@@ -30,7 +39,8 @@ aruvi-model-client = { git = "https://github.com/vivasaayi/AruviStudio.git", rev
 ```
 
 This revision is an integration checkpoint, not a release or a promise of API
-stability. Commit the consuming application's `Cargo.lock`. For an offline or
+stability; it predates model discovery. Commit the consuming application's
+`Cargo.lock`. For an offline or
 network-isolated Docker build, prepare dependencies from that lockfile and include
 the resulting `vendor` directory and Cargo configuration in the build context:
 

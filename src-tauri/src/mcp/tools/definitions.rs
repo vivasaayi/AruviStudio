@@ -226,6 +226,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "update_model_definition",
                 "delete_model_definition",
                 "test_provider_connectivity",
+                "discover_provider_models",
                 "register_local_runtime_model",
                 "install_managed_local_model",
                 "run_model_chat_completion",

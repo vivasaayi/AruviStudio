@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listProviders,
   listModelDefinitions,
+  discoverProviderModels,
+  type DiscoveredModel,
 } from "../../../lib/tauri";
 import type { ModelDefinition, ModelProvider } from "../../../lib/types";
 import { styles } from "../lib/modelProviderPageStyles";
@@ -17,6 +19,10 @@ export function ModelProviderListPage() {
   const [showForm, setShowForm] = useState(false);
   const [showModelForm, setShowModelForm] = useState(false);
   const [form, setForm] = useState({ name: "", providerType: "openai_compatible", baseUrl: "http://localhost:1234/v1", authSecretRef: "" });
+  const [discoveredModels, setDiscoveredModels] = useState<DiscoveredModel[]>([]);
+  const [discoveryCursor, setDiscoveryCursor] = useState<string | null>(null);
+  const [discovering, setDiscovering] = useState(false);
+  const discoverySequence = useRef(0);
   const [modelForm, setModelForm] = useState({ providerId: "", name: "", contextWindow: "", capabilityTags: "", notes: "" });
   const [testResults, setTestResults] = useState<Record<string, { status: string; message: string }>>({});
   const [providerError, setProviderError] = useState<string | null>(null);
@@ -68,6 +74,24 @@ export function ModelProviderListPage() {
     setModelError,
     setModelSuccess,
   });
+
+  const discoverModels = async (nextPage: boolean) => {
+    if (!modelForm.providerId || discovering) return;
+    const sequence = ++discoverySequence.current;
+    if (!nextPage) { setDiscoveredModels([]); setDiscoveryCursor(null); }
+    setDiscovering(true);
+    setModelError(null);
+    try {
+      const result = await discoverProviderModels(modelForm.providerId, nextPage ? discoveryCursor ?? undefined : undefined);
+      if (sequence !== discoverySequence.current) return;
+      setDiscoveredModels((previous) => nextPage ? [...previous, ...result.models] : result.models);
+      setDiscoveryCursor(result.next_cursor);
+    } catch (error) {
+      if (sequence === discoverySequence.current) setModelError(String(error));
+    } finally {
+      if (sequence === discoverySequence.current) setDiscovering(false);
+    }
+  };
 
   return (
     <div style={styles.page}>
@@ -152,7 +176,7 @@ export function ModelProviderListPage() {
         <div style={styles.form}>
           <div style={styles.sectionTitle}>Register Model Definition</div>
           <label style={styles.label}>Provider</label>
-          <select style={styles.select} value={modelForm.providerId} onChange={(e) => setModelForm({ ...modelForm, providerId: e.target.value })}>
+          <select aria-label="Provider for model" style={styles.select} value={modelForm.providerId} onChange={(e) => { discoverySequence.current++; setDiscoveredModels([]); setDiscoveryCursor(null); setDiscovering(false); setModelForm({ ...modelForm, providerId: e.target.value }); }}>
             <option value="">Select a provider</option>
             {(providers ?? []).map((provider) => (
               <option key={provider.id} value={provider.id}>
@@ -160,8 +184,11 @@ export function ModelProviderListPage() {
               </option>
             ))}
           </select>
+          <button type="button" style={styles.btn} disabled={!modelForm.providerId || discovering} onClick={() => void discoverModels(false)}>{discovering ? "Discovering..." : "Discover available models"}</button>
+          {discoveryCursor && <button type="button" style={styles.btn} disabled={discovering} onClick={() => void discoverModels(true)}>Load next page</button>}
+          {discoveredModels.length > 0 && <><label style={styles.label}>Available model</label><select aria-label="Available model" style={styles.select} value="" onChange={(e) => { if (e.target.value) setModelForm({ ...modelForm, name: e.target.value }); }}><option value="">Select a discovered model</option>{discoveredModels.map((model) => <option key={model.id} value={model.id}>{model.display_name ? `${model.display_name} (${model.id})` : model.id}</option>)}</select></>}
           <label style={styles.label}>Model Name</label>
-          <input style={styles.input} value={modelForm.name} onChange={(e) => setModelForm({ ...modelForm, name: e.target.value })} placeholder="e.g. deepseek-chat or deepseek-coder" />
+          <input aria-label="Model name" style={styles.input} value={modelForm.name} onChange={(e) => setModelForm({ ...modelForm, name: e.target.value })} placeholder="e.g. deepseek-chat or deepseek-coder" />
           <label style={styles.label}>Context Window (optional)</label>
           <input style={styles.input} value={modelForm.contextWindow} onChange={(e) => setModelForm({ ...modelForm, contextWindow: e.target.value })} placeholder="e.g. 64000" />
           <label style={styles.label}>Capability Tags (comma-separated)</label>
