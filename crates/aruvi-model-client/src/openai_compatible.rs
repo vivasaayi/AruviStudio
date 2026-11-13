@@ -120,6 +120,49 @@ impl OpenAiCompatibleClient {
         }
     }
 
+    /// Stream one OpenAI-compatible chat response. Dropping the future cancels
+    /// the HTTP request. Usage is returned when the server includes it.
+    pub async fn stream_completion<F>(&self, request: CompletionRequest, mut on_delta: F) -> Result<CompletionResponse, ClientError>
+    where F: FnMut(&str) + Send {
+        if request.model.trim().is_empty() || request.messages.is_empty() || request.max_tokens.is_some_and(|value| value <= 0) {
+            return Err(ClientError::InvalidInput("A model, messages and positive max_tokens are required".into()));
+        }
+        let body = serde_json::json!({
+            "model": request.model, "messages": request.messages,
+            "temperature": request.temperature.unwrap_or(0.7),
+            "max_tokens": request.max_tokens.unwrap_or(4096), "stream": true,
+        });
+        let mut http = self.client.post(self.endpoint_url("/chat/completions")).json(&body);
+        if let Some(key) = &self.api_key { http = http.bearer_auth(key); }
+        let response = http.send().await.map_err(|error| ClientError::Provider(format!("Model stream request failed: {error}")))?;
+        if !response.status().is_success() {
+            return Err(ClientError::Provider(format!("Model stream API error {}", response.status())));
+        }
+        let mut result = CompletionResponse { content: String::new(), token_count_input: None, token_count_output: None };
+        crate::sse::read_sse(response, "Model", |data| {
+            if data == b"[DONE]" { return Ok(true); }
+            let event: serde_json::Value = serde_json::from_slice(data)
+                .map_err(|_| ClientError::Provider("Invalid model stream event".into()))?;
+            if event.get("error").is_some_and(|value| !value.is_null()) {
+                return Err(ClientError::Provider("Model stream returned an error".into()));
+            }
+            if let Some(usage) = event.get("usage") {
+                result.token_count_input = usage.get("prompt_tokens").and_then(|value| value.as_i64()).or(result.token_count_input);
+                result.token_count_output = usage.get("completion_tokens").and_then(|value| value.as_i64()).or(result.token_count_output);
+            }
+            if let Some(choice) = event.get("choices").and_then(|value| value.as_array()).and_then(|values| values.first()) {
+                if choice.pointer("/delta/tool_calls").is_some_and(|value| !value.is_null()) || choice.pointer("/delta/function_call").is_some_and(|value| !value.is_null()) {
+                    return Err(ClientError::Provider("Model tool-use responses are not supported by the text client".into()));
+                }
+                if let Some(content) = choice.pointer("/delta/content").and_then(|value| value.as_str()) {
+                    if !content.is_empty() { result.content.push_str(content); on_delta(content); }
+                }
+            }
+            Ok(false)
+        }).await?;
+        Ok(result)
+    }
+
     /// Transcribe audio using an OpenAI-compatible multipart endpoint.
     pub async fn transcribe(&self, input: TranscriptionRequest) -> Result<String, ClientError> {
         let file = reqwest::multipart::Part::bytes(input.audio)
@@ -403,4 +446,58 @@ mod tests {
         assert!(result.unwrap_err().to_string().contains("size limit"));
         server.join().unwrap();
     }
+
+    async fn openai_stream_fixture(body: &str) -> (Result<CompletionResponse, ClientError>, Vec<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let bytes = body.as_bytes().to_vec();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = Vec::new(); let mut buf = [0; 4096];
+            let end = loop {
+                let n = socket.read(&mut buf).unwrap(); assert_ne!(n, 0); request.extend_from_slice(&buf[..n]);
+                if let Some(i) = request.windows(4).position(|part| part == b"\r\n\r\n") { break i + 4; }
+            };
+            let headers = String::from_utf8_lossy(&request[..end]).to_lowercase();
+            assert!(headers.starts_with("post /v1/chat/completions "));
+            assert!(headers.contains("authorization: bearer test-key"));
+            let length: usize = headers.lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().trim().parse().unwrap();
+            while request.len() < end + length { let n = socket.read(&mut buf).unwrap(); assert_ne!(n, 0); request.extend_from_slice(&buf[..n]); }
+            let json: serde_json::Value = serde_json::from_slice(&request[end..end + length]).unwrap();
+            assert_eq!(json["stream"], true);
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", bytes.len()).unwrap();
+            for part in bytes.chunks(3) { if socket.write_all(part).is_err() { break; } }
+        });
+        let client = OpenAiCompatibleClient::new(format!("http://{addr}/v1"), Some("test-key".into()));
+        let mut chunks = Vec::new();
+        let result = client.stream_completion(CompletionRequest { model:"fixture".into(), messages:vec![ChatMessage { role:"user".into(), content:"Hello".into() }], temperature:None, max_tokens:Some(20) }, |delta| chunks.push(delta.to_owned())).await;
+        server.join().unwrap();
+        (result, chunks)
+    }
+
+    #[tokio::test]
+    async fn streams_fragmented_openai_events_and_optional_usage() {
+        let body = concat!(
+            "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\r\n\r\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"Hé\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"llo\"}}]}\n\n",
+            "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2}}\n\n",
+            "data: [DONE]\n\n");
+        let (result, chunks) = openai_stream_fixture(body).await;
+        let response = result.unwrap();
+        assert_eq!(chunks, ["Hé", "llo"]);
+        assert_eq!(response.content, "Héllo");
+        assert_eq!((response.token_count_input, response.token_count_output), (Some(4), Some(2)));
+    }
+
+    #[tokio::test]
+    async fn rejects_openai_stream_errors_and_incomplete_or_unsupported_events() {
+        for body in [
+            "data: {\"error\":{\"message\":\"overloaded\"}}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{}]}}]}\n\n",
+            "data: malformed\n\n",
+        ] { assert!(openai_stream_fixture(body).await.0.is_err()); }
+    }
+
 }

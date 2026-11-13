@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod openai_compatible;
 pub mod anthropic;
+mod sse;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {

@@ -117,9 +117,17 @@ provider hosting into the model-host service as part of this work.
   Event handling follows the [Anthropic streaming reference](https://platform.claude.com/docs/en/build-with-claude/streaming).
   Simulated tests cover fragmented UTF-8 and SSE, error and tool-use events;
   a Tauri mock-runtime test verifies desktop stream events and telemetry. A
-  browser mock test checks desktop Anthropic provider setup. The OpenAI desktop
-  streaming path remains separate, and physical desktop and live Claude tests,
-  protocol edits, durable versioning, and broader voice validation remain open.
+  browser mock test checks desktop Anthropic provider setup. OpenAI-compatible
+  desktop streaming now uses the shared bounded event reader and Studio adapter.
+  Simulated tests cover fragmented streams, usage, errors, truncation and the
+  desktop event bridge. A separate container running the crate's probe received
+  20 text chunks from the native Model Host's `smol-metal-test`. Physical desktop
+  and live Claude tests, protocol edits, durable versioning, and broader voice
+  validation remain open.
+- The streaming extraction passed 13 client tests, 150 Studio Rust tests (one
+  ignored), and a separate OpenAI desktop adapter test. After rebuilding the
+  branch image, real MCP completion and 20 remote UI, one CI and 19 isolated
+  workflow tests passed. These fixture tests do not replace a physical desktop run.
 
 ## Open design questions
 

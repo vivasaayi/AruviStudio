@@ -67,7 +67,7 @@ impl AnthropicClient {
     {
         let mut body = Self::request_body(request)?;
         body["stream"] = Value::Bool(true);
-        let mut response = self.client.post(self.endpoint("/messages"))
+        let response = self.client.post(self.endpoint("/messages"))
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", API_VERSION)
             .json(&body).send().await
@@ -75,33 +75,13 @@ impl AnthropicClient {
         if !response.status().is_success() {
             return Err(ClientError::Provider(format!("Anthropic API error {}", response.status())));
         }
-        let mut pending = Vec::new();
-        let mut data = Vec::new();
-        let mut total = 0usize;
         let mut state = StreamState::default();
-        while let Some(chunk) = response.chunk().await
-            .map_err(|error| ClientError::Provider(format!("Anthropic stream read failed: {error}")))? {
-            total = total.checked_add(chunk.len()).filter(|size| *size <= MAX_RESPONSE_BYTES)
-                .ok_or_else(|| ClientError::Provider("Anthropic stream exceeds size limit".into()))?;
-            pending.extend_from_slice(&chunk);
-            while let Some(end) = pending.iter().position(|byte| *byte == b'\n') {
-                let mut line: Vec<u8> = pending.drain(..=end).collect();
-                line.pop();
-                if line.last() == Some(&b'\r') { line.pop(); }
-                if line.is_empty() {
-                    if !data.is_empty() {
-                        let event: Value = serde_json::from_slice(&data).map_err(|_| ClientError::Provider("Invalid Anthropic stream event".into()))?;
-                        data.clear();
-                        state.event(&event, &mut on_delta)?;
-                        if state.stopped { return state.finish(); }
-                    }
-                } else if let Some(value) = line.strip_prefix(b"data:") {
-                    if !data.is_empty() { data.push(b'\n'); }
-                    data.extend_from_slice(value.strip_prefix(b" ").unwrap_or(value));
-                }
-            }
-        }
-        Err(ClientError::Provider("Anthropic stream ended before message_stop".into()))
+        crate::sse::read_sse(response, "Anthropic", |data| {
+            let event: Value = serde_json::from_slice(data).map_err(|_| ClientError::Provider("Invalid Anthropic stream event".into()))?;
+            state.event(&event, &mut on_delta)?;
+            Ok(state.stopped)
+        }).await?;
+        state.finish()
     }
 
     async fn read_json(mut response: reqwest::Response) -> Result<Value, ClientError> {

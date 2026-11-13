@@ -1,19 +1,26 @@
 # Aruvi Model Client
 
-This crate is the initial extraction of Studio's OpenAI-compatible HTTP client.
-It owns model request and response types and the transport, while the application
-continues to own credentials, logs, telemetry, model configuration and workflows.
-The crate has no dependency on Studio or Tauri.
+This provisional Rust crate contains reusable model transports without depending on
+Studio or Tauri. Applications own provider settings, credentials, telemetry and
+workflow policy. The repository's PolyForm Noncommercial license applies.
 
-The current implementation covers non-streaming OpenAI-compatible completions,
-a buffered SSE fallback, remote multipart audio transcription, bounded WAV speech
-generation, and a native Anthropic Messages text client. Studio does not yet route
-providers to the Anthropic client. Incremental streaming, general response limits,
-configuration policy and standalone distribution are not yet implemented.
-This repository location is provisional until the shared versioning and publication
-strategy is validated. The repository's PolyForm Noncommercial license applies.
+It supports OpenAI-compatible text completions and incremental streams, remote
+multipart transcription and bounded WAV speech generation. It also implements
+Anthropic Messages text completions and streams. Studio selects these protocols
+for its chat and agent flows. Streaming bounds the total event data, reports
+provider errors and incomplete streams, and cancels the HTTP request when its
+future is dropped. Text clients explicitly reject tool-use responses; full tools,
+thinking, structured output and cross-provider capability negotiation remain open.
+The library does not currently apply consistent bounds to every non-streaming
+response.
 
-The native Anthropic adapter follows the [Messages API](https://platform.claude.com/docs/en/api/messages/create)
-and [authentication](https://platform.claude.com/docs/en/manage-claude/authentication)
-contracts. It handles text only and rejects tool-use responses; it does not yet
-support incremental streaming or thinking/tool blocks.
+`examples/stream_probe.rs` is a minimal OpenAI-compatible stream smoke test. Set
+`ARUVI_PROBE_BASE_URL` and `ARUVI_PROBE_MODEL`, then provide the API key on
+standard input (an empty input selects no authentication). It prints only chunk
+and character counts. Avoid putting keys in command arguments, logs, or Git.
+
+This crate remains inside the Studio repository and its release/distribution
+strategy is not yet settled. Its current license-file reference and dependency
+lock must be addressed before treating it as an independently published package.
+The Anthropic adapter follows the [Messages API](https://platform.claude.com/docs/en/api/messages/create)
+and [streaming](https://platform.claude.com/docs/en/build-with-claude/streaming) contracts.
