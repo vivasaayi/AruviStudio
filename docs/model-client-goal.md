@@ -130,7 +130,7 @@ provider hosting into the model-host service as part of this work.
   workflow tests passed. These fixture tests do not replace a physical desktop run.
 - The library is independently consumable from the public Studio Git repository
   using a full commit pin. The separate `validation/model-client-consumer` fixture
-  pins `0a27533a35ce25f6bd8abbbd193521b20ea9c9ba`, commits its dependency lock,
+  pins `60b9aade4236a94536e7499184cdb88e77b4bc24`, commits its dependency lock,
   vendors the dependency graph, and tests authenticated completion and discovery
   inside a network-disabled Docker build. `bash scripts/test shared-client-consumer`
   repeats this check. Cargo's package listing includes the applicable license;
@@ -249,7 +249,11 @@ provider hosting into the model-host service as part of this work.
   tool calls and unknown finish reasons for JSON, buffered SSE and live streams.
   Missing or null reasons remain accepted for compatible hosts. This follows the
   [OpenAI Chat Completion reference](https://developers.openai.com/api/reference/resources/chat).
-  The shared-client tests cover these outcomes, including partial stream callbacks.
+  All 26 shared-client tests passed, including partial stream callbacks; the
+  pinned independent consumer passed seven offline tests. After rebuilding the
+  branch, the real 7B Model Host returned normal coding output and a one-token
+  request produced a truncation error through Studio MCP. `bash scripts/test
+  host-coding` now checks both behaviors.
 
 ## Open design questions
 

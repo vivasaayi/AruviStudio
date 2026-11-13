@@ -48,7 +48,17 @@ console.log('Coding fixture passed');
     ], input=code + assertions, text=True, capture_output=True, timeout=30)
     if run.returncode:
         raise ValueError("Generated code failed the isolated JavaScript assertions")
-    print(f"Coding fixture passed through Studio MCP; output tokens: {response.get('token_count_output')}")
+    # A real token-limited response must not be accepted as a completed answer.
+    limited = {"action": "run_model_chat_completion", "arguments": {
+        "provider_id": providers[0]["id"], "model": model,
+        "messages": [{"role": "user", "content": "Write a detailed explanation of recursion with three code examples."}],
+        "temperature": 0.1, "max_tokens": 1,
+    }}
+    limited_result = subprocess.run([str(root / "scripts/mcp"), "call", "aruvi_models", "-"], cwd=root,
+                                    input=json.dumps(limited), text=True, capture_output=True)
+    if limited_result.returncode == 0 or "truncated by a token limit" not in limited_result.stderr:
+        raise ValueError("Token-limited request did not produce the expected truncation error")
+    print(f"Coding fixture and token-limit error passed through Studio MCP; output tokens: {response.get('token_count_output')}")
 except (OSError, KeyError, ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
     print(f"Coding fixture failed: {type(error).__name__}: {error if not isinstance(error, subprocess.CalledProcessError) else 'MCP call failed'}", file=sys.stderr)
     sys.exit(1)
