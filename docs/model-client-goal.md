@@ -90,9 +90,17 @@ provider hosting into the model-host service as part of this work.
   native `whisper-tiny-metal` model correctly transcribed a synthetic English WAV.
   Four client tests and 18 isolated workflow tests (including simulated browser
   transcription) passed. Physical microphone and other languages remain untested.
+- The shared client now generates size-limited WAV speech, exposed through Studio's
+  mobile API, browser Voice controls and `aruvi_speech` MCP action. A real native
+  `piper-ljspeech` request returned WAV through MCP; Chrome generated and loaded
+  audio using the same provider. English fixture playback quality, physical sound
+  output and other languages remain unverified. `bash scripts/test host-speech`
+  repeats the browser check against the configured native-staging fixture. Six
+  shared-client tests, 147 Studio Rust tests (one ignored), 19 remote UI tests,
+  and 19 isolated workflow tests passed after this change.
 - Studio's desktop streaming path still uses its prior implementation. Native
-  Anthropic, shared-library speech generation and streaming, provider selection,
-  durable versioning, and broader voice validation remain open.
+  Anthropic, shared-library streaming, provider selection, durable versioning,
+  and broader voice validation remain open.
 
 ## Open design questions
 

@@ -258,8 +258,8 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
         ),
         action_tool(
             "aruvi_speech",
-            "Transcribe audio and trigger native speech output for voice-driven planning flows.",
-            &["transcribe_audio", "speak_text_natively"],
+            "Transcribe audio, generate remote WAV speech, and trigger native speech output.",
+            &["transcribe_audio", "generate_speech", "speak_text_natively"],
         ),
     ]
 }

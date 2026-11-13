@@ -22,7 +22,7 @@ use crate::services::webhook_mobile_api::{
     mobile_list_skill_links, mobile_add_skill_link, mobile_remove_skill_link,
     mobile_list_routing_policies, mobile_save_routing_policy, mobile_delete_routing_policy,
     mobile_get_workflow_test_config, mobile_set_workflow_test_config, mobile_ci_read, mobile_ci_run, mobile_ci_log, mobile_ci_run_action, mobile_ci_bindings, mobile_ci_binding_action, mobile_ci_revisions, mobile_ci_artifact_readiness, mobile_ci_feedback_list, mobile_ci_feedback_create,
-    mobile_submit_planner_voice_turn, mobile_transcribe_audio, mobile_update_planner_session,
+    mobile_submit_planner_voice_turn, mobile_transcribe_audio, mobile_generate_speech, mobile_update_planner_session,
 };
 use crate::services::webhook_mobile_chat::mobile_chat_completion;
 use crate::services::webhook_mobile_planner_chat::{
@@ -444,6 +444,7 @@ pub(crate) fn build_webhook_router(app_state: AppState) -> Router {
             "/api/mobile/speech/transcribe",
             post(mobile_transcribe_audio),
         )
+        .route("/api/mobile/speech/generate", post(mobile_generate_speech))
         .route("/webhooks/twilio/whatsapp", post(twilio_whatsapp))
         .route(
             "/webhooks/twilio/voice",

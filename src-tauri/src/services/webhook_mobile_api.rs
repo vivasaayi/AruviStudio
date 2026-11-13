@@ -1350,6 +1350,31 @@ pub(crate) async fn mobile_transcribe_audio(
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileSpeechGenerationRequest {
+    provider_id: String,
+    model: String,
+    text: String,
+    voice: Option<String>,
+    speed: Option<f32>,
+}
+
+pub(crate) async fn mobile_generate_speech(
+    State(state): State<WebhookState>,
+    headers: HeaderMap,
+    Json(body): Json<MobileSpeechGenerationRequest>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let provider = match model_repo::get_provider(&state.app_state.db, &body.provider_id).await {
+        Ok(provider) => provider,
+        Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    };
+    match crate::services::speech_service::synthesize_remote_speech(&provider, body.model, body.text, body.voice, body.speed).await {
+        Ok(audio) => ([(axum::http::header::CONTENT_TYPE, "audio/wav"), (axum::http::header::CACHE_CONTROL, "no-store")], audio).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
+}
+
 async fn resolve_mobile_speech_defaults(
     state: &AppState,
 ) -> Result<(Option<String>, Option<String>, Option<String>), String> {

@@ -8,6 +8,7 @@ case "${1:-}" in
   host-layout) node scripts/test-host-layout.mjs ;;
   host-planner-scope) node scripts/test-host-planner-scope.mjs ;;
   host-mcp-origin) node scripts/test-host-mcp-origin.mjs ;;
+  host-speech) node scripts/test-host-speech.mjs ;;
   ui|staging)
     profile=worktree
     [[ $1 == staging ]] && profile=staging
@@ -27,5 +28,5 @@ case "${1:-}" in
       bash scripts/test-container-ci.sh
       bash scripts/test-container-workflow.sh
     fi ;;
-  *) printf '%s\n' 'Usage: scripts/test unit|integration|ui|staging|host-layout|host-planner-scope|host-mcp-origin' >&2; exit 2 ;;
+  *) printf '%s\n' 'Usage: scripts/test unit|integration|ui|staging|host-layout|host-planner-scope|host-mcp-origin|host-speech' >&2; exit 2 ;;
 esac

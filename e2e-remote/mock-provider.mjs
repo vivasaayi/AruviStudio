@@ -65,6 +65,19 @@ const server = http.createServer((request, response) => {
       }
       response.end(JSON.stringify({ text: "Synthetic microphone transcript" }));
     });
+  } else if (request.method === "POST" && request.url === "/v1/audio/speech") {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      let payload;
+      try { payload = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { response.statusCode = 400; return response.end(); }
+      if (payload.model !== "synthetic-tts" || payload.response_format !== "wav") { response.statusCode = 400; return response.end(); }
+      const wav = Buffer.alloc(44 + 3200);
+      wav.write("RIFF", 0); wav.writeUInt32LE(wav.length - 8, 4); wav.write("WAVEfmt ", 8); wav.writeUInt32LE(16, 16);
+      wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(16000, 24); wav.writeUInt32LE(32000, 28);
+      wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write("data", 36); wav.writeUInt32LE(3200, 40);
+      response.setHeader("Content-Type", "audio/wav"); response.end(wav);
+    });
   } else if (request.method === "POST" && request.url === "/v1/chat/completions") {
     request.resume();
     request.on("end", () => response.end(JSON.stringify({

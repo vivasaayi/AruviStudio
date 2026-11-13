@@ -6,8 +6,8 @@ continues to own credentials, logs, telemetry, model configuration and workflows
 The crate has no dependency on Studio or Tauri.
 
 The current implementation covers non-streaming chat completions, a buffered
-SSE fallback, and remote multipart audio transcription. Native Anthropic,
-incremental streaming, speech generation, configuration policy, bounded responses
-and standalone distribution are not yet implemented.
+SSE fallback, remote multipart audio transcription and bounded WAV speech generation.
+Native Anthropic, incremental streaming, general response limits, configuration
+policy and standalone distribution are not yet implemented.
 This repository location is provisional until the shared versioning and publication
 strategy is validated. The repository's PolyForm Noncommercial license applies.

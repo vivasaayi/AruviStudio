@@ -177,6 +177,36 @@ test("MCP creates a product and drives a workflow through delivery", async ({ pa
   await expect(page.getByRole("button", { name: /MCP lifecycle fixture/ })).toBeVisible();
 });
 
+test("remote speech generation works through UI, API and MCP", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires an isolated server and simulated provider");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const created = await request.post("/api/mobile/providers", { headers, data: { name: "Speech fixture", base_url: process.env.ARUVI_TEST_MODEL_URL } });
+  expect(created.ok()).toBeTruthy();
+  const provider = await created.json();
+  const payload = { provider_id: provider.id, model: "synthetic-tts", text: "Hello" };
+  expect((await request.post("/api/mobile/speech/generate", { data: payload })).status()).toBe(401);
+  const generated = await request.post("/api/mobile/speech/generate", { headers, data: payload });
+  expect(generated.status()).toBe(200);
+  expect(generated.headers()["content-type"]).toContain("audio/wav");
+  expect((await generated.body()).subarray(0, 4).toString()).toBe("RIFF");
+  expect((await request.post("/api/mobile/speech/generate", { headers, data: { ...payload, model: "missing" } })).status()).toBe(400);
+  const mcpResponse = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_speech", arguments: { action: "generate_speech", arguments: payload } } } });
+  const mcp = (await mcpResponse.json()).result;
+  expect(mcp.isError, JSON.stringify(mcp)).not.toBeTruthy();
+  expect(Buffer.from(mcp.structuredContent.result.audio_bytes_base64, "base64").subarray(0, 4).toString()).toBe("RIFF");
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await expect(page.locator("#speechProvider option").filter({ hasText: "Speech fixture" })).toHaveCount(1);
+  await page.locator("#speechProvider").selectOption(provider.id);
+  await page.locator("#speechModel").fill("synthetic-tts");
+  await page.locator("#speechText").fill("Hello from the browser");
+  await page.getByRole("button", { name: "Generate speech" }).click();
+  await expect(page.locator("#voiceMeta")).toHaveText("Speech ready to play.");
+  await expect(page.locator("#generatedSpeech")).toBeVisible();
+});
+
 test("product test policies inherit, override, and disable the default", async ({ request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable isolated server");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };

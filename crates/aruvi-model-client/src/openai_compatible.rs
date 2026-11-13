@@ -1,6 +1,6 @@
 use crate::ClientError;
 use crate::ModelGateway;
-use crate::{CompletionRequest, CompletionResponse, TranscriptionRequest};
+use crate::{CompletionRequest, CompletionResponse, SpeechRequest, TranscriptionRequest};
 use async_trait::async_trait;
 use reqwest::Client;
 use std::time::Duration;
@@ -145,6 +145,35 @@ impl OpenAiCompatibleClient {
         let transcript = json.get("text").and_then(serde_json::Value::as_str).or_else(|| json.get("transcript").and_then(serde_json::Value::as_str)).map(str::trim).unwrap_or_default().to_string();
         if transcript.is_empty() { return Err(ClientError::Provider("Speech transcription returned an empty transcript".to_string())); }
         Ok(transcript)
+    }
+
+    /// Generate WAV audio with a bounded response size.
+    pub async fn generate_speech(&self, input: SpeechRequest) -> Result<Vec<u8>, ClientError> {
+        const MAX_AUDIO_BYTES: usize = 16 * 1024 * 1024;
+        if input.model.trim().is_empty() || input.input.trim().is_empty() || input.input.chars().count() > 4096 {
+            return Err(ClientError::InvalidInput("A model and 1–4096 characters of speech text are required".into()));
+        }
+        if input.response_format != "wav" || input.speed.is_some_and(|speed| !speed.is_finite() || !(0.25..=4.0).contains(&speed)) {
+            return Err(ClientError::InvalidInput("Speech requires WAV output and speed between 0.25 and 4.0".into()));
+        }
+        let mut request = self.client.post(self.endpoint_url("/audio/speech")).json(&input);
+        if let Some(key) = &self.api_key { request = request.bearer_auth(key); }
+        let mut response = request.send().await.map_err(|error| ClientError::Provider(format!("Speech request failed: {error}")))?;
+        if !response.status().is_success() {
+            return Err(ClientError::Provider(format!("Speech API error {}", response.status())));
+        }
+        if response.content_length().is_some_and(|length| length > MAX_AUDIO_BYTES as u64) {
+            return Err(ClientError::Provider("Speech audio exceeds the size limit".into()));
+        }
+        let mut audio = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(|error| ClientError::Provider(format!("Speech response failed: {error}")))? {
+            if chunk.len() > MAX_AUDIO_BYTES - audio.len() { return Err(ClientError::Provider("Speech audio exceeds the size limit".into())); }
+            audio.extend_from_slice(&chunk);
+        }
+        if audio.len() < 12 || &audio[..4] != b"RIFF" || &audio[8..12] != b"WAVE" {
+            return Err(ClientError::Provider("Speech provider did not return WAV audio".into()));
+        }
+        Ok(audio)
     }
 }
 
@@ -333,6 +362,45 @@ mod tests {
         let client = OpenAiCompatibleClient::new(format!("http://{addr}"), None);
         let result = client.transcribe(TranscriptionRequest { model: "fixture".into(), audio: vec![1, 2], mime_type: "audio/wav".into(), filename: "a.wav".into(), language: None }).await;
         assert!(matches!(result, Err(ClientError::UnsupportedTranscription)));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn requests_authenticated_wav_speech_and_rejects_invalid_audio() {
+        for (reply, valid) in [(b"RIFF\x04\0\0\0WAVE".as_slice(), true), (b"not audio".as_slice(), false)] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            let reply = reply.to_vec();
+            let server = thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                let mut request = [0; 4096];
+                let n = socket.read(&mut request).unwrap();
+                let headers = String::from_utf8_lossy(&request[..n]).to_lowercase();
+                assert!(headers.starts_with("post /v1/audio/speech "));
+                assert!(headers.contains("authorization: bearer speech-key"));
+                write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", reply.len()).unwrap();
+                socket.write_all(&reply).unwrap();
+            });
+            let client = OpenAiCompatibleClient::new(format!("http://{addr}"), Some("speech-key".into()));
+            let result = client.generate_speech(SpeechRequest { model: "voice".into(), input: "Hello".into(), voice: None, speed: None, response_format: "wav".into() }).await;
+            assert_eq!(result.is_ok(), valid);
+            server.join().unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn rejects_advertised_oversized_speech() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0; 4096];
+            let _ = socket.read(&mut request).unwrap();
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 16777217\r\nConnection: close\r\n\r\n").unwrap();
+        });
+        let client = OpenAiCompatibleClient::new(format!("http://{addr}"), None);
+        let result = client.generate_speech(SpeechRequest { model: "voice".into(), input: "Hello".into(), voice: None, speed: None, response_format: "wav".into() }).await;
+        assert!(result.unwrap_err().to_string().contains("size limit"));
         server.join().unwrap();
     }
 }

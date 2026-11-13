@@ -717,6 +717,13 @@
                 </div>
                 <div class="empty" id="voiceMeta">Choose a transcription provider and model, or use server defaults. Record sends WAV audio for transcription; replies can be spoken on this device.</div>
               </div>
+              <div class="stack">
+                <label><span class="label">Speech generation provider</span><select id="speechProvider"><option value="">Choose a provider</option></select></label>
+                <label><span class="label">Speech generation model</span><input id="speechModel" placeholder="Speech model ID" /></label>
+                <label><span class="label">Text to generate</span><textarea id="speechText" maxlength="4096"></textarea></label>
+                <button class="secondary" id="generateSpeechButton" type="button">Generate speech</button>
+                <audio id="generatedSpeech" controls hidden></audio>
+              </div>
             </div>
           </section>
         </section>
@@ -1076,6 +1083,11 @@
       teamCapacity: document.getElementById("teamCapacity"),
       voiceMeta: document.getElementById("voiceMeta"),
       voiceProvider: document.getElementById("voiceProvider"),
+      speechProvider: document.getElementById("speechProvider"),
+      speechModel: document.getElementById("speechModel"),
+      speechText: document.getElementById("speechText"),
+      generateSpeechButton: document.getElementById("generateSpeechButton"),
+      generatedSpeech: document.getElementById("generatedSpeech"),
       voiceModel: document.getElementById("voiceModel"),
       voiceLocale: document.getElementById("voiceLocale"),
       voiceReview: document.getElementById("voiceReview"),
@@ -1149,6 +1161,7 @@
         el.voiceRecordButton,
         el.voiceSendButton,
         el.voiceSpeakToggle,
+        el.generateSpeechButton,
         el.refreshProductsButton,
         el.createWorkButton,
         el.refreshWorkButton,
@@ -1348,15 +1361,41 @@
         const providers = await request("/api/mobile/providers");
         if (requestId !== voiceProvidersRequestId) return;
         const selected = localStorage.getItem(storageKeys.voiceProvider) || "";
+        const speechSelected = el.speechProvider.value;
         el.voiceProvider.replaceChildren(new Option("Use server default", ""));
+        el.speechProvider.replaceChildren(new Option("Choose a provider", ""));
         providers.filter((provider) => provider.enabled).forEach((provider) => {
           el.voiceProvider.add(new Option(provider.name, provider.id));
+          el.speechProvider.add(new Option(provider.name, provider.id));
         });
         if (selected && !providers.some((provider) => provider.enabled && provider.id === selected)) {
           el.voiceProvider.add(new Option("Previously selected provider unavailable", selected));
         }
         el.voiceProvider.value = selected;
+        if (providers.some((provider) => provider.enabled && provider.id === speechSelected)) el.speechProvider.value = speechSelected;
       } catch (error) { setVoiceMeta("Unable to load transcription providers: " + (error.message || String(error))); }
+    }
+
+    let generatedSpeechUrl = "";
+    async function generateSpeech() {
+      const token = el.tokenInput.value.trim() || localStorage.getItem(storageKeys.token) || "";
+      const provider = el.speechProvider.value;
+      const model = el.speechModel.value.trim();
+      const text = el.speechText.value.trim();
+      if (!token || !provider || !model || !text) { setVoiceMeta("Choose a provider, model and text to generate speech."); return; }
+      try {
+        setBusy(true);
+        setVoiceMeta("Generating speech…");
+        const response = await fetch("/api/mobile/speech/generate", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token }, body: JSON.stringify({ provider_id: provider, model, text }) });
+        if (!response.ok) throw new Error((await response.text()) || "Speech generation failed");
+        const blob = await response.blob();
+        if (generatedSpeechUrl) URL.revokeObjectURL(generatedSpeechUrl);
+        generatedSpeechUrl = URL.createObjectURL(blob);
+        el.generatedSpeech.src = generatedSpeechUrl;
+        el.generatedSpeech.hidden = false;
+        setVoiceMeta("Speech ready to play.");
+      } catch (error) { setVoiceMeta(error.message || String(error)); }
+      finally { setBusy(false); }
     }
 
     async function transcribeVoiceBlob(blob) {
@@ -3704,6 +3743,7 @@
     el.voiceReview.addEventListener("change", () => localStorage.setItem(storageKeys.voiceReview, String(el.voiceReview.checked)));
     el.voiceRecordButton.addEventListener("click", () => toggleVoiceRecording());
     el.voiceSendButton.addEventListener("click", () => submitPrompt("voice"));
+    el.generateSpeechButton.addEventListener("click", () => void generateSpeech());
     el.voiceSpeakToggle.addEventListener("click", () => {
       state.voiceRepliesEnabled = !state.voiceRepliesEnabled;
       el.voiceSpeakToggle.textContent = state.voiceRepliesEnabled ? "Speak On" : "Speak Off";

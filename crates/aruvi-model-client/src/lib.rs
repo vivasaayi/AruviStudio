@@ -25,6 +25,17 @@ pub struct TranscriptionRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpeechRequest {
+    pub model: String,
+    pub input: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voice: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speed: Option<f32>,
+    pub response_format: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompletionRequest {
     pub model: String,
     pub messages: Vec<ChatMessage>,

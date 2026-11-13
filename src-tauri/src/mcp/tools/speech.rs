@@ -2,11 +2,12 @@ use crate::domain::model::ModelDefinition;
 use crate::error::AppError;
 use crate::persistence::{model_repo, settings_repo};
 use crate::services::speech_service::{
-    looks_like_transcription_model, speak_text_natively, transcribe_audio_with_provider,
+    looks_like_transcription_model, speak_text_natively, synthesize_remote_speech, transcribe_audio_with_provider,
     SpeechToTextRequest, TextToSpeechRequest,
 };
 use crate::state::AppState;
 use serde_json::Value;
+use base64::Engine;
 
 use super::action_args::ToolAction;
 use super::{action_ok, action_result};
@@ -16,6 +17,15 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
     let args = tool_action.args();
 
     match tool_action.action.as_str() {
+        "generate_speech" => {
+            let provider_id = args.required_string(&["provider_id", "providerId"], "provider_id")?;
+            let provider = model_repo::get_provider(&state.db, &provider_id).await?;
+            let audio = synthesize_remote_speech(&provider,
+                args.required_string(&["model", "model_name", "modelName"], "model")?,
+                args.required_string(&["text", "input"], "text")?,
+                args.optional_string(&["voice"])?, args.optional_f64(&["speed"])?.map(|value| value as f32)).await?;
+            action_result("generate_speech", serde_json::json!({"mime_type":"audio/wav", "audio_bytes_base64":base64::engine::general_purpose::STANDARD.encode(audio)}))
+        }
         "transcribe_audio" => {
             let provider_setting =
                 settings_repo::get_setting(&state.db, "speech.transcription_provider_id").await?;
