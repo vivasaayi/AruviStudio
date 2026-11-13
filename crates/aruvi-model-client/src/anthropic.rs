@@ -31,31 +31,7 @@ impl AnthropicClient {
         if base.ends_with("/v1") { format!("{base}{path}") } else { format!("{base}/v1{path}") }
     }
 
-    async fn read_json(mut response: reqwest::Response) -> Result<Value, ClientError> {
-        if !response.status().is_success() {
-            return Err(ClientError::Provider(format!("Anthropic API error {}", response.status())));
-        }
-        if response.content_length().is_some_and(|length| length > MAX_RESPONSE_BYTES as u64) {
-            return Err(ClientError::Provider("Anthropic response exceeds size limit".into()));
-        }
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(|error| ClientError::Provider(format!("Anthropic response failed: {error}")))? {
-            if chunk.len() > MAX_RESPONSE_BYTES - bytes.len() { return Err(ClientError::Provider("Anthropic response exceeds size limit".into())); }
-            bytes.extend_from_slice(&chunk);
-        }
-        serde_json::from_slice(&bytes).map_err(|_| ClientError::Provider("Invalid Anthropic JSON response".into()))
-    }
-}
-
-#[async_trait]
-impl ModelGateway for AnthropicClient {
-    async fn health_check(&self) -> Result<bool, ClientError> {
-        let response = self.client.get(self.endpoint("/models")).header("x-api-key", &self.api_key).header("anthropic-version", API_VERSION).send().await
-            .map_err(|error| ClientError::Provider(format!("Anthropic health check failed: {error}")))?;
-        Ok(response.status().is_success())
-    }
-
-    async fn run_completion(&self, request: CompletionRequest) -> Result<CompletionResponse, ClientError> {
+    fn request_body(request: CompletionRequest) -> Result<Value, ClientError> {
         if request.model.trim().is_empty() || request.max_tokens.is_some_and(|value| value <= 0) {
             return Err(ClientError::InvalidInput("A model and positive max_tokens are required".into()));
         }
@@ -76,6 +52,128 @@ impl ModelGateway for AnthropicClient {
             if !temperature.is_finite() || !(0.0..=1.0).contains(&temperature) { return Err(ClientError::InvalidInput("Anthropic temperature must be between 0 and 1".into())); }
             body["temperature"] = json!(temperature);
         }
+        Ok(body)
+    }
+
+    /// Streams text deltas and returns the final text and usage. Dropping the
+    /// future cancels the request; no background task is spawned by the client.
+    pub async fn stream_completion<F>(
+        &self,
+        request: CompletionRequest,
+        mut on_delta: F,
+    ) -> Result<CompletionResponse, ClientError>
+    where
+        F: FnMut(&str) + Send,
+    {
+        let mut body = Self::request_body(request)?;
+        body["stream"] = Value::Bool(true);
+        let mut response = self.client.post(self.endpoint("/messages"))
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", API_VERSION)
+            .json(&body).send().await
+            .map_err(|error| ClientError::Provider(format!("Anthropic stream request failed: {error}")))?;
+        if !response.status().is_success() {
+            return Err(ClientError::Provider(format!("Anthropic API error {}", response.status())));
+        }
+        let mut pending = Vec::new();
+        let mut data = Vec::new();
+        let mut total = 0usize;
+        let mut state = StreamState::default();
+        while let Some(chunk) = response.chunk().await
+            .map_err(|error| ClientError::Provider(format!("Anthropic stream read failed: {error}")))? {
+            total = total.checked_add(chunk.len()).filter(|size| *size <= MAX_RESPONSE_BYTES)
+                .ok_or_else(|| ClientError::Provider("Anthropic stream exceeds size limit".into()))?;
+            pending.extend_from_slice(&chunk);
+            while let Some(end) = pending.iter().position(|byte| *byte == b'\n') {
+                let mut line: Vec<u8> = pending.drain(..=end).collect();
+                line.pop();
+                if line.last() == Some(&b'\r') { line.pop(); }
+                if line.is_empty() {
+                    if !data.is_empty() {
+                        let event: Value = serde_json::from_slice(&data).map_err(|_| ClientError::Provider("Invalid Anthropic stream event".into()))?;
+                        data.clear();
+                        state.event(&event, &mut on_delta)?;
+                        if state.stopped { return state.finish(); }
+                    }
+                } else if let Some(value) = line.strip_prefix(b"data:") {
+                    if !data.is_empty() { data.push(b'\n'); }
+                    data.extend_from_slice(value.strip_prefix(b" ").unwrap_or(value));
+                }
+            }
+        }
+        Err(ClientError::Provider("Anthropic stream ended before message_stop".into()))
+    }
+
+    async fn read_json(mut response: reqwest::Response) -> Result<Value, ClientError> {
+        if !response.status().is_success() {
+            return Err(ClientError::Provider(format!("Anthropic API error {}", response.status())));
+        }
+        if response.content_length().is_some_and(|length| length > MAX_RESPONSE_BYTES as u64) {
+            return Err(ClientError::Provider("Anthropic response exceeds size limit".into()));
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(|error| ClientError::Provider(format!("Anthropic response failed: {error}")))? {
+            if chunk.len() > MAX_RESPONSE_BYTES - bytes.len() { return Err(ClientError::Provider("Anthropic response exceeds size limit".into())); }
+            bytes.extend_from_slice(&chunk);
+        }
+        serde_json::from_slice(&bytes).map_err(|_| ClientError::Provider("Invalid Anthropic JSON response".into()))
+    }
+}
+
+#[derive(Default)]
+struct StreamState {
+    content: String,
+    input_tokens: Option<i64>,
+    output_tokens: Option<i64>,
+    stopped: bool,
+}
+
+impl StreamState {
+    fn event<F: FnMut(&str)>(&mut self, event: &Value, on_delta: &mut F) -> Result<(), ClientError> {
+        match event.get("type").and_then(Value::as_str) {
+            Some("message_start") => {
+                self.input_tokens = event.pointer("/message/usage/input_tokens").and_then(Value::as_i64);
+                self.output_tokens = event.pointer("/message/usage/output_tokens").and_then(Value::as_i64);
+            }
+            Some("message_delta") => {
+                self.input_tokens = event.pointer("/usage/input_tokens").and_then(Value::as_i64).or(self.input_tokens);
+                self.output_tokens = event.pointer("/usage/output_tokens").and_then(Value::as_i64).or(self.output_tokens);
+            }
+            Some("content_block_start") if event.pointer("/content_block/type").and_then(Value::as_str) == Some("tool_use") => {
+                return Err(ClientError::Provider("Anthropic tool-use responses are not supported by the text client".into()));
+            }
+            Some("content_block_start") if event.pointer("/content_block/type").and_then(Value::as_str) == Some("text") => {
+                if let Some(text) = event.pointer("/content_block/text").and_then(Value::as_str).filter(|text| !text.is_empty()) {
+                    self.content.push_str(text); on_delta(text);
+                }
+            }
+            Some("content_block_delta") if event.pointer("/delta/type").and_then(Value::as_str) == Some("text_delta") => {
+                let text = event.pointer("/delta/text").and_then(Value::as_str).ok_or_else(|| ClientError::Provider("Invalid Anthropic text delta".into()))?;
+                self.content.push_str(text); on_delta(text);
+            }
+            Some("error") => return Err(ClientError::Provider("Anthropic stream returned an error".into())),
+            Some("message_stop") => self.stopped = true,
+            _ => {} // Ping and future event types may be safely ignored.
+        }
+        Ok(())
+    }
+
+    fn finish(self) -> Result<CompletionResponse, ClientError> {
+        if self.content.is_empty() { return Err(ClientError::Provider("Anthropic returned no text content".into())); }
+        Ok(CompletionResponse { content: self.content, token_count_input: self.input_tokens, token_count_output: self.output_tokens })
+    }
+}
+
+#[async_trait]
+impl ModelGateway for AnthropicClient {
+    async fn health_check(&self) -> Result<bool, ClientError> {
+        let response = self.client.get(self.endpoint("/models")).header("x-api-key", &self.api_key).header("anthropic-version", API_VERSION).send().await
+            .map_err(|error| ClientError::Provider(format!("Anthropic health check failed: {error}")))?;
+        Ok(response.status().is_success())
+    }
+
+    async fn run_completion(&self, request: CompletionRequest) -> Result<CompletionResponse, ClientError> {
+        let body = Self::request_body(request)?;
         let response = self.client.post(self.endpoint("/messages")).header("x-api-key", &self.api_key).header("anthropic-version", API_VERSION).json(&body).send().await
             .map_err(|error| ClientError::Provider(format!("Anthropic request failed: {error}")))?;
         let json = Self::read_json(response).await?;
@@ -155,4 +253,58 @@ mod tests {
         assert!(target.accept().is_err());
         server.join().unwrap();
     }
+
+    async fn stream_fixture(body: &str) -> (Result<CompletionResponse, ClientError>, Vec<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let response = body.as_bytes().to_vec();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut data = Vec::new(); let mut buf = [0; 4096];
+            let end = loop {
+                let n = socket.read(&mut buf).unwrap(); assert_ne!(n, 0); data.extend_from_slice(&buf[..n]);
+                if let Some(i) = data.windows(4).position(|part| part == b"\r\n\r\n") { break i + 4; }
+            };
+            let headers = String::from_utf8_lossy(&data[..end]).to_lowercase();
+            assert!(headers.contains("x-api-key: test-key"));
+            let length: usize = headers.lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().trim().parse().unwrap();
+            while data.len() < end + length { let n = socket.read(&mut buf).unwrap(); assert_ne!(n, 0); data.extend_from_slice(&buf[..n]); }
+            let request: Value = serde_json::from_slice(&data[end..end + length]).unwrap();
+            assert_eq!(request["stream"], true);
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", response.len()).unwrap();
+            // Split UTF-8 and SSE records at arbitrary byte boundaries.
+            for part in response.chunks(3) { if socket.write_all(part).is_err() { break; } }
+        });
+        let client = AnthropicClient::new(format!("http://{addr}"), "test-key".into()).unwrap();
+        let mut chunks = Vec::new();
+        let result = client.stream_completion(CompletionRequest { model:"fixture".into(), messages:vec![message("user","Hello")], temperature:None, max_tokens:Some(20) }, |delta| chunks.push(delta.to_owned())).await;
+        server.join().unwrap();
+        (result, chunks)
+    }
+
+    #[tokio::test]
+    async fn streams_fragmented_utf8_and_preserves_usage() {
+        let body = concat!(
+            "event: message_start\r\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":7}}}\r\n\r\n",
+            "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"Hé\"}}\n\n",
+            "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"llo\"}}\n\n",
+            "data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":3}}\n\n",
+            "data: {\"type\":\"message_stop\"}\n\n");
+        let (result, chunks) = stream_fixture(body).await;
+        let response = result.unwrap();
+        assert_eq!(chunks, ["Hé", "llo"]);
+        assert_eq!(response.content, "Héllo");
+        assert_eq!((response.token_count_input, response.token_count_output), (Some(7), Some(3)));
+    }
+
+    #[tokio::test]
+    async fn stream_rejects_errors_truncation_and_tool_use() {
+        for body in [
+            "data: {\"type\":\"error\",\"error\":{\"message\":\"overloaded\"}}\n\n",
+            "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}\n\n",
+            "data: {\"type\":\"content_block_start\",\"content_block\":{\"type\":\"tool_use\"}}\n\n",
+            "data: malformed\n\n",
+        ] { assert!(stream_fixture(body).await.0.is_err()); }
+    }
+
 }

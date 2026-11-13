@@ -98,7 +98,8 @@ export function VoiceChatPage() {
 
   const streamAssistantReply = async (conversation: LocalChatMessage[]) => {
     const assistantMessageId = crypto.randomUUID();
-    let activeStreamId: string | null = null;
+    const requestedStreamId = crypto.randomUUID();
+    let activeStreamId: string | null = requestedStreamId;
     let latestAssistantText = "";
     const assistantPlaceholder: LocalChatMessage = { id: assistantMessageId, role: "assistant", content: "" };
     setMessages([...conversation, assistantPlaceholder]);
@@ -110,6 +111,7 @@ export function VoiceChatPage() {
       let unlistenError: UnlistenFn | null = null;
 
       const cleanup = () => {
+        activeStreamId = null;
         if (unlistenChunk) void unlistenChunk();
         if (unlistenDone) void unlistenDone();
         if (unlistenError) void unlistenError();
@@ -149,7 +151,8 @@ export function VoiceChatPage() {
           reject(new Error(event.payload.error));
         });
 
-        activeStreamId = await startModelChatStream({
+        await startModelChatStream({
+          streamId: requestedStreamId,
           providerId,
           model: modelName,
           messages: [

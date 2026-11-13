@@ -34,6 +34,8 @@ pub struct UpdateModelDefinitionCommand {
 
 #[derive(Debug, Deserialize)]
 pub struct ModelChatCommand {
+    #[serde(alias = "streamId")]
+    pub(crate) stream_id: Option<String>,
     #[serde(alias = "providerId")]
     pub(crate) provider_id: String,
     pub(crate) model: String,
@@ -56,16 +58,20 @@ pub async fn create_provider(
     provider_type: String,
     base_url: String,
     auth_secret_ref: Option<String>,
+    protocol: Option<String>,
 ) -> Result<ModelProvider, AppError> {
+    let protocol = protocol.as_deref().unwrap_or("openai_compatible");
+    model_repo::validate_provider_protocol(&provider_type, protocol)?;
     let id = uuid::Uuid::new_v4().to_string();
     let stored_secret_ref = secrets::store_provider_secret(&id, auth_secret_ref.as_deref())?;
-    model_repo::create_provider(
+    model_repo::create_provider_with_protocol(
         &state.db,
         &id,
         &name,
         &provider_type,
         &base_url,
         stored_secret_ref.as_deref(),
+        protocol,
     )
     .await
 }

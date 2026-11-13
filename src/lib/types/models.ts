@@ -2,6 +2,7 @@ export interface ModelProvider {
   id: string;
   name: string;
   provider_type: "openai_compatible" | "local_runtime";
+  protocol?: "openai_compatible" | "anthropic";
   base_url: string;
   auth_secret_ref: string | null;
   enabled: boolean;

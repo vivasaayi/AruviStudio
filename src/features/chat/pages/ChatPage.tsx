@@ -109,9 +109,11 @@ export function ChatPage() {
     let unlistenChunk: UnlistenFn | null = null;
     let unlistenDone: UnlistenFn | null = null;
     let unlistenError: UnlistenFn | null = null;
-    let activeStreamId: string | null = null;
+    const requestedStreamId = crypto.randomUUID();
+    let activeStreamId: string | null = requestedStreamId;
 
     const cleanup = () => {
+      activeStreamId = null;
       if (unlistenChunk) {
         unlistenChunk();
       }
@@ -163,7 +165,8 @@ export function ChatPage() {
         cleanup();
       });
 
-      activeStreamId = await startModelChatStream({
+      await startModelChatStream({
+        streamId: requestedStreamId,
         providerId,
         model: modelName,
         messages: [

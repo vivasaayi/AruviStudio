@@ -12,11 +12,12 @@ import type {
 export const createProvider = (data: { name: string; providerType: string; baseUrl: string; authSecretRef?: string }) =>
   invoke<ModelProvider>("create_provider", {
     name: data.name,
-    providerType: data.providerType,
+    providerType: data.providerType === "anthropic" ? "openai_compatible" : data.providerType,
+    protocol: data.providerType === "anthropic" ? "anthropic" : "openai_compatible",
     baseUrl: data.baseUrl,
     authSecretRef: data.authSecretRef,
     // Backward-compatible payload keys for mixed command argument conventions.
-    provider_type: data.providerType,
+    provider_type: data.providerType === "anthropic" ? "openai_compatible" : data.providerType,
     base_url: data.baseUrl,
     auth_secret_ref: data.authSecretRef,
   });
@@ -138,6 +139,7 @@ export const runModelChatCompletion = (data: {
     },
   });
 export const startModelChatStream = (data: {
+  streamId?: string;
   providerId: string;
   model: string;
   messages: ChatMessagePayload[];
@@ -149,6 +151,7 @@ export const startModelChatStream = (data: {
 }) =>
   invoke<string>("start_model_chat_stream", {
     request: {
+      stream_id: data.streamId ?? null,
       provider_id: data.providerId,
       model: data.model,
       messages: data.messages,

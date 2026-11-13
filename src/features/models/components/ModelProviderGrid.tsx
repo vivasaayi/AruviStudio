@@ -24,7 +24,7 @@ export function ModelProviderGrid({
       {providers.map((provider) => (
         <div key={provider.id} style={styles.card}>
           <div style={styles.name}>{provider.name}</div>
-          <div style={styles.type}>{provider.provider_type}</div>
+          <div style={styles.type}>{provider.provider_type === "local_runtime" ? provider.provider_type : (provider.protocol ?? provider.provider_type)}</div>
           <div style={styles.url}>{provider.base_url}</div>
           <div style={styles.cardFooter}>
             <span style={{ ...styles.badge, backgroundColor: provider.enabled ? "#1b3a2d" : "#3a1b1b", color: provider.enabled ? "#4ec9b0" : "#f44747" }}>

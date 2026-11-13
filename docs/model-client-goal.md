@@ -98,8 +98,7 @@ provider hosting into the model-host service as part of this work.
   repeats the browser check against the configured native-staging fixture. Six
   shared-client tests, 147 Studio Rust tests (one ignored), 19 remote UI tests,
   and 19 isolated workflow tests passed after this change.
-- Studio's desktop streaming path still uses its prior implementation. Native
-  Anthropic is implemented in the shared crate for text, with simulated HTTP tests
+- Native Anthropic is implemented in the shared crate for text, with simulated HTTP tests
   for request mapping, usage, unsupported roles and redirect credential protection.
   Studio now routes non-streaming MCP, web chat, planner, agent and desktop
   completion calls through a protocol-selected gateway. An additive protocol column
@@ -112,11 +111,15 @@ provider hosting into the model-host service as part of this work.
   test created and removed an Anthropic provider; the current run passed 149 Rust
   tests (one ignored), 20 isolated remote UI tests, one CI test and 19 workflow
   tests. MCP also completed another real request to the native Model Host.
-  Claude requires an explicitly configured key. Desktop
-  streaming explicitly rejects Anthropic until supported; desktop provider setup,
-  protocol edits, live Anthropic access,
-  shared-library streaming, provider selection, durable versioning, and broader
-  voice validation remain open.
+  Claude requires an explicitly configured key. The shared client now supports
+  Anthropic text streaming with bounded responses, explicit stream errors,
+  truncation detection, token usage and cancellation by dropping the future.
+  Event handling follows the [Anthropic streaming reference](https://platform.claude.com/docs/en/build-with-claude/streaming).
+  Simulated tests cover fragmented UTF-8 and SSE, error and tool-use events;
+  a Tauri mock-runtime test verifies desktop stream events and telemetry. A
+  browser mock test checks desktop Anthropic provider setup. The OpenAI desktop
+  streaming path remains separate, and physical desktop and live Claude tests,
+  protocol edits, durable versioning, and broader voice validation remain open.
 
 ## Open design questions
 

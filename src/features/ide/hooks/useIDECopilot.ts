@@ -144,9 +144,11 @@ Rules:
     let unlistenChunk: UnlistenFn | null = null;
     let unlistenDone: UnlistenFn | null = null;
     let unlistenError: UnlistenFn | null = null;
-    let streamId: string | null = null;
+    const requestedStreamId = crypto.randomUUID();
+    let streamId: string | null = requestedStreamId;
 
     const cleanup = () => {
+      streamId = null;
       if (unlistenChunk) {
         unlistenChunk();
       }
@@ -207,7 +209,8 @@ Rules:
         cleanup();
       });
 
-      streamId = await startModelChatStream({
+      await startModelChatStream({
+        streamId: requestedStreamId,
         providerId: copilotProviderId,
         model: copilotModelName,
         messages: [
