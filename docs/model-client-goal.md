@@ -160,6 +160,24 @@ provider hosting into the model-host service as part of this work.
   still failed after repeating missing-file reads and producing malformed final
   responses; the model's tool-loop reliability remains unresolved.
 
+## Progress — coding recovery and JSON-mode investigation
+
+- The coding prompt now sorts the allowed tool list, distinguishes final-step
+  guidance when no edits exist, and gives bounded, permission-aware feedback for
+  missing-file reads. Focused tests passed on macOS; the Linux suite passed 163
+  with one live test ignored. The rebuilt branch passed one remote smoke, 20
+  remote, one CI and 19 isolated workflow cases. A 7B coding workflow generated
+  code that passed isolated assertions and was delivered to a disposable Git
+  remote. A 15B run still exhausted eight tool steps with repeated reads and
+  malformed output; this does not establish reliable model behavior.
+- A direct synthetic request to the isolated 15B Model Host using
+  `response_format: {"type":"json_object"}` returned a parseable JSON object and
+  a successful finish. This is a single protocol probe, not proof of schema
+  adherence or full workflow support. OpenAI-compatible JSON mode is not yet
+  exposed by the shared client or Studio. Investigate an explicit opt-in with
+  provider-specific unsupported handling, contract tests and real workflow
+  validation; JSON validity alone cannot ensure safe or correct tool actions.
+
 ## Image capability assessment
 
 - The deployed Model Host advertises an image model (`sd-v1-5-metal`) and

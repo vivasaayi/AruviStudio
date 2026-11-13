@@ -1,5 +1,5 @@
 use super::tool_loop_contract::{
-    build_coding_tool_prompt, has_multiple_actions, parse_tool_loop_response, resolve_allowed_tools,
+    build_coding_tool_prompt, failed_tool_observation, has_multiple_actions, parse_tool_loop_response, resolve_allowed_tools,
     write_tool_trace_snapshot, ToolLoopResponse, ToolLoopTraceEntry,
 };
 use super::AgentService;
@@ -81,6 +81,7 @@ impl AgentService {
                 &tool_observations,
                 step,
                 max_steps,
+                !changed_files.is_empty(),
             );
             let model_output = self
                 .execute_agent_run(agent_run, model_def, &step_prompt, response_token_budget)
@@ -132,12 +133,8 @@ impl AgentService {
                         }
                         Err(error) => {
                             let rendered = error.to_string();
-                            tool_observations.push(format!(
-                                "tool_error step={} tool={} reason={} error={}",
-                                step,
-                                tool,
-                                reason.unwrap_or_default(),
-                                rendered
+                            tool_observations.push(failed_tool_observation(
+                                step, &tool, reason.as_deref(), &error, &allowed_tools,
                             ));
                             trace.push(ToolLoopTraceEntry {
                                 step,

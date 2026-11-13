@@ -68,6 +68,7 @@ pub(super) fn build_coding_tool_prompt(
     observations: &[String],
     step: usize,
     max_steps: usize,
+    has_changes: bool,
 ) -> String {
     let mut prompt = String::new();
     if step == 1 {
@@ -79,7 +80,9 @@ pub(super) fn build_coding_tool_prompt(
     prompt.push_str("\n\nYou are in a tool execution loop for coding.");
     prompt.push_str("\nReturn exactly one JSON object.");
     prompt.push_str("\nAllowed tools: ");
-    prompt.push_str(&allowed_tools.iter().cloned().collect::<Vec<_>>().join(", "));
+    let mut ordered_tools = allowed_tools.iter().map(String::as_str).collect::<Vec<_>>();
+    ordered_tools.sort_unstable();
+    prompt.push_str(&ordered_tools.join(", "));
     prompt.push_str("\nTool argument contract:");
     prompt.push_str(
         "\n- repo.read_file -> {\"path\":\"relative/path.ext\",\"offset_chars\":0,\"length_chars\":12000} OR {\"path\":\"relative/path.ext\",\"start_line\":1,\"end_line\":200}. Do not combine offset/length with line ranges.",
@@ -119,9 +122,11 @@ pub(super) fn build_coding_tool_prompt(
     }
     prompt.push_str(&format!("\nCurrent step: {}/{}", step, max_steps));
     if max_steps.saturating_sub(step) <= 2 {
-        prompt.push_str(
-            "\nYou are close to the tool-step limit. Prefer finishing and returning type=final now unless a single essential tool call is still required.",
-        );
+        if has_changes {
+            prompt.push_str("\nYou are close to the tool-step limit. If the requested implementation is complete, return type=final; otherwise perform an essential remaining tool call.");
+        } else {
+            prompt.push_str("\nYou are close to the tool-step limit and no files have been changed. Do not claim an edit happened. If the task requires an edit and an allowed write tool can perform it, make that edit now.");
+        }
     }
     if !observations.is_empty() {
         prompt.push_str("\n\nTool observations so far:\n");
@@ -132,6 +137,27 @@ pub(super) fn build_coding_tool_prompt(
         }
     }
     prompt
+}
+
+pub(super) fn failed_tool_observation(
+    step: usize,
+    tool: &str,
+    reason: Option<&str>,
+    error: &AppError,
+    allowed_tools: &HashSet<String>,
+) -> String {
+    use crate::services::agent_execution_limits::truncate_for_model_context;
+    let mut observation = format!("tool_error step={} tool={} reason={} error={}", step,
+        truncate_for_model_context(tool, 200),
+        truncate_for_model_context(reason.unwrap_or_default(), 300),
+        truncate_for_model_context(&error.to_string(), 2_000));
+    if tool.trim().eq_ignore_ascii_case("repo.read_file") && matches!(error, AppError::NotFound(_)) {
+        observation.push_str("; the file is absent; do not repeat this read unless the file changes.");
+        if allowed_tools.contains("repo.write_file") {
+            observation.push_str(" If the task requires a new file, use repo.write_file with complete content.");
+        }
+    }
+    observation
 }
 
 /// Detect distinct action-shaped objects without counting nested objects or
@@ -297,8 +323,34 @@ mod configured_tool_tests {
     }
 
     #[test]
+    fn prompt_orders_tools_and_distinguishes_unfinished_edits() {
+        let tools = resolve_allowed_tools(&[]);
+        let no_changes = build_coding_tool_prompt("task", &tools, &[], 8, 8, false);
+        let changed = build_coding_tool_prompt("task", &tools, &[], 8, 8, true);
+        assert!(no_changes.contains("no files have been changed"));
+        assert!(!changed.contains("no files have been changed"));
+        assert!(changed.contains("If the requested implementation is complete"));
+        assert!(no_changes.contains("Allowed tools: repo.apply_patch, repo.list_tree, repo.read_file, repo.replace_range, repo.search, repo.write_file"));
+    }
+
+    #[test]
+    fn missing_read_guidance_respects_write_permissions_and_is_bounded() {
+        let error = AppError::NotFound("Repository file does not exist: src/new.js".into());
+        let writer = resolve_allowed_tools(&[]);
+        let reader = resolve_allowed_tools(&["repo.read_file".into()]);
+        let reason = "x".repeat(50_000);
+        let allowed = failed_tool_observation(1, "repo.read_file", Some(&reason), &error, &writer);
+        assert!(allowed.contains("do not repeat this read"));
+        assert!(allowed.contains("repo.write_file"));
+        assert!(allowed.len() < 4_000);
+        let restricted = failed_tool_observation(1, "repo.read_file", None, &error, &reader);
+        assert!(restricted.contains("do not repeat this read"));
+        assert!(!restricted.contains("repo.write_file"));
+    }
+
+    #[test]
     fn read_examples_use_alternative_ranges() {
-        let prompt = build_coding_tool_prompt("task", &resolve_allowed_tools(&[]), &[], 1, 8);
+        let prompt = build_coding_tool_prompt("task", &resolve_allowed_tools(&[]), &[], 1, 8, false);
         assert!(prompt.contains("Do not combine offset/length with line ranges"));
         assert!(prompt.contains("A missing file cannot be read"));
         assert!(!prompt.contains("\"length_chars\":12000,\"start_line\""));
