@@ -65,12 +65,11 @@ Studio Git repository as the shared source and pin an immutable, tested commit:
 
 ```toml
 [dependencies]
-aruvi-model-client = { git = "https://github.com/vivasaayi/AruviStudio.git", rev = "60b9aade4236a94536e7499184cdb88e77b4bc24" }
+aruvi-model-client = { git = "https://github.com/vivasaayi/AruviStudio.git", rev = "d2560cfe561e625a2658f233ac5e4feb4b8d2beb" }
 ```
 
 This revision is an integration checkpoint, not a release or a promise of API
-stability and predates the unified gateway methods. Commit the consuming
-application's `Cargo.lock`. For an offline or
+stability. Commit the consuming application's `Cargo.lock`. For an offline or
 network-isolated Docker build, prepare dependencies from that lockfile and include
 the resulting `vendor` directory and Cargo configuration in the build context:
 

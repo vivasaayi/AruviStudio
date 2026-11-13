@@ -130,7 +130,7 @@ provider hosting into the model-host service as part of this work.
   workflow tests passed. These fixture tests do not replace a physical desktop run.
 - The library is independently consumable from the public Studio Git repository
   using a full commit pin. The separate `validation/model-client-consumer` fixture
-  pins `60b9aade4236a94536e7499184cdb88e77b4bc24`, commits its dependency lock,
+  pins `d2560cfe561e625a2658f233ac5e4feb4b8d2beb`, commits its dependency lock,
   vendors the dependency graph, and tests authenticated completion and discovery
   inside a network-disabled Docker build. `bash scripts/test shared-client-consumer`
   repeats this check. Cargo's package listing includes the applicable license;
@@ -263,8 +263,13 @@ provider hosting into the model-host service as part of this work.
   the 27 passing client tests. Studio chat, desktop streams and remote speech now
   construct transports through the same provider/credential selection function.
   The full Studio suite passed 151 tests with one ignored on rerun; an initial run
-  failed an unrelated external-CLI log assertion. The previous concrete Studio
-  adapter remains present for compatibility, although it is no longer used here.
+  failed an unrelated external-CLI log assertion. Mock desktop tests verified
+  stream events and usage for both protocols. After the branch rebuild, 20 remote
+  UI, one CI and 19 workflow tests passed, as did real 7B coding and speech
+  synthesis. A real Piper-to-Whisper MCP round trip returned a nonempty transcript
+  but misheard “host” as “hopes”; this verifies the path, not recognition quality.
+  The separate pinned consumer passed eight offline tests. The previous private
+  Studio adapter remains present but unused, producing two dead-code warnings.
 
 ## Open design questions
 

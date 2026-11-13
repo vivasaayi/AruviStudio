@@ -70,6 +70,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unified_gateway_exposes_capabilities_and_unsupported_voice() {
+        let client: Box<dyn ModelGateway> = Box::new(AnthropicClient::new("http://127.0.0.1:1".into(), "synthetic-key".into()).unwrap());
+        let capabilities = client.transport_capabilities();
+        assert!(capabilities.text_streaming);
+        assert!(!capabilities.speech);
+        let input = aruvi_model_client::SpeechRequest { model: "voice".into(), input: "hi".into(), voice: None, speed: None, response_format: "wav".into() };
+        assert!(matches!(client.generate_speech(input).await, Err(aruvi_model_client::ClientError::UnsupportedOperation("speech generation"))));
+        let openai: Box<dyn ModelGateway> = Box::new(OpenAiCompatibleClient::new("http://127.0.0.1:1".into(), None));
+        assert!(openai.transport_capabilities().transcription);
+    }
+
+    #[tokio::test]
     async fn consumes_public_discovery_api() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
