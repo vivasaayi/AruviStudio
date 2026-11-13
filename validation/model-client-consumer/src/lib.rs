@@ -5,6 +5,14 @@ mod tests {
     use std::{io::{Read, Write}, net::TcpListener, thread};
 
     #[tokio::test]
+    async fn rejects_credentials_in_provider_url_without_exposing_them() {
+        let client = OpenAiCompatibleClient::new("http://user:synthetic-secret@127.0.0.1:1".into(), None);
+        let error = client.list_models_page(None).await.unwrap_err().to_string();
+        assert!(error.contains("Invalid model provider base URL"));
+        assert!(!error.contains("synthetic-secret"));
+    }
+
+    #[tokio::test]
     async fn consumes_public_discovery_api() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();

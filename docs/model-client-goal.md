@@ -130,7 +130,7 @@ provider hosting into the model-host service as part of this work.
   workflow tests passed. These fixture tests do not replace a physical desktop run.
 - The library is independently consumable from the public Studio Git repository
   using a full commit pin. The separate `validation/model-client-consumer` fixture
-  pins `4b5e4f73219490b8a290ba61b4f5bd7c447ac5da`, commits its dependency lock,
+  pins `47bb881979f4e2687ff04a9de21b4fba76e2bc28`, commits its dependency lock,
   vendors the dependency graph, and tests authenticated completion and discovery
   inside a network-disabled Docker build. `bash scripts/test shared-client-consumer`
   repeats this check. Cargo's package listing includes the applicable license;
@@ -185,6 +185,13 @@ provider hosting into the model-host service as part of this work.
   credentials, queries or fragments are rejected, and HTTP client initialization
   does not silently fall back to an unbounded client. Tests cover oversized
   advertised and chunked responses, error-body redaction and redirect refusal.
+  The independent consumer passed three tests from the pushed commit, including
+  rejection of credential-bearing URLs. After rebuilding the branch image, 151
+  Studio Rust tests passed (one ignored), the browser suites passed (20 remote,
+  one CI and 19 workflow cases), and real MCP coding, authenticated browser chat,
+  and browser speech generation passed. One further disposable 7B coding
+  workflow passed generated-code assertions and delivery; this remains a narrow
+  example rather than a general coding reliability assessment.
 
 ## Open design questions
 
