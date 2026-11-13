@@ -120,7 +120,7 @@ pub async fn validate_planner_draft(
     db: &SqlitePool,
     session_id: String,
 ) -> Result<DraftValidationSummary, AppError> {
-    let _guard = lock_planner_session(&service, &session_id).await;
+    let _guard = lock_planner_session(&service, db, &session_id).await?;
     let session = get_or_load_session(&service, db, &session_id).await?;
     let nodes = session
         .draft_plan

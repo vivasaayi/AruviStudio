@@ -56,7 +56,7 @@ pub async fn update_planner_session(
     provider_id: Option<String>,
     model_name: Option<String>,
 ) -> Result<PlannerSessionInfo, AppError> {
-    let _session_guard = lock_planner_session(&planner_service, &session_id).await;
+    let _session_guard = lock_planner_session(&planner_service, db, &session_id).await?;
     let (provider_id, model_name) =
         resolve_planner_model_binding(db, provider_id, model_name).await?;
     get_or_load_session(&planner_service, db, &session_id).await?;
@@ -76,7 +76,7 @@ pub async fn clear_planner_pending(
     db: &SqlitePool,
     session_id: String,
 ) -> Result<PlannerSessionInfo, AppError> {
-    let _session_guard = lock_planner_session(&planner_service, &session_id).await;
+    let _session_guard = lock_planner_session(&planner_service, db, &session_id).await?;
     get_or_load_session(&planner_service, db, &session_id).await?;
     let mut service = planner_service.lock().await;
     planner_repo::clear_staged_design(db, &session_id).await?;

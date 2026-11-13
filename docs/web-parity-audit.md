@@ -24,6 +24,12 @@ The remote UI tests include a delayed simulated planner response to check that s
 and draft selection remain locked during a turn. Host Chrome also checked all 13
 sections at phone and desktop widths, and 14 mocked Tauri browser tests passed.
 
+The later multi-process planner checkpoint in `model-client-goal.md` supersedes
+older concurrency notes below: cooperating Unix Studio processes sharing a
+SQLite database now use a per-session advisory lock and reload persisted state.
+The fixture covers two Linux containers; Windows and mixed old/new versions are
+not covered.
+
 This is a working inventory, not a claim of tested parity. The desktop routes in
 `src/App.tsx` are the baseline. The web UI is `src-tauri/src/services/remote_app.html`;
 MCP handlers are under `src-tauri/src/mcp/tools`. An MCP action being present does

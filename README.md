@@ -154,6 +154,14 @@ A generic stdio config looks like this:
 
 If your agent should target a specific database, set `ARUVI_DB_PATH` in the server environment.
 
+On macOS and Linux, cooperating Studio processes running as the same OS user
+and sharing a SQLite database use private per-session advisory lock files in `.<database filename>.planner-locks`
+beside the database. The database directory must be writable, and the filesystem
+must support advisory locks. All processes sharing that database must run a
+version that uses these locks; older versions and direct database writers do not
+participate. Do not remove the lock directory while any Studio process is running.
+Windows currently has only per-service planner locking.
+
 ### Intentional Omissions
 
 The MCP server is headless-first. Desktop-only affordances that require native dialogs or Tauri event streaming are not exposed as MCP tools:

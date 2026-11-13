@@ -32,7 +32,7 @@ pub async fn analyze_repository_for_planner(
     selected_draft_node_id: Option<String>,
     selected_product_id: Option<String>,
 ) -> Result<PlannerTurnResponse, AppError> {
-    let _session_guard = lock_planner_session(&planner_service, &session_id).await;
+    let _session_guard = lock_planner_session(&planner_service, db, &session_id).await?;
     let mut trace = vec![];
     let mut session = get_or_load_session(&planner_service, db, &session_id).await?;
     push_trace(

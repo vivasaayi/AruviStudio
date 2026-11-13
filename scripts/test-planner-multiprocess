@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""Exercise two isolated Studio servers sharing one disposable SQLite volume."""
+import concurrent.futures
+import json
+import subprocess
+import sys
+import time
+import urllib.request
+import uuid
+from pathlib import Path
+
+root = Path(__file__).resolve().parent.parent
+suffix = uuid.uuid4().hex[:12]
+volume = f"aruvi-planner-multiprocess-{suffix}"
+containers = []
+volume_created = False
+TOKEN = "isolated-planner-test"
+
+
+def command(*args):
+    return subprocess.check_output(args, text=True).strip()
+
+
+def call(address, tool, action, arguments):
+    payload = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+        "name": tool, "arguments": {"action": action, "arguments": arguments},
+    }}).encode()
+    request = urllib.request.Request(f"http://{address}/api/mcp", data=payload, headers={
+        "Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json", "Accept": "application/json",
+    })
+    with urllib.request.urlopen(request, timeout=60) as response:
+        message = json.load(response)
+    if "error" in message or message["result"].get("isError"):
+        raise ValueError(f"MCP {action} failed: {message}")
+    return message["result"]["structuredContent"]["result"]
+
+
+def start(image, name):
+    command("docker", "run", "--rm", "-d", "--name", name, "-p", "127.0.0.1::8787",
+            "--mount", f"type=volume,src={volume},dst=/data", "-e", f"ARUVI_MCP_API_TOKEN={TOKEN}", image)
+    containers.append(name)
+    address = command("docker", "port", name, "8787/tcp").splitlines()[0]
+    if not address.startswith("127.0.0.1:"):
+        raise ValueError("Fixture must be loopback-only")
+    deadline = time.monotonic() + 45
+    while True:
+        try:
+            with urllib.request.urlopen(f"http://{address}/health", timeout=2) as response:
+                if response.status == 200:
+                    return address
+        except OSError:
+            if time.monotonic() >= deadline:
+                raise ValueError("Fixture did not become healthy")
+            time.sleep(0.2)
+
+
+try:
+    plan = json.loads(command("bash", "scripts/env", "worktree", "plan"))
+    env_path = Path(plan["state"]) / "environment.env"
+    image = next(line.split("=", 1)[1] for line in env_path.read_text().splitlines() if line.startswith("APP_IMAGE="))
+    command("docker", "volume", "create", volume)
+    volume_created = True
+    first = start(image, f"aruvi-planner-a-{suffix}")
+    second = start(image, f"aruvi-planner-b-{suffix}")
+    product = call(first, "aruvi_catalog", "create_product", {"name": "Shared planner fixture"})
+    session = call(first, "aruvi_planner", "create_planner_session", {})
+    session_id = session["session_id"]
+    proposal = call(first, "aruvi_planner", "submit_planner_turn", {
+        "session_id": session_id, "product_id": product["id"], "user_input": "Please help plan this product."
+    })
+    roots = proposal.get("draft_tree_nodes") or []
+    if len(roots) != 1:
+        raise ValueError("Expected one seeded draft root")
+    root_id = roots[0]["id"]
+    # Prime both process-local caches before concurrent edits.
+    for address in (first, second):
+        call(address, "aruvi_planner", "validate_planner_draft", {"session_id": session_id})
+    def add(address, name):
+        return call(address, "aruvi_planner", "add_planner_draft_child", {
+            "session_id": session_id, "parent_node_id": root_id, "child_type": "product_area", "name": name,
+        })
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(add, first, "Alpha area"), executor.submit(add, second, "Beta area")]
+        for future in futures:
+            future.result()
+    for address in (first, second):
+        packet = call(address, "aruvi_planner", "export_planner_review_packet", {"session_id": session_id})
+        if not all(name in packet["html"] for name in ("Alpha area", "Beta area")):
+            raise ValueError("One process did not see both edits")
+    result = call(first, "aruvi_planner", "confirm_planner_plan", {"session_id": session_id})
+    if result.get("status") != "execution" or result.get("execution_errors"):
+        raise ValueError("Applying the staged design failed")
+    # A stale second process must not apply the same design again.
+    call(second, "aruvi_planner", "confirm_planner_plan", {"session_id": session_id})
+    areas = call(first, "aruvi_catalog", "list_product_areas", {"product_id": product["id"]})
+    if sorted(area["name"] for area in areas) != ["Alpha area", "Beta area"]:
+        raise ValueError("Concurrent edits were lost or applied more than once")
+    print("Two Studio processes preserved concurrent planner edits and applied them once.")
+except (OSError, KeyError, ValueError, StopIteration, subprocess.SubprocessError) as error:
+    print(f"Planner multi-process fixture failed: {type(error).__name__}: {error}", file=sys.stderr)
+    sys.exit(1)
+finally:
+    for name in containers:
+        subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if volume_created:
+        subprocess.run(["docker", "volume", "rm", volume], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

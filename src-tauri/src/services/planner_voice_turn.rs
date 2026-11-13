@@ -30,7 +30,7 @@ pub async fn submit_planner_voice_turn(
         ));
     }
 
-    let _session_guard = lock_planner_session(&planner_service, &session_id).await;
+    let _session_guard = lock_planner_session(&planner_service, &state.db, &session_id).await?;
     let mut trace = vec![];
     let mut session = get_or_load_session(&planner_service, &state.db, &session_id).await?;
     push_trace(

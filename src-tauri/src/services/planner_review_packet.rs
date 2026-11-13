@@ -286,7 +286,7 @@ async fn build_packet(
     expected_nodes: Option<Vec<PlannerTreeNode>>,
     selected_override: Option<Option<String>>,
 ) -> Result<DesignReviewPacket, AppError> {
-    let _guard = lock_planner_session(&service, &session_id).await;
+    let _guard = lock_planner_session(&service, db, &session_id).await?;
     let session = get_or_load_session(&service, db, &session_id).await?;
     let draft = session
         .draft_plan

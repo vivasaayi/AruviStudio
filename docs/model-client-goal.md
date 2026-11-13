@@ -44,6 +44,32 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Planner coordination across Unix processes
+
+- Cooperating macOS and Linux Studio processes running as the same OS user and
+  sharing a SQLite database now take a per-session advisory file lock before
+  planner reads or mutations, then reload the session from SQLite. This prevents
+  an old process-local snapshot from overwriting a completed edit. Locks are held
+  through model turns, so other requests to that session wait; unrelated sessions
+  remain independent. The lock directory is private and rejects symlinks and
+  non-regular lock files. Cancellation and process termination release locks.
+- `bash scripts/test planner-multiprocess` creates two disposable Linux servers
+  sharing one volume, primes both caches, concurrently adds two draft areas,
+  checks both views, and confirms once while ensuring the second server cannot
+  duplicate the apply. The previous image failed this fixture; the new image
+  passed it five times. The macOS suite passed 189 tests with two live tests
+  ignored before the final lock-open hardening; subsequent macOS tests covered
+  killed-process release and symlink rejection. Linux passed the two subprocess
+  lock and killed-process tests. The final image passed browser suites (one smoke,
+  21 remote, one CI and 20 workflow) and real 7B planner proposal/confirmation.
+- Guarantees require a writable shared database directory, working filesystem
+  advisory locks, the same OS identity, and all participants using this version.
+  Direct database writers, mixed old/new Studio versions, and Windows processes do
+  not participate. This does not make every multi-statement planner operation
+  crash-atomic; the separately implemented design apply and clear operations are
+  transactional. Running server SHA-256:
+  `fe6df8dab7d555cf71cb7e6a6df934d7860103a40a56751a798971cc3470318f`.
+
 ## Planner sessions after service restart
 
 - Updating model settings or clearing a persisted planner session now loads it

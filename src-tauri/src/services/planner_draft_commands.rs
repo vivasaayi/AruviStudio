@@ -37,7 +37,7 @@ pub async fn rename_planner_draft_node(
     node_id: String,
     next_name: String,
 ) -> Result<PlannerTurnResponse, AppError> {
-    let _session_guard = lock_planner_session(&planner_service, &session_id).await;
+    let _session_guard = lock_planner_session(&planner_service, db, &session_id).await?;
     let mut trace = vec![];
     let mut session = get_or_load_session(&planner_service, db, &session_id).await?;
     push_trace(
@@ -150,7 +150,7 @@ pub async fn add_planner_draft_child(
     name: String,
     summary: Option<String>,
 ) -> Result<PlannerTurnResponse, AppError> {
-    let _session_guard = lock_planner_session(&planner_service, &session_id).await;
+    let _session_guard = lock_planner_session(&planner_service, db, &session_id).await?;
     let mut trace = vec![];
     let mut session = get_or_load_session(&planner_service, db, &session_id).await?;
     push_trace(
@@ -241,7 +241,7 @@ pub async fn delete_planner_draft_node(
     session_id: String,
     node_id: String,
 ) -> Result<PlannerTurnResponse, AppError> {
-    let _session_guard = lock_planner_session(&planner_service, &session_id).await;
+    let _session_guard = lock_planner_session(&planner_service, db, &session_id).await?;
     let mut trace = vec![];
     let mut session = get_or_load_session(&planner_service, db, &session_id).await?;
     push_trace(

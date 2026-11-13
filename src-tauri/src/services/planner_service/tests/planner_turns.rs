@@ -201,13 +201,14 @@ async fn concurrent_draft_edits_are_serialized_per_session() {
         .await
         .unwrap();
 
-    let held = lock_planner_session(&state.planner_service, &session.session_id).await;
+    let second_session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let held = lock_planner_session(&state.planner_service, &state.db, &session.session_id).await.unwrap();
     let other = tokio::time::timeout(
         Duration::from_secs(1),
-        lock_planner_session(&state.planner_service, "another-session"),
+        lock_planner_session(&state.planner_service, &state.db, &second_session.session_id),
     )
     .await
-    .expect("another session should not be blocked");
+    .expect("another session should not be blocked").unwrap();
     drop(other);
     let mut edits = Vec::new();
     for name in ["First Area", "Second Area"] {
@@ -433,4 +434,177 @@ async fn failed_session_update_keeps_cached_settings() {
     let cached = restarted.lock().await.get_session(&session.session_id).unwrap();
     assert_eq!(cached.provider_id, persisted.provider_id);
     assert_eq!(cached.model_name, persisted.model_name);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn separate_services_preserve_concurrent_session_edits() {
+    use crate::services::planner_draft_commands::add_planner_draft_child;
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("independent_planner_services").await;
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let draft = apply_actions_to_draft(None, None, &normalize_actions(vec![
+        json!({"type":"create_product", "name":"Shared product"}),
+    ])).unwrap();
+    let root = draft.nodes.iter().find(|node| node.node_type == "product").unwrap().id.clone();
+    persist_draft_state(&state.db, &session.session_id, Some(&draft), None).await.unwrap();
+    let other = Arc::new(Mutex::new(crate::services::planner_service::PlannerService::new()));
+    // Prime both caches before either mutation to reproduce the stale-cache case.
+    crate::services::planner_session::get_or_load_session(&state.planner_service, &state.db, &session.session_id).await.unwrap();
+    crate::services::planner_session::get_or_load_session(&other, &state.db, &session.session_id).await.unwrap();
+    let mut tasks = Vec::new();
+    for (service, name) in [(state.planner_service.clone(), "First"), (other, "Second")] {
+        let db = state.db.clone();
+        let session_id = session.session_id.clone();
+        let root = root.clone();
+        tasks.push(tokio::spawn(async move {
+            add_planner_draft_child(service, &db, session_id, root, "product_area".into(), name.into(), None).await
+        }));
+    }
+    for task in tasks { task.await.unwrap().unwrap(); }
+    let persisted = crate::services::planner_session::load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    let names = persisted.draft_plan.unwrap().nodes.into_iter().map(|node| node.name).collect::<Vec<_>>();
+    assert!(names.iter().any(|name| name == "First"));
+    assert!(names.iter().any(|name| name == "Second"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn planner_lock_child_process() {
+    let Ok(url) = std::env::var("ARUVI_PLANNER_LOCK_CHILD_DB") else { return; };
+    let session_id = std::env::var("ARUVI_PLANNER_LOCK_CHILD_SESSION").unwrap();
+    let marker = std::env::var("ARUVI_PLANNER_LOCK_CHILD_MARKER").unwrap();
+    let pool = crate::persistence::db::create_pool(&url).await.unwrap();
+    let service = Arc::new(Mutex::new(crate::services::planner_service::PlannerService::new()));
+    std::fs::write(std::path::Path::new(&marker).with_extension("ready"), "ready").unwrap();
+    let _guard = crate::services::planner_session::lock_planner_session(&service, &pool, &session_id).await.unwrap();
+    std::fs::write(marker, "acquired").unwrap();
+    if std::env::var_os("ARUVI_PLANNER_LOCK_CHILD_HOLD").is_some() {
+        std::future::pending::<()>().await;
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn planner_session_lock_coordinates_separate_processes() {
+    use std::time::{Duration, Instant};
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("planner_process_lock").await;
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let held = crate::services::planner_session::lock_planner_session(&state.planner_service, &state.db, &session.session_id).await.unwrap();
+    let dbs: Vec<(i64, String, String)> = sqlx::query_as("PRAGMA database_list").fetch_all(&state.db).await.unwrap();
+    let path = &dbs.iter().find(|(_, name, _)| name == "main").unwrap().2;
+    let marker = std::path::Path::new(path).with_extension("child-acquired");
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "services::planner_service::tests::planner_turns::planner_lock_child_process", "--nocapture"])
+        .env("ARUVI_PLANNER_LOCK_CHILD_DB", format!("sqlite:{path}"))
+        .env("ARUVI_PLANNER_LOCK_CHILD_SESSION", &session.session_id)
+        .env("ARUVI_PLANNER_LOCK_CHILD_MARKER", &marker)
+        .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
+    let ready = marker.with_extension("ready");
+    let startup_deadline = Instant::now() + Duration::from_secs(10);
+    while !ready.exists() {
+        if let Some(status) = child.try_wait().unwrap() { panic!("child exited before attempting lock: {status}"); }
+        if Instant::now() >= startup_deadline { let _ = child.kill(); let _ = child.wait(); panic!("child startup timed out"); }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(child.try_wait().unwrap().is_none(), "child exited before lock was released");
+    assert!(!marker.exists(), "child acquired a held lock");
+    drop(held);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(status) = child.try_wait().unwrap() { assert!(status.success(), "child lock test failed"); break; }
+        if Instant::now() >= deadline { let _ = child.kill(); let _ = child.wait(); panic!("child lock test timed out"); }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(marker.exists());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn cancelling_waiting_planner_lock_does_not_block_later_requests() {
+    use std::time::Duration;
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("planner_lock_cancellation").await;
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let held = crate::services::planner_session::lock_planner_session(&state.planner_service, &state.db, &session.session_id).await.unwrap();
+    let other = Arc::new(Mutex::new(crate::services::planner_service::PlannerService::new()));
+    let db = state.db.clone();
+    let session_id = session.session_id.clone();
+    let waiting = tokio::spawn(async move {
+        crate::services::planner_session::lock_planner_session(&other, &db, &session_id).await
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!waiting.is_finished());
+    waiting.abort();
+    match waiting.await { Err(error) => assert!(error.is_cancelled()), Ok(_) => panic!("cancelled lock unexpectedly completed") };
+    drop(held);
+    let other = Arc::new(Mutex::new(crate::services::planner_service::PlannerService::new()));
+    let acquired = tokio::time::timeout(Duration::from_secs(2), crate::services::planner_session::lock_planner_session(&other, &state.db, &session.session_id)).await.unwrap().unwrap();
+    drop(acquired);
+}
+
+#[tokio::test]
+async fn reloaded_conversation_preserves_order_for_equal_timestamps() {
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("planner_conversation_order").await;
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    for (id, role, content) in [("z", "user", "first"), ("a", "assistant", "second"), ("m", "user", "third")] {
+        sqlx::query("INSERT INTO planner_conversation_entries (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, '2026-01-01 00:00:00')")
+            .bind(id).bind(&session.session_id).bind(role).bind(content).execute(&state.db).await.unwrap();
+    }
+    let reloaded = crate::services::planner_session::load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    let content = reloaded.conversation.iter().map(|entry| entry.content.as_str()).collect::<Vec<_>>();
+    assert_eq!(content, ["first", "second", "third"]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn planner_rejects_symlinked_lock_directory() {
+    use std::os::unix::fs::symlink;
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("planner_lock_symlink").await;
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let dbs: Vec<(i64, String, String)> = sqlx::query_as("PRAGMA database_list").fetch_all(&state.db).await.unwrap();
+    let path = std::fs::canonicalize(&dbs.iter().find(|(_, name, _)| name == "main").unwrap().2).unwrap();
+    let mut directory_name = std::ffi::OsString::from(".");
+    directory_name.push(path.file_name().unwrap());
+    directory_name.push(".planner-locks");
+    let target = path.parent().unwrap().join("unrelated-dir");
+    std::fs::create_dir(&target).unwrap();
+    symlink(&target, path.parent().unwrap().join(directory_name)).unwrap();
+    assert!(crate::services::planner_session::lock_planner_session(&state.planner_service, &state.db, &session.session_id).await.is_err());
+    assert!(std::fs::read_dir(target).unwrap().next().is_none());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn planner_session_lock_is_released_when_process_is_killed() {
+    use std::time::{Duration, Instant};
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("planner_process_crash").await;
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let dbs: Vec<(i64, String, String)> = sqlx::query_as("PRAGMA database_list").fetch_all(&state.db).await.unwrap();
+    let path = &dbs.iter().find(|(_, name, _)| name == "main").unwrap().2;
+    let marker = std::path::Path::new(path).with_extension("child-held");
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "services::planner_service::tests::planner_turns::planner_lock_child_process", "--nocapture"])
+        .env("ARUVI_PLANNER_LOCK_CHILD_DB", format!("sqlite:{path}"))
+        .env("ARUVI_PLANNER_LOCK_CHILD_SESSION", &session.session_id)
+        .env("ARUVI_PLANNER_LOCK_CHILD_MARKER", &marker)
+        .env("ARUVI_PLANNER_LOCK_CHILD_HOLD", "1")
+        .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !marker.exists() {
+        if let Some(status) = child.try_wait().unwrap() { panic!("child exited before taking lock: {status}"); }
+        if Instant::now() >= deadline { let _ = child.kill(); let _ = child.wait(); panic!("child lock timed out"); }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let blocked = tokio::time::timeout(Duration::from_millis(200), crate::services::planner_session::lock_planner_session(&state.planner_service, &state.db, &session.session_id)).await;
+    let _ = child.kill();
+    let _ = child.wait();
+    assert!(blocked.is_err(), "lock should remain held by child");
+    let acquired = tokio::time::timeout(Duration::from_secs(2), crate::services::planner_session::lock_planner_session(&state.planner_service, &state.db, &session.session_id)).await.unwrap().unwrap();
+    drop(acquired);
 }

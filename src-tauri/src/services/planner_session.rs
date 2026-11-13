@@ -114,6 +114,7 @@ impl PlannerService {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn get_session(&self, session_id: &str) -> Result<PlannerSession, AppError> {
         self.sessions
             .get(session_id)
@@ -126,12 +127,19 @@ impl PlannerService {
     }
 }
 
-// Serialize mutations and model turns for each session without blocking other sessions.
-// Weak references ensure failed requests for unknown session IDs do not accumulate locks.
+// The in-process lock avoids contention between tasks; an advisory lock beside
+// the SQLite database coordinates cooperating Studio processes on Unix.
+pub(crate) struct PlannerSessionGuard {
+    _task_guard: tokio::sync::OwnedMutexGuard<()>,
+    #[cfg(unix)]
+    _file: Option<std::fs::File>,
+}
+
 pub(crate) async fn lock_planner_session(
     planner_service: &Arc<Mutex<PlannerService>>,
+    db: &SqlitePool,
     session_id: &str,
-) -> tokio::sync::OwnedMutexGuard<()> {
+) -> Result<PlannerSessionGuard, AppError> {
     let lock = {
         let mut service = planner_service.lock().await;
         service
@@ -151,7 +159,92 @@ pub(crate) async fn lock_planner_session(
             lock
         }
     };
-    lock.lock_owned().await
+    let task_guard = lock.lock_owned().await;
+    // Do not create lock files for nonexistent, attacker-supplied session IDs.
+    planner_repo::get_session(db, session_id).await?;
+    #[cfg(unix)]
+    let file = acquire_planner_file_lock(db, session_id).await?;
+    Ok(PlannerSessionGuard {
+        _task_guard: task_guard,
+        #[cfg(unix)]
+        _file: file,
+    })
+}
+
+#[cfg(unix)]
+async fn acquire_planner_file_lock(
+    db: &SqlitePool,
+    session_id: &str,
+) -> Result<Option<std::fs::File>, AppError> {
+    use sha2::{Digest, Sha256};
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+    let databases: Vec<(i64, String, String)> =
+        sqlx::query_as("PRAGMA database_list").fetch_all(db).await?;
+    let path = databases
+        .into_iter()
+        .find(|(_, name, _)| name == "main")
+        .map(|(_, _, path)| path)
+        .unwrap_or_default();
+    // SQLite in-memory databases have no path and cannot be shared by processes.
+    if path.is_empty() {
+        return Ok(None);
+    }
+    let database = std::fs::canonicalize(path)?;
+    let parent = database
+        .parent()
+        .ok_or_else(|| AppError::Internal("Planner database has no parent directory".into()))?;
+    let filename = database
+        .file_name()
+        .ok_or_else(|| AppError::Internal("Planner database has no filename".into()))?;
+    let mut directory_name = std::ffi::OsString::from(".");
+    directory_name.push(filename);
+    directory_name.push(".planner-locks");
+    let directory = parent.join(directory_name);
+    let mut builder = std::fs::DirBuilder::new();
+    builder.mode(0o700);
+    match builder.create(&directory) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.into()),
+    }
+    let metadata = std::fs::symlink_metadata(&directory)?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() || metadata.mode() & 0o077 != 0 {
+        return Err(AppError::Internal(
+            "Planner lock directory must be private and must not be a symlink".into(),
+        ));
+    }
+    let digest = Sha256::digest(session_id.as_bytes());
+    let lock_name = digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
+        .open(directory.join(lock_name))?;
+    if !file.metadata()?.is_file() {
+        return Err(AppError::Internal(
+            "Planner lock must be a regular file".into(),
+        ));
+    }
+    loop {
+        // SAFETY: the file remains owned by this function and then the guard,
+        // so its descriptor stays valid throughout the flock call.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            return Ok(Some(file));
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        if error.kind() != std::io::ErrorKind::WouldBlock {
+            return Err(error.into());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
 }
 
 pub(crate) async fn get_or_load_session(
@@ -159,15 +252,14 @@ pub(crate) async fn get_or_load_session(
     db: &SqlitePool,
     session_id: &str,
 ) -> Result<PlannerSession, AppError> {
-    let mut service = planner_service.lock().await;
-    match service.get_session(session_id) {
-        Ok(session) => Ok(session),
-        Err(_) => {
-            let loaded = load_session_from_db(db, session_id).await?;
-            service.save_session(session_id, loaded.clone());
-            Ok(loaded)
-        }
-    }
+    // Every caller holds the session guard. Re-read after acquiring it so a
+    // different process's completed mutation cannot be overwritten by a cache.
+    let loaded = load_session_from_db(db, session_id).await?;
+    planner_service
+        .lock()
+        .await
+        .save_session(session_id, loaded.clone());
+    Ok(loaded)
 }
 
 pub(crate) async fn load_session_from_db(

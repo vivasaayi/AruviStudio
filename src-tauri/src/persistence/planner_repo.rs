@@ -363,7 +363,7 @@ pub async fn list_conversation_entries(
         "SELECT id, session_id, role, content, created_at
          FROM planner_conversation_entries
          WHERE session_id = ?
-         ORDER BY created_at ASC",
+         ORDER BY created_at ASC, rowid ASC",
     )
     .bind(session_id)
     .fetch_all(pool)

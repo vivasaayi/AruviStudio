@@ -34,7 +34,7 @@ pub async fn submit_planner_turn(
     selected_draft_node_id: Option<String>,
     selected_product_id: Option<String>,
 ) -> Result<PlannerTurnResponse, AppError> {
-    let _session_guard = lock_planner_session(&planner_service, &session_id).await;
+    let _session_guard = lock_planner_session(&planner_service, &state.db, &session_id).await?;
     submit_planner_turn_locked(
         planner_service,
         state,
