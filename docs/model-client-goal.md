@@ -143,6 +143,26 @@ provider hosting into the model-host service as part of this work.
   rebuilt worktree server passed the remote UI smoke, 20 remote, one CI and 19
   isolated workflow tests. The running binary hash matched the release build.
 
+## Coding model repair feedback checkpoint
+
+- When a single coding response fails the tool/final schema, Studio now includes
+  a bounded, JSON-quoted excerpt in the next observation and, only when writing
+  is permitted, tells the model how to submit an intended file using the write
+  tool. It does not execute the malformed response. Ambiguous multiple-action
+  responses remain rejected without feeding back their content. Focused tests
+  cover the bound, tool permissions, ambiguous output and no accidental write.
+- A real 15B JSON-mode workflow with 7B on other stages previously exhausted
+  its steps after missing reads and malformed finals. With the feedback it
+  reached test review and wrote a file, but the generated JavaScript contained
+  literal newline escapes and failed isolated execution. The fixture was stopped
+  before approval or delivery. This is an observed failure, not evidence of 15B
+  reliability; the fixture's in-workflow command only checks file existence, so
+  its later executable assertions provide the actual code-quality check. A 7B
+  JSON-mode control run generated executable code, passed assertions, and
+  delivered it to the disposable Git remote.
+- macOS and Linux suites each passed 171 Rust tests (one live test ignored);
+  browser suites passed one smoke, 21 remote, one CI and 19 workflow cases.
+
 ## Progress — ambiguous coding actions
 
 - The coding response parser now rejects multiple complete action-shaped JSON

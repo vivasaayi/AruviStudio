@@ -1,5 +1,6 @@
 use super::tool_loop_contract::{
-    build_coding_tool_prompt, failed_tool_observation, has_multiple_actions, parse_tool_loop_response, resolve_allowed_tools,
+    build_coding_tool_prompt, failed_tool_observation, has_multiple_actions,
+    parse_tool_loop_response, parser_error_observation, resolve_allowed_tools,
     write_tool_trace_snapshot, ToolLoopResponse, ToolLoopTraceEntry,
 };
 use super::AgentService;
@@ -28,13 +29,26 @@ impl AgentService {
         let Some(repo_id) = work_item.active_repo_id.as_deref() else {
             warn!(agent_run_id = %agent_run.id, work_item_id = %work_item.id, "No active repository found for coding tool loop; returning model output only");
             return self
-                .execute_agent_run(agent_run, model_def, base_prompt, response_token_budget, false)
+                .execute_agent_run(
+                    agent_run,
+                    model_def,
+                    base_prompt,
+                    response_token_budget,
+                    false,
+                )
                 .await
                 .map(|output| output.content);
         };
         let repo = crate::persistence::repository_repo::get_repository(&self.db, repo_id).await?;
-        let delivery_base = crate::services::workflow_delivery_manifest::repository_head(&repo.local_path);
-        let previous_files = crate::services::workflow_delivery_manifest::previous_files(&self.db, &agent_run.workflow_run_id, &repo.id, &delivery_base).await?;
+        let delivery_base =
+            crate::services::workflow_delivery_manifest::repository_head(&repo.local_path);
+        let previous_files = crate::services::workflow_delivery_manifest::previous_files(
+            &self.db,
+            &agent_run.workflow_run_id,
+            &repo.id,
+            &delivery_base,
+        )
+        .await?;
         let workspace = WorkItemWorkspace::create(
             &work_item,
             &agent_run.workflow_run_id,
@@ -84,7 +98,13 @@ impl AgentService {
                 !changed_files.is_empty(),
             );
             let model_output = self
-                .execute_agent_run(agent_run, model_def, &step_prompt, response_token_budget, boundaries.json_object_output.unwrap_or(false))
+                .execute_agent_run(
+                    agent_run,
+                    model_def,
+                    &step_prompt,
+                    response_token_budget,
+                    boundaries.json_object_output.unwrap_or(false),
+                )
                 .await?
                 .content;
             trace.push(ToolLoopTraceEntry {
@@ -134,7 +154,11 @@ impl AgentService {
                         Err(error) => {
                             let rendered = error.to_string();
                             tool_observations.push(failed_tool_observation(
-                                step, &tool, reason.as_deref(), &error, &allowed_tools,
+                                step,
+                                &tool,
+                                reason.as_deref(),
+                                &error,
+                                &allowed_tools,
                             ));
                             trace.push(ToolLoopTraceEntry {
                                 step,
@@ -145,16 +169,27 @@ impl AgentService {
                         }
                     }
                 }
-                Some(ToolLoopResponse::Final { summary, result, no_changes_needed }) => {
+                Some(ToolLoopResponse::Final {
+                    summary,
+                    result,
+                    no_changes_needed,
+                }) => {
                     if changed_files.is_empty()
-                        && (!no_changes_needed || summary.as_deref().is_none_or(|value| value.trim().is_empty()))
+                        && (!no_changes_needed
+                            || summary
+                                .as_deref()
+                                .is_none_or(|value| value.trim().is_empty()))
                     {
                         let observation = format!(
                             "tool_error step={} tool=final error=No files were changed; use a write tool or explicitly report no_changes_needed with a reason",
                             step
                         );
                         tool_observations.push(observation.clone());
-                        trace.push(ToolLoopTraceEntry { step, kind: "tool_error".to_string(), payload: observation });
+                        trace.push(ToolLoopTraceEntry {
+                            step,
+                            kind: "tool_error".to_string(),
+                            payload: observation,
+                        });
                         write_tool_trace_snapshot(&trace_path, &trace).await?;
                         continue;
                     }
@@ -193,14 +228,14 @@ impl AgentService {
                             break;
                         }
                     }
-                    let detail = if ambiguous {
-                        "Response contained multiple actions; no action was executed. Return exactly one tool_call OR one final object, not both."
-                    } else {
-                        "Response did not match tool/final JSON contract"
-                    };
-                    let observation = format!("tool_error step={} tool=parser error={}", step, detail);
+                    let observation =
+                        parser_error_observation(step, &model_output, ambiguous, &allowed_tools);
                     tool_observations.push(observation.clone());
-                    trace.push(ToolLoopTraceEntry { step, kind: "tool_error".to_string(), payload: observation });
+                    trace.push(ToolLoopTraceEntry {
+                        step,
+                        kind: "tool_error".to_string(),
+                        payload: observation,
+                    });
                     write_tool_trace_snapshot(&trace_path, &trace).await?;
                 }
             }
@@ -250,13 +285,26 @@ impl AgentService {
         }
 
         if !changed_files_list.is_empty() {
-            if crate::services::workflow_delivery_manifest::repository_head(&repo.local_path) != delivery_base {
-                return Err(AppError::Validation("Repository HEAD changed during coding; review before retrying".to_string()));
+            if crate::services::workflow_delivery_manifest::repository_head(&repo.local_path)
+                != delivery_base
+            {
+                return Err(AppError::Validation(
+                    "Repository HEAD changed during coding; review before retrying".to_string(),
+                ));
             }
             workspace
                 .sync_files_back(&repo.local_path, &changed_files_list, &previous_files)
                 .await?;
-            crate::services::workflow_delivery_manifest::record(&self.db, &agent_run.workflow_run_id, &repo.id, &repo.local_path, &workspace.repo_path, &changed_files_list, delivery_base).await?;
+            crate::services::workflow_delivery_manifest::record(
+                &self.db,
+                &agent_run.workflow_run_id,
+                &repo.id,
+                &repo.local_path,
+                &workspace.repo_path,
+                &changed_files_list,
+                delivery_base,
+            )
+            .await?;
 
             let applied_files_path = artifact_dir.join("applied_files.txt");
             tokio::fs::write(&applied_files_path, changed_files_list.join("\n")).await?;

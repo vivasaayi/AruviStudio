@@ -44,17 +44,33 @@ pub(super) fn resolve_allowed_tools(configured_tools: &[String]) -> HashSet<Stri
     for tool in configured_tools {
         let lowered = tool.trim().to_ascii_lowercase();
         match lowered.as_str() {
-            "repo.list_tree" | "repo.read_file" | "repo.search" | "repo.write_file" | "repo.replace_range" | "repo.apply_patch" => { allowed.insert(lowered); },
+            "repo.list_tree" | "repo.read_file" | "repo.search" | "repo.write_file"
+            | "repo.replace_range" | "repo.apply_patch" => {
+                allowed.insert(lowered);
+            }
             "read" | "read_file" | "read_files" | "read_code" | "read_context" | "read_tests" => {
-                allowed.extend(["repo.read_file", "repo.list_tree", "repo.search"].into_iter().map(str::to_string));
-            },
-            "write" | "write_file" | "write_files" | "write_tests" | "create" | "create_file" | "create_files" => {
-                allowed.extend(["repo.write_file", "repo.replace_range"].into_iter().map(str::to_string));
-            },
+                allowed.extend(
+                    ["repo.read_file", "repo.list_tree", "repo.search"]
+                        .into_iter()
+                        .map(str::to_string),
+                );
+            }
+            "write" | "write_file" | "write_files" | "write_tests" | "create" | "create_file"
+            | "create_files" => {
+                allowed.extend(
+                    ["repo.write_file", "repo.replace_range"]
+                        .into_iter()
+                        .map(str::to_string),
+                );
+            }
             "modify" | "modify_code" | "patch" | "apply_patch" => {
-                allowed.extend(["repo.apply_patch", "repo.replace_range"].into_iter().map(str::to_string));
-            },
-            _ => {},
+                allowed.extend(
+                    ["repo.apply_patch", "repo.replace_range"]
+                        .into_iter()
+                        .map(str::to_string),
+                );
+            }
+            _ => {}
         }
     }
     // An unrecognized nonempty configuration grants no tools. An empty configuration
@@ -139,6 +155,26 @@ pub(super) fn build_coding_tool_prompt(
     prompt
 }
 
+pub(super) fn parser_error_observation(
+    step: usize,
+    output: &str,
+    ambiguous: bool,
+    allowed_tools: &HashSet<String>,
+) -> String {
+    use crate::services::agent_execution_limits::truncate_for_model_context;
+    if ambiguous {
+        return format!("tool_error step={} tool=parser error=Response contained multiple actions; no action was executed. Return exactly one tool_call OR one final object, not both.", step);
+    }
+    let mut message = format!("tool_error step={} tool=parser error=Response did not match tool/final JSON contract; no action was executed.", step);
+    if allowed_tools.contains("repo.write_file") {
+        message.push_str(" If the previous response contains intended file content, submit it as one repo.write_file tool_call with path and complete content; a final response does not write files.");
+    }
+    let excerpt = truncate_for_model_context(output, 1600);
+    message.push_str(" Previous invalid response (quoted data): ");
+    message.push_str(&serde_json::to_string(&excerpt).unwrap_or_default());
+    message
+}
+
 pub(super) fn failed_tool_observation(
     step: usize,
     tool: &str,
@@ -147,14 +183,21 @@ pub(super) fn failed_tool_observation(
     allowed_tools: &HashSet<String>,
 ) -> String {
     use crate::services::agent_execution_limits::truncate_for_model_context;
-    let mut observation = format!("tool_error step={} tool={} reason={} error={}", step,
+    let mut observation = format!(
+        "tool_error step={} tool={} reason={} error={}",
+        step,
         truncate_for_model_context(tool, 200),
         truncate_for_model_context(reason.unwrap_or_default(), 300),
-        truncate_for_model_context(&error.to_string(), 2_000));
-    if tool.trim().eq_ignore_ascii_case("repo.read_file") && matches!(error, AppError::NotFound(_)) {
-        observation.push_str("; the file is absent; do not repeat this read unless the file changes.");
+        truncate_for_model_context(&error.to_string(), 2_000)
+    );
+    if tool.trim().eq_ignore_ascii_case("repo.read_file") && matches!(error, AppError::NotFound(_))
+    {
+        observation
+            .push_str("; the file is absent; do not repeat this read unless the file changes.");
         if allowed_tools.contains("repo.write_file") {
-            observation.push_str(" If the task requires a new file, use repo.write_file with complete content.");
+            observation.push_str(
+                " If the task requires a new file, use repo.write_file with complete content.",
+            );
         }
     }
     observation
@@ -170,22 +213,38 @@ pub(super) fn has_multiple_actions(output: &str) -> bool {
     let mut objects = 0usize;
     for (index, ch) in output.char_indices() {
         if depth == 0 {
-            if ch == '{' { depth = 1; start = index; }
+            if ch == '{' {
+                depth = 1;
+                start = index;
+            }
             continue;
         }
         if in_string {
-            if escaped { escaped = false; }
-            else if ch == '\\' { escaped = true; }
-            else if ch == '"' { in_string = false; }
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
         } else {
             match ch {
                 '"' => in_string = true,
                 '{' => depth += 1,
                 '}' => {
                     depth -= 1;
-                    if depth == 0 && serde_json::from_str::<Value>(&output[start..=index]).ok().and_then(|value| value.get("type").and_then(Value::as_str).map(str::to_owned)).is_some_and(|kind| matches!(kind.as_str(), "tool_call" | "final")) {
+                    if depth == 0
+                        && serde_json::from_str::<Value>(&output[start..=index])
+                            .ok()
+                            .and_then(|value| {
+                                value.get("type").and_then(Value::as_str).map(str::to_owned)
+                            })
+                            .is_some_and(|kind| matches!(kind.as_str(), "tool_call" | "final"))
+                    {
                         objects += 1;
-                        if objects > 1 { return true; }
+                        if objects > 1 {
+                            return true;
+                        }
                     }
                 }
                 _ => {}
@@ -196,7 +255,9 @@ pub(super) fn has_multiple_actions(output: &str) -> bool {
 }
 
 pub(super) fn parse_tool_loop_response(output: &str) -> Option<ToolLoopResponse> {
-    if has_multiple_actions(output) { return None; }
+    if has_multiple_actions(output) {
+        return None;
+    }
     let payload = extract_json_payload(output)?;
     serde_json::from_str::<ToolLoopResponse>(&payload).ok()
 }
@@ -250,11 +311,11 @@ impl AgentService {
             .await?
             .content;
         match parse_tool_loop_response(&model_output) {
-            Some(ToolLoopResponse::Final { summary, result, .. }) => {
-                Ok(Some(summary.or(result).unwrap_or_else(|| {
-                    "Coding stage finalized after tool-loop completion.".to_string()
-                })))
-            }
+            Some(ToolLoopResponse::Final {
+                summary, result, ..
+            }) => Ok(Some(summary.or(result).unwrap_or_else(|| {
+                "Coding stage finalized after tool-loop completion.".to_string()
+            }))),
             _ => Ok(None),
         }
     }
@@ -306,7 +367,10 @@ mod configured_tool_tests {
 ```json
 {"type":"tool_call","tool":"repo.write_file","arguments":{"path":"a.js","content":"const x = {value: \"}\"};"}}
 ```"#;
-        assert!(matches!(parse_tool_loop_response(single), Some(ToolLoopResponse::ToolCall { .. })));
+        assert!(matches!(
+            parse_tool_loop_response(single),
+            Some(ToolLoopResponse::ToolCall { .. })
+        ));
         assert!(!has_multiple_actions(single));
         let two_fenced = "```json\n{\"type\":\"tool_call\",\"tool\":\"repo.read_file\",\"arguments\":{\"path\":\"a\"}}\n```\n```json\n{\"type\":\"final\",\"summary\":\"done\"}\n```";
         assert!(has_multiple_actions(two_fenced));
@@ -352,7 +416,8 @@ mod configured_tool_tests {
 
     #[test]
     fn read_examples_use_alternative_ranges() {
-        let prompt = build_coding_tool_prompt("task", &resolve_allowed_tools(&[]), &[], 1, 8, false);
+        let prompt =
+            build_coding_tool_prompt("task", &resolve_allowed_tools(&[]), &[], 1, 8, false);
         assert!(prompt.contains("Do not combine offset/length with line ranges"));
         assert!(prompt.contains("A missing file cannot be read"));
         assert!(!prompt.contains("\"length_chars\":12000,\"start_line\""));
@@ -363,8 +428,25 @@ mod configured_tool_tests {
         assert!(resolve_allowed_tools(&["unrecognized_tool".into()]).is_empty());
         assert!(!resolve_allowed_tools(&["read_files".into()]).contains("repo.write_file"));
         assert!(resolve_allowed_tools(&["do_not_write".into()]).is_empty());
-        assert_eq!(resolve_allowed_tools(&["repo.read_file".into()]), ["repo.read_file".to_string()].into_iter().collect());
+        assert_eq!(
+            resolve_allowed_tools(&["repo.read_file".into()]),
+            ["repo.read_file".to_string()].into_iter().collect()
+        );
         assert!(resolve_allowed_tools(&["write_files".into()]).contains("repo.write_file"));
         assert!(resolve_allowed_tools(&[]).contains("repo.write_file"));
+    }
+    #[test]
+    fn parser_feedback_preserves_bounded_output_and_respects_permissions() {
+        let writer = resolve_allowed_tools(&["repo.write_file".into()]);
+        let reader = resolve_allowed_tools(&["repo.read_file".into()]);
+        let output = format!("{{\"result\":\"candidate\"}}{}", "x".repeat(2000));
+        let feedback = parser_error_observation(2, &output, false, &writer);
+        assert!(feedback.contains("candidate"));
+        assert!(feedback.contains("repo.write_file"));
+        assert!(feedback.contains("truncated for model context"));
+        assert!(!parser_error_observation(2, &output, false, &reader).contains("repo.write_file"));
+        let ambiguous = parser_error_observation(2, &output, true, &writer);
+        assert!(ambiguous.contains("multiple actions"));
+        assert!(!ambiguous.contains("candidate"));
     }
 }
