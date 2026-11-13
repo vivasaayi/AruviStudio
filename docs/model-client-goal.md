@@ -130,7 +130,7 @@ provider hosting into the model-host service as part of this work.
   workflow tests passed. These fixture tests do not replace a physical desktop run.
 - The library is independently consumable from the public Studio Git repository
   using a full commit pin. The separate `validation/model-client-consumer` fixture
-  pins `2412cf4feac1d23ea68a5677fa9f3e7834073fe6`, commits its dependency lock,
+  pins `4dfc59af4ee4527418eb283c3af128edce3bd145`, commits its dependency lock,
   vendors the dependency graph, and tests authenticated completion and discovery
   inside a network-disabled Docker build. `bash scripts/test shared-client-consumer`
   repeats this check. Cargo's package listing includes the applicable license;
@@ -219,8 +219,10 @@ provider hosting into the model-host service as part of this work.
   through `ClientOptions`, while the existing constructors retain their 15-second
   and five-minute defaults and redirect refusal. Invalid or unbounded settings
   are rejected. The shared-client suite passed 24 tests, including stalled
-  response bodies for both provider protocols; Studio configuration does not yet
-  expose per-provider timeout settings.
+  response bodies for both provider protocols. An independent consumer passed
+  five tests from the pinned revision in a network-disabled build. Studio rebuilt
+  and passed real Model Host coding through MCP and browser speech generation;
+  Studio configuration does not yet expose per-provider timeout settings.
 
 ## Open design questions
 

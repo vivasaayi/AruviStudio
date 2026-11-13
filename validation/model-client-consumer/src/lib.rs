@@ -28,6 +28,15 @@ mod tests {
         server.join().unwrap();
     }
 
+    #[test]
+    fn configures_timeout_from_an_independent_project() {
+        let options = aruvi_model_client::ClientOptions { connect_timeout: std::time::Duration::from_secs(2), request_timeout: std::time::Duration::from_secs(15) };
+        assert!(OpenAiCompatibleClient::with_options("http://localhost:1234".into(), None, options).is_ok());
+        assert!(AnthropicClient::with_options("https://api.anthropic.com".into(), "synthetic-key".into(), options).is_ok());
+        let invalid = aruvi_model_client::ClientOptions { connect_timeout: std::time::Duration::ZERO, ..options };
+        assert!(OpenAiCompatibleClient::with_options("http://localhost".into(), None, invalid).is_err());
+    }
+
     #[tokio::test]
     async fn consumes_public_discovery_api() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
