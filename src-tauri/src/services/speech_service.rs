@@ -37,6 +37,9 @@ pub async fn synthesize_remote_speech(
     speed: Option<f32>,
 ) -> Result<Vec<u8>, AppError> {
     if !provider.enabled { return Err(AppError::Validation("Selected provider is disabled".into())); }
+    if provider.protocol != "openai_compatible" {
+        return Err(AppError::Validation("Selected provider protocol does not support remote speech synthesis".into()));
+    }
     let key = secrets::resolve_provider_secret(provider)?;
     let client = aruvi_model_client::openai_compatible::OpenAiCompatibleClient::new(provider.base_url.clone(), key);
     client.generate_speech(aruvi_model_client::SpeechRequest { model, input, voice, speed, response_format: "wav".into() }).await
@@ -55,6 +58,9 @@ pub async fn transcribe_audio_with_provider(
         return transcribe_audio_locally(provider, request).await;
     }
 
+    if provider.protocol != "openai_compatible" {
+        return Err(AppError::Validation("Selected provider protocol does not support remote transcription".into()));
+    }
     let api_key = secrets::resolve_provider_secret(provider)?;
     let file_bytes = base64::engine::general_purpose::STANDARD
         .decode(request.audio_bytes_base64.trim())

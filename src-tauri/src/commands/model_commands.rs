@@ -1,8 +1,7 @@
 use crate::domain::model::{ModelCall, ModelDefinition, ModelProvider, ProviderType};
 use crate::error::AppError;
 use crate::persistence::{model_call_repo, model_repo};
-use crate::providers::gateway::ModelGateway;
-use crate::providers::openai_compatible::OpenAiCompatibleProvider;
+use crate::services::model_service::create_gateway;
 use crate::providers::types::{ChatMessage, CompletionRequest, CompletionResponse};
 use crate::secrets;
 use crate::services::speech_service::resolve_local_runtime_model_path;
@@ -178,8 +177,7 @@ pub async fn test_provider_connectivity(
             model_path.display()
         ));
     }
-    let api_key = secrets::resolve_provider_secret(&provider)?;
-    let gw = OpenAiCompatibleProvider::new(provider.base_url, api_key);
+    let gw = create_gateway(&provider)?;
     match gw.health_check().await {
         Ok(true) => Ok("Connection successful".to_string()),
         Ok(false) => Ok("Connection failed - server responded but not healthy".to_string()),
@@ -193,8 +191,7 @@ pub async fn run_model_chat_completion(
     request: ModelChatCommand,
 ) -> Result<CompletionResponse, AppError> {
     let provider = model_repo::get_provider(&state.db, &request.provider_id).await?;
-    let api_key = secrets::resolve_provider_secret(&provider)?;
-    let gateway = OpenAiCompatibleProvider::new(provider.base_url.clone(), api_key);
+    let gateway = create_gateway(&provider)?;
     let source_kind = request
         .source_kind
         .unwrap_or_else(|| "desktop_model_completion".to_string());

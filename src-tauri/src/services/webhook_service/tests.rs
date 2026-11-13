@@ -139,6 +139,11 @@ async fn remote_model_setup_requires_auth_and_rejects_credential_urls() {
     let provider = parse_json(&body);
     assert!(provider.get("auth_secret_ref").is_none());
     assert!(!body.contains("test-sensitive-reference"));
+    let (status, body) = send_json(&router, Method::POST, "/api/mobile/providers", Some("model-test-token"), Some(json!({"name":"Claude", "protocol":"anthropic", "base_url":"https://api.anthropic.com"}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(parse_json(&body)["protocol"], "anthropic");
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/providers", Some("model-test-token"), Some(json!({"name":"Invalid", "protocol":"unknown", "base_url":"https://example.com"}))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
     let (status, body) = send_json(&router, Method::POST, "/api/mobile/models", Some("model-test-token"), Some(json!({"provider_id":provider["id"], "name":"example-model"}))).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let model = parse_json(&body);
@@ -379,4 +384,50 @@ async fn remote_work_api_auth_create_start_approve_and_delivery_flow() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+}
+
+#[tokio::test]
+async fn anthropic_protocol_routes_mcp_and_remote_chat() {
+    use axum::{routing::post, Json};
+    use crate::mcp::dispatch_tool;
+    async fn messages(headers: axum::http::HeaderMap, Json(body): Json<Value>) -> Json<Value> {
+        assert_eq!(headers.get("x-api-key").unwrap(), "sk-test-synthetic-key-123456");
+        assert_eq!(headers.get("anthropic-version").unwrap(), "2023-06-01");
+        assert!(headers.get("authorization").is_none());
+        assert_eq!(body["model"], "claude-test");
+        assert_eq!(body["messages"][0]["role"], "user");
+        Json(json!({"content":[{"type":"text","text":"Claude fixture response"}],"usage":{"input_tokens":4,"output_tokens":3}}))
+    }
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, axum::Router::new().route("/v1/messages", post(messages))).await.unwrap();
+    });
+    let app: tauri::App<MockRuntime> = make_test_app("anthropic_mcp_remote").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "anthropic-test-token").await.unwrap();
+    let created = dispatch_tool(&state, "aruvi_models", json!({"action":"create_provider","arguments":{
+        "name":"Claude fixture","protocol":"anthropic","base_url":format!("http://{address}")
+    }})).await.unwrap();
+    assert_eq!(created["result"]["protocol"], "anthropic");
+    let id = created["result"]["id"].as_str().unwrap();
+    let missing_key = dispatch_tool(&state, "aruvi_models", json!({"action":"run_model_chat_completion","arguments":{
+        "provider_id":id,"model":"claude-test","messages":[{"role":"user","content":"hello"}]
+    }})).await;
+    assert!(missing_key.is_err());
+    // Use the documented legacy-read path for a synthetic key; do not write the host secret store.
+    sqlx::query("UPDATE model_providers SET auth_secret_ref=? WHERE id=?")
+        .bind("sk-test-synthetic-key-123456").bind(id).execute(&state.db).await.unwrap();
+    let mcp = dispatch_tool(&state, "aruvi_models", json!({"action":"run_model_chat_completion","arguments":{
+        "provider_id":id,"model":"claude-test","messages":[{"role":"user","content":"hello"}]
+    }})).await.unwrap();
+    assert_eq!(mcp["result"]["content"], "Claude fixture response");
+    assert_eq!(mcp["result"]["token_count_input"], 4);
+    let router = build_webhook_router(state);
+    let (status, body) = send_json(&router, Method::POST, "/api/mobile/chat/completions", Some("anthropic-test-token"), Some(json!({
+        "provider_id":id,"model_name":"claude-test","messages":[{"role":"user","content":"hello"}]
+    }))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(parse_json(&body)["content"], "Claude fixture response");
+    server.abort();
 }

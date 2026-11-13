@@ -45,6 +45,9 @@ pub async fn start_model_chat_stream(
     request: ModelChatCommand,
 ) -> Result<String, AppError> {
     let provider = model_repo::get_provider(&state.db, &request.provider_id).await?;
+    if provider.protocol != "openai_compatible" {
+        return Err(AppError::Validation(format!("Streaming is not yet supported for provider protocol: {}", provider.protocol)));
+    }
     let api_key = secrets::resolve_provider_secret(&provider)?;
     let stream_id = uuid::Uuid::new_v4().to_string();
 

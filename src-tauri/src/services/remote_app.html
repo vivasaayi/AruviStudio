@@ -735,6 +735,7 @@
               <div class="panel-body stack">
                 <form id="providerForm" class="stack">
                   <label><span class="label">Provider name</span><input id="providerName" required /></label>
+                  <label><span class="label">Protocol</span><select id="providerProtocol"><option value="openai_compatible">OpenAI compatible</option><option value="anthropic">Anthropic Messages</option></select></label>
                   <label><span class="label">API base URL</span><input id="providerUrl" type="url" required placeholder="https://example.com/v1" /></label>
                   <label><span class="label">API key (optional)</span><input id="providerKey" type="password" autocomplete="off" /></label>
                   <button type="submit" id="createProviderButton">Add provider</button>
@@ -998,6 +999,7 @@
       repositoryAttachmentList: document.getElementById("repositoryAttachmentList"),
       providerForm: document.getElementById("providerForm"),
       providerName: document.getElementById("providerName"),
+      providerProtocol: document.getElementById("providerProtocol"),
       providerUrl: document.getElementById("providerUrl"),
       providerKey: document.getElementById("providerKey"),
       createProviderButton: document.getElementById("createProviderButton"),
@@ -3243,7 +3245,7 @@
           const card = document.createElement("div");
           card.className = "tool-card";
           const title = document.createElement("div");
-          title.textContent = provider.name + " · " + provider.base_url + (provider.enabled ? "" : " · disabled");
+          title.textContent = provider.name + " · " + provider.protocol + " · " + provider.base_url + (provider.enabled ? "" : " · disabled");
           const test = document.createElement("button");
           test.type = "button";
           test.className = "secondary";
@@ -3401,7 +3403,7 @@
       event.preventDefault();
       el.createProviderButton.disabled = true;
       try {
-        await request("/api/mobile/providers", { method: "POST", body: { name: el.providerName.value.trim(), base_url: el.providerUrl.value.trim(), api_key: el.providerKey.value || null } });
+        await request("/api/mobile/providers", { method: "POST", body: { name: el.providerName.value.trim(), protocol: el.providerProtocol.value, base_url: el.providerUrl.value.trim(), api_key: el.providerKey.value || null } });
         el.providerForm.reset();
         await loadModelConfiguration();
         setStatus("Provider added", "ok");

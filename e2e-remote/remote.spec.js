@@ -944,3 +944,30 @@ test("browser resets a product plan with and without delivery", async ({ page, r
     await call("aruvi_catalog", "archive_product", { id: product.id });
   }
 });
+
+test("browser creates an Anthropic protocol provider", async ({ page, request }) => {
+  test.skip(!token, "Set ARUVI_MOBILE_API_TOKEN for a running remote server");
+  const name = `Claude fixture ${Date.now()}`;
+  let provider;
+  try {
+    await page.goto("/remote");
+    await page.locator("#tokenInput").fill(token);
+    await page.locator("#saveButton").click();
+    await page.getByRole("button", { name: "Models", exact: true }).click();
+    await page.getByLabel("Provider name", { exact: true }).fill(name);
+    await page.locator("#providerProtocol").selectOption("anthropic");
+    await page.getByLabel("API base URL").fill("https://api.anthropic.com");
+    const created = page.waitForResponse((response) => response.url().endsWith("/api/mobile/providers") && response.request().method() === "POST");
+    await page.getByRole("button", { name: "Add provider", exact: true }).click();
+    const response = await created;
+    expect(response.ok()).toBeTruthy();
+    provider = await response.json();
+    expect(provider.protocol).toBe("anthropic");
+    await expect(page.locator("#providerList")).toContainText(`${name} · anthropic`);
+  } finally {
+    if (provider) {
+      const response = await request.post("/api/mobile/providers/delete", { headers: { Authorization: `Bearer ${token}` }, data: { id: provider.id, expected_name: name } });
+      expect(response.ok()).toBeTruthy();
+    }
+  }
+});

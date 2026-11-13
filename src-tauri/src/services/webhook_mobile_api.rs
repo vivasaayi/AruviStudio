@@ -168,6 +168,7 @@ pub(crate) struct MobileCreateProviderRequest {
     name: String,
     base_url: String,
     api_key: Option<String>,
+    protocol: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -926,7 +927,7 @@ pub(crate) async fn mobile_create_provider(State(state): State<WebhookState>, he
     if name.is_empty() || !url.as_ref().is_ok_and(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some() && url.username().is_empty() && url.password().is_none()) {
         return (StatusCode::BAD_REQUEST, "A name and valid HTTP(S) base URL are required").into_response();
     }
-    model_action(&state, "create_provider", serde_json::json!({"name": name, "provider_type": "openai_compatible", "base_url": body.base_url.trim(), "auth_secret_ref": body.api_key})).await
+    model_action(&state, "create_provider", serde_json::json!({"name": name, "provider_type": "openai_compatible", "base_url": body.base_url.trim(), "auth_secret_ref": body.api_key, "protocol": body.protocol.unwrap_or_else(|| "openai_compatible".into())})).await
 }
 
 pub(crate) async fn mobile_list_models(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {

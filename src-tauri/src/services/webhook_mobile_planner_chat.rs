@@ -1,7 +1,6 @@
 use crate::persistence::{model_repo, planner_repo};
-use crate::providers::openai_compatible::OpenAiCompatibleProvider;
+use crate::services::model_service::create_gateway;
 use crate::providers::types::ChatMessage;
-use crate::secrets;
 use crate::services::webhook_bridge::ensure_mobile_api_authorized;
 use crate::services::webhook_mobile_model::{
     resolve_mobile_chat_model_name, resolve_mobile_chat_provider_id,
@@ -147,8 +146,8 @@ pub(crate) async fn mobile_submit_planner_chat_turn(
         }
         Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
     };
-    let api_key = match secrets::resolve_provider_secret(&provider) {
-        Ok(api_key) => api_key,
+    let gateway = match create_gateway(&provider) {
+        Ok(gateway) => gateway,
         Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
     };
     let existing_session =
@@ -192,11 +191,10 @@ pub(crate) async fn mobile_submit_planner_chat_turn(
     {
         return (StatusCode::BAD_REQUEST, error.to_string()).into_response();
     }
-    let gateway = OpenAiCompatibleProvider::new(provider.base_url.clone(), api_key);
     match run_mobile_planner_chat_turn(
         &state.app_state,
         MobilePlannerChatTurnInput {
-            gateway: &gateway,
+            gateway: gateway.as_ref(),
             provider: &provider,
             session_id,
             provider_id,

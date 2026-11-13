@@ -101,12 +101,20 @@ provider hosting into the model-host service as part of this work.
 - Studio's desktop streaming path still uses its prior implementation. Native
   Anthropic is implemented in the shared crate for text, with simulated HTTP tests
   for request mapping, usage, unsupported roles and redirect credential protection.
-  Studio does not yet route providers to it. An additive protocol column now
+  Studio now routes non-streaming MCP, web chat, planner, agent and desktop
+  completion calls through a protocol-selected gateway. An additive protocol column
   preserves existing providers, models, secrets and agent bindings without rebuilding
   the tables; an upgrade test and 148 Studio Rust tests passed (one live test
   ignored). After upgrading the branch container, MCP connectivity and a real
-  `smol-metal-test` completion still succeeded. Selection and routing still need
-  implementation. Live Anthropic access,
+  `smol-metal-test` completion still succeeded. MCP and the web provider form can
+  create an Anthropic provider; a simulated Messages endpoint verified MCP and
+  authenticated web chat, including Anthropic headers and token usage. A browser
+  test created and removed an Anthropic provider; the current run passed 149 Rust
+  tests (one ignored), 20 isolated remote UI tests, one CI test and 19 workflow
+  tests. MCP also completed another real request to the native Model Host.
+  Claude requires an explicitly configured key. Desktop
+  streaming explicitly rejects Anthropic until supported; desktop provider setup,
+  protocol edits, live Anthropic access,
   shared-library streaming, provider selection, durable versioning, and broader
   voice validation remain open.
 

@@ -1,10 +1,8 @@
 use crate::error::AppError;
 use crate::persistence::{model_call_repo, model_repo, settings_repo};
 use crate::planning_doctrine;
-use crate::providers::gateway::ModelGateway;
-use crate::providers::openai_compatible::OpenAiCompatibleProvider;
+use crate::services::model_service::create_gateway;
 use crate::providers::types::{ChatMessage, CompletionRequest};
-use crate::secrets;
 use sqlx::SqlitePool;
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -95,8 +93,7 @@ pub(crate) async fn run_completion(
     context: PlannerModelCallContext<'_>,
 ) -> Result<String, AppError> {
     let provider = model_repo::get_provider(db, provider_id).await?;
-    let api_key = secrets::resolve_provider_secret(&provider)?;
-    let gateway = OpenAiCompatibleProvider::new(provider.base_url.clone(), api_key);
+    let gateway = create_gateway(&provider)?;
     let started = Instant::now();
     let response = match gateway
         .run_completion(CompletionRequest {

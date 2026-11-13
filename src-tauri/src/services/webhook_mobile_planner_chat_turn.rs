@@ -1,6 +1,5 @@
 use crate::persistence::planner_repo;
 use crate::providers::gateway::ModelGateway;
-use crate::providers::openai_compatible::OpenAiCompatibleProvider;
 use crate::providers::types::{ChatMessage, CompletionRequest};
 use crate::services::webhook_mobile_planner_chat_support::{
     build_mobile_planner_system_prompt, extract_json_payload, non_zero_token_count,
@@ -33,7 +32,7 @@ pub(crate) struct MobilePlannerChatTurnResponse {
 }
 
 pub(crate) struct MobilePlannerChatTurnInput<'a> {
-    pub(crate) gateway: &'a OpenAiCompatibleProvider,
+    pub(crate) gateway: &'a dyn ModelGateway,
     pub(crate) provider: &'a crate::domain::model::ModelProvider,
     pub(crate) session_id: String,
     pub(crate) provider_id: String,

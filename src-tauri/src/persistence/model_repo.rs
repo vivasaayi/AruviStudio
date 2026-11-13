@@ -27,8 +27,23 @@ pub async fn create_provider(
     base_url: &str,
     auth_secret_ref: Option<&str>,
 ) -> Result<ModelProvider, AppError> {
-    sqlx::query_as::<_, ModelProvider>("INSERT INTO model_providers (id,name,provider_type,base_url,auth_secret_ref,enabled,created_at,updated_at) VALUES (?,?,?,?,?,1,datetime('now'),datetime('now')) RETURNING id,name,provider_type,protocol,base_url,auth_secret_ref,enabled,created_at,updated_at")
-        .bind(id).bind(name).bind(provider_type).bind(base_url).bind(auth_secret_ref)
+    create_provider_with_protocol(pool, id, name, provider_type, base_url, auth_secret_ref, "openai_compatible").await
+}
+
+pub fn validate_provider_protocol(provider_type: &str, protocol: &str) -> Result<(), AppError> {
+    match (provider_type, protocol) {
+        ("openai_compatible", "openai_compatible" | "anthropic") | ("local_runtime", "openai_compatible") => Ok(()),
+        _ => Err(AppError::Validation("Unsupported provider type and protocol combination".into())),
+    }
+}
+
+pub async fn create_provider_with_protocol(
+    pool: &SqlitePool, id: &str, name: &str, provider_type: &str, base_url: &str,
+    auth_secret_ref: Option<&str>, protocol: &str,
+) -> Result<ModelProvider, AppError> {
+    validate_provider_protocol(provider_type, protocol)?;
+    sqlx::query_as::<_, ModelProvider>("INSERT INTO model_providers (id,name,provider_type,base_url,auth_secret_ref,protocol,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,1,datetime('now'),datetime('now')) RETURNING id,name,provider_type,protocol,base_url,auth_secret_ref,enabled,created_at,updated_at")
+        .bind(id).bind(name).bind(provider_type).bind(base_url).bind(auth_secret_ref).bind(protocol)
         .fetch_one(pool).await.map_err(|e| e.into())
 }
 

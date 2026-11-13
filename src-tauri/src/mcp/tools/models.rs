@@ -4,8 +4,7 @@ use crate::commands::model_commands::{
 use crate::domain::model::ProviderType;
 use crate::error::AppError;
 use crate::persistence::{model_call_repo, model_repo};
-use crate::providers::gateway::ModelGateway;
-use crate::providers::openai_compatible::OpenAiCompatibleProvider;
+use crate::services::model_service::create_gateway;
 use crate::providers::types::{ChatMessage, CompletionRequest};
 use crate::secrets;
 use crate::state::AppState;
@@ -26,19 +25,23 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             action_result("read_model_call_snapshot", crate::commands::model_commands::read_snapshot_for_state(state, &id, &kind, Some(1024 * 1024)).await?)
         }
         "create_provider" => {
+            let provider_type = args.string_or_default(&["provider_type", "providerType"], "openai_compatible")?;
+            let protocol = args.string_or_default(&["protocol"], "openai_compatible")?;
+            model_repo::validate_provider_protocol(&provider_type, &protocol)?;
             let id = uuid::Uuid::new_v4().to_string();
             let stored_secret_ref = secrets::store_provider_secret(
                 &id,
                 args.optional_string(&["auth_secret_ref", "authSecretRef"])?
                     .as_deref(),
             )?;
-            let provider = model_repo::create_provider(
+            let provider = model_repo::create_provider_with_protocol(
                 &state.db,
                 &id,
                 &args.required_string(&["name"], "name")?,
-                &args.string_or_default(&["provider_type", "providerType"], "openai_compatible")?,
+                &provider_type,
                 &args.required_string(&["base_url", "baseUrl"], "base_url")?,
                 stored_secret_ref.as_deref(),
+                &protocol,
             )
             .await?;
             action_result("create_provider", provider)
@@ -131,8 +134,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                     model_path.display()
                 )
             } else {
-                let api_key = secrets::resolve_provider_secret(&provider)?;
-                let gateway = OpenAiCompatibleProvider::new(provider.base_url.clone(), api_key);
+                let gateway = create_gateway(&provider)?;
                 match gateway.health_check().await {
                     Ok(true) => "Connection successful".to_string(),
                     Ok(false) => "Connection failed - server responded but not healthy".to_string(),
@@ -227,8 +229,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let provider_id =
                 args.required_string(&["provider_id", "providerId"], "provider_id")?;
             let provider = model_repo::get_provider(&state.db, &provider_id).await?;
-            let api_key = secrets::resolve_provider_secret(&provider)?;
-            let gateway = OpenAiCompatibleProvider::new(provider.base_url.clone(), api_key);
+            let gateway = create_gateway(&provider)?;
             let model = args.required_string(&["model"], "model")?;
             let messages =
                 args.required_deserialize::<Vec<ChatMessage>>(&["messages"], "messages")?;
