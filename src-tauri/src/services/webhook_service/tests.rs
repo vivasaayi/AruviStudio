@@ -50,6 +50,43 @@ fn parse_json(body: &str) -> Value {
 }
 
 #[tokio::test]
+async fn remote_planner_draft_edits_are_authenticated_and_persisted() {
+    use crate::services::planner_service::{apply_actions_to_draft, create_planner_session, persist_draft_state};
+    use crate::services::planner_action_parser::normalize_planner_action;
+    let app: tauri::App<MockRuntime> = make_test_app("remote_planner_draft_edits").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "draft-test-token").await.unwrap();
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let action = normalize_planner_action(json!({"type":"create_product", "name":"Test product"})).unwrap();
+    let draft = apply_actions_to_draft(None, None, &[action]).unwrap();
+    let root = draft.nodes[0].id.clone();
+    {
+        let mut service = state.planner_service.lock().await;
+        let mut loaded = service.get_session(&session.session_id).unwrap();
+        loaded.draft_plan = Some(draft.clone());
+        service.save_session(&session.session_id, loaded);
+    }
+    persist_draft_state(&state.db, &session.session_id, Some(&draft), None).await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let base = format!("/api/mobile/planner/sessions/{}/draft", session.session_id);
+    let payload = json!({"node_id":root,"name":"Renamed product"});
+    let (status, _) = send_json(&router, Method::POST, &format!("{base}/rename"), None, Some(payload.clone())).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, body) = send_json(&router, Method::POST, &format!("{base}/rename"), Some("draft-test-token"), Some(payload)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(parse_json(&body)["draft_tree_nodes"][0]["label"], "Renamed product");
+    let (status, body) = send_json(&router, Method::POST, &format!("{base}/add"), Some("draft-test-token"), Some(json!({"node_id":root,"name":"Area","child_type":"product_area"}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let child = parse_json(&body)["selected_draft_node_id"].as_str().unwrap().to_string();
+    let (status, body) = send_json(&router, Method::POST, &format!("{base}/delete"), Some("draft-test-token"), Some(json!({"node_id":child}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let persisted = crate::persistence::planner_repo::get_session(&state.db, &session.session_id).await.unwrap();
+    let persisted_draft: Value = serde_json::from_str(persisted.draft_plan_json.as_deref().unwrap()).unwrap();
+    assert_eq!(persisted_draft["nodes"].as_array().unwrap().len(), 1);
+    assert_eq!(persisted_draft["nodes"][0]["name"], "Renamed product");
+}
+
+#[tokio::test]
 async fn health_reports_database_availability() {
     let app: tauri::App<MockRuntime> = make_test_app("remote_database_health").await;
     let state = app.state::<AppState>().inner().clone();

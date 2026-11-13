@@ -123,6 +123,35 @@ pub(crate) struct MobilePlannerSessionRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub(crate) struct MobilePlannerDraftRequest {
+    node_id: String,
+    name: Option<String>,
+    child_type: Option<String>,
+    summary: Option<String>,
+}
+
+pub(crate) async fn mobile_edit_planner_draft(
+    State(state): State<WebhookState>,
+    headers: HeaderMap,
+    Path((session_id, action)): Path<(String, String)>,
+    Json(body): Json<MobilePlannerDraftRequest>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await {
+        return response;
+    }
+    let (action, arguments) = match action.as_str() {
+        "rename" => ("rename_planner_draft_node", serde_json::json!({"session_id":session_id,"node_id":body.node_id,"name":body.name})),
+        "add" => ("add_planner_draft_child", serde_json::json!({"session_id":session_id,"parent_node_id":body.node_id,"name":body.name,"child_type":body.child_type,"summary":body.summary})),
+        "delete" => ("delete_planner_draft_node", serde_json::json!({"session_id":session_id,"node_id":body.node_id})),
+        _ => return (StatusCode::NOT_FOUND, "Unknown draft action").into_response(),
+    };
+    match crate::mcp::dispatch_tool(&state.app_state, "aruvi_planner", serde_json::json!({"action":action,"arguments":arguments})).await {
+        Ok(value) => Json(value["result"].clone()).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
 pub(crate) struct ModelCallListQuery {
     limit: Option<i64>,
 }

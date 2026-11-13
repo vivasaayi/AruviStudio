@@ -31,8 +31,9 @@ not establish that all desktop behavior is available or works in a container.
 
 ### Audit findings before merge
 
-- Planner draft rename, add, delete and repository analysis are available through
-  shared Rust services and MCP but lack browser controls. Concurrent draft edits
+- Planner draft rename, add and delete now have browser controls backed by the same
+  Rust services used by desktop and MCP. Repository analysis still lacks browser
+  controls. Concurrent draft edits
   require an explicit safety design and tests.
 - Real model and transcription providers, physical microphone and speech playback,
   and a real Aruvici connection have not been validated. Automated workflow and CI
@@ -66,7 +67,7 @@ handlers. An available handler is not evidence of a successful real-model workfl
 | Create or update a planner session and choose provider/model | Browser connection settings create/update a session; `aruvi_planner` provides both operations. |
 | Submit a planner turn with selected draft node and product | Browser presents a product selector and sends its selected node and product; MCP accepts both. Tests simulate planner responses; real-provider behavior remains unverified. |
 | Select and inspect the staged draft tree | Browser renders/selects nodes; desktop additionally shows node details, validation, suggested prompts and recent actions. |
-| Rename a draft node, add a child or delete a draft node | Available through `aruvi_planner`; the browser has no equivalent controls. |
+| Rename a draft node, add a child or delete a draft node | Browser and `aruvi_planner` expose these operations. An isolated Docker browser test exercised the real authenticated API and verified the actual product remained unchanged; a Rust API test checked draft persistence. Multi-client safety remains unverified. |
 | Analyze a registered repository into a design draft | Available through `aruvi_planner`; the browser has no equivalent control. Container paths and actual provider access still need validation. |
 | Confirm or clear a staged design | Browser and MCP expose both; failure, conflict and multi-client behavior require further validation. |
 | Export and reveal a design-review packet | Desktop builds an HTML packet and uses a native file/reveal flow. No equivalent browser/MCP action was found. |

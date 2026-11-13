@@ -69,6 +69,7 @@ pub async fn submit_planner_turn(
             session.selected_draft_node_id.as_deref(),
         )
         .await?;
+        planner_service.lock().await.save_session(&session_id, session.clone());
     }
 
     let selected_product = if let Some(product_id) = selected_product_id.as_deref() {
@@ -108,6 +109,8 @@ pub async fn submit_planner_turn(
             session.selected_draft_node_id.as_deref(),
         )
         .await?;
+        // The model call can fail after seeding; keep the cached draft in sync.
+        planner_service.lock().await.save_session(&session_id, session.clone());
     }
 
     let mut plan = if let (Some(provider_id), Some(model_name)) =

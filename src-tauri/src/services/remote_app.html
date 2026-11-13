@@ -480,6 +480,15 @@
                 </div>
                 <div class="panel-body">
                   <div class="tree" id="draftTree"></div>
+                  <div class="empty">Use one client per planner session while editing; concurrent edits can overwrite each other.</div>
+                  <label><span class="label">Draft node name</span><input id="draftNodeName" placeholder="Name for rename or new child" /></label>
+                  <label><span class="label">New child type</span><select id="draftChildType"><option value="product_area">Product area</option><option value="capability">Capability</option><option value="work_item">Work item</option></select></label>
+                  <label><span class="label">New child summary (optional)</span><input id="draftChildSummary" /></label>
+                  <div class="button-row">
+                    <button type="button" class="secondary" id="renameDraftNodeButton">Rename selected</button>
+                    <button type="button" class="secondary" id="addDraftChildButton">Add child</button>
+                    <button type="button" class="secondary" id="deleteDraftNodeButton">Delete selected</button>
+                  </div>
                 </div>
               </section>
             </aside>
@@ -935,6 +944,12 @@
       refreshPlannerProductsButton: document.getElementById("refreshPlannerProductsButton"),
       connectionMeta: document.getElementById("connectionMeta"),
       draftTree: document.getElementById("draftTree"),
+      draftNodeName: document.getElementById("draftNodeName"),
+      draftChildType: document.getElementById("draftChildType"),
+      draftChildSummary: document.getElementById("draftChildSummary"),
+      renameDraftNodeButton: document.getElementById("renameDraftNodeButton"),
+      addDraftChildButton: document.getElementById("addDraftChildButton"),
+      deleteDraftNodeButton: document.getElementById("deleteDraftNodeButton"),
       refreshProductsButton: document.getElementById("refreshProductsButton"),
       createProductForm: document.getElementById("createProductForm"),
       createProductButton: document.getElementById("createProductButton"),
@@ -1157,6 +1172,8 @@
       el.plannerProductSelect.disabled = nextBusy || plannerProductsLoading || !plannerProductsReady;
       el.refreshPlannerProductsButton.disabled = nextBusy || plannerProductsLoading;
       el.draftTree.querySelectorAll("button").forEach((button) => { button.disabled = nextBusy; });
+      const hasSelectedDraftNode = (nodes) => nodes.some((node) => node.id === state.selectedNodeId || hasSelectedDraftNode(node.children || []));
+      [el.renameDraftNodeButton, el.addDraftChildButton, el.deleteDraftNodeButton].forEach((button) => { button.disabled = nextBusy || !state.sessionId || !hasSelectedDraftNode(state.draftTreeNodes); });
       el.clearButton.disabled = nextBusy || !state.sessionId;
       el.editWorkButton.disabled = nextBusy || !state.delivery || state.delivery.work_item.id !== state.selectedWorkItemId;
       el.approveWorkButton.disabled = nextBusy || !state.selectedWorkItemId;
@@ -1463,6 +1480,7 @@
           state.selectedNodeId = node.id;
           localStorage.setItem(storageKeys.selectedNode, state.selectedNodeId);
           renderDraftTree();
+          setBusy(state.busy);
         };
 
         const title = document.createElement("div");
@@ -1507,6 +1525,27 @@
       appendMessage(target || el.conversation, "assistant", lines.join("\n"));
       renderDraftTree();
       updateSessionStatus();
+    }
+
+    async function editDraftNode(action) {
+      if (state.busy || !state.sessionId || !state.selectedNodeId) return;
+      const nodeId = state.selectedNodeId;
+      const name = el.draftNodeName.value.trim();
+      if (action !== "delete" && !name) { setStatus("Enter a draft node name", "warn"); return; }
+      if (action === "delete" && !window.confirm("Delete the selected draft node and its children?")) return;
+      try {
+        setBusy(true);
+        setStatus("Updating draft...", "warn");
+        const response = await request("/api/mobile/planner/sessions/" + encodeURIComponent(state.sessionId) + "/draft/" + action, {
+          method: "POST", body: { node_id: nodeId, name, child_type: el.draftChildType.value, summary: el.draftChildSummary.value.trim() || null }
+        });
+        state.selectedNodeId = response.selected_draft_node_id || "";
+        if (!state.selectedNodeId) localStorage.removeItem(storageKeys.selectedNode);
+        applyPlannerResponse(response, el.conversation);
+        el.draftNodeName.value = "";
+        setStatus("Draft updated", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { setBusy(false); }
     }
 
     async function ensureSession() {
@@ -1564,6 +1603,7 @@
       state.selectedNodeId = "";
       localStorage.removeItem(storageKeys.selectedNode);
       renderDraftTree();
+      setBusy(state.busy);
     });
     el.refreshPlannerProductsButton.addEventListener("click", loadPlannerProducts);
 
@@ -3650,6 +3690,9 @@
     el.tabs.forEach((button) => {
       button.addEventListener("click", () => switchTab(button.dataset.tab));
     });
+    el.renameDraftNodeButton.addEventListener("click", () => void editDraftNode("rename"));
+    el.addDraftChildButton.addEventListener("click", () => void editDraftNode("add"));
+    el.deleteDraftNodeButton.addEventListener("click", () => void editDraftNode("delete"));
     el.saveButton.addEventListener("click", () => { saveSettings(); if (state.activeTab === "planner") void loadPlannerProducts(); });
     el.copyLinkButton.addEventListener("click", copySetupLink);
     el.healthButton.addEventListener("click", checkHealth);

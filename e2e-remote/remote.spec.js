@@ -78,6 +78,72 @@ test("planner locks product and draft selection while a turn is pending", async 
   await expect(page.getByRole("button", { name: "Draft node" })).toBeEnabled();
 });
 
+test("planner offers draft rename, add and delete controls", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("aruvi.remote.token", "synthetic-token"));
+  await page.route("**/api/mobile/products", (route) => route.fulfill({ json: [] }));
+  await page.route("**/api/mobile/planner/sessions", (route) => route.fulfill({ json: { session_id: "draft-session" } }));
+  await page.route("**/api/mobile/planner/sessions/*/turn", (route) => route.fulfill({ json: { session_id: "draft-session", assistant_message: "Ready", draft_tree_nodes: [{ id: "root", label: "Product", node_type: "product" }] } }));
+  const edits = [];
+  await page.route("**/api/mobile/planner/sessions/*/draft/*", (route) => {
+    const action = route.request().url().split("/").pop();
+    edits.push({ action, body: route.request().postDataJSON() });
+    const label = action === "rename" ? "Renamed" : "Product";
+    const children = action === "add" ? [{ id: "child", label: "Area", node_type: "product_area" }] : [];
+    return route.fulfill({ json: { session_id: "draft-session", assistant_message: "Updated", selected_draft_node_id: action === "add" ? "child" : "root", draft_tree_nodes: [{ id: "root", label, node_type: "product", children }] } });
+  });
+  await page.goto("/remote");
+  await expect(page.locator("#plannerProductSelect")).toBeEnabled();
+  await page.locator("#composer").fill("Create draft");
+  await page.locator("#sendButton").click();
+  await page.locator("#draftTree button").first().click();
+  await page.getByLabel("Draft node name").fill("Renamed");
+  await page.getByRole("button", { name: "Rename selected" }).click();
+  await expect(page.locator("#draftTree")).toContainText("Renamed");
+  await page.getByLabel("Draft node name").fill("Area");
+  await page.getByRole("button", { name: "Add child" }).click();
+  await expect(page.locator("#draftTree")).toContainText("Area");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Delete selected" }).click();
+  await expect.poll(() => edits.length).toBe(3);
+  expect(edits.map((edit) => edit.action)).toEqual(["rename", "add", "delete"]);
+  expect(edits[2].body.node_id).toBe("child");
+});
+
+test("browser edits a real planner draft through the authenticated API", async ({ page, request }) => {
+  test.skip(!token || !mcpToken || !process.env.ARUVI_TEST_REPOSITORY_PATH, "Requires an isolated fixture");
+  const headers = { Authorization: `Bearer ${token}` };
+  const created = await request.post("/api/mobile/products", { headers, data: { name: `Planner fixture ${Date.now()}` } });
+  expect(created.status()).toBe(201);
+  const product = await created.json();
+  try {
+    await page.goto("/remote");
+    await page.locator("#tokenInput").fill(token);
+    await page.locator("#saveButton").click();
+    await expect(page.locator("#plannerProductSelect option").filter({ hasText: product.name })).toHaveCount(1);
+    await page.locator("#plannerProductSelect").selectOption(product.id);
+    await page.locator("#composer").fill("Show the current plan");
+    await page.locator("#sendButton").click();
+    await expect(page.locator("#draftTree")).toContainText(product.name);
+    await page.locator("#draftTree button").first().click();
+    await page.getByLabel("Draft node name").fill("Renamed draft");
+    const renameResponse = page.waitForResponse((response) => response.url().endsWith("/draft/rename"));
+    await page.getByRole("button", { name: "Rename selected" }).click();
+    const renamed = await renameResponse;
+    expect(renamed.status(), await renamed.text()).toBe(200);
+    await expect(page.locator("#draftTree")).toContainText("Renamed draft");
+    await page.getByLabel("Draft node name").fill("Draft area");
+    await page.getByRole("button", { name: "Add child" }).click();
+    await expect(page.locator("#draftTree")).toContainText("Draft area");
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "Delete selected" }).click();
+    await expect(page.locator("#draftTree")).not.toContainText("Draft area");
+    const unchanged = await request.get(`/api/mobile/products/${product.id}/tree`, { headers });
+    expect(JSON.stringify(await unchanged.json())).toContain(product.name);
+  } finally {
+    await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_catalog", arguments: { action: "archive_product", arguments: { id: product.id } } } } });
+  }
+});
+
 test("CI view reports an offline service and renders service data safely", async ({ page, request }) => {
   test.skip(!token, "Set ARUVI_MOBILE_API_TOKEN for a running remote server");
   expect((await request.get("/api/mobile/ci/status")).status()).toBe(401);
