@@ -245,6 +245,12 @@ provider hosting into the model-host service as part of this work.
   branch deployment passed a real Model Host coding request through MCP.
   Behavior follows the [Anthropic stop-reason reference](https://platform.claude.com/docs/en/build-with-claude/handling-stop-reasons).
 
+- OpenAI-compatible clients now reject reported token truncation, content filtering,
+  tool calls and unknown finish reasons for JSON, buffered SSE and live streams.
+  Missing or null reasons remain accepted for compatible hosts. This follows the
+  [OpenAI Chat Completion reference](https://developers.openai.com/api/reference/resources/chat).
+  The shared-client tests cover these outcomes, including partial stream callbacks.
+
 ## Open design questions
 
 - Decide whether to move the Git-pinned client to a separately maintained

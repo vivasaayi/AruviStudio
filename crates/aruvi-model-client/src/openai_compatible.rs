@@ -107,9 +107,21 @@ impl OpenAiCompatibleClient {
     fn reject_non_text_choice(choice: &serde_json::Value, field: &str) -> Result<(), ClientError> {
         let message = choice.get(field);
         if message.and_then(|value| value.get("tool_calls")).is_some_and(|value| value.as_array().map_or(!value.is_null(), |calls| !calls.is_empty()))
-            || message.and_then(|value| value.get("function_call")).is_some_and(|value| !value.is_null())
-            || choice.get("finish_reason").and_then(|value| value.as_str()).is_some_and(|value| value == "tool_calls" || value == "function_call") {
+            || message.and_then(|value| value.get("function_call")).is_some_and(|value| !value.is_null()) {
             return Err(ClientError::Provider("Model tool-use responses are not supported by the text client".into()));
+        }
+        // Some compatible servers omit the field, and intermediate stream
+        // chunks use null. Reject non-complete outcomes when they are supplied.
+        match choice.get("finish_reason") {
+            None | Some(serde_json::Value::Null) => {},
+            Some(serde_json::Value::String(reason)) => match reason.as_str() {
+                "stop" => {},
+                "length" => return Err(ClientError::Provider("Model response was truncated by a token limit".into())),
+                "content_filter" => return Err(ClientError::Provider("Model response was filtered".into())),
+                "tool_calls" | "function_call" => return Err(ClientError::Provider("Model tool-use responses are not supported by the text client".into())),
+                _ => return Err(ClientError::Provider("Model returned an unsupported finish reason".into())),
+            },
+            Some(_) => return Err(ClientError::Provider("Invalid model finish reason".into())),
         }
         if message.and_then(|value| value.get("refusal")).is_some_and(|value| !value.is_null()) {
             return Err(ClientError::Provider("Model refused the request".into()));
@@ -536,6 +548,27 @@ mod tests {
             assert!(!error.contains("synthetic-secret"));
             server.join().unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn rejects_incomplete_finish_reasons_in_all_completion_modes() {
+        for reason in ["length", "content_filter", "tool_calls", "function_call", "future_unknown"] {
+            let body = serde_json::json!({"choices":[{"message":{"content":"partial"},"finish_reason":reason}]}).to_string();
+            let reply = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).into_bytes();
+            let (url, server) = reply_fixture(reply);
+            assert!(OpenAiCompatibleClient::new(url, None).run_completion(completion_request()).await.is_err());
+            server.join().unwrap();
+            let stream = format!("data: {{\"choices\":[{{\"delta\":{{\"content\":\"partial\"}},\"finish_reason\":null}}]}}\n\ndata: {{\"choices\":[{{\"delta\":{{}},\"finish_reason\":\"{reason}\"}}]}}\n\ndata: [DONE]\n\n");
+            assert!(OpenAiCompatibleClient::parse_sse_fallback(&stream).is_err());
+            let (result, emitted) = openai_stream_fixture(&stream).await;
+            assert!(result.is_err());
+            assert_eq!(emitted, ["partial"]);
+        }
+        for reason in [serde_json::json!("stop"), serde_json::Value::Null] {
+            let choice = serde_json::json!({"message":{"content":"ok"},"finish_reason":reason});
+            assert!(OpenAiCompatibleClient::reject_non_text_choice(&choice, "message").is_ok());
+        }
+        assert!(OpenAiCompatibleClient::reject_non_text_choice(&serde_json::json!({"finish_reason":1}), "message").is_err());
     }
 
     #[tokio::test]
