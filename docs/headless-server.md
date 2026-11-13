@@ -232,6 +232,13 @@ export ARUVI_MCP_API_TOKEN=replace-with-a-different-long-random-token
 `ARUVI_LLM_CONFIG_PATH` is useful on a headless Linux service because a desktop keychain may not
 be available. Restrict that file to the service account because it contains provider credentials.
 
+Keep the database and its sibling `-wal` and `-shm` files in a directory writable
+only by the service account and trusted administrators. The current bundled
+SQLite is affected by [RUSTSEC-2026-0459](https://rustsec.org/advisories/RUSTSEC-2026-0459.html)
+when a crafted database and WAL pair is opened. Do not point `ARUVI_DB_PATH` or
+the desktop database override at files supplied by an untrusted party. Directory
+permissions reduce the attack surface; they do not patch the vulnerability.
+
 ## systemd service
 
 Install the binary as `/usr/local/bin/aruvi-studio-server`, create a dedicated `aruvi` account,

@@ -355,6 +355,17 @@ provider hosting into the model-host service as part of this work.
   not reach the fixed version. SQLx supports dynamic SQLite linkage, but that
   requires a patched system library on every target and has not been adopted or
   verified here. See [SQLx SQLite linkage](https://docs.rs/crate/sqlx-sqlite/0.8.6).
+  A feature-tree check confirms this build selects `libsqlite3-sys/bundled`,
+  whose source declares SQLite 3.46.0. `bootstrap` opens `ARUVI_DB_PATH`, then
+  the saved desktop override, then the application data directory, and enables
+  WAL mode. In the running worktree container `/data` is owned by `aruvi`, mode
+  0755, so other container users cannot write the database directory; Docker
+  administrators and the owning service account still can. The isolated native
+  test data directory is mode 0700. These observations do not establish the
+  permissions of a user's desktop override or any other deployment, and they do
+  not fix the bundled SQLite vulnerability. Do not open untrusted database/WAL
+  pairs; protect both the database directory and override configuration until a
+  fixed SQLite is available in every shipped build.
 - [RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html)
   reports an RSA timing issue. `rsa` 0.9.10 appears in the lockfile, but `cargo
   tree --target all -i rsa` printed no path for Studio's selected features. This
