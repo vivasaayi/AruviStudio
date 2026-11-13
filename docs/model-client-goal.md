@@ -44,6 +44,19 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Dependency audit revalidation
+
+- On 2026-11-13, `npm audit` reported no advisories. `cargo-audit` against
+  Studio's current lockfile reported `RUSTSEC-2023-0071` for `rsa` 0.9.10, plus
+  13 unmaintained and six unsound warnings. `cargo tree --locked --offline
+  --target all -i rsa` showed no selected dependency path for the current
+  manifest features; this does not cover other feature combinations. The
+  separately pinned consumer lockfile reported no vulnerabilities or warnings.
+- The advisory database reported its last update as 2026-11-13 13:33:03 +01:00.
+  Audit results do not assess the locally patched SQLx SQLite source or prove
+  exploitability. The native desktop UI remains inaccessible to computer control;
+  this is not evidence of desktop parity.
+
 ## Native local Whisper inference
 
 - On 2026-11-13 Studio's local transcription service loaded the existing native
