@@ -320,6 +320,45 @@ pub(crate) async fn persist_draft_state(
     Ok(())
 }
 
+/// Persist a model proposal and its conversation together. The caller holds the
+/// per-session guard and updates the cache only after this transaction commits.
+pub(crate) async fn persist_proposal(
+    db: &SqlitePool,
+    session_id: &str,
+    plan: &PlannerPlan,
+    draft: Option<&PlannerDraftPlan>,
+    selected_draft_node_id: Option<&str>,
+    user_message: &str,
+    assistant_message: &str,
+) -> Result<(), AppError> {
+    let plan_json = serde_json::to_string(plan)?;
+    let draft_json = draft.map(serde_json::to_string).transpose()?;
+    let mut transaction = db.begin().await?;
+    let result = sqlx::query(
+        "UPDATE planner_sessions SET pending_plan_json = ?, draft_plan_json = ?, selected_draft_node_id = ?, updated_at = datetime('now') WHERE id = ?",
+    )
+    .bind(plan_json)
+    .bind(draft_json)
+    .bind(selected_draft_node_id)
+    .bind(session_id)
+    .execute(&mut *transaction)
+    .await?;
+    if result.rows_affected() != 1 {
+        return Err(AppError::NotFound(format!("Planner session {session_id} not found")));
+    }
+    for (role, content) in [("user", user_message), ("assistant", assistant_message)] {
+        sqlx::query("INSERT INTO planner_conversation_entries (id, session_id, role, content) VALUES (?, ?, ?, ?)")
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind(session_id)
+            .bind(role)
+            .bind(content)
+            .execute(&mut *transaction)
+            .await?;
+    }
+    transaction.commit().await?;
+    Ok(())
+}
+
 pub(crate) async fn persist_manual_draft_state(
     db: &SqlitePool,
     session_id: &str,

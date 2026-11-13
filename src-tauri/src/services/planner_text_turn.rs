@@ -8,7 +8,7 @@ use crate::services::planner_execution::execute_plan;
 use crate::services::planner_response::push_trace;
 use crate::services::planner_session::{
     append_conversation, get_or_load_session, lock_planner_session, persist_draft_state,
-    persist_pending_plan, PlannerConversationEntry, PlannerService,
+    persist_pending_plan, persist_proposal, PlannerConversationEntry, PlannerService,
 };
 use crate::services::planner_text_turn_commit::commit_confirmed_draft_plan;
 use crate::services::planner_text_turn_response::{
@@ -216,12 +216,6 @@ pub(crate) async fn submit_planner_turn_locked(
 
     let draft_tree_nodes = session_draft_tree_nodes(&session);
 
-    append_conversation(&state.db, &session_id, "user", &user_input).await?;
-    session.conversation.push(PlannerConversationEntry {
-        role: "user".to_string(),
-        content: user_input.clone(),
-    });
-
     if has_draft_mutations(&plan) {
         push_trace(
             &mut trace,
@@ -257,21 +251,14 @@ pub(crate) async fn submit_planner_turn_locked(
         ));
         session.draft_plan = Some(updated_draft.clone());
         session.pending_plan = Some(plan.clone());
-        persist_pending_plan(&state.db, &session_id, Some(&plan)).await?;
-        persist_draft_state(
-            &state.db,
-            &session_id,
-            Some(&updated_draft),
-            session.selected_draft_node_id.as_deref(),
-        )
-        .await?;
-        append_conversation(
-            &state.db,
-            &session_id,
-            "assistant",
-            &plan.assistant_response,
-        )
-        .await?;
+        persist_proposal(
+            &state.db, &session_id, &plan, Some(&updated_draft),
+            session.selected_draft_node_id.as_deref(), &user_input, &plan.assistant_response,
+        ).await?;
+        session.conversation.push(PlannerConversationEntry {
+            role: "user".to_string(),
+            content: user_input.clone(),
+        });
         session.conversation.push(PlannerConversationEntry {
             role: "assistant".to_string(),
             content: plan.assistant_response.clone(),
@@ -292,14 +279,14 @@ pub(crate) async fn submit_planner_turn_locked(
 
     if requires_confirmation(&plan) {
         session.pending_plan = Some(plan.clone());
-        persist_pending_plan(&state.db, &session_id, Some(&plan)).await?;
-        append_conversation(
-            &state.db,
-            &session_id,
-            "assistant",
-            &plan.assistant_response,
-        )
-        .await?;
+        persist_proposal(
+            &state.db, &session_id, &plan, session.draft_plan.as_ref(),
+            session.selected_draft_node_id.as_deref(), &user_input, &plan.assistant_response,
+        ).await?;
+        session.conversation.push(PlannerConversationEntry {
+            role: "user".to_string(),
+            content: user_input.clone(),
+        });
         session.conversation.push(PlannerConversationEntry {
             role: "assistant".to_string(),
             content: plan.assistant_response.clone(),
@@ -318,6 +305,12 @@ pub(crate) async fn submit_planner_turn_locked(
             trace_events: trace,
         }));
     }
+
+    append_conversation(&state.db, &session_id, "user", &user_input).await?;
+    session.conversation.push(PlannerConversationEntry {
+        role: "user".to_string(),
+        content: user_input.clone(),
+    });
 
     if plan.actions.is_empty() {
         let assistant_message = plan

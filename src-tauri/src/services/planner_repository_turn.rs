@@ -11,8 +11,8 @@ use crate::services::planner_repository_analysis::{
 use crate::services::planner_repository_annotation::annotate_repository_analysis_plan;
 use crate::services::planner_response::push_trace;
 use crate::services::planner_session::{
-    append_conversation, get_or_load_session, lock_planner_session, persist_draft_state,
-    persist_pending_plan, PlannerConversationEntry, PlannerService,
+    get_or_load_session, lock_planner_session, persist_draft_state, persist_proposal,
+    PlannerConversationEntry, PlannerService,
 };
 use crate::services::planner_turn_policy::{
     scope_plan_to_selected_product, seed_draft_with_product,
@@ -261,31 +261,14 @@ pub async fn analyze_repository_for_planner(
     )?;
     session.draft_plan = Some(updated_draft.clone());
     session.pending_plan = Some(plan.clone());
-    persist_pending_plan(db, &session_id, Some(&plan)).await?;
-    persist_draft_state(
-        db,
-        &session_id,
-        Some(&updated_draft),
-        session.selected_draft_node_id.as_deref(),
-    )
-    .await?;
-    append_conversation(
-        db,
-        &session_id,
-        "user",
-        &format!(
-            "Analyze repository {} into a design packet.",
-            repository.name
-        ),
-    )
-    .await?;
-    append_conversation(db, &session_id, "assistant", &plan.assistant_response).await?;
+    let user_message = format!("Analyze repository {} into a design packet.", repository.name);
+    persist_proposal(
+        db, &session_id, &plan, Some(&updated_draft), session.selected_draft_node_id.as_deref(),
+        &user_message, &plan.assistant_response,
+    ).await?;
     session.conversation.push(PlannerConversationEntry {
         role: "user".to_string(),
-        content: format!(
-            "Analyze repository {} into a design packet.",
-            repository.name
-        ),
+        content: user_message,
     });
     session.conversation.push(PlannerConversationEntry {
         role: "assistant".to_string(),

@@ -635,3 +635,40 @@ async fn failed_manual_draft_edits_preserve_pending_plan_and_draft() {
     assert_eq!(after.draft_plan_json, before.draft_plan_json);
     assert_eq!(after.selected_draft_node_id, before.selected_draft_node_id);
 }
+
+#[tokio::test]
+async fn failed_proposal_conversation_rolls_back_plan_and_draft() {
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("proposal_transaction_failure").await;
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let old_draft = apply_actions_to_draft(None, None, &normalize_actions(vec![
+        json!({"type":"create_product", "name":"Original draft"}),
+    ])).unwrap();
+    persist_draft_state(&state.db, &session.session_id, Some(&old_draft), None).await.unwrap();
+    let old_plan = json!({"assistant_response":"Old", "needs_confirmation":true, "clarification_question":null, "actions":[]}).to_string();
+    crate::persistence::planner_repo::update_pending_plan(&state.db, &session.session_id, Some(&old_plan)).await.unwrap();
+    let before = crate::persistence::planner_repo::get_session(&state.db, &session.session_id).await.unwrap();
+    let new_draft = apply_actions_to_draft(None, None, &normalize_actions(vec![
+        json!({"type":"create_product", "name":"New draft"}),
+    ])).unwrap();
+    let new_plan = crate::services::planner_types::PlannerPlan {
+        assistant_response: "New proposal".into(), needs_confirmation: true,
+        clarification_question: None, actions: vec![],
+    };
+    sqlx::query("CREATE TRIGGER fail_proposal_assistant BEFORE INSERT ON planner_conversation_entries WHEN NEW.role = 'assistant' BEGIN SELECT RAISE(ABORT, 'injected failure'); END")
+        .execute(&state.db).await.unwrap();
+    assert!(crate::services::planner_session::persist_proposal(
+        &state.db, &session.session_id, &new_plan, Some(&new_draft), None, "user request", "New proposal",
+    ).await.is_err());
+    let after = crate::persistence::planner_repo::get_session(&state.db, &session.session_id).await.unwrap();
+    assert_eq!(before.pending_plan_json, after.pending_plan_json);
+    assert_eq!(before.draft_plan_json, after.draft_plan_json);
+    assert!(crate::persistence::planner_repo::list_conversation_entries(&state.db, &session.session_id).await.unwrap().is_empty());
+    sqlx::query("DROP TRIGGER fail_proposal_assistant").execute(&state.db).await.unwrap();
+    crate::services::planner_session::persist_proposal(
+        &state.db, &session.session_id, &new_plan, Some(&new_draft), None, "user request", "New proposal",
+    ).await.unwrap();
+    let saved = crate::services::planner_session::load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    assert!(saved.draft_plan.unwrap().nodes.iter().any(|node| node.name == "New draft"));
+    assert_eq!(saved.conversation.iter().map(|entry| entry.content.as_str()).collect::<Vec<_>>(), ["user request", "New proposal"]);
+}

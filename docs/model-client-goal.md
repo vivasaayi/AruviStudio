@@ -44,6 +44,23 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Atomic model-driven planner proposals
+
+- Text-turn proposals, confirmation-requiring plans and repository-analysis
+  proposals now persist the pending plan, draft, selection and both conversation
+  entries in one SQLite transaction. An injected assistant-entry failure rolls
+  all of those writes back; a retry test verifies the complete proposal is saved.
+  If applying model actions to the draft fails, the user entry is no longer saved
+  alone. Selection and draft seeding before the model call, clarification/report
+  paths, voice-only handling and immediate external actions remain separate steps;
+  this is not a claim that every planner turn is crash-atomic.
+- The macOS Rust suite passed 193 tests with two live tests ignored. The rebuilt
+  worktree image passed the two-server planner fixture, browser suites (one smoke,
+  21 remote, one CI, 20 workflow), and real 7B browser repository analysis and
+  MCP confirmation. The live model made two calls with one format retry. Running
+  server SHA-256:
+  `98512849317912c4cd4d2b9b7876c18bdd194b69867916f6fbf3d1d916423937`.
+
 ## Atomic manual planner edits
 
 - Rename, add and delete draft operations now save the draft, selection and
