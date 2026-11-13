@@ -51,6 +51,12 @@ provider hosting into the model-host service as part of this work.
   retains its 8 MiB HTTP limit and compatibility with an omitted final blank
   separator; a `[DONE]` marker is still required. The 36 shared-client tests
   passed, including an HTTP response exercising the buffered fallback.
+- The independent consumer and documented Git dependency pin now target
+  `dced95c2204580d79ee1eb627aa94f938a64eae3`. Its 12 native, offline tests passed,
+  including a CR-delimited buffered HTTP fixture. Running the pinned consumer on
+  macOS against the native `qwen25-coder-7b-q4` Model Host passed discovery,
+  completion, streaming (two chunks), and token-limit checks. The independent
+  Docker build remains unverified for this revision because Docker is nearly full.
 
 ## Streaming parser checkpoint
 

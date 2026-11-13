@@ -13,6 +13,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn consumes_cr_delimited_buffered_completion() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0; 4096]; let _ = socket.read(&mut request).unwrap();
+            let body = "\u{feff}data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\r\rdata: [DONE]\r";
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+        });
+        let client = OpenAiCompatibleClient::new(format!("http://{address}"), None);
+        let result = client.run_completion(CompletionRequest { model: "fixture".into(), messages: vec![ChatMessage { role: "user".into(), content: "hello".into() }], temperature: None, max_tokens: Some(10) }).await.unwrap();
+        assert_eq!(result.content, "hello");
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
     async fn rejects_incomplete_buffered_completions() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
