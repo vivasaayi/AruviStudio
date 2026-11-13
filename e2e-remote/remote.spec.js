@@ -145,6 +145,12 @@ test("browser edits a real planner draft through the authenticated API", async (
     const packetText = Buffer.concat(packetHtml).toString("utf8");
     expect(packetText).toContain("Draft area");
     expect(packetText).toContain("Approval Section");
+    const review = await page.context().newPage();
+    await review.setContent(packetText);
+    await expect(review.locator('svg[aria-label="Staged design hierarchy"]')).toBeVisible();
+    await expect(review.getByRole("link", { name: "3. Proposed Architecture" })).toBeVisible();
+    await expect(review.locator("#section-3 ul").getByText("Draft area").first()).toBeVisible();
+    await review.close();
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "Delete selected" }).click();
     await expect(page.locator("#draftTree")).not.toContainText("Draft area");

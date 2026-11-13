@@ -174,6 +174,7 @@ export function usePlannerPageController() {
     exportDesignReviewPacket,
   } = usePlannerDesignPacketExport({
     queryClient,
+    sessionId,
     selectedProductId,
     productTrees,
     activeProductName,

@@ -51,6 +51,10 @@ test("planner supports deterministic create, refine, packet, and apply flow", as
 
   await page.getByRole("button", { name: "Generate Packet" }).click();
   await expect(page.getByText("Packet exported to /tmp/aruvi-e2e/")).toBeVisible();
+  const packetCalls = await page.evaluate(() => ({ build: window.__ARUVI_E2E__.getInvokeCalls("build_planner_review_packet_command"), save: window.__ARUVI_E2E__.getInvokeCalls("export_product_overview_html") }));
+  expect(packetCalls.build).toHaveLength(1);
+  expect(packetCalls.build[0].args.selectedNodeId).toBe("draft-work_item-implement-delivery-audit-timeline");
+  expect(packetCalls.save[0].args.html).toContain("Shared packet fixture");
 
   await page.getByTestId("draft-commit").click();
   await expect(page.getByText("Applied design to catalog.").first()).toBeVisible();

@@ -9,6 +9,14 @@ use crate::state::AppState;
 use tauri::State;
 
 #[tauri::command]
+pub async fn build_planner_review_packet_command(
+    state: State<'_, AppState>, session_id: String,
+    expected_nodes: Vec<crate::services::planner_types::PlannerTreeNode>, selected_node_id: Option<String>,
+) -> Result<crate::services::planner_review_packet::DesignReviewPacket, AppError> {
+    crate::services::planner_review_packet::build_desktop_review_packet(state.planner_service.clone(), &state.db, session_id, expected_nodes, selected_node_id).await
+}
+
+#[tauri::command]
 pub fn validate_planner_tree_command(
     nodes: Vec<crate::services::planner_types::PlannerTreeNode>,
 ) -> crate::services::planner_validation::DraftValidationSummary {

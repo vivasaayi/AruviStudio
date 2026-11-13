@@ -2,6 +2,7 @@ import { useState, type Dispatch, type SetStateAction } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 
 import {
+  buildPlannerReviewPacket,
   exportProductOverviewHtml,
   getProductTree,
 } from "../../../lib/tauri";
@@ -18,6 +19,7 @@ import type { DraftValidationSummary } from "../lib/plannerDraftTree";
 
 type PlannerDesignPacketExportInput = {
   queryClient: QueryClient;
+  sessionId: string | null;
   selectedProductId: string | null;
   productTrees: ProductTree[];
   activeProductName: string | null;
@@ -34,6 +36,7 @@ type PlannerDesignPacketExportInput = {
 
 export function usePlannerDesignPacketExport({
   queryClient,
+  sessionId,
   selectedProductId,
   productTrees,
   activeProductName,
@@ -59,32 +62,24 @@ export function usePlannerDesignPacketExport({
     try {
       setIsExportingDesignPacket(true);
       setDesignPacketError(null);
-      const exportProductTrees = selectedProductId
-        ? [
-            await queryClient.fetchQuery({
-              queryKey: ["plannerProductTree", selectedProductId],
-              queryFn: () => getProductTree(selectedProductId),
-            }),
-          ]
-        : productTrees;
-      const html = buildDesignReviewPacketHtml({
-        title: packetRootName,
-        generatedAt: new Date().toLocaleString(),
-        activeProductName,
-        currentProducts: products,
-        currentProductTrees: exportProductTrees,
-        currentWorkItems: workItems,
-        currentWorkItemsHasMore: plannerWorkItemsHasMore,
-        draftTreeNodes,
-        plan: latestDraftPlan,
-        validation: draftValidation,
-        selectedNode: selectedDraftNode,
-        latestAssistantText: latestAssistantMessage?.content ?? null,
-      });
-      const path = await exportProductOverviewHtml({
-        fileName: `${slugifyPacketName(packetRootName)}-design-review-packet.html`,
-        html,
-      });
+      let packet: { filename: string; html: string };
+      if (sessionId) {
+        packet = await buildPlannerReviewPacket(sessionId, draftTreeNodes, selectedDraftNode?.id ?? null);
+      } else {
+        const exportProductTrees = selectedProductId
+          ? [await queryClient.fetchQuery({ queryKey: ["plannerProductTree", selectedProductId], queryFn: () => getProductTree(selectedProductId) })]
+          : productTrees;
+        packet = {
+          filename: `${slugifyPacketName(packetRootName)}-design-review-packet.html`,
+          html: buildDesignReviewPacketHtml({
+            title: packetRootName, generatedAt: new Date().toLocaleString(), activeProductName,
+            currentProducts: products, currentProductTrees: exportProductTrees, currentWorkItems: workItems,
+            currentWorkItemsHasMore: plannerWorkItemsHasMore, draftTreeNodes, plan: latestDraftPlan,
+            validation: draftValidation, selectedNode: selectedDraftNode, latestAssistantText: latestAssistantMessage?.content ?? null,
+          }),
+        };
+      }
+      const path = await exportProductOverviewHtml({ fileName: packet.filename, html: packet.html });
       setDesignPacketPath(path);
       onAppendMessage((current) => [
         ...current,

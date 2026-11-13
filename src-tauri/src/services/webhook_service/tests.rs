@@ -81,6 +81,14 @@ async fn remote_planner_draft_edits_are_authenticated_and_persisted() {
     let empty_session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
     let empty_url = format!("/api/mobile/planner/sessions/{}/review-packet", empty_session.session_id);
     assert_eq!(send_json(&router, Method::GET, &empty_url, Some("draft-test-token"), None).await.0, StatusCode::BAD_REQUEST);
+    let snapshot = crate::services::planner_session::load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    let expected = crate::services::planner_draft::build_draft_tree_nodes(snapshot.draft_plan.as_ref().unwrap(), snapshot.selected_draft_node_id.as_deref());
+    let desktop = crate::services::planner_review_packet::build_desktop_review_packet(state.planner_service.clone(), &state.db, session.session_id.clone(), expected.clone(), Some(child.clone())).await.unwrap();
+    assert!(desktop.html.contains("&quot;selectedNode&quot;: &quot;Area&quot;"));
+    let mut stale = expected.clone();
+    stale[0].label = "Stale name".into();
+    assert!(crate::services::planner_review_packet::build_desktop_review_packet(state.planner_service.clone(), &state.db, session.session_id.clone(), stale, None).await.is_err());
+    assert!(crate::services::planner_review_packet::build_desktop_review_packet(state.planner_service.clone(), &state.db, session.session_id.clone(), expected, Some("missing-node".into())).await.is_err());
     let packet_url = format!("/api/mobile/planner/sessions/{}/review-packet", session.session_id);
     assert_eq!(send_json(&router, Method::GET, &packet_url, None, None).await.0, StatusCode::UNAUTHORIZED);
     let (status, body) = send_json(&router, Method::GET, &packet_url, Some("draft-test-token"), None).await;

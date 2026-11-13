@@ -7,6 +7,9 @@ import type {
   SpeechToTextResponse,
 } from "../types";
 
+export const buildPlannerReviewPacket = (sessionId: string, expectedNodes: unknown[], selectedNodeId: string | null) =>
+  invoke<{ filename: string; html: string }>("build_planner_review_packet_command", { sessionId, session_id: sessionId, expectedNodes, expected_nodes: expectedNodes, selectedNodeId, selected_node_id: selectedNodeId });
+
 export const validatePlannerTree = <T>(nodes: unknown[]) =>
   invoke<T>("validate_planner_tree_command", { nodes });
 

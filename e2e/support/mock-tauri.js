@@ -2014,6 +2014,8 @@
           return ok(analyzeRepositoryForPlanner(args || {}));
         case "browse_for_repository_path":
           return ok("/tmp/mock-repository");
+        case "build_planner_review_packet_command":
+          return ok({ filename: "shared-design-review-packet.html", html: "<!doctype html><h1>Shared packet fixture</h1>" });
         case "export_product_overview_html":
           return ok(`/tmp/aruvi-e2e/${getArg(args, "fileName", "file_name") ?? "export.html"}`);
         case "reveal_in_finder":

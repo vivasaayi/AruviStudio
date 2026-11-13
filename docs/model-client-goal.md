@@ -633,6 +633,22 @@ provider hosting into the model-host service as part of this work.
   coding and browser speech checks. Native desktop and Windows dependency paths
   remain unverified. No other products' data were pruned.
 
+## Shared desktop review packet checkpoint
+
+- Active desktop planner sessions now request the same backend packet used by
+  browser and MCP, then use the existing native file save/reveal flow. The
+  request includes the visible draft and selected node; the service rejects a
+  changed tree or missing selection instead of exporting a stale packet.
+- The packet now has section links, readable action summaries, and a self-contained
+  SVG hierarchy plus the full accessible tree. The diagram shows at most 100
+  nodes, while the full tree remains in the document. The older frontend renderer
+  is retained only for export without a session. Its Mermaid layout and historical
+  action summaries are not byte-for-byte identical to the shared output.
+- The frontend build, 90 frontend unit tests, four headless planner flows, and
+  174 Rust tests each on macOS and Linux passed (one live test ignored). A real
+  7B browser workflow generated and downloaded the packet before MCP confirmation.
+  The native desktop UI remains unverified because the Mac was locked.
+
 ## Browser and MCP design-review packet checkpoint
 
 - The Rust planner service can generate a standalone HTML review packet from a
@@ -643,9 +659,13 @@ provider hosting into the model-host service as part of this work.
   a server file. User-provided content is HTML-escaped; no external scripts are
   loaded. If manual edits have cleared the pending plan, the tree remains present
   and the packet explicitly notes that pending actions are unavailable.
-- Desktop retains a separate frontend renderer and native file/reveal behavior;
-  packet formatting, diagrams and some action summaries differ, so full export
-  parity and removal of the old renderer remain open. A real 7B browser fixture
+- Desktop now uses the shared backend renderer for active sessions and retains
+  native file/reveal behavior. A stale visible tree or missing selected node is
+  rejected before export. The old frontend renderer remains as a no-session
+  fallback. The shared renderer adds an offline SVG hierarchy, section navigation
+  and readable action summaries, but it differs from the older Mermaid styling
+  and cannot reconstruct pending action details after manual edits clear the plan.
+  Native UI verification and complete removal of the fallback remain open. A real 7B browser fixture
   analyzed a disposable repository, downloaded the packet, and confirmed the
   staged design through MCP. Tests cover authorization, missing drafts, HTML
   escaping, MCP output, browser download and unchanged catalog before apply.
