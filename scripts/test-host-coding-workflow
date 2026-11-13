@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run a real local coding workflow in a disposable Studio fixture container."""
+import argparse
 import json
 import os
 from pathlib import Path
@@ -10,7 +11,11 @@ import urllib.error
 import urllib.request
 
 root = Path(__file__).resolve().parent.parent
-host = Path(sys.argv[1] if len(sys.argv) > 1 else root.parent / "aruvi-model-host-studio-validation").resolve()
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("host", nargs="?", type=Path, default=root.parent / "aruvi-model-host-studio-validation")
+parser.add_argument("--scenario", choices=("new-module", "extend-module"), default="new-module")
+args = parser.parse_args()
+host = args.host.expanduser().resolve()
 container = None
 volume = None
 container_created = False
@@ -48,6 +53,10 @@ try:
     container_created = True
     subprocess.run(["docker", "exec", "-i", container, "sh", "-c", "umask 077; cat > /data/llm-config.json"], input=json.dumps({"refs": {"coding-fixture": token}}), text=True, check=True)
     command(["docker", "exec", container, "sh", "-c", 'mkdir -p /repositories/coding-fixture && git init -q -b main /repositories/coding-fixture && git -C /repositories/coding-fixture config user.name "Fixture" && git -C /repositories/coding-fixture config user.email "fixture@example.invalid" && printf "# Fixture\\n" > /repositories/coding-fixture/README.md && git -C /repositories/coding-fixture add README.md && git -C /repositories/coding-fixture commit -q -m initial && git init -q --bare /repositories/coding-origin.git && git -C /repositories/coding-fixture remote add origin /repositories/coding-origin.git && git -C /repositories/coding-fixture push -q -u origin main'])
+    if args.scenario == "extend-module":
+        original = "function sumEven(numbers) { return numbers.filter(n => n % 2 === 0).reduce((a, b) => a + b, 0); }\nmodule.exports = { sumEven };\n"
+        subprocess.run(["docker", "exec", "-i", container, "sh", "-c", "mkdir -p /repositories/coding-fixture/src && cat > /repositories/coding-fixture/src/math.js"], input=original, text=True, check=True)
+        command(["docker", "exec", container, "sh", "-c", "git -C /repositories/coding-fixture add src/math.js && git -C /repositories/coding-fixture commit -q -m 'Seed existing math module' && git -C /repositories/coding-fixture push -q origin main"])
     address = command(["docker", "port", container, "8787/tcp"]).splitlines()[0]
     if not address.startswith("127.0.0.1:"):
         raise ValueError("Fixture endpoint is not loopback-only")
@@ -79,7 +88,15 @@ try:
     product = call("aruvi_catalog", "create_product", {"name": "Disposable real coding evaluation"})
     repo = call("aruvi_repositories", "register_repository", {"name": "Coding fixture", "local_path": "/repositories/coding-fixture", "default_branch": "main"})
     call("aruvi_repositories", "attach_repository", {"scope_type": "product", "scope_id": product["id"], "repository_id": repo["id"], "is_default": True})
-    item = call("aruvi_work_items", "create_work_item", {"product_id": product["id"], "title": "Add sumEven", "description": "Create src/math.js containing function sumEven(numbers) that returns the sum of even integers, and export it as module.exports = { sumEven }. Return 0 for an empty array.", "work_item_type": "task"})
+    if args.scenario == "extend-module":
+        title = "Extend existing math module"
+        description = ("Edit the existing src/math.js. Preserve sumEven and add clamp(value, min, max). "
+                       "Return min if value is below min, max if above max, otherwise return value. "
+                       "Throw RangeError if min is greater than max. Export both functions through module.exports.")
+    else:
+        title = "Add sumEven"
+        description = "Create src/math.js containing function sumEven(numbers) that returns the sum of even integers, and export it as module.exports = { sumEven }. Return 0 for an empty array."
+    item = call("aruvi_work_items", "create_work_item", {"product_id": product["id"], "title": title, "description": description, "work_item_type": "task"})
     call("aruvi_checkpoints", "approve_work_item", {"work_item_id": item["id"]})
     run_id = call("aruvi_workflows", "start_work_item_workflow", {"work_item_id": item["id"]})["workflow_run_id"]
     run = call("aruvi_workflows", "get_workflow_run", {"workflow_run_id": run_id})
@@ -102,7 +119,10 @@ try:
     print_coding_trace()
     file = call("aruvi_repositories", "read_repository_file", {"repository_id": repo["id"], "relative_path": "src/math.js"})
     code = file["content"]
-    assertions = "\nconst assert = require('node:assert/strict'); const f = module.exports.sumEven; assert.equal(f([1,2,3,4,-2]),4); assert.equal(f([]),0); console.log('generated code passed');\n"
+    assertions = "\nconst assert = require('node:assert/strict'); const f = module.exports.sumEven; assert.equal(f([1,2,3,4,-2]),4); assert.equal(f([]),0);\n"
+    if args.scenario == "extend-module":
+        assertions += "const c = module.exports.clamp; assert.equal(c(-5,0,10),0); assert.equal(c(5,0,10),5); assert.equal(c(12,0,10),10); assert.equal(c(2,2,2),2); assert.throws(() => c(3,9,1), RangeError);\n"
+    assertions += "console.log('generated code passed');\n"
     if not code or len(code.encode()) > 8192: raise ValueError("Generated file missing or oversized")
     check = subprocess.run(["docker", "run", "--rm", "-i", "--network", "none", "--read-only", "--memory", "256m", "--cpus", "1", "--pids-limit", "32", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", "65534:65534", "node:22-bookworm-slim", "node"], input=code+assertions, text=True, capture_output=True, timeout=30)
     if check.returncode:
@@ -112,7 +132,7 @@ try:
     if run["current_stage"] != "done": raise ValueError("Workflow did not finish")
     delivered = command(["docker", "exec", container, "git", "--git-dir=/repositories/coding-origin.git", "show", "main:src/math.js"])
     if delivered.strip() != code.strip(): raise ValueError("The disposable Git remote does not contain the verified file")
-    print("Disposable real-model workflow and generated-code assertions passed")
+    print(f"Disposable real-model {args.scenario} workflow and generated-code assertions passed")
 except (OSError, KeyError, TypeError, ValueError, subprocess.SubprocessError) as error:
     print(f"Real coding workflow failed: {type(error).__name__}: {error if not isinstance(error, subprocess.CalledProcessError) else 'fixture command failed'}", file=sys.stderr)
     sys.exit(1)

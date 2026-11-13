@@ -297,6 +297,14 @@ provider hosting into the model-host service as part of this work.
   desktop feature parity remain unverified. The native test app, Vite server
   and private test data are temporary; the branch Docker deployment is separate.
 
+- The isolated real-model workflow fixture now also tests editing an existing
+  tracked JavaScript module. A `qwen25-coder-7b-q4` run preserved the original
+  `sumEven` behavior, implemented and exported `clamp`, passed boundary and
+  invalid-range assertions in a separate network-isolated container, and delivered
+  the verified file to a disposable Git remote. This is one additional task, not
+  a general reliability claim. `bash scripts/test host-coding-workflow --scenario
+  extend-module` repeats it; set `ARUVI_CODING_TEST_MODEL` for the installed model.
+
 ## Dependency security checkpoint — 2026-11-13
 
 - `npm audit --json` reported no npm advisories. `cargo-audit` 0.23.0

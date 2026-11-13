@@ -79,6 +79,22 @@ plan approval, coding, test execution, the test-review gate, and delivery to dis
 local bare Git repositories. It does not test a real model provider or authenticated
 network Git remote.
 
+To exercise a real coding model without changing the running application's data,
+run an isolated end-to-end workflow against an already-running native Model Host:
+
+```sh
+ARUVI_CODING_TEST_MODEL=YOUR_INSTALLED_CODING_MODEL_ID bash scripts/test host-coding-workflow --scenario extend-module
+```
+
+The `extend-module` scenario starts a disposable Studio fixture, edits an existing
+JavaScript module, verifies both its original behavior and the new function in a
+network-isolated container, and checks the resulting commit in a disposable local
+Git remote. The default `new-module` scenario checks creation of a new file. Both
+make real inference calls and model output can vary; a passing run is evidence for
+that task, not a general coding-quality guarantee. The fixture reads the validation
+host's private token and does not alter the host configuration or the branch data.
+The optional first positional argument selects a different native host worktree.
+
 The **CI** tab and the `aruvi_ci` MCP tool can inspect Aruvici health, targets, runs
 and stage logs, request cancellation or retry, and record feedback on passed runs.
 The browser polls selected active-run logs and retains at most 1 MiB of log text.
