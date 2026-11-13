@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Connect Studio's current worktree to an existing native Model Host worktree.
+"""Connect Studio's worktree to a native Model Host; optionally watch for restarts.
 
-Credentials travel over loopback via scripts/mcp stdin and are never printed.
-The provider URL is refreshed after a native worktree restart changes its port.
+Credentials travel through private local files and MCP stdin and are never printed.
+The optional watcher runs in the foreground until stopped; it is not a service.
 """
 import argparse
 import json
@@ -10,47 +10,48 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 import urllib.request
 from urllib.parse import urlsplit
 
-root = Path(__file__).resolve().parent.parent
-parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("host_worktree", type=Path, help="Path to the native Model Host worktree")
-parser.add_argument("--model", default="qwen25-coder-15b-q4", help="Installed Model Host ID")
-parser.add_argument("--name", default="Aruvi Model Host (Studio Coding Validation)")
-args = parser.parse_args()
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def mcp(action, arguments):
     payload = json.dumps({"action": action, "arguments": arguments})
-    result = subprocess.run([str(root / "scripts/mcp"), "call", "aruvi_models", "-"], cwd=root,
+    result = subprocess.run([str(ROOT / "scripts/mcp"), "call", "aruvi_models", "-"], cwd=ROOT,
                             input=payload, text=True, capture_output=True, check=True)
     return json.loads(result.stdout)["result"]
 
 
-try:
-    host = args.host_worktree.expanduser().resolve(strict=True)
+def read_host(host, environment):
     env = dict(os.environ, ARUVI_MODEL_HOST_ENV="native")
-    def host_info(action):
-        return json.loads(subprocess.check_output(["bash", "scripts/env", "worktree", action], cwd=host, env=env, text=True))
-    plan, status = host_info("plan"), host_info("status")
+    def info(action):
+        return json.loads(subprocess.check_output(["bash", "scripts/env", environment, action], cwd=host, env=env, text=True, stderr=subprocess.DEVNULL))
+    plan, status = info("plan"), info("status")
+    if not status["registered"] or not status.get("endpoint"):
+        raise ValueError("Native Model Host is not running")
     endpoint = urlsplit(status["endpoint"]["url"])
-    if not status["registered"] or endpoint.scheme != "http" or endpoint.hostname != "127.0.0.1" or endpoint.port is None:
-        raise ValueError("Expected a running loopback-only native Model Host worktree")
+    if endpoint.scheme != "http" or endpoint.hostname != "127.0.0.1" or endpoint.port is None or endpoint.path not in ("", "/") or endpoint.query or endpoint.fragment or endpoint.username or endpoint.password:
+        raise ValueError("Expected a running loopback-only native Model Host")
     token = next(line.split("=", 1)[1] for line in (Path(plan["state"]) / "environment.env").read_text().splitlines()
                  if line.startswith("MODEL_HOST_TOKEN="))
     if not token:
         raise ValueError("Native Model Host token is empty")
-    discovery_request = urllib.request.Request(status["endpoint"]["url"].rstrip("/") + "/v1/models", headers={"Authorization": "Bearer " + token})
+    return endpoint.port, token
+
+
+def configure(port, token, model, name):
+    discovery_request = urllib.request.Request(f"http://127.0.0.1:{port}/v1/models", headers={"Authorization": "Bearer " + token})
     with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(discovery_request, timeout=20) as response:
         body = response.read(2 * 1024 * 1024 + 1)
         if len(body) > 2 * 1024 * 1024:
             raise ValueError("Model Host discovery response is too large")
         available = json.loads(body)
-    if not any(model.get("id") == args.model for model in available.get("data", [])):
-        raise ValueError("Requested model is not installed on the selected host")
-    base_url = f"http://host.docker.internal:{endpoint.port}/v1"
-    matches = [p for p in mcp("list_providers", {}) if p["name"] == args.name]
+    if not any(item.get("id") == model for item in available.get("data", [])):
+        raise ValueError("Requested model is not advertised by the selected host")
+    base_url = f"http://host.docker.internal:{port}/v1"
+    matches = [p for p in mcp("list_providers", {}) if p["name"] == name]
     if len(matches) > 1:
         raise ValueError("More than one provider has the requested name")
     if matches:
@@ -59,15 +60,54 @@ try:
             raise ValueError("Existing provider is not an owned native-host configuration")
         provider = mcp("update_provider", {"id": existing["id"], "base_url": base_url, "auth_secret_ref": token})
     else:
-        provider = mcp("create_provider", {"name": args.name, "provider_type": "openai_compatible", "base_url": base_url, "auth_secret_ref": token})
+        provider = mcp("create_provider", {"name": name, "provider_type": "openai_compatible", "base_url": base_url, "auth_secret_ref": token})
     page = mcp("discover_provider_models", {"id": provider["id"]})
-    if not any(model["id"] == args.model for model in page["models"]):
-        raise ValueError("Requested model is not installed on the selected host")
-    models = [model for model in mcp("list_model_definitions", {}) if model["provider_id"] == provider["id"] and model["name"] == args.model]
+    if not any(item["id"] == model for item in page["models"]):
+        raise ValueError("Requested model is not advertised from Studio")
+    models = [item for item in mcp("list_model_definitions", {}) if item["provider_id"] == provider["id"] and item["name"] == model]
     if not models:
-        mcp("create_model_definition", {"provider_id": provider["id"], "name": args.model, "capability_tags": ["coding", "text"], "notes": "Isolated Model Host validation model"})
-    print(json.dumps({"provider": provider["name"], "provider_id": provider["id"], "base_url": base_url, "model": args.model}, indent=2))
-except (OSError, ValueError, KeyError, TypeError, StopIteration, subprocess.CalledProcessError) as error:
-    # Do not echo subprocess output: it may include provider response content.
-    print(f"Unable to configure native Model Host: {type(error).__name__}: {error if not isinstance(error, subprocess.CalledProcessError) else 'MCP or host command failed'}", file=sys.stderr)
-    sys.exit(1)
+        mcp("create_model_definition", {"provider_id": provider["id"], "name": model, "capability_tags": ["coding", "text"], "notes": "Native Model Host model"})
+    return {"provider": provider["name"], "provider_id": provider["id"], "base_url": base_url, "model": model}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("host_worktree", type=Path, help="Path to the native Model Host checkout")
+    parser.add_argument("--environment", choices=("worktree", "staging"), default="worktree")
+    parser.add_argument("--model", default="qwen25-coder-15b-q4", help="Model ID advertised by Model Host")
+    parser.add_argument("--name", default="Aruvi Model Host (Studio Coding Validation)")
+    parser.add_argument("--watch", action="store_true", help="Keep running and refresh after an endpoint or token change")
+    parser.add_argument("--poll-seconds", type=float, default=5, help="Watch interval, between 1 and 300 seconds")
+    args = parser.parse_args()
+    if not 1 <= args.poll_seconds <= 300:
+        parser.error("--poll-seconds must be between 1 and 300")
+    host = args.host_worktree.expanduser().resolve(strict=True)
+    last = None
+    last_error = None
+    while True:
+        try:
+            current = read_host(host, args.environment)
+            if current != last:
+                result = configure(*current, args.model, args.name)
+                print(json.dumps(result), flush=True)
+                last = current
+            last_error = None
+        except (OSError, ValueError, KeyError, TypeError, StopIteration, subprocess.CalledProcessError) as error:
+            # Neither HTTP response content nor subprocess output should reach logs.
+            message = f"Unable to configure native Model Host ({type(error).__name__})"
+            if not args.watch:
+                print(message, file=sys.stderr)
+                return 1
+            if message != last_error:
+                print(message + "; retrying", file=sys.stderr, flush=True)
+                last_error = message
+        if not args.watch:
+            return 0
+        time.sleep(args.poll_seconds)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        pass

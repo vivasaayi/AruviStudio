@@ -45,6 +45,33 @@ for a service listening on the Mac, `host.docker.internal` can be used in place 
 volume's `llm-config.json`, with owner-only file permissions on Unix. Verify the
 provider URL before entering a real key.
 
+### Connecting a native Aruvi Model Host
+
+Model Host manages its own models and credentials. Start the Studio worktree and
+use an already-running native Model Host with an installed coding model. For a
+Model Host worktree, configure the Studio provider and model with:
+
+```sh
+scripts/configure-native-model-host /path/to/aruvi-model-host-worktree --model YOUR_INSTALLED_CODING_MODEL_ID
+```
+
+The helper reads the selected host's private token without printing it, verifies
+model discovery from both the Mac and the Studio container, and updates the named
+provider without replacing its ID. For native staging, select `--environment
+staging` and the checkout used to manage that deployment; use a coding model
+actually installed there. The current native staging fixture does not contain one.
+Use `--name` to choose a different provider name. This setup stores the host's
+bearer token in Studio's secret store; it grants the token's full Model Host
+permissions. The helper neither installs models nor assigns them to agents.
+
+Native worktree ports can change after a restart. Add `--watch` to keep the helper
+running in the foreground; it polls every five seconds, retries outages, and
+refreshes the provider when the endpoint or token changes. Stop it with Ctrl-C.
+This watcher is opt-in and does not start automatically at login. Requests may
+fail during a restart until refresh succeeds. Run the one-shot command again if
+no watcher is active. The helper targets Studio's Docker worktree, using
+`host.docker.internal`; a native desktop setup must use a host-reachable address.
+
 To exercise the browser workflow without changing the running service's data, run
 `scripts/test-container-workflow.sh` after `bash scripts/env worktree up`. It starts a
 temporary server and repository on the worktree network and a simulated model provider, then checks task creation,

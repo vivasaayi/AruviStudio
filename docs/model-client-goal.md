@@ -224,6 +224,16 @@ provider hosting into the model-host service as part of this work.
   and passed real Model Host coding through MCP and browser speech generation;
   Studio configuration does not yet expose per-provider timeout settings.
 
+- The native-host setup helper supports an opt-in foreground watcher, which
+  retries outages and refreshes the same Studio provider when a worktree's port
+  or token changes. The isolated native coding host was stopped and restarted;
+  its port changed from 50165 to 57470, the watcher updated the provider, and a
+  real 7B coding request then passed through Studio MCP and isolated JavaScript
+  assertions. Two Python regression tests cover retry, change detection and
+  secret-free logs. Native staging remained untouched. The watcher is not
+  installed as a login service, and staging currently has no suitable coding
+  model; this does not establish an always-on centralized coding deployment.
+
 ## Open design questions
 
 - Decide whether to move the Git-pinned client to a separately maintained
