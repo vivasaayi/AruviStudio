@@ -44,6 +44,20 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Streaming parser checkpoint
+
+- The shared streaming client now processes SSE bytes in linear time across
+  network chunks, accepts CR, LF and CRLF line endings, strips an initial UTF-8
+  BOM, and handles empty `data` fields. The 2 MiB total stream limit and explicit
+  provider terminal-event requirement remain. See the [SSE parsing standard](https://html.spec.whatwg.org/multipage/server-sent-events.html#parsing-an-event-stream).
+- On 2026-11-13 all 35 standalone shared-client tests passed, including an HTTP
+  fixture with a BOM and CR-delimited events and parser tests with one-byte
+  fragments and an oversized stream. Three Studio desktop stream-adapter tests
+  also passed. This has not yet been rebuilt in the
+  worktree container or independently re-pinned and tested by the sample consumer;
+  Docker's shared virtual disk remains nearly full. The buffered completion SSE
+  fallback retains its separate parser and was not changed by this checkpoint.
+
 ## Progress — completion response metadata
 
 - The shared client preserves provider response ID, model, native finish/stop

@@ -1,5 +1,89 @@
 use crate::ClientError;
 
+const MAX_STREAM_BYTES: usize = 2 * 1024 * 1024;
+
+#[derive(Default)]
+struct EventParser {
+    line: Vec<u8>,
+    data: Vec<u8>,
+    has_data: bool,
+    after_cr: bool,
+    first_line: bool,
+    total: usize,
+}
+
+impl EventParser {
+    fn new() -> Self {
+        Self {
+            first_line: true,
+            ..Self::default()
+        }
+    }
+
+    fn push<F>(&mut self, chunk: &[u8], on_event: &mut F) -> Result<bool, ClientError>
+    where
+        F: FnMut(&[u8]) -> Result<bool, ClientError>,
+    {
+        self.total = self
+            .total
+            .checked_add(chunk.len())
+            .filter(|size| *size <= MAX_STREAM_BYTES)
+            .ok_or_else(|| ClientError::Provider("Model stream exceeds size limit".into()))?;
+        for &byte in chunk {
+            if self.after_cr {
+                self.after_cr = false;
+                if byte == b'\n' {
+                    continue;
+                }
+            }
+            match byte {
+                b'\r' | b'\n' => {
+                    self.after_cr = byte == b'\r';
+                    if self.finish_line(on_event)? {
+                        return Ok(true);
+                    }
+                }
+                _ => self.line.push(byte),
+            }
+        }
+        Ok(false)
+    }
+
+    fn finish_line<F>(&mut self, on_event: &mut F) -> Result<bool, ClientError>
+    where
+        F: FnMut(&[u8]) -> Result<bool, ClientError>,
+    {
+        let mut line = self.line.as_slice();
+        if self.first_line {
+            self.first_line = false;
+            line = line.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(line);
+        }
+        if line.is_empty() {
+            if self.has_data {
+                let done = on_event(&self.data)?;
+                self.data.clear();
+                self.has_data = false;
+                self.line.clear();
+                return Ok(done);
+            }
+        } else {
+            let value = line
+                .strip_prefix(b"data:")
+                .map(|v| v.strip_prefix(b" ").unwrap_or(v))
+                .or_else(|| (line == b"data").then_some(&[][..]));
+            if let Some(value) = value {
+                if self.has_data {
+                    self.data.push(b'\n');
+                }
+                self.data.extend_from_slice(value);
+                self.has_data = true;
+            }
+        }
+        self.line.clear();
+        Ok(false)
+    }
+}
+
 /// Read bounded SSE records without assuming HTTP chunks align with UTF-8 or lines.
 /// The callback returns true when the protocol's terminal event has arrived.
 pub(crate) async fn read_sse<F>(
@@ -10,29 +94,51 @@ pub(crate) async fn read_sse<F>(
 where
     F: FnMut(&[u8]) -> Result<bool, ClientError> + Send,
 {
-    const MAX_STREAM_BYTES: usize = 2 * 1024 * 1024;
-    let mut pending = Vec::new();
-    let mut data = Vec::new();
-    let mut total = 0usize;
-    while let Some(chunk) = response.chunk().await
-        .map_err(|error| ClientError::Provider(format!("{provider} stream read failed: {error}")))? {
-        total = total.checked_add(chunk.len()).filter(|size| *size <= MAX_STREAM_BYTES)
-            .ok_or_else(|| ClientError::Provider(format!("{provider} stream exceeds size limit")))?;
-        pending.extend_from_slice(&chunk);
-        while let Some(end) = pending.iter().position(|byte| *byte == b'\n') {
-            let mut line: Vec<u8> = pending.drain(..=end).collect();
-            line.pop();
-            if line.last() == Some(&b'\r') { line.pop(); }
-            if line.is_empty() {
-                if !data.is_empty() {
-                    if on_event(&data)? { return Ok(()); }
-                    data.clear();
-                }
-            } else if let Some(value) = line.strip_prefix(b"data:") {
-                if !data.is_empty() { data.push(b'\n'); }
-                data.extend_from_slice(value.strip_prefix(b" ").unwrap_or(value));
-            }
+    let mut parser = EventParser::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| ClientError::Provider(format!("{provider} stream read failed: {error}")))?
+    {
+        if parser.push(&chunk, &mut on_event)? {
+            return Ok(());
         }
     }
-    Err(ClientError::Provider(format!("{provider} stream ended before its terminal event")))
+    Err(ClientError::Provider(format!(
+        "{provider} stream ended before its terminal event"
+    )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_fragmented_line_endings_bom_and_empty_data_fields() {
+        let mut parser = EventParser::new();
+        let mut events = Vec::new();
+        let bytes = b"\xef\xbb\xbf:comment\rdata: alpha\rdata\rdata: beta\r\n\r\ndata: [DONE]\n\n";
+        for byte in bytes {
+            if parser
+                .push(&[*byte], &mut |event| {
+                    events.push(event.to_vec());
+                    Ok(event == b"[DONE]")
+                })
+                .unwrap()
+            {
+                break;
+            }
+        }
+        assert_eq!(events, vec![b"alpha\n\nbeta".to_vec(), b"[DONE]".to_vec()]);
+    }
+
+    #[test]
+    fn rejects_oversized_fragmented_stream() {
+        let mut parser = EventParser::new();
+        let mut ignore = |_: &[u8]| Ok(false);
+        for _ in 0..MAX_STREAM_BYTES / 1024 {
+            parser.push(&[b'x'; 1024], &mut ignore).unwrap();
+        }
+        assert!(parser.push(b"x", &mut ignore).is_err());
+    }
 }

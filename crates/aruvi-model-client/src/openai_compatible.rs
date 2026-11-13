@@ -596,6 +596,14 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn streams_cr_delimited_events_with_a_utf8_bom() {
+        let body = "\u{feff}data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\r\rdata: [DONE]\r\r";
+        let (result, chunks) = openai_stream_fixture(body).await;
+        assert_eq!(result.unwrap().content, "hello");
+        assert_eq!(chunks, ["hello"]);
+    }
+
+    #[tokio::test]
     async fn rejects_openai_stream_errors_and_incomplete_or_unsupported_events() {
         for body in [
             "data: {\"error\":{\"message\":\"overloaded\"}}\n\n",
