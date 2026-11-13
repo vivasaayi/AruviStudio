@@ -143,6 +143,23 @@ provider hosting into the model-host service as part of this work.
   rebuilt worktree server passed the remote UI smoke, 20 remote, one CI and 19
   isolated workflow tests. The running binary hash matched the release build.
 
+## Progress — ambiguous coding actions
+
+- The coding response parser now rejects multiple complete action-shaped JSON
+  objects rather than accepting the first fenced action. It gives the model a
+  retry instruction and skips the legacy-file fallback for that response. A
+  fixture verifies that neither the first write nor a legacy file block is
+  executed, then successfully continues with a later valid action. Single-action
+  responses, nested JSON, quoted braces and ordinary legacy code blocks have
+  regression coverage. This guard does not repair arbitrary malformed JSON.
+- Focused native parser and workflow tests passed; the Linux suite passed 161
+  tests with one live test ignored. The branch browser suites passed one smoke,
+  20 remote, one CI and 19 isolated workflow cases. The release binary hash
+  matched the deployed worktree server. A real 7B workflow generated code that
+  passed isolated assertions and reached a disposable Git remote. A 15B retry
+  still failed after repeating missing-file reads and producing malformed final
+  responses; the model's tool-loop reliability remains unresolved.
+
 ## Image capability assessment
 
 - The deployed Model Host advertises an image model (`sd-v1-5-metal`) and

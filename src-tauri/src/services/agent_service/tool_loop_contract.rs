@@ -134,7 +134,43 @@ pub(super) fn build_coding_tool_prompt(
     prompt
 }
 
+/// Detect distinct action-shaped objects without counting nested objects or
+/// braces inside JSON strings. Ambiguous output must not execute an action.
+pub(super) fn has_multiple_actions(output: &str) -> bool {
+    let mut depth = 0usize;
+    let mut start = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut objects = 0usize;
+    for (index, ch) in output.char_indices() {
+        if depth == 0 {
+            if ch == '{' { depth = 1; start = index; }
+            continue;
+        }
+        if in_string {
+            if escaped { escaped = false; }
+            else if ch == '\\' { escaped = true; }
+            else if ch == '"' { in_string = false; }
+        } else {
+            match ch {
+                '"' => in_string = true,
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 && serde_json::from_str::<Value>(&output[start..=index]).ok().and_then(|value| value.get("type").and_then(Value::as_str).map(str::to_owned)).is_some_and(|kind| matches!(kind.as_str(), "tool_call" | "final")) {
+                        objects += 1;
+                        if objects > 1 { return true; }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    false
+}
+
 pub(super) fn parse_tool_loop_response(output: &str) -> Option<ToolLoopResponse> {
+    if has_multiple_actions(output) { return None; }
     let payload = extract_json_payload(output)?;
     serde_json::from_str::<ToolLoopResponse>(&payload).ok()
 }
@@ -235,6 +271,30 @@ fn extract_json_payload(output: &str) -> Option<String> {
 #[cfg(test)]
 mod configured_tool_tests {
     use super::*;
+
+    #[test]
+    fn rejects_multiple_actions_without_confusing_nested_or_quoted_braces() {
+        let single = r#"Here is the call:
+```json
+{"type":"tool_call","tool":"repo.write_file","arguments":{"path":"a.js","content":"const x = {value: \"}\"};"}}
+```"#;
+        assert!(matches!(parse_tool_loop_response(single), Some(ToolLoopResponse::ToolCall { .. })));
+        assert!(!has_multiple_actions(single));
+        let two_fenced = "```json\n{\"type\":\"tool_call\",\"tool\":\"repo.read_file\",\"arguments\":{\"path\":\"a\"}}\n```\n```json\n{\"type\":\"final\",\"summary\":\"done\"}\n```";
+        assert!(has_multiple_actions(two_fenced));
+        assert!(parse_tool_loop_response(two_fenced).is_none());
+        let two_plain = r#"Tool call: {"type":"tool_call","tool":"repo.read_file","arguments":{"path":"a"}} Final answer: {"type":"final","summary":"done"}"#;
+        assert!(has_multiple_actions(two_plain));
+        assert!(parse_tool_loop_response(two_plain).is_none());
+        let incomplete_action = r#"```json
+{"type":"tool_call","tool":"repo.read_file","arguments":{"path":"a"}}
+```
+{"type":"tool_call"}"#;
+        assert!(has_multiple_actions(incomplete_action));
+        assert!(parse_tool_loop_response(incomplete_action).is_none());
+        let legacy = "File: src/a.js\n```js\nconst a = {\"x\":1}; const b = {\"y\":2};\n```";
+        assert!(!has_multiple_actions(legacy));
+    }
 
     #[test]
     fn read_examples_use_alternative_ranges() {

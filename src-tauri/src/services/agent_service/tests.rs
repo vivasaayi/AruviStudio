@@ -164,7 +164,7 @@ async fn coding_stage_creates_tool_trace_artifact() {
     AgentService::set_test_model_outputs_for_workflow(
         &workflow_run.id,
         vec![
-            "Tool call:\n{\"type\":\"tool_call\",\"tool\":\"repo.search\"}\n\nFinal answer:\n{\"type\":\"final\"}".to_string(),
+            "```json\n{\"type\":\"tool_call\",\"tool\":\"repo.write_file\",\"arguments\":{\"path\":\"must-not-exist.txt\",\"content\":\"unsafe\"}}\n```\n```json\n{\"type\":\"final\",\"summary\":\"done\"}\n```\nFile: legacy-must-not-exist.txt\n```\nunsafe\n```".to_string(),
             json!({"type":"final", "summary":"Claimed changes without writing files"}).to_string(),
             json!({"type":"tool_call", "tool":"repo.list_tree", "arguments":{"path":"missing-directory"}}).to_string(),
             json!({
@@ -223,7 +223,9 @@ async fn coding_stage_creates_tool_trace_artifact() {
     );
     let trace_content =
         std::fs::read_to_string(&trace_artifact.storage_path).expect("failed to read trace file");
-    assert!(trace_content.contains("Response did not match tool/final JSON contract"));
+    assert!(trace_content.contains("Response contained multiple actions; no action was executed"));
+    assert!(!repo_dir.join("must-not-exist.txt").exists());
+    assert!(!repo_dir.join("legacy-must-not-exist.txt").exists());
     assert!(trace_content.contains("No files were changed"));
     assert!(trace_content.contains("repo.write_file creates parent directories"));
     assert!(

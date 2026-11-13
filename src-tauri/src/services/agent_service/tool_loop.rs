@@ -1,5 +1,5 @@
 use super::tool_loop_contract::{
-    build_coding_tool_prompt, parse_tool_loop_response, resolve_allowed_tools,
+    build_coding_tool_prompt, has_multiple_actions, parse_tool_loop_response, resolve_allowed_tools,
     write_tool_trace_snapshot, ToolLoopResponse, ToolLoopTraceEntry,
 };
 use super::AgentService;
@@ -174,7 +174,8 @@ impl AgentService {
                     break;
                 }
                 None => {
-                    if step == 1 {
+                    let ambiguous = has_multiple_actions(&model_output);
+                    if step == 1 && !ambiguous {
                         // Backward-compatible fallback for legacy "File: ..." output.
                         let legacy_changed = self
                             .parse_and_apply_changes(&workspace, &model_output, boundaries)
@@ -195,10 +196,12 @@ impl AgentService {
                             break;
                         }
                     }
-                    let observation = format!(
-                        "tool_error step={} tool=parser error=Response did not match tool/final JSON contract",
-                        step
-                    );
+                    let detail = if ambiguous {
+                        "Response contained multiple actions; no action was executed. Return exactly one tool_call OR one final object, not both."
+                    } else {
+                        "Response did not match tool/final JSON contract"
+                    };
+                    let observation = format!("tool_error step={} tool=parser error={}", step, detail);
                     tool_observations.push(observation.clone());
                     trace.push(ToolLoopTraceEntry { step, kind: "tool_error".to_string(), payload: observation });
                     write_tool_trace_snapshot(&trace_path, &trace).await?;
