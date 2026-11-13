@@ -57,9 +57,16 @@ fn build_repository_analysis_snapshot_extracts_structured_signals() {
     )
     .expect("failed to write test");
 
+    let mut repository = make_repository(&temp_root, "hotel-management-system");
+    repository.remote_url = "https://fixture-user:fixture-secret@example.invalid/repository.git?token=fixture-query-secret".into();
     let snapshot: RepositoryAnalysisSnapshot =
-        build_repository_analysis_snapshot(&make_repository(&temp_root, "hotel-management-system"))
-            .expect("snapshot should build");
+        build_repository_analysis_snapshot(&repository).expect("snapshot should build");
+    let serialized = serde_json::to_string(&snapshot).unwrap();
+    assert!(!serialized.contains("fixture-secret"));
+    assert!(!serialized.contains("fixture-query-secret"));
+    assert!(!serialized.contains(&temp_root.to_string_lossy().to_string()));
+    assert!(!serialized.contains("remote_url"));
+    assert!(!serialized.contains("local_path"));
 
     assert!(
         !snapshot.manifests.is_empty(),
@@ -81,4 +88,19 @@ fn build_repository_analysis_snapshot_extracts_structured_signals() {
             .any(|area| area.name.contains("Planner") || area.name.contains("Hotels")),
         "candidate areas should include feature or route-derived areas"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn repository_snapshot_does_not_read_preferred_symlink_to_hidden_file() {
+    use std::os::unix::fs::symlink;
+    let root = make_temp_dir("repo_analysis_hidden_symlink");
+    fs::write(root.join(".secret"), "private-fixture-secret").unwrap();
+    symlink(root.join(".secret"), root.join("README.md")).unwrap();
+    let snapshot = build_repository_analysis_snapshot(&make_repository(&root, "fixture")).unwrap();
+    assert!(!serde_json::to_string(&snapshot)
+        .unwrap()
+        .contains("private-fixture-secret"));
+    assert!(snapshot.docs.is_empty());
+    fs::remove_dir_all(root).unwrap();
 }

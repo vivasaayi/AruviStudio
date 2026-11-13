@@ -434,7 +434,7 @@
                 <button class="secondary" id="refreshPlannerProductsButton" type="button">Refresh planner products</button>
                 <label><span class="label">Repository to analyze</span><select id="plannerRepositorySelect"><option value="">Choose a workspace</option></select></label>
                 <div class="button-row"><button class="secondary" id="refreshPlannerRepositoriesButton" type="button">Load workspaces</button><button class="secondary" id="analyzePlannerRepositoryButton" type="button">Analyze workspace</button></div>
-                <div class="empty" id="plannerRepositoryStatus">Analysis sends a repository snapshot to the configured planner model.</div>
+                <div class="empty" id="plannerRepositoryStatus">Analysis sends file paths, README excerpts, manifest summaries, and the selected product draft to the configured planner model.</div>
                 <div class="empty" id="plannerProductStatus">Save a connection token to load products.</div>
                 <div class="conversation" id="conversation"></div>
                 <div class="composer">
@@ -1673,7 +1673,7 @@
         el.plannerRepositorySelect.replaceChildren(new Option("Choose a workspace", ""));
         for (const repository of repositories) el.plannerRepositorySelect.add(new Option(repository.name, repository.id));
         if (repositories.some((repository) => repository.id === selected)) el.plannerRepositorySelect.value = selected;
-        el.plannerRepositoryStatus.textContent = repositories.length ? "Analysis sends a repository snapshot to the configured planner model." : "No registered workspaces found.";
+        el.plannerRepositoryStatus.textContent = repositories.length ? "Analysis sends file paths, README excerpts, manifest summaries, and the selected product draft to the configured planner model." : "No registered workspaces found.";
       } catch (error) {
         el.plannerRepositorySelect.replaceChildren(new Option("Choose a workspace", ""));
         el.plannerRepositoryStatus.textContent = "Workspaces unavailable: " + error.message;

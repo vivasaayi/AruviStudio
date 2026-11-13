@@ -594,6 +594,25 @@ provider hosting into the model-host service as part of this work.
   coding and browser speech checks. Native desktop and Windows dependency paths
   remain unverified. No other products' data were pruned.
 
+## Repository snapshot privacy checkpoint
+
+- Repository analysis no longer sends the configured remote URL or absolute
+  local path to the model, its request trace, or request snapshot. A simulated
+  provider asserts that a URL containing credentials and a query token, and the
+  local fixture path, do not appear in the actual request. Preferred files are
+  selected from the existing non-hidden, non-symlink tree instead of following
+  a preferred filename symlink into a hidden file. A regression test covers a
+  README symlink to a hidden file.
+- The browser identifies the data categories sent to the configured model.
+  File paths, README excerpts, manifest summaries and product/draft content can
+  still contain sensitive information; these changes are not general secret
+  detection or a guarantee against a concurrently modified filesystem. The model
+  prompt treats repository text as untrusted, but prompt injection is not proven
+  impossible. Review the workspace and provider before analysis.
+- On 2026-11-13 the macOS and Linux suites each passed 169 tests (one live test
+  ignored), all browser suites passed, and the disposable real 7B browser
+  repository-analysis and MCP confirmation flow passed with the reduced snapshot.
+
 ## Real Model Host repository analysis checkpoint
 
 - `bash scripts/test host-planner --repository --browser` drives an actual

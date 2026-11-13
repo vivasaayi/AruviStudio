@@ -472,6 +472,12 @@ async fn remote_repository_analysis_requires_auth_and_stages_design() {
     use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
     async fn completion(State(calls): State<Arc<AtomicUsize>>, Json(request): Json<Value>) -> Json<Value> {
         let count = calls.fetch_add(1, Ordering::SeqCst);
+        let request_text = request.to_string();
+        assert!(!request_text.contains("fixture-secret"));
+        assert!(!request_text.contains("fixture-query-secret"));
+        assert!(!request_text.contains("aruvi-repo-test-"));
+        assert!(!request_text.contains("remote_url"));
+        assert!(!request_text.contains("local_path"));
         let actions = if count == 0 {
             json!([{"node_type":"product_area", "name":"Inventory", "details":{"type":"create_product_area"}}])
         } else {
@@ -498,7 +504,7 @@ async fn remote_repository_analysis_requires_auth_and_stages_design() {
     let root = std::env::temp_dir().join(format!("aruvi-repo-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(root.join("src/features/inventory")).unwrap();
     std::fs::write(root.join("README.md"), "# Inventory application").unwrap();
-    repository_repo::create_repository(&state.db, "analysis-repo", "Fixture", root.to_str().unwrap(), "", "main").await.unwrap();
+    repository_repo::create_repository(&state.db, "analysis-repo", "Fixture", root.to_str().unwrap(), "https://fixture-user:fixture-secret@example.invalid/repo?token=fixture-query-secret", "main").await.unwrap();
     let path = format!("/api/mobile/planner/sessions/{}/analyze-repository", session.session_id);
     let payload = json!({"repository_id":"analysis-repo", "product_id":product});
     assert_eq!(send_json(&router, Method::POST, &path, None, Some(payload.clone())).await.0, StatusCode::UNAUTHORIZED);

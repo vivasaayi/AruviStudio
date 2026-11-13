@@ -65,7 +65,7 @@ pub(crate) fn flatten_repository_paths(nodes: &[RepositoryTreeNode], output: &mu
 }
 
 pub(crate) fn collect_repository_candidate_files(
-    repo: &Repository,
+    _repo: &Repository,
     all_paths: &[String],
 ) -> Vec<String> {
     let preferred = [
@@ -85,8 +85,9 @@ pub(crate) fn collect_repository_candidate_files(
     ];
     let mut seen = BTreeSet::new();
     for relative_path in preferred {
-        let candidate = std::path::Path::new(&repo.local_path).join(relative_path);
-        if candidate.exists() && candidate.is_file() {
+        // The tree excludes symlinks and hidden entries; do not rediscover
+        // preferred paths by following a symlink to a private file.
+        if all_paths.iter().any(|path| path == relative_path) {
             seen.insert(relative_path.to_string());
         }
     }
