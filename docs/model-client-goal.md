@@ -293,11 +293,11 @@ provider hosting into the model-host service as part of this work.
   and additional unmaintained/unsound warnings. The separately pinned consumer's
   lockfile reported no vulnerabilities. These scans describe dependency
   advisories, not confirmed exploitability in this application.
-- A **pending, untested and undeployed** Studio lockfile update resolves 21 of
-  those vulnerability reports by upgrading `h2`, `libz-sys`, `openssl`, `plist`,
-  `quick-xml`, `rustls` and `rustls-webpki` within the existing manifest
-  constraints. A repeat audit reports two remaining vulnerabilities and 23
-  unmaintained/unsound warnings; do not treat the candidate as release-ready.
+- The Studio lockfile update resolves 21 of those vulnerability reports by
+  upgrading `h2`, `libz-sys`, `openssl`, `plist`, `quick-xml`, `rustls` and
+  `rustls-webpki` within existing manifest constraints. A repeat audit reports two
+  remaining vulnerabilities and 23 unmaintained/unsound warnings; do not treat
+  the result as release-ready.
 - [RUSTSEC-2026-0459](https://rustsec.org/advisories/RUSTSEC-2026-0459.html)
   concerns the bundled SQLite version when opening an attacker-controlled database
   and WAL pair. Studio currently reaches `libsqlite3-sys` 0.30.1 through SQLx
@@ -308,11 +308,17 @@ provider hosting into the model-host service as part of this work.
   reports an RSA timing issue. `rsa` 0.9.10 appears in the lockfile, but `cargo
   tree --target all -i rsa` printed no path for Studio's selected features. This
   is not a claim about every possible build configuration.
-- Docker Desktop's shared filesystem had approximately 1.2 GiB free when this
-  candidate was prepared; earlier full builds needed more space. The running
-  branch image still uses the previously committed lockfile. Increase available
-  Docker storage, then run the full Rust suite, rebuild and revalidate the branch
-  deployment before committing the candidate. Do not prune other products' data.
+- Docker Desktop's shared filesystem had approximately 1.2 GiB free, so compiler
+  artifacts were stored on the Mac filesystem using the same pinned Linux Rust
+  toolchain and build dependencies. The first test run put temporary test data on
+  the Mac-shared mount and failed an atomic-rename secrets test; with test data on
+  Docker's native filesystem, 151 tests passed and one live test was ignored.
+  The release binary built with `--locked`, its frontend assets matched the normal
+  container build, and the matching binary was packaged with the existing runtime
+  dependencies and deployed to the isolated worktree Compose project. The browser
+  suites passed (20 remote, one CI, 19 workflow cases), as did real Model Host
+  coding and browser speech checks. Native desktop and Windows dependency paths
+  remain unverified. No other products' data were pruned.
 
 ## Open design questions
 
