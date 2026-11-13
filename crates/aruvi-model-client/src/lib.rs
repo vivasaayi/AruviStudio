@@ -9,6 +9,19 @@ pub mod openai_compatible;
 pub enum ClientError {
     #[error("{0}")]
     Provider(String),
+    #[error("{0}")]
+    InvalidInput(String),
+    #[error("Provider does not support multipart transcription uploads")]
+    UnsupportedTranscription,
+}
+
+#[derive(Debug, Clone)]
+pub struct TranscriptionRequest {
+    pub model: String,
+    pub audio: Vec<u8>,
+    pub mime_type: String,
+    pub filename: String,
+    pub language: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

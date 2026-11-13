@@ -3,13 +3,11 @@ use crate::error::AppError;
 use crate::secrets;
 use base64::Engine;
 use hound::{SampleFormat, WavReader};
-use reqwest::{multipart, Client};
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
 use std::process::Command;
-use std::time::Duration;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,79 +39,26 @@ pub async fn transcribe_audio_with_provider(
     }
 
     let api_key = secrets::resolve_provider_secret(provider)?;
-    let client = Client::builder()
-        .connect_timeout(Duration::from_secs(15))
-        .timeout(Duration::from_secs(300))
-        .build()
-        .unwrap_or_else(|_| Client::new());
-
-    let trimmed = provider.base_url.trim_end_matches('/');
-    let endpoint = if trimmed.ends_with("/v1") {
-        format!("{trimmed}/audio/transcriptions")
-    } else {
-        format!("{trimmed}/v1/audio/transcriptions")
-    };
-
     let file_bytes = base64::engine::general_purpose::STANDARD
         .decode(request.audio_bytes_base64.trim())
         .map_err(|error| AppError::Validation(format!("Invalid audio payload: {error}")))?;
-    let file_part = multipart::Part::bytes(file_bytes)
-        .file_name(format!(
-            "planner-recording.{}",
-            mime_extension_for_mime_type(&request.mime_type)
-        ))
-        .mime_str(&request.mime_type)
-        .map_err(|error| AppError::Validation(format!("Unsupported audio mime type: {error}")))?;
-
-    let mut form = multipart::Form::new()
-        .text("model", model_name.to_string())
-        .part("file", file_part);
-    if let Some(locale) = request.locale.filter(|value| !value.trim().is_empty()) {
-        form = form.text("language", locale);
+    let client = aruvi_model_client::openai_compatible::OpenAiCompatibleClient::new(provider.base_url.clone(), api_key);
+    let result = client.transcribe(aruvi_model_client::TranscriptionRequest {
+        model: model_name.to_string(),
+        audio: file_bytes,
+        filename: format!("planner-recording.{}", mime_extension_for_mime_type(&request.mime_type)),
+        mime_type: request.mime_type,
+        language: request.locale,
+    }).await;
+    match result {
+        Ok(transcript) => Ok(SpeechToTextResponse { transcript }),
+        Err(aruvi_model_client::ClientError::UnsupportedTranscription) => Err(AppError::Validation(format!(
+            "Provider '{}' with model '{}' does not appear to support OpenAI-compatible multipart audio transcription uploads. Configure a speech-capable provider/model, such as a Whisper or STT endpoint, in Settings.",
+            provider.name, model_name
+        ))),
+        Err(aruvi_model_client::ClientError::InvalidInput(message)) => Err(AppError::Validation(message)),
+        Err(error) => Err(AppError::Provider(error.to_string())),
     }
-
-    let mut req = client.post(endpoint).multipart(form);
-    if let Some(key) = api_key {
-        req = req.bearer_auth(key);
-    }
-
-    let response = req.send().await.map_err(|error| {
-        AppError::Provider(format!("Speech transcription request failed: {error}"))
-    })?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        if status == reqwest::StatusCode::UNSUPPORTED_MEDIA_TYPE
-            && text.contains("application/json")
-        {
-            return Err(AppError::Validation(format!(
-                "Provider '{}' with model '{}' does not appear to support OpenAI-compatible multipart audio transcription uploads. Configure a speech-capable provider/model, such as a Whisper or STT endpoint, in Settings.",
-                provider.name, model_name
-            )));
-        }
-        return Err(AppError::Provider(format!(
-            "Speech transcription API error {status}: {text}"
-        )));
-    }
-
-    let json: serde_json::Value = response.json().await.map_err(|error| {
-        AppError::Provider(format!("Failed to parse transcription response: {error}"))
-    })?;
-    let transcript = json
-        .get("text")
-        .and_then(serde_json::Value::as_str)
-        .or_else(|| json.get("transcript").and_then(serde_json::Value::as_str))
-        .map(str::trim)
-        .unwrap_or_default()
-        .to_string();
-
-    if transcript.is_empty() {
-        return Err(AppError::Provider(
-            "Speech transcription returned an empty transcript".to_string(),
-        ));
-    }
-
-    Ok(SpeechToTextResponse { transcript })
 }
 
 pub fn speak_text_natively(request: TextToSpeechRequest) -> Result<(), AppError> {

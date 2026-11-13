@@ -1,6 +1,6 @@
 use crate::ClientError;
 use crate::ModelGateway;
-use crate::{CompletionRequest, CompletionResponse};
+use crate::{CompletionRequest, CompletionResponse, TranscriptionRequest};
 use async_trait::async_trait;
 use reqwest::Client;
 use std::time::Duration;
@@ -118,6 +118,33 @@ impl OpenAiCompatibleClient {
         } else {
             None
         }
+    }
+
+    /// Transcribe audio using an OpenAI-compatible multipart endpoint.
+    pub async fn transcribe(&self, input: TranscriptionRequest) -> Result<String, ClientError> {
+        let file = reqwest::multipart::Part::bytes(input.audio)
+            .file_name(input.filename)
+            .mime_str(&input.mime_type)
+            .map_err(|error| ClientError::InvalidInput(format!("Unsupported audio mime type: {error}")))?;
+        let mut form = reqwest::multipart::Form::new().text("model", input.model).part("file", file);
+        if let Some(language) = input.language.filter(|value| !value.trim().is_empty()) {
+            form = form.text("language", language);
+        }
+        let mut request = self.client.post(self.endpoint_url("/audio/transcriptions")).multipart(form);
+        if let Some(key) = &self.api_key { request = request.bearer_auth(key); }
+        let response = request.send().await.map_err(|error| ClientError::Provider(format!("Speech transcription request failed: {error}")))?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            if status == reqwest::StatusCode::UNSUPPORTED_MEDIA_TYPE && text.contains("application/json") {
+                return Err(ClientError::UnsupportedTranscription);
+            }
+            return Err(ClientError::Provider(format!("Speech transcription API error {status}: {text}")));
+        }
+        let json: serde_json::Value = response.json().await.map_err(|error| ClientError::Provider(format!("Failed to parse transcription response: {error}")))?;
+        let transcript = json.get("text").and_then(serde_json::Value::as_str).or_else(|| json.get("transcript").and_then(serde_json::Value::as_str)).map(str::trim).unwrap_or_default().to_string();
+        if transcript.is_empty() { return Err(ClientError::Provider("Speech transcription returned an empty transcript".to_string())); }
+        Ok(transcript)
     }
 }
 
@@ -255,5 +282,57 @@ mod tests {
         let stream = "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\ndata: [DONE]\n";
         assert_eq!(OpenAiCompatibleClient::parse_sse_fallback(stream).unwrap().content, "hello");
         assert!(OpenAiCompatibleClient::parse_sse_fallback("data: [DONE]\n").is_none());
+    }
+
+    #[tokio::test]
+    async fn sends_authenticated_multipart_audio_and_returns_transcript() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut data = Vec::new();
+            let mut buffer = [0; 4096];
+            let end = loop {
+                let n = socket.read(&mut buffer).unwrap();
+                assert_ne!(n, 0);
+                data.extend_from_slice(&buffer[..n]);
+                if let Some(i) = data.windows(4).position(|w| w == b"\r\n\r\n") { break i + 4; }
+            };
+            let headers = String::from_utf8_lossy(&data[..end]).to_lowercase();
+            assert!(headers.starts_with("post /v1/audio/transcriptions "));
+            assert!(headers.contains("authorization: bearer audio-key"));
+            assert!(headers.contains("multipart/form-data; boundary="));
+            let length: usize = headers.lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().trim().parse().unwrap();
+            while data.len() < end + length {
+                let n = socket.read(&mut buffer).unwrap();
+                assert_ne!(n, 0);
+                data.extend_from_slice(&buffer[..n]);
+            }
+            let body = String::from_utf8_lossy(&data[end..end + length]);
+            for expected in ["name=\"model\"", "whisper-fixture", "name=\"language\"", "en-US", "filename=\"sample.wav\"", "RIFFfixture"] { assert!(body.contains(expected), "missing {expected}"); }
+            let reply = r#"{"text":"  hello world  "}"#;
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", reply.len(), reply).unwrap();
+        });
+        let client = OpenAiCompatibleClient::new(format!("http://{addr}"), Some("audio-key".into()));
+        let text = client.transcribe(TranscriptionRequest { model: "whisper-fixture".into(), audio: b"RIFFfixture".to_vec(), mime_type: "audio/wav".into(), filename: "sample.wav".into(), language: Some("en-US".into()) }).await.unwrap();
+        assert_eq!(text, "hello world");
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn identifies_json_only_transcription_endpoint() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0; 4096];
+            let _ = socket.read(&mut request).unwrap();
+            let reply = "expected application/json";
+            write!(socket, "HTTP/1.1 415 Unsupported Media Type\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", reply.len(), reply).unwrap();
+        });
+        let client = OpenAiCompatibleClient::new(format!("http://{addr}"), None);
+        let result = client.transcribe(TranscriptionRequest { model: "fixture".into(), audio: vec![1, 2], mime_type: "audio/wav".into(), filename: "a.wav".into(), language: None }).await;
+        assert!(matches!(result, Err(ClientError::UnsupportedTranscription)));
+        server.join().unwrap();
     }
 }

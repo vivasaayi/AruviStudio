@@ -85,9 +85,14 @@ provider hosting into the model-host service as part of this work.
 - After deployment of this extraction, Studio MCP invoked the real native model
   host and received a non-empty response and token counts using `smol-metal-test`.
   This validates transport, not coding quality or all provider capabilities.
-- Studio's desktop streaming path and remote transcription still use their prior
-  implementations. Native Anthropic, shared-library audio and streaming, provider
-  selection, durable versioning, and real voice validation remain open.
+- Remote multipart transcription now uses the shared client while local Whisper
+  retains its existing path. An authenticated MCP request through Studio to the
+  native `whisper-tiny-metal` model correctly transcribed a synthetic English WAV.
+  Four client tests and 18 isolated workflow tests (including simulated browser
+  transcription) passed. Physical microphone and other languages remain untested.
+- Studio's desktop streaming path still uses its prior implementation. Native
+  Anthropic, shared-library speech generation and streaming, provider selection,
+  durable versioning, and broader voice validation remain open.
 
 ## Open design questions
 
