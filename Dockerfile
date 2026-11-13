@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libayatana-appindicator3-dev librsvg2-dev libwebkit2gtk-4.1-dev \
     libclang-dev clang cmake && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
+COPY crates ./crates
 COPY src-tauri ./src-tauri
 COPY docs ./docs
 COPY LICENSE NOTICE ./

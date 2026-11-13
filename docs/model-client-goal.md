@@ -70,6 +70,25 @@ provider hosting into the model-host service as part of this work.
 - Existing Studio MCP and UI tests cover simulated model workflows. They are a
   baseline, not evidence of shared-library integration or real model inference.
 
+## Progress — shared client extraction
+
+- A standalone crate at `crates/aruvi-model-client` now owns the existing
+  OpenAI-compatible completion client and data types; Studio adapts its error
+  type and retains its existing credential and telemetry handling. The crate's
+  current location is provisional, not the final distribution decision.
+- The crate's two independent tests passed, covering an authenticated local HTTP
+  completion request, token usage parsing, structured content parts and buffered SSE
+  fallback. The worktree Docker image built using the locked dependencies.
+- Studio's Rust library suite passed 147 tests with one live-provider test ignored.
+  The branch UI suite passed 19 remote UI tests, one simulated CI test, and 18
+  isolated workflow tests; simulated providers do not verify external services.
+- After deployment of this extraction, Studio MCP invoked the real native model
+  host and received a non-empty response and token counts using `smol-metal-test`.
+  This validates transport, not coding quality or all provider capabilities.
+- Studio's desktop streaming path and remote transcription still use their prior
+  implementations. Native Anthropic, shared-library audio and streaming, provider
+  selection, durable versioning, and real voice validation remain open.
+
 ## Open design questions
 
 - Select a maintainable library repository/distribution approach compatible with

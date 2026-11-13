@@ -13,6 +13,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+aruvi-model-client = { path = "../crates/aruvi-model-client" }
 tauri = { version = "2", features = ["test"] }
 tauri-plugin-shell = "2"
 tauri-plugin-fs = "2"
