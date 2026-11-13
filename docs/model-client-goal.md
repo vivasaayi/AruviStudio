@@ -130,8 +130,8 @@ provider hosting into the model-host service as part of this work.
   workflow tests passed. These fixture tests do not replace a physical desktop run.
 - The library is independently consumable from the public Studio Git repository
   using a full commit pin. The separate `validation/model-client-consumer` fixture
-  pins `5996b26ec0c129b0320db2c4c0f6627dd46d4bb5`, commits its dependency lock,
-  vendors the dependency graph, and passes a simulated authenticated completion
+  pins `4b5e4f73219490b8a290ba61b4f5bd7c447ac5da`, commits its dependency lock,
+  vendors the dependency graph, and tests authenticated completion and discovery
   inside a network-disabled Docker build. `bash scripts/test shared-client-consumer`
   repeats this check. Cargo's package listing includes the applicable license;
   there is no registry release. A separate repository and release policy remain

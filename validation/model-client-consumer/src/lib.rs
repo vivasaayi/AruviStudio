@@ -5,6 +5,33 @@ mod tests {
     use std::{io::{Read, Write}, net::TcpListener, thread};
 
     #[tokio::test]
+    async fn consumes_public_discovery_api() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = Vec::new(); let mut buffer = [0; 2048];
+            loop {
+                let size = socket.read(&mut buffer).unwrap();
+                assert_ne!(size, 0);
+                request.extend_from_slice(&buffer[..size]);
+                if request.windows(4).any(|part| part == b"\r\n\r\n") { break; }
+            }
+            let headers = String::from_utf8_lossy(&request).to_lowercase();
+            assert!(headers.starts_with("get /v1/models "));
+            assert!(headers.contains("authorization: bearer synthetic-test-key"));
+            let body = r#"{"data":[{"id":"coding-model","task":"text"}]}"#;
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+        });
+        let client = OpenAiCompatibleClient::new(format!("http://{address}/v1"), Some("synthetic-test-key".into()));
+        let page = client.list_models_page(None).await.unwrap();
+        assert_eq!(page.models[0].id, "coding-model");
+        assert_eq!(page.models[0].metadata["task"], "text");
+        assert!(page.next_cursor.is_none());
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
     async fn consumes_public_api_and_performs_authenticated_completion() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
