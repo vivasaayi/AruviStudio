@@ -147,6 +147,12 @@ async fn appends_external_cli_session_log_file() {
         .expect("session log should be readable");
     assert!(content.contains("#1 INFO: Starting Codex CLI."));
     assert!(content.contains("#2 STDERR: network disconnected"));
+    // Each completed append must be visible to an immediate independent read.
+    for sequence in 3..43 {
+        append_external_cli_session_log(&path_string, sequence, "stdout", "visible now").await.expect("append should succeed");
+        let content = tokio::fs::read_to_string(&path).await.expect("session log should be readable");
+        assert!(content.contains(&format!("#{sequence} STDOUT: visible now")));
+    }
 
     let _ = tokio::fs::remove_file(path).await;
 }

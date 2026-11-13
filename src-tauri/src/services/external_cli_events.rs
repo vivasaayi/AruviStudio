@@ -150,6 +150,8 @@ pub(crate) async fn append_external_cli_session_log(
         .await?;
     file.write_all(format_session_log_entry(sequence, stream, message).as_bytes())
         .await?;
+    // Tokio file writes can still be in flight after write_all completes.
+    file.flush().await?;
     Ok(())
 }
 

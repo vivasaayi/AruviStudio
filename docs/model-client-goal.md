@@ -268,8 +268,14 @@ provider hosting into the model-host service as part of this work.
   UI, one CI and 19 workflow tests passed, as did real 7B coding and speech
   synthesis. A real Piper-to-Whisper MCP round trip returned a nonempty transcript
   but misheard “host” as “hopes”; this verifies the path, not recognition quality.
-  The separate pinned consumer passed eight offline tests. The previous private
-  Studio adapter remains present but unused, producing two dead-code warnings.
+  The separate pinned consumer passed eight offline tests. The unused private
+  Studio adapter has since been removed.
+
+- The external-CLI session log append now flushes Tokio's pending file write
+  before returning, addressing a plausible cause of the intermittent immediate-
+  read failure. The regression test checks 40 immediate reads after append. The
+  complete Studio Rust suite then passed 151 tests with one live test ignored,
+  without the prior dead-code warnings. Flush does not claim durable disk sync.
 
 ## Open design questions
 
