@@ -87,6 +87,9 @@ Product -> Product Area -> Capability -> Feature -> Story -> Task
 - `aruvi_channels`: WhatsApp, voice call, planner contact routing
 - `aruvi_speech`: transcription and native speech output
 
+Local Whisper transcription accepts WAV recordings up to 32 MiB and ten minutes.
+Remote transcription follows the selected provider's input limits.
+
 Each tool accepts:
 
 ```json

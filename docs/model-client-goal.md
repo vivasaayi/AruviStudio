@@ -44,6 +44,20 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Local Whisper input-size bounds
+
+- Local Whisper now rejects base64 audio over a decoded 32 MiB limit, checking
+  encoded length before allocating decoded audio and checking decoded length
+  again for base64 padding edge cases. WAV parsing now borrows the decoded bytes
+  rather than copying the full file. The existing ten-minute duration limit also
+  applies. Remote provider upload limits are unchanged.
+- The size boundary, invalid base64 and existing WAV checks passed in the macOS
+  Rust suite: 181 tests passed, one live test ignored. The worktree image rebuilt
+  and started healthy; real remote Piper-to-Whisper MCP speech still passed.
+  Actual local Whisper inference and unusually large recordings were not run.
+  Running server SHA-256:
+  `e241bb7da1b044073a0bef92203a6a646496109ed977c91587178f5569c6b9e8`.
+
 ## Local Whisper WAV bounds
 
 - Local Whisper rejects zero sample rates and recordings longer than ten minutes

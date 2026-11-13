@@ -9,6 +9,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
+const LOCAL_WHISPER_MAX_BYTES: usize = 32 * 1024 * 1024;
+const LOCAL_WHISPER_MAX_DURATION_SECONDS: u64 = 10 * 60;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpeechToTextRequest {
     pub audio_bytes_base64: String,
@@ -186,9 +189,7 @@ async fn transcribe_audio_locally(
     }
 
     let model_path = resolve_local_runtime_model_path(&provider.base_url)?;
-    let audio_bytes = base64::engine::general_purpose::STANDARD
-        .decode(request.audio_bytes_base64.trim())
-        .map_err(|error| AppError::Validation(format!("Invalid audio payload: {error}")))?;
+    let audio_bytes = decode_local_audio(&request.audio_bytes_base64, LOCAL_WHISPER_MAX_BYTES)?;
     let (samples, sample_rate) = decode_wav_to_mono_f32(&audio_bytes)?;
     let resampled = resample_mono_audio(&samples, sample_rate, 16_000)?;
     let language = normalize_whisper_language(request.locale.as_deref());
@@ -201,8 +202,24 @@ async fn transcribe_audio_locally(
     .map_err(|error| AppError::Internal(format!("Local Whisper task failed: {error}")))?
 }
 
+fn decode_local_audio(encoded: &str, max_bytes: usize) -> Result<Vec<u8>, AppError> {
+    let encoded = encoded.trim();
+    // Check the encoded length before decoding so an oversized request does not
+    // allocate a second, decoded copy of the entire payload.
+    let max_encoded = max_bytes.div_ceil(3).saturating_mul(4);
+    if encoded.len() > max_encoded {
+        return Err(AppError::Validation("Local Whisper audio exceeds the 32 MiB limit.".into()));
+    }
+    let bytes = base64::engine::general_purpose::STANDARD.decode(encoded)
+        .map_err(|error| AppError::Validation(format!("Invalid audio payload: {error}")))?;
+    if bytes.len() > max_bytes {
+        return Err(AppError::Validation("Local Whisper audio exceeds the 32 MiB limit.".into()));
+    }
+    Ok(bytes)
+}
+
 fn decode_wav_to_mono_f32(bytes: &[u8]) -> Result<(Vec<f32>, u32), AppError> {
-    let cursor = Cursor::new(bytes.to_vec());
+    let cursor = Cursor::new(bytes);
     let mut reader = WavReader::new(cursor)
         .map_err(|error| AppError::Validation(format!("Invalid WAV audio: {error}")))?;
     let spec = reader.spec();
@@ -216,8 +233,7 @@ fn decode_wav_to_mono_f32(bytes: &[u8]) -> Result<(Vec<f32>, u32), AppError> {
     }
     // Whisper consumes 16 kHz samples. Reject long or malformed files before
     // allocating decoded samples or multiplying their size during resampling.
-    const MAX_DURATION_SECONDS: u64 = 10 * 60;
-    if u64::from(reader.duration()) > u64::from(spec.sample_rate) * MAX_DURATION_SECONDS {
+    if u64::from(reader.duration()) > u64::from(spec.sample_rate) * LOCAL_WHISPER_MAX_DURATION_SECONDS {
         return Err(AppError::Validation("Local Whisper audio must be at most 10 minutes.".to_string()));
     }
 
@@ -265,7 +281,7 @@ fn resample_mono_audio(samples: &[f32], source_rate: u32, target_rate: u32) -> R
     if source_rate == 0 || target_rate == 0 {
         return Err(AppError::Validation("Audio sample rates must be positive.".to_string()));
     }
-    if samples.len() as u64 > u64::from(source_rate) * 600 {
+    if samples.len() as u64 > u64::from(source_rate) * LOCAL_WHISPER_MAX_DURATION_SECONDS {
         return Err(AppError::Validation("Local Whisper audio must be at most 10 minutes.".to_string()));
     }
     if source_rate == target_rate || samples.is_empty() {
@@ -349,6 +365,15 @@ fn run_whisper_transcription(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_audio_size_is_checked_before_and_after_decoding() {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(b"12345678");
+        assert_eq!(decode_local_audio(&encoded, 8).unwrap(), b"12345678");
+        assert!(decode_local_audio(&encoded, 7).is_err()); // same base64 length, decoded limit
+        assert!(decode_local_audio(&encoded, 3).is_err()); // encoded limit
+        assert!(decode_local_audio("!bad", 8).is_err());
+    }
 
     #[test]
     fn local_resampling_rejects_zero_rate_and_excessive_duration() {
