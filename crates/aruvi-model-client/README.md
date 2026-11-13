@@ -43,7 +43,8 @@ aruvi-model-client = { git = "https://github.com/vivasaayi/AruviStudio.git", rev
 ```
 
 This revision is an integration checkpoint, not a release or a promise of API
-stability. Commit the consuming application's `Cargo.lock`. For an offline or
+stability and predates the latest completion-validation changes. Commit the
+consuming application's `Cargo.lock`. For an offline or
 network-isolated Docker build, prepare dependencies from that lockfile and include
 the resulting `vendor` directory and Cargo configuration in the build context:
 

@@ -193,6 +193,13 @@ provider hosting into the model-host service as part of this work.
   workflow passed generated-code assertions and delivery; this remains a narrow
   example rather than a general coding reliability assessment.
 
+- OpenAI-compatible buffered SSE now requires a terminal event and rejects
+  malformed or error events and tool calls instead of returning partial text.
+  JSON completions likewise reject provider errors, missing choices or text,
+  refusals and tool calls; live streams reject refusals and empty output. Empty
+  tool-call arrays remain compatible. The shared-client suite passed 22 tests,
+  including these cases.
+
 ## Open design questions
 
 - Decide whether to move the Git-pinned client to a separately maintained

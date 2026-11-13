@@ -73,56 +73,52 @@ impl OpenAiCompatibleClient {
             .map(|content| content.to_string())
     }
 
-    fn parse_sse_fallback(raw_body: &str) -> Option<CompletionResponse> {
-        let mut combined_content = String::new();
-        let mut token_count_input: Option<i64> = None;
-        let mut token_count_output: Option<i64> = None;
-        let mut saw_event = false;
-
-        for line in raw_body.lines() {
-            let trimmed = line.trim();
-            if !trimmed.starts_with("data:") {
-                continue;
-            }
-            saw_event = true;
-
-            let payload = trimmed.trim_start_matches("data:").trim();
-            if payload.is_empty() || payload == "[DONE]" {
-                continue;
-            }
-
-            let event_json = match serde_json::from_str::<serde_json::Value>(payload) {
-                Ok(json) => json,
-                Err(_) => continue,
-            };
-
-            if let Some(choice) = event_json
-                .get("choices")
-                .and_then(|choices| choices.as_array())
-                .and_then(|choices| choices.first())
-            {
-                if let Some(chunk) = Self::extract_choice_content(choice) {
-                    combined_content.push_str(&chunk);
+    fn parse_sse_fallback(raw_body: &str) -> Result<CompletionResponse, ClientError> {
+        let mut result = CompletionResponse { content: String::new(), token_count_input: None, token_count_output: None };
+        let mut data = Vec::new();
+        let mut done = false;
+        // A final newline is accepted for compatibility with providers that omit
+        // the last blank SSE separator, but a terminal [DONE] is still required.
+        for line in raw_body.lines().chain(std::iter::once("")) {
+            let line = line.strip_suffix('\r').unwrap_or(line);
+            if line.is_empty() {
+                if data.is_empty() { continue; }
+                let payload = data.join("\n");
+                data.clear();
+                if payload.trim() == "[DONE]" { done = true; break; }
+                let event: serde_json::Value = serde_json::from_str(&payload)
+                    .map_err(|_| ClientError::Provider("Invalid model stream event".into()))?;
+                if event.get("error").is_some_and(|value| !value.is_null()) {
+                    return Err(ClientError::Provider("Model stream returned an error".into()));
                 }
-            }
-
-            if let Some(usage) = event_json.get("usage") {
-                token_count_input = usage.get("prompt_tokens").and_then(|value| value.as_i64());
-                token_count_output = usage
-                    .get("completion_tokens")
-                    .and_then(|value| value.as_i64());
+                if let Some(choice) = event.get("choices").and_then(|v| v.as_array()).and_then(|v| v.first()) {
+                    Self::reject_non_text_choice(choice, "delta")?;
+                    if let Some(content) = Self::extract_choice_content(choice) { result.content.push_str(&content); }
+                }
+                if let Some(usage) = event.get("usage") {
+                    result.token_count_input = usage.get("prompt_tokens").and_then(|v| v.as_i64()).or(result.token_count_input);
+                    result.token_count_output = usage.get("completion_tokens").and_then(|v| v.as_i64()).or(result.token_count_output);
+                }
+            } else if let Some(value) = line.strip_prefix("data:") {
+                data.push(value.strip_prefix(' ').unwrap_or(value));
             }
         }
+        if !done { return Err(ClientError::Provider("Model stream ended before its terminal event".into())); }
+        if result.content.is_empty() { return Err(ClientError::Provider("Model stream returned no text".into())); }
+        Ok(result)
+    }
 
-        if saw_event && !combined_content.is_empty() {
-            Some(CompletionResponse {
-                content: combined_content,
-                token_count_input,
-                token_count_output,
-            })
-        } else {
-            None
+    fn reject_non_text_choice(choice: &serde_json::Value, field: &str) -> Result<(), ClientError> {
+        let message = choice.get(field);
+        if message.and_then(|value| value.get("tool_calls")).is_some_and(|value| value.as_array().map_or(!value.is_null(), |calls| !calls.is_empty()))
+            || message.and_then(|value| value.get("function_call")).is_some_and(|value| !value.is_null())
+            || choice.get("finish_reason").and_then(|value| value.as_str()).is_some_and(|value| value == "tool_calls" || value == "function_call") {
+            return Err(ClientError::Provider("Model tool-use responses are not supported by the text client".into()));
         }
+        if message.and_then(|value| value.get("refusal")).is_some_and(|value| !value.is_null()) {
+            return Err(ClientError::Provider("Model refused the request".into()));
+        }
+        Ok(())
     }
 
     /// Stream one OpenAI-compatible chat response. Dropping the future cancels
@@ -156,15 +152,14 @@ impl OpenAiCompatibleClient {
                 result.token_count_output = usage.get("completion_tokens").and_then(|value| value.as_i64()).or(result.token_count_output);
             }
             if let Some(choice) = event.get("choices").and_then(|value| value.as_array()).and_then(|values| values.first()) {
-                if choice.pointer("/delta/tool_calls").is_some_and(|value| !value.is_null()) || choice.pointer("/delta/function_call").is_some_and(|value| !value.is_null()) {
-                    return Err(ClientError::Provider("Model tool-use responses are not supported by the text client".into()));
-                }
+                Self::reject_non_text_choice(choice, "delta")?;
                 if let Some(content) = choice.pointer("/delta/content").and_then(|value| value.as_str()) {
                     if !content.is_empty() { result.content.push_str(content); on_delta(content); }
                 }
             }
             Ok(false)
         }).await?;
+        if result.content.is_empty() { return Err(ClientError::Provider("Model stream returned no text".into())); }
         Ok(result)
     }
 
@@ -283,16 +278,18 @@ impl ModelGateway for OpenAiCompatibleClient {
         let json: serde_json::Value = match serde_json::from_str(raw_body) {
             Ok(value) => value,
             Err(_) => {
-                if let Some(fallback) = Self::parse_sse_fallback(raw_body) { return Ok(fallback); }
+                if raw_body.lines().any(|line| line.starts_with("data:")) { return Self::parse_sse_fallback(raw_body); }
                 return Err(ClientError::Provider("Invalid model completion response".into()));
             }
         };
-        let content = json
-            .get("choices")
-            .and_then(|choices| choices.as_array())
-            .and_then(|choices| choices.first())
-            .and_then(Self::extract_choice_content)
-            .unwrap_or_default();
+        if json.get("error").is_some_and(|value| !value.is_null()) {
+            return Err(ClientError::Provider("Model completion returned an error".into()));
+        }
+        let choice = json.get("choices").and_then(|value| value.as_array()).and_then(|values| values.first())
+            .ok_or_else(|| ClientError::Provider("Model completion returned no choices".into()))?;
+        Self::reject_non_text_choice(choice, "message")?;
+        let content = Self::extract_choice_content(choice)
+            .ok_or_else(|| ClientError::Provider("Model completion returned no text".into()))?;
 
         Ok(CompletionResponse {
             content,
@@ -357,9 +354,10 @@ mod tests {
     fn parses_buffered_sse_and_multipart_content() {
         let content = serde_json::json!({"message":{"content":[{"text":"first"},{"text":" second"}]}});
         assert_eq!(OpenAiCompatibleClient::extract_choice_content(&content).as_deref(), Some("first second"));
+        assert!(OpenAiCompatibleClient::reject_non_text_choice(&serde_json::json!({"message":{"content":"ok","tool_calls":[]}}), "message").is_ok());
         let stream = "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\ndata: [DONE]\n";
         assert_eq!(OpenAiCompatibleClient::parse_sse_fallback(stream).unwrap().content, "hello");
-        assert!(OpenAiCompatibleClient::parse_sse_fallback("data: [DONE]\n").is_none());
+        assert!(OpenAiCompatibleClient::parse_sse_fallback("data: [DONE]\n").is_err());
     }
 
     #[tokio::test]
@@ -503,6 +501,8 @@ mod tests {
             "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n",
             "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{}]}}]}\n\n",
             "data: malformed\n\n",
+            "data: [DONE]\n\n",
+            "data: {\"choices\":[{\"delta\":{\"refusal\":\"no\"}}]}\n\ndata: [DONE]\n\n",
         ] { assert!(openai_stream_fixture(body).await.0.is_err()); }
     }
 
@@ -520,6 +520,26 @@ mod tests {
             let _ = socket.write_all(&response);
         });
         (format!("http://{address}"), server)
+    }
+
+    #[tokio::test]
+    async fn completion_rejects_provider_errors_tool_use_and_incomplete_streams() {
+        for body in [
+            r#"{"error":{"message":"synthetic-secret"}}"#,
+            r#"{"choices":[]}"#,
+            r#"{"choices":[{"message":{"content":null,"tool_calls":[{}]}}]}"#,
+            r#"{"choices":[{"message":{"content":"partial","refusal":"no"}}]}"#,
+            "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\ndata: {\"error\":{\"message\":\"synthetic-secret\"}}\n\ndata: [DONE]\n\n",
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{}]}}]}\n\ndata: [DONE]\n\n",
+            "data: malformed\n\ndata: [DONE]\n\n",
+        ] {
+            let reply = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).into_bytes();
+            let (url, server) = reply_fixture(reply);
+            let error = OpenAiCompatibleClient::new(url, None).run_completion(completion_request()).await.unwrap_err().to_string();
+            assert!(!error.contains("synthetic-secret"));
+            server.join().unwrap();
+        }
     }
 
     #[tokio::test]
