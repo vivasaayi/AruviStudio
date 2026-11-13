@@ -5,12 +5,16 @@ pub struct ModelProvider {
     pub id: String,
     pub name: String,
     pub provider_type: ProviderType,
+    #[serde(default = "default_protocol")]
+    pub protocol: String,
     pub base_url: String,
     pub auth_secret_ref: Option<String>,
     pub enabled: bool,
     pub created_at: String,
     pub updated_at: String,
 }
+
+fn default_protocol() -> String { "openai_compatible".to_string() }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "snake_case")]

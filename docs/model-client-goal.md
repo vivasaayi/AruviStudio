@@ -101,8 +101,12 @@ provider hosting into the model-host service as part of this work.
 - Studio's desktop streaming path still uses its prior implementation. Native
   Anthropic is implemented in the shared crate for text, with simulated HTTP tests
   for request mapping, usage, unsupported roles and redirect credential protection.
-  Studio does not yet route providers to it: adding an Anthropic provider type must
-  preserve SQLite foreign keys and existing model bindings. Live Anthropic access,
+  Studio does not yet route providers to it. An additive protocol column now
+  preserves existing providers, models, secrets and agent bindings without rebuilding
+  the tables; an upgrade test and 148 Studio Rust tests passed (one live test
+  ignored). After upgrading the branch container, MCP connectivity and a real
+  `smol-metal-test` completion still succeeded. Selection and routing still need
+  implementation. Live Anthropic access,
   shared-library streaming, provider selection, durable versioning, and broader
   voice validation remain open.
 

@@ -19,35 +19,83 @@ async fn create_test_pool(name: &str) -> SqlitePool {
 async fn pooled_connections_restore_foreign_key_enforcement() {
     let pool = create_test_pool("foreign_keys_reset").await;
     let mut connection = pool.acquire().await.unwrap();
-    sqlx::query("PRAGMA foreign_keys = OFF").execute(&mut *connection).await.unwrap();
-    let disabled: i64 = sqlx::query_scalar("PRAGMA foreign_keys").fetch_one(&mut *connection).await.unwrap();
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+    let disabled: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
+        .fetch_one(&mut *connection)
+        .await
+        .unwrap();
     assert_eq!(disabled, 0);
     drop(connection);
     let mut connections = Vec::new();
-    for _ in 0..5 { connections.push(pool.acquire().await.unwrap()); }
+    for _ in 0..5 {
+        connections.push(pool.acquire().await.unwrap());
+    }
     for connection in &mut connections {
-        let enabled: i64 = sqlx::query_scalar("PRAGMA foreign_keys").fetch_one(&mut **connection).await.unwrap();
+        let enabled: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
+            .fetch_one(&mut **connection)
+            .await
+            .unwrap();
         assert_eq!(enabled, 1);
     }
 }
 
 #[tokio::test]
 async fn legacy_history_repair_is_atomic_and_restores_foreign_keys() {
-    let pool = SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
-    sqlx::query("PRAGMA foreign_keys = ON").execute(&pool).await.unwrap();
-    sqlx::query("CREATE TABLE workflow_runs(id TEXT PRIMARY KEY)").execute(&pool).await.unwrap();
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("CREATE TABLE workflow_runs(id TEXT PRIMARY KEY)")
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("CREATE TABLE workflow_stage_history(id TEXT PRIMARY KEY, workflow_run_id TEXT REFERENCES workflow_runs_legacy(id), from_stage TEXT NOT NULL, to_stage TEXT NOT NULL, trigger TEXT NOT NULL, notes TEXT NOT NULL, transitioned_at TEXT NOT NULL)").execute(&pool).await.unwrap();
-    sqlx::query("CREATE TABLE workflow_stage_history_legacy_fix(id TEXT)").execute(&pool).await.unwrap();
-    assert!(repair_legacy_workflow_stage_history_fk(&pool).await.is_err());
-    let enabled: i64 = sqlx::query_scalar("PRAGMA foreign_keys").fetch_one(&pool).await.unwrap();
+    sqlx::query("CREATE TABLE workflow_stage_history_legacy_fix(id TEXT)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repair_legacy_workflow_stage_history_fk(&pool)
+        .await
+        .is_err());
+    let enabled: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(enabled, 1);
-    let original: String = sqlx::query_scalar("SELECT sql FROM sqlite_master WHERE name='workflow_stage_history'").fetch_one(&pool).await.unwrap();
+    let original: String =
+        sqlx::query_scalar("SELECT sql FROM sqlite_master WHERE name='workflow_stage_history'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert!(original.contains("workflow_runs_legacy"));
-    sqlx::query("DROP TABLE workflow_stage_history_legacy_fix").execute(&pool).await.unwrap();
-    repair_legacy_workflow_stage_history_fk(&pool).await.unwrap();
-    let repaired: String = sqlx::query_scalar("SELECT sql FROM sqlite_master WHERE name='workflow_stage_history'").fetch_one(&pool).await.unwrap();
+    sqlx::query("DROP TABLE workflow_stage_history_legacy_fix")
+        .execute(&pool)
+        .await
+        .unwrap();
+    repair_legacy_workflow_stage_history_fk(&pool)
+        .await
+        .unwrap();
+    let repaired: String =
+        sqlx::query_scalar("SELECT sql FROM sqlite_master WHERE name='workflow_stage_history'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert!(!repaired.contains("workflow_runs_legacy"));
-    assert_eq!(sqlx::query_scalar::<_, i64>("PRAGMA foreign_keys").fetch_one(&pool).await.unwrap(), 1);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("PRAGMA foreign_keys")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        1
+    );
 }
 
 async fn create_unmigrated_test_pool(name: &str) -> (SqlitePool, String) {
@@ -85,6 +133,97 @@ async fn migrate_through_version(pool: &SqlitePool, version: i64) {
         .run(pool)
         .await
         .expect("legacy migrations should apply");
+}
+
+#[tokio::test]
+async fn protocol_migration_preserves_providers_models_and_bindings() {
+    let (pool, _) = create_unmigrated_test_pool("provider_protocol_upgrade").await;
+    migrate_through_version(&pool, 48).await;
+    sqlx::query("UPDATE model_providers SET auth_secret_ref='ref:synthetic-migration-secret' WHERE id='lm-studio-default'").execute(&pool).await.unwrap();
+    let providers: i64 = sqlx::query_scalar("SELECT count(*) FROM model_providers")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let models: i64 = sqlx::query_scalar("SELECT count(*) FROM model_definitions")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let bindings: i64 = sqlx::query_scalar("SELECT count(*) FROM agent_model_bindings")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(providers > 0 && models > 0 && bindings > 0);
+    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM model_providers")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        providers
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM model_definitions")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        models
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM agent_model_bindings")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        bindings
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>(
+            "SELECT protocol FROM model_providers WHERE id='lm-studio-default'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        "openai_compatible"
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>(
+            "SELECT auth_secret_ref FROM model_providers WHERE id='lm-studio-default'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        "ref:synthetic-migration-secret"
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>(
+            "SELECT model_id FROM agent_model_bindings WHERE id='coding-binding'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        "deepseek-coder"
+    );
+    sqlx::query("UPDATE model_providers SET protocol='anthropic' WHERE id='lm-studio-default'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(sqlx::query(
+        "UPDATE model_providers SET protocol='invalid' WHERE id='lm-studio-default'"
+    )
+    .execute(&pool)
+    .await
+    .is_err());
+    let violations = sqlx::query("PRAGMA foreign_key_check")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert!(violations.is_empty());
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("PRAGMA foreign_keys")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        1
+    );
 }
 
 async fn sqlite_object_exists(pool: &SqlitePool, object_type: &str, name: &str) -> bool {

@@ -176,7 +176,7 @@ mod private_config_tests {
 
     #[test]
     fn missing_managed_reference_does_not_use_another_key() {
-        let provider = ModelProvider { id: "id".into(), name: "name".into(), provider_type: ProviderType::OpenaiCompatible,
+        let provider = ModelProvider { id: "id".into(), name: "name".into(), provider_type: ProviderType::OpenaiCompatible, protocol: "openai_compatible".into(),
             base_url: "https://example.invalid".into(), auth_secret_ref: None, enabled: true, created_at: String::new(), updated_at: String::new() };
         let config = serde_json::json!({"refs":{"provider:id:rotation:found":"exact"},"providers":{"id":{"api_key":"old"}},"api_key":"global"});
         assert_eq!(read_from_fallback_value(&provider, Some("provider:id:rotation:found"), &config).as_deref(), Some("exact"));

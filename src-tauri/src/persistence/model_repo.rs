@@ -27,18 +27,18 @@ pub async fn create_provider(
     base_url: &str,
     auth_secret_ref: Option<&str>,
 ) -> Result<ModelProvider, AppError> {
-    sqlx::query_as::<_, ModelProvider>("INSERT INTO model_providers (id,name,provider_type,base_url,auth_secret_ref,enabled,created_at,updated_at) VALUES (?,?,?,?,?,1,datetime('now'),datetime('now')) RETURNING id,name,provider_type,base_url,auth_secret_ref,enabled,created_at,updated_at")
+    sqlx::query_as::<_, ModelProvider>("INSERT INTO model_providers (id,name,provider_type,base_url,auth_secret_ref,enabled,created_at,updated_at) VALUES (?,?,?,?,?,1,datetime('now'),datetime('now')) RETURNING id,name,provider_type,protocol,base_url,auth_secret_ref,enabled,created_at,updated_at")
         .bind(id).bind(name).bind(provider_type).bind(base_url).bind(auth_secret_ref)
         .fetch_one(pool).await.map_err(|e| e.into())
 }
 
 pub async fn list_providers(pool: &SqlitePool) -> Result<Vec<ModelProvider>, AppError> {
-    sqlx::query_as::<_, ModelProvider>("SELECT id,name,provider_type,base_url,auth_secret_ref,enabled,created_at,updated_at FROM model_providers ORDER BY name")
+    sqlx::query_as::<_, ModelProvider>("SELECT id,name,provider_type,protocol,base_url,auth_secret_ref,enabled,created_at,updated_at FROM model_providers ORDER BY name")
         .fetch_all(pool).await.map_err(|e| e.into())
 }
 
 pub async fn get_provider(pool: &SqlitePool, id: &str) -> Result<ModelProvider, AppError> {
-    sqlx::query_as::<_, ModelProvider>("SELECT id,name,provider_type,base_url,auth_secret_ref,enabled,created_at,updated_at FROM model_providers WHERE id=?")
+    sqlx::query_as::<_, ModelProvider>("SELECT id,name,provider_type,protocol,base_url,auth_secret_ref,enabled,created_at,updated_at FROM model_providers WHERE id=?")
         .bind(id)
         .fetch_optional(pool).await?.ok_or_else(|| AppError::NotFound(format!("Provider {id} not found")))
 }
@@ -64,7 +64,7 @@ pub async fn update_provider(
         "UPDATE model_providers
          SET name=?, provider_type=?, base_url=?, auth_secret_ref=?, enabled=?, updated_at=datetime('now')
          WHERE id=?
-         RETURNING id,name,provider_type,base_url,auth_secret_ref,enabled,created_at,updated_at",
+         RETURNING id,name,provider_type,protocol,base_url,auth_secret_ref,enabled,created_at,updated_at",
     )
     .bind(next_name)
     .bind(next_provider_type)
