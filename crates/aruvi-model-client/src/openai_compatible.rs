@@ -232,6 +232,18 @@ impl OpenAiCompatibleClient {
 
 #[async_trait]
 impl ModelGateway for OpenAiCompatibleClient {
+    fn transport_capabilities(&self) -> crate::TransportCapabilities {
+        crate::TransportCapabilities { text_completion: true, text_streaming: true, model_discovery: true, transcription: true, speech: true }
+    }
+    async fn stream_completion(&self, request: CompletionRequest, on_delta: &mut (dyn for<'a> FnMut(&'a str) + Send)) -> Result<CompletionResponse, ClientError> {
+        OpenAiCompatibleClient::stream_completion(self, request, |delta: &str| on_delta(delta)).await
+    }
+    async fn transcribe(&self, request: TranscriptionRequest) -> Result<String, ClientError> {
+        OpenAiCompatibleClient::transcribe(self, request).await
+    }
+    async fn generate_speech(&self, request: SpeechRequest) -> Result<Vec<u8>, ClientError> {
+        OpenAiCompatibleClient::generate_speech(self, request).await
+    }
     async fn health_check(&self) -> Result<bool, ClientError> {
         let url = self.endpoint_url("/models")?;
         let mut req = self.client()?.get(&url);
@@ -397,7 +409,8 @@ mod tests {
             let reply = r#"{"text":"  hello world  "}"#;
             write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", reply.len(), reply).unwrap();
         });
-        let client = OpenAiCompatibleClient::new(format!("http://{addr}"), Some("audio-key".into()));
+        let client: Box<dyn ModelGateway> = Box::new(OpenAiCompatibleClient::new(format!("http://{addr}"), Some("audio-key".into())));
+        assert!(client.transport_capabilities().transcription);
         let text = client.transcribe(TranscriptionRequest { model: "whisper-fixture".into(), audio: b"RIFFfixture".to_vec(), mime_type: "audio/wav".into(), filename: "sample.wav".into(), language: Some("en-US".into()) }).await.unwrap();
         assert_eq!(text, "hello world");
         server.join().unwrap();
@@ -436,7 +449,8 @@ mod tests {
                 write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", reply.len()).unwrap();
                 socket.write_all(&reply).unwrap();
             });
-            let client = OpenAiCompatibleClient::new(format!("http://{addr}"), Some("speech-key".into()));
+            let client: Box<dyn ModelGateway> = Box::new(OpenAiCompatibleClient::new(format!("http://{addr}"), Some("speech-key".into())));
+            assert!(client.transport_capabilities().speech);
             let result = client.generate_speech(SpeechRequest { model: "voice".into(), input: "Hello".into(), voice: None, speed: None, response_format: "wav".into() }).await;
             assert_eq!(result.is_ok(), valid);
             server.join().unwrap();
@@ -480,9 +494,10 @@ mod tests {
             write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", bytes.len()).unwrap();
             for part in bytes.chunks(3) { if socket.write_all(part).is_err() { break; } }
         });
-        let client = OpenAiCompatibleClient::new(format!("http://{addr}/v1"), Some("test-key".into()));
+        let client: Box<dyn ModelGateway> = Box::new(OpenAiCompatibleClient::new(format!("http://{addr}/v1"), Some("test-key".into())));
+        assert!(client.transport_capabilities().text_streaming);
         let mut chunks = Vec::new();
-        let result = client.stream_completion(CompletionRequest { model:"fixture".into(), messages:vec![ChatMessage { role:"user".into(), content:"Hello".into() }], temperature:None, max_tokens:Some(20) }, |delta| chunks.push(delta.to_owned())).await;
+        let result = client.stream_completion(CompletionRequest { model:"fixture".into(), messages:vec![ChatMessage { role:"user".into(), content:"Hello".into() }], temperature:None, max_tokens:Some(20) }, &mut |delta| chunks.push(delta.to_owned())).await;
         server.join().unwrap();
         (result, chunks)
     }

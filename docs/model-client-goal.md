@@ -255,6 +255,17 @@ provider hosting into the model-host service as part of this work.
   request produced a truncation error through Studio MCP. `bash scripts/test
   host-coding` now checks both behaviors.
 
+- The shared `ModelGateway` now supports streaming, transcription and WAV
+  speech through an object-safe interface, with explicit adapter capabilities
+  and unsupported-operation errors. Adapter capabilities do not claim that an
+  endpoint or model supports an operation. Both OpenAI-compatible and Anthropic
+  streams and OpenAI-compatible voice are exercised through trait objects in
+  the 27 passing client tests. Studio chat, desktop streams and remote speech now
+  construct transports through the same provider/credential selection function.
+  The full Studio suite passed 151 tests with one ignored on rerun; an initial run
+  failed an unrelated external-CLI log assertion. The previous concrete Studio
+  adapter remains present for compatibility, although it is no longer used here.
+
 ## Open design questions
 
 - Decide whether to move the Git-pinned client to a separately maintained

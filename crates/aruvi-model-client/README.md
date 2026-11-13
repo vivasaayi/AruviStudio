@@ -27,6 +27,15 @@ error bodies are not included in errors; the HTTP status remains available in
 the message. OpenAI-compatible and Anthropic requests reject redirects and
 base URLs containing credentials, queries, or fragments.
 
+Use `Box<dyn ModelGateway>` when a caller needs to switch providers without
+matching on concrete client types. Its methods cover text completion, text
+streaming, model discovery, remote transcription and WAV speech. A transport
+can return `UnsupportedOperation` for methods it does not implement; for example,
+Anthropic's text transport does not implement voice. `transport_capabilities()`
+describes the client adapter, not the remote service or model: an
+OpenAI-compatible endpoint can still reject a voice request. Credentials,
+model selection and telemetry remain the application's responsibility.
+
 By default, connections time out after 15 seconds and the complete request,
 including streaming, after five minutes. Other applications can set both with
 `ClientOptions` and `OpenAiCompatibleClient::with_options` or
@@ -60,7 +69,8 @@ aruvi-model-client = { git = "https://github.com/vivasaayi/AruviStudio.git", rev
 ```
 
 This revision is an integration checkpoint, not a release or a promise of API
-stability. Commit the consuming application's `Cargo.lock`. For an offline or
+stability and predates the unified gateway methods. Commit the consuming
+application's `Cargo.lock`. For an offline or
 network-isolated Docker build, prepare dependencies from that lockfile and include
 the resulting `vendor` directory and Cargo configuration in the build context:
 

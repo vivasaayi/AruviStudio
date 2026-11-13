@@ -167,6 +167,12 @@ impl StreamState {
 
 #[async_trait]
 impl ModelGateway for AnthropicClient {
+    fn transport_capabilities(&self) -> crate::TransportCapabilities {
+        crate::TransportCapabilities { text_completion: true, text_streaming: true, model_discovery: true, transcription: false, speech: false }
+    }
+    async fn stream_completion(&self, request: CompletionRequest, on_delta: &mut (dyn for<'a> FnMut(&'a str) + Send)) -> Result<CompletionResponse, ClientError> {
+        AnthropicClient::stream_completion(self, request, |delta: &str| on_delta(delta)).await
+    }
     async fn health_check(&self) -> Result<bool, ClientError> {
         let response = self.client.get(self.endpoint("/models")).header("x-api-key", &self.api_key).header("anthropic-version", API_VERSION).send().await
             .map_err(|error| ClientError::Provider(format!("Anthropic health check failed: {error}")))?;
@@ -298,11 +304,22 @@ mod tests {
             // Split UTF-8 and SSE records at arbitrary byte boundaries.
             for part in response.chunks(3) { if socket.write_all(part).is_err() { break; } }
         });
-        let client = AnthropicClient::new(format!("http://{addr}"), "test-key".into()).unwrap();
+        let client: Box<dyn ModelGateway> = Box::new(AnthropicClient::new(format!("http://{addr}"), "test-key".into()).unwrap());
+        assert!(client.transport_capabilities().text_streaming);
+        assert!(!client.transport_capabilities().speech);
         let mut chunks = Vec::new();
-        let result = client.stream_completion(CompletionRequest { model:"fixture".into(), messages:vec![message("user","Hello")], temperature:None, max_tokens:Some(20) }, |delta| chunks.push(delta.to_owned())).await;
+        let result = client.stream_completion(CompletionRequest { model:"fixture".into(), messages:vec![message("user","Hello")], temperature:None, max_tokens:Some(20) }, &mut |delta| chunks.push(delta.to_owned())).await;
         server.join().unwrap();
         (result, chunks)
+    }
+
+    #[tokio::test]
+    async fn unified_gateway_reports_unsupported_voice_without_network() {
+        let client: Box<dyn ModelGateway> = Box::new(AnthropicClient::new("http://127.0.0.1:1".into(), "test-key".into()).unwrap());
+        let speech = crate::SpeechRequest { model: "voice".into(), input: "hi".into(), voice: None, speed: None, response_format: "wav".into() };
+        assert!(matches!(client.generate_speech(speech).await, Err(ClientError::UnsupportedOperation("speech generation"))));
+        let audio = crate::TranscriptionRequest { model: "voice".into(), audio: vec![], mime_type: "audio/wav".into(), filename: "a.wav".into(), language: None };
+        assert!(matches!(client.transcribe(audio).await, Err(ClientError::UnsupportedOperation("transcription"))));
     }
 
     #[tokio::test]

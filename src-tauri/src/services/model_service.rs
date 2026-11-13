@@ -1,10 +1,9 @@
 use crate::domain::model::ModelProvider;
 use crate::error::AppError;
 use crate::providers::gateway::ModelGateway;
-use crate::providers::openai_compatible::OpenAiCompatibleProvider;
 use crate::providers::types::{CompletionRequest, CompletionResponse};
 use crate::secrets;
-use aruvi_model_client::anthropic::AnthropicClient;
+use aruvi_model_client::{anthropic::AnthropicClient, openai_compatible::OpenAiCompatibleClient};
 use aruvi_model_client::ModelGateway as SharedModelGateway;
 use async_trait::async_trait;
 use sqlx::SqlitePool;
@@ -55,6 +54,11 @@ impl ModelGateway for SharedGatewayAdapter {
 /// Select the transport from the saved provider protocol, resolving credentials
 /// through Studio's existing secret store.
 pub fn create_gateway(provider: &ModelProvider) -> Result<Box<dyn ModelGateway>, AppError> {
+    Ok(Box::new(SharedGatewayAdapter(create_shared_gateway(provider)?)))
+}
+
+/// Build one shared transport for chat, streaming, discovery and remote voice.
+pub fn create_shared_gateway(provider: &ModelProvider) -> Result<Box<dyn SharedModelGateway>, AppError> {
     if provider.provider_type.as_str() != "openai_compatible" {
         return Err(AppError::Validation(format!(
             "Unsupported provider type: {}",
@@ -73,7 +77,7 @@ pub fn create_gateway(provider: &ModelProvider) -> Result<Box<dyn ModelGateway>,
     }
     let api_key = secrets::resolve_provider_secret(provider)?;
     match provider.protocol.as_str() {
-        "openai_compatible" => Ok(Box::new(OpenAiCompatibleProvider::new(
+        "openai_compatible" => Ok(Box::new(OpenAiCompatibleClient::new(
             provider.base_url.clone(),
             api_key,
         ))),
@@ -82,7 +86,7 @@ pub fn create_gateway(provider: &ModelProvider) -> Result<Box<dyn ModelGateway>,
                 .ok_or_else(|| AppError::Validation("Anthropic API key is required".into()))?;
             let client = AnthropicClient::new(provider.base_url.clone(), key)
                 .map_err(|error| AppError::Validation(error.to_string()))?;
-            Ok(Box::new(SharedGatewayAdapter(Box::new(client))))
+            Ok(Box::new(client))
         }
         protocol => Err(AppError::Validation(format!(
             "Unsupported provider protocol: {protocol}"

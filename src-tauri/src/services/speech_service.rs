@@ -1,6 +1,5 @@
 use crate::domain::model::{ModelProvider, ProviderType};
 use crate::error::AppError;
-use crate::secrets;
 use base64::Engine;
 use hound::{SampleFormat, WavReader};
 use serde::{Deserialize, Serialize};
@@ -40,8 +39,7 @@ pub async fn synthesize_remote_speech(
     if provider.protocol != "openai_compatible" {
         return Err(AppError::Validation("Selected provider protocol does not support remote speech synthesis".into()));
     }
-    let key = secrets::resolve_provider_secret(provider)?;
-    let client = aruvi_model_client::openai_compatible::OpenAiCompatibleClient::new(provider.base_url.clone(), key);
+    let client = crate::services::model_service::create_shared_gateway(provider)?;
     client.generate_speech(aruvi_model_client::SpeechRequest { model, input, voice, speed, response_format: "wav".into() }).await
         .map_err(|error| match error {
             aruvi_model_client::ClientError::InvalidInput(message) => AppError::Validation(message),
@@ -61,11 +59,10 @@ pub async fn transcribe_audio_with_provider(
     if provider.protocol != "openai_compatible" {
         return Err(AppError::Validation("Selected provider protocol does not support remote transcription".into()));
     }
-    let api_key = secrets::resolve_provider_secret(provider)?;
     let file_bytes = base64::engine::general_purpose::STANDARD
         .decode(request.audio_bytes_base64.trim())
         .map_err(|error| AppError::Validation(format!("Invalid audio payload: {error}")))?;
-    let client = aruvi_model_client::openai_compatible::OpenAiCompatibleClient::new(provider.base_url.clone(), api_key);
+    let client = crate::services::model_service::create_shared_gateway(provider)?;
     let result = client.transcribe(aruvi_model_client::TranscriptionRequest {
         model: model_name.to_string(),
         audio: file_bytes,

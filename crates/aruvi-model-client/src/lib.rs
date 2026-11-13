@@ -17,6 +17,8 @@ pub enum ClientError {
     InvalidInput(String),
     #[error("Provider does not support multipart transcription uploads")]
     UnsupportedTranscription,
+    #[error("Client transport does not implement {0}")]
+    UnsupportedOperation(&'static str),
 }
 
 /// HTTP timeouts applied to all operations, including streamed responses.
@@ -89,12 +91,36 @@ pub struct ModelPage {
     pub next_cursor: Option<String>,
 }
 
+/// Operations implemented by this transport, not a guarantee that a remote
+/// provider or particular model offers them. Discover and configure models
+/// separately, and handle runtime provider errors.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TransportCapabilities {
+    pub text_completion: bool,
+    pub text_streaming: bool,
+    pub model_discovery: bool,
+    pub transcription: bool,
+    pub speech: bool,
+}
+
 #[async_trait]
 pub trait ModelGateway: Send + Sync {
+    fn transport_capabilities(&self) -> TransportCapabilities { TransportCapabilities::default() }
     async fn health_check(&self) -> Result<bool, ClientError>;
     /// Fetch one page; pass the returned cursor to retrieve the next page.
     async fn list_models_page(&self, _cursor: Option<&str>) -> Result<ModelPage, ClientError> {
         Err(ClientError::Provider("This provider does not support model discovery".into()))
     }
     async fn run_completion(&self, request: CompletionRequest) -> Result<CompletionResponse, ClientError>;
+    /// The final result must be checked even if text has already been emitted.
+    /// Dropping the returned future cancels the request.
+    async fn stream_completion(&self, _request: CompletionRequest, _on_delta: &mut (dyn for<'a> FnMut(&'a str) + Send)) -> Result<CompletionResponse, ClientError> {
+        Err(ClientError::UnsupportedOperation("text streaming"))
+    }
+    async fn transcribe(&self, _request: TranscriptionRequest) -> Result<String, ClientError> {
+        Err(ClientError::UnsupportedOperation("transcription"))
+    }
+    async fn generate_speech(&self, _request: SpeechRequest) -> Result<Vec<u8>, ClientError> {
+        Err(ClientError::UnsupportedOperation("speech generation"))
+    }
 }

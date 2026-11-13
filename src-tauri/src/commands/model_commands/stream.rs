@@ -4,7 +4,6 @@ use super::telemetry::{
 use super::ModelChatCommand;
 use crate::error::AppError;
 use crate::persistence::model_repo;
-use crate::secrets;
 use crate::state::AppState;
 use serde::Serialize;
 use std::time::Instant;
@@ -42,22 +41,6 @@ pub async fn start_model_chat_stream(
     start_provider_stream(app, state, provider, request, stream_id).await
 }
 
-enum StreamClient {
-    Anthropic(aruvi_model_client::anthropic::AnthropicClient),
-    OpenAi(aruvi_model_client::openai_compatible::OpenAiCompatibleClient),
-}
-
-impl StreamClient {
-    async fn stream_completion<F>(&self, request: crate::providers::types::CompletionRequest, on_delta: F)
-        -> Result<crate::providers::types::CompletionResponse, aruvi_model_client::ClientError>
-    where F: FnMut(&str) + Send {
-        match self {
-            Self::Anthropic(client) => client.stream_completion(request, on_delta).await,
-            Self::OpenAi(client) => client.stream_completion(request, on_delta).await,
-        }
-    }
-}
-
 async fn start_provider_stream<R: tauri::Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
@@ -65,20 +48,7 @@ async fn start_provider_stream<R: tauri::Runtime>(
     request: ModelChatCommand,
     stream_id: String,
 ) -> Result<String, AppError> {
-    if provider.provider_type.as_str() != "openai_compatible" {
-        return Err(AppError::Validation(format!("Unsupported provider type: {}", provider.provider_type)));
-    }
-    if provider.protocol == "anthropic" && provider.auth_secret_ref.as_deref().is_none_or(|value| value.trim().is_empty()) {
-        return Err(AppError::Validation("An explicit Anthropic API key is required".into()));
-    }
-    let key = secrets::resolve_provider_secret(&provider)?;
-    let client = match provider.protocol.as_str() {
-        "anthropic" => StreamClient::Anthropic(aruvi_model_client::anthropic::AnthropicClient::new(
-            provider.base_url.clone(), key.ok_or_else(|| AppError::Validation("Anthropic API key is required".into()))?
-        ).map_err(|error| AppError::Validation(error.to_string()))?),
-        "openai_compatible" => StreamClient::OpenAi(aruvi_model_client::openai_compatible::OpenAiCompatibleClient::new(provider.base_url.clone(), key)),
-        protocol => return Err(AppError::Validation(format!("Unsupported provider protocol: {protocol}"))),
-    };
+    let client = crate::services::model_service::create_shared_gateway(&provider)?;
     let task_id = stream_id.clone();
     let source_id = request.source_id.unwrap_or_else(|| stream_id.clone());
     let source_kind = request.source_kind.unwrap_or_else(|| "desktop_stream".into());
@@ -93,7 +63,7 @@ async fn start_provider_stream<R: tauri::Runtime>(
                 model: request.model.clone(), messages: request.messages.clone(),
                 temperature: request.temperature, max_tokens: request.max_tokens,
             },
-            |delta| {
+            &mut |delta| {
                 response_text.push_str(delta);
                 let _ = app.emit("chat_stream_chunk", ChatStreamChunkEvent { stream_id: task_id.clone(), delta: delta.to_string() });
             },
