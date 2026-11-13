@@ -179,6 +179,12 @@ provider hosting into the model-host service as part of this work.
   network-isolated container before approving test review. This change passed 151
   Rust tests (one ignored), 20 remote UI tests, one CI test, 19 simulated workflow
   tests, and real MCP and browser chat checks.
+- OpenAI-compatible completion and transcription responses now have explicit
+  byte limits, including chunked transfers; provider error bodies and malformed
+  response previews are not propagated. Redirects and base URLs containing
+  credentials, queries or fragments are rejected, and HTTP client initialization
+  does not silently fall back to an unbounded client. Tests cover oversized
+  advertised and chunked responses, error-body redaction and redirect refusal.
 
 ## Open design questions
 

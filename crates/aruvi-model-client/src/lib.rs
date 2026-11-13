@@ -7,6 +7,7 @@ pub mod openai_compatible;
 pub mod anthropic;
 mod sse;
 mod discovery;
+mod http;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {

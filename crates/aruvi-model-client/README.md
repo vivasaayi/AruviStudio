@@ -11,8 +11,12 @@ for its chat and agent flows. Streaming bounds the total event data, reports
 provider errors and incomplete streams, and cancels the HTTP request when its
 future is dropped. Text clients explicitly reject tool-use responses; full tools,
 thinking, structured output and cross-provider capability negotiation remain open.
-The library does not currently apply consistent bounds to every non-streaming
-response.
+OpenAI-compatible completion responses are capped at 8 MiB, transcription and
+discovery responses at 2 MiB, and WAV speech at 16 MiB. Anthropic completion and
+stream responses are capped at 2 MiB. These limits are fixed for now. Provider
+error bodies are not included in errors; the HTTP status remains available in
+the message. OpenAI-compatible and Anthropic requests reject redirects and
+base URLs containing credentials, queries, or fragments.
 
 Call `ModelGateway::list_models_page(None)` to discover a provider's available
 models and pass `next_cursor` back to fetch subsequent pages. OpenAI-compatible
@@ -39,7 +43,8 @@ aruvi-model-client = { git = "https://github.com/vivasaayi/AruviStudio.git", rev
 ```
 
 This revision is an integration checkpoint, not a release or a promise of API
-stability. Commit the consuming application's `Cargo.lock`. For an offline or
+stability; it predates the latest response bounds and redirect checks. Commit the
+consuming application's `Cargo.lock`. For an offline or
 network-isolated Docker build, prepare dependencies from that lockfile and include
 the resulting `vendor` directory and Cargo configuration in the build context:
 
