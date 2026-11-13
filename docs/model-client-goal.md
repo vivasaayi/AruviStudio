@@ -277,6 +277,15 @@ provider hosting into the model-host service as part of this work.
   complete Studio Rust suite then passed 151 tests with one live test ignored,
   without the prior dead-code warnings. Flush does not claim durable disk sync.
 
+- The independently pinned Git consumer now has an offline-built host probe
+  using `Box<dyn ModelGateway>`. In a read-only non-root container it reached
+  the isolated native `qwen25-coder-7b-q4` host and passed authenticated model
+  discovery, completion, streaming and token-limit handling. The host token
+  was provided through stdin, not command arguments or image layers.
+  `bash scripts/test host-shared-client /path/to/host --model MODEL_ID` repeats
+  this check. The eight simulated consumer tests also passed offline. This is a
+  single small-model integration check, not proof of broader coding quality.
+
 ## Open design questions
 
 - Decide whether to move the Git-pinned client to a separately maintained

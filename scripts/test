@@ -12,7 +12,8 @@ case "${1:-}" in
   host-coding) python3 scripts/test-host-coding ;;
   host-coding-ui) node scripts/test-host-coding-ui.mjs ;;
   host-coding-workflow) python3 scripts/test-host-coding-workflow ;;
-  shared-client-consumer) docker build --no-cache --output=type=cacheonly validation/model-client-consumer ;;
+  shared-client-consumer) docker build --no-cache --target test --output=type=cacheonly validation/model-client-consumer ;;
+  host-shared-client) shift; python3 scripts/test-shared-client-host "$@" ;;
   ui|staging)
     profile=worktree
     [[ $1 == staging ]] && profile=staging
@@ -32,5 +33,5 @@ case "${1:-}" in
       bash scripts/test-container-ci.sh
       bash scripts/test-container-workflow.sh
     fi ;;
-  *) printf '%s\n' 'Usage: scripts/test unit|integration|ui|staging|host-layout|host-planner-scope|host-mcp-origin|host-speech|host-coding|host-coding-ui|host-coding-workflow|shared-client-consumer' >&2; exit 2 ;;
+  *) printf '%s\n' 'Usage: scripts/test unit|integration|ui|staging|host-layout|host-planner-scope|host-mcp-origin|host-speech|host-coding|host-coding-ui|host-coding-workflow|shared-client-consumer|host-shared-client' >&2; exit 2 ;;
 esac

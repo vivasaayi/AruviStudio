@@ -6,3 +6,8 @@ COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 RUN mkdir -p .cargo && cargo vendor --locked vendor > .cargo/config.toml
 RUN --network=none cargo test --locked --offline
+
+FROM test AS probe
+RUN --network=none cargo build --locked --offline --bin host_probe
+FROM scratch AS probe-artifact
+COPY --from=probe /consumer/target/debug/host_probe /host_probe
