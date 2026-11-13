@@ -9,6 +9,7 @@ case "${1:-}" in
   host-planner-scope) node scripts/test-host-planner-scope.mjs ;;
   host-mcp-origin) node scripts/test-host-mcp-origin.mjs ;;
   host-speech) node scripts/test-host-speech.mjs ;;
+  host-speech-cycle) python3 scripts/test-host-speech-cycle ;;
   host-planner) shift; python3 scripts/test-host-planner "$@" ;;
   host-coding) python3 scripts/test-host-coding ;;
   host-coding-ui) node scripts/test-host-coding-ui.mjs ;;
@@ -34,5 +35,5 @@ case "${1:-}" in
       bash scripts/test-container-ci.sh
       bash scripts/test-container-workflow.sh
     fi ;;
-  *) printf '%s\n' 'Usage: scripts/test unit|integration|ui|staging|host-layout|host-planner-scope|host-mcp-origin|host-speech|host-planner|host-coding|host-coding-ui|host-coding-workflow|shared-client-consumer|host-shared-client' >&2; exit 2 ;;
+  *) printf '%s\n' 'Usage: scripts/test unit|integration|ui|staging|host-layout|host-planner-scope|host-mcp-origin|host-speech|host-speech-cycle|host-planner|host-coding|host-coding-ui|host-coding-workflow|shared-client-consumer|host-shared-client' >&2; exit 2 ;;
 esac

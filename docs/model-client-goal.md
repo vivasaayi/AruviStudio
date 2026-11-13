@@ -44,6 +44,23 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Real speech and browser coding checkpoint
+
+- On 2026-11-13 the standard worktree image generated real `piper-ljspeech`
+  WAV audio in the browser and returned real `qwen25-coder-7b-q4` coding output
+  in authenticated browser chat. `bash scripts/test host-speech-cycle` now
+  exercises a synthetic English phrase through MCP speech generation and
+  `whisper-tiny-metal` transcription, validates WAV structure, and checks the
+  recognized words with a 70% sequence-similarity threshold and required "fox"
+  and "dog" anchors. Provider and model names can be overridden with the
+  `ARUVI_SPEECH_TEST_PROVIDER`, `ARUVI_SPEECH_TEST_VOICE_MODEL`, and
+  `ARUVI_SPEECH_TEST_STT_MODEL` environment variables.
+- The real speech round trip passed for the test sentence. A separate phrase
+  containing the product name was misheard, so this is a connectivity and fixture
+  check, not a claim of general transcription quality. Exact matching failed in
+  repeated runs; the thresholded test passed five consecutive runs. Physical microphone input,
+  audible playback, other languages, and native desktop interaction remain open.
+
 ## Standard Docker and Linux revalidation
 
 - On 2026-11-13 Docker's shared disk became available again (46 GiB free after
