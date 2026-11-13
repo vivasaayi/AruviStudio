@@ -14,7 +14,7 @@ provider hosting into the model-host service as part of this work.
 
 - [x] Inspect the model-host API, deployments and installed models, and the
   current AruviStudio provider and speech paths.
-- [ ] Decide and implement a genuinely shareable library location and versioning
+- [x] Decide and implement a genuinely shareable library location and versioning
   mechanism that works both for other repositories and Docker builds. Record
   dependency provenance and reproducible builds; avoid an unpublished dependency
   that only works on this Mac.
@@ -128,11 +128,19 @@ provider hosting into the model-host service as part of this work.
   ignored), and a separate OpenAI desktop adapter test. After rebuilding the
   branch image, real MCP completion and 20 remote UI, one CI and 19 isolated
   workflow tests passed. These fixture tests do not replace a physical desktop run.
+- The library is independently consumable from the public Studio Git repository
+  using a full commit pin. The separate `validation/model-client-consumer` fixture
+  pins `5996b26ec0c129b0320db2c4c0f6627dd46d4bb5`, commits its dependency lock,
+  vendors the dependency graph, and passes a simulated authenticated completion
+  inside a network-disabled Docker build. `bash scripts/test shared-client-consumer`
+  repeats this check. Cargo's package listing includes the applicable license;
+  there is no registry release. A separate repository and release policy remain
+  open decisions rather than prerequisites for consuming this pinned snapshot.
 
 ## Open design questions
 
-- Select a maintainable library repository/distribution approach compatible with
-  Cargo, Docker build contexts, independent projects and offline reproducibility.
+- Decide whether to move the Git-pinned client to a separately maintained
+  repository, and establish release and semantic-versioning policy.
 - Determine whether native model-host loopback forwarding from Docker is an
   intentional supported network path and how narrowly to provision its token.
 - Establish provider-specific requirements from official protocol documentation

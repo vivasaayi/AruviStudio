@@ -19,8 +19,38 @@ response.
 standard input (an empty input selects no authentication). It prints only chunk
 and character counts. Avoid putting keys in command arguments, logs, or Git.
 
-This crate remains inside the Studio repository and its release/distribution
-strategy is not yet settled. Its current license-file reference and dependency
-lock must be addressed before treating it as an independently published package.
+## Consuming from another project
+
+Until a separate repository and release process are established, use the public
+Studio Git repository as the shared source and pin an immutable, tested commit:
+
+```toml
+[dependencies]
+aruvi-model-client = { git = "https://github.com/vivasaayi/AruviStudio.git", rev = "5996b26ec0c129b0320db2c4c0f6627dd46d4bb5" }
+```
+
+This revision is an integration checkpoint, not a release or a promise of API
+stability. Commit the consuming application's `Cargo.lock`. For an offline or
+network-isolated Docker build, prepare dependencies from that lockfile and include
+the resulting `vendor` directory and Cargo configuration in the build context:
+
+```sh
+mkdir -p .cargo
+cargo vendor --locked vendor > .cargo/config.toml
+cargo test --locked --offline
+```
+
+The `validation/model-client-consumer` fixture pins this revision and its own
+lockfile; `bash scripts/test shared-client-consumer` builds it in Docker, vendors
+dependencies and runs its tests with networking disabled. When promoting another
+client revision, first push it, update the fixture's Git revision and lockfile,
+then rerun the check before updating consumers. Do not use a mutable branch as a
+substitute for a commit pin. Vendored sources include their applicable licenses.
+
+This approach still couples client changes to Studio's Git history. A separately
+maintained repository, semver policy, release automation, and package publication
+remain future work; nothing has been published to a package registry. Cargo's
+package listing includes the repository's license file in the package, but the
+crate has not been published or independently released.
 The Anthropic adapter follows the [Messages API](https://platform.claude.com/docs/en/api/messages/create)
 and [streaming](https://platform.claude.com/docs/en/build-with-claude/streaming) contracts.

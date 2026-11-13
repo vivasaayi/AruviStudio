@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 license-file = "../../LICENSE"
 description = "Reusable model service clients for Aruvi applications"
+repository = "https://github.com/vivasaayi/AruviStudio"
+readme = "README.md"
 
 [dependencies]
 async-trait = "0.1"
