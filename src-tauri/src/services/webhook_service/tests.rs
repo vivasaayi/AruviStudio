@@ -396,7 +396,8 @@ async fn anthropic_protocol_routes_mcp_and_remote_chat() {
         assert!(headers.get("authorization").is_none());
         assert_eq!(body["model"], "claude-test");
         assert_eq!(body["messages"][0]["role"], "user");
-        Json(json!({"content":[{"type":"text","text":"Claude fixture response"}],"usage":{"input_tokens":4,"output_tokens":3}}))
+        let stop_reason = if body["messages"][0]["content"] == "truncated" { "max_tokens" } else { "end_turn" };
+        Json(json!({"content":[{"type":"text","text":"Claude fixture response"}],"stop_reason":stop_reason,"usage":{"input_tokens":4,"output_tokens":3}}))
     }
     async fn models(headers: axum::http::HeaderMap, Query(query): Query<std::collections::HashMap<String, String>>) -> Json<Value> {
         assert_eq!(headers.get("x-api-key").unwrap(), "sk-test-synthetic-key-123456");
@@ -431,6 +432,10 @@ async fn anthropic_protocol_routes_mcp_and_remote_chat() {
     }})).await.unwrap();
     assert_eq!(mcp["result"]["content"], "Claude fixture response");
     assert_eq!(mcp["result"]["token_count_input"], 4);
+    let truncated = dispatch_tool(&state, "aruvi_models", json!({"action":"run_model_chat_completion","arguments":{
+        "provider_id":id,"model":"claude-test","messages":[{"role":"user","content":"truncated"}]
+    }})).await.unwrap_err();
+    assert!(truncated.to_string().contains("truncated"));
     let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM model_definitions").fetch_one(&state.db).await.unwrap();
     let page = dispatch_tool(&state, "aruvi_models", json!({"action":"discover_provider_models","arguments":{"id":id}})).await.unwrap();
     assert_eq!(page["result"]["models"][0]["id"], "claude-first");
@@ -451,5 +456,10 @@ async fn anthropic_protocol_routes_mcp_and_remote_chat() {
     }))).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(parse_json(&body)["content"], "Claude fixture response");
+    let (status, body) = send_json(&router, Method::POST, "/api/mobile/chat/completions", Some("anthropic-test-token"), Some(json!({
+        "provider_id":id,"model_name":"claude-test","messages":[{"role":"user","content":"truncated"}]
+    }))).await;
+    assert!(!status.is_success(), "truncated response unexpectedly succeeded: {body}");
+    assert!(body.contains("truncated"));
     server.abort();
 }

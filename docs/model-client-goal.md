@@ -234,6 +234,15 @@ provider hosting into the model-host service as part of this work.
   installed as a login service, and staging currently has no suitable coding
   model; this does not establish an always-on centralized coding deployment.
 
+- Anthropic responses now reject reported truncation, paused turns, refusals,
+  tool-use stops and unknown stop reasons in non-streaming and streaming paths.
+  A stream can deliver text callbacks before a terminal error, so consumers must
+  inspect its final result. For compatibility, absent stop reasons are accepted
+  and cannot establish completeness. The shared-client suite passed 25 tests;
+  a simulated Studio integration test verified MCP and authenticated web chat
+  report truncation as an error.
+  Behavior follows the [Anthropic stop-reason reference](https://platform.claude.com/docs/en/build-with-claude/handling-stop-reasons).
+
 ## Open design questions
 
 - Decide whether to move the Git-pinned client to a separately maintained

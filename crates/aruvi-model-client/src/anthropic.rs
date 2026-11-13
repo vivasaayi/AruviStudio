@@ -34,6 +34,23 @@ impl AnthropicClient {
         if base.ends_with("/v1") { format!("{base}{path}") } else { format!("{base}/v1{path}") }
     }
 
+    // Some compatible proxies omit stop_reason. When supplied, never let a
+    // partial, paused, refused or unsupported tool turn appear complete.
+    fn validate_stop_reason(reason: Option<&Value>) -> Result<(), ClientError> {
+        match reason {
+            None | Some(Value::Null) => Ok(()),
+            Some(Value::String(reason)) => match reason.as_str() {
+                "end_turn" | "stop_sequence" => Ok(()),
+                "max_tokens" | "model_context_window_exceeded" => Err(ClientError::Provider("Anthropic response was truncated by a token limit".into())),
+                "pause_turn" => Err(ClientError::Provider("Anthropic response requires continuation".into())),
+                "refusal" => Err(ClientError::Provider("Anthropic refused the request".into())),
+                "tool_use" => Err(ClientError::Provider("Anthropic tool-use responses are not supported by the text client".into())),
+                _ => Err(ClientError::Provider("Anthropic returned an unsupported stop reason".into())),
+            },
+            Some(_) => Err(ClientError::Provider("Invalid Anthropic stop reason".into())),
+        }
+    }
+
     fn request_body(request: CompletionRequest) -> Result<Value, ClientError> {
         if request.model.trim().is_empty() || request.max_tokens.is_some_and(|value| value <= 0) {
             return Err(ClientError::InvalidInput("A model and positive max_tokens are required".into()));
@@ -119,6 +136,7 @@ impl StreamState {
                 self.output_tokens = event.pointer("/message/usage/output_tokens").and_then(Value::as_i64);
             }
             Some("message_delta") => {
+                AnthropicClient::validate_stop_reason(event.pointer("/delta/stop_reason"))?;
                 self.input_tokens = event.pointer("/usage/input_tokens").and_then(Value::as_i64).or(self.input_tokens);
                 self.output_tokens = event.pointer("/usage/output_tokens").and_then(Value::as_i64).or(self.output_tokens);
             }
@@ -181,6 +199,7 @@ impl ModelGateway for AnthropicClient {
         let response = self.client.post(self.endpoint("/messages")).header("x-api-key", &self.api_key).header("anthropic-version", API_VERSION).json(&body).send().await
             .map_err(|error| ClientError::Provider(format!("Anthropic request failed: {error}")))?;
         let json = Self::read_json(response).await?;
+        Self::validate_stop_reason(json.get("stop_reason"))?;
         let blocks = json.get("content").and_then(Value::as_array).ok_or_else(|| ClientError::Provider("Anthropic response is missing content".into()))?;
         if blocks.iter().any(|block| block.get("type").and_then(Value::as_str) == Some("tool_use")) {
             return Err(ClientError::Provider("Anthropic tool-use responses are not supported by the text client".into()));
@@ -299,6 +318,32 @@ mod tests {
         assert_eq!(chunks, ["Hé", "llo"]);
         assert_eq!(response.content, "Héllo");
         assert_eq!((response.token_count_input, response.token_count_output), (Some(7), Some(3)));
+    }
+
+    #[tokio::test]
+    async fn stop_reasons_do_not_turn_partial_responses_into_success() {
+        for reason in ["max_tokens", "model_context_window_exceeded", "pause_turn", "refusal", "tool_use", "future_unknown_reason"] {
+            let body = format!("data: {{\"type\":\"content_block_delta\",\"delta\":{{\"type\":\"text_delta\",\"text\":\"partial\"}}}}\n\ndata: {{\"type\":\"message_delta\",\"delta\":{{\"stop_reason\":\"{reason}\"}}}}\n\ndata: {{\"type\":\"message_stop\"}}\n\n");
+            let (result, chunks) = stream_fixture(&body).await;
+            assert_eq!(chunks, ["partial"]);
+            assert!(result.is_err(), "stream accepted {reason}");
+
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            let body = json!({"content":[{"type":"text","text":"partial"}],"stop_reason":reason}).to_string();
+            let server = thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                let mut request = [0; 4096]; let _ = socket.read(&mut request);
+                let _ = write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
+            });
+            let client = AnthropicClient::new(format!("http://{addr}"), "test-key".into()).unwrap();
+            let request = CompletionRequest { model:"fixture".into(), messages:vec![message("user","Hello")], temperature:None, max_tokens:Some(20) };
+            assert!(client.run_completion(request).await.is_err(), "completion accepted {reason}");
+            server.join().unwrap();
+        }
+        assert!(AnthropicClient::validate_stop_reason(Some(&json!("end_turn"))).is_ok());
+        assert!(AnthropicClient::validate_stop_reason(Some(&json!("stop_sequence"))).is_ok());
+        assert!(AnthropicClient::validate_stop_reason(Some(&json!(5))).is_err());
     }
 
     #[tokio::test]

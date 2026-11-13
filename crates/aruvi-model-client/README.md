@@ -11,6 +11,10 @@ for its chat and agent flows. Streaming bounds the total event data, reports
 provider errors and incomplete streams, and cancels the HTTP request when its
 future is dropped. Text clients explicitly reject tool-use responses; full tools,
 thinking, structured output and cross-provider capability negotiation remain open.
+For Anthropic, a supplied stop reason indicating token truncation, a paused turn,
+a refusal, tool use, or an unknown outcome is returned as an error instead of a
+completed text response. Some compatible proxies omit stop reasons; their absence
+is accepted for compatibility, so completeness cannot be inferred from that field.
 OpenAI-compatible completion responses are capped at 8 MiB, transcription and
 discovery responses at 2 MiB, and WAV speech at 16 MiB. Anthropic completion and
 stream responses are capped at 2 MiB. These limits are fixed for now. Provider
@@ -51,7 +55,8 @@ aruvi-model-client = { git = "https://github.com/vivasaayi/AruviStudio.git", rev
 ```
 
 This revision is an integration checkpoint, not a release or a promise of API
-stability. Commit the consuming application's `Cargo.lock`. For an offline or
+stability and predates the latest Anthropic stop-reason handling. Commit the
+consuming application's `Cargo.lock`. For an offline or
 network-isolated Docker build, prepare dependencies from that lockfile and include
 the resulting `vendor` directory and Cargo configuration in the build context:
 
