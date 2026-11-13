@@ -721,7 +721,7 @@ pub(crate) async fn mobile_register_repository(State(state): State<WebhookState>
         return (StatusCode::BAD_REQUEST, "A name and absolute path to an accessible Git repository are required").into_response();
     }
     let branch = match git2::Repository::open(path) {
-        Ok(repository) if !repository.is_bare() => repository.head().ok().filter(|head| head.is_branch()).and_then(|head| head.shorthand().map(str::to_owned)).unwrap_or_else(|| "main".into()),
+        Ok(repository) if !repository.is_bare() => repository.head().ok().filter(|head| head.is_branch()).and_then(|head| head.shorthand().ok().map(str::to_owned)).unwrap_or_else(|| "main".into()),
         _ => return (StatusCode::BAD_REQUEST, "A name and absolute path to an accessible Git working repository are required").into_response(),
     };
     match crate::commands::repository_commands::register_repository_for_state(

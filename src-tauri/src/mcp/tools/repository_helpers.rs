@@ -51,7 +51,7 @@ pub(super) fn repository_git_status(
     let head = repo.head().ok();
     let branch = head
         .as_ref()
-        .and_then(|head| head.shorthand())
+        .and_then(|head| head.shorthand().ok())
         .map(ToString::to_string);
     let head_sha = head
         .as_ref()
@@ -70,7 +70,7 @@ pub(super) fn repository_git_status(
     let changed_files = statuses
         .iter()
         .filter_map(|entry| {
-            let path = entry.path()?.to_string();
+            let path = entry.path().ok()?.to_string();
             Some(json!({
                 "path": path,
                 "status": git_status_labels(entry.status())

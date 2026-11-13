@@ -162,7 +162,7 @@ fn commit_details(repository: &GitRepository, oid: git2::Oid) -> Result<CiGitCom
         .map_err(|error| error.to_string())?;
     Ok(CiGitCommit {
         sha: commit.id().to_string(),
-        summary: commit.summary().unwrap_or("(no commit message)").to_owned(),
+        summary: commit.summary().ok().flatten().unwrap_or("(no commit message)").to_owned(),
         committed_at: commit.time().seconds(),
     })
 }

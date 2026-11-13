@@ -19,7 +19,7 @@ impl GitOperations {
         let repo = Repository::open(repo_path)?;
         let head = repo.head().map_err(|_| AppError::Validation("A checked-out branch with an existing commit is required for delivery".to_string()))?;
         let expected_ref = format!("refs/heads/{branch_name}");
-        if !git2::Reference::is_valid_name(&expected_ref) || head.name() != Some(expected_ref.as_str()) {
+        if !git2::Reference::is_valid_name(&expected_ref) || head.name().ok() != Some(expected_ref.as_str()) {
             return Err(AppError::Validation("The configured delivery branch is not the checked-out branch".to_string()));
         }
         let parent = head.peel_to_commit()?;
@@ -74,7 +74,7 @@ impl GitOperations {
 
         let reference = format!("refs/heads/{branch_name}");
         let head = repo.head().map_err(|_| AppError::Validation("Delivery branch is not checked out".to_string()))?;
-        if !git2::Reference::is_valid_name(&reference) || head.name() != Some(reference.as_str()) || head.target().map(|id| id.to_string()).as_deref() != Some(expected_commit) {
+        if !git2::Reference::is_valid_name(&reference) || head.name().ok() != Some(reference.as_str()) || head.target().map(|id| id.to_string()).as_deref() != Some(expected_commit) {
             return Err(AppError::Validation("Delivery branch or commit changed before push".to_string()));
         }
         // Find the remote
@@ -110,6 +110,13 @@ mod tests {
     use crate::services::workflow_delivery_manifest::{file_digest, DeliveryManifest};
     use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn git_transport_features_remain_available() {
+        let version = git2::Version::get();
+        assert!(version.https(), "Git HTTPS transport must remain enabled");
+        assert!(version.ssh(), "Git SSH transport must remain enabled");
+    }
 
     fn fixture() -> (PathBuf, String, DeliveryManifest) {
         let root = std::env::temp_dir().join(format!("aruvi-git-delivery-{}", uuid::Uuid::new_v4()));

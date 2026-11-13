@@ -444,6 +444,29 @@ provider hosting into the model-host service as part of this work.
   upgraded. The branch build used the existing host-mounted Linux toolchain and
   Docker runtime stage to accommodate Docker Desktop's limited free space.
 
+## Progress — Git dependency security update
+
+- Updated `git2` from 0.19.0 to 0.21.0 and preserved both HTTPS and SSH build
+  features explicitly, since the newer crate disables them by default. Adapted
+  reference, status-path and commit-summary handling to the changed APIs while
+  retaining existing fallbacks. A runtime feature test passed on macOS and Linux;
+  actual authenticated remote SSH and HTTPS pushes were not tested.
+- `cargo-audit` no longer reports the three `git2` soundness advisories
+  RUSTSEC-2026-0008, RUSTSEC-2026-0183 and RUSTSEC-2026-0184. It still reports
+  RUSTSEC-2023-0071 for RSA in the lockfile, 13 unmaintained, seven unsound and
+  three yanked warnings. `cargo tree --target all -i rsa` found no selected
+  dependency path; disabling SQLx default features in an isolated experiment did
+  not remove its optional RSA dependency from the lockfile. This does not prove
+  safety under every possible feature configuration.
+- Native Rust tests passed 159 with one ignored, plus the new Git transport
+  feature test. Linux Rust tests passed 160 with one live test ignored. The
+  rebuilt branch passed one remote smoke, 20 remote UI, one CI and 19 isolated
+  workflow checks, including commit and push to a disposable local Git remote.
+  Real 7B MCP completion and browser chat passed. A real 7B workflow generated
+  code that passed isolated assertions and reached its disposable Git remote.
+  These are limited checks, not a general model reliability claim. Windows and
+  other untested target builds remain open.
+
 ## Dependency security checkpoint — 2026-11-13
 
 - `npm audit --json` reported no npm advisories. `cargo-audit` 0.23.0
