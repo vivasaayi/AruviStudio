@@ -44,6 +44,25 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Standard Docker and Linux revalidation
+
+- On 2026-11-13 Docker's shared disk became available again (46 GiB free after
+  these checks). The standard `bash scripts/build worktree` built source revision
+  `c20e1bcfa8f5951b604ac6914cdcbf4b7713695e`. Its worktree image
+  `sha256:d60ac3e0a2c4cd5236265a0f8367c4ed11129866cb10832d35e15f0ac4d7ffde`
+  was started healthy, retaining the existing volume. The prior validated image
+  was retained as a rollback tag. Running server SHA-256:
+  `82a02ef1ab1b2ecdb4d25cb8b0a42ae7e7d0a116ffa956d9ce6464b63b77c5bd`.
+- The Linux library suite passed 177 tests with one live test ignored. Against
+  the standard image, browser tests passed one smoke, 21 remote, one CI and 19
+  workflow cases; a real 7B Model Host coding completion and token-limit check
+  also passed through Studio MCP.
+- The independently pinned consumer passed all 12 tests in the repository's
+  normal clean Docker build with vendoring and network-disabled tests. A separate
+  probe built from that consumer contacted the native 7B Model Host from Docker
+  and passed discovery, completion, streaming and token-limit handling. Physical
+  desktop interaction and the other previously recorded limitations remain open.
+
 ## Current worktree deployment checkpoint
 
 - On 2026-11-13 the frontend and locked Linux release server were built from
