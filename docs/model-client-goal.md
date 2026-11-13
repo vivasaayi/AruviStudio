@@ -594,6 +594,25 @@ provider hosting into the model-host service as part of this work.
   coding and browser speech checks. Native desktop and Windows dependency paths
   remain unverified. No other products' data were pruned.
 
+## Planner concurrency checkpoint
+
+- Browser, MCP and native planner mutations sharing one `PlannerService` now
+  serialize by session, including draft edits, settings, clear, repository analysis,
+  and text and voice turns. Other sessions remain independent. A regression test
+  checks that concurrent edits both persist and that an unrelated session is not
+  blocked. This prevents a stale cloned draft from overwriting another request in
+  the same server process.
+- This is not database-level concurrency control: independently running server
+  processes pointed at the same SQLite database retain separate caches and can
+  overwrite each other. A multi-process revision or locking protocol, atomic
+  persistence and end-to-end conflict testing remain open before claiming broader
+  multi-client safety. Voice and model calls serialize other edits to that session
+  for their duration.
+- Validation on 2026-11-13: macOS and Linux library suites each passed 164
+  tests (one live-provider test ignored). The rebuilt isolated worktree container
+  passed the browser smoke, 20 remote, one CI and 19 workflow cases; the real
+  Model Host 7B coding MCP smoke also passed.
+
 ## Open design questions
 
 - Decide whether to move the Git-pinned client to a separately maintained

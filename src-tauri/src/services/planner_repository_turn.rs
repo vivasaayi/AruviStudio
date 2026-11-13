@@ -11,8 +11,8 @@ use crate::services::planner_repository_analysis::{
 use crate::services::planner_repository_annotation::annotate_repository_analysis_plan;
 use crate::services::planner_response::push_trace;
 use crate::services::planner_session::{
-    append_conversation, get_or_load_session, persist_draft_state, persist_pending_plan,
-    PlannerConversationEntry, PlannerService,
+    append_conversation, get_or_load_session, lock_planner_session, persist_draft_state,
+    persist_pending_plan, PlannerConversationEntry, PlannerService,
 };
 use crate::services::planner_turn_policy::{
     scope_plan_to_selected_product, seed_draft_with_product,
@@ -32,6 +32,7 @@ pub async fn analyze_repository_for_planner(
     selected_draft_node_id: Option<String>,
     selected_product_id: Option<String>,
 ) -> Result<PlannerTurnResponse, AppError> {
+    let _session_guard = lock_planner_session(&planner_service, &session_id).await;
     let mut trace = vec![];
     let mut session = get_or_load_session(&planner_service, db, &session_id).await?;
     push_trace(

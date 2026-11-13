@@ -7,8 +7,8 @@ use crate::services::planner_draft_apply::apply_actions_to_draft;
 use crate::services::planner_execution::execute_plan;
 use crate::services::planner_response::push_trace;
 use crate::services::planner_session::{
-    append_conversation, get_or_load_session, persist_draft_state, persist_pending_plan,
-    PlannerConversationEntry, PlannerService,
+    append_conversation, get_or_load_session, lock_planner_session, persist_draft_state,
+    persist_pending_plan, PlannerConversationEntry, PlannerService,
 };
 use crate::services::planner_text_turn_commit::commit_confirmed_draft_plan;
 use crate::services::planner_text_turn_response::{
@@ -27,6 +27,26 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub async fn submit_planner_turn(
+    planner_service: Arc<Mutex<PlannerService>>,
+    state: &AppState,
+    session_id: String,
+    user_input: String,
+    selected_draft_node_id: Option<String>,
+    selected_product_id: Option<String>,
+) -> Result<PlannerTurnResponse, AppError> {
+    let _session_guard = lock_planner_session(&planner_service, &session_id).await;
+    submit_planner_turn_locked(
+        planner_service,
+        state,
+        session_id,
+        user_input,
+        selected_draft_node_id,
+        selected_product_id,
+    )
+    .await
+}
+
+pub(crate) async fn submit_planner_turn_locked(
     planner_service: Arc<Mutex<PlannerService>>,
     state: &AppState,
     session_id: String,
@@ -69,7 +89,10 @@ pub async fn submit_planner_turn(
             session.selected_draft_node_id.as_deref(),
         )
         .await?;
-        planner_service.lock().await.save_session(&session_id, session.clone());
+        planner_service
+            .lock()
+            .await
+            .save_session(&session_id, session.clone());
     }
 
     let selected_product = if let Some(product_id) = selected_product_id.as_deref() {
@@ -110,7 +133,10 @@ pub async fn submit_planner_turn(
         )
         .await?;
         // The model call can fail after seeding; keep the cached draft in sync.
-        planner_service.lock().await.save_session(&session_id, session.clone());
+        planner_service
+            .lock()
+            .await
+            .save_session(&session_id, session.clone());
     }
 
     let mut plan = if let (Some(provider_id), Some(model_name)) =

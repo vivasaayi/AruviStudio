@@ -164,3 +164,87 @@ async fn commit_draft_plan_persists_tree_structure() {
         .iter()
         .any(|item| item.title == "Implement Guest Profile CRUD"));
 }
+
+#[tokio::test]
+async fn concurrent_draft_edits_are_serialized_per_session() {
+    use crate::services::planner_draft_commands::add_planner_draft_child;
+    use crate::services::planner_session::{load_session_from_db, lock_planner_session};
+    use std::time::Duration;
+
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("concurrent_draft_edits").await;
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None)
+        .await
+        .unwrap();
+    let draft = apply_actions_to_draft(
+        None,
+        None,
+        &normalize_actions(vec![json!({
+            "type": "create_product", "name": "Concurrent Product", "description": "Test root"
+        })]),
+    )
+    .unwrap();
+    let root_id = draft
+        .nodes
+        .iter()
+        .find(|node| node.node_type == "product")
+        .unwrap()
+        .id
+        .clone();
+    {
+        let mut service = state.planner_service.lock().await;
+        let mut current = service.get_session(&session.session_id).unwrap();
+        current.draft_plan = Some(draft.clone());
+        service.save_session(&session.session_id, current);
+    }
+    persist_draft_state(&state.db, &session.session_id, Some(&draft), None)
+        .await
+        .unwrap();
+
+    let held = lock_planner_session(&state.planner_service, &session.session_id).await;
+    let other = tokio::time::timeout(
+        Duration::from_secs(1),
+        lock_planner_session(&state.planner_service, "another-session"),
+    )
+    .await
+    .expect("another session should not be blocked");
+    drop(other);
+    let mut edits = Vec::new();
+    for name in ["First Area", "Second Area"] {
+        let service = state.planner_service.clone();
+        let db = state.db.clone();
+        let id = session.session_id.clone();
+        let root = root_id.clone();
+        edits.push(tokio::spawn(async move {
+            add_planner_draft_child(
+                service,
+                &db,
+                id,
+                root,
+                "product_area".into(),
+                name.into(),
+                None,
+            )
+            .await
+        }));
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(
+        edits.iter().all(|edit| !edit.is_finished()),
+        "edits must wait for the session lock"
+    );
+    drop(held);
+    for edit in edits {
+        edit.await.unwrap().unwrap();
+    }
+    let persisted = load_session_from_db(&state.db, &session.session_id)
+        .await
+        .unwrap();
+    let draft = persisted.draft_plan.unwrap();
+    for name in ["First Area", "Second Area"] {
+        assert!(
+            draft.nodes.iter().any(|node| node.name == name),
+            "missing {name}"
+        );
+    }
+}

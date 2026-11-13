@@ -4,7 +4,7 @@ use crate::services::planner_service::{PlannerDraftPlan, PlannerPlan};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use tokio::sync::Mutex;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,12 +35,14 @@ pub(crate) struct PlannerSession {
 
 pub struct PlannerService {
     sessions: HashMap<String, PlannerSession>,
+    session_locks: HashMap<String, Weak<Mutex<()>>>,
 }
 
 impl PlannerService {
     pub fn new() -> Self {
         Self {
             sessions: HashMap::new(),
+            session_locks: HashMap::new(),
         }
     }
 
@@ -122,6 +124,34 @@ impl PlannerService {
     pub(crate) fn save_session(&mut self, session_id: &str, session: PlannerSession) {
         self.sessions.insert(session_id.to_string(), session);
     }
+}
+
+// Serialize mutations and model turns for each session without blocking other sessions.
+// Weak references ensure failed requests for unknown session IDs do not accumulate locks.
+pub(crate) async fn lock_planner_session(
+    planner_service: &Arc<Mutex<PlannerService>>,
+    session_id: &str,
+) -> tokio::sync::OwnedMutexGuard<()> {
+    let lock = {
+        let mut service = planner_service.lock().await;
+        service
+            .session_locks
+            .retain(|_, lock| lock.strong_count() > 0);
+        if let Some(lock) = service
+            .session_locks
+            .get(session_id)
+            .and_then(Weak::upgrade)
+        {
+            lock
+        } else {
+            let lock = Arc::new(Mutex::new(()));
+            service
+                .session_locks
+                .insert(session_id.to_string(), Arc::downgrade(&lock));
+            lock
+        }
+    };
+    lock.lock_owned().await
 }
 
 pub(crate) async fn get_or_load_session(

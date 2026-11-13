@@ -4,11 +4,11 @@ use crate::services::planner_draft_voice::{
     parse_voice_node_reference, resolve_voice_draft_node_reference, summarize_selected_draft_node,
 };
 use crate::services::planner_response::{build_session_state_response, push_trace};
-use crate::services::planner_service::{confirm_planner_plan, submit_planner_turn};
 use crate::services::planner_session::{
-    append_conversation, get_or_load_session, persist_draft_state, persist_pending_plan,
-    PlannerConversationEntry, PlannerService,
+    append_conversation, get_or_load_session, lock_planner_session, persist_draft_state,
+    persist_pending_plan, PlannerConversationEntry, PlannerService,
 };
+use crate::services::planner_text_turn::submit_planner_turn_locked;
 use crate::services::planner_turn_policy::normalize;
 use crate::services::planner_types::PlannerTurnResponse;
 use crate::state::AppState;
@@ -30,6 +30,7 @@ pub async fn submit_planner_voice_turn(
         ));
     }
 
+    let _session_guard = lock_planner_session(&planner_service, &session_id).await;
     let mut trace = vec![];
     let mut session = get_or_load_session(&planner_service, &state.db, &session_id).await?;
     push_trace(
@@ -104,7 +105,15 @@ pub async fn submit_planner_voice_turn(
             "Matched apply-design voice command",
             spoken.clone(),
         );
-        return confirm_planner_plan(planner_service, state, session_id).await;
+        return submit_planner_turn_locked(
+            planner_service,
+            state,
+            session_id,
+            "confirm".to_string(),
+            None,
+            None,
+        )
+        .await;
     }
 
     if matches!(
@@ -373,7 +382,7 @@ pub async fn submit_planner_voice_turn(
         "No deterministic voice command matched",
         "Falling back to the planner turn pipeline.",
     );
-    submit_planner_turn(
+    submit_planner_turn_locked(
         planner_service,
         state,
         session_id,

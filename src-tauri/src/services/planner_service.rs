@@ -15,7 +15,7 @@ pub(crate) use crate::services::planner_draft_mutation::{
 };
 use crate::services::planner_model::resolve_planner_model_binding;
 pub(crate) use crate::services::planner_session::persist_draft_state;
-use crate::services::planner_session::persist_pending_plan;
+use crate::services::planner_session::{lock_planner_session, persist_pending_plan};
 pub use crate::services::planner_session::{PlannerService, PlannerSessionInfo};
 pub use crate::services::planner_text_turn::{confirm_planner_plan, submit_planner_turn};
 pub use crate::services::planner_types::{
@@ -55,6 +55,7 @@ pub async fn update_planner_session(
     provider_id: Option<String>,
     model_name: Option<String>,
 ) -> Result<PlannerSessionInfo, AppError> {
+    let _session_guard = lock_planner_session(&planner_service, &session_id).await;
     let (provider_id, model_name) =
         resolve_planner_model_binding(db, provider_id, model_name).await?;
     let mut service = planner_service.lock().await;
@@ -74,6 +75,7 @@ pub async fn clear_planner_pending(
     db: &SqlitePool,
     session_id: String,
 ) -> Result<PlannerSessionInfo, AppError> {
+    let _session_guard = lock_planner_session(&planner_service, &session_id).await;
     let mut service = planner_service.lock().await;
     let info = service.clear_pending(&session_id)?;
     persist_pending_plan(db, &session_id, None).await?;
