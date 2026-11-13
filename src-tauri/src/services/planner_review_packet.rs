@@ -359,7 +359,7 @@ async fn build_packet(
     let selected_node = selected_id
         .and_then(|id| draft.nodes.iter().find(|node| node.id == id))
         .map(|node| node.name.as_str());
-    let change_set = json!({"generatedAt":generated,"title":title,"selectedNode":selected_node,"selectedNodeId":selected_id,"draftTree":nodes,"actions":actions,"validation":validation});
+    let change_set = json!({"generatedAt":generated,"title":title,"selectedNode":selected_node,"selectedNodeId":selected_id,"draftTree":nodes,"draftNodes":draft.nodes,"actions":actions,"validation":validation});
     let summaries = actions.iter().map(summarize_action).collect::<Vec<_>>();
     let action_html = if actions.is_empty() {
         "<p>No pending structured actions are available; the staged tree remains the authoritative design.</p>".into()
@@ -377,6 +377,23 @@ async fn build_packet(
                 .collect::<String>()
         )
     };
+    // The planner draft is not a complete catalog snapshot. Show its actual
+    // staged nodes and details without claiming that omitted catalog nodes
+    // are deletions or that pending model actions are a complete diff.
+    let staged_html = draft
+        .nodes
+        .iter()
+        .map(|node| {
+            let details = serde_json::to_string_pretty(&node.details).unwrap_or_default();
+            format!(
+                "<li><strong>{}: {}</strong><div>{}</div><pre>{}</pre></li>",
+                escape(&node.node_type.replace('_', " ")),
+                escape(&node.name),
+                escape(node.summary.as_deref().unwrap_or("")),
+                escape(&details)
+            )
+        })
+        .collect::<String>();
     let issue_html = validation["issues"]
         .as_array()
         .into_iter()
@@ -440,7 +457,7 @@ async fn build_packet(
         section(1,"Executive Summary", &format!("<p>Last planner response (which may precede manual edits): {}</p><p>Review and approve this proposal before applying it.</p>",escape(latest))),
         section(2,"Current State", &context),
         section(3,"Proposed Architecture", &format!("{}{}", tree_diagram(&nodes), tree_html(&nodes))),
-        section(4,"Change Diff", &action_html),
+        section(4,"Change Diff", &format!("<p>Pending model actions are not a complete catalog diff. The draft does not include every existing catalog node; absence does not imply deletion.</p><h3>Pending model actions</h3>{action_html}<h3>Staged design details</h3><ul>{staged_html}</ul>")),
         section(5,"Feature Specification", &format!("<ul>{features}</ul><p>Review staged features for user value, acceptance criteria, edge cases and product boundaries.</p>")),
         section(6,"UX / Design Proposal", "<p>Review user flows, navigation, empty and error states, keyboard access and accessibility.</p>"),
         section(7,"Implementation Plan", "<p>Apply the approved design, refine delivery work, implement changes and validate them before release.</p>"),

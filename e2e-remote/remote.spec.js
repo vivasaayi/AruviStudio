@@ -132,6 +132,7 @@ test("browser edits a real planner draft through the authenticated API", async (
     expect(renamed.status(), await renamed.text()).toBe(200);
     await expect(page.locator("#draftTree")).toContainText("Renamed draft");
     await page.getByLabel("Draft node name").fill("Draft area");
+    await page.getByLabel("New child summary (optional)").fill("Reviewable design details fixture");
     await page.getByRole("button", { name: "Add child" }).click();
     await expect(page.locator("#draftTree")).toContainText("Draft area");
     await page.getByRole("button", { name: "Validate design" }).click();
@@ -144,6 +145,9 @@ test("browser edits a real planner draft through the authenticated API", async (
     const packetHtml = await (await packet.createReadStream()).toArray();
     const packetText = Buffer.concat(packetHtml).toString("utf8");
     expect(packetText).toContain("Draft area");
+    expect(packetText).toContain("Reviewable design details fixture");
+    expect(packetText).toContain("draftNodes");
+    expect(packetText).toContain("absence does not imply deletion");
     expect(packetText).toContain("Approval Section");
     const review = await page.context().newPage();
     await review.setContent(packetText);

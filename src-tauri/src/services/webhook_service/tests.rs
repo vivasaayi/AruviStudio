@@ -75,7 +75,7 @@ async fn remote_planner_draft_edits_are_authenticated_and_persisted() {
     let (status, body) = send_json(&router, Method::POST, &format!("{base}/rename"), Some("draft-test-token"), Some(payload)).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(parse_json(&body)["draft_tree_nodes"][0]["label"], "Renamed product");
-    let (status, body) = send_json(&router, Method::POST, &format!("{base}/add"), Some("draft-test-token"), Some(json!({"node_id":root,"name":"Area","child_type":"product_area"}))).await;
+    let (status, body) = send_json(&router, Method::POST, &format!("{base}/add"), Some("draft-test-token"), Some(json!({"node_id":root,"name":"Area","child_type":"product_area","summary":"Staged detail <script>fixture</script>"}))).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let child = parse_json(&body)["selected_draft_node_id"].as_str().unwrap().to_string();
     let empty_session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
@@ -97,6 +97,10 @@ async fn remote_planner_draft_edits_are_authenticated_and_persisted() {
     assert!(packet["filename"].as_str().unwrap().ends_with("-design-review-packet.html"));
     assert!(packet["html"].as_str().unwrap().contains("Approval Section"));
     assert!(packet["html"].as_str().unwrap().contains("Area"));
+    assert!(packet["html"].as_str().unwrap().contains("draftNodes"));
+    assert!(packet["html"].as_str().unwrap().contains("Staged detail &lt;script&gt;fixture&lt;/script&gt;"));
+    assert!(!packet["html"].as_str().unwrap().contains("<script>"));
+    assert!(packet["html"].as_str().unwrap().contains("absence does not imply deletion"));
     let mcp_packet = crate::mcp::dispatch_tool(&state, "aruvi_planner", json!({"action":"export_planner_review_packet", "arguments":{"session_id":session.session_id}})).await.unwrap();
     assert!(mcp_packet["result"]["html"].as_str().unwrap().contains("Approval Section"));
     let validation = format!("/api/mobile/planner/sessions/{}/validation", session.session_id);

@@ -633,6 +633,20 @@ provider hosting into the model-host service as part of this work.
   coding and browser speech checks. Native desktop and Windows dependency paths
   remain unverified. No other products' data were pruned.
 
+## Complete staged packet details checkpoint
+
+- Review packets now include every staged node's full details in the human
+  readable change section and in `draftNodes` in the structured change set.
+  These remain available when manual edits clear the latest pending model plan.
+  Pending model actions are labeled separately. The packet explicitly says the
+  draft is not a complete catalog snapshot and that missing nodes do not imply
+  deletion; it does not claim to reconstruct an exact database diff.
+- Tests cover manual edits, preservation of node details, HTML escaping and the
+  warning against inferred deletion. The persisted catalog remains unchanged by
+  export; approval is still a separate operation. macOS and Linux each passed
+  174 Rust tests (one live test ignored), all browser suites passed, and a real
+  7B browser repository-analysis and packet-download fixture passed.
+
 ## Shared desktop review packet checkpoint
 
 - Active desktop planner sessions now request the same backend packet used by
