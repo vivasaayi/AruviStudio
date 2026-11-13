@@ -484,6 +484,7 @@
                 <div class="panel-body">
                   <div class="tree" id="draftTree"></div>
                   <button type="button" class="secondary" id="validateDraftButton">Validate design</button>
+                  <button type="button" class="secondary" id="exportDraftButton">Download review packet</button>
                   <div class="empty" id="draftValidation" aria-live="polite">Validate the staged design to see readiness and structural issues.</div>
                   <div class="empty">Use one client per planner session while editing; concurrent edits can overwrite each other.</div>
                   <label><span class="label">Draft node name</span><input id="draftNodeName" placeholder="Name for rename or new child" /></label>
@@ -964,6 +965,7 @@
       connectionMeta: document.getElementById("connectionMeta"),
       draftTree: document.getElementById("draftTree"),
       validateDraftButton: document.getElementById("validateDraftButton"),
+      exportDraftButton: document.getElementById("exportDraftButton"),
       draftValidation: document.getElementById("draftValidation"),
       draftNodeName: document.getElementById("draftNodeName"),
       draftChildType: document.getElementById("draftChildType"),
@@ -1210,6 +1212,7 @@
       const hasSelectedDraftNode = (nodes) => nodes.some((node) => node.id === state.selectedNodeId || hasSelectedDraftNode(node.children || []));
       [el.renameDraftNodeButton, el.addDraftChildButton, el.deleteDraftNodeButton].forEach((button) => { button.disabled = nextBusy || !state.sessionId || !hasSelectedDraftNode(state.draftTreeNodes); });
       el.validateDraftButton.disabled = nextBusy || !state.sessionId;
+      el.exportDraftButton.disabled = nextBusy || !state.sessionId || !state.draftTreeNodes.length;
       el.clearButton.disabled = nextBusy || !state.sessionId;
       el.editWorkButton.disabled = nextBusy || !state.delivery || state.delivery.work_item.id !== state.selectedWorkItemId;
       el.approveWorkButton.disabled = nextBusy || !state.selectedWorkItemId;
@@ -1589,6 +1592,21 @@
       renderDraftTree();
       updateSessionStatus();
     }
+
+    async function exportDraftPacket() {
+      if (state.busy || !state.sessionId || !state.draftTreeNodes.length) return;
+      try {
+        setBusy(true);
+        const packet = await request("/api/mobile/planner/sessions/" + encodeURIComponent(state.sessionId) + "/review-packet");
+        const url = URL.createObjectURL(new Blob([packet.html], { type: "text/html;charset=utf-8" }));
+        const anchor = document.createElement("a");
+        anchor.href = url; anchor.download = packet.filename; document.body.appendChild(anchor); anchor.click(); anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+        setStatus("Review packet downloaded", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { setBusy(false); }
+    }
+    el.exportDraftButton.addEventListener("click", () => void exportDraftPacket());
 
     async function validateDraft() {
       if (state.busy || !state.sessionId) return;

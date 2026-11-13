@@ -78,6 +78,19 @@ async fn remote_planner_draft_edits_are_authenticated_and_persisted() {
     let (status, body) = send_json(&router, Method::POST, &format!("{base}/add"), Some("draft-test-token"), Some(json!({"node_id":root,"name":"Area","child_type":"product_area"}))).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let child = parse_json(&body)["selected_draft_node_id"].as_str().unwrap().to_string();
+    let empty_session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let empty_url = format!("/api/mobile/planner/sessions/{}/review-packet", empty_session.session_id);
+    assert_eq!(send_json(&router, Method::GET, &empty_url, Some("draft-test-token"), None).await.0, StatusCode::BAD_REQUEST);
+    let packet_url = format!("/api/mobile/planner/sessions/{}/review-packet", session.session_id);
+    assert_eq!(send_json(&router, Method::GET, &packet_url, None, None).await.0, StatusCode::UNAUTHORIZED);
+    let (status, body) = send_json(&router, Method::GET, &packet_url, Some("draft-test-token"), None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let packet = parse_json(&body);
+    assert!(packet["filename"].as_str().unwrap().ends_with("-design-review-packet.html"));
+    assert!(packet["html"].as_str().unwrap().contains("Approval Section"));
+    assert!(packet["html"].as_str().unwrap().contains("Area"));
+    let mcp_packet = crate::mcp::dispatch_tool(&state, "aruvi_planner", json!({"action":"export_planner_review_packet", "arguments":{"session_id":session.session_id}})).await.unwrap();
+    assert!(mcp_packet["result"]["html"].as_str().unwrap().contains("Approval Section"));
     let validation = format!("/api/mobile/planner/sessions/{}/validation", session.session_id);
     assert_eq!(send_json(&router, Method::GET, &validation, None, None).await.0, StatusCode::UNAUTHORIZED);
     let (status, summary) = send_json(&router, Method::GET, &validation, Some("draft-test-token"), None).await;
@@ -93,6 +106,13 @@ async fn remote_planner_draft_edits_are_authenticated_and_persisted() {
     let persisted_draft: Value = serde_json::from_str(persisted.draft_plan_json.as_deref().unwrap()).unwrap();
     assert_eq!(persisted_draft["nodes"].as_array().unwrap().len(), 1);
     assert_eq!(persisted_draft["nodes"][0]["name"], "Renamed product");
+    let injected = json!({"node_id":root,"name":"<script>alert(1)</script>"});
+    assert_eq!(send_json(&router, Method::POST, &format!("{base}/rename"), Some("draft-test-token"), Some(injected)).await.0, StatusCode::OK);
+    let (status, body) = send_json(&router, Method::GET, &packet_url, Some("draft-test-token"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let html = parse_json(&body)["html"].as_str().unwrap().to_string();
+    assert!(!html.contains("<script>"));
+    assert!(html.contains("&lt;script&gt;"));
 }
 
 #[tokio::test]

@@ -633,6 +633,26 @@ provider hosting into the model-host service as part of this work.
   coding and browser speech checks. Native desktop and Windows dependency paths
   remain unverified. No other products' data were pruned.
 
+## Browser and MCP design-review packet checkpoint
+
+- The Rust planner service can generate a standalone HTML review packet from a
+  staged session. The authenticated browser downloads it, and MCP action
+  `export_planner_review_packet` returns the filename and HTML. It includes the
+  staged tree, bounded current catalog context, validation issues, pending
+  actions, and review/approval sections. Export does not apply changes or write
+  a server file. User-provided content is HTML-escaped; no external scripts are
+  loaded. If manual edits have cleared the pending plan, the tree remains present
+  and the packet explicitly notes that pending actions are unavailable.
+- Desktop retains a separate frontend renderer and native file/reveal behavior;
+  packet formatting, diagrams and some action summaries differ, so full export
+  parity and removal of the old renderer remain open. A real 7B browser fixture
+  analyzed a disposable repository, downloaded the packet, and confirmed the
+  staged design through MCP. Tests cover authorization, missing drafts, HTML
+  escaping, MCP output, browser download and unchanged catalog before apply.
+- macOS and Linux each passed 174 Rust tests (one live test ignored); the browser
+  suites passed one smoke, 21 remote, one CI and 19 workflow cases. A real 7B
+  coding and token-limit MCP check passed on the rebuilt branch.
+
 ## Shared planner validation checkpoint
 
 - The Rust planner service now computes draft readiness, node counts, duplicate

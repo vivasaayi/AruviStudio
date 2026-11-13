@@ -1256,6 +1256,16 @@ pub(crate) async fn mobile_analyze_planner_repository(
     }
 }
 
+pub(crate) async fn mobile_export_planner_review_packet(
+    State(state): State<WebhookState>, headers: HeaderMap, Path(session_id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match crate::services::planner_review_packet::build_planner_review_packet(state.app_state.planner_service.clone(), &state.app_state.db, session_id).await {
+        Ok(packet) => Json(packet).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
+}
+
 pub(crate) async fn mobile_validate_planner_draft(
     State(state): State<WebhookState>, headers: HeaderMap, Path(session_id): Path<String>,
 ) -> impl IntoResponse {

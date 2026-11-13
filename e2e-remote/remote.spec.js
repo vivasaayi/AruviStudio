@@ -137,6 +137,14 @@ test("browser edits a real planner draft through the authenticated API", async (
     await page.getByRole("button", { name: "Validate design" }).click();
     await expect(page.locator("#draftValidation")).toContainText("Readiness: 88/100");
     await expect(page.locator("#draftValidation")).toContainText("Draft area is empty");
+    const packetDownload = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download review packet" }).click();
+    const packet = await packetDownload;
+    expect(packet.suggestedFilename()).toContain("design-review-packet.html");
+    const packetHtml = await (await packet.createReadStream()).toArray();
+    const packetText = Buffer.concat(packetHtml).toString("utf8");
+    expect(packetText).toContain("Draft area");
+    expect(packetText).toContain("Approval Section");
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "Delete selected" }).click();
     await expect(page.locator("#draftTree")).not.toContainText("Draft area");

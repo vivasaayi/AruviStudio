@@ -6,6 +6,7 @@ use crate::services::planner_service::{
     update_planner_session,
 };
 use crate::services::planner_validation::validate_planner_draft;
+use crate::services::planner_review_packet::build_planner_review_packet;
 use crate::state::AppState;
 use serde_json::Value;
 
@@ -37,6 +38,10 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 args.optional_string(&["model_name", "modelName"])?,
             )
             .await?,
+        ),
+        "export_planner_review_packet" => action_result(
+            "export_planner_review_packet",
+            build_planner_review_packet(state.planner_service.clone(), &state.db, args.required_string(&["session_id", "sessionId"], "session_id")?).await?,
         ),
         "validate_planner_draft" => action_result(
             "validate_planner_draft",

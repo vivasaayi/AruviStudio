@@ -26,5 +26,13 @@ try {
   assert.equal(response.ok(), true, `Analysis HTTP ${response.status()}: ${payload.slice(0, 1000)}`);
   const result = JSON.parse(payload);
   await page.locator("#draftTree").getByText(/inventory/i).first().waitFor({ timeout: 10000 });
+  const downloadReady = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download review packet" }).click();
+  const download = await downloadReady;
+  const chunks = [];
+  for await (const chunk of await download.createReadStream()) chunks.push(chunk);
+  const packet = Buffer.concat(chunks).toString("utf8");
+  assert.match(packet, /inventory/i);
+  assert.match(packet, /Approval Section/);
   process.stdout.write(JSON.stringify(result));
 } finally { await browser.close(); }
