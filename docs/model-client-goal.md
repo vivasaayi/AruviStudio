@@ -284,6 +284,18 @@ remain separate checks.
 
 ### Current requirement audit — 2026-11-14
 
+At branch revision `7215aaa`, a fresh npm audit reported zero vulnerabilities.
+Cargo audit against RustSec advisory database commit
+`4ef2df8e806a65e2f1ecc14f56f51249062b23d6` reported one vulnerability
+(`RUSTSEC-2023-0071`, RSA 0.9.10), 13 unmaintained warnings and two unsoundness
+warnings (`glib` and `rand`) in Studio's lockfile. The database commit matched
+RustSec's remote `main` when checked. `cargo tree --locked --offline --all-features
+--target all -i rsa` found no selected dependency path for this manifest; this
+does not prove safety for different manifests or future features. The pinned
+independent consumer lockfile had no reported vulnerabilities or warnings.
+The SQLx vendor provenance check passed again, but cargo audit does not assess
+the locally patched source and the existing release review items remain open.
+
 At revision `fdccc96` with the planner test-fixture corrections in this
 checkpoint, the native macOS ARM64 Rust library suite passed 250 tests with six
 ignored; desktop, server and MCP debug binaries built as ARM64 executables.
