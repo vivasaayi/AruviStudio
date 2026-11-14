@@ -2,16 +2,17 @@ import { useEffect, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import {
-  applyRepositoryPatch,
+  applyReviewedRepositoryPatch,
+  previewRepositoryPatch,
   readRepositoryFile,
   startDesktopCopilotStream,
 } from "../../../lib/tauri";
 import type { ModelDefinition, ModelProvider } from "../../../lib/types";
-import { applyCopilotPatches } from "../lib/applyCopilotPatches";
+import { applyCopilotPatches, reviewCopilotPatches } from "../lib/applyCopilotPatches";
 import {
   parsePatchProposal,
   type CopilotMode,
-  type CopilotPatchProposal,
+  type ReviewedCopilotPatchProposal,
   type LocalChatMessage,
 } from "../lib/idePageModel";
 
@@ -51,7 +52,7 @@ export function useIDECopilot({
   const [copilotMode, setCopilotMode] = useState<CopilotMode>("chat");
   const [includeActiveFileContext, setIncludeActiveFileContext] = useState(true);
   const [contextBudgetChars, setContextBudgetChars] = useState("12000");
-  const [patchProposal, setPatchProposal] = useState<CopilotPatchProposal | null>(null);
+  const [patchProposal, setPatchProposal] = useState<ReviewedCopilotPatchProposal | null>(null);
   const [isApplyingProposal, setIsApplyingProposal] = useState(false);
   const copilotSessionIdRef = useRef(crypto.randomUUID());
 
@@ -111,6 +112,7 @@ export function useIDECopilot({
     let unlistenError: UnlistenFn | null = null;
     const requestedStreamId = crypto.randomUUID();
     let streamId: string | null = requestedStreamId;
+    let streamedContent = "";
 
     const cleanup = () => {
       streamId = null;
@@ -133,6 +135,7 @@ export function useIDECopilot({
         if (!streamId || event.payload.stream_id !== streamId) {
           return;
         }
+        streamedContent += event.payload.delta;
         setCopilotMessages((current) =>
           current.map((message) =>
             message.id === assistantMessageId
@@ -147,19 +150,18 @@ export function useIDECopilot({
           return;
         }
         if (copilotMode === "patch") {
-          setCopilotMessages((current) => {
-            const target = current.find((entry) => entry.id === assistantMessageId);
-            if (!target) {
-              return current;
-            }
-            const parsed = parsePatchProposal(target.content);
-            if (parsed) {
-              setPatchProposal(parsed);
-            } else {
-              setCopilotError("Copilot response was not a valid patch proposal JSON payload.");
-            }
-            return current;
-          });
+          const parsed = parsePatchProposal(streamedContent);
+          cleanup();
+          if (!parsed) {
+            setCopilotError("Copilot response was not a valid patch proposal JSON payload.");
+            setIsCopilotSending(false);
+            return;
+          }
+          void reviewCopilotPatches(selectedRepoId, parsed, previewRepositoryPatch)
+            .then(setPatchProposal)
+            .catch((error) => setCopilotError(String(error)))
+            .finally(() => setIsCopilotSending(false));
+          return;
         }
         setIsCopilotSending(false);
         cleanup();
@@ -202,19 +204,25 @@ export function useIDECopilot({
     }
   };
 
-  const applyPatchProposal = async (proposal: CopilotPatchProposal) => {
+  const applyPatchProposal = async (proposal: ReviewedCopilotPatchProposal) => {
     if (!selectedRepoId) {
       setCopilotError("Select a workspace before applying a patch proposal.");
+      return;
+    }
+    if (proposal.repositoryId !== selectedRepoId) {
+      setCopilotError("The workspace changed since this proposal was reviewed. Generate a new proposal.");
+      setPatchProposal(null);
       return;
     }
     setCopilotError(null);
     setIsApplyingProposal(true);
     try {
-      await applyCopilotPatches(selectedRepoId, proposal.patches, { apply: applyRepositoryPatch, read: readRepositoryFile });
+      await applyCopilotPatches(selectedRepoId, proposal.patches, { apply: applyReviewedRepositoryPatch, read: readRepositoryFile });
       await refetchTree();
     } catch (error) {
       setCopilotError(String(error));
     } finally {
+      setPatchProposal(null);
       setIsApplyingProposal(false);
     }
   };

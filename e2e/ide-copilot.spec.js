@@ -31,5 +31,5 @@ test("desktop Copilot sends structured inputs to the Rust stream command", async
     window.fixtureEmitCopilot("chat_stream_chunk", { stream_id: id, delta: '{"type":"patch_proposal","summary":"Fixture","patches":[{"path":"a.txt","patch":"@@ -0,0 +1 @@\\n+hello"}]}' });
     window.fixtureEmitCopilot("chat_stream_done", { stream_id: id });
   }, request.stream_id);
-  await expect(page.getByText("Fixture", { exact: true })).toBeVisible();
+  await expect(page.getByText("Error: Select a workspace before reviewing a patch proposal.")).toBeVisible();
 });

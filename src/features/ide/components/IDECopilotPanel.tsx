@@ -2,9 +2,8 @@ import type { Dispatch, SetStateAction } from "react";
 
 import type { ModelDefinition, ModelProvider } from "../../../lib/types";
 import {
-  truncateForContext,
   type CopilotMode,
-  type CopilotPatchProposal,
+  type ReviewedCopilotPatchProposal,
   type LocalChatMessage,
 } from "../lib/idePageModel";
 import { styles } from "../lib/idePageStyles";
@@ -29,7 +28,7 @@ type IDECopilotPanelProps = {
   contextBudgetChars: string;
   setContextBudgetChars: Dispatch<SetStateAction<string>>;
   copilotMessages: LocalChatMessage[];
-  patchProposal: CopilotPatchProposal | null;
+  patchProposal: ReviewedCopilotPatchProposal | null;
   copilotDraft: string;
   setCopilotDraft: Dispatch<SetStateAction<string>>;
   copilotError: string | null;
@@ -37,7 +36,7 @@ type IDECopilotPanelProps = {
   isApplyingProposal: boolean;
   onClear: () => void;
   onSend: () => void;
-  onApplyPatchProposal: (proposal: CopilotPatchProposal) => void;
+  onApplyPatchProposal: (proposal: ReviewedCopilotPatchProposal) => void;
 };
 
 export function IDECopilotPanel({
@@ -175,9 +174,10 @@ export function IDECopilotPanel({
               <div style={styles.patchMeta}>
                 {patch.description || "No description"}{patch.base_sha256 ? " · base hash guarded" : ""}
               </div>
-              <div style={styles.patchSnippet}>{truncateForContext(patch.patch, 420)}</div>
+              <pre style={{ ...styles.patchSnippet, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{patch.patch}</pre>
             </div>
           ))}
+          <div style={styles.status}>Files apply individually; earlier changes may remain if a later patch fails.</div>
           <button
             style={styles.button}
             onClick={() => onApplyPatchProposal(patchProposal)}

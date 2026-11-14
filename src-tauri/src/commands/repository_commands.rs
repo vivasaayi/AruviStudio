@@ -346,5 +346,21 @@ pub async fn apply_repository_patch(
     )
 }
 
+#[tauri::command]
+pub async fn preview_repository_patch(
+    state: State<'_, AppState>, repository_id: String, relative_path: String, patch: String, base_sha256: Option<String>,
+) -> Result<crate::services::repo_file_service::RepositoryPatchPreview, AppError> {
+    let repository = repository_repo::get_repository(&state.db, &repository_id).await?;
+    repo_service::preview_repository_patch(&repository.local_path, &relative_path, &patch, base_sha256.as_deref())
+}
+
+#[tauri::command]
+pub async fn apply_reviewed_repository_patch(
+    state: State<'_, AppState>, repository_id: String, relative_path: String, patch: String, base_sha256: String, expected_exists: bool,
+) -> Result<String, AppError> {
+    let repository = repository_repo::get_repository(&state.db, &repository_id).await?;
+    repo_service::apply_reviewed_repository_patch(&repository.local_path, &relative_path, &patch, &base_sha256, expected_exists)
+}
+
 #[cfg(test)]
 mod tests;

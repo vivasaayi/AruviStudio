@@ -2240,6 +2240,19 @@ product reference, and verified product deletion clears the reference.
   records restored free space; the existing worktree volume was retained and the
   rebuilt container restarted healthy. The dynamically assigned port can change.
 
+## Desktop patch-review checkpoint
+
+Desktop Copilot now previews each proposed file through the Rust repository
+service, displays the complete patch, and applies only against the reviewed
+file hash and existence state. It rejects duplicate targets and avoids applying
+proposals after a workspace change. Files are applied individually, so an error
+can leave earlier files applied; editor buffers with unsaved changes are still
+protected. Native-window acceptance is pending access to the locked Mac.
+
+On 2026-11-14, the frontend build and 108 unit tests passed, as did four mocked
+desktop browser checks and six native repository-service tests. The mocked
+browser checks are not a substitute for applying a patch in a native window.
+
 ## Open design questions
 
 - Decide whether to move the Git-pinned client to a separately maintained
