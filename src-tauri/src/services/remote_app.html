@@ -3593,6 +3593,7 @@
       try {
         const [providers, models, agents, bindings] = await Promise.all([request("/api/mobile/providers"), request("/api/mobile/models"), request("/api/mobile/agents"), request("/api/mobile/agent-model-bindings")]);
         if (requestId !== modelConfigRequestId) return;
+        resetModelDiscovery();
         const previous = el.modelProvider.value;
         const previousAgent = el.bindingAgent.value;
         const previousModel = el.bindingModel.value;
@@ -3797,12 +3798,16 @@
 
     let discoveryCursor = null;
     let discoveryProvider = "";
+    let discoverySequence = 0;
     function resetModelDiscovery() {
+      discoverySequence++;
       discoveryCursor = null;
       discoveryProvider = "";
       el.discoveredModels.replaceChildren(new Option("Select a discovered model", ""));
       el.discoveredModelsLabel.hidden = true;
       el.discoverMoreModelsButton.hidden = true;
+      el.discoverModelsButton.disabled = false;
+      el.discoverMoreModelsButton.disabled = false;
     }
     async function discoverModels(nextPage) {
       const provider = el.modelProvider.value;
@@ -3810,11 +3815,13 @@
       if (!nextPage) { resetModelDiscovery(); discoveryProvider = provider; }
       if (discoveryProvider !== provider) return;
       const cursor = nextPage ? discoveryCursor : null;
+      if (nextPage && !cursor) return;
+      const sequence = ++discoverySequence;
       el.discoverModelsButton.disabled = true;
       el.discoverMoreModelsButton.disabled = true;
       try {
         const page = await request("/api/mobile/providers/discover", { method: "POST", body: { id: provider, cursor } });
-        if (discoveryProvider !== provider || el.modelProvider.value !== provider) return;
+        if (sequence !== discoverySequence || discoveryProvider !== provider || el.modelProvider.value !== provider) return;
         for (const model of page.models) {
           const option = new Option(model.display_name ? model.display_name + " (" + model.id + ")" : model.id, model.id);
           el.discoveredModels.add(option);
@@ -3823,8 +3830,8 @@
         el.discoveredModelsLabel.hidden = false;
         el.discoverMoreModelsButton.hidden = !discoveryCursor;
         setStatus(page.models.length + " models discovered on this page", "ok");
-      } catch (error) { setStatus(error.message || String(error), "error"); }
-      finally { el.discoverModelsButton.disabled = false; el.discoverMoreModelsButton.disabled = false; }
+      } catch (error) { if (sequence === discoverySequence) setStatus(error.message || String(error), "error"); }
+      finally { if (sequence === discoverySequence) { el.discoverModelsButton.disabled = false; el.discoverMoreModelsButton.disabled = false; } }
     }
 
     async function createModel(event) {

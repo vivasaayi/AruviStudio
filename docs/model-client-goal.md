@@ -44,6 +44,15 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Browser model discovery
+
+- Model discovery now invalidates in-flight requests when the provider changes
+  or configuration reloads. Only the current request may populate results,
+  report an error or re-enable controls. All 22 isolated remote UI cases passed,
+  including a deliberately delayed response across an A → B → A selection and a
+  subsequent discovery against the simulated OpenAI-compatible provider. This
+  tests browser request coordination, not every provider's discovery behavior.
+
 ## Browser work-item parity
 
 - The browser work-item editor now covers the desktop editor's status field.

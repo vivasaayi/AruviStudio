@@ -624,6 +624,29 @@ test("browser configures and selects a model", async ({ page, request }) => {
     }
     await page.getByLabel("Provider for model").selectOption(providerId);
     if (process.env.ARUVI_TEST_MODEL_URL) {
+      let releaseOld, startedOld;
+      const oldStarted = new Promise((resolve) => { startedOld = resolve; });
+      const oldGate = new Promise((resolve) => { releaseOld = resolve; });
+      let discoveryRequests = 0;
+      await page.route("**/api/mobile/providers/discover", async (route) => {
+        discoveryRequests++;
+        const old = discoveryRequests === 1;
+        if (old) { startedOld(); await oldGate; }
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ models: [{ id: old ? "stale-model" : "fresh-model" }], next_cursor: null }) });
+      });
+      await page.getByRole("button", { name: "Discover available models" }).click();
+      await oldStarted;
+      await page.locator("#modelProvider").evaluate((select) => select.add(new Option("Other fixture", "other-fixture")));
+      await page.getByLabel("Provider for model").selectOption("other-fixture");
+      await page.getByLabel("Provider for model").selectOption(providerId);
+      await page.getByRole("button", { name: "Discover available models" }).click();
+      await expect(page.locator("#discoveredModels")).toContainText("fresh-model");
+      const oldResponse = page.waitForResponse((response) => response.url().endsWith("/api/mobile/providers/discover") && response.request().postDataJSON()?.id === providerId);
+      releaseOld();
+      await (await oldResponse).finished();
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve())));
+      await expect(page.locator("#discoveredModels")).not.toContainText("stale-model");
+      await page.unroute("**/api/mobile/providers/discover");
       expect((await request.post("/api/mobile/providers/discover", { data: { id: providerId } })).status()).toBe(401);
       const discovered = await call("aruvi_models", "discover_provider_models", { id: providerId });
       expect(discovered.models.map((model) => model.id)).toContain("browser-test-model");
