@@ -6,7 +6,7 @@ const MAX_MODELS: usize = 10_000;
 
 pub(crate) async fn read_response(mut response: reqwest::Response) -> Result<Value, ClientError> {
     if !response.status().is_success() {
-        return Err(ClientError::Provider(format!("Model discovery API error {}", response.status())));
+        return Err(ClientError::http("Model discovery API error", response.status()));
     }
     if response.content_length().is_some_and(|length| length > MAX_DISCOVERY_BYTES as u64) {
         return Err(ClientError::Provider("Model discovery response exceeds size limit".into()));

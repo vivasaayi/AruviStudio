@@ -31,7 +31,7 @@ pub(crate) async fn read_bounded(mut response: reqwest::Response, limit: usize, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{anthropic::AnthropicClient, openai_compatible::OpenAiCompatibleClient, ChatMessage, CompletionRequest};
+    use crate::{anthropic::AnthropicClient, openai_compatible::OpenAiCompatibleClient, ChatMessage, CompletionRequest, ModelGateway};
     use std::{io::{Read, Write}, net::TcpListener, thread};
 
     fn request() -> CompletionRequest {
@@ -107,6 +107,37 @@ mod tests {
             assert!(task.await.unwrap_err().is_cancelled());
             assert!(server.join().unwrap(), "server did not observe client disconnect");
         }
+    }
+
+    #[tokio::test]
+    async fn http_status_is_available_across_provider_operations_without_response_body() {
+        for operation in 0..8 {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            let server = thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                let mut data = [0; 8192]; let _ = socket.read(&mut data);
+                let body = "private-provider-error-body";
+                let _ = write!(socket, "HTTP/1.1 429 Too Many Requests\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
+            });
+            let url = format!("http://{addr}");
+            let result = match operation {
+                0 => OpenAiCompatibleClient::new(url, None).run_completion(request()).await.map(|_| ()),
+                1 => OpenAiCompatibleClient::new(url, None).stream_completion(request(), |_| {}).await.map(|_| ()),
+                2 => OpenAiCompatibleClient::new(url, None).list_models_page(None).await.map(|_| ()),
+                3 => OpenAiCompatibleClient::new(url, None).transcribe(crate::TranscriptionRequest { model: "fixture".into(), audio: vec![1], mime_type: "audio/wav".into(), filename: "audio.wav".into(), language: None }).await.map(|_| ()),
+                4 => OpenAiCompatibleClient::new(url, None).generate_speech(crate::SpeechRequest { model: "fixture".into(), input: "hello".into(), voice: None, speed: None, response_format: "wav".into() }).await.map(|_| ()),
+                5 => AnthropicClient::new(url, "synthetic-key".into()).unwrap().run_completion(request()).await.map(|_| ()),
+                6 => AnthropicClient::new(url, "synthetic-key".into()).unwrap().stream_completion(request(), |_| {}).await.map(|_| ()),
+                _ => AnthropicClient::new(url, "synthetic-key".into()).unwrap().list_models_page(None).await.map(|_| ()),
+            };
+            let error = result.unwrap_err();
+            assert_eq!(error.http_status(), Some(429), "operation {operation}: {error}");
+            assert!(error.to_string().contains("429 Too Many Requests"));
+            assert!(!format!("{error:?}").contains("private-provider-error-body"));
+            server.join().unwrap();
+        }
+        assert_eq!(ClientError::InvalidInput("invalid".into()).http_status(), None);
     }
 
     #[test]

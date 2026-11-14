@@ -224,6 +224,23 @@ provider hosting into the model-host service as part of this work.
   and MCP Copilot fixture. These results do not prove exploitability or its
   absence, and the remaining advisories require review before release.
 
+## Structured provider HTTP errors
+
+- Non-success provider HTTP responses now expose a numeric status via
+  `ClientError::Http` and `http_status()` for completion, streaming, discovery,
+  transcription and speech. Existing error text is retained; provider error
+  bodies are not stored. Health checks still return a boolean, and the existing
+  unsupported-transcription special case remains unchanged. Other failures may
+  have no status; callers must not assume a status alone makes retries safe.
+  This adds an enum variant, so exhaustive consumer matches must be updated.
+  The current independently recommended Git pin predates this change; it must
+  be advanced and retested after this source commit has been pushed.
+  The shared client passed 44 native tests including simulated 429 responses
+  across both provider protocols and the supported operations; Studio passed
+  214 native Rust tests with six ignored, and 23 isolated browser/MCP cases
+  passed. The branch Docker deployment rebuilt
+  and both its app and isolated PDF service passed health checks.
+
 ## Independent client revalidation
 
 - The independent consumer and documented dependency now pin public commit

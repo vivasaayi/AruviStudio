@@ -201,7 +201,7 @@ impl OpenAiCompatibleClient {
         if let Some(key) = &self.api_key { http = http.bearer_auth(key); }
         let response = http.send().await.map_err(|error| ClientError::Provider(format!("Model stream request failed: {error}")))?;
         if !response.status().is_success() {
-            return Err(ClientError::Provider(format!("Model stream API error {}", response.status())));
+            return Err(ClientError::http("Model stream API error", response.status()));
         }
         let mut result = CompletionResponse::default();
         crate::sse::read_sse(response, "Model", |data| {
@@ -252,7 +252,7 @@ impl OpenAiCompatibleClient {
                     if String::from_utf8_lossy(&body).contains("application/json") { return Err(ClientError::UnsupportedTranscription); }
                 }
             }
-            return Err(ClientError::Provider(format!("Speech transcription API error {status}")));
+            return Err(ClientError::http("Speech transcription API error", status));
         }
         let bytes = crate::http::read_bounded(response, 2 * 1024 * 1024, "Transcription response").await?;
         let json: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| ClientError::Provider("Invalid transcription JSON response".into()))?;
@@ -274,7 +274,7 @@ impl OpenAiCompatibleClient {
         if let Some(key) = &self.api_key { request = request.bearer_auth(key); }
         let mut response = request.send().await.map_err(|error| ClientError::Provider(format!("Speech request failed: {error}")))?;
         if !response.status().is_success() {
-            return Err(ClientError::Provider(format!("Speech API error {}", response.status())));
+            return Err(ClientError::http("Speech API error", response.status()));
         }
         if response.content_length().is_some_and(|length| length > MAX_AUDIO_BYTES as u64) {
             return Err(ClientError::Provider("Speech audio exceeds the size limit".into()));
@@ -320,7 +320,7 @@ impl OpenAiCompatibleClient {
             .await
             .map_err(|e| ClientError::Provider(format!("Request failed: {e}")))?;
         if !resp.status().is_success() {
-            return Err(ClientError::Provider(format!("API error {}", resp.status())));
+            return Err(ClientError::http("API error", resp.status()));
         }
 
         let bytes = crate::http::read_bounded(resp, 8 * 1024 * 1024, "Model completion response").await?;

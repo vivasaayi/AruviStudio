@@ -49,8 +49,14 @@ transcription guide](https://developers.openai.com/api/docs/guides/speech-to-tex
 OpenAI-compatible completion responses are capped at 8 MiB, transcription and
 discovery responses at 2 MiB, and WAV speech at 16 MiB. Anthropic completion and
 stream responses are capped at 2 MiB. These limits are fixed for now. Provider
-error bodies are not included in errors; the HTTP status remains available in
-the message. OpenAI-compatible and Anthropic requests reject redirects and
+error bodies are not included in errors. Non-success HTTP responses generally return
+`ClientError::Http` and expose their numeric status with `http_status()`, while
+preserving the existing error message text. This new enum variant requires
+callers with exhaustive `ClientError` matches to add a case. Health checks
+retain their existing boolean result, the recognized unsupported transcription
+response retains its existing variant, and embedded errors in a successful HTTP
+response have no HTTP status. A status does not by itself imply retry safety.
+OpenAI-compatible and Anthropic requests reject redirects and
 base URLs containing credentials, queries, or fragments.
 
 Speech responses must have a structurally complete RIFF/WAVE container with a

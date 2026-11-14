@@ -15,10 +15,26 @@ pub enum ClientError {
     Provider(String),
     #[error("{0}")]
     InvalidInput(String),
+    /// A non-success HTTP response. The provider response body is never retained.
+    #[error("{message}")]
+    Http { status: u16, message: String },
     #[error("Provider does not support multipart transcription uploads")]
     UnsupportedTranscription,
     #[error("Client transport does not implement {0}")]
     UnsupportedOperation(&'static str),
+}
+
+impl ClientError {
+    /// Return a remote HTTP status when the operation reached an HTTP response.
+    /// Transport failures and provider errors sent inside a successful response
+    /// have no HTTP status here. A status does not imply an automatic retry.
+    pub fn http_status(&self) -> Option<u16> {
+        match self { Self::Http { status, .. } => Some(*status), _ => None }
+    }
+
+    pub(crate) fn http(label: &str, status: reqwest::StatusCode) -> Self {
+        Self::Http { status: status.as_u16(), message: format!("{label} {status}") }
+    }
 }
 
 /// HTTP timeouts applied to all operations, including streamed responses.

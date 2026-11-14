@@ -109,7 +109,7 @@ impl AnthropicClient {
             .json(&body).send().await
             .map_err(|error| ClientError::Provider(format!("Anthropic stream request failed: {error}")))?;
         if !response.status().is_success() {
-            return Err(ClientError::Provider(format!("Anthropic API error {}", response.status())));
+            return Err(ClientError::http("Anthropic API error", response.status()));
         }
         let mut state = StreamState::default();
         crate::sse::read_sse(response, "Anthropic", |data| {
@@ -122,7 +122,7 @@ impl AnthropicClient {
 
     async fn read_json(mut response: reqwest::Response) -> Result<Value, ClientError> {
         if !response.status().is_success() {
-            return Err(ClientError::Provider(format!("Anthropic API error {}", response.status())));
+            return Err(ClientError::http("Anthropic API error", response.status()));
         }
         if response.content_length().is_some_and(|length| length > MAX_RESPONSE_BYTES as u64) {
             return Err(ClientError::Provider("Anthropic response exceeds size limit".into()));
