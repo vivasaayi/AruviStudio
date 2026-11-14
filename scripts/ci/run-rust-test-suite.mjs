@@ -179,7 +179,8 @@ const result = spawnSync("cargo", cargoArgs, {
   encoding: "utf8",
 });
 
-const combinedOutput = [result.stdout ?? "", result.stderr ?? ""].filter(Boolean).join("\n");
+const spawnError = result.error ? `Unable to start cargo: ${result.error.message}\n` : "";
+const combinedOutput = [result.stdout ?? "", result.stderr ?? "", spawnError].filter(Boolean).join("\n");
 const parsedTests = parseTests(combinedOutput);
 
 writeOutputs(parsedTests, combinedOutput, null);
@@ -190,6 +191,9 @@ if (result.stdout) {
 }
 if (result.stderr) {
   process.stderr.write(result.stderr);
+}
+if (spawnError) {
+  process.stderr.write(spawnError);
 }
 
 process.exit(result.status ?? 1);

@@ -12,6 +12,28 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Current branch build and security checks
+
+At revision `040092f`, the native macOS ARM64 Rust library suite passed 256
+tests with seven ignored, and desktop, server and MCP debug binaries built. The
+standard unit wrapper passed after setting the native Cargo environment, including
+126 frontend tests; the terminology check and TypeScript/Vite build passed. The
+Rust integration-test wrapper reported no integration tests in `src-tauri/tests`;
+the separately recorded isolated browser/MCP workflows provide different
+integration coverage. The wrapper previously failed silently when Cargo was not on
+`PATH`; it now reports the spawn error. A deliberate missing-Cargo check confirmed
+the message, followed by the successful configured run.
+
+`npm audit --audit-level=high` reported zero vulnerabilities. Against locally
+cached RustSec database commit `4ef2df8e806a65e2f1ecc14f56f51249062b23d6`,
+Studio's lockfile still reported `RUSTSEC-2023-0071` and 15 maintenance or
+soundness warnings. The pinned independent-consumer lockfile reported no
+advisories. Cargo audit could not open the local crates.io index, so these runs
+did not check yanked status. The Studio all-features, all-targets dependency
+tree selected no path to `rsa`; this does not remove the lockfile advisory or
+establish safety for other manifests. Native-window acceptance, ignored cases,
+live providers and release review remain open.
+
 ### Current real coding-host revalidation
 
 At Studio revision `ac0774a321525b36fd2bdaffe64f3568aea0c2c0`, the running
