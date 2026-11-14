@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Provider usage debug redaction
+
+The shared client retains provider usage metadata in fields and serialization,
+but its debug output now prints only whether usage is present. This prevents
+arbitrary nested provider usage values from being copied into debug logs; other
+metadata and application telemetry still require care. All 58 native client
+tests passed and the Studio worktree image built. An independent consumer pinned
+to `1c02a8d09738b89cfc82b8d6fbf18d2d42e7de27` vendored its dependencies and
+passed 25 offline Linux tests, including the redaction and retained-data case.
+The earlier real Model Host probe used the preceding pin.
+
 ### Current branch real Model Host coding revalidation
 
 At branch revision `bf42f28`, the disposable Studio container ran the
@@ -476,7 +487,7 @@ scope is reviewed, not merely until an example passes.
 
 | Requirement | Current evidence | Remaining work |
 | --- | --- | --- |
-| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and by a separate project pinned to commit `56542efcbcc5089c1c595bb0af4f777e809b2745`; 25 independent tests passed offline after vendoring. Its non-root Linux probe passed real Model Host discovery, completion, streaming, token-limit handling and a synthetic Piper/Whisper speech round trip. | Decide independent ownership, versioning and a migration plan for other projects. The current pin is a checkpoint, not a published release. |
+| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and by a separate project pinned to commit `1c02a8d09738b89cfc82b8d6fbf18d2d42e7de27`; 25 independent tests passed offline after vendoring. A non-root Linux probe of the earlier `56542ef` pin passed real Model Host discovery, completion, streaming, token-limit handling and a synthetic Piper/Whisper speech round trip. | Decide independent ownership, versioning and a migration plan for other projects. The current pin is a checkpoint, not a published release. |
 | OpenAI-compatible and Anthropic protocols | Shared clients cover text, streaming, discovery and error handling; OpenAI-compatible voice is implemented. Contract fixtures cover both protocols and the reasoning request profile. | Live third-party OpenAI, Anthropic, DeepSeek and LM Studio sessions remain unverified; compatibility with each model and provider cannot be inferred from adapter capabilities. |
 | Local coding integration | The isolated 7B Model Host passed real MCP completion and an extend-module workflow through code review and a disposable local Git remote. A later new-module attempt produced a missing function definition; independent behavior checks caught it before delivery. | Investigate reliability on broader coding tasks and actual authenticated network delivery; syntax-only checks do not establish correctness. |
 | Speech and local fallback | Real Model Host speech generation and transcription and checksum-pinned local Whisper have been exercised with synthetic audio; browser and MCP fixtures exist. | Physical microphone permission/capture, audible playback, other languages and recognition quality remain unverified. |
