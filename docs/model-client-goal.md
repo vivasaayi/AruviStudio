@@ -112,6 +112,14 @@ watcher fixture retained its provider while a rotated credential was not yet
 accepted, then recovered after restarting the disposable host. These used
 synthetic workers and credentials, not the live host or real-model inference.
 
+The reconciled snapshot was also built in release mode and tested with a
+temporary copy of the real `qwen25-coder-7b-q4` model. Its scoped credential
+was denied management access; disposable Docker Studio completed MCP coding,
+independent JavaScript assertions, streaming API and headless browser chat.
+The host source matched the earlier candidate's server source. This is one real
+model and coding prompt in temporary state; neither the live host nor its data
+was modified.
+
 On 2026-11-14, a disposable copy of the untracked integration Compose adapter
 was rendered with `MODEL_HOST_INFERENCE_TOKEN: ${MODEL_HOST_INFERENCE_TOKEN:-}`
 added alongside its existing management-token setting. Docker Compose preserved
