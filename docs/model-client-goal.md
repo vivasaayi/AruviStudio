@@ -144,6 +144,14 @@ repository and deployed host were not changed.
 
 ### Current branch build and security checks
 
+Studio's speech service now rejects using the DeepSeek transcription selector
+for synthesis or the synthesis selector for transcription before making a
+provider request. A native service test covers mixed-case selectors and remote
+and local provider types; all 49 isolated workflows passed, including browser
+API and MCP rejection checks and the existing simulated DeepSeek paths. The
+rebuilt worktree also passed a real synthetic Piper-to-Whisper speech round trip
+through MCP. Physical audio and live DeepSeek remain unverified.
+
 The OpenAI-compatible SSE parser now validates both `message` and `delta`
 fields. Previously, a later SSE message could contain tool calls or refusal
 after an earlier text delta without causing the stream to fail; buffered SSE

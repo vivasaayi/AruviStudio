@@ -516,6 +516,16 @@ test("DeepSeek voice uses its dedicated endpoints through browser, API and MCP",
   const transcript = { provider_id: provider.id, model_name: " DeepSeek-Voice-Transcription ", audio_bytes_base64: "AA==", mime_type: "audio/wav", locale: "en-US" };
   const speech = { provider_id: provider.id, model: " DeepSeek-Voice-Synthesis ", text: "Hello", voice: "tide" };
   const mcp = async (action, args) => (await (await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_speech", arguments: { action, arguments: args } } } })).json()).result;
+  const wrongTranscription = { ...transcript, model_name: " DeepSeek-Voice-Synthesis " };
+  const wrongSpeech = { ...speech, model: " DeepSeek-Voice-Transcription " };
+  const webWrongTranscription = await request.post("/api/mobile/speech/transcribe", { headers, data: wrongTranscription });
+  expect(webWrongTranscription.status()).toBe(400);
+  expect(await webWrongTranscription.text()).toContain("cannot transcribe audio");
+  const webWrongSpeech = await request.post("/api/mobile/speech/generate", { headers, data: wrongSpeech });
+  expect(webWrongSpeech.status()).toBe(400);
+  expect(await webWrongSpeech.text()).toContain("cannot generate speech");
+  expect((await mcp("transcribe_audio", wrongTranscription)).isError).toBeTruthy();
+  expect((await mcp("generate_speech", wrongSpeech)).isError).toBeTruthy();
   expect((await (await request.post("/api/mobile/speech/transcribe", { headers, data: transcript })).json()).transcript).toBe("DeepSeek fixture transcript");
   const transcribed = await mcp("transcribe_audio", transcript);
   expect(transcribed.isError, JSON.stringify(transcribed)).not.toBeTruthy();

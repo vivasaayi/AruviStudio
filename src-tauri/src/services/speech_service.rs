@@ -47,6 +47,9 @@ pub async fn synthesize_remote_speech(
     speed: Option<f32>,
 ) -> Result<Vec<u8>, AppError> {
     if !provider.enabled { return Err(AppError::Validation("Selected provider is disabled".into())); }
+    if model.trim().eq_ignore_ascii_case(DEEPSEEK_TRANSCRIPTION) {
+        return Err(AppError::Validation("The DeepSeek transcription selector cannot generate speech".into()));
+    }
     if provider.protocol != "openai_compatible" {
         return Err(AppError::Validation("Selected provider protocol does not support remote speech synthesis".into()));
     }
@@ -74,6 +77,9 @@ pub async fn transcribe_audio_with_provider(
 ) -> Result<SpeechToTextResponse, AppError> {
     if !provider.enabled {
         return Err(AppError::Validation("Selected provider is disabled".into()));
+    }
+    if model_name.trim().eq_ignore_ascii_case(DEEPSEEK_SYNTHESIS) {
+        return Err(AppError::Validation("The DeepSeek synthesis selector cannot transcribe audio".into()));
     }
     if matches!(provider.provider_type, ProviderType::LocalRuntime) {
         return transcribe_audio_locally(provider, request).await;
@@ -588,6 +594,22 @@ mod tests {
             };
             let error = transcribe_audio_with_provider(&provider, "whisper", request).await.unwrap_err();
             assert!(matches!(error, AppError::Validation(ref message) if message == "Selected provider is disabled"));
+        }
+    }
+
+    #[tokio::test]
+    async fn opposite_deepseek_voice_selectors_are_rejected_before_io() {
+        for provider_type in [ProviderType::OpenaiCompatible, ProviderType::LocalRuntime] {
+            let provider = ModelProvider {
+                id: "fixture".into(), name: "Fixture".into(), provider_type,
+                protocol: "openai_compatible".into(), completion_profile: "standard".into(), base_url: "invalid".into(),
+                auth_secret_ref: None, enabled: true, created_at: "".into(), updated_at: "".into(),
+            };
+            let error = synthesize_remote_speech(&provider, " DeepSeek-Voice-Transcription ".into(), "hello".into(), None, None).await.unwrap_err();
+            assert!(matches!(error, AppError::Validation(message) if message.contains("cannot generate speech")));
+            let request = SpeechToTextRequest { audio_bytes_base64: "invalid base64".into(), mime_type: "audio/wav".into(), locale: None };
+            let error = transcribe_audio_with_provider(&provider, " DeepSeek-Voice-Synthesis ", request).await.unwrap_err();
+            assert!(matches!(error, AppError::Validation(message) if message.contains("cannot transcribe audio")));
         }
     }
 }
