@@ -56,6 +56,16 @@ provider hosting into the model-host service as part of this work.
   passed, including actual local Whisper transcription with synthetic audio and
   MCP rejection preserving the previous binding. Remote provider capability
   labels do not prove the selected endpoint or model supports a task.
+- Migration 052 closes indirect paths around that guard: a bound text model
+  cannot be moved to a local Whisper provider, and a provider with bound agent
+  models cannot be changed to local runtime. Direct binding inserts and model
+  changes are guarded too. An upgrade test preserved an existing invalid legacy
+  binding and allowed it to be repaired; it is not repaired automatically.
+  Native Rust passed 223 tests with six ignored, and all 31 isolated workflow
+  cases passed, including browser and MCP rejection and real local transcription.
+  The backed-up branch database upgraded to migration 52 with integrity and
+  foreign-key checks passing; nine Model Host bindings remained, and real MCP
+  coding and token-limit checks passed.
 - The desktop agent selector now marks local Whisper models as transcription
   only and disables their selection; it also disables binding while provider
   data is unavailable. Six mocked desktop browser cases, 102 frontend unit

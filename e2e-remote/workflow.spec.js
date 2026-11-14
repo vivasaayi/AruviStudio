@@ -585,6 +585,21 @@ test("browser registers a server local speech model and preserves it on repeat",
   expect(JSON.stringify(rejected.content)).toContain("Local Whisper models cannot");
   const after = (await agents("list_agent_model_bindings", {})).structuredContent.result.filter((b) => b.agent_id === "coding-agent");
   expect(after).toEqual(before);
+  expect(before.length).toBeGreaterThan(0);
+  const models = await (await request.get("/api/mobile/models", { headers })).json();
+  const bound = models.find((model) => model.id === before[0].model_id);
+  expect(bound).toBeTruthy();
+  const expected = { name: bound.name, provider_id: bound.provider_id, context_window: bound.context_window, notes: bound.notes, enabled: bound.enabled };
+  const changed = await request.post("/api/mobile/models/update", { headers, data: { id: bound.id, expected, fields: { ...expected, provider_id: registered.provider.id } } });
+  expect(changed.status()).toBe(400);
+  expect(await changed.text()).toContain("Bound agent models cannot");
+  const mcp = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` },
+    data: { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "aruvi_models", arguments: { action: "update_provider", arguments: { id: bound.provider_id, provider_type: "local_runtime", base_url: data.model_path } } } } });
+  const providerResult = (await mcp.json()).result;
+  expect(providerResult.isError).toBeTruthy();
+  expect(JSON.stringify(providerResult.content)).toContain("Providers with bound agent models");
+  expect((await (await request.get("/api/mobile/models", { headers })).json()).find((model) => model.id === bound.id).provider_id).toBe(bound.provider_id);
+  expect((await agents("list_agent_model_bindings", {})).structuredContent.result.filter((b) => b.agent_id === "coding-agent")).toEqual(before);
   const previousChat = await page.locator("#modelInput").inputValue();
   await page.locator("#modelList .tool-card").filter({ hasText: data.model_name }).getByRole("button", { name: "Use for transcription" }).click();
   await page.getByRole("button", { name: "Voice", exact: true }).click();

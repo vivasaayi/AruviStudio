@@ -144,6 +144,26 @@ async fn migrate_through_version(pool: &SqlitePool, version: i64) {
 }
 
 #[tokio::test]
+async fn local_speech_binding_guard_preserves_legacy_data_and_blocks_new_incompatible_edits() {
+    let (pool, _) = create_unmigrated_test_pool("local_speech_guard").await;
+    migrate_through_version(&pool, 51).await;
+    sqlx::query("INSERT INTO model_providers(id,name,provider_type,base_url) VALUES('local-speech','Local speech','local_runtime','/tmp/model.bin')").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO model_definitions(id,provider_id,name) VALUES('legacy-speech','local-speech','Legacy speech')").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO agent_model_bindings(id,agent_id,model_id,priority) VALUES('legacy-speech-binding','coding-agent','legacy-speech',2)").execute(&pool).await.unwrap();
+    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+    assert_eq!(sqlx::query_scalar::<_, String>("SELECT model_id FROM agent_model_bindings WHERE id='legacy-speech-binding'").fetch_one(&pool).await.unwrap(), "legacy-speech");
+    sqlx::query("UPDATE model_definitions SET name='Renamed' WHERE id='legacy-speech'").execute(&pool).await.unwrap();
+    assert!(sqlx::query("INSERT INTO agent_model_bindings(id,agent_id,model_id) VALUES('bad','coding-agent','legacy-speech')").execute(&pool).await.is_err());
+    assert!(sqlx::query("UPDATE agent_model_bindings SET model_id='legacy-speech' WHERE id='coding-binding'").execute(&pool).await.is_err());
+    assert!(sqlx::query("UPDATE model_definitions SET provider_id='local-speech' WHERE id='deepseek-coder'").execute(&pool).await.is_err());
+    assert!(sqlx::query("UPDATE model_providers SET provider_type='local_runtime' WHERE id='lm-studio-default'").execute(&pool).await.is_err());
+    assert_eq!(sqlx::query_scalar::<_, String>("SELECT provider_id FROM model_definitions WHERE id='deepseek-coder'").fetch_one(&pool).await.unwrap(), "lm-studio-default");
+    assert_eq!(sqlx::query_scalar::<_, String>("SELECT model_id FROM agent_model_bindings WHERE id='coding-binding'").fetch_one(&pool).await.unwrap(), "deepseek-coder");
+    sqlx::query("UPDATE agent_model_bindings SET model_id='deepseek-coder' WHERE id='legacy-speech-binding'").execute(&pool).await.unwrap();
+    assert!(sqlx::query("PRAGMA foreign_key_check").fetch_all(&pool).await.unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn protocol_migration_preserves_providers_models_and_bindings() {
     let (pool, _) = create_unmigrated_test_pool("provider_protocol_upgrade").await;
     migrate_through_version(&pool, 48).await;
