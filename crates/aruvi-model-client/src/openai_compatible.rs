@@ -6,7 +6,7 @@ use reqwest::Client;
 
 // Some streaming encoders use a sentinel for an unknown RIFF/data length.
 // Validate the container structure without restricting WAV codecs.
-fn has_wav_audio(bytes: &[u8]) -> bool {
+pub(crate) fn has_wav_audio(bytes: &[u8]) -> bool {
     if bytes.len() < 12 || &bytes[..4] != b"RIFF" || &bytes[8..12] != b"WAVE" { return false; }
     let length = |offset: usize| u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
     let unknown = |size: u32| size == u32::MAX || size == i32::MAX as u32;

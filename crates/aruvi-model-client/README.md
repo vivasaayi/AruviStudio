@@ -106,6 +106,16 @@ format chunk and nonempty audio data; common unknown-length streaming headers
 are accepted. This checks the container, not whether the codec can be decoded or
 whether the audio is intelligible.
 
+The explicit `deepseek::DeepSeekVoiceClient` implements DeepSeek's standalone
+[`/v1/tools/asr`](https://api-docs.deepseek.com/guides/asr/) and
+[`/v1/tools/tts`](https://api-docs.deepseek.com/guides/tts/) APIs. These are
+different from OpenAI-compatible `/audio` routes and do not use a model ID or
+language hint. The client supports buffered transcription and WAV synthesis,
+not WebSocket TTS or speed control. It bounds uploads and responses; the service
+still enforces codec and duration. Unknown-length WAV headers cannot establish
+whether synthesis ended early. Contract tests use simulated endpoints; live
+DeepSeek voice and its integration into Studio remain unverified and unavailable.
+
 Use `Box<dyn ModelGateway>` when a caller needs to switch providers without
 matching on concrete client types. Its methods cover text completion, opt-in
 JSON-object completion, text streaming, model discovery, remote transcription

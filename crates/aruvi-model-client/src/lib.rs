@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod openai_compatible;
 pub mod anthropic;
+pub mod deepseek;
 mod sse;
 mod discovery;
 mod http;

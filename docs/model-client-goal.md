@@ -2342,6 +2342,19 @@ The frontend build and nine mocked desktop provider checks passed. An
 unauthenticated `/models` request returned 401 at both root and `/v1`, which
 does not validate either authenticated endpoint or a real model call.
 
+## DeepSeek standalone voice client
+
+DeepSeek's November 2026 voice APIs use dedicated `/v1/tools/asr` and
+`/v1/tools/tts` routes, not the OpenAI-compatible audio routes. The shared
+library now has an explicit client for multipart transcription and buffered WAV
+generation, with bounded inputs/responses, sensitive bearer headers, redirect
+rejection and sanitized errors. Synthetic HTTP fixtures verify request shape,
+voice selection and a 429 without response-body leakage. DeepSeek's service
+enforces audio codec and duration; unknown-length WAV responses cannot prove
+complete synthesis. This client is not yet selected by Studio's speech service;
+its model-based OpenAI settings need an explicit DeepSeek voice integration.
+No live DeepSeek voice call or physical audio test has been made.
+
 ## Shared-client example pin
 
 The client README's Git dependency example now matches the independent
