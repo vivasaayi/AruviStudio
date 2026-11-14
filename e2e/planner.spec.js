@@ -98,7 +98,7 @@ test("planner voice commands can select, switch views, and apply the staged desi
   await expect(page.getByTestId("draft-node-rename-input")).toHaveValue("Calculation History");
 
   await page.evaluate(async () => {
-    await window.__ARUVI_E2E__?.runPlannerVoiceTranscript?.("view conversation");
+    await window.__ARUVI_E2E__?.runPlannerVoiceTranscript?.("view conversation.");
   });
   await expect(page.getByText("Switched back to the planner conversation.")).toBeVisible();
 

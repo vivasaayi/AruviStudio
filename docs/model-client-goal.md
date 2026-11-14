@@ -31,6 +31,12 @@ short command was misrecognized in one run, so this is not evidence of accurate
 hands-free command recognition. An initial fixture also looped the short audio;
 the test now pads it with silence. The existing longer synthetic recording
 probe passed separately. Neither probe uses a physical microphone.
+Exact planner voice commands now accept one trailing period, including apply
+and clear commands, while question marks and named-node references are left
+unchanged. The frontend build, six mocked desktop planner checks, five focused
+native voice tests and all 36 isolated workflow tests passed; the browser case
+uses `Show draft.` with a selected node. This does not improve recognition of
+incorrectly transcribed words or validate physical microphones.
 
 ### Running branch Model Host revalidation — 2026-11-14
 

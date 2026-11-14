@@ -95,8 +95,9 @@ export function usePlannerVoiceTranscriptHandler({
       return true;
     }
     const normalizedTranscript = normalize(spoken);
+    const normalizedCommand = normalizedTranscript.endsWith(".") ? normalizedTranscript.slice(0, -1).trimEnd() : normalizedTranscript;
 
-    const viewCommand = getPlannerVoiceViewCommand(normalizedTranscript);
+    const viewCommand = getPlannerVoiceViewCommand(normalizedCommand);
 
     if (viewCommand === "draft") {
       if (draftTreeNodes.length === 0) {
@@ -129,14 +130,14 @@ export function usePlannerVoiceTranscriptHandler({
       return true;
     }
 
-    if (isExpandDraftVoiceCommand(normalizedTranscript)) {
+    if (isExpandDraftVoiceCommand(normalizedCommand)) {
       setPlannerView("draft");
       expandAllDraftNodes();
       appendVoiceCommandFeedback(spoken, "Expanded the staged design tree.");
       return true;
     }
 
-    if (isCollapseDraftVoiceCommand(normalizedTranscript)) {
+    if (isCollapseDraftVoiceCommand(normalizedCommand)) {
       collapseAllDraftNodes();
       appendVoiceCommandFeedback(spoken, "Collapsed the staged design tree.");
       return true;

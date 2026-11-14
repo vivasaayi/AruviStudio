@@ -916,12 +916,12 @@ test("browser voice can send a scoped transcript to the planner", async ({ page,
   expect(selectedNode).toBeTruthy();
   await page.getByRole("button", { name: "Voice", exact: true }).click();
   await page.getByLabel("Send transcript to").selectOption("planner");
-  await page.locator("#voiceComposer").fill("show draft");
+  await page.locator("#voiceComposer").fill("Show draft.");
   const submitted = page.waitForResponse((response) => response.url().endsWith("/voice-turn"));
   await page.locator("#voiceSendButton").click();
   const response = await submitted;
   expect(response.status()).toBe(200);
-  expect(response.request().postDataJSON()).toMatchObject({ user_input: "show draft", product_id: product.id, selected_draft_node_id: selectedNode });
+  expect(response.request().postDataJSON()).toMatchObject({ user_input: "Show draft.", product_id: product.id, selected_draft_node_id: selectedNode });
   expect((await response.json()).selected_draft_node_id).toBe(selectedNode);
   await expect(page.locator("#voiceConversation")).toContainText("Stock");
   await expect(page.locator("#voiceMeta")).toHaveText("Planner reply ready.");

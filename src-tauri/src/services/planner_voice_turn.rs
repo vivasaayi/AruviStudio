@@ -10,6 +10,22 @@ use crate::services::planner_session::{
 };
 use crate::services::planner_text_turn::submit_planner_turn_locked;
 use crate::services::planner_turn_policy::normalize;
+
+fn exact_voice_command_text(normalized: &str) -> &str {
+    normalized.strip_suffix('.').unwrap_or(normalized).trim_end()
+}
+
+#[cfg(test)]
+mod command_text_tests {
+    use super::exact_voice_command_text;
+
+    #[test]
+    fn ignores_one_final_period_without_treating_questions_as_commands() {
+        assert_eq!(exact_voice_command_text("confirm."), "confirm");
+        assert_eq!(exact_voice_command_text("confirm?"), "confirm?");
+        assert_eq!(exact_voice_command_text("confirm.."), "confirm.");
+    }
+}
 use crate::services::planner_types::PlannerTurnResponse;
 use crate::state::AppState;
 use std::sync::Arc;
@@ -71,6 +87,9 @@ pub async fn submit_planner_voice_turn(
     }
 
     let normalized_transcript = normalize(Some(&spoken));
+    // Speech recognition commonly adds a terminal period. Strip one only for
+    // exact commands; questions and named-node references retain their text.
+    let normalized_command = exact_voice_command_text(&normalized_transcript);
     push_trace(
         &mut trace,
         "voice",
@@ -82,7 +101,7 @@ pub async fn submit_planner_voice_turn(
     );
 
     if matches!(
-        normalized_transcript.as_str(),
+        normalized_command,
         "yes"
             | "confirm"
             | "go ahead"
@@ -117,7 +136,7 @@ pub async fn submit_planner_voice_turn(
     }
 
     if matches!(
-        normalized_transcript.as_str(),
+        normalized_command,
         "clear draft"
             | "clear the draft"
             | "clear proposal"
@@ -174,7 +193,7 @@ pub async fn submit_planner_voice_turn(
     }
 
     let is_draft_view_command = matches!(
-        normalized_transcript.as_str(),
+        normalized_command,
         "view draft"
             | "open draft"
             | "show draft"

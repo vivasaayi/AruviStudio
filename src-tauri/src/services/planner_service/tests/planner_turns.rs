@@ -704,7 +704,7 @@ async fn failed_voice_clear_and_selection_preserve_session_state() {
         assert!(crate::persistence::planner_repo::list_conversation_entries(&state.db, &session.session_id).await.unwrap().is_empty());
     }
     sqlx::query("DROP TRIGGER fail_voice_assistant").execute(&state.db).await.unwrap();
-    let response = submit_planner_voice_turn(state.planner_service.clone(), &state, session.session_id.clone(), "clear draft".into(), None, None).await.unwrap();
+    let response = submit_planner_voice_turn(state.planner_service.clone(), &state, session.session_id.clone(), "clear draft.".into(), None, None).await.unwrap();
     assert_eq!(response.status, "execution");
     let saved = crate::services::planner_session::load_session_from_db(&state.db, &session.session_id).await.unwrap();
     assert!(saved.draft_plan.is_none() && saved.pending_plan.is_none());
