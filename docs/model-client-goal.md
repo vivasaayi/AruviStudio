@@ -509,6 +509,19 @@ provider hosting into the model-host service as part of this work.
 - `npm audit` reported zero advisories for the current lockfile. Other previously
   recorded Rust advisory and live-provider limitations still apply.
 
+- Desktop chat now offers Stop and cancels its shared-client future; timeout
+  and navigation also request cancellation. Cancelled and failed exchanges
+  show an incomplete marker and are excluded from subsequent model history.
+  Completed exchanges remain in history. Active stream IDs cannot be reused;
+  cancellation is recorded as a failed model call, consistent with web streams.
+  A native HTTP fixture verified upstream disconnect, partial telemetry and
+  duplicate-ID rejection. Six desktop-style browser cases covered completion,
+  errors, Stop, timeout and navigation races with a mocked Tauri bridge. The
+  native suite passed 219 tests with six ignored, all 102 frontend tests and
+  23 browser/MCP cases passed, and the frontend build passed. A real coding
+  model streamed through the web browser; real desktop-window cancellation
+  remains unverified.
+
 ## Browser chat streaming
 
 - A simulated Anthropic Messages endpoint now verifies browser streaming with

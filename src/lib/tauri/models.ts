@@ -167,6 +167,8 @@ export const startModelChatStream = (data: {
       source_label: data.sourceLabel ?? null,
     },
   });
+export const cancelModelChatStream = (streamId: string) =>
+  invoke<boolean>("cancel_model_chat_stream", { streamId });
 export const listModelCalls = (limit = 200) => invoke<ModelCall[]>("list_model_calls", { limit });
 export const getModelCall = (id: string) => invoke<ModelCall>("get_model_call", { id });
 export const readModelCallSnapshot = (id: string, kind: "request" | "response") =>

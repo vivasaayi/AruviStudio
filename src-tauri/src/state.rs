@@ -15,6 +15,7 @@ pub struct AppState {
     pub artifact_base_path: PathBuf,
     pub workflow_service: Arc<Mutex<workflow_service::WorkflowService>>,
     pub planner_service: Arc<Mutex<planner_service::PlannerService>>,
+    pub chat_stream_cancellations: Arc<Mutex<std::collections::HashMap<String, Option<tokio::sync::oneshot::Sender<()>>>>>,
 }
 
 impl AppState {
@@ -64,6 +65,7 @@ impl AppState {
             artifact_base_path,
             workflow_service,
             planner_service,
+            chat_stream_cancellations: Arc::new(Mutex::new(std::collections::HashMap::new())),
         })
     }
 }

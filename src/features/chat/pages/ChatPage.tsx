@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   speakTextNatively,
+  cancelModelChatStream,
   listModelDefinitions,
   listProviders,
   startModelChatStream,
@@ -34,7 +35,7 @@ const styles: Record<string, React.CSSProperties> = {
   empty: { color: "#777", textAlign: "center" as const, padding: 24 },
 };
 
-type LocalChatMessage = ChatMessagePayload & { id: string };
+type LocalChatMessage = ChatMessagePayload & { id: string; incomplete?: boolean };
 
 export function ChatPage() {
   const [systemPrompt, setSystemPrompt] = useState(
@@ -47,6 +48,9 @@ export function ChatPage() {
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<LocalChatMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const [streamReady, setStreamReady] = useState(false);
+  const [streamStopping, setStreamStopping] = useState(false);
+  const activeStreamRef = useRef<{ id: string; cleanup: () => void } | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [voiceRepliesEnabled, setVoiceRepliesEnabled] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -111,9 +115,14 @@ export function ChatPage() {
     let unlistenError: UnlistenFn | null = null;
     const requestedStreamId = crypto.randomUUID();
     let activeStreamId: string | null = requestedStreamId;
+    let timeoutId: number | null = null;
 
+    const markIncomplete = () => setMessages((current) => current.map((entry) =>
+      entry.id === assistantMessageId || entry.id === userMessage.id ? { ...entry, incomplete: true } : entry));
     const cleanup = () => {
       activeStreamId = null;
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      if (activeStreamRef.current?.id === requestedStreamId) activeStreamRef.current = null;
       if (unlistenChunk) {
         unlistenChunk();
       }
@@ -128,6 +137,9 @@ export function ChatPage() {
       unlistenError = null;
     };
 
+    activeStreamRef.current = { id: requestedStreamId, cleanup };
+    setStreamReady(false);
+    setStreamStopping(false);
     try {
       unlistenChunk = await listen<{ stream_id: string; delta: string }>("chat_stream_chunk", (event) => {
         if (!activeStreamId || event.payload.stream_id !== activeStreamId) {
@@ -143,6 +155,7 @@ export function ChatPage() {
         latestAssistantRef.current = `${latestAssistantRef.current}${event.payload.delta}`;
       });
 
+      if (!activeStreamId) { unlistenChunk(); return; }
       unlistenDone = await listen<{ stream_id: string }>("chat_stream_done", (event) => {
         if (!activeStreamId || event.payload.stream_id !== activeStreamId) {
           return;
@@ -153,18 +166,24 @@ export function ChatPage() {
           });
         }
         setIsSending(false);
+        setStreamReady(false);
         cleanup();
       });
 
+      if (!activeStreamId) { unlistenDone(); return; }
       unlistenError = await listen<{ stream_id: string; error: string }>("chat_stream_error", (event) => {
         if (!activeStreamId || event.payload.stream_id !== activeStreamId) {
           return;
         }
+        markIncomplete();
         setError(event.payload.error);
         setIsSending(false);
+        setStreamReady(false);
+        setStreamStopping(false);
         cleanup();
       });
 
+      if (!activeStreamId) { unlistenError(); return; }
       await startModelChatStream({
         streamId: requestedStreamId,
         providerId,
@@ -176,7 +195,7 @@ export function ChatPage() {
               systemPrompt.trim() ||
               "Always reply in English unless the user explicitly asks for another language.",
           },
-          ...[...messages, userMessage].map(({ role, content: text }) => ({
+          ...[...messages, userMessage].filter((message) => !message.incomplete).map(({ role, content: text }) => ({
             role,
             content: text,
           })),
@@ -188,18 +207,44 @@ export function ChatPage() {
         sourceLabel: "Desktop Chat",
       });
 
-      // Safety timeout to avoid permanent pending state if stream never closes.
-      window.setTimeout(() => {
-        if (activeStreamId) {
-          setIsSending(false);
-          cleanup();
-        }
-      }, 120000);
+      if (!activeStreamId) {
+        // Unmount may have raced the asynchronous start command.
+        void cancelModelChatStream(requestedStreamId).catch(() => undefined);
+        return;
+      }
+      if (activeStreamId) {
+        setStreamReady(true);
+        // Do not treat a timed-out partial response as a complete exchange.
+        timeoutId = window.setTimeout(() => {
+          if (activeStreamId) {
+            markIncomplete();
+            setError("Model stream timed out.");
+            setIsSending(false);
+            setStreamReady(false);
+            cleanup();
+            void cancelModelChatStream(requestedStreamId).catch(() => undefined);
+          }
+        }, 120000);
+      }
     } catch (sendError) {
       setError(String(sendError));
-      setMessages((current) => current.filter((entry) => entry.id !== assistantMessageId));
+      markIncomplete();
       cleanup();
       setIsSending(false);
+      setStreamReady(false);
+    }
+  };
+
+  const stopStream = async () => {
+    const stream = activeStreamRef.current;
+    if (!stream || streamStopping) return;
+    setStreamStopping(true);
+    try {
+      const accepted = await cancelModelChatStream(stream.id);
+      if (!accepted) setStreamStopping(false);
+    } catch (error) {
+      setError(String(error));
+      setStreamStopping(false);
     }
   };
 
@@ -245,6 +290,11 @@ export function ChatPage() {
   };
 
   React.useEffect(() => () => {
+    const stream = activeStreamRef.current;
+    if (stream) {
+      stream.cleanup();
+      void cancelModelChatStream(stream.id).catch(() => undefined);
+    }
     if (audioCaptureRef.current) {
       void audioCaptureRef.current.stop().catch(() => undefined);
       audioCaptureRef.current = null;
@@ -334,6 +384,7 @@ export function ChatPage() {
           messages.map((message) => (
             <div key={message.id} style={message.role === "user" ? styles.bubbleUser : styles.bubbleAssistant}>
               {message.content}
+              {message.role === "assistant" && message.incomplete ? "\n[Response incomplete]" : null}
             </div>
           ))
         )}
@@ -357,6 +408,7 @@ export function ChatPage() {
           <button style={styles.btn} onClick={() => void send()} disabled={isSending} data-testid="chat-send">
             {isSending ? "Sending..." : "Send"}
           </button>
+          {isSending ? <button style={styles.btnGhost} onClick={() => void stopStream()} disabled={!streamReady || streamStopping} data-testid="chat-stop">{streamStopping ? "Stopping..." : "Stop"}</button> : null}
           <button style={styles.btnGhost} onClick={clearChat} disabled={isSending} data-testid="chat-clear">
             Clear
           </button>
