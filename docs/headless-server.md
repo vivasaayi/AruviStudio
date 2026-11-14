@@ -91,6 +91,17 @@ Model Host worktree, configure the Studio provider and model with:
 scripts/configure-native-model-host /path/to/aruvi-model-host-worktree --model YOUR_INSTALLED_CODING_MODEL_ID
 ```
 
+For a host version that supports a separate inference credential, explicitly add
+`--credential-scope inference`. The helper requires `MODEL_HOST_INFERENCE_TOKEN`
+in that host environment's private configuration and refuses to fall back to
+the management token. Before configuring Studio it checks that the credential is
+denied `GET /api/models`; it then verifies model discovery as usual. That one
+negative check is not a substitute for reviewing the host's full authorization
+policy. The currently deployed host may not support this option yet. Without the
+flag, the helper retains its existing management-token behavior. A failed scoped
+configuration leaves any previously configured provider credential unchanged;
+it does not remove or revoke an existing management token.
+
 The helper reads the selected host's private token without printing it, verifies
 model discovery from both the Mac and the Studio container, and updates the named
 provider without replacing its ID. Discovery rejects HTTP redirects. For native staging, select `--environment

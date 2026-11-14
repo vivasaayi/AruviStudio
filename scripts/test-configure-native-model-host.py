@@ -32,6 +32,66 @@ class WatchTests(unittest.TestCase):
                 self.assertEqual(module.read_host(Path("."), "worktree"), (10001, "synthetic-token"))
                 with self.assertRaises(module.SetupError): module.read_host_state(Path("."), "worktree")
 
+    def test_inference_scope_uses_only_explicit_credential(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, "environment.env")
+            path.write_text("MODEL_HOST_TOKEN=synthetic-admin\nMODEL_HOST_INFERENCE_TOKEN=synthetic-inference\n")
+            plan = json.dumps({"state": directory})
+            status = json.dumps({"registered": True, "endpoint": {"url": "http://127.0.0.1:10001"}})
+            with mock.patch.object(module.subprocess, "check_output", side_effect=[plan, status, plan, status, plan, status]):
+                self.assertEqual(module.read_host_state(Path("."), "worktree", "inference"), (10001, "synthetic-inference", None))
+                self.assertEqual(module.read_host_state(Path("."), "worktree", "management"), (10001, "synthetic-admin", None))
+                path.write_text("MODEL_HOST_TOKEN=synthetic-admin\n")
+                with self.assertRaisesRegex(module.SetupError, "inference token is not configured"):
+                    module.read_host_state(Path("."), "worktree", "inference")
+
+    def test_scope_verification_rejects_management_and_unknown_tokens(self):
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                status = {"Bearer synthetic-inference": 403, "Bearer synthetic-admin": 200}.get(self.headers.get("Authorization"), 401)
+                self.send_response(status); self.end_headers()
+            def log_message(self, *_): pass
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        try:
+            module.verify_inference_scope(server.server_port, "synthetic-inference")
+            for token in ["synthetic-admin", "synthetic-unknown"]:
+                with self.assertRaises(module.SetupError) as error:
+                    module.verify_inference_scope(server.server_port, token)
+                self.assertNotIn(token, str(error.exception))
+        finally:
+            server.shutdown(); server.server_close(); thread.join()
+
+    def test_scope_verification_does_not_follow_redirect(self):
+        requests = []
+        class Target(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                requests.append(self.headers.get("Authorization")); self.send_response(403); self.end_headers()
+            def log_message(self, *_): pass
+        target = http.server.HTTPServer(("127.0.0.1", 0), Target)
+        class Source(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(302); self.send_header("Location", f"http://127.0.0.1:{target.server_port}/stolen"); self.end_headers()
+            def log_message(self, *_): pass
+        source = http.server.HTTPServer(("127.0.0.1", 0), Source)
+        threads = [threading.Thread(target=server.serve_forever, daemon=True) for server in (source, target)]
+        for thread in threads: thread.start()
+        try:
+            with self.assertRaises(module.SetupError): module.verify_inference_scope(source.server_port, "synthetic-token")
+            self.assertEqual(requests, [])
+        finally:
+            for server in (source, target): server.shutdown(); server.server_close()
+            for thread in threads: thread.join()
+
+    def test_scope_is_verified_before_provider_configuration(self):
+        with mock.patch.object(sys, "argv", ["configure-native-model-host", ".", "--credential-scope", "inference"]), \
+             mock.patch.object(module, "read_host_state", return_value=(10001, "synthetic-inference", 101)), \
+             mock.patch.object(module, "verify_inference_scope", side_effect=module.SetupError("not scoped")), \
+             mock.patch.object(module, "configure") as configure, \
+             contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(module.main(), 1)
+        configure.assert_not_called()
+
     def test_discovery_does_not_forward_token_on_redirect(self):
         requests = []
         class Target(http.server.BaseHTTPRequestHandler):

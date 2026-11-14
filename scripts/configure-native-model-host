@@ -11,6 +11,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
 
@@ -33,7 +34,7 @@ def mcp(action, arguments):
     return json.loads(result.stdout)["result"]
 
 
-def read_host_state(host, environment):
+def read_host_state(host, environment, credential_scope="management"):
     env = dict(os.environ, ARUVI_MODEL_HOST_ENV="native")
     def info(action):
         return json.loads(subprocess.check_output(["bash", "scripts/env", environment, action], cwd=host, env=env, text=True, stderr=subprocess.DEVNULL, timeout=15))
@@ -43,10 +44,11 @@ def read_host_state(host, environment):
     endpoint = urlsplit(status["endpoint"]["url"])
     if endpoint.scheme != "http" or endpoint.hostname != "127.0.0.1" or endpoint.port is None or endpoint.path not in ("", "/") or endpoint.query or endpoint.fragment or endpoint.username or endpoint.password:
         raise SetupError("Expected a running loopback-only native Model Host")
-    token = next(line.split("=", 1)[1] for line in (Path(plan["state"]) / "environment.env").read_text().splitlines()
-                 if line.startswith("MODEL_HOST_TOKEN="))
-    if not token:
-        raise SetupError("Native Model Host token is empty")
+    key = "MODEL_HOST_INFERENCE_TOKEN" if credential_scope == "inference" else "MODEL_HOST_TOKEN"
+    token = next((line.split("=", 1)[1] for line in (Path(plan["state"]) / "environment.env").read_text().splitlines()
+                  if line.startswith(key + "=")), "")
+    if not token.strip():
+        raise SetupError("Native Model Host " + credential_scope + " token is not configured")
     pid = status["endpoint"].get("pid")
     if pid is not None and (type(pid) is not int or pid <= 0):
         raise SetupError("Native Model Host process identity is invalid")
@@ -78,6 +80,25 @@ def discover_host(port, token, timeout=25):
     if result.returncode != 0:
         raise SetupError("Model Host discovery failed")
     return json.loads(result.stdout)
+
+
+def fetch_management_status(port, token):
+    """Return only the status; never print a provider body or credentials."""
+    request = urllib.request.Request(f"http://127.0.0.1:{port}/api/models", headers={"Authorization": "Bearer " + token})
+    try:
+        with urllib.request.build_opener(urllib.request.ProxyHandler({}), RejectRedirects()).open(request, timeout=10) as response:
+            return response.status
+    except urllib.error.HTTPError as error:
+        return error.code
+
+
+def verify_inference_scope(port, token, timeout=15):
+    """Fail closed unless the chosen credential is denied a management route."""
+    result = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--scope-child"],
+        input=json.dumps({"port": port, "token": token}), text=True,
+        capture_output=True, check=False, timeout=timeout)
+    if result.returncode != 0 or result.stdout.strip() != "403":
+        raise SetupError("Inference credential was not confirmed as restricted by the Model Host")
 
 
 def configure(port, token, model, name, *, rotate_credential=True):
@@ -117,6 +138,7 @@ def main():
     parser.add_argument("--environment", choices=("worktree", "integration", "staging"), default="worktree")
     parser.add_argument("--model", default="qwen25-coder-15b-q4", help="Model ID advertised by Model Host")
     parser.add_argument("--name", default="Aruvi Model Host (Studio Coding Validation)")
+    parser.add_argument("--credential-scope", choices=("management", "inference"), default="management", help="Choose the host credential; inference requires host support and never falls back")
     parser.add_argument("--watch", action="store_true", help="Keep running and refresh after an endpoint or token change")
     parser.add_argument("--poll-seconds", type=float, default=5, help="Watch interval, between 1 and 300 seconds")
     args = parser.parse_args()
@@ -128,8 +150,10 @@ def main():
     needs_recovery = False
     while True:
         try:
-            current = read_host_state(host, args.environment)
+            current = read_host_state(host, args.environment, args.credential_scope)
             if current != last or needs_recovery:
+                if args.credential_scope == "inference":
+                    verify_inference_scope(*current[:2])
                 result = configure(*current[:2], args.model, args.name, rotate_credential=last is None or current[1] != last[1])
                 print(json.dumps(result), flush=True)
                 last = current
@@ -151,6 +175,13 @@ def main():
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--scope-child"]:
+        try:
+            request = json.load(sys.stdin)
+            print(fetch_management_status(request["port"], request["token"]))
+        except (OSError, ValueError, KeyError, TypeError):
+            sys.exit(1)
+        sys.exit(0)
     if sys.argv[1:] == ["--discovery-child"]:
         try:
             request = json.load(sys.stdin)

@@ -12,6 +12,22 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Studio inference-credential opt-in
+
+`scripts/configure-native-model-host --credential-scope inference` now reads
+only `MODEL_HOST_INFERENCE_TOKEN`, never silently falls back to the management
+credential, and requires a 403 from `GET /api/models` before configuring Studio.
+The check uses a bounded child process, does not follow redirects, and does not
+print credentials or provider bodies. It checks one management route and does
+not by itself prove the entire host policy. Seventeen helper tests passed; a
+disposable candidate host accepted the inference token for discovery and denied
+management while the helper rejected the management token. Against the currently
+running host, the helper failed closed because no inference token is configured;
+it made no provider change. A failed check leaves any previous provider credential
+in place; it does not remove or revoke a management token. Default helper behavior
+remains management-token compatibility until a scoped host is deployed and
+explicitly selected.
+
 ### Candidate inference-only Model Host credential
 
 The Model Host source at `6edb84979f0b670c304192600052f98533a86439` currently
