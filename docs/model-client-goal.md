@@ -92,6 +92,13 @@ patch, reconcile it with that work, add the inference token to the integration
 adapter, independently review authorization and validate the intended deployment. The running
 Studio branch still uses the existing management-capable host credential.
 
+On 2026-11-14, a disposable copy of the untracked integration Compose adapter
+was rendered with `MODEL_HOST_INFERENCE_TOKEN: ${MODEL_HOST_INFERENCE_TOKEN:-}`
+added alongside its existing management-token setting. Docker Compose preserved
+both synthetic credentials and rendered an empty inference value when unset. No
+host file or deployment was changed. This validates configuration rendering only;
+the adapter still needs reconciliation and runtime testing with the candidate host.
+
 ### Current branch build and security checks
 
 At revision `040092f`, the native macOS ARM64 Rust library suite passed 256
