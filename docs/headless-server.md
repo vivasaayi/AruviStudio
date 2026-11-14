@@ -54,15 +54,21 @@ cannot consume the bounded event queue fast enough, the stream fails rather than
 silently dropping text. Ordinary non-streaming chat remains available.
 
 In **Workspaces**, open a saved text file and use **Ask Copilot about this file**
-for a single non-streaming question. Select the provider and model in Connection
-first. Studio sends the question, relative path, and up to 12,000 characters of the
-saved file to that provider and records request/response snapshots in Activity.
-Unsaved edits must be saved or discarded, and a changed file is rejected before
-the model call. Repository content is untrusted input and model guidance needs
-review. Desktop multi-turn Copilot and patch proposals are not yet available here.
+for a non-streaming conversation. Select the provider and model in Connection
+first. Studio sends the question, relative path, up to 12,000 characters of the
+saved file, and bounded recent conversation to that provider; request/response
+snapshots are recorded in Activity. The browser retains at most ten recent
+user/assistant pairs within 24,000 characters and resets them on a new file,
+saved edit, provider/model change, or **New file conversation**. Unsaved edits
+must be saved or discarded, and a changed file is rejected before the model call.
+Repository content is untrusted input and model guidance needs review. Patch
+proposals and file-chat streaming are not yet available here.
 MCP clients can call `aruvi_repositories` action `get_repository_file_sha256`,
 then call `aruvi_models` action `run_file_copilot` with `repository_id`,
 `relative_path`, `expected_sha256`, `provider_id`, `model_name`, and `question`.
+An optional `history` array contains alternating user/assistant pairs, up to ten
+pairs and 24,000 characters total. MCP clients own that history and should only
+reuse it for the intended file and provider.
 The operation uses the same file confinement, stale-file check, context limit,
 and Activity recording as the browser; it does not modify the file.
 

@@ -584,9 +584,10 @@
               <div class="button-row"><button id="saveRepositoryFileButton" type="button" disabled>Save file</button><button id="discardRepositoryFileButton" class="secondary" type="button" disabled>Discard file edits</button></div>
               <div class="tool-card stack">
                 <strong>Ask Copilot about this file</strong>
-                <div class="empty">Sends the saved file path, up to 12,000 characters of its content, and your question to the provider and model selected in Connection. Requests and responses are recorded in Activity. Review the file and provider first.</div>
+                <div class="empty">Sends the saved file path, up to 12,000 characters of its content, your question and recent conversation to the provider and model selected in Connection. Requests and responses are recorded in Activity. Conversation resets when the file or provider changes.</div>
                 <label><span class="label">Copilot question</span><textarea id="repositoryCopilotQuestion" maxlength="4000" placeholder="What would you like to know about this file?"></textarea></label>
                 <button id="repositoryCopilotButton" type="button" disabled>Ask about saved file</button>
+                <button id="repositoryCopilotReset" type="button" class="secondary" disabled>New file conversation</button>
                 <pre id="repositoryCopilotResult" style="white-space: pre-wrap; overflow-wrap: anywhere" aria-live="polite"></pre>
               </div>
             </div>
@@ -2903,6 +2904,7 @@
       el.saveRepositoryFileButton.disabled = !dirty || fileSaving || copilotBusy || !openedFile.editable;
       el.discardRepositoryFileButton.disabled = !dirty || fileSaving || copilotBusy;
       document.getElementById("repositoryCopilotButton").disabled = !openedFile || dirty || fileSaving || copilotBusy || !openedFile.sha256;
+      document.getElementById("repositoryCopilotReset").disabled = !openedFile || copilotBusy;
     }
     function canLeaveFile() {
       if (copilotBusy) { setStatus("Wait for Copilot before opening another file or workspace", "warn"); return false; }
@@ -2970,7 +2972,7 @@
         const withoutCrlf = file.content.replace(/\r\n/g, "");
         const mixed = withoutCrlf.includes("\r") || (file.content.includes("\r\n") && withoutCrlf.includes("\n"));
         openedFile = { repositoryId, path, expected: file.content, displayBaseline: el.repositoryFileContent.value,
-          crlf: file.content.includes("\r\n") && !mixed, editable: !mixed, sha256: file.sha256 };
+          crlf: file.content.includes("\r\n") && !mixed, editable: !mixed, sha256: file.sha256, history: [], copilotScope: "" };
         document.getElementById("repositoryCopilotResult").textContent = "";
         el.repositoryFileContent.readOnly = mixed;
         if (mixed) setStatus("This file has mixed line endings and is available for reading only", "warn");
@@ -2988,7 +2990,7 @@
       try {
         const saved = await request("/api/mobile/repository-file/save", { method: "POST", body: { repository_id: file.repositoryId,
           relative_path: file.path, expected_content: file.expected, content } });
-        if (openedFile === file) { file.expected = content; file.displayBaseline = el.repositoryFileContent.value; file.sha256 = saved.sha256; setStatus("File saved", "ok"); }
+        if (openedFile === file) { file.expected = content; file.displayBaseline = el.repositoryFileContent.value; file.sha256 = saved.sha256; file.history = []; file.copilotScope = ""; document.getElementById("repositoryCopilotResult").textContent = ""; setStatus("File saved", "ok"); }
       } catch (error) { setStatus(error.message || String(error), "error"); }
       finally { fileSaving = false; if (openedFile === file) el.repositoryFileContent.readOnly = !file.editable; updateFileControls(); }
     }
@@ -2997,19 +2999,44 @@
       el.repositoryFileContent.value = openedFile.displayBaseline; updateFileControls();
     }
 
+    function boundedCopilotTranscript(text) {
+      return text.length > 100000 ? "[Earlier conversation omitted]\n" + text.slice(-100000) : text;
+    }
+
     async function askRepositoryCopilot() {
       if (!openedFile || fileIsDirty() || fileSaving || copilotBusy || !openedFile.sha256) return;
       const question = document.getElementById("repositoryCopilotQuestion").value.trim();
       const provider = el.providerInput.value.trim(), model = el.modelInput.value.trim();
       if (!question || !provider || !model) { setStatus("Select a provider and model in Connection and enter a question", "warn"); return; }
       const file = openedFile, result = document.getElementById("repositoryCopilotResult");
-      copilotBusy = true; el.repositoryFileContent.readOnly = true; updateFileControls(); result.textContent = "Asking about " + file.path + "…";
+      const scope = JSON.stringify([provider, model]);
+      if (file.copilotScope !== scope) { file.history = []; file.copilotScope = scope; result.textContent = ""; }
+      const previous = result.textContent;
+      copilotBusy = true; el.repositoryFileContent.readOnly = true; updateFileControls(); result.textContent = previous + (previous ? "\n\n" : "") + "Asking about " + file.path + "…";
       try {
         const response = await request("/api/mobile/repository-file/copilot", { method: "POST", body: { repository_id: file.repositoryId,
-          relative_path: file.path, expected_sha256: file.sha256, provider_id: provider, model_name: model, question } });
-        result.textContent = response.content || "(empty response)"; setStatus("Copilot reply ready", "ok");
-      } catch (error) { result.textContent = "Copilot error: " + (error.message || String(error)); setStatus(error.message || String(error), "error"); }
+          relative_path: file.path, expected_sha256: file.sha256, provider_id: provider, model_name: model, question, history: file.history } });
+        const answer = response.content || "";
+        if (answer.trim()) {
+          const entries = [...file.history, { role: "user", content: question }, { role: "assistant", content: answer }];
+          const bounded = []; let characters = 0;
+          for (let index = entries.length - 2; index >= 0 && bounded.length < 20; index -= 2) {
+            const pair = entries.slice(index, index + 2), size = pair.reduce((sum, entry) => sum + Array.from(entry.content).length, 0);
+            if (characters + size > 24000) break;
+            bounded.unshift(...pair); characters += size;
+          }
+          file.history = bounded;
+        }
+        result.textContent = boundedCopilotTranscript(previous + (previous ? "\n\n" : "") + "You: " + question + "\nCopilot: " + (answer || "(empty response)"));
+        document.getElementById("repositoryCopilotQuestion").value = ""; setStatus("Copilot reply ready", "ok");
+      } catch (error) { result.textContent = boundedCopilotTranscript(previous + (previous ? "\n\n" : "") + "Copilot error: " + (error.message || String(error))); setStatus(error.message || String(error), "error"); }
       finally { copilotBusy = false; if (openedFile === file) el.repositoryFileContent.readOnly = !file.editable; updateFileControls(); }
+    }
+
+    function resetRepositoryCopilot() {
+      if (!openedFile || copilotBusy) return;
+      openedFile.history = []; openedFile.copilotScope = "";
+      document.getElementById("repositoryCopilotResult").textContent = "";
     }
 
     async function updateWorkspaceAttachment(productId, attachment, action, button) {
@@ -4060,6 +4087,7 @@
     el.repositoryDiffButton.addEventListener("click", loadRepositoryDiff);
     el.repositoryFileContent.addEventListener("input", updateFileControls);
     document.getElementById("repositoryCopilotButton").addEventListener("click", () => void askRepositoryCopilot());
+    document.getElementById("repositoryCopilotReset").addEventListener("click", resetRepositoryCopilot);
     el.saveRepositoryFileButton.addEventListener("click", saveRepositoryFile);
     el.discardRepositoryFileButton.addEventListener("click", discardRepositoryFileEdits);
     window.addEventListener("beforeunload", (event) => { if (fileIsDirty()) { event.preventDefault(); event.returnValue = ""; } });

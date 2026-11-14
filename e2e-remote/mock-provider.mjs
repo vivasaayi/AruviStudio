@@ -119,6 +119,8 @@ const server = http.createServer((request, response) => {
     request.on("end", () => {
       let body; try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { response.statusCode = 400; return response.end(); }
       if (body.messages?.[0]?.content?.startsWith("You are Aruvi Copilot.")) { lastCopilotRequest = body; copilotCalls++; }
+      if (body.messages?.at(-1)?.content?.includes("Synthetic Copilot failure")) { response.statusCode = 500; return response.end(JSON.stringify({ error: "fixture failure" })); }
+      if (body.messages?.at(-1)?.content?.includes("Synthetic long Copilot reply")) return response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "x".repeat(100050) } }] }));
       if (!body.stream) return response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "Container provider reply" } }], usage: { prompt_tokens: 12, completion_tokens: 4 } }));
       response.setHeader("Content-Type", "text/event-stream");
       response.on("close", () => { if (!response.writableEnded) streamDisconnects++; });

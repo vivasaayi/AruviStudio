@@ -46,7 +46,20 @@ provider hosting into the model-host service as part of this work.
 
 ## Browser file-aware Copilot
 
-- The workspace browser can ask one non-streaming question about the selected
+- Browser and MCP file Copilot now accept follow-ups with at most ten
+  user/assistant pairs and 24,000 history characters. The browser keeps history
+  only in the current page for the same saved file and provider/model, resets it
+  after a save or explicit reset, and excludes failed turns. MCP callers supply
+  and scope their own history. The server rejects invalid role ordering and
+  oversized history before model access. This remains non-streaming and does not
+  implement desktop patch proposals.
+- The 22 remote UI, 23 workflow and one simulated CI cases passed; the Linux Rust
+  suite passed 198 tests with two live tests ignored. Browser checks cover model
+  changes, reset, failed turns and oversized transcript handling. A disposable
+  real `qwen25-coder-7b-q4` fixture passed web and MCP follow-ups. Other models
+  and live third-party providers remain unverified.
+
+- The workspace browser can ask non-streaming questions about the selected
   saved file using an explicitly selected provider and model. The server confines
   the read to the registered repository, checks the saved file's SHA-256 against
   the opened version, and sends the question, relative path and at most 12,000
@@ -65,7 +78,7 @@ provider hosting into the model-host service as part of this work.
   Model Host fixture passed both interfaces. The 22 remote and 23 workflow cases
   passed, and the Linux Rust suite passed 198 tests with two live tests ignored.
   This is not full desktop IDE parity:
-  multi-turn file Copilot, streaming in that view, and patch proposal
+  streaming in that view and patch proposal
   review/application remain open.
 
 ## Browser planner node review

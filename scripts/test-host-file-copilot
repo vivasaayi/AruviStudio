@@ -69,10 +69,13 @@ try:
     answer = post("/api/mobile/repository-file/copilot", payload, "workflow-mobile-test")
     if "multiplybyseven" not in answer.get("content", "").lower():
         raise ValueError("Model response did not identify the fixture function")
-    answer = mcp("aruvi_models", "run_file_copilot", payload)
-    if "multiplybyseven" not in answer.get("content", "").lower():
-        raise ValueError("MCP model response did not identify the fixture function")
-    print(f"Real {model} file-context Copilot requests passed through web and MCP in a disposable fixture")
+    followup = dict(payload, history=[{"role":"user","content":payload["question"]}, {"role":"assistant","content":answer["content"]}], question="What number does it multiply by? Reply with the number.")
+    answer = post("/api/mobile/repository-file/copilot", followup, "workflow-mobile-test")
+    if "7" not in answer.get("content", ""):
+        raise ValueError("Model follow-up did not identify the multiplier")
+    answer = mcp("aruvi_models", "run_file_copilot", followup)
+    if "7" not in answer.get("content", ""): raise ValueError("MCP model follow-up did not identify the multiplier")
+    print(f"Real {model} file-context Copilot follow-ups passed through web and MCP in a disposable fixture")
 except (OSError, KeyError, TypeError, ValueError, subprocess.SubprocessError) as error:
     print(f"File Copilot fixture failed: {type(error).__name__}: {error if not isinstance(error, subprocess.CalledProcessError) else 'fixture command failed'}", file=sys.stderr)
     sys.exit(1)
