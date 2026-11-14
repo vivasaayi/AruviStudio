@@ -12,6 +12,25 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### GTK and rand advisory investigation
+
+At branch revision `53eeffa` on 2026-11-14, `cargo tree --locked --offline
+--target all` traced `glib` 0.18.5 through Tauri's Linux GTK/WebKit graph and
+`rand` 0.7.3 through `phf_generator` and `selectors` build dependencies. The
+feature tree, including `--all-features` for this manifest, did not show the
+`rand` 0.7 `log` feature. [RUSTSEC-2026-0097](https://rustsec.org/advisories/RUSTSEC-2026-0097.html)
+requires that feature and other conditions; this observation applies only to the
+inspected dependency graph and is not a blanket safety claim.
+
+A textual scan of `.rs` files in the 693 packages returned by `cargo metadata`
+found no `array_iter_str` or `VariantStrIter` references outside `glib` itself.
+That is not a reachability proof: aliases, generated code, native calls, other
+features, targets or future versions could change the result. [RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429.html)
+identifies the affected iterator and lists 0.20 as patched. The current Tauri
+GTK3 dependency chain constrains the older version; a coordinated upstream
+upgrade or independently reviewed backport and cross-platform validation are
+still needed. These findings remain visible release review items.
+
 ### SQLx SQLite patch provenance
 
 On 2026-11-14, the vendored SQLx SQLite 0.8.6 tree was compared with the
