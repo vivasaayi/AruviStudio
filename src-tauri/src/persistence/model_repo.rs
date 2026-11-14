@@ -134,10 +134,15 @@ pub async fn update_provider(
 }
 
 pub async fn delete_provider(pool: &SqlitePool, id: &str) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM settings WHERE key=?")
+        .bind(crate::services::model_service::stream_usage_setting_key(id))
+        .execute(&mut *tx).await?;
     sqlx::query("DELETE FROM model_providers WHERE id=?")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
+    tx.commit().await?;
     Ok(())
 }
 

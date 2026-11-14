@@ -180,6 +180,24 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             model_repo::delete_model_definition(&state.db, &id).await?;
             Ok(action_ok("delete_model_definition"))
         }
+        "get_provider_stream_usage" | "set_provider_stream_usage" => {
+            let id = args.required_string(&["id", "provider_id", "providerId"], "provider_id")?;
+            let provider = model_repo::get_provider(&state.db, &id).await?;
+            if provider.provider_type.as_str() != "openai_compatible" || provider.protocol != "openai_compatible" {
+                return Err(AppError::Validation("Stream usage requires an OpenAI-compatible provider".into()));
+            }
+            let key = crate::services::model_service::stream_usage_setting_key(&id);
+            if tool_action.action == "set_provider_stream_usage" {
+                let enabled = args.optional_bool(&["enabled"])?.ok_or_else(|| AppError::Validation("enabled is required".into()))?;
+                crate::persistence::settings_repo::set_setting(&state.db, &key, if enabled { "true" } else { "false" }).await?;
+            }
+            let raw = crate::persistence::settings_repo::get_setting(&state.db, &key).await?;
+            match raw.as_deref() {
+                None | Some("false") => action_result(&tool_action.action, json!({"enabled":false})),
+                Some("true") => action_result(&tool_action.action, json!({"enabled":true})),
+                _ => Err(AppError::Validation("Invalid provider stream usage setting".into())),
+            }
+        }
         "get_provider_transport_capabilities" => {
             let id = args.required_string(&["id", "provider_id", "providerId"], "provider_id")?;
             let provider = model_repo::get_provider(&state.db, &id).await?;

@@ -17,8 +17,16 @@ provider hosting into the model-host service as part of this work.
 The shared client now offers `with_stream_usage(true)` to request a terminal
 usage event on compatible streaming endpoints. It defaults off so existing
 Model Host, LM Studio and other compatible configurations retain their request
-shape; providers may reject the option or omit usage. Studio does not yet expose
-this option in provider settings. All 56 shared-client tests passed in Linux,
+shape; providers may reject the option or omit usage. Studio exposes the option
+per OpenAI-compatible provider in desktop and browser model settings and MCP.
+The browser uses a revision check to reject stale updates; desktop and MCP writes
+are last-write-wins. Deleting a provider removes its setting. A focused Rust
+gateway test, 12 simulated desktop provider tests and 39 isolated browser/MCP
+workflow tests passed; these tests use fixtures, not live third-party endpoints.
+The refreshed worktree deployment became healthy and its MCP coding fixture and
+token-limit error check passed against the real `qwen25-coder-7b-q4` Model Host
+model with stream usage left at its default. Model routing checks also passed.
+All 56 shared-client tests passed in Linux,
 including an HTTP fixture that checks both request shapes and returned usage.
 The Studio Docker build and all 38 isolated workflows passed with the option
 disabled. The independent consumer pinned `dd614f4a38a10e49017b09dc71f7140dce3a5452` and passed 23 offline

@@ -40,7 +40,7 @@ async fn stream_mobile_completion(state: WebhookState, body: MobileChatCompletio
         Ok(_) => return (StatusCode::BAD_REQUEST, "Selected provider is disabled.").into_response(),
         Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
     };
-    let gateway = match crate::services::model_service::create_shared_gateway(&provider) {
+    let gateway = match crate::services::model_service::create_stream_gateway(&provider, &state.app_state.db).await {
         Ok(gateway) => gateway, Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
     };
     let (sender, receiver) = tokio::sync::mpsc::channel::<String>(1024);

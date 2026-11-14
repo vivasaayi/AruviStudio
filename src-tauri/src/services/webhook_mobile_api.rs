@@ -1244,6 +1244,44 @@ pub(crate) async fn mobile_provider_transport_capabilities(State(state): State<W
     model_action(&state, "get_provider_transport_capabilities", serde_json::json!({"id": id})).await
 }
 
+#[derive(Deserialize)]
+pub(crate) struct ProviderStreamUsageUpdate { expected_raw: Option<String>, enabled: bool }
+
+pub(crate) async fn mobile_provider_stream_usage(State(state): State<WebhookState>, headers: HeaderMap, Path(id): Path<String>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let provider = match model_repo::get_provider(&state.app_state.db, &id).await {
+        Ok(provider) if provider.provider_type.as_str() == "openai_compatible" && provider.protocol == "openai_compatible" => provider,
+        Ok(_) => return (StatusCode::BAD_REQUEST, "Stream usage requires an OpenAI-compatible provider").into_response(),
+        Err(_) => return (StatusCode::NOT_FOUND, "Provider not found").into_response(),
+    };
+    let key = crate::services::model_service::stream_usage_setting_key(&provider.id);
+    match settings_repo::get_setting(&state.app_state.db, &key).await {
+        Ok(raw) if raw.as_deref().is_none_or(|value| value == "true" || value == "false") => Json(serde_json::json!({"enabled": raw.as_deref() == Some("true"), "raw": raw})).into_response(),
+        Ok(_) => (StatusCode::BAD_REQUEST, "Invalid provider stream usage setting").into_response(),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+    }
+}
+
+pub(crate) async fn mobile_update_provider_stream_usage(State(state): State<WebhookState>, headers: HeaderMap, Path(id): Path<String>, Json(body): Json<ProviderStreamUsageUpdate>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let provider = match model_repo::get_provider(&state.app_state.db, &id).await {
+        Ok(provider) if provider.provider_type.as_str() == "openai_compatible" && provider.protocol == "openai_compatible" => provider,
+        Ok(_) => return (StatusCode::BAD_REQUEST, "Stream usage requires an OpenAI-compatible provider").into_response(),
+        Err(_) => return (StatusCode::NOT_FOUND, "Provider not found").into_response(),
+    };
+    let key = crate::services::model_service::stream_usage_setting_key(&provider.id);
+    let value = if body.enabled { "true" } else { "false" };
+    let result = match body.expected_raw {
+        Some(expected) => sqlx::query("UPDATE settings SET value=?,updated_at=datetime('now') WHERE key=? AND value=?").bind(value).bind(&key).bind(expected).execute(&state.app_state.db).await,
+        None => sqlx::query("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO NOTHING").bind(&key).bind(value).execute(&state.app_state.db).await,
+    };
+    match result {
+        Ok(result) if result.rows_affected() == 1 => Json(serde_json::json!({"enabled":body.enabled,"raw":value})).into_response(),
+        Ok(_) => (StatusCode::CONFLICT, "Stream usage setting changed. Refresh before saving.").into_response(),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+    }
+}
+
 pub(crate) async fn mobile_test_provider(State(state): State<WebhookState>, headers: HeaderMap, Path(id): Path<String>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     model_action(&state, "test_provider_connectivity", serde_json::json!({"id": id})).await

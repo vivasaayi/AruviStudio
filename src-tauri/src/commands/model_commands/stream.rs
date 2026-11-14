@@ -115,7 +115,7 @@ async fn start_provider_stream<R: tauri::Runtime>(
     stream_id: String,
 ) -> Result<String, AppError> {
     crate::services::model_service::validate_text_model_name(&request.model)?;
-    let client = crate::services::model_service::create_shared_gateway(&provider)?;
+    let client = crate::services::model_service::create_stream_gateway(&provider, &state.db).await?;
     let (cancel_sender, cancel_receiver) = tokio::sync::oneshot::channel();
     let registry = state.chat_stream_cancellations.clone();
     {

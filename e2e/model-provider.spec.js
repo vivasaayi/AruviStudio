@@ -236,3 +236,14 @@ test("desktop Model Host preset requests an endpoint without assuming a port", a
   await expect(page.getByText(/ports can change/)).toBeVisible();
   await expect(page.getByLabel("API Key / Secret Ref (optional)")).toHaveAttribute("type", "password");
 });
+
+test("desktop can enable provider streaming usage", async ({ page }) => {
+  await page.goto("/models");
+  const setting = page.getByLabel("Request streaming usage for DeepSeek (Hosted)");
+  await expect(setting).toBeEnabled();
+  await expect(setting).not.toBeChecked();
+  await setting.check();
+  await expect(setting).toBeChecked();
+  const stored = await page.evaluate(() => window.__ARUVI_E2E__.invoke("get_setting", { key: "model.provider.provider-deepseek-hosted.stream_usage" }));
+  expect(stored).toBe("true");
+});

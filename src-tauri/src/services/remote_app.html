@@ -4033,6 +4033,23 @@
             } catch (error) { setStatus(error.message || String(error), "error"); }
             finally { test.disabled = false; }
           });
+          if (provider.provider_type === "openai_compatible" && provider.protocol === "openai_compatible") {
+            const row = document.createElement("label");
+            const check = document.createElement("input"); check.type = "checkbox"; check.disabled = true;
+            check.setAttribute("aria-label", "Request streaming usage for " + provider.name);
+            const message = document.createElement("span"); message.textContent = " Request streaming usage (only if supported by this provider)";
+            row.append(check, message);
+            const url = "/api/mobile/providers/" + encodeURIComponent(provider.id) + "/stream-usage";
+            let raw = null;
+            void request(url).then((data) => { if (requestId !== modelConfigRequestId) return; raw = data.raw; check.checked = data.enabled; check.disabled = false; }).catch((error) => { message.textContent = " Stream usage unavailable: " + (error.message || String(error)); });
+            check.addEventListener("change", async () => {
+              const next = check.checked; check.disabled = true;
+              try { const result = await request(url, {method:"POST",body:{expected_raw:raw,enabled:next}}); raw = result.raw; setStatus("Stream usage saved", "ok"); }
+              catch (error) { check.checked = !next; setStatus(error.message || String(error), "error"); }
+              finally { check.disabled = false; }
+            });
+            card.appendChild(row);
+          }
           const capabilities = document.createElement("button"); capabilities.type = "button"; capabilities.className = "secondary"; capabilities.textContent = "Show transport capabilities";
           const capabilityText = document.createElement("div"); capabilityText.className = "empty";
           capabilities.addEventListener("click", async () => {

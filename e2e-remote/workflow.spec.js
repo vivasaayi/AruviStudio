@@ -1780,3 +1780,44 @@ test("agent model inspection reports bindings and discovery in browser and MCP",
   await page.locator("#checkAgentModelButton").click();
   await expect(page.locator("#agentModelReadiness")).toContainText("not advertised by provider");
 });
+
+test("provider streaming usage is opt-in across browser and MCP", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const base = process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/usage/v1");
+  const created = await request.post("/api/mobile/providers", { headers, data: { name: "Usage fixture", base_url: base } });
+  expect(created.ok()).toBeTruthy();
+  const provider = await created.json();
+  const url = `/api/mobile/providers/${provider.id}/stream-usage`;
+  expect((await request.get(url)).status()).toBe(401);
+  expect(await (await request.get(url, { headers })).json()).toMatchObject({ enabled: false, raw: null });
+  const body = { provider_id: provider.id, model_name: "fixture", messages: [{ role: "user", content: "hello" }] };
+  const stream = async () => {
+    const result = await request.post("/api/mobile/chat/stream", { headers, data: body });
+    expect(result.ok()).toBeTruthy();
+    return (await result.text()).trim().split("\n").map(JSON.parse);
+  };
+  await stream();
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Models", exact: true }).click();
+  const toggle = page.getByLabel("Request streaming usage for Usage fixture");
+  await expect(toggle).toBeEnabled();
+  await toggle.check();
+  await expect.poll(async () => (await (await request.get(url, { headers })).json()).enabled).toBe(true);
+  const events = await stream();
+  expect(events.at(-1)).toMatchObject({ type: "done", metadata: { usage: { prompt_tokens: 3, completion_tokens: 1 } } });
+  const buffered = await request.post("/api/mobile/chat/completions", { headers, data: body });
+  expect(buffered.ok()).toBeTruthy();
+  const stats = await (await request.get(process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/usage/stats"))).json();
+  expect(stats.slice(-3)).toEqual([{stream:true,stream_options:null},{stream:true,stream_options:{include_usage:true}},{stream:false,stream_options:null}]);
+  const mcp = async (action, args) => (await (await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 92, method: "tools/call", params: { name: "aruvi_models", arguments: { action, arguments: args } } } })).json()).result;
+  expect((await mcp("get_provider_stream_usage", { id: provider.id })).structuredContent.result.enabled).toBe(true);
+  expect((await mcp("set_provider_stream_usage", { id: provider.id, enabled: false })).isError).not.toBeTruthy();
+  expect((await request.post(url, { headers, data: { expected_raw: "true", enabled: false } })).status()).toBe(409);
+  expect((await (await request.get(url, { headers })).json()).enabled).toBe(false);
+  expect((await mcp("delete_provider", { id: provider.id })).isError).not.toBeTruthy();
+  const setting = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 93, method: "tools/call", params: { name: "aruvi_settings", arguments: { action: "get_setting", arguments: { key: `model.provider.${provider.id}.stream_usage` } } } } });
+  expect((await setting.json()).result.structuredContent.result.value).toBeNull();
+});

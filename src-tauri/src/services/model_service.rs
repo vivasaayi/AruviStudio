@@ -118,7 +118,26 @@ pub(crate) fn create_deepseek_voice_client(provider: &ModelProvider) -> Result<a
 }
 
 /// Build one shared transport for chat, streaming, discovery and remote voice.
+pub fn stream_usage_setting_key(provider_id: &str) -> String {
+    format!("model.provider.{provider_id}.stream_usage")
+}
+
+pub async fn create_stream_gateway(provider: &ModelProvider, db: &SqlitePool) -> Result<Box<dyn SharedModelGateway>, AppError> {
+    let enabled = if provider.protocol == "openai_compatible" && provider.provider_type.as_str() == "openai_compatible" {
+        match crate::persistence::settings_repo::get_setting(db, &stream_usage_setting_key(&provider.id)).await?.as_deref() {
+            None | Some("false") => false,
+            Some("true") => true,
+            _ => return Err(AppError::Validation("Invalid provider stream usage setting".into())),
+        }
+    } else { false };
+    create_shared_gateway_inner(provider, enabled)
+}
+
 pub fn create_shared_gateway(provider: &ModelProvider) -> Result<Box<dyn SharedModelGateway>, AppError> {
+    create_shared_gateway_inner(provider, false)
+}
+
+fn create_shared_gateway_inner(provider: &ModelProvider, include_stream_usage: bool) -> Result<Box<dyn SharedModelGateway>, AppError> {
     if !provider.enabled {
         return Err(AppError::Validation("Selected provider is disabled".into()));
     }
@@ -139,10 +158,15 @@ pub fn create_shared_gateway(provider: &ModelProvider) -> Result<Box<dyn SharedM
         ));
     }
     let api_key = secrets::resolve_provider_secret(provider)?;
-    create_transport(provider, api_key, configured_model_client_options()?)
+    create_transport_configured(provider, api_key, configured_model_client_options()?, include_stream_usage)
 }
 
+#[cfg(test)]
 fn create_transport(provider: &ModelProvider, api_key: Option<String>, options: ClientOptions) -> Result<Box<dyn SharedModelGateway>, AppError> {
+    create_transport_configured(provider, api_key, options, false)
+}
+
+fn create_transport_configured(provider: &ModelProvider, api_key: Option<String>, options: ClientOptions, include_stream_usage: bool) -> Result<Box<dyn SharedModelGateway>, AppError> {
     crate::persistence::model_repo::validate_provider_protocol(provider.provider_type.as_str(), &provider.protocol)?;
     crate::persistence::model_repo::validate_completion_profile(provider.provider_type.as_str(), &provider.protocol, &provider.completion_profile)?;
     match provider.protocol.as_str() {
@@ -154,7 +178,7 @@ fn create_transport(provider: &ModelProvider, api_key: Option<String>, options: 
                 "openai_reasoning" => CompletionOptions { token_limit_field: TokenLimitField::MaxCompletionTokens, temperature: TemperatureMode::Omit },
                 _ => return Err(AppError::Validation("Unsupported provider completion profile".into())),
             };
-            Ok(Box::new(client.with_completion_options(completion_options)))
+            Ok(Box::new(client.with_completion_options(completion_options).with_stream_usage(include_stream_usage)))
         },
         "anthropic" => {
             let key = api_key
@@ -172,6 +196,36 @@ fn create_transport(provider: &ModelProvider, api_key: Option<String>, options: 
 #[cfg(test)]
 mod timeout_configuration_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn stream_gateway_applies_provider_setting() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)").execute(&pool).await.unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut data=Vec::new(); let mut buf=[0;4096];
+            let end=loop { let n=socket.read(&mut buf).unwrap(); assert_ne!(n,0); data.extend_from_slice(&buf[..n]); if let Some(i)=data.windows(4).position(|v|v==b"\r\n\r\n"){break i+4;} };
+            let headers=String::from_utf8_lossy(&data[..end]).to_lowercase();
+            let len:usize=headers.lines().find_map(|line|line.strip_prefix("content-length: ")).unwrap().trim().parse().unwrap();
+            while data.len()<end+len { let n=socket.read(&mut buf).unwrap(); assert_ne!(n,0); data.extend_from_slice(&buf[..n]); }
+            let body:serde_json::Value=serde_json::from_slice(&data[end..end+len]).unwrap();
+            assert_eq!(body["stream_options"]["include_usage"], true);
+            let events="data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+            write!(socket,"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",events.len(),events).unwrap();
+        });
+        let provider=ModelProvider { id:"stream-fixture".into(), name:"Fixture".into(), provider_type:crate::domain::model::ProviderType::OpenaiCompatible, protocol:"openai_compatible".into(), completion_profile:"standard".into(), base_url:format!("http://{address}"), auth_secret_ref:None, enabled:true, created_at:"".into(), updated_at:"".into() };
+        crate::persistence::settings_repo::set_setting(&pool, &stream_usage_setting_key(&provider.id), "true").await.unwrap();
+        let client=create_stream_gateway(&provider,&pool).await.unwrap();
+        let response=client.stream_completion(aruvi_model_client::CompletionRequest { model:"fixture".into(), messages:vec![aruvi_model_client::ChatMessage { role:"user".into(), content:"hello".into() }], temperature:None, max_tokens:Some(5) }, &mut |_| {}).await.unwrap();
+        assert_eq!(response.content,"ok"); server.join().unwrap();
+        crate::persistence::settings_repo::set_setting(&pool, &stream_usage_setting_key(&provider.id), "invalid").await.unwrap();
+        assert!(matches!(create_stream_gateway(&provider,&pool).await, Err(AppError::Validation(_))));
+        pool.close().await;
+    }
 
     #[test]
     fn disabled_providers_are_rejected_before_credentials_or_gateway_creation() {

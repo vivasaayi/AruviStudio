@@ -1,5 +1,6 @@
 import http from "node:http";
 
+let usageRequests = [];
 let workflowCalls = 0;
 let workflowPrompts = [];
 let workflowRequests = [];
@@ -71,6 +72,19 @@ const server = http.createServer((request, response) => {
     response.end(JSON.stringify(response.statusCode === 401 ? { error: "unauthorized" } : { data: [{ id: "browser-test-model" }] }));
   } else if (request.method === "GET" && request.url === "/v1/models") {
     response.end(JSON.stringify({ data: [{ id: "browser-test-model" }] }));
+  } else if (request.method === "GET" && request.url === "/usage/stats") {
+    response.end(JSON.stringify(usageRequests));
+  } else if (request.method === "POST" && request.url === "/usage/v1/chat/completions") {
+    const chunks = []; request.on("data", chunk => chunks.push(chunk));
+    request.on("end", () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      usageRequests.push({ stream: Boolean(body.stream), stream_options: body.stream_options || null });
+      if (!body.stream) return response.end(JSON.stringify({ choices: [{ message: { content: "buffered" }, finish_reason: "stop" }] }));
+      response.setHeader("Content-Type", "text/event-stream");
+      response.write('data: {"choices":[{"delta":{"content":"ready"},"finish_reason":"stop"}]}\n\n');
+      if (body.stream_options?.include_usage) response.write('data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":1}}\n\n');
+      response.end('data: [DONE]\n\n');
+    });
   } else if (request.method === "POST" && request.url === "/reasoning/v1/chat/completions") {
     const chunks = []; request.on("data", (chunk) => chunks.push(chunk));
     request.on("end", () => {

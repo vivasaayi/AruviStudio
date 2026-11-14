@@ -67,8 +67,9 @@ request with `client.with_stream_usage(true)`. It is omitted by default because
 some OpenAI-compatible providers reject unknown fields. If supplied, the final
 usage event is reflected in the returned token counts and metadata; a provider
 may omit it, especially after an interrupted stream. The option only affects
-streaming and does not prove endpoint support. Studio does not yet expose this
-option in provider settings.
+streaming and does not prove endpoint support. Studio exposes this opt-in per
+OpenAI-compatible provider in its desktop and browser model settings and through
+the `get_provider_stream_usage` and `set_provider_stream_usage` MCP actions.
 
 Use the model/provider documentation to select these options. Omitting
 `temperature` intentionally disregards the value in `CompletionRequest`;
