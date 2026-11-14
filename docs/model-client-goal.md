@@ -961,6 +961,12 @@ test passed, including failed-page retry and return to latest. A native Tauri
 mock-runtime IPC test verified cursor arguments, timestamp ties and legacy calls
 without cursor arguments. Native-window acceptance remains open.
 
+A read-only `scripts/test-host-model-call-pages --model qwen25-coder-7b-q4`
+check compared an older source-filtered page from the running worktree's
+authenticated browser API and MCP ledger. The same ten records were returned
+and the page included existing real-model calls. This checks API results, not
+browser interaction or a snapshot-consistent view during concurrent writes.
+
 This table summarizes the current evidence; dated sections below are historical
 and may describe issues that were subsequently fixed. A passing fixture proves
 only the stated scenario. Unchecked checkpoints remain open until their full

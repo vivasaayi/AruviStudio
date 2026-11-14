@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""Compare read-only model-call paging across the worktree mobile API and MCP."""
+import argparse
+import json
+from pathlib import Path
+import subprocess
+import sys
+import urllib.parse
+import urllib.request
+
+root = Path(__file__).resolve().parent.parent
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--model', help='Require existing older records for this exact model name')
+args = parser.parse_args()
+try:
+    plan = json.loads(subprocess.check_output(['bash', 'scripts/env', 'worktree', 'plan'], cwd=root, text=True))
+    env_file = Path(plan['state']) / 'environment.env'
+    values = dict(line.split('=', 1) for line in env_file.read_text().splitlines() if '=' in line and not line.startswith('#'))
+    address = subprocess.check_output(['docker', 'compose', '--project-name', plan['project'], '--project-directory', str(root),
+        '--env-file', str(env_file), '-f', str(root / 'deploy/compose.worktree.yaml'), 'port', 'app', '8787'], text=True).strip()
+    if not address.startswith('127.0.0.1:'): raise ValueError('Unexpected worktree address')
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    def send(path, token, body=None):
+        request = urllib.request.Request('http://' + address + path, data=None if body is None else json.dumps(body).encode(),
+            headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'})
+        with opener.open(request, timeout=30) as response: return json.load(response)
+    def mobile(arguments):
+        return send('/api/mobile/model-calls?' + urllib.parse.urlencode(arguments), values['ARUVI_MOBILE_API_TOKEN'])
+    def mcp(arguments):
+        response = send('/api/mcp', values['ARUVI_MCP_API_TOKEN'], {'jsonrpc':'2.0', 'id':1, 'method':'tools/call',
+            'params':{'name':'aruvi_models', 'arguments':{'action':'list_model_calls', 'arguments':arguments}}})
+        result = response['result']
+        if result.get('isError'): raise ValueError('MCP list failed')
+        return result['structuredContent']['result']
+    recent = mobile({'limit': 500})
+    eligible = [call for call in recent if args.model is None or call['model_name'] == args.model]
+    source = next((call['source_kind'] for call in eligible if sum(item['source_kind'] == call['source_kind'] for item in eligible) >= 2), None)
+    if source is None: raise ValueError('At least two existing calls of one source are required')
+    first = mobile({'limit':1, 'source_kind':source})
+    if len(first) != 1: raise ValueError('Expected a first page')
+    cursor = {'limit':10, 'source_kind':source, 'before_created_at':first[0]['created_at'], 'before_id':first[0]['id']}
+    browser_page, mcp_page = mobile(cursor), mcp(cursor)
+    if not browser_page or [item['id'] for item in browser_page] != [item['id'] for item in mcp_page]:
+        raise ValueError('Browser and MCP pages differ or are empty')
+    if args.model is not None and not any(item['model_name'] == args.model for item in browser_page):
+        raise ValueError('No requested model records appeared in the page')
+    if any(item['source_kind'] != source or (item['created_at'], item['id']) >= (first[0]['created_at'], first[0]['id']) for item in browser_page):
+        raise ValueError('Source or cursor boundary was not respected')
+    print(f'Existing model-call ledger: browser API and MCP returned the same {len(browser_page)} filtered older records.')
+except (OSError, KeyError, ValueError, StopIteration, subprocess.CalledProcessError) as error:
+    print(f'Model-call paging check failed ({type(error).__name__}).', file=sys.stderr)
+    sys.exit(1)
