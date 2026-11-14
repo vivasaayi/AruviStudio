@@ -5,6 +5,27 @@ mod tests {
     use std::{io::{Read, Write}, net::TcpListener, thread};
 
     #[tokio::test]
+    async fn rejects_malformed_delta_after_partial_text() {
+        for streaming in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                let mut request = [0; 4096]; let _ = socket.read(&mut request).unwrap();
+                let body = "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":42}}]}\n\ndata: [DONE]\n\n";
+                write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+            });
+            let client: Box<dyn ModelGateway> = Box::new(OpenAiCompatibleClient::new(format!("http://{address}"), None));
+            let request = CompletionRequest { model: "fixture".into(), messages: vec![ChatMessage { role: "user".into(), content: "hello".into() }], temperature: None, max_tokens: Some(10) };
+            let mut partial = String::new();
+            let result = if streaming { client.stream_completion(request, &mut |delta| partial.push_str(delta)).await } else { client.run_completion(request).await };
+            assert!(result.unwrap_err().to_string().contains("Invalid model content"));
+            if streaming { assert_eq!(partial, "partial"); }
+            server.join().unwrap();
+        }
+    }
+
+    #[tokio::test]
     async fn rejects_empty_transcription_before_network() {
         let client = OpenAiCompatibleClient::new("not a URL".into(), None);
         let input = aruvi_model_client::TranscriptionRequest {

@@ -123,7 +123,7 @@ Studio Git repository as the shared source and pin an immutable, tested commit:
 
 ```toml
 [dependencies]
-aruvi-model-client = { git = "https://github.com/vivasaayi/AruviStudio.git", rev = "ecad3179607859044ffeca6de2139f70e0cb9236" }
+aruvi-model-client = { git = "https://github.com/vivasaayi/AruviStudio.git", rev = "abd7eb31a544b599e2ebe10f84a98d5311508b0d" }
 ```
 
 This revision is an integration checkpoint, not a release or a promise of API

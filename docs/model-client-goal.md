@@ -54,7 +54,10 @@ provider hosting into the model-host service as part of this work.
   tests with two live tests ignored. All 23 isolated workflow cases passed,
   including a browser stream that records an error after partial output. The
   real 7B Model Host browser and MCP Copilot fixture also passed. The public
-  independent-consumer pin must be updated to include this client change.
+  independent consumer now pins `abd7eb31a544b599e2ebe10f84a98d5311508b0d`;
+  its 15 offline tests include malformed buffered and streaming responses, and
+  its separate real-host probe passed discovery, completion, streaming, JSON
+  mode and token-limit handling.
 
 ## Browser workflow automation settings
 
