@@ -284,6 +284,15 @@ remain separate checks.
 
 ### Current requirement audit — 2026-11-14
 
+At branch revision `aba6e547aadf8573ea0c3b07920c26348d6862b6`, the current
+shared-client source passed all 56 tests on native macOS ARM64 with Rust 1.99.1.
+The source was copied to a temporary directory and tested offline using a lock
+derived from Studio's lockfile; every resolved package/version/source was
+present in that lockfile. The native `stream_probe` example then streamed a real
+response from the loopback Model Host's `qwen25-coder-7b-q4` model, receiving
+nine text chunks. Its token was passed on stdin. This is one local model stream,
+not live validation of the cloud providers or physical voice hardware.
+
 The model-call parity audit found that MCP previously required an already-known
 call ID to read a snapshot. MCP now lists recent calls and retrieves call details
 using the same ledger as the desktop and browser. The isolated workflow suite
