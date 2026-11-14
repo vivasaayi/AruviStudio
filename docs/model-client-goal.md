@@ -104,6 +104,14 @@ Compose token setting; that addition is not part of the candidate patch because
 the adapter is currently untracked. These checks do not establish that arbitrary
 future local changes are safe to patch; review the full diff before adoption.
 
+The manually reconciled snapshot was then built as a native host binary. All 17
+simulated lifecycle tests passed. Disposable native Studio and Docker Studio
+fixtures completed MCP requests using the inference-only credential; the Docker
+fixture also exercised Studio's scope-checking configuration helper. A separate
+watcher fixture retained its provider while a rotated credential was not yet
+accepted, then recovered after restarting the disposable host. These used
+synthetic workers and credentials, not the live host or real-model inference.
+
 On 2026-11-14, a disposable copy of the untracked integration Compose adapter
 was rendered with `MODEL_HOST_INFERENCE_TOKEN: ${MODEL_HOST_INFERENCE_TOKEN:-}`
 added alongside its existing management-token setting. Docker Compose preserved
