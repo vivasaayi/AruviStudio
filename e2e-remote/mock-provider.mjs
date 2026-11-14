@@ -148,6 +148,13 @@ const server = http.createServer((request, response) => {
         response.end('data: {"type":"message_stop"}\n\n');
       }, 500);
     });
+  } else if (request.method === "POST" && request.url === "/deepseek/v1/tools/asr") {
+    const chunks = []; request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      const body = Buffer.concat(chunks).toString();
+      if (request.headers.authorization !== "Bearer synthetic-deepseek-key" || !body.includes('name="file"') || body.includes('name="model"') || body.includes('name="language"')) { response.statusCode = 400; return response.end(); }
+      response.end(JSON.stringify({ text: "DeepSeek fixture transcript", duration_ms: 100 }));
+    });
   } else if (request.method === "POST" && request.url === "/v1/audio/transcriptions") {
     const chunks = [];
     request.on("data", (chunk) => chunks.push(chunk));
@@ -160,13 +167,15 @@ const server = http.createServer((request, response) => {
       }
       response.end(JSON.stringify({ text: "Synthetic microphone transcript" }));
     });
-  } else if (request.method === "POST" && request.url === "/v1/audio/speech") {
+  } else if (request.method === "POST" && ["/v1/audio/speech", "/deepseek/v1/tools/tts"].includes(request.url)) {
     const chunks = [];
     request.on("data", (chunk) => chunks.push(chunk));
     request.on("end", () => {
       let payload;
       try { payload = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { response.statusCode = 400; return response.end(); }
-      if (payload.model !== "synthetic-tts" || payload.response_format !== "wav") { response.statusCode = 400; return response.end(); }
+      if (request.url === "/deepseek/v1/tools/tts") {
+        if (request.headers.authorization !== "Bearer synthetic-deepseek-key" || payload.format !== "wav" || payload.text !== "Hello" || ![undefined, "tide"].includes(payload.voice_id) || "model" in payload || "speed" in payload) { response.statusCode = 400; return response.end(); }
+      } else if (payload.model !== "synthetic-tts" || payload.response_format !== "wav") { response.statusCode = 400; return response.end(); }
       const wav = Buffer.alloc(44 + 3200);
       wav.write("RIFF", 0); wav.writeUInt32LE(wav.length - 8, 4); wav.write("WAVEfmt ", 8); wav.writeUInt32LE(16, 16);
       wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(16000, 24); wav.writeUInt32LE(32000, 28);

@@ -757,11 +757,12 @@
                   <button id="voiceSendButton" type="button">Submit</button>
                   <button class="secondary" id="voiceSpeakToggle" type="button">Speak On</button>
                 </div>
-                <div class="empty" id="voiceMeta">Choose a transcription provider and model, or use server defaults. Record sends WAV audio for transcription; replies can be spoken on this device.</div>
+                <div class="empty" id="voiceMeta">Choose a transcription provider and model, or use server defaults. For DeepSeek voice, use model ID deepseek-voice-transcription; its service detects the language. Record sends WAV audio for transcription; replies can be spoken on this device.</div>
               </div>
               <div class="stack">
                 <label><span class="label">Speech generation provider</span><select id="speechProvider"><option value="">Choose a provider</option></select></label>
                 <label><span class="label">Speech generation model</span><input id="speechModel" placeholder="Speech model ID" /></label>
+                <div class="empty">For DeepSeek, use deepseek-voice-synthesis with a DeepSeek provider.</div>
                 <label><span class="label">Text to generate</span><textarea id="speechText" maxlength="4096"></textarea></label>
                 <button class="secondary" id="generateSpeechButton" type="button">Generate speech</button>
                 <audio id="generatedSpeech" controls hidden></audio>

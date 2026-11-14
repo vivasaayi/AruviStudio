@@ -108,6 +108,15 @@ OpenAI-compatible completion profile for that Model Host provider. Choose the
 registered model in browser chat or bind it to the desired agents in Models;
 adding a provider does not change existing bindings automatically.
 
+For DeepSeek's standalone voice API, configure an OpenAI-compatible DeepSeek
+provider with its API key. Select `deepseek-voice-transcription` for speech to
+text, or `deepseek-voice-synthesis` for speech generation. These are Studio
+selectors, not IDs sent to DeepSeek. DeepSeek detects transcription language;
+the locale hint is not sent. Synthesis accepts `stella` or `tide` and does not
+support speed control. The remote browser uses the provider's default voice.
+The service enforces its own audio format and duration limits. This integration
+has simulated-provider coverage; live DeepSeek voice is not yet verified.
+
 Native worktree ports can change after a restart. Add `--watch` to keep the helper
 running in the foreground; it polls every five seconds, retries outages, and
 refreshes the provider when the endpoint or token changes. Port-only changes

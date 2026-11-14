@@ -2351,8 +2351,13 @@ generation, with bounded inputs/responses, sensitive bearer headers, redirect
 rejection and sanitized errors. Synthetic HTTP fixtures verify request shape,
 voice selection and a 429 without response-body leakage. DeepSeek's service
 enforces audio codec and duration; unknown-length WAV responses cannot prove
-complete synthesis. This client is not yet selected by Studio's speech service;
-its model-based OpenAI settings need an explicit DeepSeek voice integration.
+complete synthesis. Studio selects this client through the explicit speech IDs
+`deepseek-voice-transcription` and `deepseek-voice-synthesis`; these are Studio
+selectors, not DeepSeek model IDs. Transcription automatically detects language
+and ignores the locale hint. Synthesis supports `stella` and `tide`, and rejects
+speed control. All 35 isolated workflow tests passed, including synthetic
+transcription via API and MCP and synthesis via browser, API and MCP. Native
+speech-service tests passed eight cases with one local Whisper case ignored.
 No live DeepSeek voice call or physical audio test has been made.
 
 ## Shared-client example pin

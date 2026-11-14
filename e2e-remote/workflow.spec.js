@@ -197,6 +197,38 @@ test("MCP creates a product and drives a workflow through delivery", async ({ pa
   await expect(page.getByRole("button", { name: /MCP lifecycle fixture/ })).toBeVisible();
 });
 
+test("DeepSeek voice uses its dedicated endpoints through browser, API and MCP", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const created = await request.post("/api/mobile/providers", { headers, data: { name: "DeepSeek voice fixture", base_url: process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/deepseek/v1"), api_key: "synthetic-deepseek-key" } });
+  expect(created.ok()).toBeTruthy();
+  const provider = await created.json();
+  const transcript = { provider_id: provider.id, model_name: "deepseek-voice-transcription", audio_bytes_base64: "AA==", mime_type: "audio/wav", locale: "en-US" };
+  const speech = { provider_id: provider.id, model: "deepseek-voice-synthesis", text: "Hello", voice: "tide" };
+  const mcp = async (action, args) => (await (await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_speech", arguments: { action, arguments: args } } } })).json()).result;
+  expect((await (await request.post("/api/mobile/speech/transcribe", { headers, data: transcript })).json()).transcript).toBe("DeepSeek fixture transcript");
+  const transcribed = await mcp("transcribe_audio", transcript);
+  expect(transcribed.isError, JSON.stringify(transcribed)).not.toBeTruthy();
+  expect(transcribed.structuredContent.result.transcript).toBe("DeepSeek fixture transcript");
+  const generated = await request.post("/api/mobile/speech/generate", { headers, data: speech });
+  expect(generated.status()).toBe(200);
+  expect((await generated.body()).subarray(0, 4).toString()).toBe("RIFF");
+  const result = await mcp("generate_speech", speech);
+  expect(result.isError, JSON.stringify(result)).not.toBeTruthy();
+  expect(Buffer.from(result.structuredContent.result.audio_bytes_base64, "base64").subarray(0, 4).toString()).toBe("RIFF");
+  expect((await mcp("generate_speech", { ...speech, speed: 1 })).isError).toBeTruthy();
+  expect((await mcp("generate_speech", { ...speech, voice: "unknown" })).isError).toBeTruthy();
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await page.locator("#speechProvider").selectOption(provider.id);
+  await page.locator("#speechModel").fill("deepseek-voice-synthesis");
+  await page.locator("#speechText").fill("Hello");
+  await page.getByRole("button", { name: "Generate speech" }).click();
+  await expect(page.locator("#generatedSpeech")).toBeVisible();
+});
+
 test("remote speech generation works through UI, API and MCP", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires an isolated server and simulated provider");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };

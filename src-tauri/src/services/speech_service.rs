@@ -11,6 +11,8 @@ use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextPar
 
 const STUDIO_TRANSCRIPTION_MAX_BYTES: usize = 32 * 1024 * 1024;
 const LOCAL_WHISPER_MAX_DURATION_SECONDS: u64 = 10 * 60;
+const DEEPSEEK_TRANSCRIPTION: &str = "deepseek-voice-transcription";
+const DEEPSEEK_SYNTHESIS: &str = "deepseek-voice-synthesis";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpeechToTextRequest {
@@ -42,6 +44,20 @@ pub async fn synthesize_remote_speech(
     if provider.protocol != "openai_compatible" {
         return Err(AppError::Validation("Selected provider protocol does not support remote speech synthesis".into()));
     }
+    if model == DEEPSEEK_SYNTHESIS {
+        if speed.is_some() { return Err(AppError::Validation("DeepSeek voice does not support speed control".into())); }
+        let voice = match voice.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+            None => None,
+            Some("stella") => Some(aruvi_model_client::deepseek::Voice::Stella),
+            Some("tide") => Some(aruvi_model_client::deepseek::Voice::Tide),
+            Some(_) => return Err(AppError::Validation("DeepSeek voice must be stella or tide".into())),
+        };
+        let client = crate::services::model_service::create_deepseek_voice_client(provider)?;
+        return client.generate_speech(&input, voice).await.map_err(|error| match error {
+            aruvi_model_client::ClientError::InvalidInput(message) => AppError::Validation(message),
+            other => AppError::from(other),
+        });
+    }
     let client = crate::services::model_service::create_shared_gateway(provider)?;
     client.generate_speech(aruvi_model_client::SpeechRequest { model, input, voice, speed, response_format: "wav".into() }).await
         .map_err(|error| match error {
@@ -66,6 +82,16 @@ pub async fn transcribe_audio_with_provider(
         return Err(AppError::Validation("Selected provider protocol does not support remote transcription".into()));
     }
     let file_bytes = decode_transcription_audio(&request.audio_bytes_base64, STUDIO_TRANSCRIPTION_MAX_BYTES)?;
+    if model_name == DEEPSEEK_TRANSCRIPTION {
+        let client = crate::services::model_service::create_deepseek_voice_client(provider)?;
+        let filename = format!("planner-recording.{}", mime_extension_for_mime_type(&request.mime_type));
+        return client.transcribe(file_bytes, filename, request.mime_type).await
+            .map(|transcript| SpeechToTextResponse { transcript })
+            .map_err(|error| match error {
+                aruvi_model_client::ClientError::InvalidInput(message) => AppError::Validation(message),
+                other => AppError::from(other),
+            });
+    }
     let client = crate::services::model_service::create_shared_gateway(provider)?;
     let result = client.transcribe(aruvi_model_client::TranscriptionRequest {
         model: model_name.to_string(),
@@ -135,7 +161,8 @@ fn mime_extension_for_mime_type(mime_type: &str) -> &'static str {
 
 pub fn looks_like_transcription_model(name: &str) -> bool {
     let normalized = name.trim().to_lowercase();
-    normalized.contains("whisper")
+    normalized == DEEPSEEK_TRANSCRIPTION
+        || normalized.contains("whisper")
         || normalized.contains("transcrib")
         || normalized.contains("speech")
         || normalized.contains("stt")

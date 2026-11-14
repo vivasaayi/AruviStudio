@@ -114,7 +114,7 @@ language hint. The client supports buffered transcription and WAV synthesis,
 not WebSocket TTS or speed control. It bounds uploads and responses; the service
 still enforces codec and duration. Unknown-length WAV headers cannot establish
 whether synthesis ended early. Contract tests use simulated endpoints; live
-DeepSeek voice and its integration into Studio remain unverified and unavailable.
+DeepSeek voice remains unverified.
 
 Use `Box<dyn ModelGateway>` when a caller needs to switch providers without
 matching on concrete client types. Its methods cover text completion, opt-in
