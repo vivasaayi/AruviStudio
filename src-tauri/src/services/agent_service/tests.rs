@@ -296,5 +296,49 @@ async fn coding_stage_creates_tool_trace_artifact() {
         .expect("explicit no-change outcome should complete");
     assert_eq!(no_change_agent.status, crate::domain::agent::AgentRunStatus::Completed);
 
+    // Disable the selected model after the provider receives the first call,
+    // so the next tool-loop call must fail before contacting it again.
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    sqlx::query("UPDATE model_providers SET base_url=? WHERE id=?")
+        .bind(format!("http://{address}/v1")).bind(provider_id).execute(&pool).await.unwrap();
+    let fixture_pool = pool.clone();
+    let provider = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 4096];
+        let header_end = loop {
+            let count = socket.read(&mut buffer).await.unwrap();
+            assert_ne!(count, 0);
+            request.extend_from_slice(&buffer[..count]);
+            if let Some(index) = request.windows(4).position(|part| part == b"\r\n\r\n") { break index + 4; }
+        };
+        let headers = String::from_utf8_lossy(&request[..header_end]).to_ascii_lowercase();
+        let size: usize = headers.lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().trim().parse().unwrap();
+        while request.len() < header_end + size {
+            let count = socket.read(&mut buffer).await.unwrap(); assert_ne!(count, 0); request.extend_from_slice(&buffer[..count]);
+        }
+        sqlx::query("UPDATE model_definitions SET enabled=0 WHERE id='test-model'").execute(&fixture_pool).await.unwrap();
+        let content = json!({"type":"tool_call", "tool":"repo.write_file", "arguments":{"path":"suspended.txt", "content":"not delivered"}}).to_string();
+        let body = json!({"choices":[{"message":{"content":content},"finish_reason":"stop"}]}).to_string();
+        socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).as_bytes()).await.unwrap();
+    });
+    let interrupted = workflow_repo::create_workflow_run(&pool, "test-disabled-mid-run", &work_item.id).await.unwrap();
+    let error = service.run_agent_for_stage(&interrupted.id, "coding").await.unwrap_err();
+    assert!(error.to_string().contains("selected agent model is disabled"));
+    provider.await.unwrap();
+    assert!(!repo_dir.join("suspended.txt").exists(), "failed run must not sync its workspace to the repository");
+    let runs = agent_repo::list_agent_runs_for_workflow(&pool, &interrupted.id).await.unwrap();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].status, crate::domain::agent::AgentRunStatus::Failed);
+    assert!(runs[0].error_message.as_deref().unwrap().contains("selected agent model is disabled"));
+    let calls = crate::persistence::model_call_repo::list_model_calls_for_workflow(&pool, &interrupted.id).await.unwrap();
+    assert_eq!(calls.len(), 1, "the disabled model must not be called a second time");
+    sqlx::query("UPDATE model_definitions SET enabled=1 WHERE id='test-model'").execute(&pool).await.unwrap();
+    let retried = workflow_repo::create_workflow_run(&pool, "test-after-reenable", &work_item.id).await.unwrap();
+    AgentService::set_test_model_outputs_for_workflow(&retried.id, vec![json!({"type":"final", "summary":"No change required", "no_changes_needed":true}).to_string()]);
+    assert_eq!(service.run_agent_for_stage(&retried.id, "coding").await.unwrap().status, crate::domain::agent::AgentRunStatus::Completed);
+
     let _ = std::fs::remove_dir_all(temp_root);
 }

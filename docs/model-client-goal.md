@@ -153,6 +153,14 @@ native Rust tests passed with seven ignored. All 49 isolated workflows passed,
 and a disposable real 7B `extend-module` workflow passed its syntax and
 independent generated-code assertions. That run did not change the model during
 execution and does not prove cancellation of an in-flight request.
+An additional native coding-stage fixture used a synthetic HTTP provider that
+disabled the selected model after its first response. The next call was rejected,
+the agent run was marked failed, only one model call was recorded, and a staged
+file was not synchronized to the repository. Failed coding paths can leave their
+temporary workspace even when `keep_workspace` is false; cleanup on failure is
+still open, and retained files may require operator inspection and removal.
+After re-enabling the model, a separate new workflow completed with a queued
+no-change response; automatic retry of the failed workflow was not tested.
 
 The OpenAI-compatible client now handles full `message` content in SSE without
 silently dropping it or duplicating an accumulated response. It emits a
