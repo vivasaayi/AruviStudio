@@ -33,7 +33,7 @@ def mcp(action, arguments):
     return json.loads(result.stdout)["result"]
 
 
-def read_host(host, environment):
+def read_host_state(host, environment):
     env = dict(os.environ, ARUVI_MODEL_HOST_ENV="native")
     def info(action):
         return json.loads(subprocess.check_output(["bash", "scripts/env", environment, action], cwd=host, env=env, text=True, stderr=subprocess.DEVNULL, timeout=15))
@@ -47,7 +47,15 @@ def read_host(host, environment):
                  if line.startswith("MODEL_HOST_TOKEN="))
     if not token:
         raise SetupError("Native Model Host token is empty")
-    return endpoint.port, token
+    pid = status["endpoint"].get("pid")
+    if pid is not None and (type(pid) is not int or pid <= 0):
+        raise SetupError("Native Model Host process identity is invalid")
+    return endpoint.port, token, pid
+
+
+def read_host(host, environment):
+    """Return connection details for callers that do not watch process changes."""
+    return read_host_state(host, environment)[:2]
 
 
 def fetch_discovery(port, token):
@@ -120,9 +128,9 @@ def main():
     needs_recovery = False
     while True:
         try:
-            current = read_host(host, args.environment)
+            current = read_host_state(host, args.environment)
             if current != last or needs_recovery:
-                result = configure(*current, args.model, args.name, rotate_credential=last is None or current[1] != last[1])
+                result = configure(*current[:2], args.model, args.name, rotate_credential=last is None or current[1] != last[1])
                 print(json.dumps(result), flush=True)
                 last = current
                 needs_recovery = False

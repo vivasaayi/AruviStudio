@@ -26,6 +26,14 @@ provider and was not validated by these Model Host checks.
 
 ### Model Host watcher recovery
 
+The watcher also tracks the process ID reported by native host status, so a
+same-port, same-token restart between polls triggers revalidation when the ID
+changes. The original two-value connection helper remains compatible with
+other scripts. Thirteen isolated helper tests passed, including a simulated PID
+change, and the running validation host reported a valid process ID. No live
+host was restarted for this check. Older status formats without a PID, PID
+reuse, and restarts not reflected in status can still evade this detection.
+
 The foreground native-host watcher now rechecks Studio's provider and the host's
 advertised model after a detected outage, including when the host returns with
 the same port and token. It does not rotate an unchanged credential. Eleven

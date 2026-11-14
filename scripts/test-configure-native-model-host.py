@@ -4,9 +4,11 @@ import contextlib
 import http.server
 import importlib.machinery
 import io
+import json
 from pathlib import Path
 import sys
 import subprocess
+import tempfile
 import threading
 import unittest
 import urllib.error
@@ -17,6 +19,19 @@ module = loader.load_module()
 
 
 class WatchTests(unittest.TestCase):
+    def test_host_status_process_identity_is_optional_and_validated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "environment.env").write_text("MODEL_HOST_TOKEN=synthetic-token\n")
+            plan = json.dumps({"state": directory})
+            def status(pid):
+                endpoint = {"url": "http://127.0.0.1:10001"}
+                if pid is not None: endpoint["pid"] = pid
+                return json.dumps({"registered": True, "endpoint": endpoint})
+            with mock.patch.object(module.subprocess, "check_output", side_effect=[plan, status(None), plan, status(101), plan, status("bad")]):
+                self.assertEqual(module.read_host_state(Path("."), "worktree"), (10001, "synthetic-token", None))
+                self.assertEqual(module.read_host(Path("."), "worktree"), (10001, "synthetic-token"))
+                with self.assertRaises(module.SetupError): module.read_host_state(Path("."), "worktree")
+
     def test_discovery_does_not_forward_token_on_redirect(self):
         requests = []
         class Target(http.server.BaseHTTPRequestHandler):
@@ -76,7 +91,7 @@ class WatchTests(unittest.TestCase):
 
     def test_known_configuration_error_is_actionable_without_exposing_token(self):
         with mock.patch.object(sys, "argv", ["configure-native-model-host", ".", "--model", "fixture"]), \
-             mock.patch.object(module, "read_host", return_value=(10001, "synthetic-token")), \
+             mock.patch.object(module, "read_host_state", return_value=(10001, "synthetic-token", 101)), \
              mock.patch.object(module, "configure", side_effect=module.SetupError("Requested model is not an installed text model on the selected host")), \
              contextlib.redirect_stderr(io.StringIO()) as errors:
             self.assertEqual(module.main(), 1)
@@ -115,7 +130,7 @@ class WatchTests(unittest.TestCase):
             mcp.assert_not_called()
 
     def test_retries_outage_and_updates_only_when_connection_changes(self):
-        states = [(10001, "synthetic-one"), (10001, "synthetic-one"), OSError("synthetic-secret"), (10002, "synthetic-two")]
+        states = [(10001, "synthetic-one", 101), (10001, "synthetic-one", 101), OSError("synthetic-secret"), (10002, "synthetic-two", 102)]
         def state(*_):
             value = states.pop(0)
             if isinstance(value, Exception):
@@ -126,7 +141,7 @@ class WatchTests(unittest.TestCase):
                 raise KeyboardInterrupt()
         result = {"provider": "Fixture", "base_url": "http://host.docker.internal:10001/v1", "model": "coding"}
         with mock.patch.object(sys, "argv", ["configure-native-model-host", ".", "--watch", "--poll-seconds", "1"]), \
-             mock.patch.object(module, "read_host", side_effect=state), \
+             mock.patch.object(module, "read_host_state", side_effect=state), \
              mock.patch.object(module, "configure", return_value=result) as configure, \
              mock.patch.object(module.time, "sleep", side_effect=stop_after_four_sleeps), \
              contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()) as errors:
@@ -141,9 +156,9 @@ class WatchTests(unittest.TestCase):
         self.assertNotIn("synthetic-two", errors.getvalue() + output.getvalue())
 
     def test_failed_refresh_is_retried_even_if_endpoint_is_unchanged(self):
-        state = (10002, "synthetic-token")
+        state = (10002, "synthetic-token", 101)
         with mock.patch.object(sys, "argv", ["configure-native-model-host", ".", "--watch", "--poll-seconds", "1"]), \
-             mock.patch.object(module, "read_host", return_value=state), \
+             mock.patch.object(module, "read_host_state", return_value=state), \
              mock.patch.object(module, "configure", side_effect=[OSError("private"), {"provider": "Fixture"}]) as configure, \
              mock.patch.object(module.time, "sleep", side_effect=[None, KeyboardInterrupt()]), \
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -163,7 +178,7 @@ class WatchTests(unittest.TestCase):
     def test_watcher_retries_subprocess_timeout_without_leaking_output(self):
         timeout = subprocess.TimeoutExpired("synthetic-private-token", 15, output="synthetic-private-token")
         with mock.patch.object(sys, "argv", ["configure-native-model-host", ".", "--watch", "--poll-seconds", "1"]), \
-             mock.patch.object(module, "read_host", side_effect=[timeout, (10001, "synthetic-private-token")]), \
+             mock.patch.object(module, "read_host_state", side_effect=[timeout, (10001, "synthetic-private-token", 101)]), \
              mock.patch.object(module, "configure", return_value={"provider": "Fixture"}) as configure, \
              mock.patch.object(module.time, "sleep", side_effect=[None, KeyboardInterrupt()]), \
              contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()) as errors:
@@ -174,9 +189,9 @@ class WatchTests(unittest.TestCase):
         self.assertNotIn("synthetic-private-token", errors.getvalue() + output.getvalue())
 
     def test_port_change_does_not_rotate_unchanged_token(self):
-        states = [(10001, "synthetic-token"), (10002, "synthetic-token"), (10002, "rotated-token")]
+        states = [(10001, "synthetic-token", 101), (10002, "synthetic-token", 101), (10002, "rotated-token", 101)]
         with mock.patch.object(sys, "argv", ["configure-native-model-host", ".", "--watch", "--poll-seconds", "1"]), \
-             mock.patch.object(module, "read_host", side_effect=states), \
+             mock.patch.object(module, "read_host_state", side_effect=states), \
              mock.patch.object(module, "configure", return_value={"provider": "Fixture"}) as configure, \
              mock.patch.object(module.time, "sleep", side_effect=[None, None, KeyboardInterrupt()]), \
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -185,9 +200,21 @@ class WatchTests(unittest.TestCase):
         self.assertEqual([call.kwargs["rotate_credential"] for call in configure.call_args_list], [True, False, True])
 
     def test_same_endpoint_is_revalidated_after_host_outage_without_key_rotation(self):
-        state = (10001, "synthetic-token")
+        state = (10001, "synthetic-token", 101)
         with mock.patch.object(sys, "argv", ["configure-native-model-host", ".", "--watch", "--poll-seconds", "1"]), \
-             mock.patch.object(module, "read_host", side_effect=[state, module.SetupError("Native Model Host is not running"), state]), \
+             mock.patch.object(module, "read_host_state", side_effect=[state, module.SetupError("Native Model Host is not running"), state]), \
+             mock.patch.object(module, "configure", return_value={"provider": "Fixture"}) as configure, \
+             mock.patch.object(module.time, "sleep", side_effect=[None, None, KeyboardInterrupt()]), \
+             contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(KeyboardInterrupt):
+                module.main()
+        self.assertEqual(configure.call_count, 2)
+        self.assertEqual([call.kwargs["rotate_credential"] for call in configure.call_args_list], [True, False])
+
+    def test_new_process_on_same_endpoint_is_revalidated_without_key_rotation(self):
+        states = [(10001, "synthetic-token", 101), (10001, "synthetic-token", 102), (10001, "synthetic-token", 102)]
+        with mock.patch.object(sys, "argv", ["configure-native-model-host", ".", "--watch", "--poll-seconds", "1"]), \
+             mock.patch.object(module, "read_host_state", side_effect=states), \
              mock.patch.object(module, "configure", return_value={"provider": "Fixture"}) as configure, \
              mock.patch.object(module.time, "sleep", side_effect=[None, None, KeyboardInterrupt()]), \
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):

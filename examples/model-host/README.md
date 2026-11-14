@@ -35,8 +35,10 @@ that the model is installed and advertised for text, and creates or refreshes a 
 and model definition. It does not assign the model to agents. Native worktree
 ports are dynamic; rerun the helper after the host restarts, or run it in the
 foreground with `--watch`. The watcher retries outages and revalidates the
-provider and advertised model even if the host returns on the same port; it
-does not rotate an unchanged token or start automatically after a Mac restart.
+provider and advertised model when the host process ID changes, even if the
+port stays the same. Older hosts that omit a process ID rely on observing an
+outage or connection change. It does not rotate an unchanged token or start
+automatically after a Mac restart.
 The host's provider
 credential has broad host authority and should be scoped more narrowly when the
 host supports it.
