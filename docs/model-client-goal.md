@@ -46,6 +46,15 @@ provider hosting into the model-host service as part of this work.
 
 ## Browser file-aware Copilot
 
+- A disposable real Model Host test now asks `qwen25-coder-7b-q4` for a
+  one-line JavaScript change through both the browser API and MCP, previews and
+  applies each proposal through its corresponding API, and checks the result.
+  The first prompt produced an invalid array-shaped patch with incorrect hunk
+  counts; an explicit JSON string example and hunk-count guidance fixed this
+  fixture. This validates one simple change with one model, not general model
+  reliability, multi-file output, or a browser-driven real-model run. Repeat via
+  `bash scripts/test host-file-copilot` with the validation host running.
+
 - Browser Copilot can request and review multi-file patch proposals, preview each
   patch against the repository, and apply the reviewed patches sequentially.
   MCP `run_file_copilot` supports `patch_mode`; callers can preview and use
@@ -58,8 +67,8 @@ provider hosting into the model-host service as part of this work.
   remains untrusted. The 22 remote UI cases passed with a simulated provider,
   covering review without writes, stale files, existence conflicts, partial and
   successful application, new-file creation and MCP generation; the Linux Rust
-  suite passed 204 tests with two live tests ignored. This proposal flow has not
-  yet been validated against a real model. Branch container port: 55021.
+  suite passed 204 tests with two live tests ignored. That checkpoint used a
+  simulated provider; see the real-model test above.
 
 - Patch previews are shared by the authenticated browser API and MCP
   `preview_repository_patch`: they validate the target and patch without writing

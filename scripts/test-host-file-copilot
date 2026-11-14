@@ -59,7 +59,7 @@ try:
         with urllib.request.urlopen(request, timeout=240) as response: return json.load(response)
     def mcp(tool, action, arguments):
         result = post("/api/mcp", {"jsonrpc":"2.0", "id":1, "method":"tools/call", "params":{"name":tool,"arguments":{"action":action,"arguments":arguments}}}, "workflow-mcp-test")["result"]
-        if result.get("isError"): raise ValueError("Fixture MCP action failed: " + action)
+        if result.get("isError"): raise ValueError("Fixture MCP action failed: " + action + ": " + json.dumps(result.get("content", []))[:1000])
         return result["structuredContent"]["result"]
     provider = mcp("aruvi_models", "create_provider", {"name":"File Copilot fixture", "base_url":f"http://host.docker.internal:{port}/v1", "auth_secret_ref":"ref:coding-fixture"})
     repo = mcp("aruvi_repositories", "register_repository", {"name":"File fixture", "local_path":"/repositories/copilot-fixture", "default_branch":"main"})
@@ -75,6 +75,39 @@ try:
         raise ValueError("Model follow-up did not identify the multiplier")
     answer = mcp("aruvi_models", "run_file_copilot", followup)
     if "7" not in answer.get("content", ""): raise ValueError("MCP model follow-up did not identify the multiplier")
+    proposal_request = dict(payload, question="Change the function to multiply by 9 instead of 7. Keep its name. Return a single patch for math.js.", patch_mode=True)
+    for interface in ("web", "mcp"):
+        if interface == "web":
+            answer = post("/api/mobile/repository-file/copilot", proposal_request, "workflow-mobile-test")
+        else:
+            answer = mcp("aruvi_models", "run_file_copilot", proposal_request)
+        content = answer.get("content", "").strip()
+        if content.startswith("```"):
+            content = "\n".join(content.splitlines()[1:-1])
+        try:
+            proposal = json.loads(content)
+        except json.JSONDecodeError as error:
+            raise ValueError(f"{interface} proposal was not JSON: {content[:800]}") from error
+        if proposal.get("type") != "patch_proposal" or len(proposal.get("patches", [])) != 1 or proposal["patches"][0].get("path") != "math.js":
+            raise ValueError(f"{interface} proposal had an unexpected shape: {content[:800]}")
+        patch = proposal["patches"][0]["patch"]
+        args = {"repository_id": repo["id"], "relative_path": "math.js", "patch": patch, "base_sha256": file["sha256"]}
+        try:
+            preview = post("/api/mobile/repository-inspect", dict(args, action="preview_repository_patch"), "workflow-mobile-test") if interface == "web" else mcp("aruvi_repositories", "preview_repository_patch", args)
+        except (ValueError, urllib.error.HTTPError) as error:
+            raise ValueError(f"{interface} proposal failed preview: {content[:800]} ({error})") from error
+        if "x * 9" not in preview["result_content"] or "multiplyBySeven" not in preview["result_content"]:
+            raise ValueError(f"{interface} proposal did not implement the requested change: {content[:800]}")
+        if mcp("aruvi_repositories", "read_repository_file", {"repository_id": repo["id"], "relative_path": "math.js"})["content"] != file["content"]:
+            raise ValueError("Preview modified the fixture")
+        if interface == "web":
+            post("/api/mobile/repository-inspect", dict(args, action="apply_reviewed_repository_patch", expected_exists=True), "workflow-mobile-test")
+        else:
+            mcp("aruvi_repositories", "apply_reviewed_repository_patch", dict(args, expected_exists=True))
+        applied = mcp("aruvi_repositories", "read_repository_file", {"repository_id": repo["id"], "relative_path": "math.js"})["content"]
+        if applied != preview["result_content"]: raise ValueError("Applied file did not match preview")
+        mcp("aruvi_repositories", "write_repository_file", {"repository_id":repo["id"], "relative_path":"math.js", "content":file["content"]})
+        print(f"Real {model} {interface} patch proposal was previewed and applied successfully")
     print(f"Real {model} file-context Copilot follow-ups passed through web and MCP in a disposable fixture")
 except (OSError, KeyError, TypeError, ValueError, subprocess.SubprocessError) as error:
     print(f"File Copilot fixture failed: {type(error).__name__}: {error if not isinstance(error, subprocess.CalledProcessError) else 'fixture command failed'}", file=sys.stderr)
