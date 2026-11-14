@@ -129,6 +129,18 @@ test("model-only chat selects the registered provider and rejects ambiguous rout
   const streaming = await request.post("/api/mobile/chat/stream", { headers, data: body });
   expect(streaming.ok()).toBeTruthy();
   expect((await streaming.text()).trim().split("\n").map(JSON.parse).at(-1).type).toBe("done");
+  const unknown = { ...body, model_name: "unregistered-routing-model" };
+  const statsUrl = `${base}/usage/stats`;
+  const beforeUnknown = (await (await request.get(statsUrl)).json()).length;
+  const reasoningBefore = (await (await request.get(`${base}/reasoning/stats`)).json()).requests;
+  for (const endpoint of ["/api/mobile/chat/completions", "/api/mobile/chat/stream"]) {
+    const rejected = await request.post(endpoint, { headers, data: unknown });
+    expect(rejected.status()).toBe(400);
+    expect(await rejected.text()).toContain("select a provider explicitly");
+  }
+  expect((await (await request.get(statsUrl)).json()).length).toBe(beforeUnknown);
+  expect((await (await request.get(`${base}/reasoning/stats`)).json()).requests).toBe(reasoningBefore);
+  expect((await request.post("/api/mobile/chat/completions", { headers, data: { ...unknown, provider_id: selected.id } })).ok()).toBeTruthy();
   const duplicate = await create("/api/mobile/models", { provider_id: earlier.id, name: model.name });
   const ambiguous = await request.post("/api/mobile/chat/completions", { headers, data: body });
   expect(ambiguous.status()).toBe(400);

@@ -1,6 +1,7 @@
 import http from "node:http";
 
 let usageRequests = [];
+let reasoningRequests = 0;
 let workflowCalls = 0;
 let workflowPrompts = [];
 let workflowRequests = [];
@@ -85,7 +86,10 @@ const server = http.createServer((request, response) => {
       if (body.stream_options?.include_usage) response.write('data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":1}}\n\n');
       response.end('data: [DONE]\n\n');
     });
+  } else if (request.method === "GET" && request.url === "/reasoning/stats") {
+    response.end(JSON.stringify({ requests: reasoningRequests }));
   } else if (request.method === "POST" && request.url === "/reasoning/v1/chat/completions") {
+    reasoningRequests += 1;
     const chunks = []; request.on("data", (chunk) => chunks.push(chunk));
     request.on("end", () => {
       let body; try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { response.statusCode = 400; return response.end(); }

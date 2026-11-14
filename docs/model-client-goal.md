@@ -357,9 +357,11 @@ For mobile/browser chat API calls without a provider ID, a registered model name
 now selects its unique enabled text provider. Duplicate enabled registrations
 require an explicit provider; a registered model with no enabled binding fails
 instead of being sent elsewhere. Explicit provider selection retains precedence.
-For compatibility, an unregistered model name still falls back to the first
-enabled provider; callers that need deterministic routing should specify one.
-The focused Rust routing test and 41 isolated workflows passed. A model-only
+An unregistered model name can use the sole enabled provider; with multiple
+providers the caller must select one explicitly, preventing an ambiguous prompt
+from being sent to the first provider. The focused native Rust test and all 45
+isolated workflows passed, including buffered and streaming rejection before
+either simulated provider received a request. A model-only
 mobile request to the real `qwen25-coder-7b-q4` Model Host also returned a
 response, and the completed-call ledger recorded the Model Host provider.
 

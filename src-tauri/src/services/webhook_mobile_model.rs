@@ -22,7 +22,11 @@ pub(crate) async fn resolve_mobile_chat_provider_id(
         match matching.as_slice() {
             [provider] => return Ok(provider.id.clone()),
             [] if models.iter().any(|model| model.name == name) => return Err("The requested model has no enabled text provider and model binding.".into()),
-            [] => {}, // Keep the existing fallback for an unregistered model name.
+            [] => return match providers.as_slice() {
+                [provider] => Ok(provider.id.clone()),
+                [] => Err("No enabled model provider is configured.".into()),
+                _ => Err("The requested model is not registered; select a provider explicitly.".into()),
+            },
             _ => return Err("The requested model is registered with multiple providers; select a provider explicitly.".into()),
         }
     } else {
@@ -74,7 +78,10 @@ mod tests {
         assert_eq!(resolve_mobile_chat_model_name(&state, "text", None).await.unwrap(), "chat-model");
         assert_eq!(resolve_mobile_chat_provider_id(&state, Some("voice".into()), None).await.unwrap(), "voice");
         assert!(resolve_mobile_chat_model_name(&state, "voice", None).await.is_err());
+        assert!(resolve_mobile_chat_provider_id(&state, None, Some("unregistered-model")).await.unwrap_err().contains("select a provider explicitly"));
+        sqlx::query("UPDATE model_providers SET enabled=0 WHERE id='text'").execute(&state.db).await.unwrap();
         assert_eq!(resolve_mobile_chat_provider_id(&state, None, Some("unregistered-model")).await.unwrap(), "voice");
+        sqlx::query("UPDATE model_providers SET enabled=1 WHERE id='text'").execute(&state.db).await.unwrap();
         assert_eq!(resolve_mobile_chat_provider_id(&state, None, Some("chat-model")).await.unwrap(), "text");
         model_repo::create_model_definition(&state.db, "duplicate-model", "voice", "chat-model", None, None, None).await.unwrap();
         assert!(resolve_mobile_chat_provider_id(&state, None, Some("chat-model")).await.unwrap_err().contains("multiple providers"));
