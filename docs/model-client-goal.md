@@ -129,13 +129,15 @@ non-root, read-only Linux probe also passed real Model Host discovery, completio
 streaming and token-limit checks. Studio's MCP coding fixture passed against the
 same running 7B model.
 
-The normal `host-shared-client` script could not query the older Model Host
-validation checkout because its staging port no longer matches the central
-reservation. For this revalidation, the probe read that running worktree's
-existing loopback endpoint and private token from its runtime state, without
-changing the Model Host deployment. The script/checkout environment mismatch
-remains to be reconciled; this fallback does not establish that its launcher
-currently works. The branch app remained healthy at `127.0.0.1:55085`.
+The normal `host-shared-client` script initially could not query the older
+Model Host validation checkout because its staging reservation had changed.
+The checkout's local `deploy/product.json` was updated from staging port 20680
+to the current reservation 21680; this is an uncommitted adjustment in the
+detached validation checkout and does not move or restart its running worktree.
+Afterward native worktree status and the standard `host-shared-client` command
+passed against the live 7B model. Studio's six native-host synchronization
+unit tests passed. The Model Host main checkout and deployed services were not
+changed. The Studio branch app remained healthy at `127.0.0.1:55085`.
 An additional native migration test upgraded a pre-053 database containing a
 legacy channel binding, confirmed it remains unscoped, rejected an invalid
 product reference, and verified product deletion clears the reference.
