@@ -26,6 +26,18 @@ completed delivery to a disposable local Git remote. These are individual
 fixture runs, not broad model-quality, live cloud-provider or remote Git
 acceptance. The running worktree records telemetry for the MCP and browser checks.
 
+### Outbound channel transport
+
+The shared Twilio transport now rejects redirects, bounds connection time to
+15 seconds and the full request to 30 seconds, and reports failure status without
+returning provider bodies or request URLs. `TwilioConfig` debug output shows only
+presence flags. These are observable error and timeout behavior changes for
+browser, desktop and MCP. Native tests used loopback fixtures to verify success,
+HTTP errors, redirect refusal, connection redaction and debug redaction; they did
+not send a real message or call. All 49 isolated workflows passed, the branch
+image restarted healthy, and real Model Host coding and truncation checks passed
+through MCP afterward. Live Twilio behavior remains unverified.
+
 ### Browser Twilio configuration
 
 Routing now edits the desktop's Twilio account, sender and webhook settings and

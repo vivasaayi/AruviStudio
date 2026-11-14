@@ -10,13 +10,40 @@ const TWILIO_WHATSAPP_FROM_KEY: &str = "twilio.whatsapp_from";
 const TWILIO_VOICE_FROM_KEY: &str = "twilio.voice_from";
 const WEBHOOK_BASE_URL_KEY: &str = "twilio.webhook_base_url";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TwilioConfig {
     pub account_sid: Option<String>,
     pub auth_token: Option<String>,
     pub whatsapp_from: Option<String>,
     pub voice_from: Option<String>,
     pub webhook_base_url: Option<String>,
+}
+
+impl std::fmt::Debug for TwilioConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TwilioConfig")
+            .field("account_sid_configured", &has_value(self.account_sid.as_deref()))
+            .field("auth_token_configured", &has_value(self.auth_token.as_deref()))
+            .field("whatsapp_from_configured", &has_value(self.whatsapp_from.as_deref()))
+            .field("voice_from_configured", &has_value(self.voice_from.as_deref()))
+            .field("webhook_base_url_configured", &has_value(self.webhook_base_url.as_deref()))
+            .finish()
+    }
+}
+
+async fn send_twilio_form(endpoint: &str, account_sid: &str, auth_token: &str, fields: &[(&str, String)], operation: &str) -> Result<(), AppError> {
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(30))
+        .build().map_err(|_| AppError::Provider("Could not initialize Twilio client".into()))?;
+    let response = client.post(endpoint).basic_auth(account_sid, Some(auth_token)).form(fields).send().await
+        .map_err(|error| AppError::Provider(format!("Twilio request failed: {}", error.without_url())))?;
+    let status = response.status();
+    if status != StatusCode::CREATED && status != StatusCode::OK {
+        return Err(AppError::Provider(format!("Twilio {operation} failed: HTTP {}", status.as_u16())));
+    }
+    Ok(())
 }
 
 async fn get_env_or_setting(
@@ -87,23 +114,7 @@ pub async fn send_whatsapp_message(
         "https://api.twilio.com/2010-04-01/Accounts/{}/Messages.json",
         account_sid
     );
-    let response = reqwest::Client::new()
-        .post(endpoint)
-        .basic_auth(account_sid, Some(auth_token))
-        .form(&[("From", from), ("To", to), ("Body", content)])
-        .send()
-        .await
-        .map_err(|error| AppError::Provider(format!("Twilio request failed: {}", error)))?;
-
-    if response.status() != StatusCode::CREATED && response.status() != StatusCode::OK {
-        let body = response.text().await.unwrap_or_default();
-        return Err(AppError::Provider(format!(
-            "Twilio WhatsApp send failed: {}",
-            body
-        )));
-    }
-
-    Ok(())
+    send_twilio_form(&endpoint, &account_sid, &auth_token, &[("From", from), ("To", to), ("Body", content)], "WhatsApp send").await
 }
 
 pub async fn start_voice_call(
@@ -142,21 +153,62 @@ pub async fn start_voice_call(
         "https://api.twilio.com/2010-04-01/Accounts/{}/Calls.json",
         account_sid
     );
-    let response = reqwest::Client::new()
-        .post(endpoint)
-        .basic_auth(account_sid, Some(auth_token))
-        .form(&[("From", from), ("To", to), ("Url", voice_url)])
-        .send()
-        .await
-        .map_err(|error| AppError::Provider(format!("Twilio request failed: {}", error)))?;
+    send_twilio_form(&endpoint, &account_sid, &auth_token, &[("From", from), ("To", to), ("Url", voice_url)], "voice call").await
+}
 
-    if response.status() != StatusCode::CREATED && response.status() != StatusCode::OK {
-        let body = response.text().await.unwrap_or_default();
-        return Err(AppError::Provider(format!(
-            "Twilio voice call start failed: {}",
-            body
-        )));
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{io::{Read, Write}, net::TcpListener, thread};
+
+    #[test]
+    fn debug_redacts_all_config_values() {
+        let config = TwilioConfig { account_sid: Some("private-sid".into()), auth_token: Some("private-token".into()), whatsapp_from: Some("private-whatsapp".into()), voice_from: Some("private-voice".into()), webhook_base_url: Some("private-url".into()) };
+        let debug = format!("{config:?}");
+        assert!(debug.contains("auth_token_configured: true"));
+        assert!(!debug.contains("private-"));
     }
 
-    Ok(())
+    #[tokio::test]
+    async fn connection_failure_does_not_expose_endpoint_or_credentials() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let error = send_twilio_form(&format!("http://{address}/private-account-path"), "private-sid", "private-token", &[("Body", "private-message".into())], "fixture").await.unwrap_err().to_string();
+        assert!(error.contains("Twilio request failed"));
+        assert!(!error.contains("private-"));
+    }
+
+    #[tokio::test]
+    async fn outbound_form_redacts_errors_and_refuses_redirects() {
+        for status in ["201 Created", "429 Too Many Requests", "307 Temporary Redirect"] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let redirect = TcpListener::bind("127.0.0.1:0").unwrap();
+            redirect.set_nonblocking(true).unwrap();
+            let redirect_address = redirect.local_addr().unwrap();
+            let server = thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                socket.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+                let mut data = Vec::new(); let mut buffer = [0; 4096];
+                let end = loop { let n = socket.read(&mut buffer).unwrap(); assert_ne!(n, 0); data.extend_from_slice(&buffer[..n]); if let Some(i) = data.windows(4).position(|v| v == b"\r\n\r\n") { break i + 4; } };
+                let headers = String::from_utf8_lossy(&data[..end]).to_ascii_lowercase();
+                assert!(headers.contains("authorization: basic "));
+                let size: usize = headers.lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().trim().parse().unwrap();
+                while data.len() < end + size { let n = socket.read(&mut buffer).unwrap(); assert_ne!(n, 0); data.extend_from_slice(&buffer[..n]); }
+                assert!(String::from_utf8_lossy(&data[end..]).contains("Body=fixture+message"));
+                let body = "private-provider-detail";
+                write!(socket, "HTTP/1.1 {status}\r\nLocation: http://{redirect_address}/redirect\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            });
+            let endpoint = format!("http://{address}/private-account-path");
+            let result = send_twilio_form(&endpoint, "private-sid", "private-token", &[("Body", "fixture message".into())], "fixture").await;
+            if status.starts_with("201") { assert!(result.is_ok()); } else {
+                let error = result.unwrap_err().to_string();
+                assert!(error.contains(status.split_whitespace().next().unwrap()));
+                assert!(!error.contains("private-"));
+            }
+            server.join().unwrap();
+            assert!(matches!(redirect.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock));
+        }
+    }
 }
