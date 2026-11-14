@@ -85,6 +85,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "get_repository_file_sha256",
                 "apply_repository_patch",
                 "preview_repository_patch",
+                "apply_reviewed_repository_patch",
                 "get_git_status",
                 "get_git_diff",
                 "list_git_changed_files",

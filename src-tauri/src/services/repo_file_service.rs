@@ -153,6 +153,25 @@ pub fn apply_repository_patch(
     Ok(preview.result_sha256)
 }
 
+pub fn apply_reviewed_repository_patch(
+    repo_root: &str,
+    relative_path: &str,
+    patch: &str,
+    base_sha256: &str,
+    expected_exists: bool,
+) -> Result<String, AppError> {
+    if base_sha256.len() != 64 || !base_sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(AppError::Validation("A valid reviewed file hash is required".to_string()));
+    }
+    let (candidate, preview) = prepare_repository_patch(repo_root, relative_path, patch, Some(base_sha256))?;
+    if preview.exists != expected_exists {
+        return Err(AppError::Validation("Patch target existence changed after review".to_string()));
+    }
+    if let Some(parent) = candidate.parent() { fs::create_dir_all(parent)?; }
+    fs::write(candidate, preview.result_content.as_bytes())?;
+    Ok(preview.result_sha256)
+}
+
 fn prepare_repository_patch(
     repo_root: &str,
     relative_path: &str,

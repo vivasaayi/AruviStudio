@@ -587,8 +587,11 @@
                 <div class="empty">Sends the saved file path, up to 12,000 characters of its content, your question and recent conversation to the provider and model selected in Connection. Requests and responses are recorded in Activity. Conversation resets when the file or provider changes.</div>
                 <label><span class="label">Copilot question</span><textarea id="repositoryCopilotQuestion" maxlength="4000" placeholder="What would you like to know about this file?"></textarea></label>
                 <button id="repositoryCopilotButton" type="button" disabled>Ask about saved file</button>
+                <button id="repositoryCopilotPatchButton" type="button" disabled>Propose changes</button>
                 <button id="repositoryCopilotReset" type="button" class="secondary" disabled>New file conversation</button>
                 <pre id="repositoryCopilotResult" style="white-space: pre-wrap; overflow-wrap: anywhere" aria-live="polite"></pre>
+                <div id="repositoryPatchReview" class="stack" hidden></div>
+                <button id="repositoryPatchApply" type="button" disabled hidden>Apply reviewed changes</button>
               </div>
             </div>
           </section>
@@ -2898,12 +2901,20 @@
     let openedFile = null;
     let fileSaving = false;
     let copilotBusy = false;
+    let reviewedPatch = null;
+    function clearPatchReview() {
+      reviewedPatch = null;
+      const review = document.getElementById("repositoryPatchReview"), apply = document.getElementById("repositoryPatchApply");
+      review.replaceChildren(); review.hidden = true; apply.hidden = true; apply.disabled = true;
+    }
     function fileIsDirty() { return openedFile && el.repositoryFileContent.value !== openedFile.displayBaseline; }
     function updateFileControls() {
       const dirty = !!fileIsDirty();
       el.saveRepositoryFileButton.disabled = !dirty || fileSaving || copilotBusy || !openedFile.editable;
       el.discardRepositoryFileButton.disabled = !dirty || fileSaving || copilotBusy;
       document.getElementById("repositoryCopilotButton").disabled = !openedFile || dirty || fileSaving || copilotBusy || !openedFile.sha256;
+      document.getElementById("repositoryCopilotPatchButton").disabled = !openedFile || dirty || fileSaving || copilotBusy || !openedFile.sha256;
+      document.getElementById("repositoryPatchApply").disabled = !reviewedPatch || !openedFile || dirty || fileSaving || copilotBusy;
       document.getElementById("repositoryCopilotReset").disabled = !openedFile || copilotBusy;
     }
     function canLeaveFile() {
@@ -2914,6 +2925,7 @@
     async function inspectWorkspace(repository) {
       if (!canLeaveFile()) return;
       openedFile = null; el.repositoryFileContent.readOnly = true; updateFileControls();
+      clearPatchReview();
       const requestId = ++inspectRequestId;
       fileRequestId++;
       inspectedRepositoryId = repository.id;
@@ -2963,6 +2975,7 @@
     async function inspectFile(repositoryId, path) {
       if (!canLeaveFile()) return;
       openedFile = null; el.repositoryFileContent.readOnly = true; updateFileControls();
+      clearPatchReview();
       const requestId = ++fileRequestId;
       el.repositoryFileContent.value = "Loading " + path + "...";
       try {
@@ -2990,7 +3003,7 @@
       try {
         const saved = await request("/api/mobile/repository-file/save", { method: "POST", body: { repository_id: file.repositoryId,
           relative_path: file.path, expected_content: file.expected, content } });
-        if (openedFile === file) { file.expected = content; file.displayBaseline = el.repositoryFileContent.value; file.sha256 = saved.sha256; file.history = []; file.copilotScope = ""; document.getElementById("repositoryCopilotResult").textContent = ""; setStatus("File saved", "ok"); }
+        if (openedFile === file) { file.expected = content; file.displayBaseline = el.repositoryFileContent.value; file.sha256 = saved.sha256; file.history = []; file.copilotScope = ""; clearPatchReview(); document.getElementById("repositoryCopilotResult").textContent = ""; setStatus("File saved", "ok"); }
       } catch (error) { setStatus(error.message || String(error), "error"); }
       finally { fileSaving = false; if (openedFile === file) el.repositoryFileContent.readOnly = !file.editable; updateFileControls(); }
     }
@@ -3003,20 +3016,22 @@
       return text.length > 100000 ? "[Earlier conversation omitted]\n" + text.slice(-100000) : text;
     }
 
-    async function askRepositoryCopilot() {
+    async function askRepositoryCopilot(patchMode = false) {
       if (!openedFile || fileIsDirty() || fileSaving || copilotBusy || !openedFile.sha256) return;
       const question = document.getElementById("repositoryCopilotQuestion").value.trim();
       const provider = el.providerInput.value.trim(), model = el.modelInput.value.trim();
       if (!question || !provider || !model) { setStatus("Select a provider and model in Connection and enter a question", "warn"); return; }
       const file = openedFile, result = document.getElementById("repositoryCopilotResult");
+      clearPatchReview();
       const scope = JSON.stringify([provider, model]);
       if (file.copilotScope !== scope) { file.history = []; file.copilotScope = scope; result.textContent = ""; }
       const previous = result.textContent;
       copilotBusy = true; el.repositoryFileContent.readOnly = true; updateFileControls(); result.textContent = previous + (previous ? "\n\n" : "") + "Asking about " + file.path + "…";
       try {
         const response = await request("/api/mobile/repository-file/copilot", { method: "POST", body: { repository_id: file.repositoryId,
-          relative_path: file.path, expected_sha256: file.sha256, provider_id: provider, model_name: model, question, history: file.history } });
+          relative_path: file.path, expected_sha256: file.sha256, provider_id: provider, model_name: model, question, history: file.history, patch_mode: patchMode } });
         const answer = response.content || "";
+        if (patchMode) await reviewCopilotPatch(file, answer);
         if (answer.trim()) {
           const entries = [...file.history, { role: "user", content: question }, { role: "assistant", content: answer }];
           const bounded = []; let characters = 0;
@@ -3036,7 +3051,53 @@
     function resetRepositoryCopilot() {
       if (!openedFile || copilotBusy) return;
       openedFile.history = []; openedFile.copilotScope = "";
+      clearPatchReview();
       document.getElementById("repositoryCopilotResult").textContent = "";
+    }
+
+    async function reviewCopilotPatch(file, answer) {
+      let proposal;
+      try {
+        const trimmed = answer.trim();
+        proposal = JSON.parse(trimmed.startsWith("```") ? trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "") : trimmed);
+      } catch { throw new Error("Copilot did not return valid patch proposal JSON"); }
+      if (proposal?.type !== "patch_proposal" || typeof proposal.summary !== "string" || !Array.isArray(proposal.patches) || !proposal.patches.length || proposal.patches.length > 20) throw new Error("Invalid patch proposal");
+      const paths = new Set(), patches = [];
+      for (const item of proposal.patches) {
+        if (!item || typeof item.path !== "string" || typeof item.patch !== "string" || !item.patch.trim() || item.patch.length > 200000 || item.path.length > 4096 || item.path.startsWith("/") || item.path.includes("\\") || item.path.split("/").some((part) => !part || part === "." || part === "..") || paths.has(item.path)) throw new Error("Invalid or duplicate patch path");
+        paths.add(item.path);
+        const base = item.path === file.path ? file.sha256 : null;
+        const preview = await request("/api/mobile/repository-inspect", { method: "POST", body: { action: "preview_repository_patch", repository_id: file.repositoryId, relative_path: item.path, patch: item.patch, base_sha256: base } });
+        patches.push({ path: item.path, patch: item.patch, description: typeof item.description === "string" ? item.description : "", base_sha256: preview.base_sha256, expected_exists: preview.exists });
+      }
+      if (openedFile !== file) throw new Error("The selected file changed during review");
+      reviewedPatch = { repositoryId: file.repositoryId, patches };
+      const review = document.getElementById("repositoryPatchReview"); review.replaceChildren(); review.hidden = false;
+      const summary = document.createElement("p"); summary.textContent = proposal.summary + " — review each patch. Files are applied one at a time; a later failure can leave earlier changes applied."; review.appendChild(summary);
+      for (const item of patches) {
+        const title = document.createElement("strong"); title.textContent = item.path + (item.expected_exists ? "" : " (new file)") + (item.description ? ": " + item.description : ""); review.appendChild(title);
+        const diff = document.createElement("pre"); diff.style.whiteSpace = "pre-wrap"; diff.style.overflowWrap = "anywhere"; diff.textContent = item.patch; review.appendChild(diff);
+      }
+      document.getElementById("repositoryPatchApply").hidden = false;
+    }
+
+    async function applyReviewedPatch() {
+      if (!reviewedPatch || !openedFile || fileIsDirty() || copilotBusy || fileSaving) return;
+      const proposal = reviewedPatch, file = openedFile; let applied = 0;
+      copilotBusy = true; el.repositoryFileContent.readOnly = true; updateFileControls();
+      try {
+        for (const item of proposal.patches) {
+          await request("/api/mobile/repository-inspect", { method: "POST", body: { action: "apply_reviewed_repository_patch", repository_id: proposal.repositoryId, relative_path: item.path, patch: item.patch, base_sha256: item.base_sha256, expected_exists: item.expected_exists } });
+          applied++;
+        }
+        setStatus("Applied " + applied + " reviewed patch(es)", "ok");
+      } catch (error) { setStatus("Applied " + applied + " of " + proposal.patches.length + " patches; stopped: " + (error.message || String(error)), "error"); }
+      finally {
+        clearPatchReview(); file.history = []; file.copilotScope = ""; copilotBusy = false;
+        if (applied && openedFile === file) await inspectFile(file.repositoryId, file.path);
+        else if (openedFile === file) el.repositoryFileContent.readOnly = !file.editable;
+        updateFileControls();
+      }
     }
 
     async function updateWorkspaceAttachment(productId, attachment, action, button) {
@@ -4087,6 +4148,8 @@
     el.repositoryDiffButton.addEventListener("click", loadRepositoryDiff);
     el.repositoryFileContent.addEventListener("input", updateFileControls);
     document.getElementById("repositoryCopilotButton").addEventListener("click", () => void askRepositoryCopilot());
+    document.getElementById("repositoryCopilotPatchButton").addEventListener("click", () => void askRepositoryCopilot(true));
+    document.getElementById("repositoryPatchApply").addEventListener("click", () => void applyReviewedPatch());
     document.getElementById("repositoryCopilotReset").addEventListener("click", resetRepositoryCopilot);
     el.saveRepositoryFileButton.addEventListener("click", saveRepositoryFile);
     el.discardRepositoryFileButton.addEventListener("click", discardRepositoryFileEdits);

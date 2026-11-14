@@ -27,6 +27,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 provider_id: args.required_string(&["provider_id", "providerId"], "provider_id")?,
                 model_name: args.required_string(&["model_name", "modelName"], "model_name")?,
                 question: args.required_string(&["question"], "question")?,
+                patch_mode: args.bool_or_default(&["patch_mode", "patchMode"], false)?,
                 history: args.optional_deserialize(&["history"], "history")?.unwrap_or_default(),
             };
             let response = crate::services::webhook_mobile_chat::run_file_copilot(state, body, "mcp_ide", "MCP IDE")

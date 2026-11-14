@@ -46,13 +46,28 @@ provider hosting into the model-host service as part of this work.
 
 ## Browser file-aware Copilot
 
+- Browser Copilot can request and review multi-file patch proposals, preview each
+  patch against the repository, and apply the reviewed patches sequentially.
+  MCP `run_file_copilot` supports `patch_mode`; callers can preview and use
+  `apply_reviewed_repository_patch` with the reviewed hash and existence flag.
+  File existence and hash are checked before each write. Application is not an
+  atomic multi-file transaction and can race external filesystem writers; the
+  browser reports how many files were applied if a later patch fails. Review
+  validates the active file's original hash, while other files are based on
+  their contents at preview time. Generation is non-streaming and model output
+  remains untrusted. The 22 remote UI cases passed with a simulated provider,
+  covering review without writes, stale files, existence conflicts, partial and
+  successful application, new-file creation and MCP generation; the Linux Rust
+  suite passed 204 tests with two live tests ignored. This proposal flow has not
+  yet been validated against a real model. Branch container port: 55021.
+
 - Patch previews are shared by the authenticated browser API and MCP
   `preview_repository_patch`: they validate the target and patch without writing
   and return the existing-file flag, original and resulting hashes, and resulting
   text. Existing and resulting files are limited to 2 MiB. The preview is not a
   transaction: external changes may race a later write, and a hash alone cannot
-  distinguish a missing file from an existing empty file. Multi-file proposal
-  generation, review UI and application still need to be implemented.
+  distinguish a missing file from an existing empty file; the reviewed apply
+  action also requires the existence flag.
 - The Linux Rust suite passed 204 tests with two live tests ignored; all 22
   isolated remote UI cases passed, including matching browser and MCP previews
   of an existing file and an MCP preview of a new file with no writes. The
@@ -63,7 +78,7 @@ provider hosting into the model-host service as part of this work.
   trailing spaces, and handles explicit no-final-newline markers. The existing
   SHA-256 precondition still applies; this does not make multi-file patching
   atomic or protect against non-cooperating external filesystem changes.
-  Browser patch proposal generation, review and application remain open.
+  At this earlier checkpoint, browser patch proposals remained open.
 - The Linux Rust suite passed 203 tests with two live tests ignored, including
   malformed-count and position rejection, multiple hunks, newline handling,
   CRLF preservation and verification that rejected edits leave files unchanged.
@@ -76,8 +91,7 @@ provider hosting into the model-host service as part of this work.
   only in the current page for the same saved file and provider/model, resets it
   after a save or explicit reset, and excludes failed turns. MCP callers supply
   and scope their own history. The server rejects invalid role ordering and
-  oversized history before model access. This remains non-streaming and does not
-  implement desktop patch proposals.
+  oversized history before model access. This remains non-streaming.
 - The 22 remote UI, 23 workflow and one simulated CI cases passed; the Linux Rust
   suite passed 198 tests with two live tests ignored. Browser checks cover model
   changes, reset, failed turns and oversized transcript handling. A disposable
@@ -102,9 +116,7 @@ provider hosting into the model-host service as part of this work.
   matching hashes, stale-file rejection and telemetry; a disposable real 7B
   Model Host fixture passed both interfaces. The 22 remote and 23 workflow cases
   passed, and the Linux Rust suite passed 198 tests with two live tests ignored.
-  This is not full desktop IDE parity:
-  streaming in that view and patch proposal
-  review/application remain open.
+  This was not full desktop IDE parity at that checkpoint; streaming remains open.
 
 ## Browser planner node review
 

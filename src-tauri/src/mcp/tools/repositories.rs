@@ -147,6 +147,16 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             )?;
             action_result("get_repository_file_sha256", json!({ "sha256": sha }))
         }
+        "apply_reviewed_repository_patch" => {
+            let repository_id = args.required_string(&["repository_id", "repositoryId"], "repository_id")?;
+            let repository = repository_repo::get_repository(&state.db, &repository_id).await?;
+            let expected_exists = args.optional_bool(&["expected_exists", "expectedExists"])?.ok_or_else(|| AppError::Validation("missing expected_exists".into()))?;
+            let sha = repo_service::apply_reviewed_repository_patch(&repository.local_path,
+                &args.required_string(&["relative_path", "relativePath"], "relative_path")?,
+                &args.required_string(&["patch"], "patch")?,
+                &args.required_string(&["base_sha256", "baseSha256"], "base_sha256")?, expected_exists)?;
+            action_result("apply_reviewed_repository_patch", json!({ "sha256": sha }))
+        }
         "preview_repository_patch" => {
             let repository_id = args.required_string(&["repository_id", "repositoryId"], "repository_id")?;
             let repository = repository_repo::get_repository(&state.db, &repository_id).await?;

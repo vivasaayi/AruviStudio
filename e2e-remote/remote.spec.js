@@ -317,6 +317,14 @@ test("browser registers and attaches a container workspace", async ({ page, requ
       const newPreview = await call("aruvi_repositories", "preview_repository_patch", { repository_id: repositoryId, relative_path: "preview-only/new.txt", patch: "@@ -0,0 +1 @@\n+new" });
       expect(newPreview.exists).toBe(false);
       expect(newPreview.result_content).toBe("new");
+      await call("aruvi_repositories", "write_repository_file", { repository_id: repositoryId, relative_path: "preview-only/new.txt", content: "" });
+      const existenceConflict = await request.post("/api/mobile/repository-inspect", { headers: { Authorization: `Bearer ${token}` }, data: { action: "apply_reviewed_repository_patch", repository_id: repositoryId, relative_path: "preview-only/new.txt", patch: "@@ -0,0 +1 @@\n+new", base_sha256: newPreview.base_sha256, expected_exists: false } });
+      expect(existenceConflict.status()).toBe(400);
+      expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: "preview-only/new.txt" })).content).toBe("");
+      const newArgs = { repository_id: repositoryId, relative_path: "preview-only/applied.txt", patch: "@@ -0,0 +1 @@\n+created" };
+      const newFile = await call("aruvi_repositories", "preview_repository_patch", newArgs);
+      await call("aruvi_repositories", "apply_reviewed_repository_patch", { ...newArgs, base_sha256: newFile.base_sha256, expected_exists: false });
+      expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: newArgs.relative_path })).content).toBe("created");
       const badPatchResponse = await request.post("/api/mcp", {
         headers: { Authorization: `Bearer ${mcpToken}`, Accept: "application/json, text/event-stream" },
         data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_repositories", arguments: { action: "apply_repository_patch", arguments: { repository_id: repositoryId, relative_path: patchFile, base_sha256: patchHash, patch: "@@ -1,2 +1,1 @@\n-alpha\n+changed" } } } },
@@ -376,10 +384,38 @@ test("browser registers and attaches a container workspace", async ({ page, requ
         await expect(page.locator("#repositoryCopilotResult")).toContainText("After long reply");
         const afterLong = await (await request.get(process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/copilot/last"))).json();
         expect(afterLong.messages.map((entry) => entry.role)).toEqual(["system", "user"]);
+        await page.getByLabel("Copilot question").fill("Propose fixture changes");
+        await page.getByRole("button", { name: "Propose changes" }).click();
+        await expect(page.locator("#repositoryPatchReview")).toContainText("Two fixture changes");
+        await expect(page.locator("#repositoryPatchReview")).toContainText("proposal-created.txt (new file)");
+        expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: patchFile })).content).toBe("alpha\nmiddle\nbeta\n");
+        await call("aruvi_repositories", "write_repository_file", { repository_id: repositoryId, relative_path: patchFile, content: "concurrent change\n" });
+        await page.getByRole("button", { name: "Apply reviewed changes" }).click();
+        await expect(page.locator("#status")).toContainText("Applied 0 of 2 patches; stopped");
+        expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: patchFile })).content).toBe("concurrent change\n");
+        await call("aruvi_repositories", "write_repository_file", { repository_id: repositoryId, relative_path: patchFile, content: "alpha\nmiddle\nbeta\n" });
+        await page.getByLabel("Copilot question").fill("Propose fixture changes again");
+        await page.getByRole("button", { name: "Propose changes" }).click();
+        await expect(page.locator("#repositoryPatchReview")).toContainText("Two fixture changes");
+        await call("aruvi_repositories", "write_repository_file", { repository_id: repositoryId, relative_path: "proposal-created.txt", content: "" });
+        await page.getByRole("button", { name: "Apply reviewed changes" }).click();
+        await expect(page.locator("#status")).toContainText("Applied 1 of 2 patches; stopped");
+        expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: patchFile })).content).toBe("alpha\nreviewed\nbeta\n");
+        await call("aruvi_repositories", "write_repository_file", { repository_id: repositoryId, relative_path: patchFile, content: "alpha\nmiddle\nbeta\n" });
+        await page.getByLabel("Copilot question").fill("Propose fixture changes after partial application");
+        await page.getByRole("button", { name: "Propose changes" }).click();
+        await expect(page.locator("#repositoryPatchReview")).toContainText("Two fixture changes");
+        await page.getByRole("button", { name: "Apply reviewed changes" }).click();
+        await expect(page.locator("#status")).toHaveText("Applied 2 reviewed patch(es)");
+        expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: patchFile })).content).toBe("alpha\nreviewed\nbeta\n");
+        expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: "proposal-created.txt" })).content).toBe("created");
         const inspect = await (await request.post("/api/mobile/repository-inspect", { headers: { Authorization: `Bearer ${token}` }, data: { action: "read_repository_file", repository_id: repositoryId, relative_path: "inspection.txt" } })).json();
         const payload = { repository_id: repositoryId, relative_path: "inspection.txt", expected_sha256: inspect.sha256, provider_id: copilotProvider.id, model_name: "browser-test-model", question: "Explain" };
         expect((await call("aruvi_repositories", "get_repository_file_sha256", { repository_id: repositoryId, relative_path: "inspection.txt" })).sha256).toBe(inspect.sha256);
         expect((await call("aruvi_models", "run_file_copilot", payload)).content).toBe("Container provider reply");
+        const mcpProposal = JSON.parse((await call("aruvi_models", "run_file_copilot", { ...payload, patch_mode: true })).content);
+        expect(mcpProposal.type).toBe("patch_proposal");
+        expect(mcpProposal.patches).toHaveLength(2);
         const mcpFollowup = { ...payload, history: [{ role: "user", content: "First question" }, { role: "assistant", content: "First answer" }], question: "Follow-up" };
         expect((await call("aruvi_models", "run_file_copilot", mcpFollowup)).content).toBe("Container provider reply");
         const mcpCaptured = await (await request.get(process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/copilot/last"))).json();
