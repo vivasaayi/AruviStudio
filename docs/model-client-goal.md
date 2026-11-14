@@ -2299,6 +2299,16 @@ model discovery, completion, streaming and token-limit handling with
 `qwen25-coder-7b-q4`. This verifies the pinned revision; later client changes
 require a new pin and revalidation. No release was published.
 
+## Studio transcription upload bounds
+
+Studio now applies the existing 32 MiB decoded-audio limit to remote as well as
+local transcription, checking base64 size before allocation and decoded size
+before upload. This is a new limit for desktop remote transcription; HTTP request
+limits may be lower, and providers may impose their own limits. The reusable
+client does not impose this Studio-specific upload limit. Focused tests cover
+both bounds, malformed base64, and rejection before network access. A real MCP
+speech generation/transcription round trip passed after the branch rebuild.
+
 ## Desktop provider key entry
 
 Desktop provider creation and rotation inputs now mask typed credentials and

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-const LOCAL_WHISPER_MAX_BYTES: usize = 32 * 1024 * 1024;
+const STUDIO_TRANSCRIPTION_MAX_BYTES: usize = 32 * 1024 * 1024;
 const LOCAL_WHISPER_MAX_DURATION_SECONDS: u64 = 10 * 60;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,9 +65,7 @@ pub async fn transcribe_audio_with_provider(
     if provider.protocol != "openai_compatible" {
         return Err(AppError::Validation("Selected provider protocol does not support remote transcription".into()));
     }
-    let file_bytes = base64::engine::general_purpose::STANDARD
-        .decode(request.audio_bytes_base64.trim())
-        .map_err(|error| AppError::Validation(format!("Invalid audio payload: {error}")))?;
+    let file_bytes = decode_transcription_audio(&request.audio_bytes_base64, STUDIO_TRANSCRIPTION_MAX_BYTES)?;
     let client = crate::services::model_service::create_shared_gateway(provider)?;
     let result = client.transcribe(aruvi_model_client::TranscriptionRequest {
         model: model_name.to_string(),
@@ -209,7 +207,7 @@ async fn transcribe_audio_locally(
     }
 
     let model_path = resolve_local_runtime_model_path(&provider.base_url)?;
-    let audio_bytes = decode_local_audio(&request.audio_bytes_base64, LOCAL_WHISPER_MAX_BYTES)?;
+    let audio_bytes = decode_transcription_audio(&request.audio_bytes_base64, STUDIO_TRANSCRIPTION_MAX_BYTES)?;
     let (samples, sample_rate) = decode_wav_to_mono_f32(&audio_bytes)?;
     let resampled = resample_mono_audio(&samples, sample_rate, 16_000)?;
     let language = normalize_whisper_language(request.locale.as_deref());
@@ -222,18 +220,18 @@ async fn transcribe_audio_locally(
     .map_err(|error| AppError::Internal(format!("Local Whisper task failed: {error}")))?
 }
 
-fn decode_local_audio(encoded: &str, max_bytes: usize) -> Result<Vec<u8>, AppError> {
+fn decode_transcription_audio(encoded: &str, max_bytes: usize) -> Result<Vec<u8>, AppError> {
     let encoded = encoded.trim();
     // Check the encoded length before decoding so an oversized request does not
     // allocate a second, decoded copy of the entire payload.
     let max_encoded = max_bytes.div_ceil(3).saturating_mul(4);
     if encoded.len() > max_encoded {
-        return Err(AppError::Validation("Local Whisper audio exceeds the 32 MiB limit.".into()));
+        return Err(AppError::Validation("Transcription audio exceeds the 32 MiB limit.".into()));
     }
     let bytes = base64::engine::general_purpose::STANDARD.decode(encoded)
         .map_err(|error| AppError::Validation(format!("Invalid audio payload: {error}")))?;
     if bytes.len() > max_bytes {
-        return Err(AppError::Validation("Local Whisper audio exceeds the 32 MiB limit.".into()));
+        return Err(AppError::Validation("Transcription audio exceeds the 32 MiB limit.".into()));
     }
     Ok(bytes)
 }
@@ -402,12 +400,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn local_audio_size_is_checked_before_and_after_decoding() {
+    fn transcription_audio_size_is_checked_before_and_after_decoding() {
         let encoded = base64::engine::general_purpose::STANDARD.encode(b"12345678");
-        assert_eq!(decode_local_audio(&encoded, 8).unwrap(), b"12345678");
-        assert!(decode_local_audio(&encoded, 7).is_err()); // same base64 length, decoded limit
-        assert!(decode_local_audio(&encoded, 3).is_err()); // encoded limit
-        assert!(decode_local_audio("!bad", 8).is_err());
+        assert_eq!(decode_transcription_audio(&encoded, 8).unwrap(), b"12345678");
+        assert!(decode_transcription_audio(&encoded, 7).is_err()); // same base64 length, decoded limit
+        assert!(decode_transcription_audio(&encoded, 3).is_err()); // encoded limit
+        assert!(decode_transcription_audio("!bad", 8).is_err());
     }
 
     #[test]
@@ -491,6 +489,16 @@ mod tests {
         let request = SpeechToTextRequest { audio_bytes_base64: base64::engine::general_purpose::STANDARD.encode(b"audio fixture"), mime_type: "audio/wav".into(), locale: Some("en-US".into()) };
         assert_eq!(transcribe_audio_with_provider(&provider, "fixture", request).await.unwrap().transcript, "fixture transcript");
         server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn remote_audio_limit_is_checked_before_network() {
+        let provider = ModelProvider { id: "fixture".into(), name: "fixture".into(), provider_type: ProviderType::OpenaiCompatible,
+            protocol: "openai_compatible".into(), completion_profile: "standard".into(), base_url: "http://127.0.0.1:1".into(),
+            auth_secret_ref: None, enabled: true, created_at: "".into(), updated_at: "".into() };
+        let request = SpeechToTextRequest { audio_bytes_base64: "A".repeat(STUDIO_TRANSCRIPTION_MAX_BYTES.div_ceil(3) * 4 + 1), mime_type: "audio/wav".into(), locale: None };
+        let error = transcribe_audio_with_provider(&provider, "fixture", request).await.unwrap_err();
+        assert!(matches!(error, AppError::Validation(message) if message.contains("32 MiB")));
     }
 
     #[tokio::test]
