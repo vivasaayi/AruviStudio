@@ -455,6 +455,17 @@ product reference, and verified product deletion clears the reference.
 
 ## Dependency advisory update
 
+- Rechecked on 2026-11-14 against RustSec commit
+  `4ef2df8e806a65e2f1ecc14f56f51249062b23d6`: the independent consumer
+  lockfile had no vulnerabilities or warnings. Studio still reports
+  RUSTSEC-2023-0071 for `rsa` 0.9.10, 13 unmaintained warnings, and the
+  unsound warnings RUSTSEC-2024-0429 (`glib` 0.18.5) and RUSTSEC-2026-0097
+  (`rand` 0.7.3). `cargo tree --locked --target all -i rsa` found no selected
+  path under the current feature configuration. This does not rule out other
+  feature combinations; the local SQLx patch is outside the scanner's source
+  review. Full `npm audit` reported zero vulnerabilities. These findings
+  remain release review items rather than a claim of complete safety.
+
 - On 2026-11-14, cargo-audit 0.23.0 refreshed RustSec to commit
   `4ef2df8e806a65e2f1ecc14f56f51249062b23d6` (database update timestamp
   2026-11-13) and scanned the current lockfiles. The independent consumer had
