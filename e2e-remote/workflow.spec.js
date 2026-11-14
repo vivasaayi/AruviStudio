@@ -1,6 +1,37 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
+test("planner defaults do not fall through to an unrelated provider", async ({ request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const mcpHeaders = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };
+  const mcp = async (name, action, arguments_) => (await (await request.post("/api/mcp", { headers: mcpHeaders, data: { jsonrpc: "2.0", id: 23, method: "tools/call", params: { name, arguments: { action, arguments: arguments_ } } } })).json()).result;
+  const set = async (key, value) => { expect((await mcp("aruvi_settings", "set_setting", { key, value })).isError).not.toBeTruthy(); };
+  const created = await request.post("/api/mobile/providers", { headers, data: { name: "Planner binding fixture", base_url: process.env.ARUVI_TEST_MODEL_URL } });
+  const provider = await created.json();
+  const model = await (await request.post("/api/mobile/models", { headers, data: { provider_id: provider.id, name: "planner-binding-fixture-model" } })).json();
+  try {
+    await set("planner.default_provider_id", "missing-provider");
+    await set("planner.default_model_name", model.name);
+    const rejected = await request.post("/api/mobile/planner/sessions", { headers, data: {} });
+    expect(rejected.status()).toBe(400);
+    expect(await rejected.text()).toContain("configured planner default");
+    expect((await mcp("aruvi_planner", "create_planner_session", {})).isError).toBeTruthy();
+    const explicit = await mcp("aruvi_planner", "create_planner_session", { provider_id: provider.id, model_name: model.name });
+    expect(explicit.isError).not.toBeTruthy();
+    expect(explicit.structuredContent.result.provider_id).toBe(provider.id);
+    await set("planner.default_provider_id", provider.id);
+    const resolved = await request.post("/api/mobile/planner/sessions", { headers, data: {} });
+    expect(resolved.ok()).toBeTruthy();
+    expect(await resolved.json()).toMatchObject({ provider_id: provider.id, model_name: model.name });
+    await set("planner.default_model_name", "missing-model");
+    expect((await request.post("/api/mobile/planner/sessions", { headers, data: {} })).status()).toBe(400);
+  } finally {
+    await set("planner.default_provider_id", "");
+    await set("planner.default_model_name", "");
+  }
+});
+
 test("automatic transcription prefers explicit speech capabilities", async ({ request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };

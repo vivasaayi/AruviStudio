@@ -284,6 +284,16 @@ remain separate checks.
 
 ### Current requirement audit — 2026-11-14
 
+Planner defaults are now constraints rather than fallback hints: a configured
+provider/model pair that does not resolve to one enabled text model returns an
+error instead of silently choosing a different provider. Environment values
+override the corresponding saved fields; explicit session selections retain
+precedence. With no configured default, a sole eligible model is still selected
+automatically. The focused Rust resolution test and all 44 isolated workflows
+passed, including invalid saved defaults and explicit overrides through browser
+API and MCP. Live external channels and environment override combinations were
+not exercised by that fixture.
+
 Automatic transcription selection ranks explicit transcription/STT/ASR tags
 above generic audio names and ignores clear synthesis-only names or tags, unless
 the model also explicitly advertises transcription. Manual model choices remain

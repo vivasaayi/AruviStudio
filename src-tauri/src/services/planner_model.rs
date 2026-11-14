@@ -229,64 +229,51 @@ pub(crate) async fn resolve_planner_model_binding(
         ));
     }
 
-    let first_valid_pair = |pairs: Vec<(Option<String>, Option<String>)>| {
-        pairs.into_iter().find_map(|(provider_id, model_name)| {
-            let provider_id = provider_id?;
-            let model_name = model_name?;
-            enabled_models
-                .iter()
-                .find(|model| model.provider_id == provider_id && model.name == model_name)
-                .map(|model| (Some(model.provider_id.clone()), Some(model.name.clone())))
-        })
-    };
+    resolve_planner_defaults(&enabled_models,
+        env_provider_id.or(default_provider_id).as_deref(),
+        env_model_name.or(default_model_name).as_deref())
+}
 
-    if let Some(pair) = first_valid_pair(vec![
-        (requested_provider_id.clone(), requested_model_name.clone()),
-        (requested_provider_id.clone(), default_model_name.clone()),
-        (env_provider_id.clone(), env_model_name.clone()),
-        (default_provider_id.clone(), default_model_name.clone()),
-    ]) {
-        return Ok(pair);
+fn resolve_planner_defaults(
+    enabled_models: &[crate::domain::model::ModelDefinition],
+    provider: Option<&str>,
+    model: Option<&str>,
+) -> Result<(Option<String>, Option<String>), AppError> {
+    let matches: Vec<_> = enabled_models.iter().filter(|candidate|
+        provider.is_none_or(|id| candidate.provider_id == id) && model.is_none_or(|name| candidate.name == name)
+    ).collect();
+    if matches.len() == 1 {
+        return Ok((Some(matches[0].provider_id.clone()), Some(matches[0].name.clone())));
+    }
+    if provider.is_some() || model.is_some() {
+        return Err(AppError::Validation("The configured planner default does not identify one enabled provider and model. Update the planner defaults.".into()));
+    }
+    Ok((None, None))
+}
+
+#[cfg(test)]
+mod default_resolution_tests {
+    use super::resolve_planner_defaults;
+    use crate::domain::model::ModelDefinition;
+
+    fn model(provider: &str, name: &str) -> ModelDefinition {
+        ModelDefinition { id: name.into(), provider_id: provider.into(), name: name.into(), context_window: None,
+            capability_tags: vec![], notes: "".into(), enabled: true, created_at: "".into(), updated_at: "".into() }
     }
 
-    let provider_candidates = [
-        requested_provider_id.clone(),
-        env_provider_id.clone(),
-        default_provider_id.clone(),
-    ];
-    for provider_id in provider_candidates.into_iter().flatten() {
-        let provider_models = enabled_models
-            .iter()
-            .filter(|model| model.provider_id == provider_id)
-            .collect::<Vec<_>>();
-        if provider_models.len() == 1 {
-            let model = provider_models[0];
-            return Ok((Some(model.provider_id.clone()), Some(model.name.clone())));
-        }
+    #[test]
+    fn configured_planner_defaults_never_fall_through_to_another_model() {
+        let one = vec![model("provider-a", "model-a")];
+        assert_eq!(resolve_planner_defaults(&one, None, None).unwrap(), (Some("provider-a".into()), Some("model-a".into())));
+        assert_eq!(resolve_planner_defaults(&one, Some("provider-a"), Some("model-a")).unwrap(), (Some("provider-a".into()), Some("model-a".into())));
+        assert!(resolve_planner_defaults(&one, Some("missing-provider"), Some("model-a")).is_err());
+        assert!(resolve_planner_defaults(&one, Some("provider-a"), Some("missing-model")).is_err());
+        assert!(resolve_planner_defaults(&one, Some("missing-provider"), None).is_err());
+        assert!(resolve_planner_defaults(&one, None, Some("missing-model")).is_err());
+        let two = vec![model("provider-a", "same"), model("provider-b", "same")];
+        assert!(resolve_planner_defaults(&two, None, Some("same")).is_err());
+        assert_eq!(resolve_planner_defaults(&two, None, None).unwrap(), (None, None));
     }
-
-    let model_candidates = [
-        requested_model_name.clone(),
-        env_model_name.clone(),
-        default_model_name.clone(),
-    ];
-    for model_name in model_candidates.into_iter().flatten() {
-        let matches = enabled_models
-            .iter()
-            .filter(|model| model.name == model_name)
-            .collect::<Vec<_>>();
-        if matches.len() == 1 {
-            let model = matches[0];
-            return Ok((Some(model.provider_id.clone()), Some(model.name.clone())));
-        }
-    }
-
-    if enabled_models.len() == 1 {
-        let model = &enabled_models[0];
-        return Ok((Some(model.provider_id.clone()), Some(model.name.clone())));
-    }
-
-    Ok((requested_provider_id, requested_model_name))
 }
 
 fn normalize_optional_config(value: Option<String>) -> Option<String> {
