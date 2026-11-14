@@ -442,6 +442,13 @@ test("browser registers and attaches a container workspace", async ({ page, requ
       await page.getByRole("button", { name: "Save file", exact: true }).click();
       await expect(page.locator("#status")).toHaveText("File saved");
       expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: "inspection.txt" })).content).toBe("saved from browser\n");
+      await page.getByLabel("Selected file contents").fill("unsaved during refresh\n");
+      await call("aruvi_repositories", "write_repository_file", { repository_id: repositoryId, relative_path: "new-after-open.txt", content: "new file\n" });
+      await page.getByRole("button", { name: "Refresh file tree" }).click();
+      await expect(page.locator("#repositoryTree").getByRole("button", { name: "new-after-open.txt" })).toBeVisible();
+      await expect(page.getByLabel("Selected file contents")).toHaveValue("unsaved during refresh\n");
+      await page.getByRole("button", { name: "Discard file edits" }).click();
+      await expect(page.getByLabel("Selected file contents")).toHaveValue("saved from browser\n");
       const patchFile = "patch-safety-fixture.txt";
       await call("aruvi_repositories", "write_repository_file", { repository_id: repositoryId, relative_path: patchFile, content: "alpha\nbeta\n" });
       const patchHash = (await call("aruvi_repositories", "get_repository_file_sha256", { repository_id: repositoryId, relative_path: patchFile })).sha256;

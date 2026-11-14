@@ -14,6 +14,12 @@ provider hosting into the model-host service as part of this work.
 
 ### Browser workspace tree filtering
 
+The browser can also refresh the workspace tree without clearing its open file
+or unsaved editor content. An isolated browser/MCP case created a file through
+MCP, refreshed the tree with an unsaved browser edit, verified both states, and
+discarded the edit; all 27 remote browser tests passed. Refresh rebuilds the
+displayed tree and does not preserve expanded folder state.
+
 The browser workspace now filters its already loaded, bounded file tree by
 case-insensitive name or relative path and opens matching ancestors. The worktree
 image built and 27 isolated browser tests passed, including opening a nested
