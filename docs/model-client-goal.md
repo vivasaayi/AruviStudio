@@ -69,6 +69,17 @@ leave them unchanged; they do not receive tag conflict detection. The isolated
 remote suite passed 23 tests on 2026-11-14, and the rebuilt branch services were
 healthy at `127.0.0.1:55080`. Provider/model parity as a whole remains open.
 
+## External planner defaults in the browser
+
+Routing now exposes the server-wide provider ID and model name for external
+planner sessions. Both settings are saved in one transaction with optimistic
+checks; the disposable browser/MCP workflow verified authentication, persistence,
+and rollback of both fields when an MCP edit makes one value stale. The 24-test
+isolated remote suite passed on 2026-11-14. Environment variables
+`ARUVI_PLANNER_PROVIDER_ID` and `ARUVI_PLANNER_MODEL_NAME` take precedence in
+external channel resolution; browser session settings remain separate. This
+does not validate a live WhatsApp or voice-channel session.
+
 ## Managed local model installation
 
 - Local Whisper providers support transcription, not agent text completion.

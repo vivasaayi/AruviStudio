@@ -863,6 +863,12 @@
 
         <section class="tab-panel" id="tab-routing">
           <section class="panel">
+            <div class="panel-header"><div class="panel-title">External planner defaults</div><button class="secondary" id="refreshPlannerDefaults" type="button">Refresh defaults</button></div>
+            <div class="panel-body"><p>These server-wide defaults apply to external planner channels when a session does not specify a provider and model. Server environment variables can override them. Browser session settings remain separate.</p>
+              <form id="plannerDefaultsForm" class="stack"><label><span class="label">Default planner provider ID</span><input id="plannerDefaultProvider" /></label><label><span class="label">Default planner model name</span><input id="plannerDefaultModel" /></label><button type="submit">Save planner defaults</button></form>
+            </div>
+          </section>
+          <section class="panel">
             <div class="panel-header"><div class="panel-title">Workflow automation</div><button class="secondary" id="refreshWorkflowAutomation" type="button">Refresh automation</button></div>
             <div class="panel-body"><p>These settings control when workflows start and whether planning and test review are approved automatically.</p><div id="workflowAutomation" class="stack"></div></div>
           </section>
@@ -1328,6 +1334,7 @@
       if (tabId === "routing") {
         void loadRouting();
         void loadWorkflowAutomation();
+        void loadPlannerDefaults();
       }
       if (tabId === "agents") {
         void loadAgents();
@@ -3252,6 +3259,32 @@
       } catch (error) { setStatus(error.message || String(error), "error"); }
       finally { el.attachRepositoryButton.disabled = false; }
     }
+
+    let plannerDefaults = null, plannerDefaultsSequence = 0, plannerDefaultsBusy = false;
+    async function loadPlannerDefaults() {
+      if (plannerDefaultsBusy) return;
+      const sequence = ++plannerDefaultsSequence;
+      try {
+        const result = await request("/api/mobile/planner-defaults");
+        if (sequence !== plannerDefaultsSequence) return;
+        plannerDefaults = result;
+        document.getElementById("plannerDefaultProvider").value = result.provider ?? "";
+        document.getElementById("plannerDefaultModel").value = result.model ?? "";
+      } catch (error) { if (sequence === plannerDefaultsSequence) setStatus(error.message || String(error), "error"); }
+    }
+    document.getElementById("refreshPlannerDefaults").addEventListener("click", () => void loadPlannerDefaults());
+    document.getElementById("plannerDefaultsForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!plannerDefaults || plannerDefaultsBusy) return;
+      plannerDefaultsBusy = true; ++plannerDefaultsSequence;
+      const form = event.currentTarget, refresh = document.getElementById("refreshPlannerDefaults");
+      for (const control of form.elements) control.disabled = true; refresh.disabled = true;
+      try {
+        plannerDefaults = await request("/api/mobile/planner-defaults", { method: "POST", body: { expected: plannerDefaults, provider: document.getElementById("plannerDefaultProvider").value, model: document.getElementById("plannerDefaultModel").value } });
+        setStatus("Planner defaults saved", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { plannerDefaultsBusy = false; for (const control of form.elements) control.disabled = false; refresh.disabled = false; }
+    });
 
     let workflowAutomationSequence = 0, workflowAutomationBusy = false;
     async function loadWorkflowAutomation() {

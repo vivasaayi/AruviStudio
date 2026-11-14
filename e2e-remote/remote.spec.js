@@ -741,6 +741,31 @@ test("browser edits workflow automation with conflict protection", async ({ page
   await expect(toggle).toBeChecked();
 });
 
+test("external planner defaults save atomically and reject stale MCP edits", async ({ page, request }) => {
+  test.skip(!token || !mcpToken || process.env.ARUVI_TEST_INSPECT !== "1", "Requires disposable remote fixture");
+  const url = "/api/mobile/planner-defaults", headers = { Authorization: `Bearer ${token}` };
+  expect((await request.get(url)).status()).toBe(401);
+  expect((await request.post(url, { data: { expected: { provider: null, model: null }, provider: "x", model: "y" } })).status()).toBe(401);
+  await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+  const loaded = page.waitForResponse((response) => response.url().endsWith(url) && response.request().method() === "GET");
+  await page.getByRole("button", { name: "Routing", exact: true }).click(); await loaded;
+  await page.getByLabel("Default planner provider ID").fill("provider-a");
+  await page.getByLabel("Default planner model name").fill("model-a");
+  await page.getByRole("button", { name: "Save planner defaults" }).click();
+  await expect(page.locator("#status")).toHaveText("Planner defaults saved");
+  expect(await (await request.get(url, { headers })).json()).toEqual({ provider: "provider-a", model: "model-a" });
+  const mcp = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}`, Accept: "application/json, text/event-stream" }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_settings", arguments: { action: "set_setting", arguments: { key: "planner.default_model_name", value: "model-external" } } } } });
+  expect((await mcp.json()).result.isError).not.toBeTruthy();
+  await page.getByLabel("Default planner provider ID").fill("provider-unsaved");
+  const conflict = page.waitForResponse((response) => response.url().endsWith(url) && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Save planner defaults" }).click();
+  expect((await conflict).status()).toBe(409);
+  expect(await (await request.get(url, { headers })).json()).toEqual({ provider: "provider-a", model: "model-external" });
+  await expect(page.getByLabel("Default planner provider ID")).toHaveValue("provider-unsaved");
+  await page.getByRole("button", { name: "Refresh defaults" }).click();
+  await expect(page.getByLabel("Default planner model name")).toHaveValue("model-external");
+});
+
 test("browser configures and selects a model", async ({ page, request }) => {
   test.skip(!token || !mcpToken, "Set mobile and MCP tokens for a running remote server");
   const name = `Provider test ${Date.now()}`;
