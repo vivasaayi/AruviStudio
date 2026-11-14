@@ -261,6 +261,16 @@ provider hosting into the model-host service as part of this work.
 
 ## Real browser voice revalidation
 
+- Current-branch macOS ARM64 desktop and server debug binaries built with the
+  locked dependencies; the native window remains untested because the console
+  was locked. `scripts/test native-model-host BINARY HOST_WORKTREE --model ID`
+  starts an isolated native server with a temporary database and private
+  credential file, confirms the listener belongs to the started process, and
+  checks discovery and coding completion through MCP. An initial shorter prompt
+  produced one unclassified completion failure; after increasing its token
+  budget and making the output instruction explicit, two separate runs passed.
+  This is not a model-quality or native-window validation.
+
 - On the current branch after the provider-profile migration, real Model Host
   `piper-ljspeech` generation and `whisper-tiny-metal` transcription passed as
   an MCP round trip. A separate browser check recorded synthetic Piper audio at
