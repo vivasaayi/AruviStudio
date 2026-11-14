@@ -226,7 +226,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
         ),
         action_tool(
             "aruvi_models",
-            "Manage providers and models, run chat completion, and inspect model calls and snapshots. list_model_calls accepts an optional limit (default 200, bounded to 1–500); get_model_call and read_model_call_snapshot take a call id. Provider creation and updates accept completion_profile: standard (default) or openai_reasoning (OpenAI-compatible protocol only; uses max_completion_tokens and omits temperature).",
+            "Manage providers and models, run chat completion, and inspect model calls and snapshots. list_model_calls accepts an optional limit (default 200, bounded to 1–500), source_kind, and paired before_created_at and before_id from the last result for the next page. get_model_call and read_model_call_snapshot take a call id. Provider creation and updates accept completion_profile: standard (default) or openai_reasoning (OpenAI-compatible protocol only; uses max_completion_tokens and omits temperature).",
             &[
                 "create_provider",
                 "list_providers",

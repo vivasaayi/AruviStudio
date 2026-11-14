@@ -876,8 +876,17 @@ call ID to read a snapshot. MCP now lists recent calls and retrieves call detail
 using the same ledger as the desktop and browser. The isolated workflow suite
 passed all 39 cases, including discovery and comparison of MCP ledger results
 with a browser workflow record and its snapshots. MCP list results remain bounded
-to 500 and do not yet support filtering or pagination. The refreshed worktree
+to 500. The refreshed worktree
 deployment was healthy and its live MCP list action passed a one-record check.
+
+MCP `list_model_calls` additionally accepts an exact `source_kind` and a paired
+`before_created_at` and `before_id` from the last returned call to continue in
+descending creation-time/ID order. Existing requests and the returned array are
+unchanged. A database fixture covers timestamp ties and invalid cursors; the
+isolated workflow compares filtered MCP pages with the existing ledger. A cursor
+is a position rather than a snapshot: new calls before that position are not
+included in subsequent pages. Browser and desktop still display only the latest
+300 calls and do not use this pagination.
 
 This table summarizes the current evidence; dated sections below are historical
 and may describe issues that were subsequently fixed. A passing fixture proves

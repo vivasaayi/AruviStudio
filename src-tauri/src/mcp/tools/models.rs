@@ -20,10 +20,15 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
     let args = tool_action.args();
 
     match tool_action.action.as_str() {
-        "list_model_calls" => action_result(
-            "list_model_calls",
-            model_call_repo::list_model_calls(&state.db, args.optional_i64(&["limit"])?.unwrap_or(200)).await?,
-        ),
+        "list_model_calls" => {
+            let source = args.optional_string(&["source_kind", "sourceKind"])?;
+            let before_created_at = args.optional_string(&["before_created_at", "beforeCreatedAt"])?;
+            let before_id = args.optional_string(&["before_id", "beforeId"])?;
+            action_result("list_model_calls", model_call_repo::list_model_calls_filtered(
+                &state.db, args.optional_i64(&["limit"])?.unwrap_or(200),
+                source.as_deref(), before_created_at.as_deref(), before_id.as_deref(),
+            ).await?)
+        },
         "get_model_call" => {
             let id = args.required_string(&["id"], "id")?;
             action_result("get_model_call", model_call_repo::get_model_call(&state.db, &id).await?)

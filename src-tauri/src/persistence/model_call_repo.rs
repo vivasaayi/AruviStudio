@@ -203,6 +203,19 @@ pub async fn create_model_call(
 }
 
 pub async fn list_model_calls(pool: &SqlitePool, limit: i64) -> Result<Vec<ModelCall>, AppError> {
+    list_model_calls_filtered(pool, limit, None, None, None).await
+}
+
+pub async fn list_model_calls_filtered(
+    pool: &SqlitePool, limit: i64, source_kind: Option<&str>,
+    before_created_at: Option<&str>, before_id: Option<&str>,
+) -> Result<Vec<ModelCall>, AppError> {
+    if before_created_at.is_some() != before_id.is_some()
+        || [source_kind, before_created_at, before_id].into_iter().flatten()
+            .any(|value| value.trim().is_empty() || value.len() > 256)
+    {
+        return Err(AppError::Validation("Invalid model call filter or incomplete cursor".into()));
+    }
     let bounded_limit = limit.clamp(1, 500);
     sqlx::query_as::<_, ModelCall>(
         "SELECT
@@ -238,13 +251,46 @@ pub async fn list_model_calls(pool: &SqlitePool, limit: i64) -> Result<Vec<Model
             error_message,
             created_at
          FROM model_calls
+         WHERE (? IS NULL OR source_kind = ?)
+           AND (? IS NULL OR created_at < ? OR (created_at = ? AND id < ?))
          ORDER BY created_at DESC, id DESC
          LIMIT ?",
     )
+    .bind(source_kind).bind(source_kind)
+    .bind(before_created_at).bind(before_created_at).bind(before_created_at).bind(before_id)
     .bind(bounded_limit)
     .fetch_all(pool)
     .await
     .map_err(|e| e.into())
+}
+
+#[cfg(test)]
+mod pagination_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn filters_and_pages_without_skipping_equal_timestamps() {
+        let pool = crate::persistence::db::create_pool("sqlite::memory:").await.unwrap();
+        for (id, source, index, created) in [
+            ("c", "chat", 1, "2026-01-02 00:00:00"),
+            ("b", "chat", 2, "2026-01-02 00:00:00"),
+            ("a", "chat", 3, "2026-01-02 00:00:00"),
+            ("d", "planner", 1, "2026-01-03 00:00:00"),
+            ("e", "chat", 4, "2026-01-01 00:00:00"),
+        ] {
+            sqlx::query("INSERT INTO model_calls (id,source_kind,provider_id,model_name,call_index,created_at) VALUES (?,?,?,?,?,?)")
+                .bind(id).bind(source).bind("provider").bind("model").bind(index).bind(created)
+                .execute(&pool).await.unwrap();
+        }
+        let first = list_model_calls_filtered(&pool, 2, Some("chat"), None, None).await.unwrap();
+        assert_eq!(first.iter().map(|call| call.id.as_str()).collect::<Vec<_>>(), ["c", "b"]);
+        let last = first.last().unwrap();
+        let second = list_model_calls_filtered(&pool, 2, Some("chat"), Some(&last.created_at), Some(&last.id)).await.unwrap();
+        assert_eq!(second.iter().map(|call| call.id.as_str()).collect::<Vec<_>>(), ["a", "e"]);
+        assert!(list_model_calls_filtered(&pool, 2, None, Some(&last.created_at), None).await.is_err());
+        assert!(list_model_calls_filtered(&pool, 2, Some(" "), None, None).await.is_err());
+        assert_eq!(list_model_calls(&pool, 1).await.unwrap()[0].id, "d");
+    }
 }
 
 pub async fn get_model_call(pool: &SqlitePool, id: &str) -> Result<ModelCall, AppError> {

@@ -378,6 +378,17 @@ for (const scenario of ["passed", "failed", "skipped"]) test(`isolated workflow 
     expect(snapshotCall).toBeTruthy();
     const mcpCalls = await mcp("aruvi_models", "list_model_calls", { limit: 100 });
     expect(mcpCalls.find((item) => item.id === snapshotCall.id)).toEqual(snapshotCall);
+    const filtered = mcpCalls.filter((item) => item.source_kind === snapshotCall.source_kind);
+    const firstPage = await mcp("aruvi_models", "list_model_calls", { limit: 1, source_kind: snapshotCall.source_kind });
+    expect(firstPage).toEqual(filtered.slice(0, 1));
+    const secondPage = await mcp("aruvi_models", "list_model_calls", { limit: 100, source_kind: snapshotCall.source_kind, before_created_at: firstPage[0].created_at, before_id: firstPage[0].id });
+    expect(secondPage).toEqual(filtered.slice(1));
+    expect(await mcp("aruvi_models", "list_model_calls", { source_kind: "not-a-real-source" })).toEqual([]);
+    const incompleteCursor = await request.post("/api/mcp", {
+      headers: { Authorization: `Bearer ${mcpToken}` },
+      data: { jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "aruvi_models", arguments: { action: "list_model_calls", arguments: { before_id: firstPage[0].id } } } },
+    });
+    expect((await incompleteCursor.json()).result.isError).toBeTruthy();
     expect(await mcp("aruvi_models", "get_model_call", { id: snapshotCall.id })).toEqual(snapshotCall);
     expect(await mcp("aruvi_models", "list_model_calls", { limit: 0 })).toHaveLength(1);
     const toolList = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` }, data: { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} } });
