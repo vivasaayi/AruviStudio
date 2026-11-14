@@ -3921,7 +3921,7 @@
             event.preventDefault(); keySave.disabled = true;
             try {
               await request("/api/mobile/providers/credential", { method: "POST", body: { id: provider.id,
-                expected: { name: provider.name, base_url: provider.base_url, enabled: provider.enabled, protocol: provider.protocol }, api_key: keyInput.value } });
+                expected: { name: provider.name, base_url: provider.base_url, enabled: provider.enabled, protocol: provider.protocol, completion_profile: provider.completion_profile }, credential_revision: provider.credential_revision, api_key: keyInput.value } });
               keyInput.value = ""; await loadModelConfiguration(); setStatus("Provider key replaced", "ok");
             } catch (error) { setStatus(error.message || String(error), "error"); }
             finally { keySave.disabled = false; }

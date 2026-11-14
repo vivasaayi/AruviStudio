@@ -1498,3 +1498,27 @@ for (const scenario of ["staged", "changed", "remote"]) test(`workflow handles f
   expect(finished.workflow_run.status).toBe("completed");
   expect(finished.retryable_git_delivery).toBe(false);
 });
+
+test("browser key rotation rejects a stale credential revision", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const created = await request.post("/api/mobile/providers", { headers, data: { name: "Stale rotation fixture", base_url: process.env.ARUVI_TEST_MODEL_URL } });
+  expect(created.ok()).toBeTruthy();
+  const provider = await created.json();
+  await page.goto("/remote"); await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN); await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Models", exact: true }).click();
+  const card = page.locator("#providerList .tool-card").filter({ hasText: "Stale rotation fixture" });
+  await card.getByText("Manage provider", { exact: true }).click();
+  const input = card.getByLabel("New API key for Stale rotation fixture");
+  await input.fill("synthetic-browser-key");
+  const expected = { name: provider.name, base_url: provider.base_url, enabled: provider.enabled };
+  // The legacy API request intentionally omits the revision for compatibility.
+  expect((await request.post("/api/mobile/providers/credential", { headers, data: { id: provider.id, expected, api_key: "synthetic-other-key" } })).ok()).toBeTruthy();
+  const current = (await (await request.get("/api/mobile/providers", { headers })).json()).find((item) => item.id === provider.id);
+  const stale = page.waitForResponse((response) => response.url().endsWith("/api/mobile/providers/credential"));
+  await card.getByRole("button", { name: "Replace API key" }).click();
+  expect((await stale).status()).toBe(409);
+  await expect(input).toHaveValue("synthetic-browser-key");
+  const listed = await (await request.get("/api/mobile/providers", { headers })).json();
+  expect(listed.find((item) => item.id === provider.id).credential_revision).toBe(current.credential_revision);
+});

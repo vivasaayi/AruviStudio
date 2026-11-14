@@ -1039,14 +1039,14 @@ pub(crate) async fn mobile_update_provider(State(state): State<WebhookState>, he
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct ProviderCredentialRequest { id: String, expected: ProviderEditFields, api_key: String }
+pub(crate) struct ProviderCredentialRequest { id: String, expected: ProviderEditFields, api_key: String, credential_revision: Option<String> }
 
 pub(crate) async fn mobile_rotate_provider_credential(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<ProviderCredentialRequest>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     if body.api_key.trim().is_empty() || body.api_key.trim().len() > 16 * 1024 { return (StatusCode::BAD_REQUEST, "API key must contain 1 to 16384 bytes").into_response(); }
     let mut tx = match state.app_state.db.begin().await { Ok(tx) => tx, Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response() };
-    let locked = sqlx::query("UPDATE model_providers SET name=name WHERE id=? AND name=? AND base_url=? AND enabled=? AND protocol=COALESCE(?,protocol)")
-        .bind(&body.id).bind(&body.expected.name).bind(&body.expected.base_url).bind(body.expected.enabled).bind(&body.expected.protocol).execute(&mut *tx).await;
+    let locked = sqlx::query("UPDATE model_providers SET name=name WHERE id=? AND name=? AND base_url=? AND enabled=? AND protocol=COALESCE(?,protocol) AND completion_profile=COALESCE(?,completion_profile) AND credential_revision=COALESCE(?,credential_revision)")
+        .bind(&body.id).bind(&body.expected.name).bind(&body.expected.base_url).bind(body.expected.enabled).bind(&body.expected.protocol).bind(&body.expected.completion_profile).bind(&body.credential_revision).execute(&mut *tx).await;
     match locked {
         Ok(result) if result.rows_affected() == 1 => {},
         Ok(_) => return (StatusCode::CONFLICT, "Provider changed or was removed. Refresh before rotating its key.").into_response(),

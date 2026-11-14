@@ -2299,6 +2299,17 @@ model discovery, completion, streaming and token-limit handling with
 `qwen25-coder-7b-q4`. This verifies the pinned revision; later client changes
 require a new pin and revalidation. No release was published.
 
+## Browser provider credential rotation
+
+Browser key rotation now sends the opaque credential revision and completion
+profile it loaded; the backend checks these along with the provider fields before
+storing a new secret. A stale browser gets a conflict and keeps its typed input.
+For compatibility, older API clients may omit the revision and therefore do not
+receive this stale-credential protection. In an isolated run all 32 workflow tests
+passed, including a second client rotating before the browser save. The first run
+also exposed a stale synthetic voice fixture expecting `en-US`; it was updated to
+verify the normalized `en` multipart field before the passing rerun.
+
 ## Browser example-catalog settings
 
 The Routing page exposes the desktop's hide-example-products preference and

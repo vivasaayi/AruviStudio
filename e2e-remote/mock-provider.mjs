@@ -149,7 +149,7 @@ const server = http.createServer((request, response) => {
     request.on("data", (chunk) => chunks.push(chunk));
     request.on("end", () => {
       const body = Buffer.concat(chunks);
-      if (!request.headers["content-type"]?.startsWith("multipart/form-data") || !body.includes("RIFF") || !body.includes("synthetic-stt-model") || !body.includes("en-US")) {
+      if (!request.headers["content-type"]?.startsWith("multipart/form-data") || !body.includes("RIFF") || !body.includes("synthetic-stt-model") || !body.includes('name="language"\r\n\r\nen\r\n')) {
         response.statusCode = 400;
         response.end(JSON.stringify({ error: "Unexpected transcription payload" }));
         return;
