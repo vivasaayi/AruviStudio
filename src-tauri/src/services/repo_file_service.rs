@@ -231,6 +231,23 @@ mod tests {
     }
 
     #[test]
+    fn malformed_patch_does_not_change_file() {
+        let root = temp_repo_dir("malformed");
+        let file_path = root.join("file.txt");
+        fs::write(&file_path, "alpha\nbeta\n").unwrap();
+        let hash = get_repository_file_sha256(&root.to_string_lossy(), "file.txt").unwrap();
+        assert!(apply_repository_patch(
+            &root.to_string_lossy(),
+            "file.txt",
+            "@@ -1,2 +1,1 @@\n-alpha\n+changed",
+            Some(&hash),
+        )
+        .is_err());
+        assert_eq!(fs::read_to_string(file_path).unwrap(), "alpha\nbeta\n");
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
     fn apply_patch_rejects_hash_mismatch() {
         let root = temp_repo_dir("hash_mismatch");
         let file_path = root.join("file.txt");

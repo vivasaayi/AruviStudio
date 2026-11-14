@@ -46,6 +46,19 @@ provider hosting into the model-host service as part of this work.
 
 ## Browser file-aware Copilot
 
+- The shared repository patch parser now validates both hunk ranges and line
+  counts, rejects out-of-bounds or overlapping edits, preserves uniform CRLF and
+  trailing spaces, and handles explicit no-final-newline markers. The existing
+  SHA-256 precondition still applies; this does not make multi-file patching
+  atomic or protect against non-cooperating external filesystem changes.
+  Browser patch proposal generation, review and application remain open.
+- The Linux Rust suite passed 203 tests with two live tests ignored, including
+  malformed-count and position rejection, multiple hunks, newline handling,
+  CRLF preservation and verification that rejected edits leave files unchanged.
+  All 22 isolated remote UI cases passed, including an authenticated MCP test
+  that rejects a malformed patch without changing the file and applies a valid
+  insertion. The rebuilt worktree container is healthy on port 55019.
+
 - Browser and MCP file Copilot now accept follow-ups with at most ten
   user/assistant pairs and 24,000 history characters. The browser keeps history
   only in the current page for the same saved file and provider/model, resets it

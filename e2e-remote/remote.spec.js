@@ -302,6 +302,18 @@ test("browser registers and attaches a container workspace", async ({ page, requ
       await page.getByRole("button", { name: "Save file", exact: true }).click();
       await expect(page.locator("#status")).toHaveText("File saved");
       expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: "inspection.txt" })).content).toBe("saved from browser\n");
+      const patchFile = "patch-safety-fixture.txt";
+      await call("aruvi_repositories", "write_repository_file", { repository_id: repositoryId, relative_path: patchFile, content: "alpha\nbeta\n" });
+      const patchHash = (await call("aruvi_repositories", "get_repository_file_sha256", { repository_id: repositoryId, relative_path: patchFile })).sha256;
+      const badPatchResponse = await request.post("/api/mcp", {
+        headers: { Authorization: `Bearer ${mcpToken}`, Accept: "application/json, text/event-stream" },
+        data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_repositories", arguments: { action: "apply_repository_patch", arguments: { repository_id: repositoryId, relative_path: patchFile, base_sha256: patchHash, patch: "@@ -1,2 +1,1 @@\n-alpha\n+changed" } } } },
+      });
+      const badPatch = await badPatchResponse.json();
+      expect(badPatch.result?.isError || badPatch.error, JSON.stringify(badPatch)).toBeTruthy();
+      expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: patchFile })).content).toBe("alpha\nbeta\n");
+      await call("aruvi_repositories", "apply_repository_patch", { repository_id: repositoryId, relative_path: patchFile, base_sha256: patchHash, patch: "@@ -1,0 +2,1 @@\n+middle" });
+      expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: patchFile })).content).toBe("alpha\nmiddle\nbeta\n");
       if (copilotProvider) {
         await page.getByLabel("Copilot question").fill("Explain this file");
         await page.getByRole("button", { name: "Ask about saved file" }).click();
