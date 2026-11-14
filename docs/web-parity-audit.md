@@ -161,7 +161,10 @@ node matches the selection made before the request.
 The desktop CI page and product build panel call the Aruvici bridge in
 `src-tauri/src/commands/ci_commands.rs`. The Docker image does not include Aruvici or expose
 its socket. On the inspected Mac, `aruvici` was not on `PATH` and the expected
-user-data socket was absent; no live CI service was available to validate.
+user-data socket was absent. A later disposable native Studio and Aruvici check
+passed MCP health, empty target/run listings and browser API health; its Docker
+Desktop socket-mount probe returned `ENOTSUP`. This does not validate a real
+target, build, or a working Docker-to-host CI transport.
 
 | Desktop action | Dependency or constraint for web parity |
 | --- | --- |

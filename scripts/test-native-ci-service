@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""Check a disposable native Studio server against a real, empty Aruvici service."""
+import argparse
+import contextlib
+import json
+import os
+from pathlib import Path
+import secrets
+import socket
+import subprocess
+import tempfile
+import time
+import urllib.error
+import urllib.request
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("studio_binary", type=Path)
+parser.add_argument("aruvici_binary", type=Path)
+parser.add_argument("--docker-image", help="Optionally probe the temporary socket from this local image as UID 10001")
+args = parser.parse_args()
+studio = args.studio_binary.resolve(strict=True)
+aruvici = args.aruvici_binary.resolve(strict=True)
+
+def stop(process):
+    if process and process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+
+def wait_for(predicate, processes):
+    deadline = time.monotonic() + 45
+    while time.monotonic() < deadline:
+        if any(process.poll() is not None for process in processes):
+            raise RuntimeError("A disposable service exited before becoming ready")
+        try:
+            if predicate(): return
+        except (OSError, urllib.error.URLError):
+            pass
+        time.sleep(0.2)
+    raise RuntimeError("Disposable service did not become ready")
+
+ci = app = None
+try:
+    with tempfile.TemporaryDirectory(prefix="aruvi-ci-check-", dir="/private/tmp") as temp, contextlib.ExitStack() as cleanup:
+        root = Path(temp)
+        state = root / "ci"
+        state.mkdir(mode=0o700)
+        platform = root / "platform.toml"
+        platform.write_text('state_dir = ' + json.dumps(str(state)) + '\ntargets = []\n')
+        base_env = {key: value for key, value in os.environ.items() if not key.startswith("ARUVI_")}
+        ci = subprocess.Popen([str(aruvici), "ci", "--platform", str(platform), "serve"], env=base_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        cleanup.callback(stop, ci)
+        ci_socket = state / "ci.sock"
+        def ci_ready():
+            with socket.socket(socket.AF_UNIX) as connection:
+                connection.settimeout(2)
+                connection.connect(str(ci_socket))
+                connection.sendall(b'{"method":"health"}\n')
+                return json.loads(connection.makefile("rb").readline())["ok"]
+        wait_for(ci_ready, [ci])
+        with socket.socket() as reserve:
+            reserve.bind(("127.0.0.1", 0))
+            port = reserve.getsockname()[1]
+        token = secrets.token_urlsafe(32)
+        env = dict(base_env, ARUVI_APP_DATA_DIR=str(root / "studio"), ARUVI_DB_PATH=str(root / "studio.db"),
+                   ARUVI_LLM_CONFIG_PATH=str(root / "llm-config.json"), ARUVI_CI_SOCKET=str(ci_socket),
+                   ARUVI_WEBHOOK_HOST="127.0.0.1", ARUVI_WEBHOOK_PORT=str(port),
+                   ARUVI_MOBILE_API_TOKEN=token, ARUVI_MCP_API_TOKEN=token)
+        app = subprocess.Popen([str(studio)], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        cleanup.callback(stop, app)
+        address = f"http://127.0.0.1:{port}"
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        def health():
+            owners = subprocess.run(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"], capture_output=True, text=True, check=False).stdout.split()
+            if str(app.pid) not in owners: return False
+            with opener.open(address + "/health", timeout=2) as response: return response.status == 200
+        wait_for(health, [ci, app])
+        def mcp(action):
+            payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "aruvi_ci", "arguments": {"action": action, "arguments": {}}}}
+            request = urllib.request.Request(address + "/api/mcp", data=json.dumps(payload).encode(), headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
+            with opener.open(request, timeout=10) as response: result = json.load(response)["result"]
+            if result.get("isError"): raise RuntimeError("MCP CI action failed: " + action)
+            return result["structuredContent"]["result"]
+        status = mcp("get_status")
+        if status.get("status") != "online" or status.get("protocol") != 1: raise RuntimeError("Unexpected CI health response")
+        if mcp("list_targets") != [] or mcp("list_runs") != []: raise RuntimeError("Disposable CI registry is not empty")
+        request = urllib.request.Request(address + "/api/mobile/ci/status", headers={"Authorization": "Bearer " + token})
+        with opener.open(request, timeout=10) as response: mobile = json.load(response)
+        if mobile.get("status") != "online" or mobile.get("protocol") != 1: raise RuntimeError("Unexpected browser CI health response")
+        print("Disposable native Studio and Aruvici: MCP health, targets, runs and browser API health passed.")
+        if args.docker_image:
+            probe = """const net=require('net');const s=net.connect('/ci/ci.sock');
+s.setTimeout(3000);s.on('connect',()=>s.write('{\"method\":\"health\"}\\n'));
+let b='';s.on('data',c=>{b+=c;if(b.includes('\\n')){try{const r=JSON.parse(b.split('\\n')[0]);if(r.ok&&r.result.status==='online'){console.log('connected');process.exit(0)}}catch{}process.exit(2)}});
+s.on('timeout',()=>{console.log('unavailable:timeout');process.exit(3)});
+s.on('error',e=>{console.log('unavailable:'+(e.code||'unknown'));process.exit(3)});"""
+            result = subprocess.run(["docker", "run", "--rm", "--network", "none", "--read-only", "--cap-drop", "ALL", "--user", "10001:10001", "--security-opt", "no-new-privileges", "--mount", f"type=bind,src={state},dst=/ci,readonly", "--entrypoint", "/usr/local/bin/node", args.docker_image, "-e", probe], capture_output=True, text=True, timeout=30)
+            outcome = result.stdout.strip()
+            if result.returncode == 0 and outcome == "connected": print("Docker socket probe: connected as UID 10001.")
+            elif result.returncode == 3 and outcome.startswith("unavailable:"): print("Docker socket probe: " + outcome)
+            else: raise RuntimeError("Docker socket probe could not run")
+        stop(app); app = None
+        stop(ci); ci = None
+finally:
+    stop(app)
+    stop(ci)

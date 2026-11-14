@@ -12,6 +12,20 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Disposable native Aruvici connection
+
+Studio revision `f90987b` and Aruvici revision `5851f2594bbbd83193e259a566004088ac28c52e`
+were built natively on macOS. A disposable Aruvici process with an empty temporary
+registry and private socket and a disposable native Studio process passed MCP
+CI health, target and run listing plus browser API health. No pipeline was
+queued. `bash scripts/test native-ci-service STUDIO_BINARY ARUVICI_BINARY`
+repeats the check; `--docker-image IMAGE` also probes the temporary socket from
+a network-isolated container as UID 10001. On this Mac, that Docker Desktop
+probe returned `ENOTSUP`. This is one socket-mount observation, not proof about
+all Docker configurations. The running Docker branch still lacks a real CI
+transport; real targets, builds and browser rendering remain unverified. Both
+temporary services and their temporary state were removed after the check.
+
 ### Shared guarded PDF export
 
 On the development Mac, Playwright's default browser for the installed package
