@@ -25,6 +25,12 @@ async fn submit_planner_voice_turn_selects_draft_nodes() {
                 "name": "Guest Management",
                 "description": "Guest workflows."
             }),
+            json!({
+                "type": "create_product_area",
+                "target": { "productName": "Hotel Management System" },
+                "name": "Events.",
+                "description": "Events workflows."
+            }),
         ]),
     )
     .expect("failed to build draft");
@@ -65,7 +71,7 @@ async fn submit_planner_voice_turn_selects_draft_nodes() {
         state.planner_service.clone(),
         &state,
         session.session_id.clone(),
-        "select product area guest management".to_string(),
+        "Select Product Area Guest Management.".to_string(),
         None,
         None,
     )
@@ -82,7 +88,13 @@ async fn submit_planner_voice_turn_selects_draft_nodes() {
         .assistant_message
         .contains("Selected product area \"Guest Management\""));
     assert!(response.draft_tree_nodes.is_some());
-    for (command, hint) in [("collapse product", "collapse_node"), ("expand product", "expand_node")] {
+    let dotted_id = draft.nodes.iter().find(|node| node.name == "Events.").unwrap().id.clone();
+    let dotted = submit_planner_voice_turn(
+        state.planner_service.clone(), &state, session.session_id.clone(),
+        "Select Product Area Events.".into(), None, None,
+    ).await.expect("a name ending in a period should remain selectable");
+    assert_eq!(dotted.selected_draft_node_id.as_deref(), Some(dotted_id.as_str()));
+    for (command, hint) in [("collapse product.", "collapse_node"), ("Expand Product.", "expand_node")] {
         let view = submit_planner_voice_turn(
             state.planner_service.clone(), &state, session.session_id.clone(), command.into(),
             Some(product_area_id.clone()), None,

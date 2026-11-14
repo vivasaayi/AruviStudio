@@ -101,6 +101,13 @@ the adapter still needs reconciliation and runtime testing with the candidate ho
 
 ### Current branch build and security checks
 
+Named planner voice selection and expand/collapse now accept mixed-case node
+types and retry a reference without one final period when its original spelling
+finds no match. An existing punctuated node name takes precedence and ambiguous
+matches still return an error. A native shared-service test exercised selection,
+tree commands and a node whose name ends in a period. All 21 native planner-turn
+tests passed; physical microphone and native-window testing remain open.
+
 At revision `040092f`, the native macOS ARM64 Rust library suite passed 256
 tests with seven ignored, and desktop, server and MCP debug binaries built. The
 standard unit wrapper passed after setting the native Cargo environment, including

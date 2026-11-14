@@ -39,14 +39,14 @@ pub(crate) fn parse_voice_node_reference(spoken_remainder: &str) -> (Option<&'st
         ("node ", "node"),
     ];
     for (prefix, node_type) in prefixes {
-        if trimmed == prefix.trim() {
+        if trimmed.eq_ignore_ascii_case(prefix.trim()) {
             return (
                 Some(node_type),
                 format!("selected {}", node_type.replace('_', " ")),
             );
         }
-        if let Some(rest) = trimmed.strip_prefix(prefix) {
-            return (Some(node_type), rest.trim().to_string());
+        if trimmed.get(..prefix.len()).is_some_and(|start| start.eq_ignore_ascii_case(prefix)) {
+            return (Some(node_type), trimmed[prefix.len()..].trim().to_string());
         }
     }
     (None, trimmed.to_string())

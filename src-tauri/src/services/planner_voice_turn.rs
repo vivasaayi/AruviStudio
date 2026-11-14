@@ -377,6 +377,18 @@ pub async fn submit_planner_voice_turn(
                 &reference,
                 explicit_type,
             );
+            // Prefer an exact spoken name, including punctuation. A single trailing
+            // period may instead be added by speech transcription, so retry only
+            // when the original reference did not match any node.
+            let resolved = match resolved {
+                Ok(None) if reference.ends_with('.') => resolve_voice_draft_node_reference(
+                    &draft_plan,
+                    session.selected_draft_node_id.as_deref(),
+                    exact_voice_command_text(&reference),
+                    explicit_type,
+                ),
+                other => other,
+            };
             let target_node = match resolved {
                 Ok(Some(node)) => node,
                 Ok(None) => {
