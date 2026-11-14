@@ -246,7 +246,7 @@ async fn coding_stage_creates_tool_trace_artifact() {
 
     let applied_file = std::fs::read_to_string(repo_dir.join("hello.txt"))
         .expect("expected file written by coding tool loop");
-    assert_eq!(applied_file, "hello from tool loop\nsecond line\n\n");
+    assert_eq!(applied_file, "hello from tool loop\nsecond line\n");
 
     let no_change_run = workflow_repo::create_workflow_run(&pool, "test-no-change-run", &work_item.id)
         .await

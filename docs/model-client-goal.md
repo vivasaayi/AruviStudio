@@ -725,13 +725,19 @@ The coding tool loop now rejects an identical successful replacement until the
 file is reread or another edit changes it, and gives the model an actionable
 observation. A simulated tool-loop regression verifies the repeated call is not
 applied; the check does not detect all semantically duplicate edits or guarantee
-model correctness. Existing line-range replacement can introduce an extra blank
-line when replacement text already ends in a newline; that formatting issue is
-still open. After rebuilding, a fresh 7B `extend-module` run passed its syntax
+model correctness. Line-range replacement now treats a terminal newline as a
+line terminator instead of adding a blank line; focused start/middle/end and
+coding-loop tests passed. Mixed line-ending preservation remains unverified.
+After rebuilding, a fresh 7B `extend-module` run passed its syntax
 and isolated behavioral checks and delivered to the disposable Git remote. The
 model did not repeat its edit in that run, so the guard itself was exercised by
 the simulated regression, not the successful live run. The two preceding failures
 remain evidence of nondeterministic coding reliability.
+A subsequent 7B run after the newline fix passed the syntax and behavioral gates
+and delivered, but the generated replacement duplicated an existing `sumEven`
+function declaration. The gates did not detect that code-quality defect, so this
+is not evidence of clean code or general coding reliability. The full native Rust
+suite passed 236 tests with six ignored on 2026-11-14.
 
 ## Independent client revalidation
 

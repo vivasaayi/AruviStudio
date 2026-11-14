@@ -180,19 +180,7 @@ pub(super) async fn replace_workspace_range(
         )));
     }
 
-    let replacement_lines = replacement
-        .split('\n')
-        .map(std::string::ToString::to_string)
-        .collect::<Vec<_>>();
-    let mut merged =
-        Vec::with_capacity(lines.len() - (end_line - start_line + 1) + replacement_lines.len());
-    merged.extend_from_slice(&lines[..start_line - 1]);
-    merged.extend(replacement_lines);
-    merged.extend_from_slice(&lines[end_line..]);
-    let mut updated = merged.join("\n");
-    if had_trailing_newline {
-        updated.push('\n');
-    }
+    let updated = merge_replacement_lines(&lines, start_line, end_line, replacement, had_trailing_newline);
     agent_execution_limits::ensure_write_limit(&updated, boundaries)?;
     workspace.write_file(&normalized, &updated).await?;
     changed_files.insert(normalized.clone());
@@ -203,6 +191,40 @@ pub(super) async fn replace_workspace_range(
         "end_line": end_line,
         "replaced_lines": end_line.saturating_sub(start_line) + 1,
     }))
+}
+
+// A final newline terminates the last replacement line; it is not an extra
+// empty line. Additional final newlines continue to represent blank lines.
+fn merge_replacement_lines(lines: &[String], start: usize, end: usize, replacement: &str, trailing_newline: bool) -> String {
+    let mut replacement_lines = replacement.split('\n').map(str::to_owned).collect::<Vec<_>>();
+    if replacement.ends_with('\n') { replacement_lines.pop(); }
+    let mut merged = Vec::with_capacity(lines.len() - (end - start + 1) + replacement_lines.len());
+    merged.extend_from_slice(&lines[..start - 1]);
+    merged.extend(replacement_lines);
+    merged.extend_from_slice(&lines[end..]);
+    let mut updated = merged.join("\n");
+    if trailing_newline { updated.push('\n'); }
+    updated
+}
+
+#[cfg(test)]
+mod replacement_line_tests {
+    use super::merge_replacement_lines;
+
+    #[test]
+    fn newline_terminated_replacements_do_not_add_an_extra_blank_line() {
+        let lines = vec!["first".into(), "middle".into(), "last".into()];
+        for (start, end, replacement, expected) in [
+            (1, 1, "one\n", "one\nmiddle\nlast\n"),
+            (2, 2, "two\n", "first\ntwo\nlast\n"),
+            (3, 3, "three\n", "first\nmiddle\nthree\n"),
+            (2, 2, "two\n\n", "first\ntwo\n\nlast\n"),
+            (2, 2, "", "first\n\nlast\n"),
+        ] {
+            assert_eq!(merge_replacement_lines(&lines, start, end, replacement, true), expected);
+        }
+        assert_eq!(merge_replacement_lines(&lines, 3, 3, "three\n", false), "first\nmiddle\nthree");
+    }
 }
 
 fn select_line_range(
