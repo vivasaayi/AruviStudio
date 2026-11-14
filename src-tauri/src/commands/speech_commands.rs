@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::persistence::{model_repo, settings_repo};
 use crate::services::speech_service::{
-    compatible_speech_model_default, looks_like_transcription_model, model_supports_transcription, speak_text_natively, transcribe_audio_with_provider,
+    compatible_speech_model_default, default_transcription_model, speak_text_natively, transcribe_audio_with_provider,
     SpeechToTextRequest, SpeechToTextResponse, TextToSpeechRequest,
 };
 use crate::state::AppState;
@@ -33,27 +33,9 @@ pub async fn transcribe_audio_command(
     let requested_model_name = model_name
         .filter(|value| !value.trim().is_empty())
         .or(default_model);
-    let provider_models = model_repo::list_model_definitions(&state.db)
-        .await?
-        .into_iter()
-        .filter(|model| model.provider_id == provider_id);
-    let speech_models = provider_models
-        .filter(model_supports_transcription)
-        .collect::<Vec<_>>();
-    let model_name = if let Some(model_name) = requested_model_name {
-        let known_model = speech_models.iter().any(|model| model.name == model_name);
-        if known_model || looks_like_transcription_model(&model_name) {
-            model_name
-        } else {
-            return Err(AppError::Validation(format!(
-                "Configured speech model '{}' does not look like a transcription model for this provider. Choose a Whisper/STT model in Settings.",
-                model_name
-            )));
-        }
-    } else if let Some(model) = speech_models.first() {
-        model.name.clone()
-    } else {
-        "whisper-1".to_string()
+    let model_name = match requested_model_name {
+        Some(model_name) => model_name,
+        None => default_transcription_model(&state.db, &provider_id).await?,
     };
     let request = SpeechToTextRequest {
         audio_bytes_base64,
@@ -82,4 +64,41 @@ pub async fn speak_text_natively_command(
         voice: resolved_voice,
         locale: resolved_locale,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base64::Engine;
+    use std::io::{Read, Write};
+    use tauri::Manager;
+
+    #[tokio::test]
+    async fn desktop_transcribes_with_explicit_custom_model_name() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut bytes = Vec::new();
+            let mut buffer = [0; 4096];
+            let end = loop {
+                let n = socket.read(&mut buffer).unwrap(); assert_ne!(n, 0);
+                bytes.extend_from_slice(&buffer[..n]);
+                if let Some(i) = bytes.windows(4).position(|v| v == b"\r\n\r\n") { break i + 4; }
+            };
+            let headers = String::from_utf8_lossy(&bytes[..end]).to_lowercase();
+            let len: usize = headers.lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().trim().parse().unwrap();
+            while bytes.len() < end + len { let n = socket.read(&mut buffer).unwrap(); assert_ne!(n, 0); bytes.extend_from_slice(&buffer[..n]); }
+            assert!(bytes[end..end + len].windows(b"custom-voice-v2".len()).any(|part| part == b"custom-voice-v2"));
+            let response = r#"{"text":"desktop custom transcript"}"#;
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).unwrap();
+        });
+        let app = crate::commands::test_helpers::make_test_app("desktop_custom_speech").await;
+        let state = app.state::<AppState>();
+        model_repo::create_provider(&state.db, "custom-speech", "Custom speech", "openai_compatible", &format!("http://{address}"), None).await.unwrap();
+        let response = transcribe_audio_command(state, Some("custom-speech".into()), Some("custom-voice-v2".into()),
+            base64::engine::general_purpose::STANDARD.encode(b"synthetic audio"), "audio/wav".into(), None).await.unwrap();
+        assert_eq!(response.transcript, "desktop custom transcript");
+        server.join().unwrap();
+    }
 }

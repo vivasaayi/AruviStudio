@@ -178,6 +178,13 @@ const server = http.createServer((request, response) => {
       if (request.headers.authorization !== "Bearer synthetic-deepseek-key" || !body.includes('name="file"') || body.includes('name="model"') || body.includes('name="language"')) { response.statusCode = 400; return response.end(); }
       response.end(JSON.stringify({ text: "DeepSeek fixture transcript", duration_ms: 100 }));
     });
+  } else if (request.method === "POST" && request.url === "/custom-voice/v1/audio/transcriptions") {
+    const chunks = []; request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      const body = Buffer.concat(chunks);
+      if (!request.headers["content-type"]?.startsWith("multipart/form-data") || !body.includes("custom-voice-v2")) { response.statusCode = 400; return response.end(); }
+      response.end(JSON.stringify({ text: "Custom model transcript" }));
+    });
   } else if (request.method === "POST" && request.url === "/v1/audio/transcriptions") {
     const chunks = [];
     request.on("data", (chunk) => chunks.push(chunk));

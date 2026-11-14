@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::persistence::{model_repo, settings_repo};
 use crate::services::speech_service::{
-    compatible_speech_model_default, looks_like_transcription_model, model_supports_transcription, speak_text_natively, synthesize_remote_speech, transcribe_audio_with_provider,
+    compatible_speech_model_default, default_transcription_model, speak_text_natively, synthesize_remote_speech, transcribe_audio_with_provider,
     SpeechToTextRequest, TextToSpeechRequest,
 };
 use crate::state::AppState;
@@ -42,27 +42,9 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 .optional_string(&["model_name", "modelName"])?
                 .filter(|value| !value.trim().is_empty())
                 .or(default_model);
-            let provider_models = model_repo::list_model_definitions(&state.db)
-                .await?
-                .into_iter()
-                .filter(|model| model.provider_id == provider_id);
-            let speech_models = provider_models
-                .filter(model_supports_transcription)
-                .collect::<Vec<_>>();
-            let model_name = if let Some(model_name) = requested_model_name {
-                let known_model = speech_models.iter().any(|model| model.name == model_name);
-                if known_model || looks_like_transcription_model(&model_name) {
-                    model_name
-                } else {
-                    return Err(AppError::Validation(format!(
-                        "Configured speech model '{}' does not look like a transcription model for this provider. Choose a Whisper/STT model in Settings.",
-                        model_name
-                    )));
-                }
-            } else if let Some(model) = speech_models.first() {
-                model.name.clone()
-            } else {
-                "whisper-1".to_string()
+            let model_name = match requested_model_name {
+                Some(model_name) => model_name,
+                None => default_transcription_model(&state.db, &provider_id).await?,
             };
             let provider = model_repo::get_provider(&state.db, &provider_id).await?;
             let transcript = transcribe_audio_with_provider(

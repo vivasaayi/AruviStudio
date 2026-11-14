@@ -1,6 +1,23 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
+test("custom transcription model IDs work through browser API and MCP", async ({ request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const base_url = process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/custom-voice/v1");
+  const providerResponse = await request.post("/api/mobile/providers", { headers, data: { name: "Custom voice fixture", base_url } });
+  expect(providerResponse.ok()).toBeTruthy();
+  const provider = await providerResponse.json();
+  const payload = { provider_id: provider.id, model_name: "custom-voice-v2", audio_bytes_base64: Buffer.from("synthetic audio").toString("base64"), mime_type: "audio/wav" };
+  const browser = await request.post("/api/mobile/speech/transcribe", { headers, data: payload });
+  expect(browser.ok(), await browser.text()).toBeTruthy();
+  expect((await browser.json()).transcript).toBe("Custom model transcript");
+  const mcp = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 21, method: "tools/call", params: { name: "aruvi_speech", arguments: { action: "transcribe_audio", arguments: payload } } } });
+  const result = (await mcp.json()).result;
+  expect(result.isError, JSON.stringify(result)).not.toBeTruthy();
+  expect(result.structuredContent.result.transcript).toBe("Custom model transcript");
+});
+
 test("model-only chat selects the registered provider and rejects ambiguous routes", async ({ request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated providers");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };

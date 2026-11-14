@@ -284,6 +284,14 @@ remain separate checks.
 
 ### Current requirement audit — 2026-11-14
 
+Explicit transcription model IDs now pass through desktop, browser and MCP
+without requiring a naming heuristic; the selected provider still determines
+whether the model is supported. Automatic selection continues to use enabled
+speech-tagged or recognizable models. A simulated provider checked the exact
+custom ID through the browser API, MCP and a focused desktop-command Rust test;
+all 42 isolated workflows passed. This does not establish live third-party
+support, native-window interaction or physical microphone capture.
+
 For mobile/browser chat API calls without a provider ID, a registered model name
 now selects its unique enabled text provider. Duplicate enabled registrations
 require an explicit provider; a registered model with no enabled binding fails
