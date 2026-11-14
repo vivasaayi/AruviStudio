@@ -24,6 +24,7 @@ docker exec "$name" sh -c '
   -e "ARUVI_REMOTE_URL=http://${name}:8787" -e "ARUVI_TEST_MODEL_URL=http://${browser}:19876/v1" \
   -e "ARUVI_TEST_BOOK_EPUB_CAPTURE=${ARUVI_REMOTE_EPUB_OUTPUT:+/tmp/aruvi-captured-book.epub}" \
   -e "ARUVI_TEST_BOOK_PDF_CAPTURE_DIR=${ARUVI_REMOTE_PDF_OUTPUT_DIR:+/tmp}" \
+  -e "ARUVI_TEST_BOOK_IMAGE_CAPTURE_DIR=${ARUVI_REMOTE_IMAGE_OUTPUT_DIR:+/tmp}" \
   -e ARUVI_TEST_REPOSITORY_PATH=/repositories/remote-fixture -e ARUVI_TEST_SECOND_REPOSITORY_PATH=/repositories/remote-fixture/second \
   -e ARUVI_TEST_INSPECT=1 browser sh -c 'node /project/e2e-remote/mock-provider.mjs' >/dev/null
 docker exec "$browser" sh -c 'cp /project/package.json /project/package-lock.json /project/playwright.remote.config.js ./ && cp -R /project/e2e-remote ./ && npm ci --silent && npx playwright test -c playwright.remote.config.js remote.spec.js'
@@ -35,6 +36,11 @@ if [[ -n "${ARUVI_REMOTE_PDF_OUTPUT_DIR:-}" ]]; then
   for preset in trade-6x9 a5 us-letter; do
     docker cp "$browser:/tmp/$preset.pdf" "$ARUVI_REMOTE_PDF_OUTPUT_DIR/$preset.pdf"
   done
+fi
+if [[ -n "${ARUVI_REMOTE_IMAGE_OUTPUT_DIR:-}" ]]; then
+  mkdir -p "$ARUVI_REMOTE_IMAGE_OUTPUT_DIR"
+  docker cp "$browser:/tmp/inline-image.epub" "$ARUVI_REMOTE_IMAGE_OUTPUT_DIR/inline-image.epub"
+  docker cp "$browser:/tmp/inline-image.pdf" "$ARUVI_REMOTE_IMAGE_OUTPUT_DIR/inline-image.pdf"
 fi
 docker stop "$pdf" >/dev/null
 docker exec "$name" node -e '

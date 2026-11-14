@@ -46,6 +46,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Product Book export data
 
+- Browser/MCP EPUB and PDF, and native EPUB, now support embedded PNG and JPEG
+  data images. Images are decoded with strict count, dimension and byte limits;
+  EPUB assets are deduplicated. The real browser/MCP fixture covered both image
+  types and a duplicate, passed EPUBCheck 5.4.0, and produced a PDF containing
+  both image types. Repository paths, remote image URLs, animated PNG and other
+  image formats remain unsupported and fail explicitly for EPUB/PDF.
+  RustSec reported no advisory for the added image decoder; the existing RSA
+  advisory and other warnings remain, and the crates.io index refresh failed.
+  Native and Linux Rust suites each passed 214 tests with six ignored, and the
+  isolated browser/MCP suite passed 23 tests. EPUBCheck reported no findings;
+  the generated PDF was inspected for both embedded image types. Native desktop
+  UI and actual EPUB reader compatibility have not been validated for images.
 - Worktree PDF rendering now runs in a separate network-disabled, read-only,
   non-root container with no app data, repositories or API tokens; the only
   shared resource is a private Unix socket. Its own Chromium sandbox remains
@@ -63,7 +75,7 @@ provider hosting into the model-host service as part of this work.
   sizes and invoked MCP PDF export. Captured PDFs had the expected dimensions,
   tags and searchable, product-scoped text; an A5 chapter was visually checked.
   Native real-browser tests verified external requests and scripts are blocked.
-  PDF and EPUB still reject books containing images. The worktree's Chromium
+  At that checkpoint PDF and EPUB rejected books containing images. The worktree's Chromium
   sandbox is disabled because this Mac's container runtime rejects its required
   namespace operation; the image defaults to sandboxing. The legacy desktop PDF
   writer is not yet unified with this worker. These are release limitations.
@@ -74,8 +86,8 @@ provider hosting into the model-host service as part of this work.
   base64 bytes; browser responses are attachments. The real browser download
   and MCP tests checked product isolation and missing authentication, and a
   captured EPUB passed EPUBCheck 5.4.0. The backend also rendered a 2,102-item
-  HTML book. EPUBs with images fail explicitly until resource packaging is
-  implemented; browser/MCP PDF export remains open. Native and Linux suites
+  HTML book. At that checkpoint image packaging and browser/MCP PDF export
+  remained open. Native and Linux suites
   each passed 210 tests with four ignored, and the remote suite passed 23.
 - Desktop Product Book exports now invoke the shared Rust backend renderer
   before using the existing native HTML, PDF and EPUB file writers. A Tauri mock

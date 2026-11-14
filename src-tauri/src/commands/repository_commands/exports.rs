@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use tracing::info;
 
-use crate::services::product_book_epub::render_epub_archive;
+use crate::services::product_book_epub::render_epub_archive_with_images;
 pub use crate::services::product_book_epub::BookExportTocItem;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -58,13 +58,10 @@ pub async fn export_product_overview_epub(
     let export_dir = export_documents_dir()?;
     let safe_name = sanitize_export_file_name_with_extension(&file_name, "product-book", "epub");
     let destination = export_dir.join(safe_name);
-    let bytes = render_epub_archive(
-        &title,
-        &html,
-        &toc_items,
-        author.as_deref().unwrap_or("Aruvi Studio"),
-        language.as_deref().unwrap_or("en"),
-    )?;
+    let bytes = tokio::task::spawn_blocking(move || {
+        let (html, images) = crate::services::product_book_images::prepare_book_images(&html, crate::services::product_book_images::ImageTarget::Epub)?;
+        render_epub_archive_with_images(&title, &html, &toc_items, author.as_deref().unwrap_or("Aruvi Studio"), language.as_deref().unwrap_or("en"), &images)
+    }).await.map_err(|error| AppError::Internal(format!("EPUB export task failed: {error}")))??;
     fs::write(&destination, bytes)?;
 
     Ok(destination.to_string_lossy().to_string())

@@ -20,12 +20,24 @@ struct EpubNavNode {
 
 /// Package already-rendered XHTML as an EPUB 3 artifact without host utilities
 /// or filesystem paths. The caller is responsible for rendering valid XHTML.
+#[cfg(test)]
 pub(crate) fn render_epub_archive(
     title: &str,
     html: &str,
     toc_items: &[BookExportTocItem],
     author: &str,
     language: &str,
+) -> Result<Vec<u8>, AppError> {
+    render_epub_archive_with_images(title, html, toc_items, author, language, &[])
+}
+
+pub(crate) fn render_epub_archive_with_images(
+    title: &str,
+    html: &str,
+    toc_items: &[BookExportTocItem],
+    author: &str,
+    language: &str,
+    images: &[crate::services::product_book_images::BookImage],
 ) -> Result<Vec<u8>, AppError> {
     let mut archive = ZipWriter::new(Cursor::new(Vec::new()));
     let stored = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
@@ -44,6 +56,12 @@ pub(crate) fn render_epub_archive(
     archive.write_all(html.as_bytes())?;
     archive.start_file("OEBPS/nav.xhtml", compressed).map_err(zip_error)?;
     archive.write_all(build_epub_nav_document(title, toc_items, language).as_bytes())?;
+    let mut image_manifest = String::new();
+    for (index, image) in images.iter().enumerate() {
+        archive.start_file(format!("OEBPS/images/{}", image.filename), compressed).map_err(zip_error)?;
+        archive.write_all(&image.bytes)?;
+        image_manifest.push_str(&format!("    <item id=\"image-{index}\" href=\"images/{}\" media-type=\"{}\"/>\n", image.filename, image.media_type));
+    }
     let identifier = format!("urn:uuid:{}", uuid::Uuid::new_v4());
     let metadata = format!(r#"<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">
@@ -57,11 +75,12 @@ pub(crate) fn render_epub_archive(
   <manifest>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
     <item id="book" href="book.xhtml" media-type="application/xhtml+xml"/>
+{}
   </manifest>
   <spine><itemref idref="nav"/><itemref idref="book"/></spine>
 </package>"#,
         escape_xml(&identifier), escape_xml(title), escape_xml(author),
-        escape_xml(language), Utc::now().format("%Y-%m-%dT%H:%M:%SZ"));
+        escape_xml(language), Utc::now().format("%Y-%m-%dT%H:%M:%SZ"), image_manifest);
     archive.start_file("OEBPS/content.opf", compressed).map_err(zip_error)?;
     archive.write_all(metadata.as_bytes())?;
     Ok(archive.finish().map_err(zip_error)?.into_inner())

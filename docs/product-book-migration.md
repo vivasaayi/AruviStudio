@@ -42,9 +42,8 @@ the shared renderer source and do not claim export parity until these steps pass
   files absent from the archive. Reproduce with `scripts/test-product-book-epub`
   and `EPUBCHECK_DIR` pointing to the unpacked [official EPUBCheck 5.4.0
   distribution](https://github.com/w3c/epubcheck/releases/tag/v5.4.0).
-  This fixture does not cover embedded or remote images; the renderer currently
-  emits image sources without packaging them, so those remain an open parity and
-  EPUB validity issue. Passing EPUBCheck does not prove reader compatibility.
+  This fixture does not cover image resources. Passing EPUBCheck does not prove
+  reader compatibility.
 - [ ] Port the Docs HTML and Book renderers to shared backend services, including
   all rich text, reference, index, numbering, layout and trim semantics. Compare
   output against desktop fixtures and inspect representative rendered pages.
@@ -71,9 +70,16 @@ the shared renderer source and do not claim export parity until these steps pass
   artifact. Docs HTML, Book HTML, EPUB and PDF are available through the product
   browser and `aruvi_catalog.export_product_book`; MCP returns a filename, media
   type and base64 bytes. Artifacts over 24 MiB fail explicitly; PDF source is
-  limited to 12 MiB and PDF rendering to 60 seconds. EPUB and PDF requests
-  containing images fail rather than returning an incomplete file. Image
-  packaging remains open. HTML may still reference external resources.
+  limited to 12 MiB and PDF rendering to 60 seconds. EPUB and PDF can include
+  embedded PNG and JPEG data images, subject to count, dimension and byte
+  limits (32 references, 4 MiB per image, 12 MiB total unique image data, and
+  2048 pixels per dimension). Repository-relative paths, remote URLs, animated
+  PNG and other image types fail explicitly; safe scope-aware resolution and
+  broader format support remain open. HTML may reference external resources.
+  The real browser/MCP fixture includes PNG, JPEG and a duplicate PNG; the
+  captured EPUB passed EPUBCheck 5.4.0 and the captured PDF contained both
+  image types, with its first page visually inspected. The EPUB writer used by
+  desktop shares the same image packaging code.
   The export action accepts `product_id`, `format` (`docs_html`, `book_html`,
   `epub`, or `pdf`) and `trim_preset` (`trade-6x9`, `a5`, or `us-letter`). For example:
 
