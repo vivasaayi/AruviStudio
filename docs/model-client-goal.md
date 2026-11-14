@@ -114,6 +114,13 @@ provider hosting into the model-host service as part of this work.
   preset and verified reuse. Source metadata was checked against the
   [upstream model repository](https://huggingface.co/ggerganov/whisper.cpp/tree/5359861c739e955e79d9a303bcbc70fb988958b1).
   The test covers that preset, not transcription quality or all three downloads.
+- The SHA-256-verified Tiny English preset also transcribed a synthetic Piper
+  sentence through Studio's native local Whisper fallback. Repeat with
+  `bash scripts/test local-whisper-preset /path/to/ggml-tiny.en.bin`; the check
+  verifies the preset hash, generates audio through the configured native
+  staging Model Host, and runs the ignored native Whisper integration test.
+  An invalid model was rejected before inference. This checks synthetic English
+  audio, not physical capture or broad transcription accuracy.
 
 ## Product Book export data
 
