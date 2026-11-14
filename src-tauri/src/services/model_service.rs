@@ -99,6 +99,9 @@ fn configured_model_client_options() -> Result<ClientOptions, AppError> {
 
 /// Build one shared transport for chat, streaming, discovery and remote voice.
 pub fn create_shared_gateway(provider: &ModelProvider) -> Result<Box<dyn SharedModelGateway>, AppError> {
+    if !provider.enabled {
+        return Err(AppError::Validation("Selected provider is disabled".into()));
+    }
     if provider.provider_type.as_str() != "openai_compatible" {
         return Err(AppError::Validation(format!(
             "Unsupported provider type: {}",
@@ -142,6 +145,19 @@ fn create_transport(provider: &ModelProvider, api_key: Option<String>, options: 
 #[cfg(test)]
 mod timeout_configuration_tests {
     use super::*;
+
+    #[test]
+    fn disabled_providers_are_rejected_before_credentials_or_gateway_creation() {
+        let mut provider = ModelProvider { id: "fixture".into(), name: "fixture".into(),
+            provider_type: crate::domain::model::ProviderType::OpenaiCompatible,
+            protocol: "anthropic".into(), base_url: "not a valid URL".into(),
+            auth_secret_ref: None, enabled: false, created_at: "".into(), updated_at: "".into() };
+        for protocol in ["anthropic", "openai_compatible"] {
+            provider.protocol = protocol.into();
+            assert!(matches!(create_shared_gateway(&provider), Err(AppError::Validation(message)) if message == "Selected provider is disabled"));
+            assert!(matches!(create_gateway(&provider), Err(AppError::Validation(message)) if message == "Selected provider is disabled"));
+        }
+    }
 
     #[tokio::test]
     async fn configured_timeout_interrupts_stalled_provider_response() {

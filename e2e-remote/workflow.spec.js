@@ -338,7 +338,7 @@ test("isolated provider key rotation uses the new credential", async ({ page, re
 });
 
 
-test("disabled providers cannot transcribe through web or MCP", async ({ request }) => {
+test("disabled providers reject transcription and MCP chat until re-enabled", async ({ request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires an isolated server");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
   const created = await request.post("/api/mobile/providers", { headers, data: { name: "Disabled speech fixture", base_url: process.env.ARUVI_TEST_MODEL_URL } });
@@ -355,6 +355,15 @@ test("disabled providers cannot transcribe through web or MCP", async ({ request
   const mcp = (await response.json()).result;
   expect(mcp.isError).toBeTruthy();
   expect(JSON.stringify(mcp.content)).toContain("Selected provider is disabled");
+  const completion = { provider_id: provider.id, model: "browser-test-model", messages: [{ role: "user", content: "hello" }] };
+  const mcpChat = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "aruvi_models", arguments: { action: "run_model_chat_completion", arguments: completion } } } });
+  const disabledChat = (await mcpChat.json()).result;
+  expect(disabledChat.isError).toBeTruthy();
+  expect(JSON.stringify(disabledChat.content)).toContain("Selected provider is disabled");
+  const reenabled = await request.post("/api/mobile/providers/update", { headers, data: { id: provider.id, expected: { ...expected, enabled: false }, fields: expected } });
+  expect(reenabled.ok()).toBeTruthy();
+  const enabledChat = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "aruvi_models", arguments: { action: "run_model_chat_completion", arguments: completion } } } });
+  expect((await enabledChat.json()).result.isError).toBeFalsy();
 });
 
 test("browser chat streams, reports errors, and can stop", async ({ page, request }) => {

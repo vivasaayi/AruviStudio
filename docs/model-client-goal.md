@@ -706,6 +706,22 @@ provider hosting into the model-host service as part of this work.
   these crafted-file checks. Running server SHA-256:
   `59ff6ee9727e5039544ba3ccc8ffd6c653ffe4f42189c83e2c7359fe8c9cfd15`.
 
+## Disabled shared model providers
+
+- Studio now rejects disabled OpenAI-compatible and Anthropic providers at
+  shared gateway creation, before credentials are resolved or a request is
+  made. This covers desktop, MCP, planner, agent and web paths that construct
+  that gateway. Connectivity testing through the remote gateway also requires
+  the provider to be enabled; existing local-runtime connectivity inspection
+  remains separate. Disabling does not cancel in-flight requests or prevent a
+  request that already loaded an enabled provider from continuing.
+  Native Studio passed 215 tests with six ignored. The isolated workflow suite
+  passed 23 cases, including disabled web/MCP transcription, disabled MCP chat
+  and successful MCP chat after re-enabling the provider. On the rebuilt
+  branch, real `qwen25-coder-7b-q4` coding and a token-limit error passed
+  through MCP. This does not prove native window interaction or live third-party
+  provider behavior.
+
 ## Disabled transcription providers
 
 - Transcription now rejects disabled providers at the shared Studio service
