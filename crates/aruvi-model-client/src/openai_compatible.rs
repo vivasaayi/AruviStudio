@@ -4,6 +4,32 @@ use crate::{CompletionRequest, CompletionResponse, SpeechRequest, TranscriptionR
 use async_trait::async_trait;
 use reqwest::Client;
 
+// Some streaming encoders use a sentinel for an unknown RIFF/data length.
+// Validate the container structure without restricting WAV codecs.
+fn has_wav_audio(bytes: &[u8]) -> bool {
+    if bytes.len() < 12 || &bytes[..4] != b"RIFF" || &bytes[8..12] != b"WAVE" { return false; }
+    let length = |offset: usize| u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+    let unknown = |size: u32| size == u32::MAX || size == i32::MAX as u32;
+    let riff_size = length(4);
+    if !unknown(riff_size) && riff_size as usize + 8 != bytes.len() { return false; }
+    let mut offset = 12;
+    let mut format = false;
+    let mut data = false;
+    while offset + 8 <= bytes.len() {
+        let id = &bytes[offset..offset + 4];
+        let declared = length(offset + 4);
+        let start = offset + 8;
+        if unknown(declared) {
+            return id == b"data" && format && start < bytes.len();
+        }
+        let end = match start.checked_add(declared as usize) { Some(end) if end <= bytes.len() => end, _ => return false };
+        if id == b"fmt " { format = declared >= 16; }
+        if id == b"data" { data = declared > 0; }
+        offset = match end.checked_add((declared & 1) as usize) { Some(end) if end <= bytes.len() => end, _ => return false };
+    }
+    offset == bytes.len() && format && data
+}
+
 pub struct OpenAiCompatibleClient {
     base_url: String,
     api_key: Option<String>,
@@ -231,8 +257,8 @@ impl OpenAiCompatibleClient {
             if chunk.len() > MAX_AUDIO_BYTES - audio.len() { return Err(ClientError::Provider("Speech audio exceeds the size limit".into())); }
             audio.extend_from_slice(&chunk);
         }
-        if audio.len() < 12 || &audio[..4] != b"RIFF" || &audio[8..12] != b"WAVE" {
-            return Err(ClientError::Provider("Speech provider did not return WAV audio".into()));
+        if !has_wav_audio(&audio) {
+            return Err(ClientError::Provider("Speech provider did not return valid WAV audio".into()));
         }
         Ok(audio)
     }
@@ -519,7 +545,8 @@ mod tests {
 
     #[tokio::test]
     async fn requests_authenticated_wav_speech_and_rejects_invalid_audio() {
-        for (reply, valid) in [(b"RIFF\x04\0\0\0WAVE".as_slice(), true), (b"not audio".as_slice(), false)] {
+        let wav = b"RIFF\x26\0\0\0WAVEfmt \x10\0\0\0\x01\0\x01\0\x40\x1f\0\0\x80\x3e\0\0\x02\0\x10\0data\x02\0\0\0\0\0";
+        for (reply, valid) in [(wav.as_slice(), true), (b"RIFF\x04\0\0\0WAVE".as_slice(), false), (b"not audio".as_slice(), false)] {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let addr = listener.local_addr().unwrap();
             let reply = reply.to_vec();
@@ -539,6 +566,20 @@ mod tests {
             assert_eq!(result.is_ok(), valid);
             server.join().unwrap();
         }
+    }
+
+    #[test]
+    fn validates_wav_chunks_and_streaming_lengths() {
+        let valid = b"RIFF\x26\0\0\0WAVEfmt \x10\0\0\0\x01\0\x01\0\x40\x1f\0\0\x80\x3e\0\0\x02\0\x10\0data\x02\0\0\0\0\0";
+        assert!(has_wav_audio(valid));
+        let mut streamed = valid.to_vec();
+        streamed[4..8].copy_from_slice(&u32::MAX.to_le_bytes());
+        streamed[40..44].copy_from_slice(&(i32::MAX as u32).to_le_bytes());
+        assert!(has_wav_audio(&streamed));
+        assert!(!has_wav_audio(&valid[..valid.len() - 1]));
+        let mut empty = valid.to_vec();
+        empty[40..44].copy_from_slice(&0u32.to_le_bytes());
+        assert!(!has_wav_audio(&empty));
     }
 
     #[tokio::test]

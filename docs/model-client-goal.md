@@ -44,6 +44,17 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Speech response container validation
+
+- The OpenAI-compatible client rejects WAV responses missing a format chunk or
+  nonempty data, truncated chunks, and inconsistent declared RIFF lengths. It
+  accepts common unknown-length streaming sentinels. This verifies container
+  structure, not codec decodability or speech quality.
+- Linux shared-client tests passed 39 cases. The worktree release image rebuilt
+  and started healthy; real `piper-ljspeech` browser generation and the MCP
+  Piper-to-`whisper-tiny-metal` speech round trip both passed. Physical audio
+  and other providers and codecs remain unverified.
+
 ## Remote transcription input validation
 
 - The shared OpenAI-compatible transport rejects an empty model name or empty

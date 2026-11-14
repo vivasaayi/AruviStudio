@@ -40,6 +40,11 @@ error bodies are not included in errors; the HTTP status remains available in
 the message. OpenAI-compatible and Anthropic requests reject redirects and
 base URLs containing credentials, queries, or fragments.
 
+Speech responses must have a structurally complete RIFF/WAVE container with a
+format chunk and nonempty audio data; common unknown-length streaming headers
+are accepted. This checks the container, not whether the codec can be decoded or
+whether the audio is intelligible.
+
 Use `Box<dyn ModelGateway>` when a caller needs to switch providers without
 matching on concrete client types. Its methods cover text completion, opt-in
 JSON-object completion, text streaming, model discovery, remote transcription
