@@ -14,6 +14,14 @@ provider hosting into the model-host service as part of this work.
 
 ### Browser planner contact
 
+The browser also edits the desktop's saved contact destination and opening
+message through authenticated endpoints. Updates compare both previous values
+in one transaction so an MCP edit triggers a conflict without a partial save.
+The user explicitly applies saved values to the contact form; refresh leaves an
+unsent contact draft intact. Refreshing the defaults themselves replaces edits
+in that defaults form. All 48 isolated workflow tests passed and the rebuilt
+worktree passed its browser-origin MCP check.
+
 The Routing page now provides a confirmed planner-contact form backed by the
 existing Rust contact policy. It supports channel preference and explicit quiet
 hours override, and reports blocked or sent outcomes. The API requires the mobile

@@ -928,8 +928,9 @@
             </div>
           </section>
           <section class="panel">
-            <div class="panel-header"><div class="panel-title">Contact through planner</div></div>
+            <div class="panel-header"><div class="panel-title">Contact through planner</div><button class="secondary" id="refreshContactDefaults" type="button">Refresh defaults</button></div>
             <div class="panel-body"><p>Send an opening message or start a call using the contact policy. Routing may fall back to the other configured channel. Voice calls observe quiet hours unless you explicitly allow them.</p>
+              <form id="contactDefaultsForm" class="stack"><label><span class="label">Saved destination</span><input id="contactDefaultTarget" maxlength="256" /></label><label><span class="label">Saved opening message</span><textarea id="contactDefaultMessage" maxlength="4096"></textarea></label><div class="button-row"><button type="submit" id="saveContactDefaults" disabled>Save defaults</button><button class="secondary" type="button" id="useContactDefaults" disabled>Use saved defaults</button></div></form>
               <form id="plannerContactForm" class="stack">
                 <label><span class="label">Destination</span><input id="plannerContactTo" maxlength="256" required placeholder="+15551234567" /></label>
                 <label><span class="label">Opening message</span><textarea id="plannerContactMessage" maxlength="4096" required></textarea></label>
@@ -1425,6 +1426,7 @@
         void loadWorkflowAutomation();
         void loadPlannerDefaults();
         void loadChannelPolicy();
+        void loadContactDefaults();
       }
       if (tabId === "agents") {
         void loadAgents();
@@ -3597,6 +3599,39 @@
       } catch (error) { setStatus(error.message || String(error), "error"); }
       finally { el.createWorkspaceButton.disabled = !el.repositoryProduct.value; }
     }
+
+    let contactDefaults = null, contactDefaultsSequence = 0, contactDefaultsBusy = false;
+    async function loadContactDefaults() {
+      if (contactDefaultsBusy) return;
+      const sequence = ++contactDefaultsSequence;
+      const save = document.getElementById("saveContactDefaults"), use = document.getElementById("useContactDefaults");
+      save.disabled = use.disabled = true;
+      try {
+        const result = await request("/api/mobile/planner/contact-defaults");
+        if (sequence !== contactDefaultsSequence) return;
+        contactDefaults = result.raw;
+        document.getElementById("contactDefaultTarget").value = result.raw[0] || "";
+        document.getElementById("contactDefaultMessage").value = result.raw[1] || "";
+        save.disabled = use.disabled = false;
+      } catch (error) { if (sequence === contactDefaultsSequence) { contactDefaults = null; setStatus(error.message || String(error), "error"); } }
+    }
+    document.getElementById("refreshContactDefaults").addEventListener("click", () => void loadContactDefaults());
+    document.getElementById("useContactDefaults").addEventListener("click", () => {
+      if (!contactDefaults) return;
+      document.getElementById("plannerContactTo").value = contactDefaults[0] || "";
+      document.getElementById("plannerContactMessage").value = contactDefaults[1] || "";
+    });
+    document.getElementById("contactDefaultsForm").addEventListener("submit", async (event) => {
+      event.preventDefault(); if (!contactDefaults || contactDefaultsBusy) return;
+      contactDefaultsBusy = true; ++contactDefaultsSequence;
+      const controls = Array.from(event.currentTarget.elements), refresh = document.getElementById("refreshContactDefaults");
+      controls.forEach((control) => control.disabled = true); refresh.disabled = true;
+      try {
+        const result = await request("/api/mobile/planner/contact-defaults", { method: "POST", body: { expected: contactDefaults, target: document.getElementById("contactDefaultTarget").value, opening_message: document.getElementById("contactDefaultMessage").value } });
+        contactDefaults = result.raw; setStatus("Contact defaults saved", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { contactDefaultsBusy = false; controls.forEach((control) => control.disabled = false); refresh.disabled = false; }
+    });
 
     document.getElementById("plannerContactForm").addEventListener("submit", async (event) => {
       event.preventDefault();

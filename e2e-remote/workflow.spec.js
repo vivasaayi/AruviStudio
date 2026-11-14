@@ -2138,3 +2138,31 @@ test("provider streaming usage is opt-in across browser and MCP", async ({ page,
   const setting = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 93, method: "tools/call", params: { name: "aruvi_settings", arguments: { action: "get_setting", arguments: { key: `model.provider.${provider.id}.stream_usage` } } } } });
   expect((await setting.json()).result.structuredContent.result.value).toBeNull();
 });
+
+test("browser contact defaults preserve drafts and reject stale MCP edits", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  expect((await request.get("/api/mobile/planner/contact-defaults")).status()).toBe(401);
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Routing", exact: true }).click();
+  await expect(page.locator("#saveContactDefaults")).toBeEnabled();
+  await page.locator("#contactDefaultTarget").fill("+15550000002");
+  await page.locator("#contactDefaultMessage").fill("Saved opening");
+  await page.locator("#saveContactDefaults").click();
+  await expect(page.locator("#status")).toContainText("Contact defaults saved");
+  await page.locator("#useContactDefaults").click();
+  await expect(page.locator("#plannerContactTo")).toHaveValue("+15550000002");
+  await expect(page.locator("#plannerContactMessage")).toHaveValue("Saved opening");
+  await page.locator("#plannerContactMessage").fill("Unsaved contact draft");
+  const response = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "aruvi_settings", arguments: { action: "set_setting", arguments: { key: "planner.contact_opening_message", value: "MCP update" } } } } });
+  expect((await response.json()).result.isError).not.toBeTruthy();
+  await page.locator("#contactDefaultTarget").fill("+15550000003");
+  await page.locator("#saveContactDefaults").click();
+  await expect(page.locator("#status")).toContainText("Contact defaults changed");
+  expect((await (await request.get("/api/mobile/planner/contact-defaults", { headers })).json()).raw).toEqual(["+15550000002", "MCP update"]);
+  await page.locator("#refreshContactDefaults").click();
+  await expect(page.locator("#contactDefaultMessage")).toHaveValue("MCP update");
+  await expect(page.locator("#plannerContactMessage")).toHaveValue("Unsaved contact draft");
+});

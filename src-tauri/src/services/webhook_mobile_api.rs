@@ -15,6 +15,53 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use serde::Deserialize;
 
+const CONTACT_DEFAULT_KEYS: [&str; 2] = ["planner.contact_target", "planner.contact_opening_message"];
+
+#[derive(Deserialize)]
+pub(crate) struct ContactDefaultsUpdate {
+    expected: [Option<String>; 2],
+    target: String,
+    opening_message: String,
+}
+
+pub(crate) async fn mobile_contact_defaults(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let mut raw = Vec::new();
+    for key in CONTACT_DEFAULT_KEYS {
+        match settings_repo::get_setting(&state.app_state.db, key).await {
+            Ok(value) => raw.push(value),
+            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Contact defaults are unavailable").into_response(),
+        }
+    }
+    Json(serde_json::json!({"raw":raw})).into_response()
+}
+
+pub(crate) async fn mobile_update_contact_defaults(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<ContactDefaultsUpdate>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let values = [body.target.trim(), body.opening_message.trim()];
+    if values[0].len() > 256 || values[1].len() > 4096 {
+        return (StatusCode::BAD_REQUEST, "Contact defaults are too long").into_response();
+    }
+    let mut tx = match state.app_state.db.begin().await {
+        Ok(tx) => tx, Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Contact defaults are unavailable").into_response(),
+    };
+    for ((key, expected), value) in CONTACT_DEFAULT_KEYS.into_iter().zip(body.expected).zip(values) {
+        let result = match expected {
+            Some(expected) => sqlx::query("UPDATE settings SET value=?,updated_at=datetime('now') WHERE key=? AND value=?").bind(value).bind(key).bind(expected).execute(&mut *tx).await,
+            None => sqlx::query("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO NOTHING").bind(key).bind(value).execute(&mut *tx).await,
+        };
+        match result {
+            Ok(result) if result.rows_affected() == 1 => {},
+            Ok(_) => return (StatusCode::CONFLICT, "Contact defaults changed. Refresh before saving.").into_response(),
+            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Contact defaults could not be saved").into_response(),
+        }
+    }
+    match tx.commit().await {
+        Ok(()) => Json(serde_json::json!({"raw":values})).into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Contact defaults could not be saved").into_response(),
+    }
+}
+
 #[derive(Deserialize)]
 pub(crate) struct PlannerContactBody {
     to: String,
