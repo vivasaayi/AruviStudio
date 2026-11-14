@@ -269,7 +269,10 @@ provider hosting into the model-host service as part of this work.
   checks discovery and coding completion through MCP. An initial shorter prompt
   produced one unclassified completion failure; after increasing its token
   budget and making the output instruction explicit, two separate runs passed.
-  This is not a model-quality or native-window validation.
+  With `--speech-host HOST_CHECKOUT --speech-environment staging`, the same
+  native fixture also generated Piper audio and transcribed it with Whisper on
+  the deployed native host. The audio was synthetic English. This is not a
+  model-quality, physical-device or native-window validation.
 
 - On the current branch after the provider-profile migration, real Model Host
   `piper-ljspeech` generation and `whisper-tiny-metal` transcription passed as

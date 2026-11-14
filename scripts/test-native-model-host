@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Run an isolated native Studio server and call a native Model Host through MCP."""
 import argparse
+import base64
 import contextlib
+from difflib import SequenceMatcher
 import importlib.machinery
+import io
 import json
 import os
 from pathlib import Path
@@ -12,14 +15,20 @@ import subprocess
 import sys
 import tempfile
 import time
+import re
 import urllib.error
 import urllib.request
+import wave
 
 root = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("binary", type=Path, help="Built native aruvi-studio-server binary")
 parser.add_argument("host_worktree", type=Path, help="Running native Model Host worktree")
 parser.add_argument("--model", required=True, help="Installed text model ID")
+parser.add_argument("--speech-host", type=Path, help="Optional native Model Host checkout for speech")
+parser.add_argument("--speech-environment", choices=("worktree", "staging"), default="staging")
+parser.add_argument("--voice-model", default="piper-ljspeech")
+parser.add_argument("--transcription-model", default="whisper-tiny-metal")
 args = parser.parse_args()
 class CheckError(ValueError):
     pass
@@ -36,11 +45,15 @@ try:
     host = args.host_worktree.expanduser().resolve(strict=True)
     config = importlib.machinery.SourceFileLoader("host_config", str(root / "scripts/configure-native-model-host")).load_module()
     host_port, host_token = config.read_host(host, "worktree")
+    speech = config.read_host(args.speech_host.expanduser().resolve(strict=True), args.speech_environment) if args.speech_host else None
     with tempfile.TemporaryDirectory(prefix="aruvi-native-validation-") as temporary, contextlib.ExitStack() as process_cleanup:
         data = Path(temporary)
         reference = "native-check-" + secrets.token_hex(16)
+        speech_reference = "native-speech-" + secrets.token_hex(16)
         credential_file = data / "llm-config.json"
-        credential_file.write_text(json.dumps({"refs": {reference: host_token}}))
+        refs = {reference: host_token}
+        if speech: refs[speech_reference] = speech[1]
+        credential_file.write_text(json.dumps({"refs": refs}))
         credential_file.chmod(0o600)
         token = secrets.token_urlsafe(32)
         with socket.socket() as reserve:
@@ -65,8 +78,8 @@ try:
                 pass
             if time.monotonic() >= deadline: raise CheckError("Native Studio server did not become healthy")
             time.sleep(0.2)
-        def call(action, arguments):
-            body = {"jsonrpc":"2.0", "id":1, "method":"tools/call", "params":{"name":"aruvi_models", "arguments":{"action":action, "arguments":arguments}}}
+        def call(action, arguments, tool="aruvi_models"):
+            body = {"jsonrpc":"2.0", "id":1, "method":"tools/call", "params":{"name":tool, "arguments":{"action":action, "arguments":arguments}}}
             request = urllib.request.Request(address + "/api/mcp", data=json.dumps(body).encode(), headers={"Authorization":"Bearer " + token, "Content-Type":"application/json"})
             with opener.open(request, timeout=180) as response: result = json.load(response)["result"]
             if result.get("isError"):
@@ -81,7 +94,20 @@ try:
             "messages":[{"role":"system", "content":"Return only the requested JavaScript function, without explanation or markdown."}, {"role":"user", "content":"Write function sumEven(numbers) that returns the sum of even integers."}], "temperature":0.1, "max_tokens":512})
         if "sumEven" not in result.get("content", ""): raise CheckError("Native model response did not contain the requested function")
         print("Native Studio MCP discovered the host model and returned coding output.")
-except (OSError, ValueError, KeyError, TypeError, StopIteration, subprocess.SubprocessError, urllib.error.URLError) as error:
+        if speech:
+            speech_provider = call("create_provider", {"name":"Native speech fixture", "base_url":f"http://127.0.0.1:{speech[0]}/v1", "auth_secret_ref":"ref:"+speech_reference})
+            phrase = "The quick brown fox jumps over the lazy dog."
+            audio = call("generate_speech", {"provider_id":speech_provider["id"], "model":args.voice_model, "text":phrase}, "aruvi_speech")
+            if audio.get("mime_type") != "audio/wav": raise CheckError("Native speech did not return WAV")
+            with wave.open(io.BytesIO(base64.b64decode(audio["audio_bytes_base64"], validate=True)), "rb") as wav:
+                if wav.getnframes() == 0 or wav.getframerate() == 0: raise CheckError("Native speech returned empty audio")
+            transcript = call("transcribe_audio", {"provider_id":speech_provider["id"], "model_name":args.transcription_model,
+                "audio_bytes_base64":audio["audio_bytes_base64"], "mime_type":"audio/wav", "locale":"en"}, "aruvi_speech")
+            words = re.findall(r"[a-z]+", transcript["transcript"].lower())
+            if not {"fox", "dog"}.issubset(words) or SequenceMatcher(None, re.findall(r"[a-z]+", phrase.lower()), words, autojunk=False).ratio() < 0.7:
+                raise CheckError("Native synthetic speech transcription did not match the fixture")
+            print("Native Studio MCP generated and transcribed synthetic speech through Model Host.")
+except (OSError, ValueError, KeyError, TypeError, StopIteration, subprocess.SubprocessError, urllib.error.URLError, wave.Error) as error:
     print(f"Native Model Host check failed: {error}" if isinstance(error, CheckError) else f"Native Model Host check failed ({type(error).__name__})", file=sys.stderr)
     sys.exit(1)
 finally:
