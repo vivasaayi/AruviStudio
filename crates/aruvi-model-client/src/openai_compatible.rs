@@ -299,6 +299,9 @@ impl OpenAiCompatibleClient {
         }
         let bytes = crate::http::read_bounded(response, 2 * 1024 * 1024, "Transcription response").await?;
         let json: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| ClientError::Provider("Invalid transcription JSON response".into()))?;
+        if json.get("error").is_some_and(|value| !value.is_null()) {
+            return Err(ClientError::Provider("Speech transcription returned an error".into()));
+        }
         let transcript = json.get("text").and_then(serde_json::Value::as_str).or_else(|| json.get("transcript").and_then(serde_json::Value::as_str)).map(str::trim).unwrap_or_default().to_string();
         if transcript.is_empty() { return Err(ClientError::Provider("Speech transcription returned an empty transcript".to_string())); }
         Ok(transcript)
@@ -906,6 +909,18 @@ mod tests {
         let error = client.run_completion(completion_request()).await.unwrap_err().to_string();
         assert!(error.contains("Invalid model provider base URL"));
         assert!(!error.contains("synthetic-secret"));
+    }
+
+    #[tokio::test]
+    async fn rejects_embedded_transcription_error_with_partial_text() {
+        let body = r#"{"text":"partial","error":{"message":"synthetic-secret"}}"#;
+        let reply = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
+        let (url, server) = reply_fixture(reply.into_bytes());
+        let request = TranscriptionRequest { model: "fixture".into(), audio: vec![1, 2], mime_type: "audio/wav".into(), filename: "audio.wav".into(), language: None };
+        let error = OpenAiCompatibleClient::new(url, None).transcribe(request).await.unwrap_err().to_string();
+        assert!(error.contains("returned an error"));
+        assert!(!error.contains("synthetic-secret"));
+        server.join().unwrap();
     }
 
     #[tokio::test]

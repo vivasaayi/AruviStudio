@@ -241,6 +241,9 @@ impl ModelGateway for AnthropicClient {
         let response = self.client.post(self.endpoint("/messages")).header("x-api-key", &self.api_key).header("anthropic-version", API_VERSION).json(&body).send().await
             .map_err(|error| crate::http::transport_error("Anthropic request failed", error))?;
         let json = Self::read_json(response).await?;
+        if json.get("error").is_some_and(|value| !value.is_null()) {
+            return Err(ClientError::Provider("Anthropic completion returned an error".into()));
+        }
         Self::validate_stop_reason(json.get("stop_reason"))?;
         let blocks = json.get("content").and_then(Value::as_array).ok_or_else(|| ClientError::Provider("Anthropic response is missing content".into()))?;
         for block in blocks { Self::reject_tool_block(block)?; }
@@ -305,6 +308,24 @@ mod tests {
         assert_eq!((meta.response_id.as_deref(), meta.model.as_deref(), meta.finish_reason.as_deref()), (Some("msg-1"), Some("fixture-v1"), Some("end_turn")));
         assert_eq!(meta.usage.as_ref().unwrap()["cache_read_input_tokens"], 4);
         assert_eq!((response.token_count_input,response.token_count_output), (Some(5),Some(2)));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejects_embedded_completion_error_with_partial_text() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0; 4096]; let _ = socket.read(&mut request).unwrap();
+            let reply = r#"{"content":[{"type":"text","text":"partial"}],"stop_reason":"end_turn","error":{"message":"synthetic-secret"}}"#;
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", reply.len(), reply).unwrap();
+        });
+        let client = AnthropicClient::new(format!("http://{addr}/v1"), "test-key".into()).unwrap();
+        let request = CompletionRequest { model: "fixture".into(), messages: vec![message("user", "hello")], temperature: None, max_tokens: Some(10) };
+        let error = client.run_completion(request).await.unwrap_err().to_string();
+        assert!(error.contains("returned an error"));
+        assert!(!error.contains("synthetic-secret"));
         server.join().unwrap();
     }
 

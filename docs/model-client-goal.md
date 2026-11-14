@@ -2240,6 +2240,15 @@ product reference, and verified product deletion clears the reference.
   records restored free space; the existing worktree volume was retained and the
   rebuilt container restarted healthy. The dynamically assigned port can change.
 
+## Shared-client embedded error handling
+
+Anthropic completion, both providers' model discovery and OpenAI-compatible
+transcription now reject successful HTTP JSON responses that contain a non-null
+provider error, even if partial text or model data is also present. Errors do not
+include the provider's response body. OpenAI-compatible text and stream paths
+already checked embedded errors. All 50 standalone shared-client tests passed
+on 2026-11-14 with local fixtures; this is not live-provider validation.
+
 ## Desktop and MCP database settings parity
 
 Desktop and MCP now share Rust operations for database health, active path and

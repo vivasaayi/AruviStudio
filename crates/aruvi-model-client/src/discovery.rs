@@ -22,6 +22,9 @@ pub(crate) async fn read_response(mut response: reqwest::Response) -> Result<Val
 }
 
 pub(crate) fn parse_models(body: &Value) -> Result<Vec<DiscoveredModel>, ClientError> {
+    if body.get("error").is_some_and(|value| !value.is_null()) {
+        return Err(ClientError::Provider("Model discovery returned an error".into()));
+    }
     let items = body.get("data").and_then(Value::as_array)
         .ok_or_else(|| ClientError::Provider("Model discovery response is missing data".into()))?;
     if items.len() > MAX_MODELS {
@@ -97,6 +100,24 @@ mod tests {
         let (base, server) = fixture("200 OK", r#"{"data":[],"has_more":true,"last_id":"same"}"#.into(), "get /v1/models?after_id=same ", "x-api-key: test-key");
         assert!(AnthropicClient::new(base, "test-key".into()).unwrap().list_models_page(Some("same")).await.is_err());
         server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejects_embedded_errors_even_with_models() {
+        for (body, anthropic) in [
+            (r#"{"data":[{"id":"partial"}],"error":{"message":"synthetic-secret"}}"#, false),
+            (r#"{"data":[{"id":"partial"}],"has_more":false,"error":{"message":"synthetic-secret"}}"#, true),
+        ] {
+            let auth = if anthropic { "x-api-key: test-key" } else { "authorization: bearer test-key" };
+            let (base, server) = fixture("200 OK", body.into(), "get /v1/models ", auth);
+            let error = if anthropic {
+                AnthropicClient::new(base, "test-key".into()).unwrap().list_models_page(None).await.unwrap_err()
+            } else {
+                OpenAiCompatibleClient::new(base, Some("test-key".into())).list_models_page(None).await.unwrap_err()
+            };
+            assert!(!error.to_string().contains("synthetic-secret"));
+            server.join().unwrap();
+        }
     }
 
     #[tokio::test]
