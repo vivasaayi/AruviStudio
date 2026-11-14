@@ -1,6 +1,25 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
+test("automatic transcription prefers explicit speech capabilities", async ({ request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const providerResponse = await request.post("/api/mobile/providers", { headers, data: { name: "Automatic recognition fixture", base_url: process.env.ARUVI_TEST_MODEL_URL } });
+  expect(providerResponse.ok()).toBeTruthy();
+  const provider = await providerResponse.json();
+  for (const [name, capability_tags] of [["aa-audio-tts", ["audio", "text_to_speech"]], ["ab-general-audio", ["audio"]], ["zz-synthetic-stt-model", ["speech_to_text"]]]) {
+    expect((await request.post("/api/mobile/models", { headers, data: { provider_id: provider.id, name, capability_tags } })).ok()).toBeTruthy();
+  }
+  const payload = { provider_id: provider.id, audio_bytes_base64: Buffer.from("RIFF fixture").toString("base64"), mime_type: "audio/wav", locale: "en-US" };
+  const mobile = await request.post("/api/mobile/speech/transcribe", { headers, data: payload });
+  expect(mobile.ok(), await mobile.text()).toBeTruthy();
+  expect((await mobile.json()).transcript).toBe("Synthetic microphone transcript");
+  const mcp = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 22, method: "tools/call", params: { name: "aruvi_speech", arguments: { action: "transcribe_audio", arguments: payload } } } });
+  const result = (await mcp.json()).result;
+  expect(result.isError, JSON.stringify(result)).not.toBeTruthy();
+  expect(result.structuredContent.result.transcript).toBe("Synthetic microphone transcript");
+});
+
 test("custom transcription model IDs work through browser API and MCP", async ({ request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };

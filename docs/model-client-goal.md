@@ -284,6 +284,14 @@ remain separate checks.
 
 ### Current requirement audit — 2026-11-14
 
+Automatic transcription selection ranks explicit transcription/STT/ASR tags
+above generic audio names and ignores clear synthesis-only names or tags, unless
+the model also explicitly advertises transcription. Manual model choices remain
+unchanged. The focused Rust selection test and all 43 isolated workflows passed,
+including browser API and MCP requests verified against a simulated provider.
+Generic name heuristics and the historical `whisper-1` fallback cannot establish
+actual provider support; configure an explicit model when capability is known.
+
 Explicit transcription model IDs now pass through desktop, browser and MCP
 without requiring a naming heuristic; the selected provider still determines
 whether the model is supported. Automatic selection continues to use enabled

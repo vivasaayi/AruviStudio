@@ -177,8 +177,16 @@ pub fn looks_like_transcription_model(name: &str) -> bool {
         || normalized.contains("audio")
 }
 
-pub(crate) fn model_supports_transcription(model: &crate::domain::model::ModelDefinition) -> bool {
-    model.enabled && (model.capability_tags.iter().any(|tag| matches!(tag.as_str(), "speech_to_text" | "transcription" | "audio")) || looks_like_transcription_model(&model.name))
+fn transcription_model_rank(model: &crate::domain::model::ModelDefinition) -> Option<u8> {
+    if !model.enabled { return None; }
+    let tags: Vec<_> = model.capability_tags.iter().map(|tag| tag.trim().to_ascii_lowercase().replace('-', "_")).collect();
+    if tags.iter().any(|tag| matches!(tag.as_str(), "speech_to_text" | "transcription" | "stt" | "asr")) { return Some(0); }
+    let name = model.name.to_ascii_lowercase();
+    let synthesis_name = name.split(|c: char| !c.is_ascii_alphanumeric()).any(|part| matches!(part, "tts" | "synthesis" | "synthesizer"))
+        || name.contains("text-to-speech") || name.contains("text_to_speech");
+    let synthesis_tag = tags.iter().any(|tag| matches!(tag.as_str(), "tts" | "text_to_speech" | "speech_synthesis" | "synthesis"));
+    if synthesis_name || synthesis_tag { return None; }
+    (tags.iter().any(|tag| tag == "audio") || looks_like_transcription_model(&name)).then_some(1)
 }
 
 pub(crate) fn compatible_speech_model_default(requested_provider: Option<&str>, default_provider: Option<&str>, default_model: Option<String>) -> Option<String> {
@@ -193,7 +201,10 @@ pub(crate) fn compatible_speech_model_default(requested_provider: Option<&str>, 
 
 pub(crate) async fn default_transcription_model(db: &sqlx::SqlitePool, provider_id: &str) -> Result<String, AppError> {
     Ok(crate::persistence::model_repo::list_model_definitions(db).await?
-        .into_iter().find(|model| model.provider_id == provider_id && model_supports_transcription(model))
+        .into_iter().filter(|model| model.provider_id == provider_id)
+        .filter_map(|model| transcription_model_rank(&model).map(|rank| (rank, model)))
+        .min_by_key(|(rank, _)| *rank)
+        .map(|(_, model)| model)
         .map(|model| model.name).unwrap_or_else(|| "whisper-1".to_string()))
 }
 
@@ -428,6 +439,21 @@ fn run_whisper_transcription(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn automatic_transcription_prefers_explicit_capabilities_and_excludes_synthesis() {
+        let model = |name: &str, tags: &[&str], enabled| crate::domain::model::ModelDefinition {
+            id: "fixture".into(), provider_id: "provider".into(), name: name.into(), context_window: None,
+            capability_tags: tags.iter().map(|tag| (*tag).into()).collect(), notes: "".into(), enabled,
+            created_at: "".into(), updated_at: "".into(),
+        };
+        assert_eq!(super::transcription_model_rank(&model("audio-tts", &["audio"], true)), None);
+        assert_eq!(super::transcription_model_rank(&model("speech-model", &["text_to_speech"], true)), None);
+        assert_eq!(super::transcription_model_rank(&model("audio-tts", &["audio", "speech_to_text"], true)), Some(0));
+        assert_eq!(super::transcription_model_rank(&model("custom", &["ASR"], true)), Some(0));
+        assert_eq!(super::transcription_model_rank(&model("speech-model", &[], true)), Some(1));
+        assert_eq!(super::transcription_model_rank(&model("whisper", &[], false)), None);
+    }
+
     #[test]
     fn speech_default_model_does_not_cross_provider_boundaries() {
         let choose = |requested, configured| super::compatible_speech_model_default(requested, configured, Some("model-a".into()));
