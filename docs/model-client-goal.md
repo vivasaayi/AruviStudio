@@ -44,6 +44,20 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Browser provider credential detachment
+
+- Browser provider management can explicitly detach a key and disable legacy
+  provider/global fallback keys for that provider. It retains stored credentials
+  because references can be shared; this does not revoke keys. Setting a new key
+  restores credential use. A random database revision changes on credential
+  reference updates, so a stale browser cannot detach a concurrently rotated key.
+  External changes to a secret's value at an unchanged reference are not detected.
+- Migration 050 was applied to the existing branch worktree database; its server
+  started healthy. The isolated workflow test checks authentication, stale writes,
+  browser detachment and preservation of a shared credential. The Linux targeted
+  fallback test passed, as did the browser smoke, 21 remote, one simulated CI and
+  20 workflow cases. Real Model Host coding and token-limit checks passed via MCP.
+
 ## Speech response container validation
 
 - The OpenAI-compatible client rejects WAV responses missing a format chunk or

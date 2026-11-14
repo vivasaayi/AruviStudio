@@ -302,6 +302,26 @@ test("isolated provider key rotation uses the new credential", async ({ page, re
   const listing = await (await request.get("/api/mobile/providers", { headers })).text();
   expect(listing).not.toContain(key);
   expect(listing).not.toContain("auth_secret_ref");
+  const before = JSON.parse(listing).find((item) => item.id === provider.id);
+  expect(before.credentials_disabled).toBeFalsy();
+  const activeRef = (await mcp("list_providers", {})).find((item) => item.id === provider.id).auth_secret_ref;
+  const sharedAgain = await mcp("create_provider", { name: "Shared active credential", base_url: provider.base_url, auth_secret_ref: `ref:${activeRef}` });
+  expect((await request.post("/api/mobile/providers/credential", { headers, data: payload })).ok()).toBeTruthy();
+  const staleClear = { id: provider.id, expected, credential_revision: before.credential_revision };
+  expect((await request.post("/api/mobile/providers/credential/clear", { data: staleClear })).status()).toBe(401);
+  expect((await request.post("/api/mobile/providers/credential/clear", { headers, data: staleClear })).status()).toBe(409);
+  await page.reload();
+  await page.getByRole("button", { name: "Models", exact: true }).click();
+  const currentCard = page.locator("#providerList .tool-card").filter({ hasText: "Rotation provider" });
+  await currentCard.getByText("Manage provider", { exact: true }).click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await currentCard.getByRole("button", { name: "Detach API key" }).click();
+  await expect(page.locator("#status")).toHaveText("Provider key detached");
+  const after = (await (await request.get("/api/mobile/providers", { headers })).json()).find((item) => item.id === provider.id);
+  expect(after.credentials_disabled).toBeTruthy();
+  expect(after.credential_revision).not.toBe(before.credential_revision);
+  expect((await (await request.post(`/api/mobile/providers/${provider.id}/test`, { headers })).json()).message).not.toBe("Connection successful");
+  expect((await (await request.post(`/api/mobile/providers/${sharedAgain.id}/test`, { headers })).json()).message).toBe("Connection successful");
 });
 
 

@@ -796,11 +796,7 @@ async fn model_action(state: &WebhookState, action: &str, arguments: serde_json:
     match crate::mcp::dispatch_tool(&state.app_state, "aruvi_models", serde_json::json!({"action": action, "arguments": arguments})).await {
         Ok(result) => {
             let mut value = result["result"].clone();
-            if action == "list_providers" {
-                if let Some(providers) = value.as_array_mut() {
-                    for provider in providers { if let Some(fields) = provider.as_object_mut() { fields.remove("auth_secret_ref"); } }
-                }
-            } else if action == "create_provider" {
+            if action == "create_provider" {
                 if let Some(fields) = value.as_object_mut() { fields.remove("auth_secret_ref"); }
             }
             Json(value).into_response()
@@ -866,6 +862,18 @@ pub(crate) async fn mobile_rotate_provider_credential(State(state): State<Webhoo
 #[derive(Debug, Deserialize)]
 pub(crate) struct ProviderCleanupRequest { id: String, expected: ProviderEditFields }
 
+#[derive(Debug, Deserialize)]
+pub(crate) struct ProviderClearCredentialRequest { id: String, expected: ProviderEditFields, credential_revision: String }
+
+pub(crate) async fn mobile_clear_provider_credential(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<ProviderClearCredentialRequest>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let result = sqlx::query("UPDATE model_providers SET auth_secret_ref=?,updated_at=datetime('now') WHERE id=? AND name=? AND base_url=? AND enabled=? AND protocol=COALESCE(?,protocol) AND credential_revision=? AND auth_secret_ref IS NOT ?")
+        .bind(crate::secrets::NO_PROVIDER_CREDENTIAL).bind(&body.id).bind(&body.expected.name).bind(&body.expected.base_url).bind(body.expected.enabled).bind(&body.expected.protocol).bind(&body.credential_revision).bind(crate::secrets::NO_PROVIDER_CREDENTIAL).execute(&state.app_state.db).await;
+    match result { Ok(result) if result.rows_affected() == 1 => Json(serde_json::json!({"ok":true})).into_response(),
+        Ok(_) => (StatusCode::CONFLICT, "Provider or credential changed or was removed. Refresh before detaching the key.").into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Unable to detach provider key").into_response() }
+}
+
 pub(crate) async fn mobile_cleanup_provider_credentials(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<ProviderCleanupRequest>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     let mut tx = match state.app_state.db.begin().await { Ok(tx) => tx, Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response() };
@@ -920,7 +928,11 @@ pub(crate) async fn mobile_delete_model(State(state): State<WebhookState>, heade
 
 pub(crate) async fn mobile_list_providers(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
-    model_action(&state, "list_providers", serde_json::json!({})).await
+    #[derive(serde::Serialize, sqlx::FromRow)]
+    struct ProviderView { id: String, name: String, provider_type: String, protocol: String, base_url: String,
+        enabled: bool, created_at: String, updated_at: String, credential_revision: String, credentials_disabled: bool }
+    let result = sqlx::query_as::<_, ProviderView>("SELECT id,name,provider_type,protocol,base_url,enabled,created_at,updated_at,credential_revision,auth_secret_ref IS ? AS credentials_disabled FROM model_providers ORDER BY name").bind(crate::secrets::NO_PROVIDER_CREDENTIAL).fetch_all(&state.app_state.db).await;
+    match result { Ok(providers) => Json(providers).into_response(), Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Unable to load providers").into_response() }
 }
 
 pub(crate) async fn mobile_create_provider(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileCreateProviderRequest>) -> impl IntoResponse {

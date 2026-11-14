@@ -408,6 +408,7 @@ fn read_from_fallback_config(provider: &ModelProvider, secret_ref: Option<&str>)
 }
 
 fn read_from_fallback_value(provider: &ModelProvider, secret_ref: Option<&str>, config: &Value) -> Option<String> {
+    if provider.auth_secret_ref.as_deref() == Some(NO_PROVIDER_CREDENTIAL) { return None; }
     let root = config.as_object()?;
 
     if let Some(reference) = secret_ref {
@@ -471,7 +472,11 @@ fn read_from_fallback_value(provider: &ModelProvider, secret_ref: Option<&str>, 
     root.get("api_key").and_then(read_key_from_value)
 }
 
+/// Explicitly disable credentials, including legacy provider/global fallbacks.
+pub const NO_PROVIDER_CREDENTIAL: &str = "ref:aruvi:no-credential";
+
 pub fn resolve_provider_secret(provider: &ModelProvider) -> Result<Option<String>, AppError> {
+    if provider.auth_secret_ref.as_deref() == Some(NO_PROVIDER_CREDENTIAL) { return Ok(None); }
     let normalized_ref = provider
         .auth_secret_ref
         .as_deref()
@@ -499,6 +504,17 @@ pub fn resolve_provider_secret(provider: &ModelProvider) -> Result<Option<String
 mod cleanup_tests {
     use super::*;
     use std::collections::HashSet;
+
+    #[test]
+    fn detached_provider_does_not_use_a_global_fallback() {
+        let provider = ModelProvider { id: "fixture".into(), name: "Fixture".into(),
+            provider_type: crate::domain::model::ProviderType::OpenaiCompatible,
+            protocol: "openai_compatible".into(), base_url: "http://localhost".into(),
+            auth_secret_ref: Some(NO_PROVIDER_CREDENTIAL.into()), enabled: true,
+            created_at: "".into(), updated_at: "".into() };
+        assert_eq!(read_from_fallback_value(&provider, Some("aruvi:no-credential"), &serde_json::json!({"api_key":"synthetic-fallback"})), None);
+        assert_eq!(resolve_provider_secret(&provider).unwrap(), None);
+    }
 
     #[test]
     fn cleanup_preserves_protected_and_noncanonical_references() {

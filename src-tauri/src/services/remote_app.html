@@ -3407,6 +3407,20 @@
             } catch (error) { setStatus(error.message || String(error), "error"); }
             finally { keySave.disabled = false; }
           });
+          if (!provider.credentials_disabled) {
+            const detach = document.createElement("button"); detach.type = "button"; detach.textContent = "Detach API key";
+            edit.appendChild(detach);
+            detach.addEventListener("click", async () => {
+              if (!window.confirm("Stop using this provider's API key and fallback credentials? Stored secrets are not deleted or revoked and may be shared with other providers.")) return;
+              detach.disabled = true;
+              try {
+                await request("/api/mobile/providers/credential/clear", { method: "POST", body: { id: provider.id,
+                  expected: { name: provider.name, base_url: provider.base_url, enabled: provider.enabled, protocol: provider.protocol }, credential_revision: provider.credential_revision } });
+                await loadModelConfiguration(); setStatus("Provider key detached", "ok");
+              } catch (error) { setStatus(error.message || String(error), "error"); }
+              finally { detach.disabled = false; }
+            });
+          }
           const cleanup = document.createElement("button"); cleanup.type = "button"; cleanup.textContent = "Clean unused fallback keys";
           edit.appendChild(cleanup);
           cleanup.addEventListener("click", async () => {
