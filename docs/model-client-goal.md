@@ -12,6 +12,20 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Agent model routing preflight
+
+`python3 scripts/check-model-routing` checks active agents' explicit primary
+bindings, enabled model/provider configuration, and provider model discovery
+through the running worktree's authenticated MCP interface. It reports unbound
+agents as needing review instead of guessing the role-based fallback, bounds
+pagination and treats failed discovery as unknown. It performs no writes or
+inference; discovery does not prove the model is healthy or suitable for a task.
+`bash scripts/test model-routing` exercises pagination, missing models, disabled
+providers, voice-only selectors, ambiguous priorities and discovery failure with
+fixtures. On 2026-11-14, the running branch reported all nine active agents bound
+to the advertised `qwen25-coder-7b-q4` Model Host model; these bindings are local
+worktree data, not defaults for other deployments.
+
 ### Browser database settings
 
 The authenticated browser Routing page now reads the active server database path,

@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Check explicit active-agent model bindings against live provider discovery.
+
+Read-only: does not alter bindings or issue an inference request. Discovery does
+not prove a model is healthy or suitable for an agent's task.
+"""
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def mcp(tool, action, arguments):
+    result = subprocess.run(
+        [str(ROOT / "scripts/mcp"), "call", tool, "-"], cwd=ROOT,
+        input=json.dumps({"action": action, "arguments": arguments}),
+        text=True, capture_output=True, timeout=30, check=True,
+    )
+    return json.loads(result.stdout)["result"]
+
+
+def evaluate(agents, bindings, models, providers, discover):
+    """Return diagnostics; never infer an unbound agent's selected fallback."""
+    models_by_id = {item["id"]: item for item in models}
+    providers_by_id = {item["id"]: item for item in providers}
+    grouped = {}
+    for binding in bindings:
+        grouped.setdefault(binding["agent_id"], []).append(binding)
+    cache = {}
+    results = []
+    for agent in agents:
+        if not agent.get("enabled") or agent.get("employment_status") != "active":
+            continue
+        name = agent["name"]
+        choices = sorted(grouped.get(agent["id"], []), key=lambda item: item["priority"])
+        if not choices:
+            results.append((False, f"{name}: no explicit model binding; role-based fallback is not checked"))
+            continue
+        if len(choices) > 1 and choices[0]["priority"] == choices[1]["priority"]:
+            results.append((False, f"{name}: multiple primary bindings have the same priority"))
+            continue
+        model = models_by_id.get(choices[0]["model_id"])
+        if not model or not model.get("enabled"):
+            results.append((False, f"{name}: primary model is missing or disabled"))
+            continue
+        provider = providers_by_id.get(model["provider_id"])
+        if not provider or not provider.get("enabled"):
+            results.append((False, f"{name}: primary model provider is missing or disabled"))
+            continue
+        if provider.get("provider_type") == "local_runtime" or model["name"].strip().lower() in {"deepseek-voice-transcription", "deepseek-voice-synthesis"}:
+            results.append((False, f"{name}: primary model is a voice-only selector"))
+            continue
+        provider_id = provider["id"]
+        if provider_id not in cache:
+            try:
+                names, cursor, visited = set(), None, set()
+                for _ in range(20):
+                    page = discover(provider_id, cursor)
+                    names.update(item["id"] for item in page["models"])
+                    cursor = page.get("next_cursor")
+                    if not cursor:
+                        break
+                    if cursor in visited:
+                        raise ValueError("repeated discovery cursor")
+                    visited.add(cursor)
+                else:
+                    raise ValueError("discovery page limit exceeded")
+                cache[provider_id] = names
+            except (subprocess.SubprocessError, OSError, KeyError, TypeError, ValueError):
+                cache[provider_id] = None
+        advertised = cache[provider_id]
+        if advertised is None:
+            results.append((False, f"{name}: {provider['name']} discovery unavailable; model readiness is unknown"))
+        elif model["name"] not in advertised:
+            results.append((False, f"{name}: {model['name']} is not advertised by {provider['name']}"))
+        else:
+            results.append((True, f"{name}: {model['name']} is advertised by {provider['name']}"))
+    return results
+
+
+def main():
+    try:
+        agents = mcp("aruvi_agents", "list_agent_definitions", {})
+        bindings = mcp("aruvi_agents", "list_agent_model_bindings", {})
+        models = mcp("aruvi_models", "list_model_definitions", {})
+        providers = mcp("aruvi_models", "list_providers", {})
+        results = evaluate(agents, bindings, models, providers,
+            lambda provider_id, cursor: mcp("aruvi_models", "discover_provider_models", {"provider_id": provider_id, **({"cursor": cursor} if cursor else {})}))
+    except (subprocess.SubprocessError, OSError, KeyError, TypeError, ValueError):
+        print("Unable to inspect Studio routing through MCP.", file=sys.stderr)
+        return 1
+    for ok, message in results:
+        print(("OK: " if ok else "CHECK: ") + message)
+    print("Discovery checks availability listings, not inference, model quality, or unbound-agent fallback.")
+    if not results:
+        print("CHECK: no active agents found")
+    return 0 if results and all(ok for ok, _ in results) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
