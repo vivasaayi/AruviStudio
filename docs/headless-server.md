@@ -93,7 +93,7 @@ scripts/configure-native-model-host /path/to/aruvi-model-host-worktree --model Y
 
 The helper reads the selected host's private token without printing it, verifies
 model discovery from both the Mac and the Studio container, and updates the named
-provider without replacing its ID. For native staging, select `--environment
+provider without replacing its ID. Discovery rejects HTTP redirects. For native staging, select `--environment
 staging` and the checkout used to manage that deployment; use a coding model
 actually installed there. The current native staging fixture does not contain one.
 Use `--name` to choose a different provider name. This setup stores the host's

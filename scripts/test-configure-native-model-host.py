@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Regression checks for native host restart synchronization."""
 import contextlib
+import http.server
 import importlib.machinery
 import io
 from pathlib import Path
 import sys
+import threading
 import unittest
+import urllib.error
 from unittest import mock
 
 loader = importlib.machinery.SourceFileLoader("configure_native_model_host", str(Path(__file__).with_name("configure-native-model-host")))
@@ -13,6 +16,33 @@ module = loader.load_module()
 
 
 class WatchTests(unittest.TestCase):
+    def test_discovery_does_not_forward_token_on_redirect(self):
+        requests = []
+        class Target(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                requests.append(self.headers.get("Authorization"))
+                self.send_response(200); self.end_headers()
+            def log_message(self, *_): pass
+        target = http.server.HTTPServer(("127.0.0.1", 0), Target)
+        class Source(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(302)
+                self.send_header("Location", f"http://127.0.0.1:{target.server_port}/stolen")
+                self.end_headers()
+            def log_message(self, *_): pass
+        source = http.server.HTTPServer(("127.0.0.1", 0), Source)
+        threads = [threading.Thread(target=server.serve_forever, daemon=True) for server in (source, target)]
+        for thread in threads: thread.start()
+        try:
+            with mock.patch.object(module, "mcp") as mcp:
+                with self.assertRaises(urllib.error.HTTPError):
+                    module.configure(source.server_port, "synthetic-token", "coding", "Fixture")
+                mcp.assert_not_called()
+            self.assertEqual(requests, [])
+        finally:
+            for server in (source, target): server.shutdown(); server.server_close()
+            for thread in threads: thread.join()
+
     def test_known_configuration_error_is_actionable_without_exposing_token(self):
         with mock.patch.object(sys, "argv", ["configure-native-model-host", ".", "--model", "fixture"]), \
              mock.patch.object(module, "read_host", return_value=(10001, "synthetic-token")), \

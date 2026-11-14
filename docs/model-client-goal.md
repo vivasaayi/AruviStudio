@@ -65,6 +65,13 @@ provider hosting into the model-host service as part of this work.
   the helper refreshed the real 7B host provider and subsequent MCP coding,
   token-limit handling and browser streaming checks passed. The helper does not
   assign agent bindings or start automatically after a host restart.
+- Native host discovery now rejects HTTP redirects instead of forwarding its
+  bearer token to the redirect destination. A two-server fixture verified the
+  redirect target received no request; five helper tests passed. The updated
+  helper then refreshed the real 7B provider, and its MCP coding and token-limit
+  checks passed. The stable native staging host advertises speech, transcription,
+  image and small text fixtures, but not the validated 7B coding model; the
+  current coding provider uses the dedicated native worktree and its dynamic port.
 
 - Desktop and MCP now share the same managed installer. It rejects paths in
   model filenames, refuses symlink destinations and symlink model directories,
