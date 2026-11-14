@@ -101,6 +101,8 @@ policy. The currently deployed host may not support this option yet. Without the
 flag, the helper retains its existing management-token behavior. A failed scoped
 configuration leaves any previously configured provider credential unchanged;
 it does not remove or revoke an existing management token.
+The independent-client probe also accepts `--credential-scope inference` after
+its model argument and performs the same check before launching the container.
 
 The helper reads the selected host's private token without printing it, verifies
 model discovery from both the Mac and the Studio container, and updates the named

@@ -19,14 +19,19 @@ only `MODEL_HOST_INFERENCE_TOKEN`, never silently falls back to the management
 credential, and requires a 403 from `GET /api/models` before configuring Studio.
 The check uses a bounded child process, does not follow redirects, and does not
 print credentials or provider bodies. It checks one management route and does
-not by itself prove the entire host policy. Seventeen helper tests passed; a
+not by itself prove the entire host policy. Eighteen helper tests passed; a
 disposable candidate host accepted the inference token for discovery and denied
 management while the helper rejected the management token. Against the currently
 running host, the helper failed closed because no inference token is configured;
 it made no provider change. A failed check leaves any previous provider credential
 in place; it does not remove or revoke a management token. Default helper behavior
 remains management-token compatibility until a scoped host is deployed and
-explicitly selected.
+explicitly selected. The independent-client probe accepts the same scope option;
+it passed discovery, completion, streaming and token-limit checks against the
+candidate with a simulated worker, and fails closed against the currently
+running host when the scoped credential is absent. Its default compatibility
+mode still passed real 7B-model discovery, completion, streaming and token-limit
+checks against the running host.
 
 ### Candidate inference-only Model Host credential
 
@@ -44,7 +49,10 @@ The zero-context patch applies to the committed host revision with `git apply
 passed 17 simulated lifecycle tests, seven Rust tests and six native-adapter
 tests; worker fixtures verified credentials do not enter worker environments.
 The scoped token also exercised streaming, transcription, speech and image
-inference with simulated workers. The three tracked Compose adapters passed
+inference with simulated workers. A route matrix checked every currently
+registered `/api` management method and rejected method mismatches on inference
+routes; this must be maintained as the host API changes. The independent Docker
+consumer also passed its scoped-token probe against a simulated worker. The three tracked Compose adapters passed
 synthetic configuration checks. Native and Docker Studio fixtures completed MCP
 inference through the candidate host with the scoped token; the native fixture
 verified management was denied, and the Docker fixture exercised idempotent
@@ -52,7 +60,7 @@ configuration through Studio's scope-checking helper. The tests used synthetic
 models and credentials, not real host inference. The snapshot's native and Docker
 probes require `MODEL_HOST_TEST_BIN` plus `ARUVI_STUDIO_TEST_BIN` or
 `ARUVI_STUDIO_TEST_IMAGE` and `ARUVI_STUDIO_ROOT` respectively. Applying the
-patch to the exact base reproduced all 13 candidate files byte for byte.
+patch to the exact base reproduced all 14 candidate files byte for byte.
 
 This remains a **candidate**, not a host commit or deployment. The host's main
 checkout contains unrelated uncommitted changes, including a separate untracked

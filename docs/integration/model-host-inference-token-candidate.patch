@@ -92,7 +92,7 @@
 @@ -44 +44 @@
 -                                MODEL_HOST_TOKEN='fixture-token', HF_TOKEN='fixture-source-token',
 +                                MODEL_HOST_TOKEN='fixture-token', MODEL_HOST_INFERENCE_TOKEN='fixture-inference-token', HF_TOKEN='fixture-source-token',
-@@ -301,0 +302,76 @@
+@@ -301,0 +302,81 @@
 +    def test_absent_inference_token_preserves_existing_authentication(self):
 +        self.stop()
 +        self.environment.pop('MODEL_HOST_INFERENCE_TOKEN')
@@ -119,11 +119,16 @@
 +        request = urllib.request.Request(self.url + '/v1/chat/completions', data=body, headers={'Authorization':'Bearer fixture-inference-token', 'Content-Type':'application/json'})
 +        with urllib.request.urlopen(request, timeout=10) as response:
 +            self.assertFalse(json.load(response)['credentials_present'])
-+        for path in ['/api/models', '/api/catalog', '/api/jobs', '/api/workers', '/api/activity', '/api/aliases']:
-+            self.assertEqual(invoke(path), 403, path)
-+        for path in ['/api/models/fixture/unload', '/api/jobs/image', '/api/aliases/fixture']:
-+            self.assertEqual(invoke(path, 'POST', body=b'{}'), 403, path)
++        management_routes = {
++            'GET': ['/api/catalog', '/api/models', '/api/models/fixture', '/api/aliases', '/api/jobs', '/api/jobs/1/result', '/api/activity', '/api/workers'],
++            'POST': ['/api/catalog/fixture/install', '/api/models', '/api/models/fixture/install', '/api/models/fixture/load', '/api/models/fixture/unload', '/api/models/fixture/keep-warm', '/api/aliases/fixture', '/api/jobs/1/cancel', '/api/jobs/image', '/api/jobs/speech', '/api/jobs/transcription'],
++            'DELETE': ['/api/aliases/fixture'],
++        }
++        for method, paths in management_routes.items():
++            for path in paths:
++                self.assertEqual(invoke(path, method, body=b'{}' if method == 'POST' else None), 403, (method, path))
 +        self.assertEqual(invoke('/v1/models', 'POST', body=b'{}'), 403)
++        self.assertEqual(invoke('/v1/chat/completions', 'GET'), 403)
 +        self.assertEqual(invoke('/api/models', token='fixture-token'), 200)
 +        self.assertEqual(invoke('/v1/models', token='wrong-token'), 401)
 +        for path in ['/v1/chat/completions', '/v1/audio/transcriptions', '/v1/audio/speech', '/v1/images/generations']:
@@ -276,4 +281,33 @@
 +finally:
 +    if container:
 +        subprocess.run(['docker','stop',container],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
++    host.tearDown()
+--- /dev/null
++++ b/tests/studio_consumer_inference_scope.py
+@@ -0,0 +1,26 @@
++"""Exercise Studio's independent consumer against a simulated scoped host."""
++import json, os, pathlib, subprocess, tempfile
++from tests.lifecycle import Lifecycle
++host=Lifecycle('test_inference_token_cannot_manage_the_host'); host.setUp()
++try:
++    fake=host.root/'probe-worker.py'
++    source=pathlib.Path(__file__).with_name('fake_worker.py').read_text()
++    source=source.replace("for token in ['fixture ', 'response']:","for token in (['ready'] if 'ready' in json.dumps(body.get('messages', [])) else ['fixture ', 'response']):")
++    source=source.replace("response = {'choices': [{'message': {'role': 'assistant', 'content': 'fixture response'}}], 'worker_pid': os.getpid(),", "response = {'choices': [{'message': {'role': 'assistant', 'content': 'ready' if 'ready' in json.dumps(body.get('messages', [])) else 'fixture response'}, 'finish_reason': 'length' if body.get('max_tokens') == 1 else 'stop'}], 'worker_pid': os.getpid(),")
++    fake.write_text(source); fake.chmod(0o755)
++    host.stop(); host.environment['MODEL_HOST_LLAMA_BIN']=str(fake); host.start()
++    host.register(); assert host.install()['installation']=='installed'
++    with tempfile.TemporaryDirectory(prefix='scoped-host-shim-') as directory:
++        root=pathlib.Path(directory); (root/'scripts').mkdir(); (root/'state').mkdir()
++        envfile=root/'state/environment.env'; envfile.write_text('MODEL_HOST_TOKEN=fixture-token\nMODEL_HOST_INFERENCE_TOKEN=fixture-inference-token\n'); envfile.chmod(0o600)
++        (root/'plan.json').write_text(json.dumps({'state':str(root/'state')}))
++        (root/'status.json').write_text(json.dumps({'registered':True,'endpoint':{'url':host.url,'pid':host.process.pid}}))
++        shim=root/'scripts/env'; shim.write_text('#!/bin/bash\nif [ "$2" = "plan" ]; then cat "$(dirname "$0")/../plan.json"; else cat "$(dirname "$0")/../status.json"; fi\n'); shim.chmod(0o755)
++        cmd=['bash','scripts/test','host-shared-client',str(root),'--model','fixture','--credential-scope','inference']
++        result=subprocess.run(cmd,cwd=os.environ['ARUVI_STUDIO_ROOT'],capture_output=True,text=True,timeout=180)
++        if result.returncode: raise RuntimeError('Scoped independent consumer probe failed')
++        assert 'discovery, completion, streaming, and token-limit handling passed' in result.stdout
++        assert 'fixture-inference-token' not in result.stdout+result.stderr
++        print('Scoped independent Docker consumer passed discovery, completion, streaming, and token-limit checks against a simulated host.')
++finally:
 +    host.tearDown()

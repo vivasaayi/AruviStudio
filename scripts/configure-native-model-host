@@ -55,9 +55,9 @@ def read_host_state(host, environment, credential_scope="management"):
     return endpoint.port, token, pid
 
 
-def read_host(host, environment):
+def read_host(host, environment, credential_scope="management"):
     """Return connection details for callers that do not watch process changes."""
-    return read_host_state(host, environment)[:2]
+    return read_host_state(host, environment, credential_scope)[:2]
 
 
 def fetch_discovery(port, token):

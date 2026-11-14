@@ -45,6 +45,11 @@ class WatchTests(unittest.TestCase):
                 with self.assertRaisesRegex(module.SetupError, "inference token is not configured"):
                     module.read_host_state(Path("."), "worktree", "inference")
 
+    def test_two_value_reader_forwards_explicit_scope(self):
+        with mock.patch.object(module, "read_host_state", return_value=(1234, "synthetic-token", 99)) as reader:
+            self.assertEqual(module.read_host(Path("."), "worktree", "inference"), (1234, "synthetic-token"))
+            reader.assert_called_once_with(Path("."), "worktree", "inference")
+
     def test_scope_verification_rejects_management_and_unknown_tokens(self):
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_GET(self):

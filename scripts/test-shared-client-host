@@ -13,6 +13,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("host_worktree", type=Path, help="Native Model Host checkout")
 parser.add_argument("--environment", choices=("worktree", "integration", "staging"), default="worktree")
 parser.add_argument("--model", required=True, help="Installed coding model ID")
+parser.add_argument("--credential-scope", choices=("management", "inference"), default="management", help="Use an explicitly configured inference token when supported")
 parser.add_argument("--json-mode", action="store_true", help="Also test JSON-object completion on a compatible model")
 parser.add_argument("--voice-model", help="Installed speech generation model ID")
 parser.add_argument("--transcription-model", help="Installed speech transcription model ID")
@@ -25,7 +26,9 @@ try:
     spec = importlib.util.spec_from_loader(loader.name, loader)
     configure = importlib.util.module_from_spec(spec)
     loader.exec_module(configure)
-    port, token = configure.read_host(host, args.environment)
+    port, token = configure.read_host(host, args.environment, args.credential_scope)
+    if args.credential_scope == "inference":
+        configure.verify_inference_scope(port, token)
     with tempfile.TemporaryDirectory(prefix="aruvi-model-probe-") as directory:
         subprocess.run(["docker", "build", "--target", "probe-artifact", "--output", f"type=local,dest={directory}", "validation/model-client-consumer"], cwd=root, check=True, stdout=subprocess.DEVNULL)
         binary = str(Path(directory) / "host_probe")
