@@ -290,8 +290,11 @@ redaction. MCP and browser streaming errors expose the category as optional
 metadata. The new `ClientError` variant requires exhaustive-match consumers to
 update when they opt into this revision; the category alone does not establish
 retry safety. All 57 native client tests, a native MCP error test and 45 isolated
-Studio workflows passed. The independent Git-pinned consumer still needs to be
-updated and validated against this revision.
+Studio workflows passed. The independent consumer pinned to
+`56542efcbcc5089c1c595bb0af4f777e809b2745` passed 25 vendored offline tests,
+including connection and stream-timeout classification. Its lockfile audit had
+no reported findings; a non-root Linux probe also passed real Model Host text and
+synthetic Piper/Whisper speech checks.
 
 The shared DeepSeek voice client now implements the common `ModelGateway`
 interface with transcription and WAV synthesis capabilities. It rejects
@@ -303,7 +306,7 @@ automatic language detection. All 57 native shared-client tests and 45 isolated
 Studio workflows passed against fixtures; live DeepSeek voice remains unverified.
 The native Studio Rust suite also passed 250 tests with six ignored by default,
 and native ARM64 desktop, server and MCP debug binaries built successfully.
-The independent consumer is pinned to
+The previous independent consumer was pinned to
 `6539f1613a7d1b71fb61d09f42509c419f56f82c`; all 24 consumer tests passed after
 vendoring with build networking disabled, including a trait-object DeepSeek
 voice check. Its non-root, read-only Linux probe passed real Model Host text,
@@ -434,7 +437,7 @@ scope is reviewed, not merely until an example passes.
 
 | Requirement | Current evidence | Remaining work |
 | --- | --- | --- |
-| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and by a separate project pinned to commit `6539f1613a7d1b71fb61d09f42509c419f56f82c`; 24 independent tests passed offline after vendoring. Its non-root Linux probe passed real Model Host discovery, completion, streaming, token-limit handling and a synthetic Piper/Whisper speech round trip. | Decide independent ownership, versioning and a migration plan for other projects. The current pin is a checkpoint, not a published release. |
+| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and by a separate project pinned to commit `56542efcbcc5089c1c595bb0af4f777e809b2745`; 25 independent tests passed offline after vendoring. Its non-root Linux probe passed real Model Host discovery, completion, streaming, token-limit handling and a synthetic Piper/Whisper speech round trip. | Decide independent ownership, versioning and a migration plan for other projects. The current pin is a checkpoint, not a published release. |
 | OpenAI-compatible and Anthropic protocols | Shared clients cover text, streaming, discovery and error handling; OpenAI-compatible voice is implemented. Contract fixtures cover both protocols and the reasoning request profile. | Live third-party OpenAI, Anthropic, DeepSeek and LM Studio sessions remain unverified; compatibility with each model and provider cannot be inferred from adapter capabilities. |
 | Local coding integration | The isolated 7B Model Host passed real MCP completion and an extend-module workflow through code review and a disposable local Git remote. A later new-module attempt produced a missing function definition; independent behavior checks caught it before delivery. | Investigate reliability on broader coding tasks and actual authenticated network delivery; syntax-only checks do not establish correctness. |
 | Speech and local fallback | Real Model Host speech generation and transcription and checksum-pinned local Whisper have been exercised with synthetic audio; browser and MCP fixtures exist. | Physical microphone permission/capture, audible playback, other languages and recognition quality remain unverified. |

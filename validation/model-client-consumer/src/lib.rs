@@ -133,7 +133,28 @@ mod tests {
         let client: Box<dyn ModelGateway> = Box::new(OpenAiCompatibleClient::new(format!("http://{address}/sensitive-path"), None));
         let request = CompletionRequest { model: "fixture".into(), messages: vec![ChatMessage { role: "user".into(), content: "hello".into() }], temperature: None, max_tokens: Some(10) };
         let error = client.run_completion(request).await.unwrap_err();
+        assert_eq!(error.transport_kind(), Some(aruvi_model_client::TransportErrorKind::Connect));
         assert!(!error.to_string().contains("sensitive-path"));
+    }
+
+    #[tokio::test]
+    async fn independent_client_identifies_stream_timeouts() {
+        use std::time::Duration;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut input = [0; 4096]; let _ = socket.read(&mut input);
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 100\r\nConnection: close\r\n\r\n").unwrap();
+            thread::sleep(Duration::from_millis(400));
+        });
+        let options = aruvi_model_client::ClientOptions { connect_timeout: Duration::from_millis(100), request_timeout: Duration::from_millis(150) };
+        let gateway: Box<dyn ModelGateway> = Box::new(OpenAiCompatibleClient::with_options(format!("http://{address}/private-path"), None, options).unwrap());
+        let request = CompletionRequest { model: "fixture".into(), messages: vec![ChatMessage { role: "user".into(), content: "hello".into() }], temperature: None, max_tokens: Some(10) };
+        let error = gateway.stream_completion(request, &mut |_| {}).await.unwrap_err();
+        assert_eq!(error.transport_kind(), Some(aruvi_model_client::TransportErrorKind::Timeout));
+        assert!(!format!("{error:?} {error}").contains("private-path"));
+        server.join().unwrap();
     }
 
     #[tokio::test]
