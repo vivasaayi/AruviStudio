@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getMcpBridgeStatus,
@@ -78,15 +78,6 @@ export function SettingsPage() {
   });
 
   useSettingsLoader(settingsState);
-
-  useEffect(() => {
-    if (!speechProviderId || speechModelName === "") {
-      return;
-    }
-    if (!speechModelOptions.some((model) => model.name === speechModelName)) {
-      setSpeechModelName("");
-    }
-  }, [speechModelName, speechModelOptions, speechProviderId]);
 
   const {
     autoRoutePlannerContact,

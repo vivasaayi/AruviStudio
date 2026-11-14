@@ -30,6 +30,32 @@ test("desktop settings offers an untagged DeepSeek transcription selector", asyn
   await expect(model).toHaveValue("deepseek-voice-transcription");
 });
 
+test("desktop settings preserves an unregistered saved speech selector while models load", async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = window.__ARUVI_E2E__.invoke;
+    window.__ARUVI_E2E__.invoke = async (command, args) => {
+      if (command === "get_setting" && args.key === "speech.transcription_provider_id") return "provider-deepseek-hosted";
+      if (command === "get_setting" && args.key === "speech.transcription_model_name") return "deepseek-voice-transcription";
+      if (command === "list_model_definitions") {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const models = await original(command, args);
+        window.__speechModelsLoaded = true;
+        return models;
+      }
+      return original(command, args);
+    };
+  });
+  await page.goto("/settings");
+  const model = page.getByLabel("Speech model");
+  await expect(model).toHaveValue("deepseek-voice-transcription");
+  await expect.poll(() => page.evaluate(() => window.__speechModelsLoaded)).toBe(true);
+  await expect(model).toHaveValue("deepseek-voice-transcription");
+  await expect(model.locator('option[value="deepseek-voice-transcription"]')).toHaveText("deepseek-voice-transcription (not registered)");
+  await expect(page.getByLabel("Speech provider")).toHaveValue("provider-deepseek-hosted");
+  await page.getByLabel("Speech provider").selectOption("");
+  await expect(model).toHaveValue("");
+});
+
 test("desktop provider setup sends Anthropic protocol", async ({ page }) => {
   await page.goto("/models");
   await page.evaluate(() => {

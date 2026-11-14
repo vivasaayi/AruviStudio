@@ -2363,6 +2363,11 @@ Desktop model setup now includes a transcription preset, and Settings and
 planner recognize the selector even without capability tags. The frontend build,
 five planner selection tests and ten mocked desktop provider checks passed;
 native-window and real-provider acceptance remain open.
+Desktop Settings also preserves a saved speech selector while the model list
+loads or when the selector is not registered locally; changing the provider
+clears the unsaved model selection. The frontend build and eleven mocked
+desktop provider checks passed, including delayed model loading. The provider
+and model settings are saved separately.
 
 ## Shared-client example pin
 
