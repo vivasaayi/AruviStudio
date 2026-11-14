@@ -1,0 +1,263 @@
+--- a/src/ci_api.rs
++++ b/src/ci_api.rs
+@@ -2,6 +2,7 @@
+ use crate::{ci, ci_store::Store, process, profiles::PlatformConfig, safety};
+ use anyhow::{bail, Context, Result};
+ use serde_json::{json, Value};
++use sha2::{Digest, Sha256};
+ use std::{
+     fs,
+     io::{BufRead, BufReader, Read, Seek, SeekFrom, Write},
+@@ -26,7 +27,11 @@
+         "targets" => config
+             .targets
+             .iter()
+-            .map(|t| Ok(json!({"id":t.id,"profile":t.profile,"plan":t.plan()?})))
++            .map(|t| {
++                let plan = t.plan()?;
++                let approved = ci::approved(config, &plan).is_ok();
++                Ok(json!({"id":t.id,"profile":t.profile,"repository":t.repository,"approval":{"approved":approved},"plan":plan}))
++            })
+             .collect::<Result<Vec<_>>>()
+             .map(Value::Array),
+         "plan" => Ok(serde_json::to_value(config.target(target()?)?.plan()?)?),
+@@ -36,11 +41,53 @@
+         "enqueue" => Ok(
+             json!({"run_id":ci::enqueue(config,target()?,request["commit"].as_str().context("missing commit")?,request["key"].as_str().context("missing idempotency key")?,request.get("context").cloned().unwrap_or(Value::Null))?}),
+         ),
++        "retry" => {
++            let previous = store.run(id()?)?;
++            let status = previous["status"].as_str().context("run status missing")?;
++            if !matches!(status, "failed" | "blocked" | "cancelled" | "interrupted") {
++                bail!("only failed, blocked, cancelled or interrupted runs can be retried");
++            }
++            let target = previous["target"].as_str().context("run target missing")?;
++            let commit = previous["commit"].as_str().context("run commit missing")?;
++            let plan = config.target(target)?.plan()?;
++            if previous["plan_digest"].as_str() != Some(&plan.digest) {
++                bail!("pipeline changed since the original run; inspect and enqueue a new run");
++            }
++            let key = request["key"].as_str().context("missing idempotency key")?;
++            let run_id = ci::enqueue(config, target, commit, key, previous["context"].clone())?;
++            Ok(json!({"run_id":run_id}))
++        }
+         "cancel" => {
+             store.cancel(id()?)?;
+             store.run(id()?)
+         }
+         "artifact" => store.artifact_info(id()?),
++        "promotion_readiness" => {
++            let info = store.artifact_info(id()?)?;
++            let run_id = info["run_id"].as_i64().context("artifact run missing")?;
++            let run = store.run(run_id)?;
++            let path = Path::new(info["path"].as_str().context("artifact path missing")?);
++            safety::absolute(path)?;
++            let root = config.state_dir.join("ci-runs").join(run_id.to_string());
++            if !path.starts_with(&root) || path == root {
++                bail!("artifact outside owning run storage");
++            }
++            let mut file = fs::File::open(path)?;
++            if !file.metadata()?.is_file() { bail!("artifact is not a regular file"); }
++            let mut digest = Sha256::new();
++            let mut size = 0_u64;
++            let mut buffer = [0_u8; 65536];
++            loop {
++                let n = file.read(&mut buffer)?;
++                if n == 0 { break; }
++                size = size.checked_add(n as u64).context("artifact size overflow")?;
++                digest.update(&buffer[..n]);
++            }
++            if info["size"].as_u64() != Some(size) || info["sha256"].as_str() != Some(format!("{:x}", digest.finalize()).as_str()) {
++                bail!("artifact size or digest differs from recorded evidence");
++            }
++            Ok(json!({"artifact_id":id()?, "run_id":run_id, "target":run["target"], "commit":run["commit"], "plan_digest":run["plan_digest"], "kind":info["kind"], "stage":info["stage"], "path":info["path"], "sha256":info["sha256"], "size":size, "run_status":run["status"], "eligible":false, "promotion_eligible":false, "reason":"Artifact integrity verified; promotion policy and manual review are required", "manual_promotion_only":true}))
++        }
+         "artifact_chunk" => {
+             let info = store.artifact_info(id()?)?;
+             let path = Path::new(info["path"].as_str().context("artifact path missing")?);
+--- a/tests/ci_api.rs
++++ b/tests/ci_api.rs
+@@ -154,3 +154,183 @@
+         Value::Array(vec![])
+     );
+ }
++
++#[test]
++fn audit_artifact_replaced_with_symlink() {
++    let (temp, config, store, run) = config();
++    let folder = config.state_dir.join("ci-runs").join(run.to_string());
++    std::fs::create_dir_all(&folder).unwrap();
++    let artifact = folder.join("package.bin");
++    let private = temp.path().join("private.txt");
++    std::fs::write(&artifact, b"original").unwrap();
++    std::fs::write(&private, b"secret!!").unwrap();
++    let id = store
++        .artifact(run, "package", "package", &artifact)
++        .unwrap();
++    std::fs::remove_file(&artifact).unwrap();
++    std::os::unix::fs::symlink(&private, &artifact).unwrap();
++    let error = dispatch(&config, json!({"method":"artifact_chunk", "id":id})).unwrap_err();
++    assert!(error.to_string().contains("symlink not permitted"));
++}
++
++#[test]
++fn targets_report_repository_and_current_approval() {
++    use aruvici::{ci, profiles::Target};
++    use std::collections::BTreeMap;
++    let (_temp, mut config, _store, _) = config();
++    let repository = config.state_dir.parent().unwrap().join("repository");
++    std::fs::create_dir(&repository).unwrap();
++    config.targets.push(Target {
++        id: "fixture".into(),
++        repository: repository.clone(),
++        root: ".".into(),
++        profile: "native-ios@1".into(),
++        inputs: BTreeMap::new(),
++        preview: None,
++    });
++    let list = || dispatch(&config, json!({"method":"targets"})).unwrap();
++    let before = list();
++    assert_eq!(before[0]["repository"], repository.to_str().unwrap());
++    assert_eq!(before[0]["approval"]["approved"], false);
++    let plan = config.targets[0].plan().unwrap();
++    ci::approve(&config, "fixture", &plan.digest).unwrap();
++    assert_eq!(list()[0]["approval"]["approved"], true);
++    std::fs::remove_file(config.state_dir.join("ci-approvals/fixture.json")).unwrap();
++    assert_eq!(list()[0]["approval"]["approved"], false);
++}
++
++#[test]
++fn retry_preserves_provenance_and_requires_current_approval() {
++    use aruvici::{ci, profiles::Target};
++    use std::{collections::BTreeMap, process::Command};
++    let (_temp, mut config, store, _) = config();
++    let repository = config.state_dir.parent().unwrap().join("repository");
++    std::fs::create_dir(&repository).unwrap();
++    std::fs::write(
++        repository.join("Cargo.toml"),
++        "[package]\nname='fixture'\nversion='0.1.0'\n",
++    )
++    .unwrap();
++    std::fs::write(repository.join("Dockerfile"), "FROM scratch\n").unwrap();
++    let git = |args: &[&str]| {
++        let output = Command::new("git")
++            .current_dir(&repository)
++            .args(args)
++            .output()
++            .unwrap();
++        assert!(
++            output.status.success(),
++            "{}",
++            String::from_utf8_lossy(&output.stderr)
++        );
++        String::from_utf8(output.stdout).unwrap().trim().to_string()
++    };
++    git(&["init", "-q"]);
++    git(&["add", "."]);
++    git(&[
++        "-c",
++        "user.name=Fixture",
++        "-c",
++        "user.email=fixture@example.invalid",
++        "commit",
++        "-qm",
++        "fixture",
++    ]);
++    let commit = git(&["rev-parse", "HEAD"]);
++    config.targets.push(Target {
++        id: "fixture".into(),
++        repository,
++        root: ".".into(),
++        profile: "rust-docker@1".into(),
++        inputs: BTreeMap::new(),
++        preview: None,
++    });
++    let plan = config.targets[0].plan().unwrap();
++    assert!(plan.issues.is_empty(), "{:?}", plan.issues);
++    let original = store
++        .enqueue(
++            "fixture",
++            &commit,
++            &plan.digest,
++            "original",
++            json!({"product_id":"fixture"}),
++        )
++        .unwrap();
++    assert!(dispatch(
++        &config,
++        json!({"method":"retry","id":original,"key":"retry-key"})
++    )
++    .is_err());
++    let _ = store.claim().unwrap(); // The unrelated fixture run comes first.
++    store.finish(1, "failed", None).unwrap();
++    assert_eq!(store.claim().unwrap().unwrap()["id"], original);
++    store.finish(original, "failed", None).unwrap();
++    assert!(dispatch(
++        &config,
++        json!({"method":"retry","id":original,"key":"retry-key"})
++    )
++    .is_err());
++    ci::approve(&config, "fixture", &plan.digest).unwrap();
++    let result = dispatch(
++        &config,
++        json!({"method":"retry","id":original,"key":"retry-key"}),
++    )
++    .unwrap();
++    let retried = result["run_id"].as_i64().unwrap();
++    assert_ne!(retried, original);
++    assert_eq!(store.run(retried).unwrap()["commit"], commit);
++    assert_eq!(
++        store.run(retried).unwrap()["context"],
++        json!({"product_id":"fixture"})
++    );
++    assert_eq!(
++        dispatch(
++            &config,
++            json!({"method":"retry","id":original,"key":"retry-key"})
++        )
++        .unwrap()["run_id"],
++        retried
++    );
++    config.targets[0]
++        .inputs
++        .insert("image".into(), "changed-image".into());
++    assert!(dispatch(
++        &config,
++        json!({"method":"retry","id":original,"key":"another-key"})
++    )
++    .is_err());
++}
++
++#[test]
++fn artifact_readiness_verifies_run_ownership_and_content_without_authorizing_promotion() {
++    let (temp, config, store, run) = config();
++    let root = config.state_dir.join("ci-runs").join(run.to_string());
++    std::fs::create_dir_all(&root).unwrap();
++    let path = root.join("package.bin");
++    std::fs::write(&path, b"evidence").unwrap();
++    let id = store.artifact(run, "package", "package", &path).unwrap();
++    let result = dispatch(&config, json!({"method":"promotion_readiness","id":id})).unwrap();
++    assert_eq!(result["run_id"], run);
++    assert_eq!(result["artifact_id"], id);
++    assert_eq!(result["eligible"], false);
++    assert_eq!(result["manual_promotion_only"], true);
++    std::fs::write(&path, b"tampered").unwrap();
++    assert!(dispatch(&config, json!({"method":"promotion_readiness","id":id})).is_err());
++    std::fs::remove_file(&path).unwrap();
++    let outside = temp.path().join("private");
++    std::fs::write(&outside, b"evidence").unwrap();
++    std::os::unix::fs::symlink(&outside, &path).unwrap();
++    assert!(dispatch(&config, json!({"method":"promotion_readiness","id":id})).is_err());
++    let wrong_root = config.state_dir.join("ci-runs").join("999");
++    std::fs::create_dir_all(&wrong_root).unwrap();
++    let wrong_path = wrong_root.join("package.bin");
++    std::fs::write(&wrong_path, b"evidence").unwrap();
++    let wrong_id = store
++        .artifact(run, "package", "package", &wrong_path)
++        .unwrap();
++    assert!(dispatch(
++        &config,
++        json!({"method":"promotion_readiness","id":wrong_id})
++    )
++    .is_err());
++}

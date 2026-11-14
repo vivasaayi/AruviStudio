@@ -12,16 +12,25 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### Candidate Aruvici target metadata
+### Candidate Aruvici CI protocol
 
-A disposable source copy of Aruvici `5851f25` was modified to return the
-configured repository and current plan-approval state with each target. Six CI
-API tests passed, including approval transitions and rejection of an artifact
-replaced by a symlink. A native Studio/Aruvici protocol audit against the
-candidate passed target binding; retry and artifact readiness remain unsupported.
-No pipeline was queued. This candidate is not yet committed or deployed: it is
-in `/tmp/aruvici-audit.vHrl5K`, while isolated checkout creation remains pending.
-The symlink test covers replacement before inspection, not a concurrent race.
+A candidate patch against Aruvici `5851f25` is saved at
+`docs/integration/aruvici-ci-protocol-candidate.patch`; it applies cleanly to
+that revision. It adds target repository and approval metadata, retries of
+failed, blocked, cancelled or interrupted runs with current approval and the
+original plan digest, and artifact ownership and content verification. The
+candidate always reports promotion eligibility as false because a promotion
+policy has not been implemented; it does not authorize deployment. Symlink
+checks and file opens are separate operations and can race a local filesystem
+change. A disposable source copy passed all 59 native tests, including eight CI
+API tests, plus its doc tests. No pipeline was queued during the Studio probe.
+
+Native Studio and the candidate service passed MCP health, target and run
+listing, browser API health and target binding. The probe supplies nonexistent
+run/artifact IDs for retry and readiness, so its responses only show those calls
+no longer report unsupported; successful end-to-end retry and artifact checks
+remain unverified. The candidate is not committed to or deployed from Aruvici;
+its isolated checkout request remains pending. Docker transport remains open.
 
 ### Disposable native Aruvici connection
 
