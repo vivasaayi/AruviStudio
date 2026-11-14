@@ -5,6 +5,34 @@ mod tests {
     use std::{io::{Read, Write}, net::TcpListener, thread};
 
     #[tokio::test]
+    async fn independent_consumer_selects_proxy_transcription_language_array() {
+        use aruvi_model_client::{openai_compatible::TranscriptionLanguageMode, TranscriptionRequest};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut data = Vec::new(); let mut buffer = [0; 4096];
+            let end = loop {
+                let n = socket.read(&mut buffer).unwrap(); assert_ne!(n, 0); data.extend_from_slice(&buffer[..n]);
+                if let Some(i) = data.windows(4).position(|part| part == b"\r\n\r\n") { break i + 4; }
+            };
+            let headers = String::from_utf8_lossy(&data[..end]).to_lowercase();
+            let len: usize = headers.lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().trim().parse().unwrap();
+            while data.len() < end + len { let n = socket.read(&mut buffer).unwrap(); assert_ne!(n, 0); data.extend_from_slice(&buffer[..n]); }
+            let body = String::from_utf8_lossy(&data[end..end+len]);
+            assert!(body.contains("name=\"languages[]\""));
+            assert!(!body.contains("name=\"language\""));
+            let reply = r#"{"text":"fixture"}"#;
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", reply.len(), reply).unwrap();
+        });
+        let gateway: Box<dyn ModelGateway> = Box::new(OpenAiCompatibleClient::new(format!("http://{address}"), None)
+            .with_transcription_language_mode(TranscriptionLanguageMode::Array));
+        let transcript = gateway.transcribe(TranscriptionRequest { model: "gpt-transcribe".into(), audio: vec![1], mime_type: "audio/wav".into(), filename: "audio.wav".into(), language: Some("en".into()) }).await.unwrap();
+        assert_eq!(transcript, "fixture");
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
     async fn independent_client_can_request_stream_usage() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
