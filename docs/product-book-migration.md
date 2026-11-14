@@ -116,7 +116,9 @@ limitations and validation items below are not complete.
   retaining the requested page dimensions, margins and header labels. Native
   runtime configuration may specify `ARUVI_PDF_NODE`, `ARUVI_PDF_BROWSER`, and
   `ARUVI_PDF_PLAYWRIGHT_PATH`; on macOS the development fallback locates
-  Playwright in the source checkout and its browser cache in the user's home.
+  Playwright in the source checkout and its browser cache in the user's home;
+  if its default browser cannot launch and no browser is explicitly configured,
+  it tries installed Google Chrome or Chromium in `/Applications`.
   A packaged native dependency layout and Windows validation remain open.
 - [x] Move desktop exports to the shared backend renderer and retain the native
   file writers and reveal flow. Tauri IPC is exercised with a real database and

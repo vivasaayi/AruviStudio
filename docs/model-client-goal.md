@@ -14,6 +14,15 @@ provider hosting into the model-host service as part of this work.
 
 ### Shared guarded PDF export
 
+On the development Mac, Playwright's default browser for the installed package
+was absent. Without an explicit browser override, the native PDF worker now
+tries installed Google Chrome or Chromium if the default launch fails. The
+guarded native PDF test passed with no PDF-specific environment variables and
+blocked its attempted external requests. The worktree image built and 27
+isolated browser tests passed, including PDF export. An explicitly configured
+browser does not fall back. Packaged runtime dependencies and other operating
+systems remain unverified.
+
 At revision `e0a572a`, the broad native Rust suite passed 253 tests with seven
 ignored, and 43 mocked-desktop browser tests passed. The new guarded desktop PDF
 test also passed separately with the macOS development defaults for Node and

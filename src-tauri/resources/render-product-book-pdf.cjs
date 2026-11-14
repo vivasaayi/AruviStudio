@@ -1,6 +1,7 @@
 // This worker has no application secrets. It receives one JSON request on stdin
 // and writes only the PDF bytes to stdout. The Rust parent limits time and size.
 const { chromium } = require(process.env.ARUVI_PDF_PLAYWRIGHT_PATH);
+const fs = require("node:fs");
 
 const escapeHtml = (value) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;")
   .replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
@@ -11,7 +12,16 @@ async function main() {
   const { html, name, trim } = JSON.parse(input);
   const headerTemplate = `<style>.frame { width:100%;padding:0 0.35in;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:8px;color:#6f5945;display:flex;justify-content:space-between;align-items:center;letter-spacing:0.04em;text-transform:uppercase; }</style><div class="frame"><span>${escapeHtml(name || "Aruvi Studio Book")}</span><span>${escapeHtml(trim.label)}</span></div>`;
   const footerTemplate = `<style>.frame { width:100%;padding:0 0.35in;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:8px;color:#7f6b59;display:flex;justify-content:space-between;align-items:center; }</style><div class="frame"><span>Aruvi Studio export</span><span><span class="pageNumber"></span>/<span class="totalPages"></span></span></div>`;
-  const browser = await chromium.launch({ executablePath: process.env.ARUVI_PDF_BROWSER, headless: true, chromiumSandbox: process.env.ARUVI_PDF_SANDBOX !== "0" });
+  const options = { executablePath: process.env.ARUVI_PDF_BROWSER, headless: true, chromiumSandbox: process.env.ARUVI_PDF_SANDBOX !== "0" };
+  let browser;
+  try {
+    browser = await chromium.launch(options);
+  } catch (error) {
+    if (process.env.ARUVI_PDF_BROWSER || process.platform !== "darwin") throw error;
+    const installed = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Chromium.app/Contents/MacOS/Chromium"].find((path) => fs.existsSync(path));
+    if (!installed) throw error;
+    browser = await chromium.launch({ ...options, executablePath: installed });
+  }
   const deadline = setTimeout(() => { void browser.close().catch(() => {}); }, 45000);
   try {
     const context = await browser.newContext({ javaScriptEnabled: false, serviceWorkers: "block" });
