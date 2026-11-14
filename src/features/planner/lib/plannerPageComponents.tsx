@@ -69,6 +69,7 @@ export function PlannerComposer({
   draftTreeNodesLength,
   pendingPlan,
   voiceActivity,
+  speechError,
   composerRef,
   scopeChips,
   scopeHint,
@@ -90,6 +91,7 @@ export function PlannerComposer({
   draftTreeNodesLength: number;
   pendingPlan: PendingPlan | null;
   voiceActivity: string | null;
+  speechError: string | null;
   composerRef: React.RefObject<HTMLTextAreaElement | null>;
   scopeChips: string[];
   scopeHint: string;
@@ -156,9 +158,11 @@ export function PlannerComposer({
             </button>
           </>
         ) : null}
-        <span style={styles.status}>
-          {voiceActivity
-            ? voiceActivity
+        <span style={styles.status} role={speechError ? "alert" : undefined}>
+          {speechError
+            ? speechError
+            : voiceActivity
+              ? voiceActivity
             : pendingVoiceTranscript
               ? "Voice transcript is ready. Review, edit, send, retry, or cancel."
               : draftTreeNodesLength > 0

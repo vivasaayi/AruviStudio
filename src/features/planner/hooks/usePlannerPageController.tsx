@@ -463,6 +463,7 @@ export function usePlannerPageController() {
     voiceElapsedMs,
     voiceEnabled,
     voiceActivity,
+    speechError,
     applyPromptSuggestion,
     renameDraftName,
     renameSelectedDraftNode,

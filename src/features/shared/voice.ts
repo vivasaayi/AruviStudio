@@ -134,13 +134,23 @@ async function createPcmCapture(options?: PcmCaptureOptions) {
     throw new Error("Audio capture is not supported in this runtime.");
   }
 
-  const audioContext = new audioContextCtor();
-  await audioContext.resume();
+  let audioContext: AudioContext | undefined;
+  let source: MediaStreamAudioSourceNode | undefined;
+  let processor: ScriptProcessorNode | undefined;
+  let sink: GainNode | undefined;
+  try {
+    audioContext = new audioContextCtor();
+    await audioContext.resume();
+    source = audioContext.createMediaStreamSource(stream);
+    processor = audioContext.createScriptProcessor(4096, 1, 1);
+    sink = audioContext.createGain();
+    sink.gain.value = 0;
+  } catch (error) {
+    stream.getTracks().forEach((track) => track.stop());
+    if (audioContext) await audioContext.close().catch(() => undefined);
+    throw error;
+  }
   const sampleRate = audioContext.sampleRate;
-  const source = audioContext.createMediaStreamSource(stream);
-  const processor = audioContext.createScriptProcessor(4096, 1, 1);
-  const sink = audioContext.createGain();
-  sink.gain.value = 0;
   const chunks: Float32Array[] = [];
   const startedAt = Date.now();
   const silenceDurationMs = options?.silenceDurationMs ?? null;
@@ -159,26 +169,28 @@ async function createPcmCapture(options?: PcmCaptureOptions) {
     rejectCompleted = reject;
   });
 
-  const finalize = async () => {
-    if (finished) {
+  // Manual stop, silence detection, and the timer can race. They must all
+  // observe the same finalization and the same error or WAV bytes.
+  let finalization: Promise<Blob> | null = null;
+  // startWavCapture does not expose completed; retain its rejection for callers
+  // that do await it without producing an unhandled rejection for manual capture.
+  void completed.catch(() => undefined);
+  const finalize = () => {
+    if (finalization) return finalization;
+    finished = true;
+    finalization = (async () => {
+      if (maxTimer !== null) window.clearTimeout(maxTimer);
+      for (const node of [processor, source, sink]) {
+        try { node.disconnect(); } catch { /* Continue releasing other resources. */ }
+      }
+      stream.getTracks().forEach((track) => track.stop());
+      await audioContext.close();
       const merged = mergeFloat32Chunks(chunks);
       const resampled = downsampleAudioBuffer(merged, sampleRate, 16_000);
       return encodePcm16Wav(resampled, 16_000);
-    }
-    finished = true;
-    if (maxTimer !== null) {
-      window.clearTimeout(maxTimer);
-    }
-    processor.disconnect();
-    source.disconnect();
-    sink.disconnect();
-    stream.getTracks().forEach((track) => track.stop());
-    await audioContext.close();
-    const merged = mergeFloat32Chunks(chunks);
-    const resampled = downsampleAudioBuffer(merged, sampleRate, 16_000);
-    const blob = encodePcm16Wav(resampled, 16_000);
-    resolveCompleted?.(blob);
-    return blob;
+    })();
+    void finalization.then(resolveCompleted, rejectCompleted);
+    return finalization;
   };
 
   processor.onaudioprocess = (event) => {
@@ -202,30 +214,32 @@ async function createPcmCapture(options?: PcmCaptureOptions) {
       return;
     }
     if (heardSpeech && now - startedAt >= minSpeechDurationMs && now - lastSpeechAt >= silenceDurationMs) {
-      void finalize();
+      void finalize().catch(() => undefined);
     }
   };
 
-  source.connect(processor);
-  processor.connect(sink);
-  sink.connect(audioContext.destination);
+  try {
+    source.connect(processor);
+    processor.connect(sink);
+    sink.connect(audioContext.destination);
+  } catch (error) {
+    for (const node of [processor, source, sink]) {
+      try { node.disconnect(); } catch { /* Continue releasing other resources. */ }
+    }
+    stream.getTracks().forEach((track) => track.stop());
+    await audioContext.close().catch(() => undefined);
+    throw error;
+  }
 
   if (maxDurationMs != null) {
     maxTimer = window.setTimeout(() => {
-      void finalize();
+      void finalize().catch(() => undefined);
     }, maxDurationMs);
   }
 
   return {
     stream,
-    stop: async () => {
-      try {
-        return await finalize();
-      } catch (error) {
-        rejectCompleted?.(error);
-        throw error;
-      }
-    },
+    stop: finalize,
     completed,
   };
 }

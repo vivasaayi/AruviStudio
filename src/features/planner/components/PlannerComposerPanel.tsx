@@ -23,6 +23,7 @@ type PlannerComposerPanelProps = {
   draftTreeNodesLength: number;
   pendingPlan: PendingPlan | null;
   voiceActivity: string | null;
+  speechError: string | null;
   composerRef: React.RefObject<HTMLTextAreaElement | null>;
   scopeChips: string[];
   isProductSelected: boolean;
@@ -45,6 +46,7 @@ export function PlannerComposerPanel({
   draftTreeNodesLength,
   pendingPlan,
   voiceActivity,
+  speechError,
   composerRef,
   scopeChips,
   isProductSelected,
@@ -67,6 +69,7 @@ export function PlannerComposerPanel({
       draftTreeNodesLength={draftTreeNodesLength}
       pendingPlan={pendingPlan}
       voiceActivity={voiceActivity}
+      speechError={speechError}
       composerRef={composerRef}
       scopeChips={scopeChips}
       scopeHint={PLANNER_COMPOSER_SCOPE_HINT}

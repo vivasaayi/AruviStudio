@@ -146,3 +146,24 @@ test("planner uses suggested prompts from the shared native command", async ({ p
   await expect(page.getByTestId("planner-input")).toHaveValue("Shared suggestion for Input Experience");
   await expect(page.getByText("Update product area Input Experience")).toBeVisible();
 });
+
+test("planner reports microphone setup errors and releases the audio track", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.fixtureMicrophoneStops = 0;
+    window.fixtureContextCloses = 0;
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: {
+      getUserMedia: async () => ({ getTracks: () => [{ stop() { window.fixtureMicrophoneStops += 1; } }] }),
+    } });
+    window.AudioContext = class {
+      async resume() { throw new Error("Microphone setup failed"); }
+      async close() { window.fixtureContextCloses += 1; }
+    };
+  });
+  await page.goto("/");
+  await page.getByLabel("Planner product").selectOption("example-product-calculator");
+  await page.getByRole("button", { name: "Start Voice Input" }).click();
+  await expect(page.getByRole("alert")).toHaveText("Microphone setup failed");
+  expect(await page.evaluate(() => window.fixtureMicrophoneStops)).toBe(1);
+  expect(await page.evaluate(() => window.fixtureContextCloses)).toBe(1);
+  await expect(page.getByRole("button", { name: "Start Voice Input" })).toBeEnabled();
+});

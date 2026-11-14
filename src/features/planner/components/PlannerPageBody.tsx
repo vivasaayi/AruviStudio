@@ -96,6 +96,7 @@ export function PlannerPageBody({ controller }: PlannerPageBodyProps) {
     voiceElapsedMs,
     voiceEnabled,
     voiceActivity,
+    speechError,
     applyPromptSuggestion,
     renameDraftName,
     renameSelectedDraftNode,
@@ -124,6 +125,7 @@ export function PlannerPageBody({ controller }: PlannerPageBodyProps) {
       draftTreeNodesLength={draftTreeNodes.length}
       pendingPlan={pendingPlan}
       voiceActivity={voiceActivity}
+      speechError={speechError}
       composerRef={composerRef}
       scopeChips={composerScopeChips}
       isProductSelected={Boolean(selectedProductId)}

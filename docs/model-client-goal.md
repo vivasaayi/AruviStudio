@@ -190,6 +190,16 @@ provider hosting into the model-host service as part of this work.
 
 ## Real browser voice revalidation
 
+- Desktop PCM capture now releases microphone tracks if context setup or
+  audio-node connection fails. Manual stop, silence and timeout share one
+  finalization result; automatic close failures reject Voice Chat completion
+  instead of leaving it pending. Planner displays voice errors in its composer.
+  Five mocked audio lifecycle tests, 99 frontend tests, a desktop-style browser
+  error/cleanup test, frontend build, and 23 isolated browser/MCP cases passed.
+  The browser test uses a mocked Tauri bridge and microphone; real native-window
+  behavior and physical hardware remain unverified. Manual desktop recording
+  still has no duration limit.
+
 - Browser recording now requests a 16 kHz AudioContext so a 30-second
   recording remains within the existing 600,000-sample cap. If the browser
   cannot create that rate, it uses its default and displays the actual shorter
