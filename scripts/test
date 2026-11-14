@@ -10,6 +10,7 @@ case "${1:-}" in
   host-mcp-origin) node scripts/test-host-mcp-origin.mjs ;;
   host-speech) node scripts/test-host-speech.mjs ;;
   host-speech-cycle) python3 scripts/test-host-speech-cycle ;;
+  host-voice-browser) node scripts/test-host-voice-browser.mjs ;;
   host-planner) shift; python3 scripts/test-host-planner "$@" ;;
   planner-multiprocess) python3 scripts/test-planner-multiprocess ;;
   host-coding) python3 scripts/test-host-coding ;;
@@ -37,5 +38,5 @@ case "${1:-}" in
       bash scripts/test-container-ci.sh
       bash scripts/test-container-workflow.sh
     fi ;;
-  *) printf '%s\n' 'Usage: scripts/test unit|integration|ui|staging|host-layout|host-planner-scope|host-mcp-origin|host-speech|host-speech-cycle|host-planner|planner-multiprocess|host-coding|host-coding-ui|host-file-copilot|host-coding-workflow|shared-client-consumer|host-shared-client' >&2; exit 2 ;;
+  *) printf '%s\n' 'Usage: scripts/test unit|integration|ui|staging|host-layout|host-planner-scope|host-mcp-origin|host-speech|host-speech-cycle|host-voice-browser|host-planner|planner-multiprocess|host-coding|host-coding-ui|host-file-copilot|host-coding-workflow|shared-client-consumer|host-shared-client' >&2; exit 2 ;;
 esac

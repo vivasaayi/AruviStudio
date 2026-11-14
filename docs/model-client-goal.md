@@ -44,6 +44,17 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Real browser voice revalidation
+
+- After the dependency update, the running branch passed real Model Host Piper
+  speech generation in Chrome and a Piper-to-Whisper transcription round trip
+  through MCP. A new `bash scripts/test host-voice-browser` check also drives
+  browser recording using a synthetic Piper WAV as Chrome's fake microphone and
+  verifies `whisper-tiny-metal` returns the expected `fox` and `dog` anchors.
+  It uses a temporary audio file and cleans it up. These are synthetic English
+  fixtures; physical microphone capture, audible playback, other languages and
+  recognition quality remain unverified.
+
 ## Dependency advisory update
 
 - On macOS ARM64, revision `0275579` passed 204 Studio Rust library tests with
