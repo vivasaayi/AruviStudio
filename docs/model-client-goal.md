@@ -3757,6 +3757,25 @@ unverified. The native library suite passed 261 tests with seven ignored; the
 rebuilt worktree services were healthy and all 49 isolated browser/MCP workflow
 tests passed against that image.
 
+## Coding work-item context checkpoint
+
+On 2026-11-14, the coding prompt was corrected to use the actual context keys
+for the work item's problem statement, acceptance criteria and constraints;
+the work-item type is now included too. Previously those fields were omitted
+from coding prompts despite being present in the context. An end-to-end native
+coding-stage fixture checks the stored prompt for each field; a separate test
+checks the existing acceptance and constraint length bounds. Long fields remain
+truncated, and follow-up tool-loop turns use a bounded recap that can omit later
+context; inclusion is not a guarantee that a model follows the instructions.
+
+The native suite passed 265 tests with seven ignored, and all 50 isolated
+browser/MCP workflow tests passed. One disposable `qwen25-coder-7b-q4`
+JSON-mode extend-module workflow passed syntax and independent behavioral
+checks and delivered to a disposable local Git remote. Its task details were
+also present in its description, so this single run does not establish that
+the restored fields caused success or that model reliability is solved.
+The worktree services were rebuilt and healthy after these checks.
+
 The coding output now begins with an explicit no-files-changed notice when the
 agent returns `no_changes_needed`, identifying it as the model's claim to
 verify. The prefix remains visible in the 200-character artifact summary even

@@ -25,6 +25,7 @@ impl AgentService {
 
         context.insert("work_item_id".to_string(), work_item.id.clone());
         context.insert("work_item_title".to_string(), work_item.title.clone());
+        context.insert("work_item_type".to_string(), work_item.work_item_type.to_string());
         context.insert(
             "work_item_description".to_string(),
             work_item.description.clone(),

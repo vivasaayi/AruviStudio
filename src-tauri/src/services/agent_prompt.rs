@@ -122,9 +122,9 @@ fn append_context(prompt: &mut String, context: &HashMap<String, String>, stage_
             "work_item_title",
             "work_item_type",
             "work_item_description",
-            "problem_statement",
-            "acceptance_criteria",
-            "constraints",
+            "work_item_problem_statement",
+            "work_item_acceptance_criteria",
+            "work_item_constraints",
             "requirement_analysis",
             "implementation_plan",
             "agent_skills",
@@ -135,8 +135,8 @@ fn append_context(prompt: &mut String, context: &HashMap<String, String>, stage_
                 let limit = match key {
                     "implementation_plan" => 2_500,
                     "requirement_analysis" => 1_500,
-                    "acceptance_criteria" => 1_000,
-                    "constraints" => 800,
+                    "work_item_acceptance_criteria" => 1_000,
+                    "work_item_constraints" => 800,
                     "skill_instructions" => 4_000,
                     _ => 600,
                 };
@@ -198,5 +198,16 @@ mod skill_prompt_tests {
         append_context(&mut prompt, &context, "coding");
         assert!(prompt.starts_with("Context:\nskill_instructions: "));
         assert_eq!(prompt.matches('é').count(), 4_000);
+    }
+
+    #[test]
+    fn coding_work_item_requirements_obey_context_limits() {
+        let mut context = HashMap::new();
+        context.insert("work_item_acceptance_criteria".into(), "é".repeat(1_100));
+        context.insert("work_item_constraints".into(), "x".repeat(900));
+        let mut prompt = String::new();
+        append_context(&mut prompt, &context, "coding");
+        assert_eq!(prompt.matches('é').count(), 1_000);
+        assert_eq!(prompt.lines().find(|line| line.starts_with("work_item_constraints: ")).unwrap().split_once(": ").unwrap().1.len(), 800);
     }
 }

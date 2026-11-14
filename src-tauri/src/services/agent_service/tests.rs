@@ -167,10 +167,10 @@ async fn coding_stage_creates_tool_trace_artifact() {
             source_node_type: None,
             parent_work_item_id: None,
             title: "Implement tool loop",
-            problem_statement: "problem",
+            problem_statement: "PROBLEM_MARKER: preserve existing behavior",
             description: "description",
-            acceptance_criteria: "acceptance",
-            constraints: "constraints",
+            acceptance_criteria: "ACCEPTANCE_MARKER: provide tested output",
+            constraints: "CONSTRAINT_MARKER: do not modify configuration",
             work_item_type: "story",
             priority: "medium",
             complexity: "medium",
@@ -248,6 +248,14 @@ async fn coding_stage_creates_tool_trace_artifact() {
     let artifacts = artifact_repo::list_work_item_artifacts(&pool, &work_item.id)
         .await
         .expect("failed to list artifacts");
+    let prompt_artifact = artifacts.iter().find(|artifact|
+        artifact.agent_run_id.as_deref() == Some(&agent_run.id) && artifact.artifact_type == "coding_prompt"
+    ).expect("missing coding prompt artifact");
+    let prompt_content = std::fs::read_to_string(&prompt_artifact.storage_path).unwrap();
+    assert!(prompt_content.contains("work_item_type: story"));
+    assert!(prompt_content.contains("PROBLEM_MARKER: preserve existing behavior"));
+    assert!(prompt_content.contains("ACCEPTANCE_MARKER: provide tested output"));
+    assert!(prompt_content.contains("CONSTRAINT_MARKER: do not modify configuration"));
     let trace_artifact = artifacts
         .iter()
         .find(|artifact| artifact.artifact_type == "coding_tool_trace")
