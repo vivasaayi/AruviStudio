@@ -5,6 +5,25 @@ mod tests {
     use std::{io::{Read, Write}, net::TcpListener, thread};
 
     #[tokio::test]
+    async fn rejects_malformed_anthropic_message_after_partial_text() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0; 4096]; let _ = socket.read(&mut request).unwrap();
+            let body = "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}\n\ndata: {\"type\":\"message_delta\",\"delta\":42}\n\ndata: {\"type\":\"message_stop\"}\n\n";
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+        });
+        let client: Box<dyn ModelGateway> = Box::new(AnthropicClient::new(format!("http://{address}"), "synthetic-key".into()).unwrap());
+        let request = CompletionRequest { model: "fixture".into(), messages: vec![ChatMessage { role: "user".into(), content: "hello".into() }], temperature: None, max_tokens: Some(10) };
+        let mut partial = String::new();
+        let error = client.stream_completion(request, &mut |delta| partial.push_str(delta)).await.unwrap_err();
+        assert_eq!(partial, "partial");
+        assert!(error.to_string().contains("Invalid Anthropic message delta"));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
     async fn rejects_malformed_delta_after_partial_text() {
         for streaming in [false, true] {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();

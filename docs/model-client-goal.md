@@ -52,7 +52,10 @@ provider hosting into the model-host service as part of this work.
   consistent with Anthropic's streaming guidance. The macOS client suite passed
   43 tests; the Linux Studio suite passed 204 with two live tests ignored. All
   23 isolated workflow cases passed, including a simulated Claude stream that
-  fails after emitting text. Live Anthropic validation remains open.
+  fails after emitting text. The independent consumer now pins
+  `d46befd707d8fc1defd156bdef251e5ea9ce3157` and passed 16 offline tests,
+  including the malformed Anthropic stream; its separate local Model Host probe
+  also passed. Live Anthropic validation remains open.
 
 ## OpenAI-compatible stream validation
 
