@@ -167,7 +167,8 @@ pub async fn analyze_repository_for_planner(
             format!("Repository analysis completion {}", attempt + 1),
             completion.clone(),
         );
-        let result = parse_final_response(&completion).and_then(|plan| {
+        let mut draft_failure = false;
+        let result = parse_final_response(&completion).and_then(|mut plan| {
             if plan.actions.iter().any(|action| {
                 !matches!(
                     action.get("type").and_then(serde_json::Value::as_str),
@@ -198,6 +199,16 @@ pub async fn analyze_repository_for_planner(
                         .into(),
                 ))
             } else {
+                annotate_repository_analysis_plan(&repo_snapshot, &mut plan);
+                scope_plan_to_selected_product(&mut plan, &selected_product);
+                if !plan.actions.is_empty() {
+                    if let Err(error) = apply_actions_to_draft(
+                        session.draft_plan.clone(), session.selected_draft_node_id.as_deref(), &plan.actions,
+                    ) {
+                        draft_failure = matches!(error, AppError::Validation(_));
+                        return Err(error);
+                    }
+                }
                 Ok(plan)
             }
         });
@@ -206,27 +217,30 @@ pub async fn analyze_repository_for_planner(
                 parsed = Some(plan);
                 break;
             }
-            Err(error) if attempt < 2 => {
+            Err(error) if attempt < 2 && matches!(error, AppError::Validation(_)) => {
                 push_trace(
                     &mut trace,
-                    "format_retry",
-                    "Invalid repository analysis response",
+                    if draft_failure { "draft_retry" } else { "format_retry" },
+                    if draft_failure { "Invalid repository analysis draft actions" } else { "Invalid repository analysis response" },
                     error.to_string(),
                 );
                 messages.push(ChatMessage {
                     role: "assistant".to_string(),
                     content: completion,
                 });
-                messages.push(ChatMessage { role: "user".to_string(), content: format!("Validation error: {}. {}", error, "Correct the previous response. Return the required final JSON envelope. Every action must have top-level type, name, and target fields; do not return draft nodes or put type inside details. Example action: {\"type\":\"create_product_area\",\"name\":\"Inventory\",\"target\":{\"productName\":\"Selected product name\"}}. If evidence is insufficient, return an empty actions array and a nonempty clarification_question.") });
+                let guidance = if draft_failure {
+                    "No actions were applied. Return a complete corrected final JSON object. Refer to existing parents or include supported parent creation actions before their children. If the repository evidence is insufficient, return an empty actions array and a nonempty clarification_question rather than inventing details."
+                } else {
+                    "Correct the previous response. Return the required final JSON envelope. Every action must have top-level type, name, and target fields; do not return draft nodes or put type inside details. Example action: {\"type\":\"create_product_area\",\"name\":\"Inventory\",\"target\":{\"productName\":\"Selected product name\"}}. If evidence is insufficient, return an empty actions array and a nonempty clarification_question."
+                };
+                messages.push(ChatMessage { role: "user".to_string(), content: format!("Validation error: {}. {}", error, guidance) });
             }
             Err(error) => return Err(error),
         }
     }
-    let mut plan = parsed.ok_or_else(|| {
+    let plan = parsed.ok_or_else(|| {
         AppError::Validation("Repository analysis did not return a valid plan".into())
     })?;
-    annotate_repository_analysis_plan(&repo_snapshot, &mut plan);
-    scope_plan_to_selected_product(&mut plan, &selected_product);
     push_trace(
         &mut trace,
         "plan",

@@ -708,13 +708,23 @@ provider hosting into the model-host service as part of this work.
 
 ## Planner draft-action repair
 
+- Repository analysis now also validates proposed actions against a scoped,
+  annotated draft copy and can request correction or clarification. Its
+  existing three-model-call limit includes both format and action retries.
+  The simulated MCP fixture verifies a successful correction, three-call
+  exhaustion, unchanged catalog before confirmation and confirmed persistence.
+  The native suite passed 217 tests with six ignored, and all 25 isolated
+  workflow cases passed. A real `qwen25-coder-7b-q4` browser repository
+  analysis created and confirmed a draft on its first response; it did not
+  exercise action repair. Provider and model output remain variable.
+
 - Model-generated draft actions are now checked on a clone of the selected
   session draft, after the same product scoping used for application. When
   validation fails, the model receives the error and may return a corrected
   proposal or ask for clarification. At most two action repairs are allowed
   within the existing six-step limit. Nothing is persisted or executed by
-  the validation pass; repeated failures return an error. This applies to
-  text planner turns, not the separate repository-analysis path.
+  the validation pass; repeated failures return an error. This checkpoint
+  initially covered text planner turns; repository analysis was added later.
 - A simulated provider test verifies correction, bounded repeated failures and
   unchanged draft state. The isolated MCP workflow fixture verifies a repaired
   proposal, no catalog mutation before confirmation, and persistence after

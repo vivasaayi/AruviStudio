@@ -7,6 +7,7 @@ let coordinatorCodingCalls = 0;
 let streamDisconnects = 0;
 let lastCopilotRequest = null;
 let copilotCalls = 0;
+let repositoryRepairCalls = {};
 const workflowOutputs = [
   "requirement analysis complete",
   "planning complete",
@@ -65,6 +66,21 @@ const server = http.createServer((request, response) => {
       try { const body = JSON.parse(Buffer.concat(chunks).toString("utf8")); workflowPrompts.push(body.messages); workflowRequests.push({ response_format: body.response_format ?? null }); }
       catch { response.statusCode = 400; return response.end(JSON.stringify({ error: "Invalid workflow request" })); }
       response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content } }], usage: { prompt_tokens: 12, completion_tokens: 4 } }));
+    });
+  } else if (request.method === "GET" && request.url === "/repository-repair/stats") {
+    response.end(JSON.stringify(repositoryRepairCalls));
+  } else if (request.method === "POST" && request.url === "/repository-repair/v1/chat/completions") {
+    const chunks = []; request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      repositoryRepairCalls[body.model] = (repositoryRepairCalls[body.model] || 0) + 1;
+      const retry = body.messages.some((message) => message.content.includes("No actions were applied"));
+      const target = { productName: "Repository repair fixture", productAreaName: "Inventory" };
+      const actions = retry && body.model !== "repair-fail"
+        ? [{ type: "create_product_area", name: "Inventory", target: { productName: "Repository repair fixture" } }, { type: "create_capability", name: "Stock", target }]
+        : [{ type: "create_capability", name: "Stock", target }];
+      const content = JSON.stringify({ type: "final", assistant_response: "Draft ready", needs_confirmation: true, clarification_question: null, actions });
+      response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content }, finish_reason: "stop" }] }));
     });
   } else if (request.method === "POST" && request.url === "/planner-repair/v1/chat/completions") {
     const chunks = []; request.on("data", (chunk) => chunks.push(chunk));
