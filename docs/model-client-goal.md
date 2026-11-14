@@ -284,6 +284,18 @@ remain separate checks.
 
 ### Current requirement audit — 2026-11-14
 
+At revision `fdccc96` with the planner test-fixture corrections in this
+checkpoint, the native macOS ARM64 Rust library suite passed 250 tests with six
+ignored; desktop, server and MCP debug binaries built as ARM64 executables.
+The frontend suite passed 126 tests. Five ignored cases passed separately: two
+real-Chrome PDF checks, the generated desktop-renderer comparison, an EPUB
+fixture export, and local Whisper transcription of synthetic speech with the
+checksum-verified Tiny.en model. A newly generated EPUB passed EPUBCheck 5.4.0
+without errors or warnings. Browser UI checks used mocked Tauri and installed
+Chrome, not a native desktop window. The live calculator test was not rerun in
+this pass; its earlier isolated proxy run is recorded below. Physical audio,
+live external providers and release acceptance remain open.
+
 The independently vendored consumer pinned to
 `dd614f4a38a10e49017b09dc71f7140dce3a5452` passed a real Model Host integration
 probe against the native `integration` environment at revision

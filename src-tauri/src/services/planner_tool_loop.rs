@@ -463,6 +463,7 @@ mod tests {
         let server = tokio::spawn(async move { axum::serve(listener, Router::new().route("/v1/chat/completions", post(complete)).with_state(server_fixture)).await.unwrap() });
         let pool = create_test_pool("draft_repair").await;
         model_repo::create_provider(&pool, "draft-provider", "Fixture", "openai_compatible", &format!("http://{address}/v1"), None).await.unwrap();
+        model_repo::create_model_definition(&pool, "draft-fixture-model", "draft-provider", "fixture", None, None, None).await.unwrap();
         let artifacts = make_temp_dir("draft_repair_artifacts");
         std::fs::create_dir_all(&artifacts).unwrap();
         let draft = PlannerDraftPlan { nodes: vec![PlannerDraftNode { id: "product".into(), parent_id: None, node_type: "product".into(), name: "Shop".into(), summary: None, details: json!({}) }] };
@@ -549,6 +550,7 @@ mod tests {
         )
         .await
         .unwrap();
+        model_repo::create_model_definition(&pool, "format-fixture-model", "format-provider", "fixture", None, None, None).await.unwrap();
         let artifacts = make_temp_dir("format_artifacts");
         std::fs::create_dir_all(&artifacts).unwrap();
         let input = || PlannerToolLoopInput {
