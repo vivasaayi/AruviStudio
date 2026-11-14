@@ -19,7 +19,10 @@ const workflowOutputs = [
 
 const server = http.createServer((request, response) => {
   response.setHeader("Content-Type", "application/json");
-  if (request.method === "GET" && request.url === "/copilot/last") {
+  if (request.method === "GET" && request.url === "/local-model.bin") {
+    response.setHeader("Content-Type", "application/octet-stream");
+    response.end("synthetic local model");
+  } else if (request.method === "GET" && request.url === "/copilot/last") {
     response.end(JSON.stringify(lastCopilotRequest));
   } else if (request.method === "GET" && request.url === "/copilot/stats") {
     response.end(JSON.stringify({ calls: copilotCalls }));

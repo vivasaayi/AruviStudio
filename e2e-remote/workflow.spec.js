@@ -469,6 +469,25 @@ test("provider creation and edits reject unusable or credential-bearing URLs", a
   expect(providers.some((item) => item.name === "Rejected URL")).toBeFalsy();
 });
 
+test("MCP managed local model install confines paths and reuses the completed file", async ({ request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires an isolated server");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };
+  async function call(args) {
+    const response = await request.post("/api/mcp", { headers, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_models", arguments: { action: "install_managed_local_model", arguments: args } } } });
+    return (await response.json()).result;
+  }
+  const args = { provider_name: "Managed fixture", model_name: "fixture", file_name: "fixture.bin", download_url: process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/local-model.bin") };
+  expect((await call({ ...args, file_name: "../escape.bin" })).isError).toBeTruthy();
+  const first = await call(args);
+  expect(first.isError).toBeFalsy();
+  expect(first.structuredContent.result.downloaded).toBe(true);
+  expect(first.structuredContent.result.provider.provider_type).toBe("local_runtime");
+  const second = await call(args);
+  expect(second.isError).toBeFalsy();
+  expect(second.structuredContent.result.downloaded).toBe(false);
+  expect(second.structuredContent.result.provider.id).toBe(first.structuredContent.result.provider.id);
+});
+
 test("MCP transport errors omit the provider URL path", async ({ request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires an isolated server");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };

@@ -44,6 +44,21 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Managed local model installation
+
+- Desktop and MCP now share the same managed installer. It rejects paths in
+  model filenames, refuses symlink destinations and symlink model directories,
+  bounds downloads to 8 GiB and one hour, and publishes a nonempty file only
+  after the download finishes. Failed downloads are removed; an existing
+  nonempty regular file is reused. Download URLs can still access endpoints
+  reachable from the server and follow redirects. Neither downloaded nor
+  pre-existing files are checksum-verified, and existing partial files from
+  older versions cannot be detected reliably. Browser installation controls
+  remain open; MCP and desktop installations refer to the server's filesystem.
+  Native Rust passed 222 tests with six ignored, including interrupted download
+  and MCP path checks. The rebuilt container passed 29 isolated workflow cases,
+  including MCP install, rejection and idempotent reuse with a fixture server.
+
 ## Product Book export data
 
 - Browser/MCP EPUB and PDF, and native EPUB, now support embedded PNG and JPEG

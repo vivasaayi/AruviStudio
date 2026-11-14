@@ -1,5 +1,6 @@
 use crate::commands::model_commands::{
     upsert_local_runtime_registration, LocalRuntimeRegistrationInput,
+    local_runtime::{install_managed_local_model, InstallManagedLocalModelCommand},
 };
 use crate::domain::model::ProviderType;
 use crate::error::AppError;
@@ -250,53 +251,10 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let capability_tags =
                 args.optional_json_array_string(&["capability_tags", "capabilityTags"])?;
             let notes = args.optional_string(&["notes"])?;
-            let safe_dir = slugify(&provider_name);
-            let models_dir = state.app_data_dir.join("models").join(safe_dir);
-            tokio::fs::create_dir_all(&models_dir).await?;
-            let destination_path = models_dir.join(file_name.trim());
-
-            let mut downloaded = false;
-            if !destination_path.exists() {
-                let response = reqwest::get(download_url.trim()).await.map_err(|error| {
-                    AppError::Provider(format!("Failed to download model: {error}"))
-                })?;
-                if !response.status().is_success() {
-                    return Err(AppError::Provider(format!(
-                        "Failed to download model: HTTP {}",
-                        response.status()
-                    )));
-                }
-
-                let mut file = tokio::fs::File::create(&destination_path).await?;
-                let mut stream = response.bytes_stream();
-                use futures_util::StreamExt;
-                use tokio::io::AsyncWriteExt;
-
-                while let Some(chunk) = stream.next().await {
-                    let bytes = chunk.map_err(|error| {
-                        AppError::Provider(format!("Failed to read model download stream: {error}"))
-                    })?;
-                    file.write_all(&bytes).await?;
-                }
-                file.flush().await?;
-                downloaded = true;
-            }
-
-            let registration = upsert_local_runtime_registration(
-                state,
-                LocalRuntimeRegistrationInput {
-                    provider_name: &provider_name,
-                    model_name: &model_name,
-                    model_path: destination_path.to_str().ok_or_else(|| {
-                        AppError::Validation("Installed model path is not valid UTF-8".to_string())
-                    })?,
-                    capability_tags: capability_tags.as_deref(),
-                    notes: notes.as_deref(),
-                    context_window: args.optional_i64(&["context_window", "contextWindow"])?,
-                    downloaded,
-                },
-            )
-            .await?;
+            let registration = install_managed_local_model(state, InstallManagedLocalModelCommand {
+                provider_name, model_name, download_url, file_name, capability_tags, notes,
+                context_window: args.optional_i64(&["context_window", "contextWindow"])?,
+            }).await?;
             action_result("install_managed_local_model", registration)
         }
         "run_model_chat_completion" => {
@@ -446,19 +404,4 @@ fn message_char_count(messages: &[ChatMessage]) -> i64 {
 
 fn elapsed_ms(started: Instant) -> i64 {
     i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX)
-}
-
-fn slugify(value: &str) -> String {
-    let mut output = String::with_capacity(value.len());
-    let mut last_was_dash = false;
-    for ch in value.chars() {
-        if ch.is_ascii_alphanumeric() {
-            output.push(ch.to_ascii_lowercase());
-            last_was_dash = false;
-        } else if !last_was_dash {
-            output.push('-');
-            last_was_dash = true;
-        }
-    }
-    output.trim_matches('-').to_string()
 }
