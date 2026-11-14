@@ -14,3 +14,8 @@ combination. Revalidate all platforms and database behavior before release;
 replace it with a maintained upstream release that supports a patched SQLite as
 soon as available. Do not remove the root Cargo patch without rechecking the
 selected `libsqlite3-sys` version and advisory status.
+
+Verify the vendored tree with `bash scripts/test sqlx-patch`. It downloads the
+checksum-pinned published archive; use `--archive /path/to/sqlx-sqlite-0.8.6.crate`
+for offline verification. This checks provenance and local changes, not ABI
+compatibility or correctness.

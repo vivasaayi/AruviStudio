@@ -12,6 +12,21 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### SQLx SQLite patch provenance
+
+On 2026-11-14, the vendored SQLx SQLite 0.8.6 tree was compared with the
+published crate after verifying its SHA-256. Its only non-whitespace source
+change is the documented `libsqlite3-sys` dependency pin; the patch notes are
+an additional local file. `bash scripts/test sqlx-patch` now repeats this check,
+including offline operation with `--archive`; a disposable tampering fixture was
+rejected. This proves provenance, not compatibility or safety.
+
+The [published SQLx SQLite 0.9.0 manifest](https://docs.rs/crate/sqlx-sqlite/0.9.0/source/Cargo.toml)
+still caps `libsqlite3-sys` below 0.38, while [RustSec](https://rustsec.org/advisories/RUSTSEC-2026-0459.html)
+lists 0.39 or later as patched. The [upstream development manifest](https://github.com/transact-rs/sqlx/blob/main/sqlx-sqlite/Cargo.toml)
+now permits versions below 0.40. A published, tested compatible upgrade and
+cross-platform validation remain necessary before removing the local patch.
+
 ### Isolated live calculator workflow
 
 On 2026-11-14, the previously ignored live calculator workflow passed one

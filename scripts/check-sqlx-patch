@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""Verify the local SQLx SQLite patch against the checksum-pinned crate.
+
+Downloads the public crate by default; --archive accepts an already downloaded
+crate for offline verification. No archive is extracted to the filesystem.
+"""
+import argparse
+import hashlib
+import io
+from pathlib import Path, PurePosixPath
+import sys
+import tarfile
+import urllib.request
+
+ROOT = Path(__file__).resolve().parent.parent
+VENDOR = ROOT / "vendor/sqlx-sqlite"
+URL = "https://static.crates.io/crates/sqlx-sqlite/sqlx-sqlite-0.8.6.crate"
+SHA256 = "c2d12fe70b2c1b4401038055f90f151b78208de1f9f89a7dbfd41587a10c3eea"
+MAX_ARCHIVE = 5 * 1024 * 1024
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--archive", type=Path, help="Previously downloaded sqlx-sqlite 0.8.6 crate")
+    args = parser.parse_args()
+    try:
+        if args.archive:
+            with args.archive.open("rb") as source:
+                data = source.read(MAX_ARCHIVE + 1)
+        else:
+            with urllib.request.urlopen(URL, timeout=30) as source:
+                data = source.read(MAX_ARCHIVE + 1)
+        if len(data) > MAX_ARCHIVE or hashlib.sha256(data).hexdigest() != SHA256:
+            raise ValueError("Archive size or SHA-256 does not match the pinned crate")
+        expected_files = set()
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
+            for entry in archive:
+                if entry.isdir():
+                    continue
+                if not entry.isfile():
+                    raise ValueError("Unexpected non-file archive entry")
+                path = PurePosixPath(entry.name)
+                if not path.parts or path.parts[0] != "sqlx-sqlite-0.8.6" or ".." in path.parts:
+                    raise ValueError("Unexpected archive path")
+                relative = path.relative_to("sqlx-sqlite-0.8.6")
+                if str(relative) in expected_files:
+                    raise ValueError("Duplicate archive entry")
+                expected_files.add(str(relative))
+                local = VENDOR.joinpath(*relative.parts)
+                if any(VENDOR.joinpath(*relative.parts[:i]).is_symlink() for i in range(1, len(relative.parts) + 1)) or not local.is_file():
+                    raise ValueError(f"Missing or symlinked vendor file: {relative}")
+                upstream = archive.extractfile(entry).read()
+                actual = local.read_bytes()
+                if str(relative) == "Cargo.toml":
+                    old = b'[dependencies.libsqlite3-sys]\nversion = "0.30.1"'
+                    new = b'[dependencies.libsqlite3-sys]\nversion = "=0.39.1"'
+                    if upstream.count(old) != 1 or actual != upstream.replace(old, new, 1):
+                        raise ValueError("Vendor Cargo.toml differs beyond the documented SQLite pin")
+                elif str(relative) == "src/connection/serialize.rs":
+                    if [line.rstrip(b" \t\r") for line in upstream.split(b"\n")] != [line.rstrip(b" \t\r") for line in actual.split(b"\n")]:
+                        raise ValueError(f"Unexpected non-whitespace change: {relative}")
+                elif actual != upstream:
+                    raise ValueError(f"Unexpected vendor change: {relative}")
+        if VENDOR.is_symlink() or (VENDOR / "ARUVI-PATCH.md").is_symlink():
+            raise ValueError("Vendor directory or patch notes must not be symlinks")
+        local_files = {str(path.relative_to(VENDOR)) for path in VENDOR.rglob("*") if path.is_file() or path.is_symlink()}
+        if local_files != expected_files | {"ARUVI-PATCH.md"}:
+            raise ValueError("Vendor directory has missing or unexpected files")
+    except (OSError, ValueError, tarfile.TarError) as error:
+        print(f"SQLx patch verification failed: {error}", file=sys.stderr)
+        return 1
+    print("SQLx SQLite vendor matches the pinned crate with the documented dependency and whitespace changes.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
