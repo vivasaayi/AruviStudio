@@ -469,6 +469,30 @@ test("provider creation and edits reject unusable or credential-bearing URLs", a
   expect(providers.some((item) => item.name === "Rejected URL")).toBeFalsy();
 });
 
+test("browser installs a fixed speech preset and reuses its existing file", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires an isolated server");
+  const endpoint = "/api/mobile/models/local-install";
+  expect((await request.post(endpoint, { data: { preset: "whisper-tiny-en" } })).status()).toBe(401);
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  expect((await request.post(endpoint, { headers, data: { preset: "unknown", download_url: "http://127.0.0.1/" } })).status()).toBe(400);
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Models", exact: true }).click();
+  await page.getByLabel("Managed Whisper preset").selectOption("whisper-tiny-en");
+  const installed = page.waitForResponse((r) => r.url().endsWith(endpoint) && r.request().method() === "POST");
+  await page.getByRole("button", { name: "Install speech preset" }).click();
+  const response = await installed;
+  expect(response.ok()).toBeTruthy();
+  const result = await response.json();
+  expect(result.downloaded).toBe(false);
+  expect(result.provider).not.toHaveProperty("auth_secret_ref");
+  await expect(page.locator("#modelList")).toContainText("whisper-tiny.en");
+  const repeated = await request.post(endpoint, { headers, data: { preset: "whisper-tiny-en" } });
+  expect(repeated.ok()).toBeTruthy();
+  expect((await repeated.json()).model_definition.id).toBe(result.model_definition.id);
+});
+
 test("browser registers a server local speech model and preserves it on repeat", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires an isolated server");
   const data = { provider_name: "Browser local fixture", model_name: "fixture-stt", model_path: "/data/models/fixture/existing.bin" };

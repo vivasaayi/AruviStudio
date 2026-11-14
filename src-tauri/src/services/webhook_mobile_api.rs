@@ -230,6 +230,9 @@ pub(crate) struct MobileRegisterLocalModelRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub(crate) struct MobileInstallLocalModelRequest { preset: String }
+
+#[derive(Debug, Deserialize)]
 pub(crate) struct MobileRegisterRepositoryRequest {
     name: String,
     local_path: String,
@@ -862,7 +865,7 @@ async fn model_action(state: &WebhookState, action: &str, arguments: serde_json:
             let mut value = result["result"].clone();
             if action == "create_provider" {
                 if let Some(fields) = value.as_object_mut() { fields.remove("auth_secret_ref"); }
-            } else if action == "register_local_runtime_model" {
+            } else if matches!(action, "register_local_runtime_model" | "install_managed_local_model") {
                 if let Some(provider) = value.get_mut("provider").and_then(serde_json::Value::as_object_mut) { provider.remove("auth_secret_ref"); }
             }
             Json(value).into_response()
@@ -1025,6 +1028,21 @@ pub(crate) async fn mobile_register_local_model(State(state): State<WebhookState
         return (StatusCode::BAD_REQUEST, "Provider name, model name and server model path are required").into_response();
     }
     model_action(&state, "register_local_runtime_model", serde_json::json!({"provider_name":body.provider_name.trim(), "model_name":body.model_name.trim(), "model_path":body.model_path.trim(), "capability_tags":["speech_to_text"]})).await
+}
+
+pub(crate) async fn mobile_install_local_model(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileInstallLocalModelRequest>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let (provider, model, filename) = match body.preset.as_str() {
+        "whisper-tiny-en" => ("Whisper.cpp Tiny.en (Local)", "whisper-tiny.en", "ggml-tiny.en.bin"),
+        "whisper-base-en" => ("Whisper.cpp Base.en (Local)", "whisper-base.en", "ggml-base.en.bin"),
+        "whisper-small-en" => ("Whisper.cpp Small.en (Local)", "whisper-small.en", "ggml-small.en.bin"),
+        _ => return (StatusCode::BAD_REQUEST, "Unknown local model preset").into_response(),
+    };
+    model_action(&state, "install_managed_local_model", serde_json::json!({
+        "provider_name": provider, "model_name": model, "file_name": filename,
+        "download_url": format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{filename}?download=true"),
+        "capability_tags": ["speech_to_text"]
+    })).await
 }
 
 pub(crate) async fn mobile_create_model(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileCreateModelRequest>) -> impl IntoResponse {

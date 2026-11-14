@@ -801,6 +801,11 @@
               <div class="panel-header"><div class="panel-title">Register local speech model</div></div>
               <div class="panel-body stack">
                 <p class="empty">Register an existing Whisper model file on the Studio server. In Docker, the path must be inside the container and backed by persistent storage. For centrally hosted models, add the Aruvi Model Host as a provider instead.</p>
+                <form id="localPresetForm" class="stack">
+                  <label><span class="label">Managed Whisper preset</span><select id="localPreset"><option value="whisper-tiny-en">Tiny English · 75 MiB</option><option value="whisper-base-en">Base English · 142 MiB</option><option value="whisper-small-en">Small English · 466 MiB</option></select></label>
+                  <p class="empty">Downloads to Studio server storage; this can take several minutes. Existing files are reused. Files are not checksum verified.</p>
+                  <button id="installLocalPresetButton" type="submit">Install speech preset</button>
+                </form>
                 <form id="localModelForm" class="stack">
                   <label><span class="label">Local provider name</span><input id="localProviderName" required /></label>
                   <label><span class="label">Local model name</span><input id="localModelName" required /></label>
@@ -1072,6 +1077,9 @@
       createModelButton: document.getElementById("createModelButton"),
       modelList: document.getElementById("modelList"),
       localModelForm: document.getElementById("localModelForm"),
+      localPresetForm: document.getElementById("localPresetForm"),
+      localPreset: document.getElementById("localPreset"),
+      installLocalPresetButton: document.getElementById("installLocalPresetButton"),
       localProviderName: document.getElementById("localProviderName"),
       localModelName: document.getElementById("localModelName"),
       localModelPath: document.getElementById("localModelPath"),
@@ -3920,6 +3928,18 @@
       finally { el.registerLocalModelButton.disabled = false; }
     }
 
+    async function installLocalPreset(event) {
+      event.preventDefault();
+      el.installLocalPresetButton.disabled = true;
+      setStatus("Installing speech model; this may take several minutes", "ok");
+      try {
+        await request("/api/mobile/models/local-install", { method: "POST", body: { preset: el.localPreset.value } });
+        await loadModelConfiguration();
+        setStatus("Speech preset installed", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { el.installLocalPresetButton.disabled = false; }
+    }
+
     let discoveryCursor = null;
     let discoveryProvider = "";
     let discoverySequence = 0;
@@ -4333,6 +4353,7 @@
     el.repositoryProduct.addEventListener("change", loadWorkspaces);
     el.providerForm.addEventListener("submit", createProvider);
     el.localModelForm.addEventListener("submit", registerLocalModel);
+    el.localPresetForm.addEventListener("submit", installLocalPreset);
     el.modelForm.addEventListener("submit", createModel);
     el.modelProvider.addEventListener("change", resetModelDiscovery);
     el.discoverModelsButton.addEventListener("click", () => discoverModels(false));

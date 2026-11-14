@@ -85,8 +85,8 @@ provider hosting into the model-host service as part of this work.
   nonempty regular file is reused. Download URLs can still access endpoints
   reachable from the server and follow redirects. Neither downloaded nor
   pre-existing files are checksum-verified, and existing partial files from
-  older versions cannot be detected reliably. Browser preset-download controls
-  remain open; MCP and desktop installations refer to the server's filesystem.
+  older versions cannot be detected reliably. Installations refer to the
+  server's filesystem.
   Native Rust passed 222 tests with six ignored, including interrupted download
   and MCP path checks. The rebuilt container passed 29 isolated workflow cases,
   including MCP install, rejection and idempotent reuse with a fixture server.
@@ -95,7 +95,14 @@ provider hosting into the model-host service as part of this work.
   the container path requirement explicit. Native Rust passed 222 tests with
   six ignored, and 30 isolated workflow cases passed, including browser
   authentication, registration, invalid path, secret-reference omission and
-  repeat registration. This is not browser file upload or preset installation.
+  repeat registration. This does not upload a local browser file.
+- The browser also offers the three desktop Whisper presets through a fixed
+  server-side allowlist and the shared installer. The isolated suite passed
+  31 workflow cases, including authentication, invalid preset rejection and
+  repeated installation using a pre-existing synthetic file. Actual preset
+  downloads were not exercised in this test; the shared installer separately
+  passed success and interrupted-download fixture tests. Browser file upload
+  and checksum verification remain open.
 
 ## Product Book export data
 
