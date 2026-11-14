@@ -149,11 +149,13 @@ silently dropping it or duplicating an accumulated response. It emits a
 message-only answer once, accepts a matching final message after deltas, and
 rejects a conflict or later delta. All 61 native client tests passed. A
 disposable native Studio and synthetic-provider browser fixture passed matching
-and conflicting streams. The branch Docker image built, but was not started:
-Docker's Linux filesystem had about 265 MB available after removing only
-identified build caches from this task. The previously deployed branch remains
-healthy and does not yet include this change. The full Docker workflow suite
-remains open.
+and conflicting streams. After Docker's Linux filesystem fell to about 265 MB,
+27 additional unshared Studio build-step caches were identified by this task's
+completed logs and removed, restoring about 1.4 GB. The already-built branch image
+was started without rebuilding and is healthy. All 49 isolated Docker workflows
+passed, including matching and conflicting full-message streams. Real 7B MCP
+coding, browser-origin MCP, and synthetic Piper-to-Whisper MCP checks passed
+against the refreshed worktree. Disk space remains limited.
 The independent consumer pins `873617965bdf455f4cd89accea64cb1b3b69931b`; all
 27 native and non-root Linux offline tests passed, including streamed and
 buffered full-message handling. Linux probes passed real 7B coding-host text and
