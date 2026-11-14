@@ -1,6 +1,48 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
+test("existing planner sessions stop when their model binding changes", async ({ request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const mcpHeaders = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };
+  const mcp = async (name, action, arguments_) => {
+    const result = (await (await request.post("/api/mcp", { headers: mcpHeaders, data: { jsonrpc: "2.0", id: 24, method: "tools/call", params: { name, arguments: { action, arguments: arguments_ } } } })).json()).result;
+    expect(result.isError, JSON.stringify(result)).not.toBeTruthy();
+    return result.structuredContent.result;
+  };
+  const provider = await mcp("aruvi_models", "create_provider", { name: "Planner active binding fixture", base_url: process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/channel/v1") });
+  const model = await mcp("aruvi_models", "create_model_definition", { provider_id: provider.id, name: "planner-active-model" });
+  const product = await mcp("aruvi_catalog", "create_product", { name: "Planner active binding product" });
+  const session = await mcp("aruvi_planner", "create_planner_session", { provider_id: provider.id, model_name: model.name });
+  const count = async () => (await (await request.get("http://127.0.0.1:19876/channel/requests")).json()).length;
+  const initial = await count();
+  const body = { product_id: product.id, user_input: "Plan this product" };
+  await mcp("aruvi_models", "update_model_definition", { id: model.id, enabled: false });
+  const disabled = await request.post(`/api/mobile/planner/sessions/${session.session_id}/turn`, { headers, data: body });
+  expect((await disabled.json()).status).toBe("error");
+  expect(await count()).toBe(initial);
+  await mcp("aruvi_models", "update_model_definition", { id: model.id, enabled: true });
+  const valid = await mcp("aruvi_planner", "submit_planner_turn", { session_id: session.session_id, ...body });
+  expect(valid.status).not.toBe("error");
+  expect(await count()).toBeGreaterThan(initial);
+  const afterValid = await count();
+  await mcp("aruvi_models", "update_provider", { id: provider.id, enabled: false });
+  const providerDisabled = await mcp("aruvi_planner", "submit_planner_turn", { session_id: session.session_id, ...body });
+  expect(providerDisabled.status).toBe("error");
+  expect(await count()).toBe(afterValid);
+  const repository = await mcp("aruvi_repositories", "register_repository", { name: "Planner active repository", local_path: "/repositories/planner-active-fixture" });
+  const analysis = await request.post("/api/mcp", { headers: mcpHeaders, data: { jsonrpc: "2.0", id: 25, method: "tools/call", params: { name: "aruvi_planner", arguments: { action: "analyze_repository_for_planner", arguments: { session_id: session.session_id, product_id: product.id, repository_id: repository.id } } } } });
+  const analysisResult = (await analysis.json()).result;
+  expect(analysisResult.isError).toBeTruthy();
+  expect(JSON.stringify(analysisResult.content)).toContain("requested planner provider and model");
+  expect(await count()).toBe(afterValid);
+  await mcp("aruvi_models", "update_provider", { id: provider.id, enabled: true });
+  await mcp("aruvi_models", "update_model_definition", { id: model.id, name: "renamed-planner-model" });
+  const renamed = await mcp("aruvi_planner", "submit_planner_turn", { session_id: session.session_id, ...body });
+  expect(renamed.status).toBe("error");
+  expect(await count()).toBe(afterValid);
+});
+
 test("planner defaults do not fall through to an unrelated provider", async ({ request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };

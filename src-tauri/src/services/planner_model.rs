@@ -92,6 +92,9 @@ pub(crate) async fn run_completion(
     messages: Vec<ChatMessage>,
     context: PlannerModelCallContext<'_>,
 ) -> Result<String, AppError> {
+    // A session may outlive its provider/model registration. Recheck the exact
+    // binding before every network request, including subsequent tool-loop calls.
+    resolve_planner_model_binding(db, Some(provider_id.to_string()), Some(model_name.to_string())).await?;
     let provider = model_repo::get_provider(db, provider_id).await?;
     let gateway = create_gateway(&provider)?;
     let started = Instant::now();

@@ -284,6 +284,13 @@ remain separate checks.
 
 ### Current requirement audit — 2026-11-14
 
+Planner model calls now revalidate the session's exact provider/model binding
+before each request, including repository analysis and later tool-loop calls.
+All 45 isolated workflows passed; a simulated provider confirmed that disabling
+the model or provider, or renaming the model, stopped subsequent requests, and
+that re-enabling the model allowed the existing session to continue. A change
+after validation cannot cancel a request already in flight.
+
 Planner defaults are now constraints rather than fallback hints: a configured
 provider/model pair that does not resolve to one enabled text model returns an
 error instead of silently choosing a different provider. Environment values
