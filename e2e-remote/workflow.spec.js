@@ -244,9 +244,13 @@ test("DeepSeek voice uses its dedicated endpoints through browser, API and MCP",
   await page.getByRole("button", { name: "Voice", exact: true }).click();
   await page.locator("#speechProvider").selectOption(provider.id);
   await page.locator("#speechModel").fill("deepseek-voice-synthesis");
+  await page.getByLabel("Voice (optional)").fill("tide");
   await page.locator("#speechText").fill("Hello");
   await page.getByRole("button", { name: "Generate speech" }).click();
   await expect(page.locator("#generatedSpeech")).toBeVisible();
+  await page.getByLabel("Speed (optional)").fill("1.25");
+  await page.getByRole("button", { name: "Generate speech" }).click();
+  await expect(page.locator("#voiceMeta")).toContainText("does not support speed control");
   await page.getByRole("button", { name: "Models", exact: true }).click();
   await expect(page.locator("#bindingModel").locator(`option[value="${voiceModel.id}"]`)).toHaveCount(0);
 });
@@ -275,6 +279,8 @@ test("remote speech generation works through UI, API and MCP", async ({ page, re
   await expect(page.locator("#speechProvider option").filter({ hasText: "Speech fixture" })).toHaveCount(1);
   await page.locator("#speechProvider").selectOption(provider.id);
   await page.locator("#speechModel").fill("synthetic-tts");
+  await page.getByLabel("Voice (optional)").fill("alloy");
+  await page.getByLabel("Speed (optional)").fill("1.25");
   await page.locator("#speechText").fill("Hello from the browser");
   await page.getByRole("button", { name: "Generate speech" }).click();
   await expect(page.locator("#voiceMeta")).toHaveText("Speech ready to play.");

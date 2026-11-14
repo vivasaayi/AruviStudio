@@ -2385,6 +2385,10 @@ speed control. All 35 isolated workflow tests passed, including synthetic
 transcription via API and MCP and synthesis via browser, API and MCP. Native
 speech-service tests passed eight cases with one local Whisper case ignored.
 No live DeepSeek voice call or physical audio test has been made.
+Browser speech generation now offers optional voice and speed fields. An
+isolated fixture verified DeepSeek `tide`, a compatible provider's voice and
+speed, and DeepSeek's unsupported-speed error; all 35 workflow cases passed.
+This does not establish voice availability on arbitrary providers.
 Desktop model setup now includes a transcription preset, and Settings and
 planner recognize the selector even without capability tags. The frontend build,
 five planner selection tests and ten mocked desktop provider checks passed;

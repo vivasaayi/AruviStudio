@@ -113,7 +113,8 @@ provider with its API key. Select `deepseek-voice-transcription` for speech to
 text, or `deepseek-voice-synthesis` for speech generation. These are Studio
 selectors, not IDs sent to DeepSeek. DeepSeek detects transcription language;
 the locale hint is not sent. Synthesis accepts `stella` or `tide` and does not
-support speed control. The remote browser uses the provider's default voice.
+support speed control. The remote browser accepts an optional voice and uses
+the provider's default when it is blank.
 The service enforces its own audio format and duration limits. This integration
 has simulated-provider coverage; live DeepSeek voice is not yet verified.
 

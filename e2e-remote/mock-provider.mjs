@@ -175,7 +175,7 @@ const server = http.createServer((request, response) => {
       try { payload = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { response.statusCode = 400; return response.end(); }
       if (request.url === "/deepseek/v1/tools/tts") {
         if (request.headers.authorization !== "Bearer synthetic-deepseek-key" || payload.format !== "wav" || payload.text !== "Hello" || ![undefined, "tide"].includes(payload.voice_id) || "model" in payload || "speed" in payload) { response.statusCode = 400; return response.end(); }
-      } else if (payload.model !== "synthetic-tts" || payload.response_format !== "wav") { response.statusCode = 400; return response.end(); }
+      } else if (payload.model !== "synthetic-tts" || payload.response_format !== "wav" || (payload.input === "Hello from the browser" && (payload.voice !== "alloy" || payload.speed !== 1.25))) { response.statusCode = 400; return response.end(); }
       const wav = Buffer.alloc(44 + 3200);
       wav.write("RIFF", 0); wav.writeUInt32LE(wav.length - 8, 4); wav.write("WAVEfmt ", 8); wav.writeUInt32LE(16, 16);
       wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(16000, 24); wav.writeUInt32LE(32000, 28);
