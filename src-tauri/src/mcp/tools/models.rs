@@ -153,6 +153,21 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             model_repo::delete_model_definition(&state.db, &id).await?;
             Ok(action_ok("delete_model_definition"))
         }
+        "get_provider_transport_capabilities" => {
+            let id = args.required_string(&["id", "provider_id", "providerId"], "provider_id")?;
+            let provider = model_repo::get_provider(&state.db, &id).await?;
+            if !provider.enabled { return Err(AppError::Validation("Selected provider is disabled".into())); }
+            let gateway = crate::services::model_service::create_shared_gateway(&provider)?;
+            let capabilities = gateway.transport_capabilities();
+            action_result("get_provider_transport_capabilities", json!({
+                "text_completion": capabilities.text_completion,
+                "text_streaming": capabilities.text_streaming,
+                "model_discovery": capabilities.model_discovery,
+                "transcription": capabilities.transcription,
+                "speech": capabilities.speech,
+                "json_object_completion": gateway.supports_json_object_completion(),
+            }))
+        }
         "discover_provider_models" => {
             let id = args.required_string(&["id", "provider_id", "providerId"], "provider_id")?;
             let provider = model_repo::get_provider(&state.db, &id).await?;

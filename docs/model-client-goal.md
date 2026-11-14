@@ -46,6 +46,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Browser model discovery
 
+- Authenticated MCP `aruvi_models.get_provider_transport_capabilities` and the
+  browser provider card expose the shared client's text, streaming, discovery,
+  transcription, speech and JSON-object transport flags. These describe the
+  client adapter, not the actual endpoint or a particular model, and they do not
+  contact the provider. Creating the selected transport still requires its normal
+  configuration and credentials; disabled providers are rejected.
+  The Linux Rust suite passed 204 tests with two live tests ignored. The 22
+  remote UI cases passed with synthetic OpenAI-compatible and Anthropic
+  configurations, comparing the MCP and browser response and checking that
+  unauthenticated access is rejected. These are adapter checks, not live provider
+  capability discovery.
+
 - Model discovery now invalidates in-flight requests when the provider changes
   or configuration reloads. Only the current request may populate results,
   report an error or re-enable controls. All 22 isolated remote UI cases passed,

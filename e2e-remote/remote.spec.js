@@ -614,9 +614,18 @@ test("browser configures and selects a model", async ({ page, request }) => {
     expect(providerBody).not.toHaveProperty("auth_secret_ref");
     providerId = providerBody.id;
     const expectedProvider = { name: providerBody.name, base_url: providerBody.base_url, enabled: providerBody.enabled };
+    const capabilityUrl = `/api/mobile/providers/${providerId}/transport-capabilities`;
+    expect((await request.get(capabilityUrl)).status()).toBe(401);
+    const transport = await call("aruvi_models", "get_provider_transport_capabilities", { id: providerId });
+    expect(transport).toEqual({ text_completion: true, text_streaming: true, model_discovery: true, transcription: true, speech: true, json_object_completion: true });
+    expect(await (await request.get(capabilityUrl, { headers: { Authorization: `Bearer ${token}` } })).json()).toEqual(transport);
     expect((await request.post("/api/mobile/providers/update", { data: { id: providerId, expected: expectedProvider, fields: expectedProvider } })).status()).toBe(401);
     expect((await request.post("/api/mobile/providers/update", { headers: { Authorization: `Bearer ${token}` }, data: { id: providerId, expected: expectedProvider, fields: { ...expectedProvider, base_url: "http://user:pass@example.com" } } })).status()).toBe(400);
     await expect(page.locator("#providerList")).toContainText(name);
+    const capabilityCard = page.locator("#providerList .tool-card").filter({ hasText: name });
+    await capabilityCard.getByRole("button", { name: "Show transport capabilities" }).click();
+    await expect(capabilityCard).toContainText("Transport supports: text, streaming, model discovery, transcription, speech, JSON object mode.");
+    await expect(capabilityCard).toContainText("Actual provider and model support can differ.");
     if (process.env.ARUVI_TEST_MODEL_URL) {
       const providerCard = page.locator("#providerList .tool-card").filter({ hasText: name });
       await providerCard.getByRole("button", { name: "Test connection" }).click();
@@ -1261,6 +1270,7 @@ test("browser and MCP edit an Anthropic provider protocol", async ({ page, reque
     await page.getByLabel("Provider name", { exact: true }).fill(name);
     await page.locator("#providerProtocol").selectOption("anthropic");
     await page.getByLabel("API base URL").fill("https://api.anthropic.com");
+    await page.getByLabel("API key (optional)").fill("synthetic-anthropic-capability-key");
     const created = page.waitForResponse((response) => response.url().endsWith("/api/mobile/providers") && response.request().method() === "POST");
     await page.getByRole("button", { name: "Add provider", exact: true }).click();
     const response = await created;
@@ -1269,6 +1279,10 @@ test("browser and MCP edit an Anthropic provider protocol", async ({ page, reque
     expect(provider.protocol).toBe("anthropic");
     await expect(page.locator("#providerList")).toContainText(`${name} · anthropic`);
     const card = page.locator("#providerList .tool-card").filter({ hasText: name });
+    const anthropicTransport = await (await request.get(`/api/mobile/providers/${provider.id}/transport-capabilities`, { headers: { Authorization: `Bearer ${token}` } })).json();
+    expect(anthropicTransport).toEqual({ text_completion: true, text_streaming: true, model_discovery: true, transcription: false, speech: false, json_object_completion: false });
+    await card.getByRole("button", { name: "Show transport capabilities" }).click();
+    await expect(card).toContainText("Transport supports: text, streaming, model discovery.");
     await card.getByText("Manage provider", { exact: true }).click();
     const protocol = card.getByLabel(`Edit provider protocol ${name}`);
     await expect(protocol).toHaveValue("anthropic");

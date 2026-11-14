@@ -3626,6 +3626,17 @@
             } catch (error) { setStatus(error.message || String(error), "error"); }
             finally { test.disabled = false; }
           });
+          const capabilities = document.createElement("button"); capabilities.type = "button"; capabilities.className = "secondary"; capabilities.textContent = "Show transport capabilities";
+          const capabilityText = document.createElement("div"); capabilityText.className = "empty";
+          capabilities.addEventListener("click", async () => {
+            capabilities.disabled = true;
+            try {
+              const result = await request("/api/mobile/providers/" + encodeURIComponent(provider.id) + "/transport-capabilities");
+              const labels = { text_completion: "text", text_streaming: "streaming", model_discovery: "model discovery", transcription: "transcription", speech: "speech", json_object_completion: "JSON object mode" };
+              capabilityText.textContent = "Transport supports: " + Object.entries(labels).filter(([key]) => result[key]).map(([, label]) => label).join(", ") + ". Actual provider and model support can differ.";
+            } catch (error) { capabilityText.textContent = error.message || String(error); }
+            finally { capabilities.disabled = false; }
+          });
           const edit = document.createElement("details"); const editSummary = document.createElement("summary"); editSummary.textContent = "Manage provider";
           const form = document.createElement("form"); form.className = "stack";
           const nameInput = document.createElement("input"); nameInput.value = provider.name; nameInput.required = true; nameInput.setAttribute("aria-label", "Edit provider name " + provider.name);
@@ -3696,7 +3707,7 @@
             } catch (error) { setStatus(error.message || String(error), "error"); }
             finally { cleanup.disabled = false; }
           });
-          card.append(title, test, edit);
+          card.append(title, test, capabilities, capabilityText, edit);
           el.providerList.appendChild(card);
         });
         if (providers.some((provider) => provider.id === previous)) el.modelProvider.value = previous;
