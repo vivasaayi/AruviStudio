@@ -15,6 +15,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rejects_partial_multipart_response_from_public_gateway() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0; 4096]; let _ = socket.read(&mut request).unwrap();
+            let body = r#"{"choices":[{"message":{"content":[{"type":"text","text":"partial"},{"type":"image","url":"fixture"}]},"finish_reason":"stop"}]}"#;
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+        });
+        let client: Box<dyn ModelGateway> = Box::new(OpenAiCompatibleClient::new(format!("http://{address}"), None));
+        let request = CompletionRequest { model: "fixture".into(), messages: vec![ChatMessage { role: "user".into(), content: "hello".into() }], temperature: None, max_tokens: Some(10) };
+        assert!(client.run_completion(request).await.unwrap_err().to_string().contains("unsupported or invalid"));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
     async fn rejects_credentials_in_provider_url_without_exposing_them() {
         let client = OpenAiCompatibleClient::new("http://user:synthetic-secret@127.0.0.1:1".into(), None);
         let error = client.list_models_page(None).await.unwrap_err().to_string();

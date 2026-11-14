@@ -88,6 +88,9 @@ provider hosting into the model-host service as part of this work.
   simulated malformed responses through both web and MCP. The rebuilt worktree
   is healthy; real 7B Model Host browser streaming returned coding output. These
   tests do not establish live Anthropic or other third-party behavior.
+- The independent consumer pins `ecad3179607859044ffeca6de2139f70e0cb9236`;
+  its clean Docker build passed 14 tests with networking disabled during tests,
+  including rejection of a mixed-content response through the public gateway.
 - Anthropic's [Messages reference](https://platform.claude.com/docs/en/api/messages/create)
   describes the text, thinking, redacted-thinking and tool content blocks.
 
