@@ -298,6 +298,15 @@ provider hosting into the model-host service as part of this work.
 
 ## Structured provider HTTP errors
 
+- The Anthropic adapter marks its API-key header sensitive, preventing it from
+  appearing in request debug formatting. Invalid HTTP header values are rejected
+  at client construction without echoing the key. The standalone client passed
+  47 tests, including redaction and authenticated requests; the Studio simulated
+  Anthropic MCP and browser integration test also passed. The rebuilt branch
+  passed all 28 isolated workflow cases, including simulated Anthropic streaming,
+  and the real Model Host coding/token-limit MCP fixture. This does not guarantee
+  redaction by external proxies or provider services; live Anthropic was not used.
+
 - Reqwest transport errors now omit request URLs, protecting proxy paths and
   discovery cursors from those error messages while retaining the error category.
   The configured provider URL is still stored and displayed by Studio and may

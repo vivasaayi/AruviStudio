@@ -1,7 +1,7 @@
 //! Anthropic Messages API client for text conversations.
 use crate::{ClientError, CompletionRequest, CompletionResponse, ModelGateway};
 use async_trait::async_trait;
-use reqwest::Client;
+use reqwest::{header::HeaderValue, Client};
 use serde_json::{json, Value};
 
 const API_VERSION: &str = "2023-06-01";
@@ -9,7 +9,7 @@ const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 
 pub struct AnthropicClient {
     base_url: String,
-    api_key: String,
+    api_key: HeaderValue,
     client: Client,
 }
 
@@ -21,6 +21,9 @@ impl AnthropicClient {
     /// Construct a client with explicitly bounded connection and total request timeouts.
     pub fn with_options(base_url: String, api_key: String, options: crate::ClientOptions) -> Result<Self, ClientError> {
         if api_key.trim().is_empty() { return Err(ClientError::InvalidInput("Anthropic API key is required".into())); }
+        let mut api_key = HeaderValue::from_str(&api_key)
+            .map_err(|_| ClientError::InvalidInput("Invalid Anthropic API key".into()))?;
+        api_key.set_sensitive(true);
         let url = reqwest::Url::parse(&base_url).map_err(|_| ClientError::InvalidInput("Invalid Anthropic base URL".into()))?;
         if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() || !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() {
             return Err(ClientError::InvalidInput("Invalid Anthropic base URL".into()));
@@ -256,6 +259,20 @@ mod tests {
     use std::{io::{Read, Write}, net::TcpListener, thread};
 
     fn message(role: &str, content: &str) -> ChatMessage { ChatMessage { role: role.into(), content: content.into() } }
+
+    #[test]
+    fn api_key_is_sensitive_and_invalid_header_values_are_rejected() {
+        let client = AnthropicClient::new("https://example.invalid".into(), "synthetic-private-key".into()).unwrap();
+        let request = client.client.get(client.endpoint("/models")).header("x-api-key", &client.api_key).build().unwrap();
+        let header = request.headers().get("x-api-key").unwrap();
+        assert!(header.is_sensitive());
+        assert_eq!(header.to_str().unwrap(), "synthetic-private-key");
+        assert!(!format!("{header:?}").contains("synthetic-private-key"));
+        assert!(!format!("{request:?}").contains("synthetic-private-key"));
+        let error = AnthropicClient::new("https://example.invalid".into(), "private-key\ninjected".into()).err().unwrap();
+        assert!(matches!(error, ClientError::InvalidInput(_)));
+        assert!(!format!("{error:?} {error}").contains("private-key"));
+    }
 
     #[tokio::test]
     async fn maps_system_messages_authentication_and_usage() {

@@ -86,6 +86,9 @@ response retains its existing variant, and embedded errors in a successful HTTP
 response have no HTTP status. A status does not by itself imply retry safety.
 OpenAI-compatible and Anthropic requests reject redirects and
 base URLs containing credentials, queries, or fragments.
+Anthropic keys are marked sensitive on the HTTP header so request debug output
+redacts them. The constructor rejects keys that cannot be represented as HTTP
+header values without echoing the invalid key.
 Transport errors omit request URLs, including base paths and discovery cursors.
 Applications still own provider configuration and telemetry; they must protect
 any sensitive values they store there.
