@@ -4,6 +4,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   applyReviewedRepositoryPatch,
   previewRepositoryPatch,
+  matchingRepositoryFiles,
   readRepositoryFile,
   startDesktopCopilotStream,
 } from "../../../lib/tauri";
@@ -217,7 +218,7 @@ export function useIDECopilot({
     setCopilotError(null);
     setIsApplyingProposal(true);
     try {
-      await applyCopilotPatches(selectedRepoId, proposal.patches, { apply: applyReviewedRepositoryPatch, read: readRepositoryFile });
+      await applyCopilotPatches(selectedRepoId, proposal.patches, { apply: applyReviewedRepositoryPatch, read: readRepositoryFile, match: matchingRepositoryFiles });
       await refetchTree();
     } catch (error) {
       setCopilotError(String(error));

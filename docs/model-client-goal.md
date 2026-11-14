@@ -2277,11 +2277,17 @@ fields, rather than silently dropping the bad entries and presenting a partial
 proposal. The frontend build, 115 unit tests and the mocked Copilot browser
 check passed. Native patch application remains unverified.
 
-Desktop review and application now reject path spellings containing dot segments,
-empty segments or backslashes, matching browser proposal validation and preventing
-those spellings from bypassing its open-editor checks. Filesystem aliases such as
-symlinks, hard links and case-insensitive names are not resolved against open editor
-buffers; this remains a data-safety gap. The frontend build and 121 tests passed.
+Desktop review and application reject path spellings containing dot segments,
+empty segments or backslashes. The backend also compares file identities against
+open editor paths, covering existing symlinks and hard links; dirty aliases block
+application and clean aliases are refreshed. For a new target, dirty open buffers
+must be saved or closed first. Identity checks and writes are separate filesystem
+operations, so external concurrent renames or replacements can still race them.
+Only editors for the selected repository are checked; aliases through another
+registered repository remain unprotected. Windows and case-insensitive filesystem
+behavior require native validation.
+On 2026-11-14, the native symlink/hard-link test, 123 frontend tests,
+the frontend build and a mocked desktop Copilot browser check passed.
 
 ## Open design questions
 

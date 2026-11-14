@@ -128,6 +128,24 @@ pub struct RepositoryPatchPreview {
     pub result_content: String,
 }
 
+/// Identify open editor paths referring to the same file as a patch target.
+pub fn matching_repository_files(repo_root: &str, relative_path: &str, open_paths: &[String]) -> Result<Vec<String>, AppError> {
+    if open_paths.len() > 1024 { return Err(AppError::Validation("Too many open files to compare".into())); }
+    let root = canonicalize_repo_root(repo_root)?;
+    let target = resolve_repository_relative_path(&root, relative_path)?;
+    let target_exists = target.try_exists()?;
+    let mut matches = Vec::new();
+    for path in open_paths {
+        let candidate = resolve_repository_relative_path(&root, path)?;
+        if candidate == target {
+            matches.push(path.clone());
+        } else if target_exists && candidate.try_exists()? && same_file::is_same_file(&target, &candidate)? {
+            matches.push(path.clone());
+        }
+    }
+    Ok(matches)
+}
+
 pub fn preview_repository_patch(
     repo_root: &str,
     relative_path: &str,
@@ -275,6 +293,23 @@ mod tests {
         ));
         fs::create_dir_all(&dir).expect("failed to create temp repo dir");
         dir
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn matches_open_files_by_identity_including_symlinks_and_hard_links() {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("original.txt"), "original").unwrap();
+        std::fs::hard_link(root.join("original.txt"), root.join("hard.txt")).unwrap();
+        symlink("original.txt", root.join("link.txt")).unwrap();
+        std::fs::write(root.join("other.txt"), "other").unwrap();
+        let paths = ["original.txt", "hard.txt", "link.txt", "other.txt", "missing.txt"].map(String::from);
+        let result = super::matching_repository_files(root.to_str().unwrap(), "hard.txt", &paths).unwrap();
+        assert_eq!(result, vec!["original.txt", "hard.txt", "link.txt"]);
+        let missing = super::matching_repository_files(root.to_str().unwrap(), "missing.txt", &paths).unwrap();
+        assert_eq!(missing, vec!["missing.txt"]);
     }
 
     #[test]

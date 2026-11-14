@@ -156,6 +156,7 @@ pub fn run() {
             commands::repository_commands::write_repository_file,
             commands::repository_commands::get_repository_file_sha256,
             commands::repository_commands::apply_repository_patch,
+            commands::repository_commands::matching_repository_files,
             commands::repository_commands::preview_repository_patch,
             commands::repository_commands::apply_reviewed_repository_patch,
             // Approval commands

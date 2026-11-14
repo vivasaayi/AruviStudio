@@ -176,3 +176,6 @@ export const previewRepositoryPatch = (data: { repositoryId: string; relativePat
   invoke<{ exists: boolean; base_sha256: string; result_sha256: string; result_content: string }>("preview_repository_patch", { ...data, baseSha256: data.baseSha256 ?? null });
 export const applyReviewedRepositoryPatch = (data: { repositoryId: string; relativePath: string; patch: string; baseSha256: string; expectedExists: boolean }) =>
   invoke<string>("apply_reviewed_repository_patch", data);
+
+export const matchingRepositoryFiles = (data: { repositoryId: string; relativePath: string; openPaths: string[] }) =>
+  invoke<string[]>("matching_repository_files", data);
