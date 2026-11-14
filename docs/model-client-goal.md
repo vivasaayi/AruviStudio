@@ -99,6 +99,21 @@ both synthetic credentials and rendered an empty inference value when unset. No
 host file or deployment was changed. This validates configuration rendering only;
 the adapter still needs reconciliation and runtime testing with the candidate host.
 
+A subsequent Docker runtime check built the candidate host binary for Linux and
+placed it in a disposable image based on the local host image. The current
+integration adapter was copied to a temporary Compose project and given the
+proposed inference-token setting. With synthetic credentials, scoped discovery
+succeeded, management returned 403, the management credential succeeded, and
+an unauthenticated management request returned 401. Docker's Linux filesystem
+was full, so the first run failed initializing its named data volume; the
+successful retry used a temporary in-memory `/data` mount and does not validate
+the integration adapter's persistent-volume lifecycle. The fixture and its
+volumes were removed, as were this test's temporary image and its identified
+941 MB build cache entry. The remaining Docker filesystem was still nearly full.
+`scripts/test-scoped-host-compose` can repeat the check with an explicit adapter
+and candidate image; `--tmpfs-data` selects the storage substitution. The host
+repository and deployed host were not changed.
+
 ### Current branch build and security checks
 
 After the planner voice change at `2a7e433`, the isolated Docker workflow

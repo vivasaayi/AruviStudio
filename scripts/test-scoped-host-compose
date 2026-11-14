@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""Test a candidate host image with a disposable copy of an integration adapter."""
+import argparse
+import json
+import os
+from pathlib import Path
+import secrets
+import subprocess
+import tempfile
+import time
+import urllib.error
+import urllib.request
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--adapter', type=Path, required=True)
+parser.add_argument('--image', required=True)
+parser.add_argument('--tmpfs-data', action='store_true', help='Use disposable tmpfs for /data instead of the adapter volume')
+args = parser.parse_args()
+
+source = args.adapter.read_text()
+anchor = '      MODEL_HOST_TOKEN: ${POSTGRES_PASSWORD:?Generated per-environment API token}\n'
+setting = '      MODEL_HOST_INFERENCE_TOKEN: ${MODEL_HOST_INFERENCE_TOKEN:-}\n'
+if source.count(anchor) != 1 or setting in source:
+    raise SystemExit('Adapter does not match the expected unmodified integration configuration')
+if args.tmpfs_data:
+    volume = '    volumes:\n      - runtime:/data\n'
+    tmpfs = '    tmpfs: ["/tmp:rw,nosuid,nodev,size=256m"]'
+    if source.count(volume) != 1 or source.count(tmpfs) != 1:
+        raise SystemExit('Adapter storage does not match the expected configuration')
+    source = source.replace(volume, '').replace(tmpfs, '    tmpfs: ["/tmp:rw,nosuid,nodev,size=256m", "/data:rw,uid=10001,gid=10001,size=32m"]')
+
+project = 'aruvi-scoped-compose-' + secrets.token_hex(6)
+admin, scoped = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
+environment = {key: value for key, value in os.environ.items() if not key.startswith('MODEL_HOST_') and key != 'HF_TOKEN'}
+environment.update(APP_IMAGE=args.image, BIND_ADDRESS='127.0.0.1', PUBLISHED_PORT='0', APP_PORT='8080',
+                   POSTGRES_PASSWORD=admin, MODEL_HOST_INFERENCE_TOKEN=scoped)
+
+with tempfile.TemporaryDirectory(prefix='aruvi-scoped-compose-') as directory:
+    adapter = Path(directory) / 'compose.yaml'
+    adapter.write_text(source.replace(anchor, anchor + setting))
+    compose = ['docker', 'compose', '--project-name', project, '-f', str(adapter)]
+    def run(*args, check=True):
+        return subprocess.run(compose + list(args), env=environment, text=True, capture_output=True, check=check, timeout=120)
+    try:
+        run('up', '-d')
+        address = run('port', 'app', '8080').stdout.strip()
+        if not address.startswith('127.0.0.1:'):
+            raise RuntimeError('Unexpected published address')
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        base = 'http://' + address
+        def request(path, token=None):
+            headers = {'Authorization': 'Bearer ' + token} if token else {}
+            try:
+                with opener.open(urllib.request.Request(base + path, headers=headers), timeout=3) as response:
+                    return response.status, json.load(response)
+            except urllib.error.HTTPError as error:
+                return error.code, None
+        deadline = time.monotonic() + 60
+        while True:
+            try:
+                if request('/health')[0] == 200: break
+            except (OSError, ValueError): pass
+            if time.monotonic() >= deadline: raise RuntimeError('Host did not become ready')
+            time.sleep(.25)
+        assert request('/v1/models', scoped)[0] == 200
+        assert request('/api/models', scoped)[0] == 403
+        assert request('/api/models', admin)[0] == 200
+        assert request('/api/models')[0] == 401
+        print('Disposable integration adapter: scoped discovery allowed; management denied; admin and unauthenticated checks passed.' + (' Data used tmpfs.' if args.tmpfs_data else ''))
+    finally:
+        run('down', '--volumes', '--remove-orphans')
