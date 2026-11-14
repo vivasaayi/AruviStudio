@@ -2317,6 +2317,15 @@ task-specific assertions did not evaluate. One run per profile does not prove
 relative reliability or cover arbitrary generated changes. Neither run used a
 real external Git service.
 
+## Shared-client example pin
+
+The client README's Git dependency example now matches the independent
+consumer's `0cabaeb392db9c88d1aecea29f1c0296dca9254e` manifest and lockfile.
+The previous example pointed to an older commit, predating some behavior
+described by the current README. The three revisions were compared locally;
+this documentation correction does not publish a release or retest live
+providers. The independently tested pin remains provisional.
+
 ## MCP provider HTTP error metadata
 
 Studio now preserves a shared-client provider HTTP status through its buffered

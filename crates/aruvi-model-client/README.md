@@ -177,7 +177,7 @@ Studio Git repository as the shared source and pin an immutable, tested commit:
 
 ```toml
 [dependencies]
-aruvi-model-client = { git = "https://github.com/vivasaayi/AruviStudio.git", rev = "5d49cfd5bd0cf55294cccdabba81f9121be9051e" }
+aruvi-model-client = { git = "https://github.com/vivasaayi/AruviStudio.git", rev = "0cabaeb392db9c88d1aecea29f1c0296dca9254e" }
 ```
 
 This revision is an integration checkpoint, not a release or a promise of API
@@ -197,6 +197,22 @@ dependencies and runs its tests with networking disabled. When promoting another
 client revision, first push it, update the fixture's Git revision and lockfile,
 then rerun the check before updating consumers. Do not use a mutable branch as a
 substitute for a commit pin. Vendored sources include their applicable licenses.
+
+For a migration, first inventory each application's existing provider protocols,
+request options, secret handling, streaming cancellation and telemetry. Replace
+transport calls while leaving application-owned configuration and credentials
+in place. Exercise each supported operation against isolated provider fixtures,
+then verify the selected real endpoint and model where available. Review enum
+matches and response struct literals when changing the pin, and rebuild and test
+with the consumer's locked dependencies before deploying. Do not assume that
+the adapter's capabilities prove the remote model supports an operation.
+
+Until a release policy is adopted, the Git commit is the version identifier:
+the `0.1.0` manifest version alone does not distinguish these checkpoints or
+promise API compatibility. Record the old and new commits and validation results
+with each consumer upgrade, and retain the old lockfile and vendored inputs for
+rollback. A future separately released crate needs an explicit compatibility
+and semantic-versioning policy before consumers rely on version ranges.
 
 This approach still couples client changes to Studio's Git history. A separately
 maintained repository, semver policy, release automation, and package publication
