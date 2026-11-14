@@ -54,6 +54,9 @@ provider hosting into the model-host service as part of this work.
   and started healthy; real `piper-ljspeech` browser generation and the MCP
   Piper-to-`whisper-tiny-metal` speech round trip both passed. Physical audio
   and other providers and codecs remain unverified.
+- The independent consumer is pinned to client revision
+  `bb31ba263e86ab635397f57b5c18d1f06f5975e9`; its clean Docker build passed
+  13 tests with networking disabled during the test step.
 
 ## Remote transcription input validation
 
