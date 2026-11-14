@@ -121,6 +121,14 @@ remote tests passed after the product dropdown was added.
 
 ## Current integration revalidation
 
+On 2026-11-14, the isolated real-model `extend-module` workflow ran on the
+current branch image with `qwen25-coder-7b-q4`. It reached plan approval,
+inspected the existing JavaScript module, generated the requested extension,
+passed the workflow syntax gate and independent network-isolated behavioral
+assertions, reached `done`, and delivered the verified file to a disposable
+local Git remote. This is a single task and does not establish general coding
+reliability or validate an authenticated network Git push.
+
 On 2026-11-14 the native Rust library suite passed 224 tests with six ignored;
 the frontend suite passed 102 tests. `npm audit --omit=dev --audit-level=high`
 reported no vulnerabilities. The independent Git consumer built from its pinned
