@@ -93,6 +93,7 @@ pub(crate) async fn commit_confirmed_draft_plan(
     service.save_session(&session_id, session);
     Ok(PlannerTurnResponse {
         view_hint: None,
+        view_node_id: None,
         session_id,
         status: "execution".to_string(),
         assistant_message: "Applied design to catalog.".to_string(),

@@ -1861,6 +1861,24 @@
     el.expandDraftButton.addEventListener("click", () => setDraftExpanded(true));
     el.collapseDraftButton.addEventListener("click", () => setDraftExpanded(false));
 
+    function setDraftNodeExpanded(nodeId, expanded) {
+      function find(nodes) {
+        for (const node of nodes) {
+          if (node.id === nodeId) {
+            if (expanded) state.collapsedDraftNodes.delete(node.id);
+            else state.collapsedDraftNodes.add(node.id);
+            return true;
+          }
+          if (find(node.children || [])) {
+            if (expanded) state.collapsedDraftNodes.delete(node.id);
+            return true;
+          }
+        }
+        return false;
+      }
+      if (find(state.draftTreeNodes)) renderDraftTree();
+    }
+
     function revealSelectedDraftNode() {
       function reveal(nodes) {
         for (const node of nodes) {
@@ -2180,13 +2198,16 @@
           appendMessage(el.conversation, "assistant", response.assistant_message || "");
           speakOnDevice(response.assistant_message || "");
           setVoiceMeta("Planner reply ready.");
-          if (["trace", "conversation", "draft", "expand_draft", "collapse_draft"].includes(response.view_hint)) {
+          if (["trace", "conversation", "draft", "expand_draft", "collapse_draft", "expand_node", "collapse_node"].includes(response.view_hint)) {
             switchTab("planner");
             if (response.view_hint === "trace") {
               el.plannerTrace.open = true;
               el.plannerTrace.scrollIntoView({ block: "center" });
             } else if (response.view_hint === "draft") {
               revealSelectedDraftNode();
+            } else if (response.view_hint === "expand_node" || response.view_hint === "collapse_node") {
+              setDraftNodeExpanded(response.view_node_id, response.view_hint === "expand_node");
+              el.draftTree.scrollIntoView({ block: "center" });
             } else if (response.view_hint === "expand_draft" || response.view_hint === "collapse_draft") {
               setDraftExpanded(response.view_hint === "expand_draft");
               el.draftTree.scrollIntoView({ block: "center" });

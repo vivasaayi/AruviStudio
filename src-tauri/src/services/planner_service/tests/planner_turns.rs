@@ -82,6 +82,15 @@ async fn submit_planner_voice_turn_selects_draft_nodes() {
         .assistant_message
         .contains("Selected product area \"Guest Management\""));
     assert!(response.draft_tree_nodes.is_some());
+    for (command, hint) in [("collapse product", "collapse_node"), ("expand product", "expand_node")] {
+        let view = submit_planner_voice_turn(
+            state.planner_service.clone(), &state, session.session_id.clone(), command.into(),
+            Some(product_area_id.clone()), None,
+        ).await.expect("tree command should not need a model");
+        assert_eq!(view.view_hint.as_deref(), Some(hint));
+        assert_eq!(view.view_node_id.as_deref(), Some(product_id.as_str()));
+        assert_eq!(view.selected_draft_node_id.as_deref(), Some(product_area_id.as_str()));
+    }
 }
 
 #[tokio::test]

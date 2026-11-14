@@ -28,6 +28,7 @@ pub(crate) fn build_session_state_response(
 ) -> PlannerTurnResponse {
     PlannerTurnResponse {
         view_hint: None,
+        view_node_id: None,
         session_id,
         status: status.to_string(),
         assistant_message,

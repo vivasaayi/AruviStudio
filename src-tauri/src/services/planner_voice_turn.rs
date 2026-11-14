@@ -199,7 +199,7 @@ pub async fn submit_planner_voice_turn(
         "view trace" | "show trace" | "open trace" => Some("trace"),
         "expand draft" | "expand the draft" | "expand tree" | "expand all"
         | "open all branches" | "expand design" | "expand the design" => Some("expand_draft"),
-        "collapse draft" | "collapse the draft" | "collapse tree" | "collapse all" => Some("collapse_draft"),
+        "collapse draft" | "collapse the draft" | "collapse tree" | "collapse all" | "close draft" | "close tree" | "close all" => Some("collapse_draft"),
         "view conversation" | "open conversation" | "show conversation" | "back to chat"
         | "view chat" => Some("conversation"),
         _ => None,
@@ -269,7 +269,7 @@ pub async fn submit_planner_voice_turn(
             | "expand the design"
             | "expand tree"
     );
-    let is_draft_selection_command = ["select ", "choose ", "highlight ", "open ", "expand "]
+    let is_draft_selection_command = ["select ", "choose ", "highlight ", "open ", "expand ", "collapse ", "close "]
         .iter()
         .any(|prefix| normalized_transcript.starts_with(prefix));
 
@@ -356,7 +356,7 @@ pub async fn submit_planner_voice_turn(
             return Ok(response);
         }
 
-        let command_matchers = ["select ", "choose ", "highlight ", "open ", "expand "];
+        let command_matchers = ["select ", "choose ", "highlight ", "open ", "expand ", "collapse ", "close "];
         let matched_remainder = command_matchers.iter().find_map(|prefix| {
             normalized_transcript
                 .strip_prefix(prefix)
@@ -451,6 +451,25 @@ pub async fn submit_planner_voice_turn(
                     ));
                 }
             };
+
+            let tree_action = if normalized_transcript.starts_with("expand ") {
+                Some("expand_node")
+            } else if normalized_transcript.starts_with("collapse ") || normalized_transcript.starts_with("close ") {
+                Some("collapse_node")
+            } else {
+                None
+            };
+            if let Some(action) = tree_action {
+                let assistant_message = format!("{} {}.", if action == "expand_node" { "Expanded" } else { "Collapsed" }, target_node.name);
+                persist_session_exchange(&state.db, &session_id, session.pending_plan.as_ref(), session.draft_plan.as_ref(), session.selected_draft_node_id.as_deref(), &spoken, &assistant_message).await?;
+                session.conversation.push(PlannerConversationEntry { role: "user".to_string(), content: spoken });
+                session.conversation.push(PlannerConversationEntry { role: "assistant".to_string(), content: assistant_message.clone() });
+                planner_service.lock().await.save_session(&session_id, session.clone());
+                let mut response = build_session_state_response(session_id, "session_update", assistant_message, &session, vec![], vec![], trace);
+                response.view_hint = Some(action.to_string());
+                response.view_node_id = Some(target_node.id);
+                return Ok(response);
+            }
 
             session.selected_draft_node_id = Some(target_node.id.clone());
             let mut assistant_message = summarize_selected_draft_node(&draft_plan, &target_node);

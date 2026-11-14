@@ -59,8 +59,12 @@ controls, global controls and desktop-equivalent voice phrases; selection is
 preserved. Its isolated staged-design voice scenario covers both directions and
 the global controls. A subsequent browser scenario verifies that “show draft”
 opens the staged design and a spoken node selection reveals the selected node
-inside collapsed ancestors. This does not validate physical microphones,
-native-window voice interaction, or every desktop voice command.
+inside collapsed ancestors. Targeted `expand`, `collapse` and `close` commands
+now resolve a node in Rust, return its ID separately from the selected node, and
+update that browser branch without changing the selection. All 36 isolated
+workflow tests passed, including targeted expansion and collapse. Named-node
+commands do not strip speech-added punctuation. This does not validate physical
+microphones, native-window voice interaction, or every desktop voice command.
 
 ### Browser planner voice destination
 

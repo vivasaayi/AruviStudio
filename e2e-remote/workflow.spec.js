@@ -957,6 +957,17 @@ test("browser voice can send a scoped transcript to the planner", async ({ page,
   expect(selected.view_hint).toBe("draft");
   expect(selected.selected_draft_node_id).toBe(selectedNode);
   await expect(stock).toBeVisible();
+  for (const [command, hint, visible] of [["Collapse inventory", "collapse_node", false], ["Expand inventory", "expand_node", true]]) {
+    await page.getByRole("button", { name: "Voice", exact: true }).click();
+    await page.locator("#voiceComposer").fill(command);
+    const result = page.waitForResponse((response) => response.url().endsWith("/voice-turn"));
+    await page.locator("#voiceSendButton").click();
+    const view = await (await result).json();
+    expect(view.view_hint).toBe(hint);
+    expect(view.view_node_id).toBeTruthy();
+    expect(view.selected_draft_node_id).toBe(selectedNode);
+    if (visible) await expect(stock).toBeVisible(); else await expect(stock).toHaveCount(0);
+  }
   await page.getByRole("button", { name: "Voice", exact: true }).click();
   await page.locator("#voiceComposer").fill("Open all branches.");
   const expandResponse = page.waitForResponse((response) => response.url().endsWith("/voice-turn"));

@@ -124,6 +124,7 @@ pub async fn rename_planner_draft_node(
     };
     Ok(PlannerTurnResponse {
         view_hint: None,
+        view_node_id: None,
         session_id,
         status: "proposal".to_string(),
         assistant_message: plan.assistant_response.clone(),
@@ -214,6 +215,7 @@ pub async fn add_planner_draft_child(
     };
     Ok(PlannerTurnResponse {
         view_hint: None,
+        view_node_id: None,
         session_id,
         status: "proposal".to_string(),
         assistant_message: plan.assistant_response.clone(),
@@ -328,6 +330,7 @@ pub async fn delete_planner_draft_node(
     };
     Ok(PlannerTurnResponse {
         view_hint: None,
+        view_node_id: None,
         session_id,
         status: "proposal".to_string(),
         assistant_message: plan.assistant_response.clone(),
