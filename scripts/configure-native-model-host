@@ -50,13 +50,30 @@ def read_host(host, environment):
     return endpoint.port, token
 
 
-def configure(port, token, model, name, *, rotate_credential=True):
-    discovery_request = urllib.request.Request(f"http://127.0.0.1:{port}/v1/models", headers={"Authorization": "Bearer " + token})
-    with urllib.request.build_opener(urllib.request.ProxyHandler({}), RejectRedirects()).open(discovery_request, timeout=20) as response:
+def fetch_discovery(port, token):
+    """Read a bounded response in a child process so the parent can stop a slow peer."""
+    request = urllib.request.Request(f"http://127.0.0.1:{port}/v1/models", headers={"Authorization": "Bearer " + token})
+    with urllib.request.build_opener(urllib.request.ProxyHandler({}), RejectRedirects()).open(request, timeout=20) as response:
         body = response.read(2 * 1024 * 1024 + 1)
         if len(body) > 2 * 1024 * 1024:
             raise SetupError("Model Host discovery response is too large")
-        available = json.loads(body)
+        return body
+
+
+def discover_host(port, token, timeout=25):
+    # Credentials are sent only on stdin; a timeout never includes them in argv.
+    result = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--discovery-child"],
+        input=json.dumps({"port": port, "token": token}), text=True,
+        capture_output=True, check=False, timeout=timeout)
+    if result.returncode == 2:
+        raise SetupError("Model Host discovery response is too large")
+    if result.returncode != 0:
+        raise SetupError("Model Host discovery failed")
+    return json.loads(result.stdout)
+
+
+def configure(port, token, model, name, *, rotate_credential=True):
+    available = discover_host(port, token)
     if not any(item.get("id") == model and item.get("task") == "text" for item in available.get("data", [])):
         raise SetupError("Requested model is not an installed text model on the selected host")
     base_url = f"http://host.docker.internal:{port}/v1"
@@ -123,6 +140,15 @@ def main():
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--discovery-child"]:
+        try:
+            request = json.load(sys.stdin)
+            sys.stdout.buffer.write(fetch_discovery(request["port"], request["token"]))
+        except SetupError:
+            sys.exit(2)
+        except (OSError, ValueError, KeyError, TypeError):
+            sys.exit(1)
+        sys.exit(0)
     try:
         sys.exit(main())
     except KeyboardInterrupt:

@@ -18,12 +18,13 @@ The optional foreground native-host watcher now bounds host plan/status commands
 to 15 seconds and each Studio MCP subprocess to 30 seconds. It catches timeouts,
 retries in watch mode, and avoids logging captured subprocess output. A timed-out
 MCP request may already have completed on the server, so its outcome can be
-uncertain. The HTTP discovery read still uses a socket timeout rather than a
-whole-operation deadline. Eight `bash scripts/test native-model-host-sync` fixture
-tests passed, including timeout recovery and credential redaction. Bounded host
-status and MCP provider lookup also passed against the running worktrees without
-changing configuration. No Model Host restart was performed; the watcher remains
-foreground and does not start automatically.
+uncertain. HTTP discovery now runs in a child with a 25-second total deadline;
+the bearer token travels on stdin and is not included in process arguments.
+Ten `bash scripts/test native-model-host-sync` fixture tests passed, including
+slow-response cancellation, size limits, timeout recovery and credential
+redaction. Bounded host discovery and MCP provider lookup also passed against the
+running worktrees without changing configuration. No Model Host restart was
+performed; the watcher remains foreground and does not start automatically.
 
 ### Agent model inspection in Studio
 

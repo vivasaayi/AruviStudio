@@ -35,14 +35,44 @@ class WatchTests(unittest.TestCase):
         threads = [threading.Thread(target=server.serve_forever, daemon=True) for server in (source, target)]
         for thread in threads: thread.start()
         try:
-            with mock.patch.object(module, "mcp") as mcp:
-                with self.assertRaises(urllib.error.HTTPError):
-                    module.configure(source.server_port, "synthetic-token", "coding", "Fixture")
-                mcp.assert_not_called()
+            with self.assertRaises(urllib.error.HTTPError):
+                module.fetch_discovery(source.server_port, "synthetic-token")
             self.assertEqual(requests, [])
         finally:
             for server in (source, target): server.shutdown(); server.server_close()
             for thread in threads: thread.join()
+
+    def test_oversized_discovery_is_rejected(self):
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.return_value = b"x" * (2 * 1024 * 1024 + 1)
+        with mock.patch.object(module.urllib.request, "build_opener") as opener:
+            opener.return_value.open.return_value = response
+            with self.assertRaisesRegex(module.SetupError, "too large"):
+                module.fetch_discovery(10001, "synthetic-token")
+
+    def test_slow_discovery_is_cancelled_without_exposing_token(self):
+        release = threading.Event()
+        class Slow(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Length", "1000")
+                self.end_headers()
+                self.wfile.write(b"{")
+                self.wfile.flush()
+                release.wait(3)
+            def log_message(self, *_): pass
+        server = http.server.HTTPServer(("127.0.0.1", 0), Slow)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with self.assertRaises(subprocess.TimeoutExpired) as error:
+                module.discover_host(server.server_port, "synthetic-private-token", timeout=0.5)
+            self.assertNotIn("synthetic-private-token", str(error.exception))
+        finally:
+            release.set()
+            server.shutdown()
+            server.server_close()
+            thread.join()
 
     def test_known_configuration_error_is_actionable_without_exposing_token(self):
         with mock.patch.object(sys, "argv", ["configure-native-model-host", ".", "--model", "fixture"]), \
@@ -61,10 +91,8 @@ class WatchTests(unittest.TestCase):
             if name == "discover_provider_models": return {"models": [{"id": "coding"}]}
             if name == "list_model_definitions": return [{"provider_id": "provider", "name": "coding"}]
             raise AssertionError(name)
-        response = mock.MagicMock()
-        response.__enter__.return_value.read.return_value = b'{"data":[{"id":"coding","task":"text"}]}'
-        with mock.patch.object(module.urllib.request, "build_opener") as opener, mock.patch.object(module, "mcp", side_effect=action) as mcp:
-            opener.return_value.open.return_value = response
+        discovery = {"data": [{"id": "coding", "task": "text"}]}
+        with mock.patch.object(module, "discover_host", return_value=discovery), mock.patch.object(module, "mcp", side_effect=action) as mcp:
             module.configure(10002, "synthetic-token", "coding", "Fixture")
             update = next(call.args[1] for call in mcp.call_args_list if call.args[0] == "update_provider")
             self.assertEqual(update["completion_profile"], "standard")
@@ -80,7 +108,7 @@ class WatchTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     module.configure(10002, "synthetic-token", "coding", "Fixture")
                 self.assertFalse(any(call.args[0] == "update_provider" for call in mcp.call_args_list))
-            response.__enter__.return_value.read.return_value = b'{"data":[{"id":"coding","task":"speech"}]}'
+            discovery["data"][0]["task"] = "speech"
             mcp.reset_mock()
             with self.assertRaises(ValueError):
                 module.configure(10002, "synthetic-token", "coding", "Fixture")
