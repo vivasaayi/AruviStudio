@@ -5,6 +5,17 @@ mod tests {
     use std::{io::{Read, Write}, net::TcpListener, thread};
 
     #[tokio::test]
+    async fn transport_error_omits_sensitive_provider_url() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let client: Box<dyn ModelGateway> = Box::new(OpenAiCompatibleClient::new(format!("http://{address}/sensitive-path"), None));
+        let request = CompletionRequest { model: "fixture".into(), messages: vec![ChatMessage { role: "user".into(), content: "hello".into() }], temperature: None, max_tokens: Some(10) };
+        let error = client.run_completion(request).await.unwrap_err();
+        assert!(!error.to_string().contains("sensitive-path"));
+    }
+
+    #[tokio::test]
     async fn exposes_http_status_without_provider_response_body() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();

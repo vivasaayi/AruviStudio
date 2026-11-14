@@ -282,7 +282,13 @@ provider hosting into the model-host service as part of this work.
 
 ## Independent client revalidation
 
-- The independent consumer now pins `89a63f60ac41ca78d304d6a517bf394a79f3d146`.
+- The independent consumer now pins `bc8bfaa1df483a8eae380c34931c1b8d0966f5b8`
+  and passed 18 vendored, network-disabled tests, including the URL-redaction
+  regression. A separate live Model Host check passed discovery, completion,
+  streaming, JSON-object mode and token-limit handling with
+  `qwen25-coder-7b-q4`. This does not validate live third-party providers.
+
+- At the earlier checkpoint the independent consumer pinned `89a63f60ac41ca78d304d6a517bf394a79f3d146`.
   Its clean vendored, network-disabled test passed all 17 cases, including a
   simulated 401 that checks numeric status and response-body privacy. A separate
   live Model Host probe passed discovery, ordinary and streamed completion,
