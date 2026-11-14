@@ -228,7 +228,17 @@ impl OpenAiCompatibleClient {
         if !event.is_object() { return Err(ClientError::Provider("Invalid model response event".into())); }
         match event.get("choices") {
             None => Ok(None),
-            Some(serde_json::Value::Array(choices)) => Ok(choices.first()),
+            Some(serde_json::Value::Array(choices)) => {
+                if choices.len() > 1 {
+                    return Err(ClientError::Provider("Multiple model choices are not supported by the text client".into()));
+                }
+                if let Some(choice) = choices.first() {
+                    if choice.get("index").is_some_and(|index| index.as_u64() != Some(0)) {
+                        return Err(ClientError::Provider("Invalid model choice index".into()));
+                    }
+                }
+                Ok(choices.first())
+            },
             Some(_) => Err(ClientError::Provider("Invalid model choices".into())),
         }
     }
@@ -867,6 +877,31 @@ mod tests {
         let (url, server) = reply_fixture(reply);
         let error = OpenAiCompatibleClient::new(url, None).run_completion(completion_request()).await.unwrap_err().to_string();
         assert!(error.contains("size limit")); server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejects_multiple_or_nonzero_choices_without_returning_partial_success() {
+        for choice in [
+            r#"{"choices":[{"index":0,"message":{"content":"first"}},{"index":1,"message":{"content":"other"}}]}"#,
+            r#"{"choices":[{"index":1,"message":{"content":"other"}}]}"#,
+            r#"{"choices":[{"index":"0","message":{"content":"invalid"}}]}"#,
+        ] {
+            let reply = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{choice}", choice.len()).into_bytes();
+            let (url, server) = reply_fixture(reply);
+            assert!(OpenAiCompatibleClient::new(url, None).run_completion(completion_request()).await.is_err());
+            server.join().unwrap();
+        }
+        for event in [
+            r#"{"choices":[{"index":0,"delta":{"content":"first"}},{"index":1,"delta":{"content":"other"}}]}"#,
+            r#"{"choices":[{"index":1,"delta":{"content":"other"}}]}"#,
+            r#"{"choices":[{"index":null,"delta":{"content":"invalid"}}]}"#,
+        ] {
+            let stream = format!("data: {{\"choices\":[{{\"index\":0,\"delta\":{{\"content\":\"partial\"}}}}]}}\n\ndata: {event}\n\ndata: [DONE]\n\n");
+            assert!(OpenAiCompatibleClient::parse_sse_fallback(&stream).is_err());
+            let (result, emitted) = openai_stream_fixture(&stream).await;
+            assert!(result.is_err());
+            assert_eq!(emitted, ["partial"]);
+        }
     }
 
     #[tokio::test]

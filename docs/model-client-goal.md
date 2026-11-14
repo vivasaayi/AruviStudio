@@ -12,6 +12,16 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Single-answer client integrity
+
+The shared OpenAI-compatible client rejects multiple choices and a supplied
+choice index other than zero in both buffered and streaming completions. This
+avoids presenting a discarded or mixed choice as a complete answer. An absent
+index remains accepted for compatible providers; earlier stream chunks can
+already have been delivered when an invalid later event fails. The independent
+consumer must be updated to a Git revision containing this change. All 55
+shared-client tests passed in Linux, using an offline-resolved temporary lockfile.
+
 ### Browser planner voice view commands
 
 The Rust planner voice endpoint recognizes the desktop trace and conversation
