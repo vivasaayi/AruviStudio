@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Running branch Model Host revalidation — 2026-11-14
+
+After the voice-only selection guards at branch revision `02ba802`, the running
+worktree passed an MCP coding request to `qwen25-coder-7b-q4`, independent
+JavaScript assertions, and a one-token truncation check. Authenticated browser
+streaming chat also returned real coding-model output. A separate Studio MCP
+round trip generated synthetic speech with `piper-ljspeech` and transcribed it
+with `whisper-tiny-metal`. These checks exercised the configured native Model
+Host environments without changing host configuration; they do not prove broad
+coding reliability, physical audio, or native-window interaction.
+
 ### Broad regression and dependency scan — 2026-11-14
 
 At branch revision `8715d9c`, the native Studio Rust library suite passed 242
