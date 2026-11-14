@@ -20,7 +20,7 @@ use crate::services::webhook_mobile_api::{
     mobile_list_team_assignments, mobile_add_team_assignment, mobile_remove_team_assignment,
     mobile_list_skills, mobile_create_skill, mobile_update_skill, mobile_delete_skill,
     mobile_list_skill_links, mobile_add_skill_link, mobile_remove_skill_link,
-    mobile_list_routing_policies, mobile_save_routing_policy, mobile_delete_routing_policy,
+    mobile_list_routing_policies, mobile_save_routing_policy, mobile_delete_routing_policy, mobile_workflow_automation, mobile_update_workflow_automation,
     mobile_get_workflow_test_config, mobile_set_workflow_test_config, mobile_ci_read, mobile_ci_run, mobile_ci_log, mobile_ci_run_action, mobile_ci_bindings, mobile_ci_binding_action, mobile_ci_revisions, mobile_ci_artifact_readiness, mobile_ci_feedback_list, mobile_ci_feedback_create,
     mobile_submit_planner_voice_turn, mobile_transcribe_audio, mobile_generate_speech, mobile_update_planner_session,
 };
@@ -342,6 +342,7 @@ pub(crate) fn build_webhook_router(app_state: AppState) -> Router {
         .route("/api/mobile/providers", get(mobile_list_providers).post(mobile_create_provider))
         .route("/api/mobile/providers/update", post(mobile_update_provider))
         .route("/api/mobile/providers/discover", post(mobile_discover_provider_models))
+        .route("/api/mobile/workflow-automation", get(mobile_workflow_automation).post(mobile_update_workflow_automation))
         .route("/api/mobile/providers/:id/transport-capabilities", get(mobile_provider_transport_capabilities))
         .route("/api/mobile/providers/delete", post(mobile_delete_provider))
         .route("/api/mobile/providers/credential", post(mobile_rotate_provider_credential))

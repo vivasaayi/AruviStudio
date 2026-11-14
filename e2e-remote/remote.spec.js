@@ -584,6 +584,33 @@ test("browser registers and attaches a container workspace", async ({ page, requ
   }
 });
 
+test("browser edits workflow automation with conflict protection", async ({ page, request }) => {
+  test.skip(!token || !mcpToken || process.env.ARUVI_TEST_INSPECT !== "1", "Requires disposable remote fixture");
+  const url = "/api/mobile/workflow-automation", headers = { Authorization: `Bearer ${token}` };
+  expect((await request.get(url)).status()).toBe(401);
+  expect((await request.post(url, { data: { key: "workflow.auto_approve_plan", expected_raw: null, enabled: false } })).status()).toBe(401);
+  expect((await request.post(url, { headers, data: { key: "mobile.api_token", expected_raw: null, enabled: false } })).status()).toBe(400);
+  const initial = await (await request.get(url, { headers })).json();
+  expect(initial).toHaveLength(3);
+  await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Routing", exact: true }).click();
+  const toggle = page.getByLabel("Auto-approve planning", { exact: true });
+  await expect(toggle).toBeChecked();
+  await toggle.uncheck();
+  await expect(page.locator("#status")).toHaveText("Workflow automation saved");
+  const changed = await (await request.get(url, { headers })).json();
+  expect(changed.find((entry) => entry.key === "workflow.auto_approve_plan").enabled).toBe(false);
+  expect(changed.filter((entry) => entry.key !== "workflow.auto_approve_plan")).toEqual(initial.filter((entry) => entry.key !== "workflow.auto_approve_plan"));
+  const mcp = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}`, Accept: "application/json, text/event-stream" }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_settings", arguments: { action: "set_setting", arguments: { key: "workflow.auto_approve_plan", value: "true" } } } } });
+  expect((await mcp.json()).result.isError).not.toBeTruthy();
+  const conflict = page.waitForResponse((response) => response.url().endsWith(url) && response.request().method() === "POST");
+  await toggle.check();
+  expect((await conflict).status()).toBe(409);
+  await expect(toggle).not.toBeChecked();
+  await page.getByRole("button", { name: "Refresh automation" }).click();
+  await expect(toggle).toBeChecked();
+});
+
 test("browser configures and selects a model", async ({ page, request }) => {
   test.skip(!token || !mcpToken, "Set mobile and MCP tokens for a running remote server");
   const name = `Provider test ${Date.now()}`;

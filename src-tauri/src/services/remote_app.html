@@ -838,6 +838,10 @@
 
         <section class="tab-panel" id="tab-routing">
           <section class="panel">
+            <div class="panel-header"><div class="panel-title">Workflow automation</div><button class="secondary" id="refreshWorkflowAutomation" type="button">Refresh automation</button></div>
+            <div class="panel-body"><p>These settings control when workflows start and whether planning and test review are approved automatically.</p><div id="workflowAutomation" class="stack"></div></div>
+          </section>
+          <section class="panel">
             <div class="panel-header"><div class="panel-title">Workflow stage routing</div><button class="secondary" id="refreshRoutingButton" type="button">Refresh</button></div>
             <div class="panel-body"><p>Roles are checked in order, first among the assigned team and then among other active agents. Leave both lists empty to use the stage defaults.</p>
               <p>Coordinator review runs only when an active coordinator is available. Push preparation and Git push are system stages, so their role lists do not select an agent.</p>
@@ -1284,6 +1288,7 @@
       }
       if (tabId === "routing") {
         void loadRouting();
+        void loadWorkflowAutomation();
       }
       if (tabId === "agents") {
         void loadAgents();
@@ -3175,6 +3180,43 @@
       finally { el.attachRepositoryButton.disabled = false; }
     }
 
+    let workflowAutomationSequence = 0, workflowAutomationBusy = false;
+    async function loadWorkflowAutomation() {
+      if (workflowAutomationBusy) return;
+      const sequence = ++workflowAutomationSequence, list = document.getElementById("workflowAutomation");
+      const labels = {
+        "workflow.auto_start_after_work_item_approval": "Auto-start after work item approval",
+        "workflow.auto_approve_plan": "Auto-approve planning",
+        "workflow.auto_approve_test_review": "Auto-approve test review"
+      };
+      try {
+        const entries = await request("/api/mobile/workflow-automation");
+        if (sequence !== workflowAutomationSequence) return;
+        list.replaceChildren();
+        for (const entry of entries) {
+          if (!labels[entry.key]) continue;
+          const label = document.createElement("label"), input = document.createElement("input");
+          input.type = "checkbox"; input.checked = entry.enabled;
+          label.append(input, document.createTextNode(" " + labels[entry.key])); list.appendChild(label);
+          input.addEventListener("change", async () => {
+            if (workflowAutomationBusy) { input.checked = entry.enabled; return; }
+            workflowAutomationBusy = true; ++workflowAutomationSequence;
+            for (const control of list.querySelectorAll("input")) control.disabled = true;
+            document.getElementById("refreshWorkflowAutomation").disabled = true;
+            try {
+              const updated = await request("/api/mobile/workflow-automation", { method: "POST", body: { key: entry.key, expected_raw: entry.raw, enabled: input.checked } });
+              entry.raw = updated.raw; entry.enabled = updated.enabled; setStatus("Workflow automation saved", "ok");
+            } catch (error) { input.checked = entry.enabled; setStatus(error.message || String(error), "error"); }
+            finally {
+              workflowAutomationBusy = false;
+              for (const control of list.querySelectorAll("input")) control.disabled = false;
+              document.getElementById("refreshWorkflowAutomation").disabled = false;
+            }
+          });
+        }
+      } catch (error) { if (sequence === workflowAutomationSequence) setStatus(error.message || String(error), "error"); }
+    }
+
     const routingStages = ["requirement_analysis", "planning", "coding", "unit_test_generation", "integration_test_generation", "ui_test_planning", "qa_validation", "security_review", "performance_review", "push_preparation", "git_push"];
     function routingSnapshot(policy) {
       return policy ? { id: policy.id, primary_roles: policy.primary_roles, fallback_roles: policy.fallback_roles, coordinator_required: policy.coordinator_required } : null;
@@ -4197,6 +4239,7 @@
     document.getElementById("refreshCiButton").addEventListener("click", loadCi);
     el.refreshModelsButton.addEventListener("click", loadModelConfiguration);
     el.refreshRoutingButton.addEventListener("click", loadRouting);
+    document.getElementById("refreshWorkflowAutomation").addEventListener("click", () => void loadWorkflowAutomation());
     el.createAgentEditor.appendChild(makeAgentForm(null));
     el.refreshAgentsButton.addEventListener("click", loadAgents);
     el.refreshSkillsButton.addEventListener("click", loadSkills);

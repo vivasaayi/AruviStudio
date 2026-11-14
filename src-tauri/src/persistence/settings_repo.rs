@@ -26,8 +26,11 @@ pub async fn get_bool_setting(
     default: bool,
 ) -> Result<bool, AppError> {
     let value = get_setting(pool, key).await?;
+    Ok(parse_bool_setting(value.as_deref(), default))
+}
+
+pub(crate) fn parse_bool_setting(value: Option<&str>, default: bool) -> bool {
     let parsed = value
-        .as_deref()
         .map(str::trim)
         .filter(|candidate| !candidate.is_empty())
         .and_then(|candidate| match candidate.to_ascii_lowercase().as_str() {
@@ -35,5 +38,5 @@ pub async fn get_bool_setting(
             "0" | "false" | "no" | "off" => Some(false),
             _ => None,
         });
-    Ok(parsed.unwrap_or(default))
+    parsed.unwrap_or(default)
 }

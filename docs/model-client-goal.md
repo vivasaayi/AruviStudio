@@ -44,6 +44,17 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Browser workflow automation settings
+
+- The browser Routing screen now exposes desktop's auto-start, plan approval,
+  and test-review approval settings. Reads preserve the backend's existing true
+  defaults and boolean parsing; a save compares the raw value so a concurrent
+  desktop or MCP change returns a conflict. The mobile API permits only these
+  three settings. All 23 remote UI cases passed, including authorization,
+  allowlist, unchanged neighboring settings and an MCP-versus-browser conflict;
+  all 23 isolated workflow cases passed. macOS and Linux Rust suites each passed
+  204 tests with two live tests ignored.
+
 ## Real browser voice revalidation
 
 - After the dependency update, the running branch passed real Model Host Piper

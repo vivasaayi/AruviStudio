@@ -19,6 +19,50 @@ const SPEECH_PROVIDER_KEY: &str = "speech.transcription_provider_id";
 const SPEECH_MODEL_KEY: &str = "speech.transcription_model_name";
 const SPEECH_LOCALE_KEY: &str = "speech.locale";
 
+const WORKFLOW_AUTOMATION_KEYS: [&str; 3] = [
+    "workflow.auto_start_after_work_item_approval",
+    "workflow.auto_approve_plan",
+    "workflow.auto_approve_test_review",
+];
+
+pub(crate) async fn mobile_workflow_automation(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let mut entries = Vec::new();
+    for key in WORKFLOW_AUTOMATION_KEYS {
+        let raw = match settings_repo::get_setting(&state.app_state.db, key).await {
+            Ok(value) => value, Err(error) => return (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+        };
+        let enabled = settings_repo::parse_bool_setting(raw.as_deref(), true);
+        entries.push(serde_json::json!({"key":key,"raw":raw,"enabled":enabled}));
+    }
+    Json(entries).into_response()
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileWorkflowAutomationUpdate {
+    key: String,
+    expected_raw: Option<String>,
+    enabled: bool,
+}
+
+pub(crate) async fn mobile_update_workflow_automation(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileWorkflowAutomationUpdate>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    if !WORKFLOW_AUTOMATION_KEYS.contains(&body.key.as_str()) { return (StatusCode::BAD_REQUEST, "Unsupported workflow setting").into_response(); }
+    let value = if body.enabled { "true" } else { "false" };
+    let result = if let Some(expected) = body.expected_raw {
+        sqlx::query("UPDATE settings SET value=?, updated_at=datetime('now') WHERE key=? AND value=?")
+            .bind(value).bind(&body.key).bind(expected).execute(&state.app_state.db).await
+    } else {
+        sqlx::query("INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO NOTHING")
+            .bind(&body.key).bind(value).execute(&state.app_state.db).await
+    };
+    match result {
+        Ok(result) if result.rows_affected() == 1 => Json(serde_json::json!({"key":body.key,"raw":value,"enabled":body.enabled})).into_response(),
+        Ok(_) => (StatusCode::CONFLICT, "Workflow setting changed. Refresh before saving.").into_response(),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+    }
+}
+
 pub(crate) async fn mobile_ci_read(State(state): State<WebhookState>, headers: HeaderMap, Path(kind): Path<String>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     let method = match kind.as_str() {
