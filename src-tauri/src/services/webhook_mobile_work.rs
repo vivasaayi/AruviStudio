@@ -46,6 +46,8 @@ pub(crate) struct MobileTaskFields {
     problem_statement: String,
     acceptance_criteria: String,
     constraints: String,
+    #[serde(default)]
+    status: Option<crate::domain::work_item::WorkItemStatus>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -175,11 +177,14 @@ pub(crate) async fn mobile_update_work_item(
 ) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     if body.fields.title.trim().is_empty() { return bad_request("A task title is required"); }
+    if body.expected.status.is_some() != body.fields.status.is_some() { return bad_request("Expected and updated status must be provided together"); }
     let f = &body.fields;
     let e = &body.expected;
-    let result = sqlx::query("UPDATE work_items SET title=?, description=?, problem_statement=?, acceptance_criteria=?, constraints=?, updated_at=datetime('now') WHERE id=? AND title=? AND description=? AND problem_statement=? AND acceptance_criteria=? AND constraints=?")
-        .bind(f.title.trim()).bind(&f.description).bind(&f.problem_statement).bind(&f.acceptance_criteria).bind(&f.constraints)
-        .bind(&work_item_id).bind(&e.title).bind(&e.description).bind(&e.problem_statement).bind(&e.acceptance_criteria).bind(&e.constraints)
+    let status = f.status.as_ref().map(ToString::to_string);
+    let expected_status = e.status.as_ref().map(ToString::to_string);
+    let result = sqlx::query("UPDATE work_items SET title=?, description=?, problem_statement=?, acceptance_criteria=?, constraints=?, status=COALESCE(?, status), updated_at=datetime('now') WHERE id=? AND title=? AND description=? AND problem_statement=? AND acceptance_criteria=? AND constraints=? AND (? IS NULL OR status=?)")
+        .bind(f.title.trim()).bind(&f.description).bind(&f.problem_statement).bind(&f.acceptance_criteria).bind(&f.constraints).bind(status)
+        .bind(&work_item_id).bind(&e.title).bind(&e.description).bind(&e.problem_statement).bind(&e.acceptance_criteria).bind(&e.constraints).bind(&expected_status).bind(&expected_status)
         .execute(&state.app_state.db).await;
     match result {
         Ok(result) if result.rows_affected() == 1 => match work_item_repo::get_work_item(&state.app_state.db, &work_item_id).await {

@@ -678,6 +678,8 @@
                     <label><span class="label">Edit outcome and context</span><textarea id="editWorkDescription"></textarea></label>
                     <label><span class="label">Edit acceptance criteria</span><textarea id="editWorkAcceptance"></textarea></label>
                     <label><span class="label">Constraints</span><textarea id="editWorkConstraints"></textarea></label>
+                    <label><span class="label">Edit status</span><select id="editWorkStatus"><option value="draft">Draft</option><option value="ready_for_review">Ready for review</option><option value="approved">Approved</option><option value="in_planning">In planning</option><option value="in_progress">In progress</option><option value="in_validation">In validation</option><option value="waiting_human_review">Waiting human review</option><option value="done">Done</option><option value="blocked">Blocked</option><option value="failed">Failed</option><option value="cancelled">Cancelled</option></select></label>
+                    <div class="empty">Changing the status does not start, stop, or approve a workflow.</div>
                     <div class="button-row"><button id="saveWorkEditButton" type="submit">Save task</button><button id="cancelWorkEditButton" class="secondary" type="button">Cancel edit</button></div>
                   </div></form>
                   <div class="button-row">
@@ -1085,6 +1087,7 @@
       editWorkDescription: document.getElementById("editWorkDescription"),
       editWorkAcceptance: document.getElementById("editWorkAcceptance"),
       editWorkConstraints: document.getElementById("editWorkConstraints"),
+      editWorkStatus: document.getElementById("editWorkStatus"),
       saveWorkEditButton: document.getElementById("saveWorkEditButton"),
       cancelWorkEditButton: document.getElementById("cancelWorkEditButton"),
       approveWorkButton: document.getElementById("approveWorkButton"),
@@ -2594,7 +2597,7 @@
     let editingWorkBaseline = null;
     function taskFields(item) {
       return { title: item.title, description: item.description, problem_statement: item.problem_statement,
-        acceptance_criteria: item.acceptance_criteria, constraints: item.constraints };
+        acceptance_criteria: item.acceptance_criteria, constraints: item.constraints, status: item.status };
     }
     function cancelWorkEdit() {
       editingWorkItemId = ""; editingWorkBaseline = null; el.editWorkForm.hidden = true;
@@ -2605,14 +2608,14 @@
       editingWorkItemId = item.id; editingWorkBaseline = taskFields(item);
       el.editWorkTitle.value = item.title; el.editWorkProblem.value = item.problem_statement;
       el.editWorkDescription.value = item.description; el.editWorkAcceptance.value = item.acceptance_criteria;
-      el.editWorkConstraints.value = item.constraints; el.editWorkForm.hidden = false;
+      el.editWorkConstraints.value = item.constraints; el.editWorkStatus.value = item.status; el.editWorkForm.hidden = false;
     }
     async function saveWorkItemEdit(event) {
       event.preventDefault();
       const id = editingWorkItemId;
       if (!id || id !== state.selectedWorkItemId || !editingWorkBaseline) return;
       const fields = { title: el.editWorkTitle.value, problem_statement: el.editWorkProblem.value,
-        description: el.editWorkDescription.value, acceptance_criteria: el.editWorkAcceptance.value, constraints: el.editWorkConstraints.value };
+        description: el.editWorkDescription.value, acceptance_criteria: el.editWorkAcceptance.value, constraints: el.editWorkConstraints.value, status: el.editWorkStatus.value };
       el.saveWorkEditButton.disabled = true;
       try {
         await request("/api/mobile/work-items/" + encodeURIComponent(id), { method: "POST", body: { expected: editingWorkBaseline, fields } });

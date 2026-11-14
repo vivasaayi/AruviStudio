@@ -44,6 +44,16 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Browser work-item parity
+
+- The browser work-item editor now covers the desktop editor's status field.
+  When a client supplies status, the update compares both its original status
+  and the other editable fields in one SQL statement; older clients that omit
+  status retain it unchanged. Changing a status does not execute or approve a
+  workflow. The 22 remote UI cases passed, including invalid status, concurrent
+  MCP status changes, retained unsaved edits and older-client compatibility; the
+  Linux Rust suite passed 204 tests with two live tests ignored.
+
 ## Browser file-aware Copilot
 
 - Browser file Copilot can optionally stream questions and patch proposals,
