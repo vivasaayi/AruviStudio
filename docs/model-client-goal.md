@@ -18,10 +18,12 @@ The browser Voice tab can now send a reviewed or automatic transcript to the
 planner voice endpoint as well as direct voice chat. Planner voice uses the
 product scope and selected draft node from the Planner tab, updates the draft
 tree, and displays the reply in both views. Direct voice chat remains the
-default. All 36 isolated workflow tests passed, including a scoped browser
-`show draft` turn and the existing synthetic microphone/direct-chat flow. The
-new case does not verify selection of an existing draft node, native view
-switch commands, physical microphone input or live-provider voice quality.
+default. All 36 isolated workflow tests passed, including a simulated browser
+workflow that stages a design, selects a node and sends its product and node
+with a `show draft` voice turn; the response retains that selection. The suite
+also covers the existing synthetic microphone/direct-chat flow. Native view
+switch commands, physical microphone input and live-provider voice quality
+remain unverified.
 
 ### Running branch Model Host revalidation — 2026-11-14
 

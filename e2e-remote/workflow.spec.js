@@ -895,7 +895,7 @@ test("MCP preserves upstream provider HTTP status without provider body", async 
 test("browser voice can send a scoped transcript to the planner", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
-  const provider = await (await request.post("/api/mobile/providers", { headers, data: { name: "Planner voice fixture", base_url: process.env.ARUVI_TEST_MODEL_URL } })).json();
+  const provider = await (await request.post("/api/mobile/providers", { headers, data: { name: "Planner voice fixture", base_url: process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/planner-voice/v1") } })).json();
   const model = await request.post("/api/mobile/models", { headers, data: { provider_id: provider.id, name: "browser-test-model" } });
   expect(model.ok()).toBeTruthy();
   const product = await (await request.post("/api/mobile/products", { headers, data: { name: "Planner voice scope" } })).json();
@@ -907,6 +907,13 @@ test("browser voice can send a scoped transcript to the planner", async ({ page,
   await page.getByRole("button", { name: "Planner", exact: true }).click();
   await expect(page.locator("#plannerProductSelect")).toBeEnabled();
   await page.locator("#plannerProductSelect").selectOption(product.id);
+  await page.locator("#composer").fill("Add inventory and stock tracking");
+  await page.locator("#sendButton").click();
+  const stock = page.locator("#draftTree button").filter({ hasText: "Stock" });
+  await expect(stock).toBeVisible();
+  await stock.click();
+  const selectedNode = await page.evaluate(() => localStorage.getItem("aruvi.remote.selected_node"));
+  expect(selectedNode).toBeTruthy();
   await page.getByRole("button", { name: "Voice", exact: true }).click();
   await page.getByLabel("Send transcript to").selectOption("planner");
   await page.locator("#voiceComposer").fill("show draft");
@@ -914,8 +921,9 @@ test("browser voice can send a scoped transcript to the planner", async ({ page,
   await page.locator("#voiceSendButton").click();
   const response = await submitted;
   expect(response.status()).toBe(200);
-  expect(response.request().postDataJSON()).toMatchObject({ user_input: "show draft", product_id: product.id, selected_draft_node_id: null });
-  await expect(page.locator("#voiceConversation")).toContainText("There is no staged design tree yet.");
+  expect(response.request().postDataJSON()).toMatchObject({ user_input: "show draft", product_id: product.id, selected_draft_node_id: selectedNode });
+  expect((await response.json()).selected_draft_node_id).toBe(selectedNode);
+  await expect(page.locator("#voiceConversation")).toContainText("Stock");
   await expect(page.locator("#voiceMeta")).toHaveText("Planner reply ready.");
 });
 

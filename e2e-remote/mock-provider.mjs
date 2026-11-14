@@ -108,6 +108,15 @@ const server = http.createServer((request, response) => {
       const content = JSON.stringify({ type: "final", assistant_response: "Draft ready", needs_confirmation: true, clarification_question: null, actions });
       response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content }, finish_reason: "stop" }] }));
     });
+  } else if (request.method === "POST" && request.url === "/planner-voice/v1/chat/completions") {
+    request.resume(); request.on("end", () => {
+      const actions = [
+        { type: "create_product_area", name: "Inventory", target: { productName: "Planner voice scope" } },
+        { type: "create_capability", name: "Stock", target: { productName: "Planner voice scope", productAreaName: "Inventory" } },
+      ];
+      const content = JSON.stringify({ type: "final", assistant_response: "Draft ready", needs_confirmation: true, clarification_question: null, actions });
+      response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content }, finish_reason: "stop" }] }));
+    });
   } else if (request.method === "POST" && request.url === "/planner-repair/v1/chat/completions") {
     const chunks = []; request.on("data", (chunk) => chunks.push(chunk));
     request.on("end", () => {
