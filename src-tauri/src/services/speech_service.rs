@@ -148,6 +148,16 @@ pub(crate) fn model_supports_transcription(model: &crate::domain::model::ModelDe
     model.enabled && (model.capability_tags.iter().any(|tag| matches!(tag.as_str(), "speech_to_text" | "transcription" | "audio")) || looks_like_transcription_model(&model.name))
 }
 
+pub(crate) fn compatible_speech_model_default(requested_provider: Option<&str>, default_provider: Option<&str>, default_model: Option<String>) -> Option<String> {
+    let requested_provider = requested_provider.filter(|value| !value.trim().is_empty());
+    let default_provider = default_provider.filter(|value| !value.trim().is_empty());
+    if requested_provider.zip(default_provider).is_some_and(|(requested, default)| requested != default) {
+        None
+    } else {
+        default_model.filter(|value| !value.trim().is_empty())
+    }
+}
+
 pub(crate) async fn default_transcription_model(db: &sqlx::SqlitePool, provider_id: &str) -> Result<String, AppError> {
     Ok(crate::persistence::model_repo::list_model_definitions(db).await?
         .into_iter().find(|model| model.provider_id == provider_id && model_supports_transcription(model))
@@ -374,6 +384,15 @@ fn run_whisper_transcription(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn speech_default_model_does_not_cross_provider_boundaries() {
+        let choose = |requested, configured| super::compatible_speech_model_default(requested, configured, Some("model-a".into()));
+        assert_eq!(choose(None, Some("provider-a")).as_deref(), Some("model-a"));
+        assert_eq!(choose(Some("provider-a"), Some("provider-a")).as_deref(), Some("model-a"));
+        assert_eq!(choose(Some("provider-b"), Some("provider-a")), None);
+        assert_eq!(choose(Some("provider-b"), None).as_deref(), Some("model-a"));
+        assert_eq!(super::compatible_speech_model_default(None, None, Some(" ".into())), None);
+    }
     use super::*;
 
     #[test]

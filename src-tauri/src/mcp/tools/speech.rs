@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::persistence::{model_repo, settings_repo};
 use crate::services::speech_service::{
-    looks_like_transcription_model, model_supports_transcription, speak_text_natively, synthesize_remote_speech, transcribe_audio_with_provider,
+    compatible_speech_model_default, looks_like_transcription_model, model_supports_transcription, speak_text_natively, synthesize_remote_speech, transcribe_audio_with_provider,
     SpeechToTextRequest, TextToSpeechRequest,
 };
 use crate::state::AppState;
@@ -30,8 +30,9 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 settings_repo::get_setting(&state.db, "speech.transcription_provider_id").await?;
             let model_setting =
                 settings_repo::get_setting(&state.db, "speech.transcription_model_name").await?;
-            let provider_id = args
-                .optional_string(&["provider_id", "providerId"])?
+            let requested_provider = args.optional_string(&["provider_id", "providerId"])?;
+            let default_model = compatible_speech_model_default(requested_provider.as_deref(), provider_setting.as_deref(), model_setting);
+            let provider_id = requested_provider
                 .filter(|value| !value.trim().is_empty())
                 .or(provider_setting.filter(|value| !value.trim().is_empty()))
                 .ok_or_else(|| {
@@ -40,7 +41,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let requested_model_name = args
                 .optional_string(&["model_name", "modelName"])?
                 .filter(|value| !value.trim().is_empty())
-                .or(model_setting.filter(|value| !value.trim().is_empty()));
+                .or(default_model);
             let provider_models = model_repo::list_model_definitions(&state.db)
                 .await?
                 .into_iter()

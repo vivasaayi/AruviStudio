@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::persistence::{model_repo, settings_repo};
 use crate::services::speech_service::{
-    looks_like_transcription_model, model_supports_transcription, speak_text_natively, transcribe_audio_with_provider,
+    compatible_speech_model_default, looks_like_transcription_model, model_supports_transcription, speak_text_natively, transcribe_audio_with_provider,
     SpeechToTextRequest, SpeechToTextResponse, TextToSpeechRequest,
 };
 use crate::state::AppState;
@@ -23,6 +23,7 @@ pub async fn transcribe_audio_command(
 ) -> Result<SpeechToTextResponse, AppError> {
     let provider_setting = settings_repo::get_setting(&state.db, SPEECH_PROVIDER_KEY).await?;
     let model_setting = settings_repo::get_setting(&state.db, SPEECH_MODEL_KEY).await?;
+    let default_model = compatible_speech_model_default(provider_id.as_deref(), provider_setting.as_deref(), model_setting);
     let provider_id = provider_id
         .filter(|value| !value.trim().is_empty())
         .or(provider_setting.filter(|value| !value.trim().is_empty()))
@@ -31,7 +32,7 @@ pub async fn transcribe_audio_command(
         })?;
     let requested_model_name = model_name
         .filter(|value| !value.trim().is_empty())
-        .or(model_setting.filter(|value| !value.trim().is_empty()));
+        .or(default_model);
     let provider_models = model_repo::list_model_definitions(&state.db)
         .await?
         .into_iter()

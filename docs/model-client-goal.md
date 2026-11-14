@@ -155,6 +155,16 @@ transcribed using the saved defaults. The fixture passed on 2026-11-14 and
 removed its own container and volumes; it did not alter the branch database
 or the Model Host deployment.
 
+When a client explicitly chooses a different provider from the configured
+speech default and omits a model, desktop, browser and MCP now ignore the
+other provider's default model and select an enabled registered speech model
+for the chosen provider. An explicit model remains authoritative; a model-only
+default remains usable if no default provider is configured. A native unit test
+and all 31 isolated workflow tests passed, including browser and MCP requests
+with different configured and selected providers. The real Model Host speech
+defaults fixture also passed. The rebuilt branch was healthy at
+`127.0.0.1:55095` on 2026-11-14.
+
 ## External planner defaults in the browser
 
 Routing now exposes the server-wide provider ID and model name for external

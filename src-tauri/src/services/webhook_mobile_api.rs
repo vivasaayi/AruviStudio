@@ -1651,6 +1651,7 @@ pub(crate) async fn mobile_transcribe_audio(
             Ok(values) => values,
             Err(error) => return (StatusCode::BAD_REQUEST, error).into_response(),
         };
+    let default_model_name = crate::services::speech_service::compatible_speech_model_default(body.provider_id.as_deref(), default_provider_id.as_deref(), default_model_name);
     let provider_id = body
         .provider_id
         .filter(|value| !value.trim().is_empty())
@@ -1665,7 +1666,7 @@ pub(crate) async fn mobile_transcribe_audio(
     let model_name = body
         .model_name
         .filter(|value| !value.trim().is_empty())
-        .or(default_model_name.filter(|value| !value.trim().is_empty()));
+        .or(default_model_name);
     let model_name = match model_name {
         Some(model_name) => model_name,
         None => match crate::services::speech_service::default_transcription_model(&state.app_state.db, &provider_id).await {

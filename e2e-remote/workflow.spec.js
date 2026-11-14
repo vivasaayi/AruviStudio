@@ -887,10 +887,17 @@ test("voice records, reviews, and sends a transcribed message", async ({ page, r
   expect(cappedRequest.provider_id).toBeUndefined();
   const autoMcp = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}`, Accept: "application/json, text/event-stream" }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_speech", arguments: { action: "transcribe_audio", arguments: cappedRequest } } } });
   expect((await autoMcp.json()).result.isError).not.toBeTruthy();
+  const otherProvider = await (await request.post("/api/mobile/providers", { headers, data: { name: "Other speech provider", base_url: process.env.ARUVI_TEST_MODEL_URL } })).json();
+  const defaults = await (await request.get("/api/mobile/speech-defaults", { headers })).json();
+  const setOther = await request.post("/api/mobile/speech-defaults", { headers, data: { expected: defaults, provider: otherProvider.id, model: "whisper-other", locale: "en-US" } });
+  expect(setOther.ok()).toBeTruthy();
+  const overrideMcp = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}`, Accept: "application/json, text/event-stream" }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_speech", arguments: { action: "transcribe_audio", arguments: { ...cappedRequest, provider_id: provider.id } } } } });
+  expect((await overrideMcp.json()).result.isError).not.toBeTruthy();
   await expect(page.getByRole("button", { name: "Record", exact: true })).toBeEnabled();
   expect(await page.evaluate(() => window.fixtureTracksStopped)).toBe(3);
   await expect(page.locator("#voiceConversation").getByText("Container provider reply", { exact: true })).toHaveCount(2);
   await page.getByLabel("Review transcript before sending").check();
+  await page.getByLabel("Transcription provider", { exact: true }).selectOption(provider.id);
   await page.evaluate(() => {
     window.fixtureContextRates = [];
     window.AudioContext = class {
