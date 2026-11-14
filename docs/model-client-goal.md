@@ -12,6 +12,25 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Current Model Host and RSA advisory revalidation
+
+At branch revision `c9d704d`, the running worktree passed the MCP coding
+fixture with `qwen25-coder-7b-q4`, including independent JavaScript assertions
+and a token-limit error. MCP also generated synthetic speech with
+`piper-ljspeech` and transcribed it with `whisper-tiny-metal`; the browser
+recorded synthetic Piper audio and transcribed it with the real host. These do
+not test physical audio or live third-party providers.
+
+The Studio lockfile still includes `rsa` 0.9.10 through SQLx's optional MySQL
+dependency. On 2026-11-14, `cargo tree --locked --offline --target all -i rsa`
+and the same command with `--all-features` produced no selected dependency path
+for this Studio manifest. This is dependency-resolution evidence, not a binary
+audit or a guarantee for other manifests, feature selections or toolchains.
+[RustSec RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html)
+now lists `rsa >= 0.10.0` as patched; the lockfile's 0.9.10 remains affected.
+A direct update to 0.10 cannot be assumed to satisfy SQLx's 0.9 dependency, and
+upstream compatibility and remaining advisories still require review.
+
 ### Single-answer client integrity
 
 The shared OpenAI-compatible client rejects multiple choices and a supplied
