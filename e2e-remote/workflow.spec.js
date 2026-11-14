@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { readFileSync } from "node:fs";
 
 for (const scenario of ["passed", "failed", "skipped"]) test(`isolated workflow records ${scenario} test execution`, async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable isolated server and simulated provider");
@@ -498,6 +499,51 @@ test("browser installs a fixed speech preset and reuses its existing file", asyn
   const repeated = await request.post(endpoint, { headers, data: { preset: "whisper-tiny-en" } });
   expect(repeated.ok()).toBeTruthy();
   expect((await repeated.json()).model_definition.id).toBe(result.model_definition.id);
+  if (process.env.ARUVI_TEST_LOCAL_AUDIO) {
+    const wav = readFileSync(process.env.ARUVI_TEST_LOCAL_AUDIO);
+    const data = { provider_id: result.provider.id, model_name: result.model_definition.name,
+      audio_bytes_base64: wav.toString("base64"), mime_type: "audio/wav", locale: "en" };
+    const transcription = await request.post("/api/mobile/speech/transcribe", { headers, data, timeout: 120000 });
+    expect(transcription.ok(), await transcription.text()).toBeTruthy();
+    const text = (await transcription.json()).transcript.toLowerCase();
+    expect(text).toMatch(/\bfox\b/); expect(text).toMatch(/\bdog\b/);
+    const mcp = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, timeout: 120000,
+      data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_speech", arguments: { action: "transcribe_audio", arguments: data } } } });
+    const mcpResult = (await mcp.json()).result;
+    expect(mcpResult.isError).toBeFalsy();
+    const mcpText = mcpResult.structuredContent.result.transcript.toLowerCase();
+    expect(mcpText).toMatch(/\bfox\b/); expect(mcpText).toMatch(/\bdog\b/);
+    let offset = 12, format, pcm;
+    while (offset + 8 <= wav.length) {
+      const kind = wav.toString("ascii", offset, offset + 4), length = wav.readUInt32LE(offset + 4), start = offset + 8;
+      if (kind === "fmt ") format = { codec: wav.readUInt16LE(start), channels: wav.readUInt16LE(start + 2), rate: wav.readUInt32LE(start + 4), bits: wav.readUInt16LE(start + 14) };
+      if (kind === "data") { pcm = wav.subarray(start, start + length); break; }
+      offset = start + length + (length & 1);
+    }
+    expect(format).toMatchObject({ codec: 1, channels: 1, bits: 16 });
+    expect(pcm?.length).toBeGreaterThan(0);
+    const samples = Array.from({ length: pcm.length / 2 }, (_, i) => pcm.readInt16LE(i * 2) / 32768);
+    await page.evaluate(({ samples, rate }) => {
+      Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) } });
+      window.AudioContext = class {
+        constructor() { this.sampleRate = rate; this.destination = {}; }
+        createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+        createScriptProcessor() { return { connect() { setTimeout(() => this.onaudioprocess({ inputBuffer: { getChannelData: () => Float32Array.from(samples) }, outputBuffer: { getChannelData: () => new Float32Array(1) } }), 10); }, disconnect() {} }; }
+        async close() {}
+      };
+    }, { samples, rate: format.rate });
+    await page.getByRole("button", { name: "Voice", exact: true }).click();
+    await expect(page.getByLabel("Transcription provider").locator(`option[value="${result.provider.id}"]`)).toHaveCount(1);
+    await page.getByLabel("Transcription provider").selectOption(result.provider.id);
+    await page.getByLabel("Transcription model").fill(result.model_definition.name);
+    await page.getByLabel("Speech locale").fill("en");
+    await page.getByRole("button", { name: "Record", exact: true }).click();
+    await page.getByRole("button", { name: "Stop", exact: true }).waitFor();
+    await page.waitForTimeout(100);
+    await page.getByRole("button", { name: "Stop", exact: true }).click();
+    await expect(page.locator("#voiceComposer")).toHaveValue(/fox/i, { timeout: 120000 });
+    await expect(page.locator("#voiceComposer")).toHaveValue(/dog/i);
+  }
 });
 
 test("browser registers a server local speech model and preserves it on repeat", async ({ page, request }) => {

@@ -121,6 +121,12 @@ provider hosting into the model-host service as part of this work.
   staging Model Host, and runs the ignored native Whisper integration test.
   An invalid model was rejected before inference. This checks synthetic English
   audio, not physical capture or broad transcription accuracy.
+- The same check with `--container` copies the verified preset and generated
+  WAV into disposable fixture containers. All 31 isolated workflow cases passed,
+  including preset registration and real local Whisper transcription through
+  the browser Voice screen with synthetic media, the authenticated browser API,
+  and MCP. This exercises Linux CPU inference and synthetic audio; it does not
+  establish physical microphone behavior.
 
 ## Product Book export data
 

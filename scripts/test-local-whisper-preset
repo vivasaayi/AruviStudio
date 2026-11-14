@@ -13,6 +13,7 @@ import tempfile
 root = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("model", type=Path, help="Downloaded ggml-tiny.en.bin preset")
+parser.add_argument("--container", action="store_true", help="Run browser and MCP workflows in a disposable Linux container")
 args = parser.parse_args()
 expected = "921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f"
 
@@ -36,10 +37,15 @@ try:
         fixture = Path(directory) / "synthetic.wav"
         fixture.write_bytes(base64.b64decode(audio["audio_bytes_base64"], validate=True))
         fixture.chmod(0o600)
-        env = dict(os.environ, ARUVI_LOCAL_WHISPER_MODEL=str(model), ARUVI_LOCAL_WHISPER_AUDIO=str(fixture))
-        subprocess.run(["cargo", "test", "--locked", "--manifest-path", "src-tauri/Cargo.toml", "--lib",
-                        "local_whisper_transcribes_synthetic_fixture", "--", "--ignored"], cwd=root, env=env, check=True)
-    print("Pinned local Tiny English model transcribed synthetic Model Host audio.")
+        if args.container:
+            env = dict(os.environ, ARUVI_TEST_WHISPER_MODEL=str(model), ARUVI_TEST_WHISPER_AUDIO=str(fixture))
+            env.pop("ARUVI_TEST_WHISPER_DOWNLOAD", None)
+            subprocess.run(["bash", "scripts/test-container-workflow.sh"], cwd=root, env=env, check=True)
+        else:
+            env = dict(os.environ, ARUVI_LOCAL_WHISPER_MODEL=str(model), ARUVI_LOCAL_WHISPER_AUDIO=str(fixture))
+            subprocess.run(["cargo", "test", "--locked", "--manifest-path", "src-tauri/Cargo.toml", "--lib",
+                            "local_whisper_transcribes_synthetic_fixture", "--", "--ignored"], cwd=root, env=env, check=True)
+    print("Pinned local Tiny English model transcribed synthetic Model Host audio" + (" through the browser UI, browser API and MCP in a container." if args.container else "."))
 except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
     print(f"Local Whisper preset check failed ({type(error).__name__})", file=sys.stderr)
     sys.exit(1)
