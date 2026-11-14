@@ -324,3 +324,21 @@ fn translate_first_class_tool_rejects_non_object_arguments() {
         "Validation error: work_items.list arguments must be a JSON object"
     );
 }
+
+#[tokio::test]
+async fn database_settings_use_desktop_validation_and_persist() {
+    let state = create_test_state("database_settings_parity").await;
+    let path = state.app_data_dir.join("alternate.db").to_string_lossy().to_string();
+    let call = |action: &str, arguments: serde_json::Value| json!({"action": action, "arguments": arguments});
+    for bad in ["   ", "relative.db"] {
+        assert!(dispatch_tool(&state, "aruvi_settings", call("set_database_path_override", json!({"db_path": bad}))).await.is_err());
+    }
+    dispatch_tool(&state, "aruvi_settings", call("set_database_path_override", json!({"db_path": format!("  {path}  ")}))).await.unwrap();
+    let result = dispatch_tool(&state, "aruvi_settings", call("get_database_path_override", json!({}))).await.unwrap();
+    assert_eq!(result["result"]["path"], path);
+    let health = dispatch_tool(&state, "aruvi_settings", call("get_database_health", json!({}))).await.unwrap();
+    assert!(health["result"]["applied_migrations"].as_u64().unwrap() > 0);
+    dispatch_tool(&state, "aruvi_settings", call("clear_database_path_override", json!({}))).await.unwrap();
+    let cleared = dispatch_tool(&state, "aruvi_settings", call("get_database_path_override", json!({}))).await.unwrap();
+    assert!(cleared["result"]["path"].is_null());
+}

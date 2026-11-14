@@ -2240,6 +2240,16 @@ product reference, and verified product deletion clears the reference.
   records restored free space; the existing worktree volume was retained and the
   rebuilt container restarted healthy. The dynamically assigned port can change.
 
+## Desktop and MCP database settings parity
+
+Desktop and MCP now share Rust operations for database health, active path and
+path overrides. Their validation and whitespace handling are consistent. The
+settings inventory in `web-parity-audit.md` distinguishes MCP coverage from
+browser controls and records container path and restart limitations. This does
+not establish parity for all settings or validate a real database migration.
+The desktop settings tests and an MCP validation/persistence round trip passed;
+the native Rust library suite passed 229 tests with six ignored on 2026-11-14.
+
 ## Desktop patch-review checkpoint
 
 Desktop Copilot now previews each proposed file through the Rust repository

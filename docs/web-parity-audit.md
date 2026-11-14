@@ -78,6 +78,17 @@ registered and the default LM Studio endpoint was unavailable.
 | CI | Inspect service, targets, revisions, runs and live logs; manage target assignments; queue, cancel or retry builds; request artifact readiness and record feedback | `aruvi_ci` | Partial: artifact access and host service integration require work and validation. |
 | Settings | Connection token and browser model fields; server transcription defaults on Voice; external planner model and product defaults and workflow auto-start and approval settings on Routing | `aruvi_settings` | Partial: compare remaining settings, database and bridge controls. Environment variables can override saved transcription and external-channel defaults; live external-channel use remains unverified. |
 
+### Settings action inventory
+
+| Desktop action | Browser and MCP assessment |
+| --- | --- |
+| Hide seeded products and repair example catalog | MCP `aruvi_settings` reads/sets the catalog preference; `aruvi_catalog` seeds examples. Browser support for these Settings controls still needs investigation and end-to-end verification. |
+| Docker daemon and workflow retry settings | MCP generic setting operations can read and update the same stored keys; whether each execution path honors them in the Docker environment needs verification. |
+| Planner defaults, speech defaults and workflow approval switches | Browser Routing and Voice expose relevant server settings; MCP generic settings operations also exist. Device-local speech controls are browser-specific and are not proof of physical audio parity. |
+| MCP/mobile bind, token and bridge status | MCP exposes settings and both status reads; bind changes need a restart and deployment environment variables may override saved values. Browser connection settings do not establish equivalent operational administration. |
+| Twilio and planner contact | Desktop has configuration and contact actions; MCP has channel operations, but equivalent browser controls and live Twilio validation remain open. |
+| Database path, override and migration health | MCP exposes path, override and health operations using the same Rust service as desktop. Paths refer to the Studio host/container filesystem and override changes take effect on restart; browser controls are not established. |
+
 ### Planner action inventory
 
 This comparison is based on the desktop planner, the remote HTML/API and MCP

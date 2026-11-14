@@ -79,6 +79,7 @@ pub mod repo_patch_service;
 pub mod repo_path_service;
 pub mod repo_service;
 pub mod sandbox_service;
+pub mod settings_database_service;
 pub mod speech_service;
 pub mod webhook_bridge;
 pub mod webhook_bridge_auth;
