@@ -595,7 +595,8 @@
               <div id="repositoryGitStatus" class="empty"></div>
               <button id="repositoryDiffButton" type="button" class="secondary" disabled>Show Git diff</button>
               <pre id="repositoryDiff" style="white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto"></pre>
-              <div id="repositoryTree" class="tree"></div>
+              <label><span class="label">Filter workspace files</span><input id="repositoryTreeFilter" placeholder="Filter by name or path" /></label>
+              <div id="repositoryTree" class="tree"></div><div id="repositoryTreeEmpty" class="empty" hidden>No matching files.</div>
               <label><span class="label">Selected file</span><textarea id="repositoryFileContent" readonly rows="18" aria-label="Selected file contents"></textarea></label>
               <div class="button-row"><button id="saveRepositoryFileButton" type="button" disabled>Save file</button><button id="discardRepositoryFileButton" class="secondary" type="button" disabled>Discard file edits</button></div>
               <div class="tool-card stack">
@@ -3226,6 +3227,26 @@
       if (fileSaving || fileIsDirty()) { setStatus("Save or discard file edits before opening another file or workspace", "warn"); return false; }
       return true;
     }
+    function filterRepositoryTree() {
+      const filter = document.getElementById("repositoryTreeFilter").value.trim().toLowerCase();
+      function visit(node) {
+        if (!node.dataset.treePath) return false;
+        let childMatch = false;
+        if (node.tagName === "DETAILS") {
+          for (const child of node.children) if (visit(child)) childMatch = true;
+          if (filter && node.dataset.beforeFilterOpen === undefined) node.dataset.beforeFilterOpen = String(node.open);
+          if (filter && childMatch) node.open = true;
+          if (!filter && node.dataset.beforeFilterOpen !== undefined) { node.open = node.dataset.beforeFilterOpen === "true"; delete node.dataset.beforeFilterOpen; }
+        }
+        const match = !filter || node.dataset.treePath.toLowerCase().includes(filter) || childMatch;
+        node.hidden = !match;
+        return match;
+      }
+      let matches = false;
+      for (const node of el.repositoryTree.children) if (visit(node)) matches = true;
+      document.getElementById("repositoryTreeEmpty").hidden = !filter || matches;
+    }
+    document.getElementById("repositoryTreeFilter").addEventListener("input", filterRepositoryTree);
     async function inspectWorkspace(repository) {
       if (!canLeaveFile()) return;
       openedFile = null; el.repositoryFileContent.readOnly = true; updateFileControls();
@@ -3234,7 +3255,7 @@
       fileRequestId++;
       inspectedRepositoryId = repository.id;
       el.repositoryInspectStatus.textContent = "Loading " + repository.name + "...";
-      el.repositoryTree.replaceChildren(); el.repositoryFileContent.value = ""; el.repositoryGitStatus.textContent = "";
+      el.repositoryTree.replaceChildren(); document.getElementById("repositoryTreeEmpty").hidden = true; el.repositoryFileContent.value = ""; el.repositoryGitStatus.textContent = "";
       document.getElementById("repositoryCopilotResult").textContent = "";
       el.repositoryDiff.textContent = ""; el.repositoryDiffButton.disabled = true;
       try {
@@ -3250,15 +3271,16 @@
           nodes.forEach((node) => {
             if (node.node_type === "directory") {
               const details = document.createElement("details"); const summary = document.createElement("summary"); summary.textContent = node.name;
-              details.appendChild(summary); appendNodes(details, node.children || []); parent.appendChild(details);
+              details.dataset.treePath = node.relative_path; details.appendChild(summary); appendNodes(details, node.children || []); parent.appendChild(details);
             } else {
               const button = document.createElement("button"); button.type = "button"; button.className = "secondary"; button.textContent = node.name;
-              button.addEventListener("click", () => void inspectFile(repository.id, node.relative_path)); parent.appendChild(button);
+              button.dataset.treePath = node.relative_path; button.addEventListener("click", () => void inspectFile(repository.id, node.relative_path)); parent.appendChild(button);
             }
           });
         }
         appendNodes(el.repositoryTree, tree);
         if (!tree.length) el.repositoryTree.textContent = "No visible files.";
+        filterRepositoryTree();
       } catch (error) {
         if (requestId === inspectRequestId) { el.repositoryInspectStatus.textContent = "Unable to browse workspace"; setStatus(error.message || String(error), "error"); }
       }

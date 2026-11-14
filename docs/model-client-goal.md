@@ -12,6 +12,14 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Browser workspace tree filtering
+
+The browser workspace now filters its already loaded, bounded file tree by
+case-insensitive name or relative path and opens matching ancestors. The worktree
+image built and 27 isolated browser tests passed, including opening a nested
+matching file, no-match feedback and returning to the editor after clearing the
+filter. This closes one IDE navigation difference, not the full parity audit.
+
 ### Provider usage debug redaction
 
 The shared client retains provider usage metadata in fields and serialization,

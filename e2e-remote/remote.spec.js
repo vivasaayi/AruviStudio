@@ -427,6 +427,15 @@ test("browser registers and attaches a container workspace", async ({ page, requ
       }
       expect(limitedDiffs.some((diff) => diff.endsWith("�"))).toBe(true);
       await expect(page.locator("#repositoryTree")).not.toContainText("node_modules");
+      await page.getByLabel("Filter workspace files").fill("NESTED/target");
+      await expect(page.locator("#repositoryTree").getByRole("button", { name: "target-file.txt" })).toBeVisible();
+      await expect(page.locator("#repositoryTree button").filter({ hasText: "inspection.txt" })).toBeHidden();
+      await page.locator("#repositoryTree").getByRole("button", { name: "target-file.txt" }).click();
+      await expect(page.getByLabel("Selected file contents")).toHaveValue("nested fixture\n");
+      await page.getByLabel("Filter workspace files").fill("no-such-file");
+      await expect(page.locator("#repositoryTreeEmpty")).toBeVisible();
+      await page.getByLabel("Filter workspace files").fill("");
+      await expect(page.locator("#repositoryTreeEmpty")).toBeHidden();
       await page.locator("#repositoryTree").getByRole("button", { name: "inspection.txt" }).click();
       await expect(page.getByLabel("Selected file contents")).toHaveValue("workspace inspection fixture\n");
       await page.getByLabel("Selected file contents").fill("saved from browser\n");
