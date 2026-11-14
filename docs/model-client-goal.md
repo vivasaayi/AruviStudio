@@ -12,6 +12,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Running branch model routing and inference
+
+At revision `596c095`, the running worktree's nine active agents all had explicit
+bindings to the advertised `qwen25-coder-7b-q4` on the native coding Model Host.
+An authenticated MCP request returned coding output that passed independent
+network-isolated JavaScript assertions; an intentional one-token completion
+returned the expected truncation error. An authenticated Chrome session also
+received a streamed coding answer through the running browser app. These checks
+used the branch's persistent telemetry and prove only the tested fixture, not
+general model quality or every provider. LM Studio remains a separate configured
+provider and was not validated by these Model Host checks.
+
 ### Model Host watcher recovery
 
 The foreground native-host watcher now rechecks Studio's provider and the host's
