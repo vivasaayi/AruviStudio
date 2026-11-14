@@ -293,16 +293,6 @@ pub(crate) async fn load_session_from_db(
     })
 }
 
-pub(crate) async fn persist_pending_plan(
-    db: &SqlitePool,
-    session_id: &str,
-    pending_plan: Option<&PlannerPlan>,
-) -> Result<(), AppError> {
-    let serialized = pending_plan.map(serde_json::to_string).transpose()?;
-    planner_repo::update_pending_plan(db, session_id, serialized.as_deref()).await?;
-    Ok(())
-}
-
 pub(crate) async fn persist_draft_state(
     db: &SqlitePool,
     session_id: &str,
@@ -331,7 +321,29 @@ pub(crate) async fn persist_proposal(
     user_message: &str,
     assistant_message: &str,
 ) -> Result<(), AppError> {
-    let plan_json = serde_json::to_string(plan)?;
+    persist_session_exchange(
+        db,
+        session_id,
+        Some(plan),
+        draft,
+        selected_draft_node_id,
+        user_message,
+        assistant_message,
+    )
+    .await
+}
+
+/// Persist session state and a complete user/assistant exchange atomically.
+pub(crate) async fn persist_session_exchange(
+    db: &SqlitePool,
+    session_id: &str,
+    plan: Option<&PlannerPlan>,
+    draft: Option<&PlannerDraftPlan>,
+    selected_draft_node_id: Option<&str>,
+    user_message: &str,
+    assistant_message: &str,
+) -> Result<(), AppError> {
+    let plan_json = plan.map(serde_json::to_string).transpose()?;
     let draft_json = draft.map(serde_json::to_string).transpose()?;
     let mut transaction = db.begin().await?;
     let result = sqlx::query(
@@ -344,7 +356,9 @@ pub(crate) async fn persist_proposal(
     .execute(&mut *transaction)
     .await?;
     if result.rows_affected() != 1 {
-        return Err(AppError::NotFound(format!("Planner session {session_id} not found")));
+        return Err(AppError::NotFound(format!(
+            "Planner session {session_id} not found"
+        )));
     }
     for (role, content) in [("user", user_message), ("assistant", assistant_message)] {
         sqlx::query("INSERT INTO planner_conversation_entries (id, session_id, role, content) VALUES (?, ?, ?, ?)")
@@ -366,22 +380,11 @@ pub(crate) async fn persist_manual_draft_state(
     selected_draft_node_id: Option<&str>,
 ) -> Result<(), AppError> {
     let serialized = draft_plan.map(serde_json::to_string).transpose()?;
-    planner_repo::replace_draft_and_clear_pending(db, session_id, serialized.as_deref(), selected_draft_node_id).await
-}
-
-pub(crate) async fn append_conversation(
-    db: &SqlitePool,
-    session_id: &str,
-    role: &str,
-    content: &str,
-) -> Result<(), AppError> {
-    planner_repo::append_conversation_entry(
+    planner_repo::replace_draft_and_clear_pending(
         db,
-        &uuid::Uuid::new_v4().to_string(),
         session_id,
-        role,
-        content,
+        serialized.as_deref(),
+        selected_draft_node_id,
     )
-    .await?;
-    Ok(())
+    .await
 }

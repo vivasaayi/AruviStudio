@@ -672,3 +672,61 @@ async fn failed_proposal_conversation_rolls_back_plan_and_draft() {
     assert!(saved.draft_plan.unwrap().nodes.iter().any(|node| node.name == "New draft"));
     assert_eq!(saved.conversation.iter().map(|entry| entry.content.as_str()).collect::<Vec<_>>(), ["user request", "New proposal"]);
 }
+
+#[tokio::test]
+async fn failed_voice_clear_and_selection_preserve_session_state() {
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("voice_exchange_atomicity").await;
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let draft = apply_actions_to_draft(None, None, &normalize_actions(vec![
+        json!({"type":"create_product", "name":"Voice product"}),
+        json!({"type":"create_product_area", "target":"Voice product", "product_area_name":"Inventory"}),
+    ])).unwrap();
+    persist_draft_state(&state.db, &session.session_id, Some(&draft), None).await.unwrap();
+    let pending = json!({"assistant_response":"Review", "needs_confirmation":true, "clarification_question":null, "actions":[]}).to_string();
+    crate::persistence::planner_repo::update_pending_plan(&state.db, &session.session_id, Some(&pending)).await.unwrap();
+    let before = crate::persistence::planner_repo::get_session(&state.db, &session.session_id).await.unwrap();
+    sqlx::query("CREATE TRIGGER fail_voice_assistant BEFORE INSERT ON planner_conversation_entries WHEN NEW.role = 'assistant' BEGIN SELECT RAISE(ABORT, 'injected failure'); END")
+        .execute(&state.db).await.unwrap();
+    for command in ["clear draft", "select product area inventory"] {
+        let outcome = submit_planner_voice_turn(state.planner_service.clone(), &state, session.session_id.clone(), command.into(), None, None).await;
+        assert!(matches!(outcome, Err(ref error) if error.to_string().contains("injected failure")), "unexpected result for {command}: {outcome:?}");
+        let after = crate::persistence::planner_repo::get_session(&state.db, &session.session_id).await.unwrap();
+        assert_eq!(after.pending_plan_json, before.pending_plan_json);
+        assert_eq!(after.draft_plan_json, before.draft_plan_json);
+        assert_eq!(after.selected_draft_node_id, before.selected_draft_node_id);
+        assert!(crate::persistence::planner_repo::list_conversation_entries(&state.db, &session.session_id).await.unwrap().is_empty());
+    }
+    sqlx::query("DROP TRIGGER fail_voice_assistant").execute(&state.db).await.unwrap();
+    let response = submit_planner_voice_turn(state.planner_service.clone(), &state, session.session_id.clone(), "clear draft".into(), None, None).await.unwrap();
+    assert_eq!(response.status, "execution");
+    let saved = crate::services::planner_session::load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    assert!(saved.draft_plan.is_none() && saved.pending_plan.is_none());
+    assert_eq!(saved.conversation.len(), 2);
+}
+
+#[tokio::test]
+async fn failed_text_clarification_and_report_leave_no_partial_exchange() {
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("text_exchange_atomicity").await;
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    sqlx::query("UPDATE planner_sessions SET provider_id = NULL, model_name = NULL WHERE id = ?")
+        .bind(&session.session_id).execute(&state.db).await.unwrap();
+    let draft = apply_actions_to_draft(None, None, &normalize_actions(vec![
+        json!({"type":"create_product", "name":"Text fixture"}),
+    ])).unwrap();
+    persist_draft_state(&state.db, &session.session_id, Some(&draft), None).await.unwrap();
+    let pending = json!({"assistant_response":"Review", "needs_confirmation":true, "clarification_question":null, "actions":[]}).to_string();
+    crate::persistence::planner_repo::update_pending_plan(&state.db, &session.session_id, Some(&pending)).await.unwrap();
+    let before = crate::persistence::planner_repo::get_session(&state.db, &session.session_id).await.unwrap();
+    sqlx::query("CREATE TRIGGER fail_text_assistant BEFORE INSERT ON planner_conversation_entries WHEN NEW.role = 'assistant' BEGIN SELECT RAISE(ABORT, 'injected failure'); END")
+        .execute(&state.db).await.unwrap();
+    for input in ["Explain this", "show status"] {
+        let outcome = crate::services::planner_service::submit_planner_turn(state.planner_service.clone(), &state, session.session_id.clone(), input.into(), None, None).await;
+        assert!(matches!(outcome, Err(ref error) if error.to_string().contains("injected failure")), "unexpected result for {input}: {outcome:?}");
+        let after = crate::persistence::planner_repo::get_session(&state.db, &session.session_id).await.unwrap();
+        assert_eq!(after.pending_plan_json, before.pending_plan_json);
+        assert_eq!(after.draft_plan_json, before.draft_plan_json);
+        assert!(crate::persistence::planner_repo::list_conversation_entries(&state.db, &session.session_id).await.unwrap().is_empty());
+    }
+}

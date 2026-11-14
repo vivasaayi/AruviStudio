@@ -7,8 +7,8 @@ use crate::services::planner_draft_apply::apply_actions_to_draft;
 use crate::services::planner_execution::execute_plan;
 use crate::services::planner_response::push_trace;
 use crate::services::planner_session::{
-    append_conversation, get_or_load_session, lock_planner_session, persist_draft_state,
-    persist_pending_plan, persist_proposal, PlannerConversationEntry, PlannerService,
+    get_or_load_session, lock_planner_session, persist_draft_state, persist_proposal,
+    persist_session_exchange, PlannerConversationEntry, PlannerService,
 };
 use crate::services::planner_text_turn_commit::commit_confirmed_draft_plan;
 use crate::services::planner_text_turn_response::{
@@ -306,18 +306,19 @@ pub(crate) async fn submit_planner_turn_locked(
         }));
     }
 
-    append_conversation(&state.db, &session_id, "user", &user_input).await?;
-    session.conversation.push(PlannerConversationEntry {
-        role: "user".to_string(),
-        content: user_input.clone(),
-    });
-
     if plan.actions.is_empty() {
         let assistant_message = plan
             .clarification_question
             .clone()
             .unwrap_or_else(|| plan.assistant_response.clone());
-        append_conversation(&state.db, &session_id, "assistant", &assistant_message).await?;
+        persist_session_exchange(
+            &state.db, &session_id, session.pending_plan.as_ref(), session.draft_plan.as_ref(),
+            session.selected_draft_node_id.as_deref(), &user_input, &assistant_message,
+        ).await?;
+        session.conversation.push(PlannerConversationEntry {
+            role: "user".to_string(),
+            content: user_input.clone(),
+        });
         session.conversation.push(PlannerConversationEntry {
             role: "assistant".to_string(),
             content: assistant_message.clone(),
@@ -354,8 +355,14 @@ pub(crate) async fn submit_planner_turn_locked(
     }
     let assistant_message = plan.assistant_response.clone();
     session.pending_plan = None;
-    persist_pending_plan(&state.db, &session_id, None).await?;
-    append_conversation(&state.db, &session_id, "assistant", &assistant_message).await?;
+    persist_session_exchange(
+        &state.db, &session_id, session.pending_plan.as_ref(), session.draft_plan.as_ref(),
+        session.selected_draft_node_id.as_deref(), &user_input, &assistant_message,
+    ).await?;
+    session.conversation.push(PlannerConversationEntry {
+        role: "user".to_string(),
+        content: user_input,
+    });
     session.conversation.push(PlannerConversationEntry {
         role: "assistant".to_string(),
         content: assistant_message.clone(),

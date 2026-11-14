@@ -44,6 +44,21 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Atomic planner conversation exchanges
+
+- Local voice-command responses (including clear and draft selection), text
+  clarifications and reports now persist the resulting session state and both
+  conversation entries in one SQLite transaction. Injected assistant-entry
+  failures verify that voice clear/selection and text clarification/report leave
+  no partial exchange or session-state change. Model proposals use the same
+  transaction helper. Input selection and draft seeding before a model call remain
+  separate, and action side effects are not claimed to share this transaction.
+- The macOS Rust suite passed 195 tests with two live tests ignored. The rebuilt
+  worktree image passed the two-process planner fixture, a real 7B Model Host
+  planner proposal and confirmation, and browser suites (one smoke, 21 remote,
+  one CI, 20 workflow). Running server SHA-256:
+  `7c10582cde217a627c85890b00a03f10d1bc57b79204a21b734bd8adaac55642`.
+
 ## Atomic model-driven planner proposals
 
 - Text-turn proposals, confirmation-requiring plans and repository-analysis

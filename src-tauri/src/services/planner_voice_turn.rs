@@ -5,8 +5,8 @@ use crate::services::planner_draft_voice::{
 };
 use crate::services::planner_response::{build_session_state_response, push_trace};
 use crate::services::planner_session::{
-    append_conversation, get_or_load_session, lock_planner_session, persist_draft_state,
-    persist_pending_plan, PlannerConversationEntry, PlannerService,
+    get_or_load_session, lock_planner_session, persist_draft_state, persist_session_exchange,
+    PlannerConversationEntry, PlannerService,
 };
 use crate::services::planner_text_turn::submit_planner_turn_locked;
 use crate::services::planner_turn_policy::normalize;
@@ -135,13 +135,21 @@ pub async fn submit_planner_voice_turn(
         session.pending_plan = None;
         session.draft_plan = None;
         session.selected_draft_node_id = None;
-        append_conversation(&state.db, &session_id, "user", &spoken).await?;
         let assistant_message = if had_state {
             "Cleared the current staged design.".to_string()
         } else {
             "There is no active design to clear.".to_string()
         };
-        append_conversation(&state.db, &session_id, "assistant", &assistant_message).await?;
+        persist_session_exchange(
+            &state.db,
+            &session_id,
+            session.pending_plan.as_ref(),
+            session.draft_plan.as_ref(),
+            session.selected_draft_node_id.as_deref(),
+            &spoken,
+            &assistant_message,
+        )
+        .await?;
         session.conversation.push(PlannerConversationEntry {
             role: "user".to_string(),
             content: spoken,
@@ -150,8 +158,6 @@ pub async fn submit_planner_voice_turn(
             role: "assistant".to_string(),
             content: assistant_message.clone(),
         });
-        persist_pending_plan(&state.db, &session_id, None).await?;
-        persist_draft_state(&state.db, &session_id, None, None).await?;
         {
             let mut service = planner_service.lock().await;
             service.save_session(&session_id, session.clone());
@@ -193,8 +199,16 @@ pub async fn submit_planner_voice_turn(
 
     if session.draft_plan.is_none() && (is_draft_view_command || is_draft_selection_command) {
         let assistant_message = "There is no staged design tree yet.".to_string();
-        append_conversation(&state.db, &session_id, "user", &spoken).await?;
-        append_conversation(&state.db, &session_id, "assistant", &assistant_message).await?;
+        persist_session_exchange(
+            &state.db,
+            &session_id,
+            session.pending_plan.as_ref(),
+            session.draft_plan.as_ref(),
+            session.selected_draft_node_id.as_deref(),
+            &spoken,
+            &assistant_message,
+        )
+        .await?;
         session.conversation.push(PlannerConversationEntry {
             role: "user".to_string(),
             content: spoken,
@@ -231,8 +245,16 @@ pub async fn submit_planner_voice_turn(
             let assistant_message = target
                 .map(|node| summarize_selected_draft_node(&draft_plan, node))
                 .unwrap_or_else(|| "There is no staged design tree yet.".to_string());
-            append_conversation(&state.db, &session_id, "user", &spoken).await?;
-            append_conversation(&state.db, &session_id, "assistant", &assistant_message).await?;
+            persist_session_exchange(
+                &state.db,
+                &session_id,
+                session.pending_plan.as_ref(),
+                session.draft_plan.as_ref(),
+                session.selected_draft_node_id.as_deref(),
+                &spoken,
+                &assistant_message,
+            )
+            .await?;
             session.conversation.push(PlannerConversationEntry {
                 role: "user".to_string(),
                 content: spoken,
@@ -284,9 +306,16 @@ pub async fn submit_planner_voice_turn(
                         "I could not find a design node matching \"{}\".",
                         reference_text
                     );
-                    append_conversation(&state.db, &session_id, "user", &spoken).await?;
-                    append_conversation(&state.db, &session_id, "assistant", &assistant_message)
-                        .await?;
+                    persist_session_exchange(
+                        &state.db,
+                        &session_id,
+                        session.pending_plan.as_ref(),
+                        session.draft_plan.as_ref(),
+                        session.selected_draft_node_id.as_deref(),
+                        &spoken,
+                        &assistant_message,
+                    )
+                    .await?;
                     session.conversation.push(PlannerConversationEntry {
                         role: "user".to_string(),
                         content: spoken,
@@ -311,9 +340,16 @@ pub async fn submit_planner_voice_turn(
                 }
                 Err(error) => {
                     let assistant_message = error.to_string();
-                    append_conversation(&state.db, &session_id, "user", &spoken).await?;
-                    append_conversation(&state.db, &session_id, "assistant", &assistant_message)
-                        .await?;
+                    persist_session_exchange(
+                        &state.db,
+                        &session_id,
+                        session.pending_plan.as_ref(),
+                        session.draft_plan.as_ref(),
+                        session.selected_draft_node_id.as_deref(),
+                        &spoken,
+                        &assistant_message,
+                    )
+                    .await?;
                     session.conversation.push(PlannerConversationEntry {
                         role: "user".to_string(),
                         content: spoken,
@@ -339,19 +375,20 @@ pub async fn submit_planner_voice_turn(
             };
 
             session.selected_draft_node_id = Some(target_node.id.clone());
-            persist_draft_state(
-                &state.db,
-                &session_id,
-                Some(&draft_plan),
-                session.selected_draft_node_id.as_deref(),
-            )
-            .await?;
             let mut assistant_message = summarize_selected_draft_node(&draft_plan, &target_node);
             if session.pending_plan.is_some() {
                 assistant_message.push_str(" The current draft proposal is still staged; say confirm when you want to commit it.");
             }
-            append_conversation(&state.db, &session_id, "user", &spoken).await?;
-            append_conversation(&state.db, &session_id, "assistant", &assistant_message).await?;
+            persist_session_exchange(
+                &state.db,
+                &session_id,
+                session.pending_plan.as_ref(),
+                session.draft_plan.as_ref(),
+                session.selected_draft_node_id.as_deref(),
+                &spoken,
+                &assistant_message,
+            )
+            .await?;
             session.conversation.push(PlannerConversationEntry {
                 role: "user".to_string(),
                 content: spoken,

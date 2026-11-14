@@ -281,6 +281,7 @@ pub async fn update_session(
     .map_err(|error| error.into())
 }
 
+#[cfg(test)]
 pub async fn update_pending_plan(
     pool: &SqlitePool,
     id: &str,
@@ -349,27 +350,6 @@ pub async fn update_draft_state(
     .bind(draft_plan_json)
     .bind(selected_draft_node_id)
     .bind(id)
-    .fetch_one(pool)
-    .await
-    .map_err(|error| error.into())
-}
-
-pub async fn append_conversation_entry(
-    pool: &SqlitePool,
-    id: &str,
-    session_id: &str,
-    role: &str,
-    content: &str,
-) -> Result<PlannerConversationEntryRecord, AppError> {
-    sqlx::query_as::<_, PlannerConversationEntryRecord>(
-        "INSERT INTO planner_conversation_entries (id, session_id, role, content)
-         VALUES (?, ?, ?, ?)
-         RETURNING id, session_id, role, content, created_at",
-    )
-    .bind(id)
-    .bind(session_id)
-    .bind(role)
-    .bind(content)
     .fetch_one(pool)
     .await
     .map_err(|error| error.into())
