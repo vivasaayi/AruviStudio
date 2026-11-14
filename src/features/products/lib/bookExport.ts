@@ -22,6 +22,7 @@ import {
   BOOK_REFERENCE_ATLAS_ID,
   getBookExportTrimPreset,
   type BookExportTrimPreset,
+  type BookExportRenderMode,
   type ProductOverviewBookBundle,
   type ProductOverviewBookOptions,
 } from "./bookExportOptions";
@@ -38,6 +39,7 @@ import {
   buildReferenceAtlas,
   filterBookReferences,
   renderBookReferencesHtml,
+  renderReferenceUri,
   type ReferenceAtlasEntry,
 } from "./bookExportReferences";
 import { renderBookProductAreaHtml, renderBookWorkItemList } from "./bookExportChapters";
@@ -121,6 +123,7 @@ ${renderBookExportStyles({ trimPreset, renderMode })}
             references: bookReferences,
             generatedAt,
             tocTree,
+            renderMode,
           }) : ""}
           ${productLevelWorkItems.length > 0 ? `
             <section class="page" id="${PRODUCT_DELIVERY_ID}">
@@ -131,7 +134,7 @@ ${renderBookExportStyles({ trimPreset, renderMode })}
             </section>
           ` : ""}
           ${(tree?.product_areas ?? []).length > 0
-            ? (tree?.product_areas ?? []).map((productAreaTree, index) => renderBookProductAreaHtml(productAreaTree, index + 1, allWorkItems, bookReferences)).join("")
+            ? (tree?.product_areas ?? []).map((productAreaTree, index) => renderBookProductAreaHtml(productAreaTree, index + 1, allWorkItems, bookReferences, renderMode)).join("")
             : `
               <section class="page">
                 <div class="chapter-kicker">Catalog</div>
@@ -147,6 +150,7 @@ ${renderBookExportStyles({ trimPreset, renderMode })}
             metrics,
             referenceAtlas,
             nodeIndex,
+            renderMode,
           }) : ""}
         </article>
       </main>
@@ -166,6 +170,7 @@ function renderFrontMatter({
   references,
   generatedAt,
   tocTree,
+  renderMode,
 }: {
   product: Product;
   tree?: ProductTree;
@@ -176,6 +181,7 @@ function renderFrontMatter({
   references: ProductReference[];
   generatedAt: string;
   tocTree: BookTocNode[];
+  renderMode: BookExportRenderMode;
 }) {
   const productReferences = filterReferencesForScope(references, { scopeType: "product", scopeId: product.id });
 
@@ -229,7 +235,7 @@ function renderFrontMatter({
           ${product.goals.length > 0 ? `<ol class="goal-list">${product.goals.map((goal) => `<li>${renderInlineRichText(goal)}</li>`).join("")}</ol>` : `<div class="body-copy">No goals recorded yet.</div>`}
         </div>
       </div>
-      ${renderBookReferencesHtml(productReferences)}
+      ${renderBookReferencesHtml(productReferences, renderMode)}
       <div class="toc-list">
         ${renderBookContentsHtml(tocTree)}
       </div>
@@ -245,6 +251,7 @@ function renderBackMatter({
   metrics,
   referenceAtlas,
   nodeIndex,
+  renderMode,
 }: {
   product: Product;
   generatedAt: string;
@@ -253,6 +260,7 @@ function renderBackMatter({
   metrics: ReturnType<typeof buildWorkItemMetrics>;
   referenceAtlas: ReferenceAtlasEntry[];
   nodeIndex: IndexEntry[];
+  renderMode: BookExportRenderMode;
 }) {
   return `
     <section class="page" id="${BOOK_REFERENCE_ATLAS_ID}">
@@ -267,7 +275,7 @@ function renderBackMatter({
               <h3 style="margin-top: 6px;">${escapeHtml(entry.title)}</h3>
               <div class="reference-path">${escapeHtml(entry.pathLabel)}</div>
               <div class="note-copy">${renderRichTextHtml(entry.summary || "No summary recorded yet.")}</div>
-              ${entry.uri ? `<a class="reference-uri" href="${escapeHtml(entry.uri)}">${escapeHtml(entry.uri)}</a>` : ""}
+              ${renderReferenceUri(entry.uri, renderMode)}
             </div>
           `).join("")}
         </div>

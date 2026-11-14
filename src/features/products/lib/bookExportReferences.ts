@@ -1,6 +1,7 @@
 import type { HierarchyTreeNode, Product, ProductReference, ProductTree } from "../../../lib/types";
 import { getReferenceKindLabel } from "./productReferences";
 import { escapeHtml, renderRichTextHtml } from "./bookExportTextRendering";
+import type { BookExportRenderMode } from "./bookExportOptions";
 
 export type ReferenceAtlasEntry = {
   id: string;
@@ -11,7 +12,17 @@ export type ReferenceAtlasEntry = {
   uri: string;
 };
 
-export function renderBookReferencesHtml(references: ProductReference[]): string {
+export function renderReferenceUri(uri: string, renderMode: BookExportRenderMode): string {
+  if (!uri) return "";
+  const escaped = escapeHtml(uri);
+  const safeExternal = /^(?:https?:\/\/|mailto:|tel:)/i.test(uri) && !/[\u0000-\u0020\u007f]/.test(uri);
+  const safeRelative = !/^(?:[a-z][a-z0-9+.-]*:|\/\/|\\)/i.test(uri) && !/[\u0000-\u0020\u007f]/.test(uri);
+  return safeExternal || (renderMode !== "epub" && safeRelative)
+    ? `<a class="reference-uri" href="${escaped}">${escaped}</a>`
+    : `<span class="reference-uri">${escaped}</span>`;
+}
+
+export function renderBookReferencesHtml(references: ProductReference[], renderMode: BookExportRenderMode): string {
   if (references.length === 0) {
     return "";
   }
@@ -23,7 +34,7 @@ export function renderBookReferencesHtml(references: ProductReference[]): string
           <div class="meta-label">${escapeHtml(getReferenceKindLabel(reference.reference_kind))}</div>
           <h3 style="margin-top: 6px;">${escapeHtml(reference.title)}</h3>
           ${reference.content ? `<div class="note-copy">${renderRichTextHtml(reference.content)}</div>` : ""}
-          ${reference.uri ? `<a class="reference-uri" href="${escapeHtml(reference.uri)}">${escapeHtml(reference.uri)}</a>` : ""}
+          ${renderReferenceUri(reference.uri, renderMode)}
         </div>
       `).join("")}
     </div>

@@ -36,6 +36,15 @@ remove the desktop renderer or claim export parity until these steps pass.
   book content, navigation and escaped metadata. The service currently packages
   caller-rendered XHTML in memory; real renderer output and EPUB reader
   compatibility still need end-to-end validation.
+- [x] Capture an actual desktop-rendered 501-item EPUB fixture, package it via
+  the Rust service, and check it with EPUBCheck 5.4.0: zero errors or warnings.
+  Relative reference paths are retained as text in EPUB rather than links to
+  files absent from the archive. Reproduce with `scripts/test-product-book-epub`
+  and `EPUBCHECK_DIR` pointing to the unpacked [official EPUBCheck 5.4.0
+  distribution](https://github.com/w3c/epubcheck/releases/tag/v5.4.0).
+  This fixture does not cover embedded or remote images; the renderer currently
+  emits image sources without packaging them, so those remain an open parity and
+  EPUB validity issue. Passing EPUBCheck does not prove reader compatibility.
 - [ ] Port the Docs HTML and Book renderers to shared backend services, including
   all rich text, reference, index, numbering, layout and trim semantics. Compare
   output against desktop fixtures and inspect representative rendered pages.

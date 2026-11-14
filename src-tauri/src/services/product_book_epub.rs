@@ -209,6 +209,25 @@ mod tests {
     use std::io::Read;
     use zip::ZipArchive;
 
+    #[tokio::test]
+    #[ignore = "requires a fixture captured from the desktop Product Book UI"]
+    async fn desktop_renderer_fixture_produces_real_epub() {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Fixture {
+            title: String,
+            html: String,
+            toc_items: Vec<BookExportTocItem>,
+            author: String,
+            language: String,
+        }
+        let fixture_path = std::env::var("ARUVI_EPUB_FIXTURE_PATH").expect("fixture path required");
+        let output_path = std::env::var("ARUVI_EPUB_TEST_OUTPUT").expect("output path required");
+        let fixture: Fixture = serde_json::from_slice(&std::fs::read(fixture_path).unwrap()).unwrap();
+        let bytes = render_epub_archive(&fixture.title, &fixture.html, &fixture.toc_items, &fixture.author, &fixture.language).unwrap();
+        std::fs::write(output_path, bytes).unwrap();
+    }
+
     #[test]
     fn epub_is_a_readable_archive_with_required_order_and_escaped_navigation() {
         let html = "<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><h1 id=\"part\">Book</h1><h2 id=\"sub\">Story</h2></body></html>";

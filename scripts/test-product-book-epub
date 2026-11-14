@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Run with EPUBCHECK_DIR pointing to the unpacked official EPUBCheck release.
+# The selected Playwright browser, Rust toolchain and Docker must be available.
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+epubcheck_dir="${EPUBCHECK_DIR:?Set EPUBCHECK_DIR to the unpacked EPUBCheck directory}"
+[[ -f "$epubcheck_dir/epubcheck.jar" ]] || { printf '%s\n' 'EPUBCHECK_DIR must contain epubcheck.jar' >&2; exit 1; }
+epubcheck_dir="$(cd "$epubcheck_dir" && pwd -P)"
+temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/aruvi-epub-test.XXXXXX")"
+trap 'rm -rf "$temp_dir"' EXIT
+cd "$root"
+export ARUVI_EPUB_FIXTURE_PATH="$temp_dir/fixture.json"
+export ARUVI_EPUB_TEST_OUTPUT="$temp_dir/book.epub"
+npx playwright test e2e/product-book-export.spec.js --workers=1
+cargo test --locked --manifest-path src-tauri/Cargo.toml --lib desktop_renderer_fixture_produces_real_epub -- --ignored
+docker run --rm --network none \
+  --mount "type=bind,source=$epubcheck_dir,target=/epubcheck,readonly" \
+  --mount "type=bind,source=$ARUVI_EPUB_TEST_OUTPUT,target=/book.epub,readonly" \
+  "${EPUBCHECK_JAVA_IMAGE:-eclipse-temurin:21-jre}" \
+  java -jar /epubcheck/epubcheck.jar /book.epub

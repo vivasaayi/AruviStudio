@@ -1,4 +1,5 @@
 import { test, expect } from "./support/test.js";
+import { writeFile } from "node:fs/promises";
 
 test("desktop product exports include all product work items beyond a list page", async ({ page }) => {
   await page.goto("/product-overview");
@@ -16,6 +17,9 @@ test("desktop product exports include all product work items beyond a list page"
     expect(calls.source).toHaveLength(++expectedSources);
     const args = calls.exports.at(-1).args;
     expect(args.html ?? args.request?.html).toContain("Virtual backlog story 501");
+    if (label === "EPUB" && process.env.ARUVI_EPUB_FIXTURE_PATH) {
+      await writeFile(process.env.ARUVI_EPUB_FIXTURE_PATH, JSON.stringify(args));
+    }
   }
 });
 

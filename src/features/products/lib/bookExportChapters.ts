@@ -15,12 +15,14 @@ import {
   summarizeText,
 } from "./bookExportTextRendering";
 import { renderBookReferencesHtml } from "./bookExportReferences";
+import type { BookExportRenderMode } from "./bookExportOptions";
 
 export function renderBookProductAreaHtml(
   productAreaTree: ProductTree["product_areas"][number],
   chapterNumber: number,
   allWorkItems: WorkItem[],
   references: ProductReference[],
+  renderMode: BookExportRenderMode,
 ): string {
   const productAreaScopedItems = allWorkItems.filter((workItem) => workItem.product_area_id === productAreaTree.product_area.id);
   const metrics = buildWorkItemMetrics(productAreaScopedItems);
@@ -47,7 +49,7 @@ export function renderBookProductAreaHtml(
       ${renderNoteBlock("Examples", productAreaTree.product_area.examples)}
       ${renderNoteBlock("Implementation Notes", productAreaTree.product_area.implementation_notes)}
       ${renderNoteBlock("Test Guidance", productAreaTree.product_area.test_guidance)}
-      ${renderBookReferencesHtml(productAreaReferences)}
+      ${renderBookReferencesHtml(productAreaReferences, renderMode)}
       ${directProductAreaWorkItems.length > 0 ? `
         <div class="section-block">
           <div class="section-kicker">Direct Delivery Notes</div>
@@ -55,14 +57,14 @@ export function renderBookProductAreaHtml(
         </div>
       ` : ""}
       ${productAreaTree.features.length > 0
-        ? productAreaTree.features.map((capabilityTree, index) => renderBookCapabilityHtml(capabilityTree, `${chapterNumber}.${index + 1}`, allWorkItems, references)).join("")
+        ? productAreaTree.features.map((capabilityTree, index) => renderBookCapabilityHtml(capabilityTree, `${chapterNumber}.${index + 1}`, allWorkItems, references, renderMode)).join("")
         : `<div class="section-block"><div class="body-copy">No child nodes are defined for this product area yet.</div></div>`}
       <div class="footer-note">End of chapter ${chapterNumber}.</div>
     </section>
   `;
 }
 
-function renderBookCapabilityHtml(capabilityTree: CapabilityTree, numbering: string, allWorkItems: WorkItem[], references: ProductReference[]): string {
+function renderBookCapabilityHtml(capabilityTree: CapabilityTree, numbering: string, allWorkItems: WorkItem[], references: ProductReference[], renderMode: BookExportRenderMode): string {
   const capabilityType = getHierarchyNodeKindLabel(capabilityTree.capability.node_kind);
   const directWorkItems = buildScopedWorkItemTree(
     allWorkItems.filter((workItem) => workItem.capability_id === capabilityTree.capability.id),
@@ -85,7 +87,7 @@ function renderBookCapabilityHtml(capabilityTree: CapabilityTree, numbering: str
       ${renderNoteBlock("Technical Notes", capabilityTree.capability.technical_notes)}
       ${renderNoteBlock("Implementation Notes", capabilityTree.capability.implementation_notes)}
       ${renderNoteBlock("Test Guidance", capabilityTree.capability.test_guidance)}
-      ${renderBookReferencesHtml(capabilityReferences)}
+      ${renderBookReferencesHtml(capabilityReferences, renderMode)}
       ${directWorkItems.length > 0 ? `
         <div class="section-block">
           <div class="section-kicker">Delivery Notes</div>
@@ -93,7 +95,7 @@ function renderBookCapabilityHtml(capabilityTree: CapabilityTree, numbering: str
         </div>
       ` : ""}
       ${capabilityTree.children.length > 0
-        ? capabilityTree.children.map((child, index) => renderBookCapabilityHtml(child, `${numbering}.${index + 1}`, allWorkItems, references)).join("")
+        ? capabilityTree.children.map((child, index) => renderBookCapabilityHtml(child, `${numbering}.${index + 1}`, allWorkItems, references, renderMode)).join("")
         : ""}
     </section>
   `;
