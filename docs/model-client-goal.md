@@ -12,6 +12,21 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Agent model inspection in Studio
+
+The browser Models page and MCP `aruvi_agents` action `inspect_agent_model`
+now inspect the model actually selected by the workflow's shared Rust selection
+logic, including role-based fallback. The result distinguishes advertised,
+not-advertised and unknown discovery, with a 15-second bound and pagination
+limit. It does not run inference or guarantee a model is healthy, and concurrent
+configuration changes can make any inspection stale. Browser request ordering
+prevents an earlier check from overwriting a later agent selection or saved binding.
+All 38 isolated workflows passed, including explicit binding, fallback,
+unauthorized access, missing model, browser and MCP checks against fixtures. On
+the running branch, MCP reported the coding agent's explicit `qwen25-coder-7b-q4`
+binding as advertised by the real Model Host. This is a discovery check, not
+a new inference test.
+
 ### Agent model routing preflight
 
 `python3 scripts/check-model-routing` checks active agents' explicit primary

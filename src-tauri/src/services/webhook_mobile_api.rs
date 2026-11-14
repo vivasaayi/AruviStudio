@@ -505,6 +505,11 @@ pub(crate) async fn mobile_list_agent_bindings(State(state): State<WebhookState>
     agent_action(&state, "list_agent_model_bindings", serde_json::json!({})).await
 }
 
+pub(crate) async fn mobile_inspect_agent_model(State(state): State<WebhookState>, headers: HeaderMap, Path(agent_id): Path<String>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    agent_action(&state, "inspect_agent_model", serde_json::json!({"agent_id": agent_id})).await
+}
+
 pub(crate) async fn mobile_set_agent_binding(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileAgentBindingRequest>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     if body.agent_id.trim().is_empty() || body.model_id.trim().is_empty() {

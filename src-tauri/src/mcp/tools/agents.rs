@@ -19,6 +19,10 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             "list_agent_model_bindings",
             agent_repo::list_agent_model_bindings(&state.db).await?,
         ),
+        "inspect_agent_model" => {
+            let agent_id = args.required_string(&["agent_id", "agentId"], "agent_id")?;
+            action_result("inspect_agent_model", crate::services::agent_model_selection::inspect_agent_model(&state.db, &agent_id).await?)
+        }
         "set_primary_agent_model_binding" => {
             let agent_id = args.required_string(&["agent_id", "agentId"], "agent_id")?;
             let model_id = args.required_string(&["model_id", "modelId"], "model_id")?;

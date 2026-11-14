@@ -1744,3 +1744,39 @@ test("browser reviews and updates server database settings", async ({ page, requ
   await page.locator("#clearDatabaseOverride").click();
   await expect.poll(async () => (await (await request.get("/api/mobile/database-settings", { headers })).json()).override_path).toBeNull();
 });
+
+test("agent model inspection reports bindings and discovery in browser and MCP", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const post = async (url, data) => {
+    const response = await request.post(url, { headers, data });
+    expect(response.ok()).toBeTruthy();
+    return response.json();
+  };
+  const provider = await post("/api/mobile/providers", { name: "Readiness fixture", base_url: process.env.ARUVI_TEST_MODEL_URL });
+  const model = await post("/api/mobile/models", { provider_id: provider.id, name: "browser-test-model" });
+  const missing = await post("/api/mobile/models", { provider_id: provider.id, name: "not-advertised-model" });
+  const agent = await post("/api/mobile/agents", { name: "Readiness agent", role: "developer", description: "", prompt_template_ref: "", allowed_tools: [], skill_tags: [], boundaries: {}, enabled: true, employment_status: "active" });
+  const url = `/api/mobile/agents/${agent.id}/model-readiness`;
+  expect((await request.get(url)).status()).toBe(401);
+  const fallback = await (await request.get(url, { headers })).json();
+  expect(fallback.selection).toBe("fallback");
+  await post("/api/mobile/agent-model-bindings", { agent_id: agent.id, model_id: model.id });
+  const direct = await (await request.get(url, { headers })).json();
+  expect(direct).toMatchObject({ selection: "binding", model_id: model.id, discovery: "advertised" });
+  const mcp = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 91, method: "tools/call", params: { name: "aruvi_agents", arguments: { action: "inspect_agent_model", arguments: { agent_id: agent.id } } } } });
+  const result = (await mcp.json()).result;
+  expect(result.isError).not.toBeTruthy();
+  expect(JSON.stringify(result)).toContain("advertised");
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Models", exact: true }).click();
+  await expect(page.locator("#bindingAgent option", { hasText: "Readiness agent" })).toHaveCount(1);
+  await page.locator("#bindingAgent").selectOption(agent.id);
+  await page.locator("#checkAgentModelButton").click();
+  await expect(page.locator("#agentModelReadiness")).toContainText("advertised by provider");
+  await post("/api/mobile/agent-model-bindings", { agent_id: agent.id, model_id: missing.id });
+  await page.locator("#checkAgentModelButton").click();
+  await expect(page.locator("#agentModelReadiness")).toContainText("not advertised by provider");
+});

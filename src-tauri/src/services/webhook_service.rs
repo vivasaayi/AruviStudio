@@ -14,7 +14,7 @@ use crate::services::webhook_mobile_api::{
     mobile_healthcheck, mobile_list_model_calls, mobile_model_call_snapshot, mobile_list_products, mobile_submit_planner_turn,
     mobile_list_providers, mobile_discover_provider_models, mobile_provider_transport_capabilities, mobile_create_provider, mobile_update_provider, mobile_delete_provider, mobile_rotate_provider_credential, mobile_clear_provider_credential, mobile_cleanup_provider_credentials, mobile_list_models, mobile_create_model, mobile_register_local_model, mobile_install_local_model, mobile_update_model, mobile_delete_model, mobile_test_provider,
     mobile_list_repositories, mobile_register_repository, mobile_inspect_repository, mobile_save_repository_file, mobile_list_repository_attachments, mobile_attach_repository, mobile_set_default_repository, mobile_detach_repository,
-    mobile_list_agents, mobile_create_agent, mobile_update_agent, mobile_delete_agent, mobile_list_agent_bindings, mobile_set_agent_binding,
+    mobile_list_agents, mobile_create_agent, mobile_update_agent, mobile_delete_agent, mobile_list_agent_bindings, mobile_set_agent_binding, mobile_inspect_agent_model,
     mobile_list_teams, mobile_create_team, mobile_update_team, mobile_delete_team,
     mobile_list_team_members, mobile_add_team_member, mobile_remove_team_member,
     mobile_list_team_assignments, mobile_add_team_assignment, mobile_remove_team_assignment,
@@ -375,6 +375,7 @@ pub(crate) fn build_webhook_router(app_state: AppState) -> Router {
         .route("/api/mobile/agents", get(mobile_list_agents).post(mobile_create_agent))
         .route("/api/mobile/agents/update", post(mobile_update_agent))
         .route("/api/mobile/agents/delete", post(mobile_delete_agent))
+        .route("/api/mobile/agents/:id/model-readiness", get(mobile_inspect_agent_model))
         .route("/api/mobile/agent-model-bindings", get(mobile_list_agent_bindings).post(mobile_set_agent_binding))
         .route("/api/mobile/workflow-test-config", get(mobile_get_workflow_test_config).post(mobile_set_workflow_test_config))
         .route(

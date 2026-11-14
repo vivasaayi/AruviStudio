@@ -83,6 +83,42 @@ pub(crate) async fn find_model_for_agent(
     )))
 }
 
+/// Inspect the same binding or fallback used for execution. Discovery is a
+/// listing check only; an advertised model can still be unavailable for inference.
+pub(crate) async fn inspect_agent_model(db: &SqlitePool, agent_id: &str) -> Result<serde_json::Value, AppError> {
+    let bindings = agent_repo::get_agent_model_bindings(db, agent_id).await?;
+    let model = find_model_for_agent(db, agent_id).await?;
+    let provider = model_repo::get_provider(db, &model.provider_id).await?;
+    let discovery = async {
+        let gateway = crate::services::model_service::create_shared_gateway(&provider).ok()?;
+        if !gateway.transport_capabilities().model_discovery { return None; }
+        let mut cursor: Option<String> = None;
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..20 {
+            let page = gateway.list_models_page(cursor.as_deref()).await.ok()?;
+            if page.models.iter().any(|item| item.id == model.name) { return Some(true); }
+            match page.next_cursor {
+                None => return Some(false),
+                Some(next) if !next.is_empty() && seen.insert(next.clone()) => cursor = Some(next),
+                _ => return None,
+            }
+        }
+        None
+    };
+    let status = match tokio::time::timeout(std::time::Duration::from_secs(15), discovery).await {
+        Ok(Some(true)) => "advertised",
+        Ok(Some(false)) => "not_advertised",
+        _ => "unknown",
+    };
+    Ok(serde_json::json!({
+        "agent_id": agent_id,
+        "selection": if bindings.is_empty() { "fallback" } else { "binding" },
+        "model_id": model.id, "model_name": model.name,
+        "provider_id": provider.id, "provider_name": provider.name,
+        "discovery": status,
+    }))
+}
+
 fn preferred_model_tags_for_role(role: &str) -> Vec<&'static str> {
     match role {
         "coding" => vec!["coding", "implementation", "repo_write", "testing"],

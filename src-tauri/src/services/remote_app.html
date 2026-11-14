@@ -821,7 +821,9 @@
                   <label><span class="label">Agent</span><select id="bindingAgent" required></select></label>
                   <label><span class="label">Agent model</span><select id="bindingModel" required></select></label>
                   <button id="saveAgentBindingButton" type="submit">Save agent model</button>
+                  <button id="checkAgentModelButton" class="secondary" type="button">Check selected agent model</button>
                 </form>
+                <div id="agentModelReadiness" aria-live="polite">Discovery does not test inference or model quality.</div>
                 <div id="agentBindingList" class="tool-list"></div>
               </div>
             </section>
@@ -4219,6 +4221,23 @@
       }
     }
 
+    let agentReadinessRequestId = 0;
+    async function checkAgentModel() {
+      const status = document.getElementById("agentModelReadiness");
+      const agentId = el.bindingAgent.value;
+      const requestId = ++agentReadinessRequestId;
+      if (!agentId) { status.textContent = "Choose an agent first."; return; }
+      status.textContent = "Checking model discovery…";
+      try {
+        const data = await request("/api/mobile/agents/" + encodeURIComponent(agentId) + "/model-readiness");
+        if (requestId !== agentReadinessRequestId || el.bindingAgent.value !== agentId) return;
+        const result = data.discovery === "advertised" ? "advertised by provider" : data.discovery === "not_advertised" ? "not advertised by provider" : "discovery unavailable";
+        status.textContent = `${data.model_name} · ${data.provider_name} · ${data.selection} · ${result}. Discovery does not test inference or model quality.`;
+      } catch (error) { if (requestId === agentReadinessRequestId && el.bindingAgent.value === agentId) status.textContent = error.message || String(error); }
+    }
+    el.bindingAgent.addEventListener("change", () => { agentReadinessRequestId++; document.getElementById("agentModelReadiness").textContent = "Discovery does not test inference or model quality."; });
+    document.getElementById("checkAgentModelButton").addEventListener("click", () => void checkAgentModel());
+
     async function createProvider(event) {
       event.preventDefault();
       el.createProviderButton.disabled = true;
@@ -4315,6 +4334,8 @@
       el.saveAgentBindingButton.disabled = true;
       try {
         await request("/api/mobile/agent-model-bindings", { method: "POST", body: { agent_id: el.bindingAgent.value, model_id: el.bindingModel.value } });
+        agentReadinessRequestId++;
+        document.getElementById("agentModelReadiness").textContent = "Binding changed. Check the selected agent model again.";
         await loadModelConfiguration();
         setStatus("Agent model saved", "ok");
       } catch (error) { setStatus(error.message || String(error), "error"); }

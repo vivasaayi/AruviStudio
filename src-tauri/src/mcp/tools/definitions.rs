@@ -154,6 +154,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
             &[
                 "list_agent_definitions",
                 "list_agent_model_bindings",
+                "inspect_agent_model",
                 "set_primary_agent_model_binding",
                 "create_agent_definition",
                 "update_agent_definition",
