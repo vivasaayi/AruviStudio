@@ -162,8 +162,12 @@ Failures after synchronization begins retain it for recovery even with that
 setting; `keep_workspace=true` also retains failed workspaces. The native
 fixture verified all three cases and confirmed a sync conflict left the original
 repository file unchanged and retained the generated candidate. Cleanup failures
-are logged without replacing the original execution error. A failed workspace
-creation or an abruptly cancelled task can still leave a partial workspace.
+are logged without replacing the original execution error. Workspace creation
+now exclusively creates its generated directory and attempts to remove it if the
+repository copy fails, without deleting an existing directory on collision.
+Native workspace tests covered failed copy, collision and successful copy; all
+49 isolated workflows passed. Abrupt cancellation or a failed cleanup can still
+leave a partial workspace.
 After re-enabling the model, a separate new workflow completed with a queued
 no-change response; automatic retry of the failed workflow was not tested.
 All 260 native Rust tests passed with seven ignored, as did all 49 isolated

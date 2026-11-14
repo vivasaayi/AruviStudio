@@ -57,18 +57,7 @@ impl WorkItemWorkspace {
     ) -> Result<Self, AppError> {
         info!(work_item_id = %work_item.id, workflow_run_id = %workflow_run_id, repo_path = %repo.local_path, "Creating work item workspace");
         let workspace_id = Uuid::new_v4().to_string();
-        let base_path = workspace_base_path.join(&workspace_id);
-
-        // Create workspace directory
-        fs::create_dir_all(&base_path).await
-            .map_err(|e| {
-                error!(work_item_id = %work_item.id, workspace_id = %workspace_id, error = %e, "Failed to create workspace directory");
-                AppError::Io(e)
-            })?;
-
-        // Copy repository to workspace
-        let repo_path = base_path.join("repo");
-        Self::copy_repository(&repo.local_path, &repo_path).await?;
+        let (base_path, repo_path) = Self::create_workspace_copy(&repo.local_path, workspace_base_path, &workspace_id).await?;
 
         info!(work_item_id = %work_item.id, workflow_run_id = %workflow_run_id, workspace_path = ?base_path, "Successfully created work item workspace");
         Ok(Self {
@@ -76,6 +65,21 @@ impl WorkItemWorkspace {
             base_path,
             repo_path,
         })
+    }
+
+    async fn create_workspace_copy(source: &str, workspace_base_path: &Path, workspace_id: &str) -> Result<(PathBuf, PathBuf), AppError> {
+        fs::create_dir_all(workspace_base_path).await?;
+        let base_path = workspace_base_path.join(workspace_id);
+        // Exclusive creation ensures a collision is never mistaken for a directory we own.
+        fs::create_dir(&base_path).await?;
+        let repo_path = base_path.join("repo");
+        if let Err(copy_error) = Self::copy_repository(source, &repo_path).await {
+            if let Err(cleanup_error) = fs::remove_dir_all(&base_path).await {
+                error!(workspace_path = ?base_path, error = %cleanup_error, "Failed to remove partial workspace after copy failure");
+            }
+            return Err(copy_error);
+        }
+        Ok((base_path, repo_path))
     }
 
     /// Copy repository to workspace
@@ -298,6 +302,27 @@ pub(crate) fn confined_file_path(root: &Path, relative: &Path, allow_missing: bo
 mod delivery_tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    #[tokio::test]
+    async fn failed_workspace_copy_removes_only_the_new_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let base = root.path().join("workspaces");
+        let existing = base.join("existing");
+        std::fs::create_dir_all(&existing).unwrap();
+        std::fs::write(existing.join("sentinel"), "untouched").unwrap();
+        let missing = root.path().join("missing");
+        assert!(WorkItemWorkspace::create_workspace_copy(missing.to_str().unwrap(), &base, "new").await.is_err());
+        assert!(!base.join("new").exists());
+        assert_eq!(std::fs::read_to_string(existing.join("sentinel")).unwrap(), "untouched");
+        assert!(WorkItemWorkspace::create_workspace_copy(missing.to_str().unwrap(), &base, "existing").await.is_err());
+        assert_eq!(std::fs::read_to_string(existing.join("sentinel")).unwrap(), "untouched");
+        let source = root.path().join("source");
+        std::fs::create_dir(&source).unwrap();
+        std::fs::write(source.join("fixture"), "copied").unwrap();
+        let (workspace, repo) = WorkItemWorkspace::create_workspace_copy(source.to_str().unwrap(), &base, "success").await.unwrap();
+        assert_eq!(workspace, base.join("success"));
+        assert_eq!(std::fs::read_to_string(repo.join("fixture")).unwrap(), "copied");
+    }
 
     #[tokio::test]
     async fn sync_rejects_existing_untracked_and_preflights_all_files() {
