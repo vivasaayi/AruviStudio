@@ -13,7 +13,7 @@ use crate::services::webhook_mobile_api::{
     mobile_get_model_call, mobile_get_product_tree, mobile_get_product_tree_summary, mobile_list_product_areas, mobile_create_hierarchy_node, mobile_update_hierarchy_node, mobile_delete_hierarchy_node, mobile_reset_product_plan,
     mobile_healthcheck, mobile_list_model_calls, mobile_model_call_snapshot, mobile_list_products, mobile_submit_planner_turn,
     mobile_list_providers, mobile_discover_provider_models, mobile_provider_transport_capabilities, mobile_provider_stream_usage, mobile_update_provider_stream_usage, mobile_create_provider, mobile_update_provider, mobile_delete_provider, mobile_rotate_provider_credential, mobile_clear_provider_credential, mobile_cleanup_provider_credentials, mobile_list_models, mobile_create_model, mobile_register_local_model, mobile_install_local_model, mobile_update_model, mobile_delete_model, mobile_test_provider,
-    mobile_list_repositories, mobile_register_repository, mobile_inspect_repository, mobile_save_repository_file, mobile_list_repository_attachments, mobile_attach_repository, mobile_set_default_repository, mobile_detach_repository,
+    mobile_list_repositories, mobile_register_repository, mobile_create_workspace, mobile_inspect_repository, mobile_save_repository_file, mobile_list_repository_attachments, mobile_attach_repository, mobile_set_default_repository, mobile_detach_repository,
     mobile_list_agents, mobile_create_agent, mobile_update_agent, mobile_delete_agent, mobile_list_agent_bindings, mobile_set_agent_binding, mobile_inspect_agent_model,
     mobile_list_teams, mobile_create_team, mobile_update_team, mobile_delete_team,
     mobile_list_team_members, mobile_add_team_member, mobile_remove_team_member,
@@ -368,6 +368,7 @@ pub(crate) fn build_webhook_router(app_state: AppState) -> Router {
         .route("/api/mobile/products/:product_id/hierarchy/delete", post(mobile_delete_hierarchy_node))
         .route("/api/mobile/products/:product_id/reset-plan", post(mobile_reset_product_plan))
         .route("/api/mobile/repositories", get(mobile_list_repositories).post(mobile_register_repository))
+        .route("/api/mobile/workspaces", post(mobile_create_workspace))
         .route("/api/mobile/repository-inspect", post(mobile_inspect_repository))
         .route("/api/mobile/repository-file/save", post(mobile_save_repository_file).layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024)))
         .route("/api/mobile/repository-attachments", get(mobile_list_repository_attachments).post(mobile_attach_repository))

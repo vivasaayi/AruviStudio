@@ -580,6 +580,11 @@
                   <label><input id="repositoryDefault" type="checkbox" /> Make default for this scope</label>
                   <button id="attachRepositoryButton" type="submit">Attach workspace</button>
                 </form>
+                <form id="createWorkspaceForm" class="stack">
+                  <p class="empty">Create a new Git workspace for the selected product or area. Existing folders are never overwritten. The new workspace becomes the default for that scope.</p>
+                  <label><span class="label">Parent directory on server</span><input id="workspaceParentPath" value="/repositories" required /></label>
+                  <button id="createWorkspaceButton" type="submit">Create workspace for selected scope</button>
+                </form>
                 <div id="repositoryAttachmentList" class="tool-list"></div>
               </div>
             </section>
@@ -1117,6 +1122,9 @@
       repositorySelect: document.getElementById("repositorySelect"),
       repositoryDefault: document.getElementById("repositoryDefault"),
       attachRepositoryButton: document.getElementById("attachRepositoryButton"),
+      createWorkspaceForm: document.getElementById("createWorkspaceForm"),
+      createWorkspaceButton: document.getElementById("createWorkspaceButton"),
+      workspaceParentPath: document.getElementById("workspaceParentPath"),
       repositoryAttachmentList: document.getElementById("repositoryAttachmentList"),
       providerForm: document.getElementById("providerForm"),
       providerName: document.getElementById("providerName"),
@@ -3110,6 +3118,7 @@
       const selectedRepository = el.repositorySelect.value;
       const selectedArea = el.repositoryArea.value;
       el.attachRepositoryButton.disabled = true;
+      el.createWorkspaceButton.disabled = true;
       el.repositoryArea.disabled = true;
       el.repositoryAttachmentList.textContent = "Loading workspace attachments...";
       try {
@@ -3172,6 +3181,7 @@
         });
         el.repositoryArea.disabled = !productId;
         el.attachRepositoryButton.disabled = !productId || !repositories.length;
+        el.createWorkspaceButton.disabled = !productId;
       } catch (error) {
         if (requestId === workspaceRequestId) setStatus(error.message || String(error), "error");
       }
@@ -3458,6 +3468,21 @@
         setStatus("Workspace attached", "ok");
       } catch (error) { setStatus(error.message || String(error), "error"); }
       finally { el.attachRepositoryButton.disabled = false; }
+    }
+
+    async function createWorkspace(event) {
+      event.preventDefault();
+      el.createWorkspaceButton.disabled = true;
+      try {
+        const workspace = await request("/api/mobile/workspaces", { method: "POST", body: {
+          product_id: el.repositoryProduct.value, product_area_id: el.repositoryArea.value || null,
+          parent_path: el.workspaceParentPath.value.trim()
+        } });
+        await loadWorkspaces();
+        el.repositorySelect.value = workspace.repository.id;
+        setStatus("Workspace created at " + workspace.created_path, "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { el.createWorkspaceButton.disabled = !el.repositoryProduct.value; }
     }
 
     let plannerDefaults = null, plannerDefaultsSequence = 0, plannerDefaultsBusy = false;
@@ -4713,6 +4738,7 @@
     window.addEventListener("beforeunload", (event) => { if (fileIsDirty()) { event.preventDefault(); event.returnValue = ""; } });
     el.repositoryForm.addEventListener("submit", registerWorkspace);
     el.repositoryAttachForm.addEventListener("submit", attachWorkspace);
+    el.createWorkspaceForm.addEventListener("submit", createWorkspace);
     el.repositoryProduct.addEventListener("change", loadWorkspaces);
     el.providerForm.addEventListener("submit", createProvider);
     el.localModelForm.addEventListener("submit", registerLocalModel);

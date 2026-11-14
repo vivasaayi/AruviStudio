@@ -410,6 +410,13 @@ pub(crate) struct MobileRegisterRepositoryRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub(crate) struct MobileCreateWorkspaceRequest {
+    product_id: String,
+    product_area_id: Option<String>,
+    parent_path: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub(crate) struct MobileAttachRepositoryRequest {
     product_id: String,
     product_area_id: Option<String>,
@@ -971,6 +978,20 @@ pub(crate) async fn mobile_register_repository(State(state): State<WebhookState>
         &state.app_state, body.name.trim().to_string(), body.local_path.trim().to_string(), String::new(), branch
     ).await {
         Ok(repository) => (StatusCode::CREATED, Json(repository)).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
+}
+
+pub(crate) async fn mobile_create_workspace(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileCreateWorkspaceRequest>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let parent = body.parent_path.trim();
+    if !std::path::Path::new(parent).is_absolute() {
+        return (StatusCode::BAD_REQUEST, "An absolute parent directory on the server is required").into_response();
+    }
+    match crate::commands::repository_commands::create_local_workspace_for_scope(
+        &state.app_state, Some(body.product_id), body.product_area_id, None, Some(parent.to_string())
+    ).await {
+        Ok(workspace) => (StatusCode::CREATED, Json(workspace)).into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
     }
 }

@@ -284,6 +284,15 @@ remain separate checks.
 
 ### Current requirement audit — 2026-11-14
 
+The browser Workspaces page can now create a workspace for its selected product
+or area in a specified absolute server directory, attach it as default and
+retain existing attachments. The full 40-test isolated workflow suite passed,
+including browser creation and repeat rejection, unauthorized and relative-path
+requests, foreign-area rejection, and the created Git branch. The default
+`/repositories` parent is the worktree container's persistent volume; other
+deployments must select a suitable server path. Browser work-item-specific
+workspace creation and native dialog behavior have not been compared here.
+
 The workspace parity audit found that desktop and MCP workspace creation could
 overwrite files in an existing destination and remove a previous default
 repository attachment. Workspace creation now refuses existing destinations,

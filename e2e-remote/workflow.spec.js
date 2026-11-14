@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
-test("workspace provisioning preserves existing paths and validates scope", async ({ request }) => {
+test("workspace provisioning preserves existing paths and validates scope", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and repository volume");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };
   const call = async (name, action, args) => (await (await request.post("/api/mcp", { headers, data: { jsonrpc: "2.0", id: 11, method: "tools/call", params: { name, arguments: { action, arguments: args } } } })).json()).result;
@@ -31,6 +31,28 @@ test("workspace provisioning preserves existing paths and validates scope", asyn
   expect(attachments.find((item) => item.repository_id === existing.id).is_default).toBe(false);
   expect(attachments.find((item) => item.repository_id === created.structuredContent.result.repository.id).is_default).toBe(true);
   expect((await call("aruvi_repositories", "create_local_workspace", { product_id: fresh.id, preferred_path: "/repositories" })).isError).toBeTruthy();
+  const mobileHeaders = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  expect((await request.post("/api/mobile/workspaces", { data: { product_id: fresh.id, parent_path: "/repositories" } })).status()).toBe(401);
+  expect((await request.post("/api/mobile/workspaces", { headers: mobileHeaders, data: { product_id: fresh.id, parent_path: "relative" } })).status()).toBe(400);
+  expect((await request.post("/api/mobile/workspaces", { headers: mobileHeaders, data: { product_id: other.id, product_area_id: area.id, parent_path: "/repositories" } })).status()).toBe(400);
+  const browserProduct = await createProduct("Browser Workspace");
+  const browserArea = (await call("aruvi_catalog", "create_product_area", { product_id: browserProduct.id, name: "Focus" })).structuredContent.result;
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Workspaces", exact: true }).click();
+  await page.locator("#repositoryProduct").selectOption(browserProduct.id);
+  await expect(page.locator("#repositoryArea option").filter({ hasText: "Focus" })).toHaveCount(1);
+  await page.locator("#repositoryArea").selectOption(browserArea.id);
+  const response = page.waitForResponse((item) => item.url().endsWith("/api/mobile/workspaces") && item.request().method() === "POST");
+  await page.getByRole("button", { name: "Create workspace for selected scope" }).click();
+  const workspaceResponse = await response;
+  expect(workspaceResponse.status()).toBe(201);
+  const workspace = await workspaceResponse.json();
+  expect(workspace.created_path).toBe("/repositories/browser-workspace-focus");
+  await expect(page.locator("#repositoryAttachmentList")).toContainText("Browser Workspace / Focus · Browser Workspace · default");
+  await page.getByRole("button", { name: "Create workspace for selected scope" }).click();
+  await expect(page.locator("#status")).toContainText("Workspace path already exists");
 });
 
 for (const scenario of ["passed", "failed", "skipped"]) test(`isolated workflow records ${scenario} test execution`, async ({ page, request }) => {
