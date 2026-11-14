@@ -192,7 +192,7 @@ export function ModelProviderListPage() {
             return <option key={model.id} value={model.id}>{model.display_name ? `${model.display_name} (${model.id})` : model.id}{task ? ` — provider task: ${task}` : ""}</option>;
           })}</select></>}
           <label style={styles.label}>Model Name</label>
-          <input aria-label="Model name" style={styles.input} value={modelForm.name} onChange={(e) => setModelForm({ ...modelForm, name: e.target.value })} placeholder="e.g. deepseek-chat or deepseek-coder" />
+          <input aria-label="Model name" style={styles.input} value={modelForm.name} onChange={(e) => setModelForm({ ...modelForm, name: e.target.value })} placeholder="e.g. deepseek-flash or deepseek-v4-pro" />
           <label style={styles.label}>Context Window (optional)</label>
           <input style={styles.input} value={modelForm.contextWindow} onChange={(e) => setModelForm({ ...modelForm, contextWindow: e.target.value })} placeholder="e.g. 64000" />
           <label style={styles.label}>Capability Tags (comma-separated)</label>
@@ -206,14 +206,14 @@ export function ModelProviderListPage() {
                 const deepSeekProvider = (providers ?? []).find((provider) => provider.base_url.includes("api.deepseek.com") || provider.name.toLowerCase().includes("deepseek"));
                 setModelForm({
                   providerId: deepSeekProvider?.id ?? modelForm.providerId,
-                  name: "deepseek-chat",
-                  contextWindow: "64000",
-                  capabilityTags: "planning,analysis,review",
-                  notes: "Preferred for planning, analysis, and review-oriented stages.",
+                  name: "deepseek-flash",
+                  contextWindow: "",
+                  capabilityTags: "coding,planning,analysis",
+                  notes: "DeepSeek Flash; verify current availability and pricing with the provider.",
                 });
               }}
             >
-              DeepSeek Chat Preset
+              DeepSeek Flash Preset
             </button>
             <button
               style={{ ...styles.btn, backgroundColor: "#2c3139" }}
@@ -221,14 +221,14 @@ export function ModelProviderListPage() {
                 const deepSeekProvider = (providers ?? []).find((provider) => provider.base_url.includes("api.deepseek.com") || provider.name.toLowerCase().includes("deepseek"));
                 setModelForm({
                   providerId: deepSeekProvider?.id ?? modelForm.providerId,
-                  name: "deepseek-coder",
-                  contextWindow: "64000",
-                  capabilityTags: "coding,implementation,testing",
-                  notes: "Preferred for implementation and test-generation stages.",
+                  name: "deepseek-v4-pro",
+                  contextWindow: "",
+                  capabilityTags: "coding,planning,analysis",
+                  notes: "DeepSeek V4 Pro; verify current availability and pricing with the provider.",
                 });
               }}
             >
-              DeepSeek Coder Preset
+              DeepSeek V4 Pro Preset
             </button>
             <button
               style={{ ...styles.btn, backgroundColor: "#355c2b" }}

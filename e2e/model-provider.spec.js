@@ -1,5 +1,14 @@
 import { test, expect } from "./support/test.js";
 
+test("desktop DeepSeek presets select currently documented model IDs", async ({ page }) => {
+  await page.goto("/models");
+  await page.getByRole("button", { name: "+ Add Model" }).click();
+  await page.getByRole("button", { name: "DeepSeek Flash Preset" }).click();
+  await expect(page.getByLabel("Model name")).toHaveValue("deepseek-flash");
+  await page.getByRole("button", { name: "DeepSeek V4 Pro Preset" }).click();
+  await expect(page.getByLabel("Model name")).toHaveValue("deepseek-v4-pro");
+});
+
 test("desktop provider setup sends Anthropic protocol", async ({ page }) => {
   await page.goto("/models");
   await page.evaluate(() => {

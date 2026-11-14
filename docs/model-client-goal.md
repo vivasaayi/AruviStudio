@@ -2329,6 +2329,19 @@ with both the token and host network access must be trusted with host management
 Neither an inference-only token nor an independently enforced proxy has been
 validated here. Host deployment and authorization were not changed.
 
+## DeepSeek desktop presets
+
+On 2026-11-14, the desktop model presets were updated to `deepseek-flash` and
+`deepseek-v4-pro`, the model IDs in [DeepSeek's current API guide](https://api-docs.deepseek.com/).
+The old `deepseek-chat` preset was listed for retirement in the provider's
+[V4 announcement](https://api-docs.deepseek.com/news/news260424/); the older
+coder preset is also no longer a current recommended model. Existing model
+definitions and agent bindings are not migrated automatically. Users should
+verify model availability, capabilities and pricing before changing bindings.
+The frontend build and nine mocked desktop provider checks passed. An
+unauthenticated `/models` request returned 401 at both root and `/v1`, which
+does not validate either authenticated endpoint or a real model call.
+
 ## Shared-client example pin
 
 The client README's Git dependency example now matches the independent
