@@ -18,6 +18,7 @@ case "${1:-}" in
   host-voice-browser) shift; node scripts/test-host-voice-browser.mjs "$@" ;;
   host-planner) shift; python3 scripts/test-host-planner "$@" ;;
   planner-multiprocess) python3 scripts/test-planner-multiprocess ;;
+  planner-env-routing) python3 scripts/test-planner-env-routing ;;
   host-coding) python3 scripts/test-host-coding ;;
   native-model-host) shift; python3 scripts/test-native-model-host "$@" ;;
   host-file-copilot) python3 scripts/test-host-file-copilot ;;
@@ -44,5 +45,5 @@ case "${1:-}" in
       bash scripts/test-container-ci.sh
       bash scripts/test-container-workflow.sh
     fi ;;
-  *) printf '%s\n' 'Usage: scripts/test unit|integration|ui|staging|host-layout|model-routing|sqlx-patch|native-model-host-sync|host-planner-scope|host-mcp-origin|host-speech|host-speech-cycle|host-speech-defaults|local-whisper-preset|host-voice-browser|host-planner|planner-multiprocess|host-coding|native-model-host|host-coding-ui|host-file-copilot|host-coding-workflow|shared-client-consumer|host-shared-client' >&2; exit 2 ;;
+  *) printf '%s\n' 'Usage: scripts/test unit|integration|ui|staging|host-layout|model-routing|sqlx-patch|native-model-host-sync|host-planner-scope|host-mcp-origin|host-speech|host-speech-cycle|host-speech-defaults|local-whisper-preset|host-voice-browser|host-planner|planner-multiprocess|planner-env-routing|host-coding|native-model-host|host-coding-ui|host-file-copilot|host-coding-workflow|shared-client-consumer|host-shared-client' >&2; exit 2 ;;
 esac

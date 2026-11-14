@@ -291,8 +291,10 @@ override the corresponding saved fields; explicit session selections retain
 precedence. With no configured default, a sole eligible model is still selected
 automatically. The focused Rust resolution test and all 44 isolated workflows
 passed, including invalid saved defaults and explicit overrides through browser
-API and MCP. Live external channels and environment override combinations were
-not exercised by that fixture.
+API and MCP. `bash scripts/test planner-env-routing` also passed six disposable
+server cases covering valid, invalid, partial and blank environment overrides
+and explicit session precedence. Those checks stop at session creation; live
+external channel delivery was not exercised.
 
 Automatic transcription selection ranks explicit transcription/STT/ASR tags
 above generic audio names and ignores clear synthesis-only names or tags, unless
