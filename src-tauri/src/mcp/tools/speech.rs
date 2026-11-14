@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::persistence::{model_repo, settings_repo};
 use crate::services::speech_service::{
-    compatible_speech_model_default, default_transcription_model, resolve_transcription_defaults, speak_text_natively, synthesize_remote_speech, transcribe_audio_with_provider,
+    compatible_speech_model_default, configured_transcription_mode, default_transcription_model, resolve_transcription_defaults, speak_text_natively, synthesize_remote_speech, transcribe_audio_with_provider_mode,
     SpeechToTextRequest, TextToSpeechRequest,
 };
 use crate::state::AppState;
@@ -44,7 +44,8 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 None => default_transcription_model(&state.db, &provider_id).await?,
             };
             let provider = model_repo::get_provider(&state.db, &provider_id).await?;
-            let transcript = transcribe_audio_with_provider(
+            let mode = configured_transcription_mode(&state.db, &provider, &model_name).await?;
+            let transcript = transcribe_audio_with_provider_mode(
                 &provider,
                 &model_name,
                 SpeechToTextRequest {
@@ -58,6 +59,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                         .filter(|value| !value.trim().is_empty())
                         .or(locale_setting),
                 },
+                mode,
             )
             .await?;
             action_result("transcribe_audio", transcript)

@@ -75,6 +75,37 @@ pub async fn transcribe_audio_with_provider(
     model_name: &str,
     request: SpeechToTextRequest,
 ) -> Result<SpeechToTextResponse, AppError> {
+    transcribe_audio_with_provider_mode(provider, model_name, request, aruvi_model_client::openai_compatible::TranscriptionLanguageMode::Auto).await
+}
+
+pub(crate) fn transcription_language_mode_key(provider_id: &str) -> String {
+    format!("model.provider.{provider_id}.transcription_language_mode")
+}
+
+pub(crate) fn parse_transcription_language_mode(value: Option<&str>) -> Result<aruvi_model_client::openai_compatible::TranscriptionLanguageMode, AppError> {
+    use aruvi_model_client::openai_compatible::TranscriptionLanguageMode;
+    match value {
+        None | Some("auto") => Ok(TranscriptionLanguageMode::Auto),
+        Some("singular") => Ok(TranscriptionLanguageMode::Singular),
+        Some("array") => Ok(TranscriptionLanguageMode::Array),
+        _ => Err(AppError::Validation("Invalid transcription language mode".into())),
+    }
+}
+
+pub(crate) async fn configured_transcription_mode(db: &sqlx::SqlitePool, provider: &ModelProvider, model_name: &str) -> Result<aruvi_model_client::openai_compatible::TranscriptionLanguageMode, AppError> {
+    if !matches!(provider.provider_type, ProviderType::OpenaiCompatible) || provider.protocol != "openai_compatible" || model_name.trim().eq_ignore_ascii_case(DEEPSEEK_TRANSCRIPTION) {
+        return Ok(aruvi_model_client::openai_compatible::TranscriptionLanguageMode::Auto);
+    }
+    let raw = crate::persistence::settings_repo::get_setting(db, &transcription_language_mode_key(&provider.id)).await?;
+    parse_transcription_language_mode(raw.as_deref())
+}
+
+pub(crate) async fn transcribe_audio_with_provider_mode(
+    provider: &ModelProvider,
+    model_name: &str,
+    request: SpeechToTextRequest,
+    language_mode: aruvi_model_client::openai_compatible::TranscriptionLanguageMode,
+) -> Result<SpeechToTextResponse, AppError> {
     if !provider.enabled {
         return Err(AppError::Validation("Selected provider is disabled".into()));
     }
@@ -103,7 +134,7 @@ pub async fn transcribe_audio_with_provider(
                 other => AppError::from(other),
             });
     }
-    let client = crate::services::model_service::create_shared_gateway(provider)?;
+    let client = crate::services::model_service::create_transcription_gateway(provider, language_mode)?;
     let result = client.transcribe(aruvi_model_client::TranscriptionRequest {
         model: model_name.to_string(),
         audio: file_bytes,

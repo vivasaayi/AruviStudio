@@ -5,7 +5,7 @@ use crate::services::planner_service::{
 };
 use crate::services::product_service::HIDE_EXAMPLE_PRODUCTS_KEY;
 use crate::services::speech_service::{
-    transcribe_audio_with_provider, SpeechToTextRequest, SpeechToTextResponse,
+    configured_transcription_mode, transcribe_audio_with_provider_mode, SpeechToTextRequest, SpeechToTextResponse,
 };
 use crate::services::webhook_bridge::ensure_mobile_api_authorized;
 use crate::services::webhook_service::WebhookState;
@@ -1526,6 +1526,46 @@ pub(crate) async fn mobile_provider_transport_capabilities(State(state): State<W
 #[derive(Deserialize)]
 pub(crate) struct ProviderStreamUsageUpdate { expected_raw: Option<String>, enabled: bool }
 
+#[derive(Deserialize)]
+pub(crate) struct ProviderTranscriptionModeUpdate { expected_raw: Option<String>, mode: String }
+
+pub(crate) async fn mobile_provider_transcription_mode(State(state): State<WebhookState>, headers: HeaderMap, Path(id): Path<String>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match model_repo::get_provider(&state.app_state.db, &id).await {
+        Ok(provider) if provider.provider_type.as_str() == "openai_compatible" && provider.protocol == "openai_compatible" => {},
+        Ok(_) => return (StatusCode::BAD_REQUEST, "Transcription language mode requires an OpenAI-compatible provider").into_response(),
+        Err(_) => return (StatusCode::NOT_FOUND, "Provider not found").into_response(),
+    };
+    let key = crate::services::speech_service::transcription_language_mode_key(&id);
+    match settings_repo::get_setting(&state.app_state.db, &key).await {
+        Ok(raw) if crate::services::speech_service::parse_transcription_language_mode(raw.as_deref()).is_ok() => Json(serde_json::json!({"mode":raw.as_deref().unwrap_or("auto"), "raw":raw})).into_response(),
+        Ok(_) => (StatusCode::BAD_REQUEST, "Invalid transcription language mode").into_response(),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+    }
+}
+
+pub(crate) async fn mobile_update_provider_transcription_mode(State(state): State<WebhookState>, headers: HeaderMap, Path(id): Path<String>, Json(body): Json<ProviderTranscriptionModeUpdate>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match model_repo::get_provider(&state.app_state.db, &id).await {
+        Ok(provider) if provider.provider_type.as_str() == "openai_compatible" && provider.protocol == "openai_compatible" => {},
+        Ok(_) => return (StatusCode::BAD_REQUEST, "Transcription language mode requires an OpenAI-compatible provider").into_response(),
+        Err(_) => return (StatusCode::NOT_FOUND, "Provider not found").into_response(),
+    };
+    if crate::services::speech_service::parse_transcription_language_mode(Some(&body.mode)).is_err() {
+        return (StatusCode::BAD_REQUEST, "Invalid transcription language mode").into_response();
+    }
+    let key = crate::services::speech_service::transcription_language_mode_key(&id);
+    let result = match body.expected_raw {
+        Some(expected) => sqlx::query("UPDATE settings SET value=?,updated_at=datetime('now') WHERE key=? AND value=?").bind(&body.mode).bind(&key).bind(expected).execute(&state.app_state.db).await,
+        None => sqlx::query("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO NOTHING").bind(&key).bind(&body.mode).execute(&state.app_state.db).await,
+    };
+    match result {
+        Ok(result) if result.rows_affected() == 1 => Json(serde_json::json!({"mode":body.mode,"raw":body.mode})).into_response(),
+        Ok(_) => (StatusCode::CONFLICT, "Transcription language mode changed. Refresh before saving.").into_response(),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+    }
+}
+
 pub(crate) async fn mobile_provider_stream_usage(State(state): State<WebhookState>, headers: HeaderMap, Path(id): Path<String>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     let provider = match model_repo::get_provider(&state.app_state.db, &id).await {
@@ -2077,7 +2117,11 @@ pub(crate) async fn mobile_transcribe_audio(
         Ok(provider) => provider,
         Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
     };
-    match transcribe_audio_with_provider(&provider, &model_name, request).await {
+    let mode = match configured_transcription_mode(&state.app_state.db, &provider, &model_name).await {
+        Ok(mode) => mode,
+        Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    };
+    match transcribe_audio_with_provider_mode(&provider, &model_name, request, mode).await {
         Ok(response) => Json::<SpeechToTextResponse>(response).into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
     }

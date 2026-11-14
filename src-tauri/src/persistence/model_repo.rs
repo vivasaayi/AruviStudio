@@ -138,6 +138,9 @@ pub async fn delete_provider(pool: &SqlitePool, id: &str) -> Result<(), AppError
     sqlx::query("DELETE FROM settings WHERE key=?")
         .bind(crate::services::model_service::stream_usage_setting_key(id))
         .execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM settings WHERE key=?")
+        .bind(crate::services::speech_service::transcription_language_mode_key(id))
+        .execute(&mut *tx).await?;
     sqlx::query("DELETE FROM model_providers WHERE id=?")
         .bind(id)
         .execute(&mut *tx)

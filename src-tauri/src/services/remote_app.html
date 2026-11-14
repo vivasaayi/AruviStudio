@@ -4335,6 +4335,21 @@
               finally { check.disabled = false; }
             });
             card.appendChild(row);
+            const languageRow = document.createElement("label");
+            languageRow.appendChild(document.createTextNode("Transcription language field "));
+            const languageMode = document.createElement("select"); languageMode.disabled = true;
+            languageMode.setAttribute("aria-label", "Transcription language field for " + provider.name);
+            [["auto", "Automatic"], ["singular", "language"], ["array", "languages[]"]].forEach(([value, label]) => { const option = document.createElement("option"); option.value = value; option.textContent = label; languageMode.appendChild(option); });
+            const languageUrl = "/api/mobile/providers/" + encodeURIComponent(provider.id) + "/transcription-language-mode";
+            let languageRaw = null; let languageSaved = "auto";
+            void request(languageUrl).then((data) => { if (requestId !== modelConfigRequestId) return; languageRaw = data.raw; languageSaved = data.mode; languageMode.value = data.mode; languageMode.disabled = false; }).catch((error) => setStatus(error.message || String(error), "error"));
+            languageMode.addEventListener("change", async () => {
+              languageMode.disabled = true;
+              try { const result = await request(languageUrl, {method:"POST",body:{expected_raw:languageRaw,mode:languageMode.value}}); languageRaw = result.raw; languageSaved = result.mode; setStatus("Transcription language field saved", "ok"); }
+              catch (error) { languageMode.value = languageSaved; setStatus(error.message || String(error), "error"); }
+              finally { languageMode.disabled = false; }
+            });
+            languageRow.appendChild(languageMode); card.appendChild(languageRow);
           }
           const capabilities = document.createElement("button"); capabilities.type = "button"; capabilities.className = "secondary"; capabilities.textContent = "Show transport capabilities";
           const capabilityText = document.createElement("div"); capabilityText.className = "empty";

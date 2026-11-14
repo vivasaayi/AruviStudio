@@ -104,6 +104,12 @@ singular `language` field. Configure `with_transcription_language_mode` with
 `TranscriptionLanguageMode::Array` or `::Singular` when a proxy requires an
 explicit format. An absent language hint sends neither field. This controls the
 request shape and does not establish model support or validate language codes.
+Studio exposes this per OpenAI-compatible provider as “Transcription language
+field” in the desktop and browser provider lists and through MCP actions
+`get_provider_transcription_language_mode` and
+`set_provider_transcription_language_mode` (`auto`, `singular`, or `array`).
+The setting affects transcription requests for that provider; it does not alter
+local Whisper or DeepSeek's separate voice endpoints.
 OpenAI-compatible completion responses are capped at 8 MiB, transcription and
 discovery responses at 2 MiB, and WAV speech at 16 MiB. Anthropic completion and
 stream responses are capped at 2 MiB. These limits are fixed for now. Provider

@@ -266,3 +266,13 @@ test("desktop can enable provider streaming usage", async ({ page }) => {
   const stored = await page.evaluate(() => window.__ARUVI_E2E__.invoke("get_setting", { key: "model.provider.provider-deepseek-hosted.stream_usage" }));
   expect(stored).toBe("true");
 });
+
+test("desktop can configure the provider transcription language field", async ({ page }) => {
+  await page.goto("/models");
+  const setting = page.getByLabel("Transcription language field for DeepSeek (Hosted)");
+  await expect(setting).toBeEnabled();
+  await expect(setting).toHaveValue("auto");
+  await setting.selectOption("array");
+  const stored = await page.evaluate(() => window.__ARUVI_E2E__.invoke("get_setting", { key: "model.provider.provider-deepseek-hosted.transcription_language_mode" }));
+  expect(stored).toBe("array");
+});

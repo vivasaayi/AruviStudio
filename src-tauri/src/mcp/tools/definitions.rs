@@ -243,6 +243,8 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "get_provider_transport_capabilities",
                 "get_provider_stream_usage",
                 "set_provider_stream_usage",
+                "get_provider_transcription_language_mode",
+                "set_provider_transcription_language_mode",
                 "register_local_runtime_model",
                 "install_managed_local_model",
                 "run_model_chat_completion",

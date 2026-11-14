@@ -2159,6 +2159,40 @@ test("agent model inspection reports bindings and discovery in browser and MCP",
   await expect(page.locator("#agentModelReadiness")).toContainText("not advertised by provider");
 });
 
+test("transcription language format is configurable across browser and MCP", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const base_url = process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/array-voice/v1");
+  const created = await request.post("/api/mobile/providers", { headers, data: { name: "Array voice fixture", base_url } });
+  expect(created.ok()).toBeTruthy();
+  const provider = await created.json();
+  const url = `/api/mobile/providers/${provider.id}/transcription-language-mode`;
+  expect((await request.get(url)).status()).toBe(401);
+  expect(await (await request.get(url, { headers })).json()).toMatchObject({ mode: "auto", raw: null });
+  expect((await request.post(url, { headers, data: { expected_raw: null, mode: "invalid" } })).status()).toBe(400);
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Models", exact: true }).click();
+  const selector = page.getByLabel("Transcription language field for Array voice fixture");
+  await expect(selector).toBeEnabled();
+  await selector.selectOption("array");
+  await expect.poll(async () => (await (await request.get(url, { headers })).json()).mode).toBe("array");
+  const payload = { provider_id: provider.id, model_name: "proxy-model", audio_bytes_base64: Buffer.from("synthetic audio").toString("base64"), mime_type: "audio/wav", locale: "ta-IN" };
+  const browser = await request.post("/api/mobile/speech/transcribe", { headers, data: payload });
+  expect(browser.ok(), await browser.text()).toBeTruthy();
+  expect((await browser.json()).transcript).toBe("Array language transcript");
+  const mcp = async (name, action, args) => (await (await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 92, method: "tools/call", params: { name, arguments: { action, arguments: args } } } })).json()).result;
+  expect((await mcp("aruvi_speech", "transcribe_audio", payload)).structuredContent.result.transcript).toBe("Array language transcript");
+  expect((await mcp("aruvi_models", "get_provider_transcription_language_mode", { id: provider.id })).structuredContent.result.mode).toBe("array");
+  expect((await mcp("aruvi_models", "set_provider_transcription_language_mode", { id: provider.id, mode: "singular" })).isError).not.toBeTruthy();
+  expect((await request.post(url, { headers, data: { expected_raw: "array", mode: "auto" } })).status()).toBe(409);
+  expect((await mcp("aruvi_models", "set_provider_transcription_language_mode", { id: provider.id, mode: "unsafe" })).isError).toBeTruthy();
+  expect((await mcp("aruvi_models", "delete_provider", { id: provider.id })).isError).not.toBeTruthy();
+  const setting = await mcp("aruvi_settings", "get_setting", { key: `model.provider.${provider.id}.transcription_language_mode` });
+  expect(setting.structuredContent.result.value).toBeNull();
+});
+
 test("provider streaming usage is opt-in across browser and MCP", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };

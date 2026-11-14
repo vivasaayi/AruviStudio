@@ -193,6 +193,22 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             model_repo::delete_model_definition(&state.db, &id).await?;
             Ok(action_ok("delete_model_definition"))
         }
+        "get_provider_transcription_language_mode" | "set_provider_transcription_language_mode" => {
+            let id = args.required_string(&["id", "provider_id", "providerId"], "provider_id")?;
+            let provider = model_repo::get_provider(&state.db, &id).await?;
+            if provider.provider_type.as_str() != "openai_compatible" || provider.protocol != "openai_compatible" {
+                return Err(AppError::Validation("Transcription language mode requires an OpenAI-compatible provider".into()));
+            }
+            let key = crate::services::speech_service::transcription_language_mode_key(&id);
+            if tool_action.action == "set_provider_transcription_language_mode" {
+                let mode = args.required_string(&["mode"], "mode")?;
+                crate::services::speech_service::parse_transcription_language_mode(Some(&mode))?;
+                crate::persistence::settings_repo::set_setting(&state.db, &key, &mode).await?;
+            }
+            let raw = crate::persistence::settings_repo::get_setting(&state.db, &key).await?;
+            crate::services::speech_service::parse_transcription_language_mode(raw.as_deref())?;
+            action_result(&tool_action.action, json!({"mode":raw.unwrap_or_else(|| "auto".into())}))
+        }
         "get_provider_stream_usage" | "set_provider_stream_usage" => {
             let id = args.required_string(&["id", "provider_id", "providerId"], "provider_id")?;
             let provider = model_repo::get_provider(&state.db, &id).await?;

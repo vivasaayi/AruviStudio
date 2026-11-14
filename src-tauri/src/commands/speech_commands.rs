@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::persistence::{model_repo, settings_repo};
 use crate::services::speech_service::{
-    compatible_speech_model_default, default_transcription_model, resolve_transcription_defaults, speak_text_natively, transcribe_audio_with_provider,
+    compatible_speech_model_default, configured_transcription_mode, default_transcription_model, resolve_transcription_defaults, speak_text_natively, transcribe_audio_with_provider_mode,
     SpeechToTextRequest, SpeechToTextResponse, TextToSpeechRequest,
 };
 use crate::state::AppState;
@@ -40,7 +40,8 @@ pub async fn transcribe_audio_command(
         locale: locale.filter(|value| !value.trim().is_empty()).or(locale_setting),
     };
     let provider = model_repo::get_provider(&state.db, &provider_id).await?;
-    transcribe_audio_with_provider(&provider, &model_name, request).await
+    let mode = configured_transcription_mode(&state.db, &provider, &model_name).await?;
+    transcribe_audio_with_provider_mode(&provider, &model_name, request, mode).await
 }
 
 #[tauri::command]
@@ -87,7 +88,7 @@ mod tests {
             let len: usize = headers.lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().trim().parse().unwrap();
             while bytes.len() < end + len { let n = socket.read(&mut buffer).unwrap(); assert_ne!(n, 0); bytes.extend_from_slice(&buffer[..n]); }
             assert!(bytes[end..end + len].windows(b"custom-voice-v2".len()).any(|part| part == b"custom-voice-v2"));
-            assert!(bytes[end..end + len].windows(b"name=\"language\"\r\n\r\nta\r\n".len()).any(|part| part == b"name=\"language\"\r\n\r\nta\r\n"));
+            assert!(bytes[end..end + len].windows(b"name=\"languages[]\"\r\n\r\nta\r\n".len()).any(|part| part == b"name=\"languages[]\"\r\n\r\nta\r\n"));
             let response = r#"{"text":"desktop custom transcript"}"#;
             write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).unwrap();
         });
@@ -95,6 +96,7 @@ mod tests {
         let state = app.state::<AppState>();
         model_repo::create_provider(&state.db, "custom-speech", "Custom speech", "openai_compatible", &format!("http://{address}"), None).await.unwrap();
         settings_repo::set_setting(&state.db, SPEECH_LOCALE_KEY, "ta-IN").await.unwrap();
+        settings_repo::set_setting(&state.db, &crate::services::speech_service::transcription_language_mode_key("custom-speech"), "array").await.unwrap();
         let response = transcribe_audio_command(state, Some("custom-speech".into()), Some("custom-voice-v2".into()),
             base64::engine::general_purpose::STANDARD.encode(b"synthetic audio"), "audio/wav".into(), Some("  ".into())).await.unwrap();
         assert_eq!(response.transcript, "desktop custom transcript");

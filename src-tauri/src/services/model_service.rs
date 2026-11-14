@@ -3,7 +3,7 @@ use crate::error::AppError;
 use crate::providers::gateway::ModelGateway;
 use crate::providers::types::{CompletionRequest, CompletionResponse};
 use crate::secrets;
-use aruvi_model_client::{anthropic::AnthropicClient, openai_compatible::{OpenAiCompatibleClient, CompletionOptions, TemperatureMode, TokenLimitField}};
+use aruvi_model_client::{anthropic::AnthropicClient, openai_compatible::{OpenAiCompatibleClient, CompletionOptions, TemperatureMode, TokenLimitField, TranscriptionLanguageMode}};
 use aruvi_model_client::{ClientOptions, ModelGateway as SharedModelGateway};
 use async_trait::async_trait;
 use sqlx::SqlitePool;
@@ -130,14 +130,18 @@ pub async fn create_stream_gateway(provider: &ModelProvider, db: &SqlitePool) ->
             _ => return Err(AppError::Validation("Invalid provider stream usage setting".into())),
         }
     } else { false };
-    create_shared_gateway_inner(provider, enabled)
+    create_shared_gateway_inner(provider, enabled, TranscriptionLanguageMode::Auto)
 }
 
 pub fn create_shared_gateway(provider: &ModelProvider) -> Result<Box<dyn SharedModelGateway>, AppError> {
-    create_shared_gateway_inner(provider, false)
+    create_shared_gateway_inner(provider, false, TranscriptionLanguageMode::Auto)
 }
 
-fn create_shared_gateway_inner(provider: &ModelProvider, include_stream_usage: bool) -> Result<Box<dyn SharedModelGateway>, AppError> {
+pub(crate) fn create_transcription_gateway(provider: &ModelProvider, mode: TranscriptionLanguageMode) -> Result<Box<dyn SharedModelGateway>, AppError> {
+    create_shared_gateway_inner(provider, false, mode)
+}
+
+fn create_shared_gateway_inner(provider: &ModelProvider, include_stream_usage: bool, transcription_mode: TranscriptionLanguageMode) -> Result<Box<dyn SharedModelGateway>, AppError> {
     if !provider.enabled {
         return Err(AppError::Validation("Selected provider is disabled".into()));
     }
@@ -158,15 +162,15 @@ fn create_shared_gateway_inner(provider: &ModelProvider, include_stream_usage: b
         ));
     }
     let api_key = secrets::resolve_provider_secret(provider)?;
-    create_transport_configured(provider, api_key, configured_model_client_options()?, include_stream_usage)
+    create_transport_configured(provider, api_key, configured_model_client_options()?, include_stream_usage, transcription_mode)
 }
 
 #[cfg(test)]
 fn create_transport(provider: &ModelProvider, api_key: Option<String>, options: ClientOptions) -> Result<Box<dyn SharedModelGateway>, AppError> {
-    create_transport_configured(provider, api_key, options, false)
+    create_transport_configured(provider, api_key, options, false, TranscriptionLanguageMode::Auto)
 }
 
-fn create_transport_configured(provider: &ModelProvider, api_key: Option<String>, options: ClientOptions, include_stream_usage: bool) -> Result<Box<dyn SharedModelGateway>, AppError> {
+fn create_transport_configured(provider: &ModelProvider, api_key: Option<String>, options: ClientOptions, include_stream_usage: bool, transcription_mode: TranscriptionLanguageMode) -> Result<Box<dyn SharedModelGateway>, AppError> {
     crate::persistence::model_repo::validate_provider_protocol(provider.provider_type.as_str(), &provider.protocol)?;
     crate::persistence::model_repo::validate_completion_profile(provider.provider_type.as_str(), &provider.protocol, &provider.completion_profile)?;
     match provider.protocol.as_str() {
@@ -178,7 +182,7 @@ fn create_transport_configured(provider: &ModelProvider, api_key: Option<String>
                 "openai_reasoning" => CompletionOptions { token_limit_field: TokenLimitField::MaxCompletionTokens, temperature: TemperatureMode::Omit },
                 _ => return Err(AppError::Validation("Unsupported provider completion profile".into())),
             };
-            Ok(Box::new(client.with_completion_options(completion_options).with_stream_usage(include_stream_usage)))
+            Ok(Box::new(client.with_completion_options(completion_options).with_stream_usage(include_stream_usage).with_transcription_language_mode(transcription_mode)))
         },
         "anthropic" => {
             let key = api_key
