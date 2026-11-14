@@ -19,6 +19,7 @@ parser.add_argument('--host-binary', type=Path, required=True)
 parser.add_argument('--worker-binary', type=Path, required=True)
 parser.add_argument('--model-file', type=Path, required=True)
 parser.add_argument('--studio-image', required=True)
+parser.add_argument('--browser', action='store_true', help='Also exercise streaming in a local Chrome browser')
 args = parser.parse_args()
 root = Path(__file__).resolve().parent.parent
 host = container = None
@@ -127,6 +128,12 @@ try:
         if not events or events[-1].get('type') != 'done' or any(event.get('type') != 'delta' for event in events[:-1]) or 'ready' not in ''.join(event.get('content','') for event in events[:-1]).lower():
             raise ValueError('Real model streaming did not complete the fixture')
         print('Disposable real-model host: scoped discovery, denied management, Docker Studio MCP and browser API streaming passed.')
+        if args.browser:
+            phase = 'browser streaming'
+            fixture = {'address':base, 'token':studio_token, 'provider':provider['id'], 'model':'scoped-real-model'}
+            result = subprocess.run(['node', str(root / 'scripts/test-scoped-real-host-ui.mjs')], input=json.dumps(fixture), capture_output=True, text=True, timeout=200)
+            if result.returncode != 0: raise ValueError('Browser fixture failed')
+            print('Disposable browser streaming completed with the scoped credential.')
 except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError, urllib.error.URLError) as error:
     print('Scoped real-host validation failed during ' + phase + ' (' + type(error).__name__ + ')', file=sys.stderr)
     sys.exit(1)

@@ -65,8 +65,10 @@ configuration through Studio's scope-checking helper. Those lifecycle and cross-
 A separate temporary host built from the candidate then copied the installed
 `qwen-05b-comparison` model into its own state, ran it with CPU inference, denied
 management with a fresh scoped token, and passed Docker Studio MCP completion
-and browser API streaming twice. No live host deployment or data was modified;
-the temporary host and Studio container were stopped. This tests one model and
+and browser API streaming twice. A subsequent run with `--browser` also passed
+through a headless Chrome chat session using the same scoped credential. No live
+host deployment or data was modified; the temporary host and Studio container
+were stopped. This tests one model and
 prompt, not broad model quality or a deployed scoped host. The reusable
 `scripts/test scoped-real-host` command accepts explicit candidate-host binary,
 worker binary, model file and Studio image paths. The snapshot's other probes require `MODEL_HOST_TEST_BIN` plus `ARUVI_STUDIO_TEST_BIN` or

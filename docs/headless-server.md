@@ -117,6 +117,9 @@ bash scripts/test scoped-real-host --host-binary /path/to/candidate-host \
 It creates synthetic credentials and isolated data, checks that management is
 denied to the scoped token, and tests Docker Studio MCP and API streaming. This
 is an acceptance fixture for the supplied binary and model, not a deployment.
+Add `--browser` to also check streaming in local Chrome; `ARUVI_CHROME_PATH` can
+select a different executable. The fixture passes its synthetic Studio token to
+the browser helper on stdin.
 
 The helper reads the selected host's private token without printing it, verifies
 model discovery from both the Mac and the Studio container, and updates the named
