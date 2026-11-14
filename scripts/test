@@ -25,7 +25,7 @@ case "${1:-}" in
   host-file-copilot) python3 scripts/test-host-file-copilot ;;
   host-coding-ui) shift; node scripts/test-host-coding-ui.mjs "$@" ;;
   host-coding-workflow) shift; python3 scripts/test-host-coding-workflow "$@" ;;
-  shared-client-consumer) docker build --no-cache --target test --output=type=cacheonly validation/model-client-consumer ;;
+  shared-client-consumer) python3 scripts/check-model-client-pin.py && docker build --no-cache --target test --output=type=cacheonly validation/model-client-consumer ;;
   host-shared-client) shift; python3 scripts/test-shared-client-host "$@" ;;
   scoped-real-host) shift; python3 scripts/test-scoped-real-host "$@" ;;
   ui|staging)

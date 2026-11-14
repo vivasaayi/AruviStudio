@@ -3646,6 +3646,18 @@ image. The worktree port is dynamic; obtain the current address with
 `bash scripts/env worktree status`. These checks use test providers and do not
 replace the outstanding native-window and physical microphone acceptance.
 
+## Shared-client adoption pin checkpoint
+
+On 2026-11-14, the README's consumer example was corrected to the independent
+fixture's existing Git revision `873617965bdf455f4cd89accea64cb1b3b69931b`.
+The client Rust source at that revision matches the current source; this is not a
+published release. The independent consumer passed 27 native tests with its
+locked dependencies offline, and its native probe passed discovery, completion,
+streaming and token-limit checks against the real 7B coding host. The probe used
+the existing management-scoped credential and did not test cloud providers.
+The consumer test entry point now checks that the README, manifest and lockfile
+pins agree. Temporary mismatched README and lockfile controls were rejected.
+
 ## Real coding retry guidance checkpoint
 
 On 2026-11-14, the rebuilt worktree passed a real `qwen25-coder-7b-q4` MCP
