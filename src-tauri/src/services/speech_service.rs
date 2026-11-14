@@ -74,7 +74,7 @@ pub async fn transcribe_audio_with_provider(
         audio: file_bytes,
         filename: format!("planner-recording.{}", mime_extension_for_mime_type(&request.mime_type)),
         mime_type: request.mime_type,
-        language: request.locale,
+        language: transcription_language(request.locale.as_deref()),
     }).await;
     match result {
         Ok(transcript) => Ok(SpeechToTextResponse { transcript }),
@@ -325,6 +325,12 @@ fn resample_mono_audio(samples: &[f32], source_rate: u32, target_rate: u32) -> R
     Ok(output)
 }
 
+// Studio stores browser/native locales, whereas OpenAI-compatible speech APIs
+// generally consume a language code. An omitted language permits detection.
+fn transcription_language(locale: Option<&str>) -> Option<String> {
+    normalize_whisper_language(locale).filter(|language| !language.is_empty() && language != "auto")
+}
+
 fn normalize_whisper_language(locale: Option<&str>) -> Option<String> {
     locale
         .map(str::trim)
@@ -450,6 +456,41 @@ mod tests {
         let transcript = transcribe_audio_with_provider(&provider, "whisper", request)
             .await.expect("local transcription").transcript.to_lowercase();
         assert!(transcript.contains("fox") && transcript.contains("dog"), "synthetic fixture was not recognized: {transcript}");
+    }
+
+    #[test]
+    fn remote_transcription_language_uses_primary_locale_subtag() {
+        for (input, expected) in [(Some("en-US"), Some("en")), (Some(" PT_br "), Some("pt")), (Some("en"), Some("en")), (Some("auto"), None), (Some(""), None), (None, None)] {
+            assert_eq!(transcription_language(input).as_deref(), expected);
+        }
+    }
+
+    #[tokio::test]
+    async fn remote_transcription_sends_normalized_language_to_provider() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut bytes = Vec::new(); let mut buffer = [0; 4096];
+            let end = loop {
+                let n = socket.read(&mut buffer).unwrap(); assert_ne!(n, 0); bytes.extend_from_slice(&buffer[..n]);
+                if let Some(index) = bytes.windows(4).position(|value| value == b"\r\n\r\n") { break index + 4; }
+            };
+            let headers = String::from_utf8_lossy(&bytes[..end]).to_lowercase();
+            let length: usize = headers.lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().trim().parse().unwrap();
+            while bytes.len() < end + length { let n = socket.read(&mut buffer).unwrap(); assert_ne!(n, 0); bytes.extend_from_slice(&buffer[..n]); }
+            let body = String::from_utf8_lossy(&bytes[end..end + length]);
+            assert!(body.contains("name=\"language\"\r\n\r\nen\r\n"), "unexpected multipart language field");
+            let reply = r#"{"text":"fixture transcript"}"#;
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", reply.len(), reply).unwrap();
+        });
+        let provider = ModelProvider { id: "fixture".into(), name: "fixture".into(), provider_type: ProviderType::OpenaiCompatible,
+            protocol: "openai_compatible".into(), completion_profile: "standard".into(), base_url: format!("http://{address}"),
+            auth_secret_ref: None, enabled: true, created_at: "".into(), updated_at: "".into() };
+        let request = SpeechToTextRequest { audio_bytes_base64: base64::engine::general_purpose::STANDARD.encode(b"audio fixture"), mime_type: "audio/wav".into(), locale: Some("en-US".into()) };
+        assert_eq!(transcribe_audio_with_provider(&provider, "fixture", request).await.unwrap().transcript, "fixture transcript");
+        server.join().unwrap();
     }
 
     #[tokio::test]

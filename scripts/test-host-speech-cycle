@@ -44,7 +44,7 @@ try:
             raise ValueError("Speech provider returned empty WAV audio")
     result = call("aruvi_speech", "transcribe_audio", {
         "provider_id": provider_id, "model_name": transcription_model,
-        "audio_bytes_base64": encoded, "mime_type": "audio/wav", "locale": "en",
+        "audio_bytes_base64": encoded, "mime_type": "audio/wav", "locale": "en-US",
     })
     words = re.findall(r"[a-z]+", result["transcript"].lower())
     expected = re.findall(r"[a-z]+", phrase.lower())

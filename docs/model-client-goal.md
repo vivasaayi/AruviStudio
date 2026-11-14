@@ -2240,6 +2240,20 @@ product reference, and verified product deletion clears the reference.
   records restored free space; the existing worktree volume was retained and the
   rebuilt container restarted healthy. The dynamically assigned port can change.
 
+## Remote speech locale compatibility
+
+Studio converts locale hints such as `en-US` and `pt_BR` to their primary
+language component for OpenAI-compatible transcription, and omits `auto` or
+empty hints. The reusable transport still sends its caller-provided language
+unchanged. This matches Studio's existing local Whisper locale behavior and the
+[OpenAI transcription API](https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions/methods/create)
+language-code guidance; a provider that relies on regional subtags will now
+receive only the primary language through Studio. Synthetic multipart and locale
+unit tests passed. Actual provider language support and transcription quality
+remain provider/model-specific.
+A real MCP speech round trip using `en-US`, `piper-ljspeech` and
+`whisper-tiny-metal` passed on 2026-11-14 with synthetic audio.
+
 ## Shared-client embedded error handling
 
 Anthropic completion, both providers' model discovery and OpenAI-compatible
