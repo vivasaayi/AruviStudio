@@ -966,6 +966,10 @@ check compared an older source-filtered page from the running worktree's
 authenticated browser API and MCP ledger. The same ten records were returned
 and the page included existing real-model calls. This checks API results, not
 browser interaction or a snapshot-consistent view during concurrent writes.
+`node scripts/test-host-model-call-ui.mjs` subsequently used a headless browser
+against the running worktree, loaded 27 older records from its real ledger,
+observed the paused-refresh state, and returned to the latest page. It did not
+create calls or test native-window behavior.
 
 This table summarizes the current evidence; dated sections below are historical
 and may describe issues that were subsequently fixed. A passing fixture proves
