@@ -45,6 +45,34 @@ not establish that all desktop behavior is available or works in a container.
 
 ### Audit findings before merge
 
+#### Settings and outbound contact comparison — 2026-11-14
+
+This is a source comparison of the desktop Settings page, browser Routing and
+Voice sections, and the MCP handlers; it is not native-window or live Twilio
+acceptance. The generic MCP setting actions can read and write arbitrary keys,
+but that alone does not provide the desktop form's validation, conflict handling,
+or evidence that a setting affects runtime behavior.
+
+| Desktop action | Browser | MCP | Follow-up |
+| --- | --- | --- | --- |
+| Hide examples; seed/repair catalog | Routing controls and authenticated catalog APIs | `aruvi_settings` and catalog actions | Existing isolated browser tests cover catalog settings; confirm native comparison. |
+| Set planner provider and model | Routing defaults form; environment values can override | `aruvi_settings` | Existing browser form uses a revision check; desktop/MCP setting writes are last-write-wins. |
+| Set outbound channel preference, ambiguity escalation and call quiet hours | No corresponding controls found | `aruvi_settings` can update the underlying keys | Implement and test browser controls against `channel_contact_policy`; validate concurrent changes and show that quiet hours use the server's local timezone. |
+| Send WhatsApp, start a voice call or route planner contact | No corresponding controls found | `aruvi_channels` exposes all three operations | Add an appropriate browser workflow and test with a simulated channel service before any live acceptance. |
+| Configure Twilio and default contact details | No corresponding controls found | Generic `aruvi_settings` operations | Design secret-safe configuration and masked display; avoid returning stored credentials to browser clients. Live Twilio remains unverified. |
+| Set transcription provider/model/locale | Voice server-default controls; browser can also choose per-session values | `aruvi_settings` and `aruvi_speech` | Environment overrides and client/session-specific values need explicit verification. |
+| Set native voice, microphone, automatic speech and transcript review | Browser Voice has device-specific recording, review and speech controls | `aruvi_speech` supports speech operations | Native OS voice and microphone preferences are not the same as browser device settings; physical capture and playback remain unverified. |
+| Configure mobile/MCP bind address, port and tokens; view bridge status | Connection token is entered locally; no server bridge settings/status controls found | `aruvi_settings` exposes status and generic setting operations | Document container environment precedence and restart behavior; design safe browser administration without exposing tokens. |
+| Inspect database health and override its path | Routing database panel | `aruvi_settings` database actions | Both server paths and restart/environment precedence need to remain explicit. |
+| Set Docker host and maximum workflow retries | No corresponding controls found | Generic `aruvi_settings` can store values | Repository search found these keys only in the desktop settings form and loader, with no backend readers. Do not present them as working execution controls until behavior is implemented and verified. |
+
+The four outbound policy keys are consumed by `channel_contact_policy.rs`, so
+the missing browser controls affect real server behavior; this is distinct from
+the two execution fields whose stored values currently have no identified
+consumer. Existing MCP access is not evidence of browser parity or live channel
+delivery. The rest of the desktop settings and the full IDE/CI comparison remain
+open.
+
 An isolated MCP-only lifecycle test now creates and updates a product, creates an
 area, capability and work item, attaches a Git repository, configures model bindings,
 approves both workflow gates, and reaches `done`. It verifies the generated file was
