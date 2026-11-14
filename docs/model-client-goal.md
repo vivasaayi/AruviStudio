@@ -2368,6 +2368,12 @@ loads or when the selector is not registered locally; changing the provider
 clears the unsaved model selection. The frontend build and eleven mocked
 desktop provider checks passed, including delayed model loading. The provider
 and model settings are saved separately.
+DeepSeek voice selectors now ignore surrounding whitespace and ASCII case,
+matching desktop model recognition. Its 8 MiB transcription limit is checked
+before base64 decoding as well as by the shared client; other Studio
+transcription retains its 32 MiB limit. Nine native speech tests passed with
+one local Whisper case ignored, and all 35 isolated workflow tests passed with
+mixed-case DeepSeek selectors through the simulated API and MCP fixture.
 
 ## Shared-client example pin
 

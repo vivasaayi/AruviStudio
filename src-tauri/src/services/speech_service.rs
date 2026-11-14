@@ -10,6 +10,7 @@ use std::process::Command;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 const STUDIO_TRANSCRIPTION_MAX_BYTES: usize = 32 * 1024 * 1024;
+const DEEPSEEK_TRANSCRIPTION_MAX_BYTES: usize = 8 * 1024 * 1024;
 const LOCAL_WHISPER_MAX_DURATION_SECONDS: u64 = 10 * 60;
 const DEEPSEEK_TRANSCRIPTION: &str = "deepseek-voice-transcription";
 const DEEPSEEK_SYNTHESIS: &str = "deepseek-voice-synthesis";
@@ -44,7 +45,7 @@ pub async fn synthesize_remote_speech(
     if provider.protocol != "openai_compatible" {
         return Err(AppError::Validation("Selected provider protocol does not support remote speech synthesis".into()));
     }
-    if model == DEEPSEEK_SYNTHESIS {
+    if model.trim().eq_ignore_ascii_case(DEEPSEEK_SYNTHESIS) {
         if speed.is_some() { return Err(AppError::Validation("DeepSeek voice does not support speed control".into())); }
         let voice = match voice.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
             None => None,
@@ -81,8 +82,10 @@ pub async fn transcribe_audio_with_provider(
     if provider.protocol != "openai_compatible" {
         return Err(AppError::Validation("Selected provider protocol does not support remote transcription".into()));
     }
-    let file_bytes = decode_transcription_audio(&request.audio_bytes_base64, STUDIO_TRANSCRIPTION_MAX_BYTES)?;
-    if model_name == DEEPSEEK_TRANSCRIPTION {
+    let deepseek = model_name.trim().eq_ignore_ascii_case(DEEPSEEK_TRANSCRIPTION);
+    let limit = if deepseek { DEEPSEEK_TRANSCRIPTION_MAX_BYTES } else { STUDIO_TRANSCRIPTION_MAX_BYTES };
+    let file_bytes = decode_transcription_audio(&request.audio_bytes_base64, limit)?;
+    if deepseek {
         let client = crate::services::model_service::create_deepseek_voice_client(provider)?;
         let filename = format!("planner-recording.{}", mime_extension_for_mime_type(&request.mime_type));
         return client.transcribe(file_bytes, filename, request.mime_type).await
@@ -249,16 +252,21 @@ async fn transcribe_audio_locally(
 
 fn decode_transcription_audio(encoded: &str, max_bytes: usize) -> Result<Vec<u8>, AppError> {
     let encoded = encoded.trim();
+    let limit_message = || {
+        let unit = 1024 * 1024;
+        if max_bytes % unit == 0 { format!("Transcription audio exceeds the {} MiB limit.", max_bytes / unit) }
+        else { format!("Transcription audio exceeds the {max_bytes}-byte limit.") }
+    };
     // Check the encoded length before decoding so an oversized request does not
     // allocate a second, decoded copy of the entire payload.
     let max_encoded = max_bytes.div_ceil(3).saturating_mul(4);
     if encoded.len() > max_encoded {
-        return Err(AppError::Validation("Transcription audio exceeds the 32 MiB limit.".into()));
+        return Err(AppError::Validation(limit_message()));
     }
     let bytes = base64::engine::general_purpose::STANDARD.decode(encoded)
         .map_err(|error| AppError::Validation(format!("Invalid audio payload: {error}")))?;
     if bytes.len() > max_bytes {
-        return Err(AppError::Validation("Transcription audio exceeds the 32 MiB limit.".into()));
+        return Err(AppError::Validation(limit_message()));
     }
     Ok(bytes)
 }
@@ -526,6 +534,17 @@ mod tests {
         let request = SpeechToTextRequest { audio_bytes_base64: "A".repeat(STUDIO_TRANSCRIPTION_MAX_BYTES.div_ceil(3) * 4 + 1), mime_type: "audio/wav".into(), locale: None };
         let error = transcribe_audio_with_provider(&provider, "fixture", request).await.unwrap_err();
         assert!(matches!(error, AppError::Validation(message) if message.contains("32 MiB")));
+    }
+
+    #[tokio::test]
+    async fn deepseek_audio_limit_applies_before_secret_or_network_access() {
+        let provider = ModelProvider { id: "fixture".into(), name: "fixture".into(), provider_type: ProviderType::OpenaiCompatible,
+            protocol: "openai_compatible".into(), completion_profile: "standard".into(), base_url: "http://127.0.0.1:1".into(),
+            auth_secret_ref: None, enabled: true, created_at: "".into(), updated_at: "".into() };
+        let encoded = base64::engine::general_purpose::STANDARD.encode(vec![0; DEEPSEEK_TRANSCRIPTION_MAX_BYTES + 1]);
+        let request = SpeechToTextRequest { audio_bytes_base64: encoded, mime_type: "audio/wav".into(), locale: None };
+        let error = transcribe_audio_with_provider(&provider, " DeepSeek-Voice-Transcription ", request).await.unwrap_err();
+        assert!(matches!(error, AppError::Validation(message) if message.contains("8 MiB")));
     }
 
     #[tokio::test]

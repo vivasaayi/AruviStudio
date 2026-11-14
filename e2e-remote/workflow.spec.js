@@ -203,8 +203,8 @@ test("DeepSeek voice uses its dedicated endpoints through browser, API and MCP",
   const created = await request.post("/api/mobile/providers", { headers, data: { name: "DeepSeek voice fixture", base_url: process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/deepseek/v1"), api_key: "synthetic-deepseek-key" } });
   expect(created.ok()).toBeTruthy();
   const provider = await created.json();
-  const transcript = { provider_id: provider.id, model_name: "deepseek-voice-transcription", audio_bytes_base64: "AA==", mime_type: "audio/wav", locale: "en-US" };
-  const speech = { provider_id: provider.id, model: "deepseek-voice-synthesis", text: "Hello", voice: "tide" };
+  const transcript = { provider_id: provider.id, model_name: " DeepSeek-Voice-Transcription ", audio_bytes_base64: "AA==", mime_type: "audio/wav", locale: "en-US" };
+  const speech = { provider_id: provider.id, model: " DeepSeek-Voice-Synthesis ", text: "Hello", voice: "tide" };
   const mcp = async (action, args) => (await (await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_speech", arguments: { action, arguments: args } } } })).json()).result;
   expect((await (await request.post("/api/mobile/speech/transcribe", { headers, data: transcript })).json()).transcript).toBe("DeepSeek fixture transcript");
   const transcribed = await mcp("transcribe_audio", transcript);
