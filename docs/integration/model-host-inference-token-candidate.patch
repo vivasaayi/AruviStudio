@@ -65,7 +65,7 @@
 +      MODEL_HOST_INFERENCE_TOKEN: ${MODEL_HOST_INFERENCE_TOKEN:-}
 --- a/README.md
 +++ b/README.md
-@@ -135,0 +136,16 @@
+@@ -135,0 +136,19 @@
 +
 +## Optional inference-only credential
 +
@@ -82,6 +82,9 @@
 +`ARUVI_STUDIO_TEST_BIN` (native) or `ARUVI_STUDIO_TEST_IMAGE` and
 +`ARUVI_STUDIO_ROOT` (Docker). They create disposable state and use simulated
 +workers and synthetic credentials; they do not validate real-model quality.
++The optional `tests/studio_scoped_rotation.py` fixture uses the same Docker
++variables and checks that Studio's watcher handles a scoped-token change before
++and after an isolated host restart without replacing the provider.
 --- a/tests/fake_worker.py
 +++ b/tests/fake_worker.py
 @@ -91 +91 @@
@@ -310,4 +313,80 @@
 +        assert 'fixture-inference-token' not in result.stdout+result.stderr
 +        print('Scoped independent Docker consumer passed discovery, completion, streaming, and token-limit checks against a simulated host.')
 +finally:
++    host.tearDown()
+--- /dev/null
++++ b/tests/studio_scoped_rotation.py
+@@ -0,0 +1,73 @@
++"""Exercise Studio's scoped-token watcher against disposable host and Docker Studio."""
++import contextlib, importlib.machinery, io, json, os, pathlib, subprocess, tempfile, time, urllib.request
++from types import SimpleNamespace
++from unittest import mock
++from tests.lifecycle import Lifecycle
++
++host = Lifecycle('test_inference_token_cannot_manage_the_host')
++host.setUp()
++container = None
++try:
++    host.register(); assert host.install()['installation'] == 'installed'
++    created = subprocess.run(['docker','run','-d','--rm','--tmpfs','/data:mode=1777','--tmpfs','/repositories:mode=1777',
++      '-p','127.0.0.1::8787','-e','ARUVI_MOBILE_API_TOKEN=studio-fixture-token','-e','ARUVI_MCP_API_TOKEN=studio-fixture-token',
++      '-e','ARUVI_LLM_CONFIG_PATH=/data/llm.json',os.environ['ARUVI_STUDIO_TEST_IMAGE']],check=True,capture_output=True,text=True)
++    container=created.stdout.strip()
++    address=subprocess.check_output(['docker','port',container,'8787/tcp'],text=True).strip().splitlines()[0]
++    if not address.startswith('127.0.0.1:'): raise RuntimeError('Fixture is not loopback-only')
++    opener=urllib.request.build_opener(urllib.request.ProxyHandler({})); base='http://'+address
++    for _ in range(200):
++        try:
++            with opener.open(base+'/health',timeout=1): break
++        except OSError: time.sleep(.1)
++    else: raise RuntimeError('Studio readiness timed out')
++    def mcp(action, arguments):
++        payload={'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':'aruvi_models','arguments':{'action':action,'arguments':arguments}}}
++        request=urllib.request.Request(base+'/api/mcp',data=json.dumps(payload).encode(),headers={'Authorization':'Bearer studio-fixture-token','Content-Type':'application/json'})
++        with opener.open(request,timeout=30) as response: result=json.load(response)['result']
++        if result.get('isError'): raise RuntimeError('MCP fixture failed: '+action)
++        return result['structuredContent']['result']
++    def completion(provider):
++        result=mcp('run_model_chat_completion',{'provider_id':provider,'model':'fixture','messages':[{'role':'user','content':'hello'}],'max_tokens':20})
++        assert result['content']=='fixture response'
++    with tempfile.TemporaryDirectory(prefix='scoped-rotation-') as directory:
++        root=pathlib.Path(directory); (root/'scripts').mkdir(); (root/'state').mkdir()
++        secret=root/'state/environment.env'
++        def update_files(inference):
++            secret.write_text('MODEL_HOST_TOKEN=fixture-token\nMODEL_HOST_INFERENCE_TOKEN='+inference+'\n'); secret.chmod(0o600)
++            (root/'plan.json').write_text(json.dumps({'state':str(root/'state')}))
++            (root/'status.json').write_text(json.dumps({'registered':True,'endpoint':{'url':host.url,'pid':host.process.pid}}))
++        update_files('fixture-inference-token')
++        shim=root/'scripts/env'; shim.write_text('#!/bin/bash\nif [ "$2" = "plan" ]; then cat "$(dirname "$0")/../plan.json"; else cat "$(dirname "$0")/../status.json"; fi\n'); shim.chmod(0o755)
++        helper=importlib.machinery.SourceFileLoader('studio_host_helper',os.path.join(os.environ['ARUVI_STUDIO_ROOT'],'scripts/configure-native-model-host')).load_module()
++        helper.mcp=mcp
++        state={}
++        def tick(_seconds):
++            phase=state.get('phase',0)
++            if phase==0:
++                providers=[p for p in mcp('list_providers',{}) if p['name']=='scoped rotation fixture']; assert len(providers)==1
++                state['id']=providers[0]['id']; state['revision']=mcp('get_provider_credential_state',{'id':state['id']})['credential_revision']
++                completion(state['id'])
++                update_files('new-scoped-token')  # File changes before server restart; existing provider must survive.
++            elif phase==1:
++                assert mcp('get_provider_credential_state',{'id':state['id']})['credential_revision']==state['revision']
++                completion(state['id'])
++                host.stop(); host.environment['MODEL_HOST_INFERENCE_TOKEN']='new-scoped-token'; host.start(); update_files('new-scoped-token')
++            else:
++                providers=[p for p in mcp('list_providers',{}) if p['name']=='scoped rotation fixture']; assert len(providers)==1 and providers[0]['id']==state['id']
++                assert mcp('get_provider_credential_state',{'id':state['id']})['credential_revision']!=state['revision']
++                completion(state['id'])
++                raise KeyboardInterrupt()
++            state['phase']=phase+1
++        output, errors=io.StringIO(),io.StringIO()
++        with mock.patch.object(helper,'time',SimpleNamespace(sleep=tick)), mock.patch.object(helper.sys,'argv',['configure-native-model-host',str(root),'--model','fixture','--name','scoped rotation fixture','--credential-scope','inference','--watch','--poll-seconds','1']), contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
++            try: helper.main()
++            except KeyboardInterrupt: pass
++        assert state.get('phase')==2
++        assert 'not confirmed as restricted' in errors.getvalue()
++        for secret_value in ['fixture-inference-token','new-scoped-token','fixture-token']:
++            assert secret_value not in output.getvalue()+errors.getvalue()
++        print('Scoped watcher preserved the provider through pre-restart rotation and recovered after host restart.')
++finally:
++    if container: subprocess.run(['docker','stop',container],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 +    host.tearDown()
