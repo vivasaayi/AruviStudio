@@ -156,11 +156,18 @@ execution and does not prove cancellation of an in-flight request.
 An additional native coding-stage fixture used a synthetic HTTP provider that
 disabled the selected model after its first response. The next call was rejected,
 the agent run was marked failed, only one model call was recorded, and a staged
-file was not synchronized to the repository. Failed coding paths can leave their
-temporary workspace even when `keep_workspace` is false; cleanup on failure is
-still open, and retained files may require operator inspection and removal.
+file was not synchronized to the repository. Coding failures before repository
+synchronization now clean up their workspace when `keep_workspace` is false.
+Failures after synchronization begins retain it for recovery even with that
+setting; `keep_workspace=true` also retains failed workspaces. The native
+fixture verified all three cases and confirmed a sync conflict left the original
+repository file unchanged and retained the generated candidate. Cleanup failures
+are logged without replacing the original execution error. A failed workspace
+creation or an abruptly cancelled task can still leave a partial workspace.
 After re-enabling the model, a separate new workflow completed with a queued
 no-change response; automatic retry of the failed workflow was not tested.
+All 260 native Rust tests passed with seven ignored, as did all 49 isolated
+workflows; the rebuilt worktree was healthy.
 
 The OpenAI-compatible client now handles full `message` content in SSE without
 silently dropping it or duplicating an accumulated response. It emits a

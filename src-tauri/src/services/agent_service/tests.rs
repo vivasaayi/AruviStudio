@@ -329,6 +329,7 @@ async fn coding_stage_creates_tool_trace_artifact() {
     assert!(error.to_string().contains("selected agent model is disabled"));
     provider.await.unwrap();
     assert!(!repo_dir.join("suspended.txt").exists(), "failed run must not sync its workspace to the repository");
+    assert_eq!(std::fs::read_dir(&workspace_dir).unwrap().count(), 0, "keep_workspace=false should remove a failed pre-sync workspace");
     let runs = agent_repo::list_agent_runs_for_workflow(&pool, &interrupted.id).await.unwrap();
     assert_eq!(runs.len(), 1);
     assert_eq!(runs[0].status, crate::domain::agent::AgentRunStatus::Failed);
@@ -339,6 +340,26 @@ async fn coding_stage_creates_tool_trace_artifact() {
     let retried = workflow_repo::create_workflow_run(&pool, "test-after-reenable", &work_item.id).await.unwrap();
     AgentService::set_test_model_outputs_for_workflow(&retried.id, vec![json!({"type":"final", "summary":"No change required", "no_changes_needed":true}).to_string()]);
     assert_eq!(service.run_agent_for_stage(&retried.id, "coding").await.unwrap().status, crate::domain::agent::AgentRunStatus::Completed);
+
+    // A sync failure can leave a partially updated repository. Preserve the
+    // workspace even when normal retention is disabled so it can be inspected.
+    let conflict = workflow_repo::create_workflow_run(&pool, "test-sync-conflict", &work_item.id).await.unwrap();
+    AgentService::set_test_model_outputs_for_workflow(&conflict.id, vec![
+        json!({"type":"tool_call", "tool":"repo.write_file", "arguments":{"path":"README.md", "content":"candidate recovery data"}}).to_string(),
+        json!({"type":"final", "summary":"done"}).to_string(),
+    ]);
+    let error = service.run_agent_for_stage(&conflict.id, "coding").await.unwrap_err();
+    assert!(error.to_string().contains("Cannot safely overwrite an existing file"));
+    assert_eq!(std::fs::read_to_string(repo_dir.join("README.md")).unwrap(), "# repo\n");
+    let workspaces: Vec<_> = std::fs::read_dir(&workspace_dir).unwrap().map(|entry| entry.unwrap().path()).collect();
+    assert_eq!(workspaces.len(), 1, "a sync failure must retain the workspace for recovery");
+    assert_eq!(std::fs::read_to_string(workspaces[0].join("repo/README.md")).unwrap(), "candidate recovery data");
+
+    sqlx::query("UPDATE agent_definitions SET boundaries='{\"max_tool_steps\":2,\"keep_workspace\":true}' WHERE id='coding-agent'").execute(&pool).await.unwrap();
+    sqlx::query("UPDATE model_providers SET base_url='http://127.0.0.1:1/v1' WHERE id='test-provider'").execute(&pool).await.unwrap();
+    let retained = workflow_repo::create_workflow_run(&pool, "test-retain-failed-workspace", &work_item.id).await.unwrap();
+    assert!(service.run_agent_for_stage(&retained.id, "coding").await.is_err());
+    assert_eq!(std::fs::read_dir(&workspace_dir).unwrap().count(), 2, "keep_workspace=true must retain a failed workspace");
 
     let _ = std::fs::remove_dir_all(temp_root);
 }
