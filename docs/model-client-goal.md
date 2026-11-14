@@ -44,6 +44,24 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Dependency advisory update
+
+- Updated Studio's lockfile to `anyhow` 1.0.103, `event-listener` 5.4.2,
+  `rustix` 1.1.6 and `rand` 0.8.6, addressing four previously reported
+  unsoundness warnings. The locked update also changes some Windows transitive
+  bindings; Windows and native macOS builds were not rerun in this environment.
+- A fresh `cargo-audit` 0.23.0 scan of the final lockfile reported one RSA
+  vulnerability, 13 unmaintained warnings and two unsound warnings: `glib`
+  0.18.5 and `rand` 0.7.3. `cargo tree --locked --target all` showed the old
+  `rand` in Tauri's build-dependency chain and `glib` in GTK/Tauri; the pinned
+  RSA has no selected path for the current feature set across targets. Different
+  feature combinations may differ. The scanner does not audit the locally
+  patched SQLx source. `npm audit` reported no advisories.
+- Linux Rust passed 204 tests with two live tests ignored; the rebuilt image
+  passed 22 remote UI cases, 23 workflow cases and a real 7B Model Host browser
+  and MCP Copilot fixture. These results do not prove exploitability or its
+  absence, and the remaining advisories require review before release.
+
 ## Independent client revalidation
 
 - The public Git-pinned consumer at `ecad3179607859044ffeca6de2139f70e0cb9236`
