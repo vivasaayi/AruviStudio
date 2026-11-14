@@ -117,13 +117,15 @@ def main():
     host = args.host_worktree.expanduser().resolve(strict=True)
     last = None
     last_error = None
+    needs_recovery = False
     while True:
         try:
             current = read_host(host, args.environment)
-            if current != last:
+            if current != last or needs_recovery:
                 result = configure(*current, args.model, args.name, rotate_credential=last is None or current[1] != last[1])
                 print(json.dumps(result), flush=True)
                 last = current
+                needs_recovery = False
             last_error = None
         except (OSError, ValueError, KeyError, TypeError, StopIteration, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
             # Neither HTTP response content nor subprocess output should reach logs.
@@ -131,6 +133,7 @@ def main():
             if not args.watch:
                 print(message, file=sys.stderr)
                 return 1
+            needs_recovery = True
             if message != last_error:
                 print(message + "; retrying", file=sys.stderr, flush=True)
                 last_error = message

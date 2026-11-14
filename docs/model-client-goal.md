@@ -12,6 +12,15 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Model Host watcher recovery
+
+The foreground native-host watcher now rechecks Studio's provider and the host's
+advertised model after a detected outage, including when the host returns with
+the same port and token. It does not rotate an unchanged credential. Eleven
+isolated helper tests passed, including a simulated same-endpoint outage and
+recovery. This does not prove every host restart is detected between polls or
+make the optional watcher start automatically.
+
 ### Current branch regression checks
 
 At `dbcd245`, five of the six default-ignored native tests were also run

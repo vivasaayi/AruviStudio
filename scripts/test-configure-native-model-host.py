@@ -184,6 +184,18 @@ class WatchTests(unittest.TestCase):
                 module.main()
         self.assertEqual([call.kwargs["rotate_credential"] for call in configure.call_args_list], [True, False, True])
 
+    def test_same_endpoint_is_revalidated_after_host_outage_without_key_rotation(self):
+        state = (10001, "synthetic-token")
+        with mock.patch.object(sys, "argv", ["configure-native-model-host", ".", "--watch", "--poll-seconds", "1"]), \
+             mock.patch.object(module, "read_host", side_effect=[state, module.SetupError("Native Model Host is not running"), state]), \
+             mock.patch.object(module, "configure", return_value={"provider": "Fixture"}) as configure, \
+             mock.patch.object(module.time, "sleep", side_effect=[None, None, KeyboardInterrupt()]), \
+             contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(KeyboardInterrupt):
+                module.main()
+        self.assertEqual(configure.call_count, 2)
+        self.assertEqual([call.kwargs["rotate_credential"] for call in configure.call_args_list], [True, False])
+
 
 if __name__ == "__main__":
     unittest.main()
