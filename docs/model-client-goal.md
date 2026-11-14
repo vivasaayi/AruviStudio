@@ -44,6 +44,20 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Browser planner node review
+
+- The browser displays the selected draft node's path, type, summary, source,
+  confidence and evidence as text. A response explicitly clearing the selected
+  node now clears both the browser state and persisted selection instead of
+  retaining a stale node for a subsequent turn. The concurrency guidance in
+  the UI reflects the existing cooperating-process lock limitations.
+- The 22-case isolated remote UI suite passed, including safe rendering, cleared
+  selection, and details from an authenticated draft edit. The rebuilt worktree
+  started healthy. A disposable browser repository-analysis flow used the real
+  `qwen25-coder-7b-q4` Model Host and confirmed its staged draft through MCP
+  (one model call, no format retries). Other repositories and model behavior
+  remain unverified.
+
 ## Browser chat streaming
 
 - A simulated Anthropic Messages endpoint now verifies browser streaming with

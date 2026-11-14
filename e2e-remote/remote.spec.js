@@ -109,6 +109,36 @@ test("planner offers draft rename, add and delete controls", async ({ page }) =>
   expect(edits[2].body.node_id).toBe("child");
 });
 
+test("planner shows selected node evidence and honors server-cleared selection", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("aruvi.remote.token", "synthetic-token"));
+  await page.route("**/api/mobile/products", (route) => route.fulfill({ json: [] }));
+  await page.route("**/api/mobile/planner/sessions", (route) => route.fulfill({ json: { session_id: "details-session" } }));
+  const requests = [];
+  await page.route("**/api/mobile/planner/sessions/*/turn", (route) => {
+    requests.push(route.request().postDataJSON());
+    return route.fulfill({ json: { session_id: "details-session", assistant_message: "Ready", selected_draft_node_id: null,
+      draft_tree_nodes: [{ id: "root", label: "Product", node_type: "product", children: [{ id: "child", label: "Area", node_type: "product_area", summary: "Details", source: "repository", confidence: "high", evidence: ["<script>unsafe</script>"] }] }] } });
+  });
+  await page.goto("/remote");
+  await expect(page.locator("#plannerProductSelect")).toBeEnabled();
+  async function send(text) { await page.locator("#composer").fill(text); await page.locator("#sendButton").click(); }
+  await send("Create draft");
+  await page.locator("#draftTree button").filter({ hasText: "Area" }).click();
+  const details = page.locator("#draftNodeDetails");
+  await expect(details).toContainText("Path: Product / Area");
+  await expect(details).toContainText("Source: repository");
+  await expect(details).toContainText("Confidence: high");
+  await expect(details).toContainText("Evidence: <script>unsafe</script>");
+  await expect(details.locator("script")).toHaveCount(0);
+  await send("Clear selection");
+  await expect(details).toContainText("Select a draft node");
+  expect(requests[1].selected_draft_node_id).toBe("child");
+  expect(await page.evaluate(() => localStorage.getItem("aruvi.remote.selected_node"))).toBeNull();
+  await send("Continue");
+  await expect.poll(() => requests.length).toBe(3);
+  expect(requests[2].selected_draft_node_id).toBeNull();
+});
+
 test("browser edits a real planner draft through the authenticated API", async ({ page, request }) => {
   test.skip(!token || !mcpToken || !process.env.ARUVI_TEST_REPOSITORY_PATH, "Requires an isolated fixture");
   const headers = { Authorization: `Bearer ${token}` };
@@ -135,6 +165,8 @@ test("browser edits a real planner draft through the authenticated API", async (
     await page.getByLabel("New child summary (optional)").fill("Reviewable design details fixture");
     await page.getByRole("button", { name: "Add child" }).click();
     await expect(page.locator("#draftTree")).toContainText("Draft area");
+    await expect(page.locator("#draftNodeDetails")).toContainText("Reviewable design details fixture");
+    await expect(page.locator("#draftNodeDetails")).toContainText("Renamed draft / Draft area");
     await page.getByRole("button", { name: "Validate design" }).click();
     await expect(page.locator("#draftValidation")).toContainText("Readiness: 88/100");
     await expect(page.locator("#draftValidation")).toContainText("Draft area is empty");

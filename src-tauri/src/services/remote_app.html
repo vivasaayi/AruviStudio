@@ -483,10 +483,11 @@
                 </div>
                 <div class="panel-body">
                   <div class="tree" id="draftTree"></div>
+                  <div class="tool-card" id="draftNodeDetails" aria-live="polite">Select a draft node to inspect its details.</div>
                   <button type="button" class="secondary" id="validateDraftButton">Validate design</button>
                   <button type="button" class="secondary" id="exportDraftButton">Download review packet</button>
                   <div class="empty" id="draftValidation" aria-live="polite">Validate the staged design to see readiness and structural issues.</div>
-                  <div class="empty">Use one client per planner session while editing; concurrent edits can overwrite each other.</div>
+                  <div class="empty">Cooperating Studio processes coordinate edits to the same session; direct database writers and older versions do not participate.</div>
                   <label><span class="label">Draft node name</span><input id="draftNodeName" placeholder="Name for rename or new child" /></label>
                   <label><span class="label">New child type</span><select id="draftChildType"><option value="product_area">Product area</option><option value="capability">Capability</option><option value="work_item">Work item</option></select></label>
                   <label><span class="label">New child summary (optional)</span><input id="draftChildSummary" /></label>
@@ -1572,6 +1573,34 @@
 
     function renderDraftTree() {
       el.draftTree.innerHTML = "";
+      const details = document.getElementById("draftNodeDetails");
+      details.replaceChildren();
+      function findPath(nodes, id, path = []) {
+        for (const node of nodes) {
+          const next = [...path, node];
+          if (node.id === id) return next;
+          const found = findPath(node.children || [], id, next);
+          if (found) return found;
+        }
+        return null;
+      }
+      const selectedPath = findPath(state.draftTreeNodes, state.selectedNodeId);
+      if (selectedPath) {
+        const node = selectedPath[selectedPath.length - 1];
+        const addDetail = (label, value) => {
+          if (!value) return;
+          const row = document.createElement("div");
+          row.textContent = label + ": " + value;
+          details.appendChild(row);
+        };
+        addDetail("Selected", node.label || "Untitled");
+        addDetail("Type", node.node_type || node.meta);
+        addDetail("Path", selectedPath.map((entry) => entry.label || "Untitled").join(" / "));
+        addDetail("Summary", node.summary);
+        addDetail("Source", node.source);
+        addDetail("Confidence", node.confidence);
+        if (Array.isArray(node.evidence)) node.evidence.forEach((item) => { if (typeof item === "string") addDetail("Evidence", item); });
+      } else details.textContent = "Select a draft node to inspect its details.";
       if (!state.draftTreeNodes.length) {
         const empty = document.createElement("div");
         empty.className = "empty";
@@ -1622,10 +1651,12 @@
     function applyPlannerResponse(response, target) {
       state.sessionId = response.session_id || state.sessionId;
       localStorage.setItem(storageKeys.session, state.sessionId);
-      state.selectedNodeId = response.selected_draft_node_id || state.selectedNodeId || "";
+      if (Object.prototype.hasOwnProperty.call(response, "selected_draft_node_id")) {
+        state.selectedNodeId = response.selected_draft_node_id || "";
+      }
       if (state.selectedNodeId) {
         localStorage.setItem(storageKeys.selectedNode, state.selectedNodeId);
-      }
+      } else localStorage.removeItem(storageKeys.selectedNode);
       state.draftTreeNodes = response.draft_tree_nodes || [];
       el.draftValidation.textContent = "Design changed. Validate again for current results.";
       const lines = [
