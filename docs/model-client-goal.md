@@ -2253,6 +2253,11 @@ On 2026-11-14, the frontend build and 108 unit tests passed, as did four mocked
 desktop browser checks and six native repository-service tests. The mocked
 browser checks are not a substitute for applying a patch in a native window.
 
+A follow-up rejects a whole desktop proposal when any target has malformed
+fields, rather than silently dropping the bad entries and presenting a partial
+proposal. The frontend build, 115 unit tests and the mocked Copilot browser
+check passed. Native patch application remains unverified.
+
 ## Open design questions
 
 - Decide whether to move the Git-pinned client to a separately maintained

@@ -125,16 +125,22 @@ export function parsePatchProposal(text: string): CopilotPatchProposal | null {
     if (parsed.type !== "patch_proposal" || !Array.isArray(parsed.patches) || parsed.patches.length === 0) {
       return null;
     }
-    const patches = parsed.patches
-      .map((entry) => ({
-        path: (entry.path ?? "").trim(),
-        patch: entry.patch ?? "",
+    if (parsed.summary != null && typeof parsed.summary !== "string") return null;
+    const patches: PatchProposalItem[] = [];
+    for (const entry of parsed.patches) {
+      if (!entry || typeof entry.path !== "string" || !entry.path.trim() ||
+          typeof entry.patch !== "string" || !entry.patch.trim() ||
+          (entry.description != null && typeof entry.description !== "string") ||
+          (entry.base_sha256 != null && typeof entry.base_sha256 !== "string") ||
+          (entry.baseSha256 != null && typeof entry.baseSha256 !== "string")) {
+        return null;
+      }
+      patches.push({
+        path: entry.path.trim(),
+        patch: entry.patch,
         base_sha256: entry.base_sha256 ?? entry.baseSha256 ?? null,
         description: entry.description,
-      }))
-      .filter((entry) => entry.path.length > 0 && entry.patch.trim().length > 0);
-    if (patches.length === 0) {
-      return null;
+      });
     }
     return {
       summary: parsed.summary?.trim() || "Patch proposal generated.",
