@@ -206,15 +206,25 @@ pub(crate) fn compatible_speech_model_default(requested_provider: Option<&str>, 
 /// Explicit request values are handled by callers. Environment values retain
 /// the browser API's existing precedence, including an explicitly blank value.
 pub(crate) async fn resolve_transcription_defaults(db: &sqlx::SqlitePool) -> Result<(Option<String>, Option<String>, Option<String>), AppError> {
-    async fn value(db: &sqlx::SqlitePool, environment: &str, key: &str) -> Result<Option<String>, AppError> {
-        let saved = crate::persistence::settings_repo::get_setting(db, key).await?;
-        Ok(std::env::var(environment).ok().or(saved))
-    }
+    use crate::persistence::settings_repo::get_setting;
+    let saved_provider = get_setting(db, "speech.transcription_provider_id").await?;
+    let saved_model = get_setting(db, "speech.transcription_model_name").await?;
+    let saved_locale = get_setting(db, "speech.locale").await?;
+    let env_provider = std::env::var("ARUVI_SPEECH_PROVIDER_ID").ok();
+    let env_model = std::env::var("ARUVI_SPEECH_MODEL_NAME").ok();
+    let model = compatible_environment_speech_model(env_provider.as_deref(), saved_provider.as_deref(), env_model, saved_model);
     Ok((
-        value(db, "ARUVI_SPEECH_PROVIDER_ID", "speech.transcription_provider_id").await?,
-        value(db, "ARUVI_SPEECH_MODEL_NAME", "speech.transcription_model_name").await?,
-        value(db, "ARUVI_SPEECH_LOCALE", "speech.locale").await?,
+        env_provider.or(saved_provider),
+        model,
+        std::env::var("ARUVI_SPEECH_LOCALE").ok().or(saved_locale),
     ))
+}
+
+fn compatible_environment_speech_model(env_provider: Option<&str>, saved_provider: Option<&str>, env_model: Option<String>, saved_model: Option<String>) -> Option<String> {
+    if env_model.is_some() { return env_model; }
+    let env_provider = env_provider.filter(|value| !value.trim().is_empty());
+    let saved_provider = saved_provider.filter(|value| !value.trim().is_empty());
+    if env_provider.zip(saved_provider).is_some_and(|(env, saved)| env != saved) { None } else { saved_model }
 }
 
 pub(crate) async fn default_transcription_model(db: &sqlx::SqlitePool, provider_id: &str) -> Result<String, AppError> {
@@ -481,6 +491,18 @@ mod tests {
         assert_eq!(choose(Some("provider-b"), Some("provider-a")), None);
         assert_eq!(choose(Some("provider-b"), None).as_deref(), Some("model-a"));
         assert_eq!(super::compatible_speech_model_default(None, None, Some(" ".into())), None);
+    }
+
+    #[test]
+    fn speech_environment_provider_does_not_inherit_another_providers_saved_model() {
+        let choose = |env_provider, saved_provider, env_model: Option<&str>, saved_model: Option<&str>|
+            super::compatible_environment_speech_model(env_provider, saved_provider, env_model.map(str::to_owned), saved_model.map(str::to_owned));
+        assert_eq!(choose(Some("b"), Some("a"), None, Some("saved")), None);
+        assert_eq!(choose(Some("a"), Some("a"), None, Some("saved")).as_deref(), Some("saved"));
+        assert_eq!(choose(None, Some("a"), None, Some("saved")).as_deref(), Some("saved"));
+        assert_eq!(choose(Some("b"), None, None, Some("saved")).as_deref(), Some("saved"));
+        assert_eq!(choose(Some("b"), Some("a"), Some("explicit"), Some("saved")).as_deref(), Some("explicit"));
+        assert_eq!(choose(Some("b"), Some("a"), Some(""), Some("saved")).as_deref(), Some(""));
     }
     use super::*;
 

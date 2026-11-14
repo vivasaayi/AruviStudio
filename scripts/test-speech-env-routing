@@ -36,16 +36,15 @@ def mcp(address, tool, action, arguments):
     return result.get("structuredContent", {}).get("result")
 
 
-def main():
-    plan = json.loads(command("bash", "scripts/env", "worktree", "plan"))
-    values = dict(line.split("=", 1) for line in (Path(plan["state"]) / "environment.env").read_text().splitlines() if line and not line.startswith("#") and "=" in line)
+def run_case(image, with_model_override):
     name = f"aruvi-speech-env-{uuid.uuid4().hex[:12]}"
     started = False
     try:
-        command("docker", "run", "--rm", "-d", "--name", name, "-p", "127.0.0.1::8787", "--tmpfs", "/data:mode=1777",
+        args = ["docker", "run", "--rm", "-d", "--name", name, "-p", "127.0.0.1::8787", "--tmpfs", "/data:mode=1777",
                 "-e", f"ARUVI_MCP_API_TOKEN={TOKEN}", "-e", f"ARUVI_MOBILE_API_TOKEN={TOKEN}",
-                "-e", f"ARUVI_SPEECH_PROVIDER_ID={PROVIDER}", "-e", "ARUVI_SPEECH_MODEL_NAME=env-model",
-                "-e", "ARUVI_SPEECH_LOCALE=ta-IN", values["APP_IMAGE"])
+                "-e", f"ARUVI_SPEECH_PROVIDER_ID={PROVIDER}", "-e", "ARUVI_SPEECH_LOCALE=ta-IN"]
+        if with_model_override: args += ["-e", "ARUVI_SPEECH_MODEL_NAME=env-model"]
+        command(*(args + [image]))
         started = True
         address = command("docker", "port", name, "8787/tcp").splitlines()[0]
         if not address.startswith("127.0.0.1:"): raise ValueError("Fixture is not loopback-only")
@@ -68,15 +67,22 @@ def main():
             mcp(address, "aruvi_settings", "set_setting", {"key": key, "value": value})
         audio = {"audio_bytes_base64": base64.b64encode(b"fixture audio").decode(), "mime_type": "audio/wav"}
         second = mcp(address, "aruvi_models", "create_provider", {"name": "Explicit provider", "base_url": "http://127.0.0.1:19877/v1"})["id"]
-        for extra, expected in [({}, "env-model:ta"), ({"provider_id": PROVIDER, "model_name": "explicit-model", "locale": "fr-FR"}, "explicit-model:fr"), ({"provider_id": second, "locale": "fr-FR"}, "whisper-1:fr")]:
+        default_result = "env-model:ta" if with_model_override else "whisper-1:ta"
+        for extra, expected in [({}, default_result), ({"provider_id": PROVIDER, "model_name": "explicit-model", "locale": "fr-FR"}, "explicit-model:fr"), ({"provider_id": second, "locale": "fr-FR"}, "whisper-1:fr")]:
             payload = dict(audio, **extra)
             browser = post(address, "/api/mobile/speech/transcribe", payload)
             result = mcp(address, "aruvi_speech", "transcribe_audio", payload)
             if browser.get("transcript") != expected or result.get("transcript") != expected:
                 raise ValueError("Browser and MCP speech defaults did not match expected precedence")
-        print("Browser and MCP use environment defaults and respect explicit transcription overrides")
+        print("Browser and MCP transcription precedence passed:", "provider and model overrides" if with_model_override else "provider-only override")
     finally:
         if started: subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def main():
+    plan = json.loads(command("bash", "scripts/env", "worktree", "plan"))
+    values = dict(line.split("=", 1) for line in (Path(plan["state"]) / "environment.env").read_text().splitlines() if line and not line.startswith("#") and "=" in line)
+    for with_model_override in (True, False): run_case(values["APP_IMAGE"], with_model_override)
 
 
 if __name__ == "__main__":
