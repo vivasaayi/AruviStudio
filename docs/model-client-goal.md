@@ -134,6 +134,20 @@ the frontend build, all 106 frontend tests and three mocked desktop navigation
 checks passed. Native window interaction remains unverified. The isolated
 worktree app remained healthy at `127.0.0.1:55095` on 2026-11-14.
 
+## Desktop Copilot prompt construction
+
+Desktop Copilot now sends structured history, mode, settings and optional
+editor content to a Rust command that builds the model messages and uses the
+existing streaming and telemetry path. File context is bounded to 2 MiB, the
+context budget to 200,000 characters, and truncation is Unicode-safe; very
+large context requests that the old frontend accepted are now rejected. A
+native test checked message construction and a second used a simulated
+streaming provider to verify events and the `desktop_ide` Activity record. A
+mocked desktop browser test exercised the structured command and patch output;
+the frontend build and all 106 frontend tests passed. The browser/MCP Copilot
+prompt builder is still separate, and native-window interaction remains
+unverified. The rebuilt worktree was healthy at `127.0.0.1:55097` on 2026-11-14.
+
 ## Automatic speech model selection
 
 When the browser sends no transcription model, the server now selects the

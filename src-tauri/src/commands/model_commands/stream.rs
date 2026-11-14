@@ -5,7 +5,7 @@ use super::ModelChatCommand;
 use crate::error::AppError;
 use crate::persistence::model_repo;
 use crate::state::AppState;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::time::Instant;
 use tauri::{AppHandle, Emitter, State};
 use tracing::warn;
@@ -27,6 +27,55 @@ struct ChatStreamDoneEvent {
 struct ChatStreamErrorEvent {
     stream_id: String,
     error: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DesktopCopilotFile {
+    path: String,
+    language: String,
+    content: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DesktopCopilotCommand {
+    stream_id: String,
+    provider_id: String,
+    model: String,
+    history: Vec<crate::providers::types::ChatMessage>,
+    system_prompt: String,
+    patch_mode: bool,
+    file: Option<DesktopCopilotFile>,
+    context_budget: usize,
+    temperature: Option<f64>,
+    max_tokens: Option<i64>,
+    source_id: String,
+}
+
+fn desktop_copilot_request(input: DesktopCopilotCommand) -> Result<ModelChatCommand, AppError> {
+    if input.context_budget > 200_000 || input.system_prompt.len() > 16_000 || input.file.as_ref().is_some_and(|file| file.content.len() > 2 * 1024 * 1024 || file.path.len() > 4096 || file.language.len() > 256) {
+        return Err(AppError::Validation("Copilot context exceeds its size limit".into()));
+    }
+    let budget = if input.context_budget > 1000 { input.context_budget } else { 12_000 };
+    let mut messages = vec![crate::providers::types::ChatMessage { role: "system".into(), content: if input.system_prompt.trim().is_empty() { "You are Aruvi Copilot.".into() } else { input.system_prompt.trim().to_string() } }];
+    if input.patch_mode {
+        messages.push(crate::providers::types::ChatMessage { role: "system".into(), content: "Return ONLY JSON with this schema:\n{\n  \"type\": \"patch_proposal\",\n  \"summary\": \"short summary\",\n  \"patches\": [{\n    \"path\": \"relative/path/from/repo/root\",\n    \"base_sha256\": null,\n    \"description\": \"why this patch exists\",\n    \"patch\": \"@@ -oldStart,oldCount +newStart,newCount @@\\n context/removals/additions ...\"\n  }]\n}\nRules:\n- No markdown, no prose outside JSON.\n- Use unified diff hunks in \"patch\" only.\n- Keep patch list minimal and precise.".into() });
+    }
+    if let Some(file) = input.file {
+        let chars: Vec<char> = file.content.chars().collect();
+        let content = if chars.len() <= budget { file.content } else {
+            let head = budget * 7 / 10;
+            let tail = budget - head;
+            format!("{}\n\n...<truncated for context budget>...\n\n{}", chars[..head].iter().collect::<String>(), chars[chars.len()-tail..].iter().collect::<String>())
+        };
+        messages.push(crate::providers::types::ChatMessage { role: "system".into(), content: format!("Active file context\nPath: {}\nLanguage: {}\n\n{}", file.path, file.language, content) });
+    }
+    messages.extend(input.history);
+    Ok(ModelChatCommand { stream_id: Some(input.stream_id), provider_id: input.provider_id, model: input.model, messages, temperature: input.temperature, max_tokens: input.max_tokens, source_kind: Some("desktop_ide".into()), source_id: Some(input.source_id), source_label: Some("Desktop IDE".into()) })
+}
+
+#[tauri::command]
+pub async fn start_desktop_copilot_stream(app: AppHandle, state: State<'_, AppState>, request: DesktopCopilotCommand) -> Result<String, AppError> {
+    start_model_chat_stream(app, state, desktop_copilot_request(request)?).await
 }
 
 #[tauri::command]
@@ -130,6 +179,56 @@ mod tests {
     use axum::{routing::post, Json};
     use serde_json::Value;
     use tauri::{Listener, Manager};
+
+    #[test]
+    fn desktop_copilot_builds_bounded_file_and_patch_messages_in_rust() {
+        let input = serde_json::json!({"stream_id": "stream", "provider_id": "provider", "model": "model", "history": [{"role":"user","content":"Explain"}], "system_prompt":" custom ", "patch_mode":true, "file":{"path":"file.rs","language":"rust","content": format!("HEAD{}TAIL", "é".repeat(2000))}, "context_budget":1100, "temperature":0.2, "max_tokens":100, "source_id":"session"});
+        let result = desktop_copilot_request(serde_json::from_value(input).unwrap()).unwrap();
+        assert_eq!(result.messages[0].content, "custom");
+        assert!(result.messages[1].content.contains("patch_proposal"));
+        assert!(result.messages[2].content.contains("HEAD"));
+        assert!(result.messages[2].content.contains("TAIL"));
+        assert!(result.messages[2].content.contains("truncated for context budget"));
+        assert_eq!(result.messages.last().unwrap().content, "Explain");
+        assert_eq!(result.source_kind.as_deref(), Some("desktop_ide"));
+        assert_eq!(result.source_id.as_deref(), Some("session"));
+        let oversized = serde_json::json!({"stream_id":"s","provider_id":"p","model":"m","history":[],"system_prompt":"","patch_mode":false,"file":null,"context_budget":200001,"temperature":null,"max_tokens":null,"source_id":"x"});
+        assert!(desktop_copilot_request(serde_json::from_value(oversized).unwrap()).is_err());
+    }
+
+    #[tokio::test]
+    async fn desktop_copilot_structured_request_streams_and_records_telemetry() {
+        async fn endpoint(Json(body): Json<Value>) -> impl axum::response::IntoResponse {
+            assert_eq!(body["stream"], true);
+            assert!(body["messages"].as_array().unwrap().iter().any(|message| message["content"].as_str().unwrap_or("").contains("unsaved fixture")));
+            ([(axum::http::header::CONTENT_TYPE, "text/event-stream")], "data: {\"choices\":[{\"delta\":{\"content\":\"reply\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, axum::Router::new().route("/v1/chat/completions", post(endpoint))).await.unwrap(); });
+        let app = make_test_app("desktop_copilot_structured").await;
+        let provider = ModelProvider { id: "copilot-fixture".into(), name: "Fixture".into(), provider_type: ProviderType::OpenaiCompatible, protocol: "openai_compatible".into(), completion_profile: "standard".into(), base_url: format!("http://{address}"), auth_secret_ref: None, enabled: true, created_at: "".into(), updated_at: "".into() };
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<(String, Value)>();
+        for event_name in ["chat_stream_chunk", "chat_stream_done", "chat_stream_error"] {
+            let sender = sender.clone();
+            app.listen_any(event_name, move |event| { let _ = sender.send((event_name.into(), serde_json::from_str(event.payload()).unwrap())); });
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        let input = serde_json::json!({"stream_id":id,"provider_id":provider.id,"model":"fixture","history":[{"role":"user","content":"Explain"}],"system_prompt":"","patch_mode":false,"file":{"path":"file.rs","language":"rust","content":"unsaved fixture"},"context_budget":12000,"temperature":0.2,"max_tokens":100,"source_id":"copilot-session"});
+        let request = desktop_copilot_request(serde_json::from_value(input).unwrap()).unwrap();
+        start_provider_stream(app.handle().clone(), app.state::<AppState>(), provider, request, id.clone()).await.unwrap();
+        let mut text = String::new();
+        loop {
+            let (event, payload) = tokio::time::timeout(std::time::Duration::from_secs(10), receiver.recv()).await.unwrap().unwrap();
+            assert_eq!(payload["stream_id"], id);
+            if event == "chat_stream_done" { break; }
+            assert_eq!(event, "chat_stream_chunk"); text.push_str(payload["delta"].as_str().unwrap());
+        }
+        assert_eq!(text, "reply");
+        let row: (String, String) = sqlx::query_as("SELECT source_kind,status FROM model_calls WHERE source_id=?").bind("copilot-session").fetch_one(&app.state::<AppState>().db).await.unwrap();
+        assert_eq!(row, ("desktop_ide".into(), "completed".into()));
+        server.abort();
+    }
 
     #[tokio::test]
     async fn cancellation_closes_upstream_and_records_incomplete_stream() {

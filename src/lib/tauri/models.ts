@@ -173,6 +173,15 @@ export const startModelChatStream = (data: {
   });
 export const cancelModelChatStream = (streamId: string) =>
   invoke<boolean>("cancel_model_chat_stream", { streamId });
+export const startDesktopCopilotStream = (data: {
+  streamId: string; providerId: string; model: string; history: ChatMessagePayload[];
+  systemPrompt: string; patchMode: boolean; file: { path: string; language: string; content: string } | null;
+  contextBudget: number; temperature: number; maxTokens: number; sourceId: string;
+}) => invoke<string>("start_desktop_copilot_stream", { request: {
+  stream_id: data.streamId, provider_id: data.providerId, model: data.model, history: data.history,
+  system_prompt: data.systemPrompt, patch_mode: data.patchMode, file: data.file, context_budget: data.contextBudget,
+  temperature: data.temperature, max_tokens: data.maxTokens, source_id: data.sourceId,
+} });
 export const listModelCalls = (limit = 200) => invoke<ModelCall[]>("list_model_calls", { limit });
 export const getModelCall = (id: string) => invoke<ModelCall>("get_model_call", { id });
 export const readModelCallSnapshot = (id: string, kind: "request" | "response") =>

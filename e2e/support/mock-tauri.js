@@ -2037,6 +2037,7 @@
         case "run_model_chat_completion":
           return ok({ content: "{\"type\":\"final\",\"assistant_response\":\"mock\",\"needs_confirmation\":false,\"clarification_question\":null,\"actions\":[]}" });
         case "start_model_chat_stream":
+        case "start_desktop_copilot_stream":
           return ok("mock-chat-stream");
         case "register_repository":
           return ok(registerRepository(args || {}));

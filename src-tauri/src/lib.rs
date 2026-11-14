@@ -227,6 +227,7 @@ pub fn run() {
             commands::model_commands::get_model_call,
             commands::model_commands::read_model_call_snapshot,
             commands::model_commands::stream::start_model_chat_stream,
+            commands::model_commands::stream::start_desktop_copilot_stream,
             commands::model_commands::stream::cancel_model_chat_stream,
             // Planner commands
             commands::planner_commands::build_planner_review_packet_command,

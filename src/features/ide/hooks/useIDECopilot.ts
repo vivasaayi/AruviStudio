@@ -4,13 +4,12 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   applyRepositoryPatch,
   readRepositoryFile,
-  startModelChatStream,
+  startDesktopCopilotStream,
 } from "../../../lib/tauri";
 import type { ModelDefinition, ModelProvider } from "../../../lib/types";
 import { applyCopilotPatches } from "../lib/applyCopilotPatches";
 import {
   parsePatchProposal,
-  truncateForContext,
   type CopilotMode,
   type CopilotPatchProposal,
   type LocalChatMessage,
@@ -107,35 +106,6 @@ export function useIDECopilot({
 
     const contextLimit = Number.parseInt(contextBudgetChars, 10);
     const maxContextChars = Number.isFinite(contextLimit) && contextLimit > 1000 ? contextLimit : 12000;
-    const activeFileContext =
-      includeActiveFileContext && activeFile
-        ? `Active file context\nPath: ${activeFile.path}\nLanguage: ${activeFile.language}\n\n${truncateForContext(
-            activeFile.content,
-            maxContextChars,
-          )}`
-        : null;
-
-    const patchSystemInstruction =
-      copilotMode === "patch"
-        ? `Return ONLY JSON with this schema:
-{
-  "type": "patch_proposal",
-  "summary": "short summary",
-  "patches": [
-    {
-      "path": "relative/path/from/repo/root",
-      "base_sha256": null,
-      "description": "why this patch exists",
-      "patch": "@@ -oldStart,oldCount +newStart,newCount @@\\n context/removals/additions ..."
-    }
-  ]
-}
-Rules:
-- No markdown, no prose outside JSON.
-- Use unified diff hunks in "patch" only.
-- Keep patch list minimal and precise.`
-        : null;
-
     let unlistenChunk: UnlistenFn | null = null;
     let unlistenDone: UnlistenFn | null = null;
     let unlistenError: UnlistenFn | null = null;
@@ -204,21 +174,18 @@ Rules:
         cleanup();
       });
 
-      await startModelChatStream({
+      await startDesktopCopilotStream({
         streamId: requestedStreamId,
         providerId: copilotProviderId,
         model: copilotModelName,
-        messages: [
-          { role: "system", content: copilotSystemPrompt.trim() || "You are Aruvi Copilot." },
-          ...(patchSystemInstruction ? [{ role: "system" as const, content: patchSystemInstruction }] : []),
-          ...(activeFileContext ? [{ role: "system" as const, content: activeFileContext }] : []),
-          ...[...copilotMessages, userMessage].map(({ role, content }) => ({ role, content })),
-        ],
+        history: [...copilotMessages, userMessage].map(({ role, content }) => ({ role, content })),
+        systemPrompt: copilotSystemPrompt,
+        patchMode: copilotMode === "patch",
+        file: includeActiveFileContext && activeFile ? { path: activeFile.path, language: activeFile.language, content: activeFile.content } : null,
+        contextBudget: maxContextChars,
         temperature: Number.isFinite(Number(copilotTemp)) ? Number(copilotTemp) : 0.2,
         maxTokens: Number.isFinite(Number(copilotMaxTokens)) ? Number(copilotMaxTokens) : 4096,
-        sourceKind: "desktop_ide",
         sourceId: copilotSessionIdRef.current,
-        sourceLabel: "Desktop IDE",
       });
 
       window.setTimeout(() => {
