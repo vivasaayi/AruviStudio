@@ -144,7 +144,9 @@ and its output are stored in application data, so do not put credentials in argu
 The command has a 120-second timeout and its captured output is limited to 16 KiB per stream.
 With no command configured, tests are reported as skipped and test review requires a
 manual decision even if automatic test approval is enabled. A failing command fails the
-workflow before it can advance toward Git push.
+workflow before it can advance toward Git push. A passing command establishes only what
+that command checks: a syntax-only check can pass code with broken exports or behavior.
+Configure meaningful behavioral tests and review the result before approving delivery.
 
 ## Isolated development environments
 

@@ -76,6 +76,24 @@ provider hosting into the model-host service as part of this work.
   (one model call, no format retries). Other repositories and model behavior
   remain unverified.
 
+## Real coding workflow revalidation
+
+- On the current branch, a real `qwen25-coder-7b-q4` JSON-mode extend-module
+  workflow reached test review and passed its configured syntax check, but the
+  independently sandboxed behavioral assertions failed because the generated
+  module did not export the existing `sumEven` function. The fixture did not
+  approve delivery. A second run of the same task preserved both exports, passed
+  syntax and independent behavioral assertions, and delivered the verified file
+  to the disposable Git remote. These two runs show model variability, not a
+  general reliability guarantee.
+- `--verify-behavior-rejection` substitutes deliberately invalid exports only
+  for the independent sandbox review and verifies that review rejects them before
+  approval and the disposable remote remains unchanged. A real 7B new-module
+  run passed this negative control. A syntax-only configured test does not prove
+  functional behavior; use meaningful tests and review before delivery.
+- `npm audit` reported zero advisories for the current lockfile. Other previously
+  recorded Rust advisory and live-provider limitations still apply.
+
 ## Browser chat streaming
 
 - A simulated Anthropic Messages endpoint now verifies browser streaming with
