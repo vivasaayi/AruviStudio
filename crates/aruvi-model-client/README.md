@@ -5,9 +5,11 @@ Studio or Tauri. Applications own provider settings, credentials, telemetry and
 workflow policy. The repository's PolyForm Noncommercial license applies.
 
 `Debug` formatting for chat messages, speech requests, transcription audio and
-completion responses omits their content and reports sizes instead. This does
-not redact values obtained through fields, serialization, provider metadata or
-application telemetry; callers remain responsible for handling those values.
+completion responses omits their content and reports sizes instead. Completion
+metadata debug output reports only whether usage is present, not its arbitrary
+provider-supplied values. It still prints response IDs, model names and finish
+reasons. Fields, serialization, discovery metadata and application telemetry
+are not redacted; callers remain responsible for handling those values.
 
 It supports paged model discovery, OpenAI-compatible text completions and incremental streams, remote
 multipart transcription and bounded WAV speech generation. It also implements

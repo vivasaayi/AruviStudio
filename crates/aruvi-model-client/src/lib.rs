@@ -137,12 +137,23 @@ impl std::fmt::Debug for CompletionResponse {
 }
 
 /// Selected provider metadata, using the provider’s native finish reason and usage fields.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct CompletionMetadata {
     pub response_id: Option<String>,
     pub model: Option<String>,
     pub finish_reason: Option<String>,
     pub usage: Option<serde_json::Value>,
+}
+
+impl std::fmt::Debug for CompletionMetadata {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompletionMetadata")
+            .field("response_id", &self.response_id)
+            .field("model", &self.model)
+            .field("finish_reason", &self.finish_reason)
+            .field("usage_present", &self.usage.is_some())
+            .finish()
+    }
 }
 
 impl CompletionMetadata {
@@ -238,6 +249,26 @@ mod response_compatibility_tests {
         assert!(!audio_debug.contains("private-filename"));
         assert!(audio_debug.contains("audio_bytes: 3"));
         assert!(!format!("{response:?}").contains("private reply"));
+    }
+
+    #[test]
+    fn debug_redacts_provider_usage_values_but_preserves_serialization() {
+        let response = CompletionResponse {
+            content: "private answer".into(),
+            metadata: Some(CompletionMetadata {
+                response_id: Some("response-123".into()),
+                usage: Some(serde_json::json!({"prompt_tokens": 4, "provider_details": {"private": "sensitive metadata"}})),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let debug = format!("{response:?}");
+        assert!(!debug.contains("sensitive metadata"));
+        assert!(!debug.contains("private answer"));
+        assert!(debug.contains("response-123"));
+        assert!(debug.contains("usage_present: true"));
+        let serialized = serde_json::to_value(&response).unwrap();
+        assert_eq!(serialized["metadata"]["usage"]["provider_details"]["private"], "sensitive metadata");
     }
 
     struct LegacyGateway;
