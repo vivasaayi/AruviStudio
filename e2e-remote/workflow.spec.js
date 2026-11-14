@@ -1717,3 +1717,30 @@ test("browser key rotation rejects a stale credential revision", async ({ page, 
   const listed = await (await request.get("/api/mobile/providers", { headers })).json();
   expect(listed.find((item) => item.id === provider.id).credential_revision).toBe(current.credential_revision);
 });
+
+test("browser reviews and updates server database settings", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server database");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  expect((await request.get("/api/mobile/database-settings")).status()).toBe(401);
+  expect((await request.post("/api/mobile/database-settings", { data: { path: "/tmp/no-auth.db" } })).status()).toBe(401);
+  const before = await (await request.get("/api/mobile/database-settings", { headers })).json();
+  expect(before.health.applied_migrations).toBeGreaterThan(0);
+  expect((await request.post("/api/mobile/database-settings", { headers, data: { path: "relative.db" } })).status()).toBe(400);
+  expect((await request.post("/api/mobile/database-settings", { headers, data: {} })).ok()).toBeFalsy();
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Routing", exact: true }).click();
+  await expect(page.locator("#databaseStatus")).toContainText("Migrations:");
+  await expect(page.locator("#databaseMigrations")).toContainText("applied");
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.locator("#databaseOverride").fill("/tmp/isolated-new-database.db");
+  await page.locator("#saveDatabaseOverride").click();
+  await expect.poll(async () => (await (await request.get("/api/mobile/database-settings", { headers })).json()).override_path).toBe("/tmp/isolated-new-database.db");
+  const after = await (await request.get("/api/mobile/database-settings", { headers })).json();
+  expect(after.active_path).toBe(before.active_path);
+  expect(after.environment_path_set).toBeTruthy();
+  await expect(page.locator("#databaseStatus")).toContainText("environment controls");
+  await page.locator("#clearDatabaseOverride").click();
+  await expect.poll(async () => (await (await request.get("/api/mobile/database-settings", { headers })).json()).override_path).toBeNull();
+});

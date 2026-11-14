@@ -87,7 +87,7 @@ registered and the default LM Studio endpoint was unavailable.
 | Planner defaults, speech defaults and workflow approval switches | Browser Routing and Voice expose relevant server settings; MCP generic settings operations also exist. Device-local speech controls are browser-specific and are not proof of physical audio parity. |
 | MCP/mobile bind, token and bridge status | MCP exposes settings and both status reads; bind changes need a restart and deployment environment variables may override saved values. Browser connection settings do not establish equivalent operational administration. |
 | Twilio and planner contact | Desktop has configuration and contact actions; MCP has channel operations, but equivalent browser controls and live Twilio validation remain open. |
-| Database path, override and migration health | MCP exposes path, override and health operations using the same Rust service as desktop. Paths refer to the Studio host/container filesystem and override changes take effect on restart; browser controls are not established. |
+| Database path, override and migration health | Browser Routing and MCP expose path, override and migration health through the same Rust service as desktop. The mobile token authorizes these operations. Paths refer to the Studio host/container filesystem, changes take effect on restart, and `ARUVI_DB_PATH` takes precedence. Writes use last-write-wins and saving does not validate the new database. Isolated browser tests cover authentication, validation and save/clear, but not restart into the new path or an actual migration. |
 
 ### Planner action inventory
 

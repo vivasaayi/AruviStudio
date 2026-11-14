@@ -15,6 +15,44 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use serde::Deserialize;
 
+#[derive(Deserialize)]
+pub(crate) struct DatabaseOverrideUpdate {
+    path: serde_json::Value,
+}
+
+pub(crate) async fn mobile_database_settings(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let db = &state.app_state;
+    let result = async {
+        Ok::<_, crate::error::AppError>(serde_json::json!({
+            "active_path": crate::services::settings_database_service::get_active_database_path(db).await?,
+            "override_path": crate::services::settings_database_service::get_database_path_override(db).await?,
+            "environment_path_set": std::env::var_os("ARUVI_DB_PATH").is_some(),
+            "health": crate::services::settings_database_service::get_database_health(db).await?,
+        }))
+    }.await;
+    match result {
+        Ok(value) => Json(value).into_response(),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+    }
+}
+
+pub(crate) async fn mobile_update_database_override(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<DatabaseOverrideUpdate>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let result = match body.path {
+        serde_json::Value::String(path) => crate::services::settings_database_service::set_database_path_override(&state.app_state, path).await,
+        serde_json::Value::Null => crate::services::settings_database_service::clear_database_path_override(&state.app_state).await,
+        _ => return (StatusCode::BAD_REQUEST, "Path must be a string or null").into_response(),
+    };
+    match result {
+        Ok(()) => Json(serde_json::json!({"ok": true})).into_response(),
+        Err(error) => {
+            let status = if matches!(error, crate::error::AppError::Validation(_)) { StatusCode::BAD_REQUEST } else { StatusCode::INTERNAL_SERVER_ERROR };
+            (status, error.to_string()).into_response()
+        }
+    }
+}
+
 const SPEECH_PROVIDER_KEY: &str = "speech.transcription_provider_id";
 const SPEECH_MODEL_KEY: &str = "speech.transcription_model_name";
 const SPEECH_LOCALE_KEY: &str = "speech.locale";

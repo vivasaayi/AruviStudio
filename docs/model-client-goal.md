@@ -12,6 +12,21 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Browser database settings
+
+The authenticated browser Routing page now reads the active server database path,
+SQLite migration history, saved path override, and whether `ARUVI_DB_PATH` takes
+precedence. It can save or clear the override through the same Rust services used
+by desktop and MCP, with a confirmation explaining the restart effect. A mobile
+API token now permits these operations; protect it accordingly. Paths refer to the
+server filesystem. Like desktop and MCP, concurrent override writes are last-write-
+wins and the new path is not validated by opening or migrating it when saved.
+
+All 37 isolated workflow tests passed, including unauthorized and invalid input,
+missing path, browser save/clear, migration display, unchanged active database and
+Docker environment precedence. The test did not restart into a new database or
+exercise an actual migration. Native UI acceptance remains open.
+
 ### Current Model Host and RSA advisory revalidation
 
 At branch revision `c9d704d`, the running worktree passed the MCP coding

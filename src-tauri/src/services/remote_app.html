@@ -888,6 +888,16 @@
 
         <section class="tab-panel" id="tab-routing">
           <section class="panel">
+            <div class="panel-header"><div class="panel-title">Database</div><button type="button" class="secondary" id="refreshDatabaseSettings">Refresh database</button></div>
+            <div class="panel-body stack">
+              <p>Paths refer to the Studio server filesystem. Changes apply on restart; an environment-configured database path takes precedence. Changing the path can open a different database. Concurrent changes use the last saved value.</p>
+              <div id="databaseStatus" aria-live="polite">Load database settings to see migration health.</div>
+              <details><summary>Migration history</summary><pre id="databaseMigrations">No migration history loaded.</pre></details>
+              <label><span class="label">Database path override</span><input id="databaseOverride" placeholder="Absolute server path" /></label>
+              <div class="button-row"><button type="button" id="saveDatabaseOverride">Save override</button><button type="button" class="secondary" id="clearDatabaseOverride">Clear override</button></div>
+            </div>
+          </section>
+          <section class="panel">
             <div class="panel-header"><div class="panel-title">Example products</div><button class="secondary" id="refreshCatalogSettings" type="button">Refresh catalog settings</button></div>
             <div class="panel-body"><p>Example products remain in the database when hidden. Seed / repair creates missing examples and repairs built-in catalog data.</p>
               <label><input type="checkbox" id="hideExampleProducts" disabled /> Hide example products</label>
@@ -1377,6 +1387,7 @@
       }
       if (tabId === "routing") {
         void loadRouting();
+        void loadDatabaseSettings();
         void loadCatalogSettings();
         void loadWorkflowAutomation();
         void loadPlannerDefaults();
@@ -3552,6 +3563,28 @@
       return policy ? { id: policy.id, primary_roles: policy.primary_roles, fallback_roles: policy.fallback_roles, coordinator_required: policy.coordinator_required } : null;
     }
     let routingRequestId = 0;
+    async function loadDatabaseSettings() {
+      const status = document.getElementById("databaseStatus");
+      try {
+        const data = await request("/api/mobile/database-settings");
+        document.getElementById("databaseOverride").value = data.override_path || "";
+        const health = data.health;
+        document.getElementById("databaseMigrations").textContent = health.migrations.map((item) => `${item.version}: ${item.description} — ${item.success ? "applied" : "failed"} (${item.installed_on})`).join("\n") || "No migrations recorded.";
+        status.textContent = `Active: ${data.active_path || "(memory)"}. Migrations: ${health.applied_migrations}; latest: ${health.latest_version ?? "none"}. ${data.environment_path_set ? "The server environment controls the database path." : "The saved override applies after restart."}`;
+      } catch (error) { status.textContent = error.message || String(error); }
+    }
+
+    async function updateDatabaseOverride(clear) {
+      const path = document.getElementById("databaseOverride").value.trim();
+      if (!clear && !path) { document.getElementById("databaseStatus").textContent = "Enter an absolute server path."; return; }
+      if (!confirm(clear ? "Clear the saved database path override? This affects the next restart." : "Save this database path override? It may change the database opened after restart.")) return;
+      try {
+        await request("/api/mobile/database-settings", { method: "POST", body: { path: clear ? null : path } });
+        await loadDatabaseSettings();
+        setStatus("Database override saved", "ok");
+      } catch (error) { document.getElementById("databaseStatus").textContent = error.message || String(error); }
+    }
+
     async function loadRouting() {
       const requestId = ++routingRequestId;
       try {
@@ -4617,6 +4650,9 @@
     document.getElementById("modelCallFilter").addEventListener("change", renderModelCallSessions);
     document.getElementById("refreshCiButton").addEventListener("click", loadCi);
     el.refreshModelsButton.addEventListener("click", loadModelConfiguration);
+    document.getElementById("refreshDatabaseSettings").addEventListener("click", loadDatabaseSettings);
+    document.getElementById("saveDatabaseOverride").addEventListener("click", () => void updateDatabaseOverride(false));
+    document.getElementById("clearDatabaseOverride").addEventListener("click", () => void updateDatabaseOverride(true));
     el.refreshRoutingButton.addEventListener("click", loadRouting);
     document.getElementById("refreshWorkflowAutomation").addEventListener("click", () => void loadWorkflowAutomation());
     el.createAgentEditor.appendChild(makeAgentForm(null));
