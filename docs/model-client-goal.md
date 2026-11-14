@@ -233,8 +233,8 @@ provider hosting into the model-host service as part of this work.
   unsupported-transcription special case remains unchanged. Other failures may
   have no status; callers must not assume a status alone makes retries safe.
   This adds an enum variant, so exhaustive consumer matches must be updated.
-  The current independently recommended Git pin predates this change; it must
-  be advanced and retested after this source commit has been pushed.
+  The independently recommended Git pin was subsequently advanced to this
+  change and tested as documented in the independent consumer checkpoint.
   The shared client passed 44 native tests including simulated 429 responses
   across both provider protocols and the supported operations; Studio passed
   214 native Rust tests with six ignored, and 23 isolated browser/MCP cases
@@ -243,8 +243,15 @@ provider hosting into the model-host service as part of this work.
 
 ## Independent client revalidation
 
-- The independent consumer and documented dependency now pin public commit
-  `8a0b3fa422ee77d66f4d04519826854e47b112cf`, incorporating the later
+- The independent consumer now pins `89a63f60ac41ca78d304d6a517bf394a79f3d146`.
+  Its clean vendored, network-disabled test passed all 17 cases, including a
+  simulated 401 that checks numeric status and response-body privacy. A separate
+  live Model Host probe passed discovery, ordinary and streamed completion,
+  JSON mode and token-limit handling on `qwen25-coder-7b-q4`. This does not
+  validate live third-party services.
+
+- At the previous checkpoint, the independent consumer and documented dependency
+  pinned public commit `8a0b3fa422ee77d66f4d04519826854e47b112cf`, incorporating the later
   malformed-response validation fixes. Its clean container vendored the
   locked dependency and passed all 16 tests with networking disabled during
   the test build. A separate container tested the pinned client against the
