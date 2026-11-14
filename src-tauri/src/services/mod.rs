@@ -59,6 +59,7 @@ pub mod planner_session;
 pub mod planner_text_turn;
 pub mod planner_text_turn_commit;
 pub mod product_book_epub;
+pub mod product_book_artifact;
 pub mod product_book_renderer;
 pub mod planner_text_turn_response;
 pub mod planner_tool_loop;

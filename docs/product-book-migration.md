@@ -59,17 +59,33 @@ the shared renderer source and do not claim export parity until these steps pass
   runtime limits input to 64 MiB, JavaScript heap to 256 MiB, execution to 30
   seconds, and simultaneous snapshots/renders to two. Source snapshot creation
   and serialization are currently unbounded before the input-size check.
-  Desktop HTML, EPUB and PDF exports now call this same backend renderer and
-  retain their native file writers. Browser downloads and MCP EPUB/PDF artifacts
-  do not yet use it; image-resource packaging and visual comparison remain open.
+  Desktop HTML, EPUB and PDF exports call this same backend renderer and retain
+  their native file writers. Browser and MCP HTML/EPUB exports use it as well;
+  image-resource packaging, browser/MCP PDF and visual comparison remain open.
   For a local worktree, request a rendered book with:
 
   ```sh
   scripts/mcp call aruvi_catalog '{"action":"render_product_book","arguments":{"product_id":"PRODUCT_ID","format":"book","render_mode":"epub","trim_preset":"a5"}}'
   ```
 - [ ] Provide authenticated browser and MCP export interfaces for each supported
-  artifact. Implement EPUB and PDF with actual runtime dependencies or document
-  explicit platform limitations; do not return an incomplete artifact as success.
+  artifact. Docs HTML, Book HTML and EPUB are available through the product
+  browser and `aruvi_catalog.export_product_book`; MCP returns a filename, media
+  type and base64 bytes. Artifacts over 24 MiB fail explicitly. EPUB requests
+  containing images currently fail rather than returning a broken archive;
+  image packaging and browser/MCP PDF export remain to be implemented. HTML
+  may still reference external or repository-relative resources.
+  The export action accepts `product_id`, `format` (`docs_html`, `book_html`,
+  or `epub`) and `trim_preset` (`trade-6x9`, `a5`, or `us-letter`). For example:
+
+  ```sh
+  scripts/mcp call aruvi_catalog '{"action":"export_product_book","arguments":{"product_id":"PRODUCT_ID","format":"epub","trim_preset":"a5"}}'
+  ```
+  The isolated remote suite downloads both HTML variants and EPUB in a real
+  browser, inspects the EPUB contents, tests MCP export and authentication, and
+  checks that another product's data is excluded. A captured browser EPUB
+  passed EPUBCheck 5.4.0 with zero findings. A 2,102-item backend HTML artifact
+  test covers pagination and child items. Set `ARUVI_REMOTE_EPUB_OUTPUT` when
+  running `scripts/test-container-remote.sh` to retain the test EPUB.
 - [x] Move desktop exports to the shared backend renderer and retain the native
   file writers and reveal flow. Tauri IPC is exercised with a real database and
   the export UI is tested with mocked native file writes. Actual native window,

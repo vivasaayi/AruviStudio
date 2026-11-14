@@ -526,6 +526,11 @@
               </div>
               <div class="panel-body stack">
                 <div class="metrics" id="productMetrics"></div>
+                <div class="stack">
+                  <label><span class="label">Product Book format</span><select id="productBookFormat"><option value="docs_html">Docs HTML</option><option value="book_html">Book HTML</option><option value="epub">EPUB</option></select></label>
+                  <label><span class="label">Book trim preset</span><select id="productBookTrim"><option value="trade-6x9">Trade Paperback (6×9)</option><option value="a5">A5 Book</option><option value="us-letter">US Letter Review</option></select></label>
+                  <button class="secondary" id="productBookDownload" type="button" disabled>Download Product Book</button>
+                </div>
                 <form id="createAreaForm" class="stack">
                   <label><span class="label">New product area</span><input id="newAreaName" maxlength="200" required /></label>
                   <button id="createAreaButton" type="submit" disabled>Add product area</button>
@@ -1014,6 +1019,9 @@
       productStatus: document.getElementById("productStatus"),
       productMetrics: document.getElementById("productMetrics"),
       productTree: document.getElementById("productTree"),
+      productBookFormat: document.getElementById("productBookFormat"),
+      productBookTrim: document.getElementById("productBookTrim"),
+      productBookDownload: document.getElementById("productBookDownload"),
       repositoryForm: document.getElementById("repositoryForm"),
       repositoryName: document.getElementById("repositoryName"),
       repositoryPath: document.getElementById("repositoryPath"),
@@ -2171,12 +2179,40 @@
       });
     }
 
+    let productBookExporting = false;
+    el.productBookDownload.addEventListener("click", async () => {
+      const productId = state.selectedProductId;
+      if (!productId || !state.productSummary || productBookExporting) return;
+      const token = el.tokenInput.value.trim() || localStorage.getItem(storageKeys.token) || "";
+      if (!token) { setStatus("mobile.api_token is required", "error"); return; }
+      productBookExporting = true;
+      el.productBookDownload.disabled = true;
+      try {
+        const response = await fetch("/api/mobile/products/" + encodeURIComponent(productId) + "/book-export", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+          body: JSON.stringify({ format: el.productBookFormat.value, trim_preset: el.productBookTrim.value }),
+        });
+        if (!response.ok) throw new Error((await response.text()) || "Product Book export failed");
+        const blob = await response.blob();
+        const disposition = response.headers.get("Content-Disposition") || "";
+        const filename = disposition.match(/filename="([a-z0-9.-]+)"/i)?.[1] || "product-book";
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url; anchor.download = filename; document.body.appendChild(anchor); anchor.click(); anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+        setStatus("Product Book downloaded", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { productBookExporting = false; el.productBookDownload.disabled = !state.productSummary; }
+    });
+
     async function loadProductSummary(productId) {
       state.selectedProductId = productId;
       localStorage.setItem(storageKeys.selectedProduct, productId);
       renderProducts();
       el.productStatus.textContent = "Loading";
       state.productSummary = null;
+      el.productBookDownload.disabled = true;
       el.createAreaButton.disabled = true;
       el.resetPlanButton.disabled = true;
       el.productMetrics.replaceChildren();
@@ -2205,6 +2241,7 @@
       el.productMetrics.innerHTML = "";
       el.productTree.innerHTML = "";
       const summary = state.productSummary;
+      el.productBookDownload.disabled = !summary || productBookExporting;
       if (!summary) {
         el.productStatus.textContent = "No product";
         return;

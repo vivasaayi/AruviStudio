@@ -42,6 +42,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "get_product_tree",
                 "get_product_book_source",
                 "render_product_book",
+                "export_product_book",
                 "list_references",
                 "create_reference",
                 "delete_reference",

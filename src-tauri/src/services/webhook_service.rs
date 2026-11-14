@@ -9,7 +9,7 @@ pub use crate::services::webhook_bridge::{
     resolve_mcp_bridge_status, resolve_mobile_bridge_status, McpBridgeStatus, MobileBridgeStatus,
 };
 use crate::services::webhook_mobile_api::{
-    mobile_export_planner_review_packet, mobile_validate_planner_draft, mobile_planner_suggestions, mobile_planner_match_actions, mobile_analyze_planner_repository, mobile_clear_planner_turn, mobile_confirm_planner_turn, mobile_create_planner_session, mobile_create_product, mobile_edit_planner_draft,
+    mobile_export_product_book, mobile_export_planner_review_packet, mobile_validate_planner_draft, mobile_planner_suggestions, mobile_planner_match_actions, mobile_analyze_planner_repository, mobile_clear_planner_turn, mobile_confirm_planner_turn, mobile_create_planner_session, mobile_create_product, mobile_edit_planner_draft,
     mobile_get_model_call, mobile_get_product_tree, mobile_get_product_tree_summary, mobile_list_product_areas, mobile_create_hierarchy_node, mobile_update_hierarchy_node, mobile_delete_hierarchy_node, mobile_reset_product_plan,
     mobile_healthcheck, mobile_list_model_calls, mobile_model_call_snapshot, mobile_list_products, mobile_submit_planner_turn,
     mobile_list_providers, mobile_discover_provider_models, mobile_provider_transport_capabilities, mobile_create_provider, mobile_update_provider, mobile_delete_provider, mobile_rotate_provider_credential, mobile_clear_provider_credential, mobile_cleanup_provider_credentials, mobile_list_models, mobile_create_model, mobile_update_model, mobile_delete_model, mobile_test_provider,
@@ -353,6 +353,7 @@ pub(crate) fn build_webhook_router(app_state: AppState) -> Router {
         .route("/api/mobile/models/update", post(mobile_update_model))
         .route("/api/mobile/models/delete", post(mobile_delete_model))
         .route("/api/mobile/products/:product_id/areas", get(mobile_list_product_areas))
+        .route("/api/mobile/products/:product_id/book-export", post(mobile_export_product_book))
         .route("/api/mobile/products/:product_id/hierarchy", post(mobile_create_hierarchy_node))
         .route("/api/mobile/products/:product_id/hierarchy/update", post(mobile_update_hierarchy_node))
         .route("/api/mobile/products/:product_id/hierarchy/delete", post(mobile_delete_hierarchy_node))

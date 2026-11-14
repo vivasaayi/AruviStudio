@@ -371,6 +371,19 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let result = render_product_book_for_product(&state.db, &product_id, format, render_mode, trim).await?;
             action_result("render_product_book", result)
         }
+        "export_product_book" => {
+            use base64::{engine::general_purpose::STANDARD, Engine as _};
+            use crate::services::product_book_artifact::{build_product_book_artifact, parse_trim, ProductBookArtifactFormat};
+            let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
+            let format = ProductBookArtifactFormat::parse(&args.string_or_default(&["format"], "epub")?)?;
+            let trim = parse_trim(&args.string_or_default(&["trim_preset", "trimPreset"], "trade-6x9")?)?;
+            let artifact = build_product_book_artifact(&state.db, &product_id, format, trim).await?;
+            action_result("export_product_book", serde_json::json!({
+                "filename": artifact.filename,
+                "media_type": artifact.content_type,
+                "data_base64": STANDARD.encode(artifact.bytes),
+            }))
+        }
         "get_product_tree" => {
             let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
             let tree = product_repo::get_product_tree(&state.db, &product_id).await?;

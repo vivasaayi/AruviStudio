@@ -19,6 +19,10 @@ docker exec "$name" sh -c '
 '
 "${fixture_compose[@]}" run --rm -d --name "$browser" \
   -e "ARUVI_REMOTE_URL=http://${name}:8787" -e "ARUVI_TEST_MODEL_URL=http://${browser}:19876/v1" \
+  -e "ARUVI_TEST_BOOK_EPUB_CAPTURE=${ARUVI_REMOTE_EPUB_OUTPUT:+/tmp/aruvi-captured-book.epub}" \
   -e ARUVI_TEST_REPOSITORY_PATH=/repositories/remote-fixture -e ARUVI_TEST_SECOND_REPOSITORY_PATH=/repositories/remote-fixture/second \
   -e ARUVI_TEST_INSPECT=1 browser sh -c 'node /project/e2e-remote/mock-provider.mjs' >/dev/null
 docker exec "$browser" sh -c 'cp /project/package.json /project/package-lock.json /project/playwright.remote.config.js ./ && cp -R /project/e2e-remote ./ && npm ci --silent && npx playwright test -c playwright.remote.config.js remote.spec.js'
+if [[ -n "${ARUVI_REMOTE_EPUB_OUTPUT:-}" ]]; then
+  docker cp "$browser:/tmp/aruvi-captured-book.epub" "$ARUVI_REMOTE_EPUB_OUTPUT"
+fi

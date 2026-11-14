@@ -46,6 +46,14 @@ provider hosting into the model-host service as part of this work.
 
 ## Product Book export data
 
+- The authenticated browser and `aruvi_catalog.export_product_book` can now
+  produce Docs HTML, Book HTML and EPUB from the shared backend. MCP returns
+  base64 bytes; browser responses are attachments. The real browser download
+  and MCP tests checked product isolation and missing authentication, and a
+  captured EPUB passed EPUBCheck 5.4.0. The backend also rendered a 2,102-item
+  HTML book. EPUBs with images fail explicitly until resource packaging is
+  implemented; browser/MCP PDF export remains open. Native and Linux suites
+  each passed 210 tests with four ignored, and the remote suite passed 23.
 - Desktop Product Book exports now invoke the shared Rust backend renderer
   before using the existing native HTML, PDF and EPUB file writers. A Tauri mock
   IPC test exercises the actual command and database with camel-case frontend

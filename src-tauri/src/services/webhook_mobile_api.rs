@@ -1129,6 +1129,46 @@ pub(crate) async fn mobile_list_products(
     Json(products).into_response()
 }
 
+#[derive(Deserialize)]
+pub(crate) struct MobileProductBookExport {
+    format: String,
+    trim_preset: Option<String>,
+}
+
+pub(crate) async fn mobile_export_product_book(
+    State(state): State<WebhookState>,
+    headers: HeaderMap,
+    Path(product_id): Path<String>,
+    Json(request): Json<MobileProductBookExport>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    use crate::services::product_book_artifact::{build_product_book_artifact, parse_trim, ProductBookArtifactFormat};
+    let result = async {
+        let format = ProductBookArtifactFormat::parse(&request.format)?;
+        let trim = parse_trim(request.trim_preset.as_deref().unwrap_or("trade-6x9"))?;
+        build_product_book_artifact(&state.app_state.db, &product_id, format, trim).await
+    }.await;
+    match result {
+        Ok(artifact) => (
+            [
+                (axum::http::header::CONTENT_TYPE, artifact.content_type.to_string()),
+                (axum::http::header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}\"", artifact.filename)),
+                (axum::http::header::CACHE_CONTROL, "no-store".to_string()),
+                (axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string()),
+            ],
+            artifact.bytes,
+        ).into_response(),
+        Err(error) => {
+            let status = match &error {
+                crate::error::AppError::Validation(_) => StatusCode::BAD_REQUEST,
+                crate::error::AppError::NotFound(_) => StatusCode::NOT_FOUND,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            (status, error.to_string()).into_response()
+        }
+    }
+}
+
 pub(crate) async fn mobile_create_product(
     State(state): State<WebhookState>,
     headers: HeaderMap,

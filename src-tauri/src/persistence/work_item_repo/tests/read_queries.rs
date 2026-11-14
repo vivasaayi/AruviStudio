@@ -1,5 +1,31 @@
 use super::*;
 
+#[tokio::test]
+async fn product_book_artifacts_are_scoped_and_epub_rejects_unpackaged_images() {
+    use crate::services::product_book_artifact::{build_product_book_artifact, ProductBookArtifactFormat};
+    use crate::services::product_book_renderer::ProductBookTrim;
+    use std::io::{Cursor, Read};
+    let pool = create_test_pool("book_artifact").await;
+    create_test_product(&pool, "artifact-product").await;
+    create_test_product(&pool, "artifact-other").await;
+    create_work_item(&pool, test_work_item_input("artifact-own", "artifact-product", "Own artifact story")).await.unwrap();
+    create_work_item(&pool, test_work_item_input("artifact-private", "artifact-other", "Private other story")).await.unwrap();
+    let html = build_product_book_artifact(&pool, "artifact-product", ProductBookArtifactFormat::DocsHtml, ProductBookTrim::A5).await.unwrap();
+    let text = String::from_utf8(html.bytes).unwrap();
+    assert!(text.contains("Own artifact story"));
+    assert!(!text.contains("Private other story"));
+    let artifact = build_product_book_artifact(&pool, "artifact-product", ProductBookArtifactFormat::Epub, ProductBookTrim::A5).await.unwrap();
+    assert_eq!(artifact.content_type, "application/epub+zip");
+    let mut zip = zip::ZipArchive::new(Cursor::new(artifact.bytes)).unwrap();
+    let mut book = String::new();
+    zip.by_name("OEBPS/book.xhtml").unwrap().read_to_string(&mut book).unwrap();
+    assert!(book.contains("Own artifact story"));
+    assert!(!book.contains("Private other story"));
+    sqlx::query("UPDATE products SET description = ? WHERE id = ?").bind("![Diagram](images/diagram.png)").bind("artifact-product").execute(&pool).await.unwrap();
+    let error = build_product_book_artifact(&pool, "artifact-product", ProductBookArtifactFormat::Epub, ProductBookTrim::A5).await.err().expect("unpackaged image should fail");
+    assert!(error.to_string().contains("images"));
+}
+
 #[test]
 fn desktop_ipc_renders_product_book_with_camel_case_arguments() {
     use tauri::test::{mock_builder, mock_context, noop_assets, INVOKE_KEY};
@@ -50,6 +76,11 @@ async fn product_export_includes_all_pages_and_children_without_other_products()
     let snapshot = crate::persistence::product_book_repo::get_product_book_source(&pool, "book-product").await.unwrap();
     assert_eq!(snapshot.work_items.len(), 2102);
     assert!(snapshot.work_items.iter().all(|item| item.product_id.as_deref() == Some("book-product")));
+    let artifact = crate::services::product_book_artifact::build_product_book_artifact(&pool, "book-product", crate::services::product_book_artifact::ProductBookArtifactFormat::BookHtml, crate::services::product_book_renderer::ProductBookTrim::Trade).await.unwrap();
+    let html = String::from_utf8(artifact.bytes).unwrap();
+    assert!(html.contains("Story 2101"));
+    assert!(html.contains("Child task"));
+    assert!(!html.contains("Other product"));
 }
 
 #[tokio::test]
