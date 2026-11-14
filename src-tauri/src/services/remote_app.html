@@ -928,7 +928,22 @@
             </div>
           </section>
           <section class="panel">
-            <div class="panel-header"><div class="panel-title">Contact through planner</div><button class="secondary" id="refreshContactDefaults" type="button">Refresh defaults</button></div>
+            <div class="panel-header"><div class="panel-title">Twilio configuration</div><button class="secondary" id="refreshTwilioSettings" type="button">Refresh Twilio</button></div>
+            <div class="panel-body"><p>Stored settings share the server database with desktop. Environment variables can override them. The saved auth token is never displayed here.</p>
+              <form id="twilioSettingsForm" class="stack">
+                <label><span class="label">Account SID</span><input id="twilioAccountSid" maxlength="1024" /></label>
+                <label><span class="label">WhatsApp sender</span><input id="twilioWhatsappFrom" maxlength="1024" /></label>
+                <label><span class="label">Voice sender</span><input id="twilioVoiceFrom" maxlength="1024" /></label>
+                <label><span class="label">Webhook base URL</span><input id="twilioWebhookUrl" maxlength="1024" placeholder="https://example.com" /></label>
+                <div id="twilioOverrideStatus"></div>
+                <label><span class="label">Auth token</span><select id="twilioTokenAction"><option value="keep">Keep saved token</option><option value="replace">Replace saved token</option><option value="clear">Clear saved token</option></select></label>
+                <label><span class="label">New auth token</span><input id="twilioNewToken" type="password" autocomplete="new-password" maxlength="1024" /></label>
+                <button type="submit" id="saveTwilioSettings" disabled>Save Twilio settings</button>
+              </form>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-header"><div class="panel-title">Contact through planner</div><button class="secondary" id="refreshContactDefaults" type="button">Refresh contact defaults</button></div>
             <div class="panel-body"><p>Send an opening message or start a call using the contact policy. Routing may fall back to the other configured channel. Voice calls observe quiet hours unless you explicitly allow them.</p>
               <form id="contactDefaultsForm" class="stack"><label><span class="label">Saved destination</span><input id="contactDefaultTarget" maxlength="256" /></label><label><span class="label">Saved opening message</span><textarea id="contactDefaultMessage" maxlength="4096"></textarea></label><div class="button-row"><button type="submit" id="saveContactDefaults" disabled>Save defaults</button><button class="secondary" type="button" id="useContactDefaults" disabled>Use saved defaults</button></div></form>
               <form id="plannerContactForm" class="stack">
@@ -1427,6 +1442,7 @@
         void loadPlannerDefaults();
         void loadChannelPolicy();
         void loadContactDefaults();
+        void loadTwilioSettings();
       }
       if (tabId === "agents") {
         void loadAgents();
@@ -3599,6 +3615,42 @@
       } catch (error) { setStatus(error.message || String(error), "error"); }
       finally { el.createWorkspaceButton.disabled = !el.repositoryProduct.value; }
     }
+
+    let twilioSettings = null, twilioSequence = 0, twilioBusy = false;
+    function showTwilioState(result) {
+      twilioSettings = result;
+      ["twilioAccountSid", "twilioWhatsappFrom", "twilioVoiceFrom", "twilioWebhookUrl"].forEach((id, index) => { document.getElementById(id).value = result.raw[index] || ""; });
+      const names = ["account SID", "WhatsApp sender", "voice sender", "webhook URL", "auth token"];
+      const overridden = names.filter((_, index) => result.environment_overrides[index]);
+      document.getElementById("twilioOverrideStatus").textContent = (result.token_configured ? "A stored token is configured. " : "No stored token is configured. ") + (overridden.length ? "Environment overrides: " + overridden.join(", ") + "." : "No environment overrides.");
+    }
+    async function loadTwilioSettings() {
+      if (twilioBusy) return;
+      const sequence = ++twilioSequence, save = document.getElementById("saveTwilioSettings"); save.disabled = true;
+      try {
+        const result = await request("/api/mobile/twilio-settings");
+        if (sequence !== twilioSequence) return;
+        showTwilioState(result); document.getElementById("twilioTokenAction").value = "keep";
+        document.getElementById("twilioNewToken").value = ""; save.disabled = false;
+      } catch (error) { if (sequence === twilioSequence) { twilioSettings = null; setStatus(error.message || String(error), "error"); } }
+    }
+    document.getElementById("refreshTwilioSettings").addEventListener("click", () => void loadTwilioSettings());
+    document.getElementById("twilioSettingsForm").addEventListener("submit", async (event) => {
+      event.preventDefault(); if (!twilioSettings || twilioBusy) return;
+      const action = document.getElementById("twilioTokenAction").value, token = document.getElementById("twilioNewToken").value;
+      if (action === "replace" && !token.trim()) { setStatus("Enter a new auth token", "error"); return; }
+      if (action === "clear" && !window.confirm("Clear the stored Twilio auth token? An environment override may remain active.")) return;
+      twilioBusy = true; ++twilioSequence;
+      const controls = Array.from(event.currentTarget.elements), refresh = document.getElementById("refreshTwilioSettings");
+      controls.forEach((control) => control.disabled = true); refresh.disabled = true;
+      try {
+        const values = ["twilioAccountSid", "twilioWhatsappFrom", "twilioVoiceFrom", "twilioWebhookUrl"].map((id) => document.getElementById(id).value);
+        const result = await request("/api/mobile/twilio-settings", { method: "POST", body: { expected: twilioSettings.raw, token_revision: twilioSettings.token_revision, values, token_action: action, token: action === "replace" ? token : null } });
+        showTwilioState(result); document.getElementById("twilioNewToken").value = ""; document.getElementById("twilioTokenAction").value = "keep";
+        setStatus("Twilio settings saved", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { twilioBusy = false; controls.forEach((control) => control.disabled = false); refresh.disabled = false; }
+    });
 
     let contactDefaults = null, contactDefaultsSequence = 0, contactDefaultsBusy = false;
     async function loadContactDefaults() {

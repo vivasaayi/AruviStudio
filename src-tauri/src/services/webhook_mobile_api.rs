@@ -15,6 +15,100 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use serde::Deserialize;
 
+const TWILIO_EDIT_KEYS: [&str; 4] = ["twilio.account_sid", "twilio.whatsapp_from", "twilio.voice_from", "twilio.webhook_base_url"];
+const TWILIO_TOKEN_KEY: &str = "twilio.auth_token";
+const TWILIO_ENV_KEYS: [&str; 5] = ["ARUVI_TWILIO_ACCOUNT_SID", "ARUVI_TWILIO_WHATSAPP_FROM", "ARUVI_TWILIO_VOICE_FROM", "ARUVI_WEBHOOK_BASE_URL", "ARUVI_TWILIO_AUTH_TOKEN"];
+
+// A process-local keyed revision detects changes without returning a reusable
+// digest of the stored secret. A restart or a different process requires refresh.
+fn twilio_token_revision(value: Option<&str>) -> String {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    static KEY: std::sync::OnceLock<uuid::Uuid> = std::sync::OnceLock::new();
+    let mut mac = Hmac::<Sha256>::new_from_slice(KEY.get_or_init(uuid::Uuid::new_v4).as_bytes()).expect("HMAC accepts keys of any length");
+    match value { Some(value) => { mac.update(&[1]); mac.update(value.as_bytes()); }, None => mac.update(&[0]) }
+    format!("{:x}", mac.finalize().into_bytes())
+}
+
+fn twilio_edit_view(raw: [Option<String>; 4], token: Option<&str>) -> serde_json::Value {
+    serde_json::json!({"raw":raw, "token_configured":token.is_some_and(|value| !value.trim().is_empty()),
+        "token_revision":twilio_token_revision(token),
+        "environment_overrides":TWILIO_ENV_KEYS.map(|key| std::env::var_os(key).is_some())})
+}
+
+fn safe_twilio_webhook(value: &str) -> bool {
+    value.trim().is_empty() || reqwest::Url::parse(value.trim()).ok().is_some_and(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some() && url.username().is_empty() && url.password().is_none() && url.query().is_none() && url.fragment().is_none())
+}
+
+#[derive(Deserialize)]
+pub(crate) struct TwilioSettingsUpdate {
+    expected: [Option<String>; 4],
+    token_revision: String,
+    values: [String; 4],
+    token_action: String,
+    token: Option<String>,
+}
+
+pub(crate) async fn mobile_twilio_settings(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let mut raw = Vec::new();
+    for key in TWILIO_EDIT_KEYS {
+        match settings_repo::get_setting(&state.app_state.db, key).await {
+            Ok(value) => raw.push(value), Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Twilio settings are unavailable").into_response(),
+        }
+    }
+    let token = match settings_repo::get_setting(&state.app_state.db, TWILIO_TOKEN_KEY).await {
+        Ok(value) => value, Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Twilio settings are unavailable").into_response(),
+    };
+    let raw: [Option<String>; 4] = raw.try_into().expect("four setting keys");
+    if raw[3].as_deref().is_some_and(|value| !safe_twilio_webhook(value)) {
+        return (StatusCode::CONFLICT, "Stored webhook URL is invalid or contains credentials; correct it outside the browser before editing.").into_response();
+    }
+    Json(twilio_edit_view(raw, token.as_deref())).into_response()
+}
+
+pub(crate) async fn mobile_update_twilio_settings(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<TwilioSettingsUpdate>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let values = body.values.each_ref().map(|value| value.trim());
+    if values.iter().any(|value| value.len() > 1024 || value.chars().any(char::is_control)) ||
+        !matches!(body.token_action.as_str(), "keep" | "replace" | "clear") ||
+        (body.token_action == "replace" && !body.token.as_deref().is_some_and(|value| !value.trim().is_empty() && value.len() <= 1024 && !value.chars().any(char::is_control))) ||
+        (body.token_action != "replace" && body.token.is_some()) {
+        return (StatusCode::BAD_REQUEST, "Invalid Twilio settings or token action").into_response();
+    }
+    if !safe_twilio_webhook(values[3]) { return (StatusCode::BAD_REQUEST, "Invalid webhook base URL").into_response(); }
+    let mut tx = match state.app_state.db.begin().await {
+        Ok(tx) => tx, Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Twilio settings are unavailable").into_response(),
+    };
+    for ((key, expected), value) in TWILIO_EDIT_KEYS.into_iter().zip(body.expected).zip(values) {
+        let result = match expected {
+            Some(expected) => sqlx::query("UPDATE settings SET value=?,updated_at=datetime('now') WHERE key=? AND value=?").bind(value).bind(key).bind(expected).execute(&mut *tx).await,
+            None => sqlx::query("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO NOTHING").bind(key).bind(value).execute(&mut *tx).await,
+        };
+        match result {
+            Ok(result) if result.rows_affected() == 1 => {},
+            Ok(_) => return (StatusCode::CONFLICT, "Twilio settings changed. Refresh before saving.").into_response(),
+            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Twilio settings could not be saved").into_response(),
+        }
+    }
+    let previous: Option<String> = match sqlx::query_scalar("SELECT value FROM settings WHERE key=?").bind(TWILIO_TOKEN_KEY).fetch_optional(&mut *tx).await {
+        Ok(value) => value, Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Twilio settings could not be saved").into_response(),
+    };
+    if twilio_token_revision(previous.as_deref()) != body.token_revision {
+        return (StatusCode::CONFLICT, "Twilio settings changed. Refresh before saving.").into_response();
+    }
+    let next = match body.token_action.as_str() { "replace" => body.token, "clear" => Some(String::new()), _ => previous };
+    if body.token_action != "keep" {
+        if sqlx::query("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=datetime('now')").bind(TWILIO_TOKEN_KEY).bind(next.as_deref().unwrap_or("")).execute(&mut *tx).await.is_err() {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Twilio settings could not be saved").into_response();
+        }
+    }
+    match tx.commit().await {
+        Ok(()) => Json(twilio_edit_view(values.map(|value| Some(value.to_owned())), next.as_deref())).into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Twilio settings could not be saved").into_response(),
+    }
+}
+
 const CONTACT_DEFAULT_KEYS: [&str; 2] = ["planner.contact_target", "planner.contact_opening_message"];
 
 #[derive(Deserialize)]

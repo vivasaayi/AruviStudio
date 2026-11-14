@@ -59,12 +59,20 @@ or evidence that a setting affects runtime behavior.
 | Set planner provider and model | Routing defaults form; environment values can override | `aruvi_settings` | Existing browser form uses a revision check; desktop/MCP setting writes are last-write-wins. |
 | Set outbound channel preference, ambiguity escalation and call quiet hours | Routing contact policy form updates the four server settings atomically | `aruvi_settings` can update the underlying keys | The isolated browser test covers invalid times, authentication and rollback after a concurrent MCP edit; live outbound routing and native comparison remain open. Quiet hours use the server's local timezone. |
 | Send WhatsApp, start a voice call or route planner contact | Routing provides a confirmed planner-contact form using the existing policy, including channel preference, quiet hours and fallback | `aruvi_channels` exposes all three operations | Direct sends remain MCP/desktop only. Browser behavior uses a simulated response; live outbound delivery remains unverified. |
-| Configure Twilio and default contact details | Routing edits saved destination and opening message with conflict protection; Twilio configuration has no browser controls | Generic `aruvi_settings` operations | Design secret-safe Twilio configuration and masked display; avoid returning stored credentials to browser clients. Live Twilio remains unverified. |
+| Configure Twilio and default contact details | Routing edits contact defaults and Twilio settings; the auth token is write-only in the browser form, with conflict checks and environment override indicators | Generic `aruvi_settings` operations | The existing settings database stores the token and generic desktop/MCP settings can read it. Live Twilio remains unverified. |
 | Set transcription provider/model/locale | Voice server-default controls; browser can also choose per-session values | `aruvi_settings` and `aruvi_speech` | Environment overrides and client/session-specific values need explicit verification. |
 | Set native voice, microphone, automatic speech and transcript review | Browser Voice has device-specific recording, review and speech controls | `aruvi_speech` supports speech operations | Native OS voice and microphone preferences are not the same as browser device settings; physical capture and playback remain unverified. |
 | Configure mobile/MCP bind address, port and tokens; view bridge status | Connection token is entered locally; no server bridge settings/status controls found | `aruvi_settings` exposes status and generic setting operations | Document container environment precedence and restart behavior; design safe browser administration without exposing tokens. |
 | Inspect database health and override its path | Routing database panel | `aruvi_settings` database actions | Both server paths and restart/environment precedence need to remain explicit. |
 | Set Docker host and maximum workflow retries | No corresponding controls found | Generic `aruvi_settings` can store values | Repository search found these keys only in the desktop settings form and loader, with no backend readers. Do not present them as working execution controls until behavior is implemented and verified. |
+
+The browser Twilio form does not return stored or environment-provided tokens.
+It uses a process-local keyed token revision to reject stale saves; a restart or
+another process requires refresh. It refuses to display legacy malformed or
+credential-bearing webhook URLs. Existing plaintext database storage and generic
+settings access remain unchanged, and clearing a saved token does not revoke it
+or change an environment override. Browser fixtures cover token replacement,
+clearing, stale edits and unsafe legacy URLs, not live Twilio delivery.
 
 Browser contact defaults use the same desktop settings and reject stale writes
 after an MCP edit; applying them to a contact is explicit. Refreshing defaults

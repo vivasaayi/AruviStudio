@@ -12,6 +12,24 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Browser Twilio configuration
+
+Routing now edits the desktop's Twilio account, sender and webhook settings and
+can keep, replace or clear the stored auth token without returning it through the
+browser API. Environment overrides are indicated without exposing their values.
+A keyed, process-local token revision and transactional comparisons reject stale
+browser saves after an MCP or desktop setting change; a restart or a different
+server process requires refresh. A stored malformed or credential-bearing
+webhook URL is not echoed and must be corrected outside this browser form.
+The auth token remains in the existing settings database (which desktop and generic
+MCP settings can read); this change does not encrypt or migrate that storage, and
+clearing it does not revoke it or override an environment-provided token. Refresh
+or revisiting Routing clears an unsaved token input. Live Twilio delivery has not
+been tested. The isolated 49-case workflow suite passed before a subsequent
+button-label correction; after that correction the 28-case browser suite passed.
+A disposable container verified environment override indicators without returning
+synthetic values. The branch deployment restarted healthy. No messages were sent.
+
 ### Browser planner contact
 
 The browser also edits the desktop's saved contact destination and opening
