@@ -80,6 +80,7 @@ pub(super) fn resolve_allowed_tools(configured_tools: &[String]) -> HashSet<Stri
 
 pub(super) fn build_coding_tool_prompt(
     base_prompt: &str,
+    coding_recap: &str,
     allowed_tools: &HashSet<String>,
     observations: &[String],
     step: usize,
@@ -91,7 +92,9 @@ pub(super) fn build_coding_tool_prompt(
         prompt.push_str(base_prompt);
     } else {
         prompt.push_str("Coding task recap:\n");
-        prompt.push_str(&condense_tool_loop_base_prompt(base_prompt));
+        prompt.push_str(coding_recap);
+        let remaining = 3_500usize.saturating_sub(coding_recap.chars().count());
+        prompt.extend(condense_tool_loop_base_prompt(base_prompt).chars().take(remaining));
     }
     prompt.push_str("\n\nYou are in a tool execution loop for coding.");
     prompt.push_str("\nReturn exactly one JSON object.");
@@ -389,6 +392,20 @@ mod configured_tool_tests {
     use super::*;
 
     #[test]
+    fn followup_prompt_keeps_requirements_when_original_prompt_is_large() {
+        let mut context = std::collections::HashMap::new();
+        context.insert("work_item_description".to_string(), "x".repeat(8_000));
+        context.insert("work_item_acceptance_criteria".to_string(), "ACCEPTANCE_MARKER\nsecond line".to_string());
+        context.insert("work_item_constraints".to_string(), "CONSTRAINT_MARKER".to_string());
+        let recap = crate::services::agent_prompt::coding_task_recap(&context);
+        let prompt = build_coding_tool_prompt(&"large prompt ".repeat(2_000), &recap, &resolve_allowed_tools(&[]), &[], 2, 8, false);
+        assert!(prompt.contains("ACCEPTANCE_MARKER\nsecond line"));
+        assert!(prompt.contains("CONSTRAINT_MARKER"));
+        let task_part = prompt.split("\n\nYou are in a tool execution loop").next().unwrap();
+        assert!(task_part.chars().count() <= 3_500 + "Coding task recap:\n".len());
+    }
+
+    #[test]
     fn rejects_multiple_actions_without_confusing_nested_or_quoted_braces() {
         let single = r#"Here is the call:
 ```json
@@ -436,8 +453,8 @@ mod configured_tool_tests {
     #[test]
     fn prompt_orders_tools_and_distinguishes_unfinished_edits() {
         let tools = resolve_allowed_tools(&[]);
-        let no_changes = build_coding_tool_prompt("task", &tools, &[], 8, 8, false);
-        let changed = build_coding_tool_prompt("task", &tools, &[], 8, 8, true);
+        let no_changes = build_coding_tool_prompt("task", "", &tools, &[], 8, 8, false);
+        let changed = build_coding_tool_prompt("task", "", &tools, &[], 8, 8, true);
         assert!(no_changes.contains("no files have been changed"));
         assert!(!changed.contains("no files have been changed"));
         assert!(changed.contains("If the requested implementation is complete"));
@@ -462,7 +479,7 @@ mod configured_tool_tests {
     #[test]
     fn read_examples_use_alternative_ranges() {
         let prompt =
-            build_coding_tool_prompt("task", &resolve_allowed_tools(&[]), &[], 1, 8, false);
+            build_coding_tool_prompt("task", "", &resolve_allowed_tools(&[]), &[], 1, 8, false);
         assert!(prompt.contains("Do not combine offset/length with line ranges"));
         assert!(prompt.contains("A missing file cannot be read"));
         assert!(!prompt.contains("\"length_chars\":12000,\"start_line\""));

@@ -312,9 +312,43 @@ async fn coding_stage_creates_tool_trace_artifact() {
     assert!(no_change_content.contains("The requested behavior already exists"));
     assert!(no_change_content.contains("Changed files: none"));
 
+    // Exercise the actual follow-up HTTP request, not just the recap helper.
+    // The mock provider reads a repository file on turn one and then finishes.
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let recap_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let recap_address = recap_listener.local_addr().unwrap();
+    sqlx::query("UPDATE model_providers SET base_url=? WHERE id=?")
+        .bind(format!("http://{recap_address}/v1")).bind(provider_id).execute(&pool).await.unwrap();
+    let recap_provider = tokio::spawn(async move {
+        for step in 1..=2 {
+            let (mut socket, _) = recap_listener.accept().await.unwrap();
+            let mut bytes = Vec::new(); let mut buffer = [0_u8; 4096];
+            let header_end = loop {
+                let count = socket.read(&mut buffer).await.unwrap(); assert_ne!(count, 0); bytes.extend_from_slice(&buffer[..count]);
+                if let Some(index) = bytes.windows(4).position(|part| part == b"\r\n\r\n") { break index + 4; }
+            };
+            let headers = String::from_utf8_lossy(&bytes[..header_end]).to_ascii_lowercase();
+            let size: usize = headers.lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().trim().parse().unwrap();
+            while bytes.len() < header_end + size { let count = socket.read(&mut buffer).await.unwrap(); assert_ne!(count, 0); bytes.extend_from_slice(&buffer[..count]); }
+            let request: serde_json::Value = serde_json::from_slice(&bytes[header_end..header_end+size]).unwrap();
+            let prompt = request["messages"][0]["content"].as_str().unwrap();
+            assert!(prompt.contains("ACCEPTANCE_MARKER: provide tested output"));
+            assert!(prompt.contains("CONSTRAINT_MARKER: do not modify configuration"));
+            let content = if step == 1 {
+                json!({"type":"tool_call", "tool":"repo.read_file", "arguments":{"path":"README.md"}}).to_string()
+            } else {
+                json!({"type":"final", "summary":"No change required", "no_changes_needed":true}).to_string()
+            };
+            let body = json!({"choices":[{"message":{"content":content},"finish_reason":"stop"}]}).to_string();
+            socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).as_bytes()).await.unwrap();
+        }
+    });
+    let recap_run = workflow_repo::create_workflow_run(&pool, "test-recap-prompt", &work_item.id).await.unwrap();
+    assert_eq!(service.run_agent_for_stage(&recap_run.id, "coding").await.unwrap().status, crate::domain::agent::AgentRunStatus::Completed);
+    recap_provider.await.unwrap();
+
     // Disable the selected model after the provider receives the first call,
     // so the next tool-loop call must fail before contacting it again.
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     sqlx::query("UPDATE model_providers SET base_url=? WHERE id=?")

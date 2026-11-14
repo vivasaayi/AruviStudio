@@ -160,6 +160,28 @@ fn append_context(prompt: &mut String, context: &HashMap<String, String>, stage_
     }
 }
 
+/// Reserve space for task requirements on every coding turn, independent of
+/// repository size or the ordering of other prompt sections.
+pub(crate) fn coding_task_recap(context: &HashMap<String, String>) -> String {
+    let mut recap = String::new();
+    for (key, limit) in [
+        ("work_item_title", 200), ("work_item_type", 40),
+        ("work_item_problem_statement", 300), ("work_item_description", 350),
+        ("work_item_acceptance_criteria", 550), ("work_item_constraints", 450),
+        ("implementation_plan", 500), ("skill_instructions", 300),
+    ] {
+        if let Some(value) = context.get(key).filter(|value| !value.is_empty()) {
+            recap.push_str(key);
+            recap.push_str(": ");
+            let mut chars = value.chars();
+            recap.extend(chars.by_ref().take(limit));
+            if chars.next().is_some() { recap.push_str(" [truncated]"); }
+            recap.push('\n');
+        }
+    }
+    recap
+}
+
 fn append_boundaries(prompt: &mut String, boundaries: &AgentExecutionBoundaries) {
     if let Some(bounds) = &boundaries.instructions {
         prompt.push_str(&format!("\nAdditional Instructions: {}\n", bounds));
@@ -209,5 +231,19 @@ mod skill_prompt_tests {
         append_context(&mut prompt, &context, "coding");
         assert_eq!(prompt.matches('é').count(), 1_000);
         assert_eq!(prompt.lines().find(|line| line.starts_with("work_item_constraints: ")).unwrap().split_once(": ").unwrap().1.len(), 800);
+    }
+
+    #[test]
+    fn coding_recap_reserves_space_for_requirements_with_large_multiline_context() {
+        let mut context = HashMap::new();
+        context.insert("work_item_description".into(), "long\n".repeat(1_000));
+        context.insert("work_item_acceptance_criteria".into(), format!("ACCEPTANCE_START\n{}", "é".repeat(1_000)));
+        context.insert("work_item_constraints".into(), "CONSTRAINT_START\n".to_owned() + &"x".repeat(1_000));
+        context.insert("implementation_plan".into(), "plan".repeat(1_000));
+        let recap = coding_task_recap(&context);
+        assert!(recap.contains("ACCEPTANCE_START\n"));
+        assert!(recap.contains("CONSTRAINT_START\n"));
+        assert!(recap.contains(" [truncated]"));
+        assert!(recap.chars().count() < 3_500);
     }
 }

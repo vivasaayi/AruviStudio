@@ -148,17 +148,18 @@ impl AgentService {
                     context_budget_chars,
                 )
                 .await?;
-            agent_prompt::build_agent_prompt(
+            let prompt = agent_prompt::build_agent_prompt(
                 &execution_context.stage_agent,
                 &context,
                 stage_name,
                 &execution_context,
                 &boundaries,
-            )
+            )?;
+            Ok::<_, AppError>((prompt, agent_prompt::coding_task_recap(&context)))
         }
         .await;
-        let prompt = match preparation {
-            Ok(prompt) => prompt,
+        let (prompt, coding_recap) = match preparation {
+            Ok(prepared) => prepared,
             Err(error) => {
                 agent_repo::update_agent_run_failure(&self.db, &agent_run_id, &error.to_string())
                     .await?;
@@ -172,6 +173,7 @@ impl AgentService {
                 &agent_run,
                 &model_def,
                 &prompt,
+                &coding_recap,
                 &execution_context.stage_agent,
                 &boundaries,
                 response_token_budget,

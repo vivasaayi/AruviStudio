@@ -3766,7 +3766,8 @@ from coding prompts despite being present in the context. An end-to-end native
 coding-stage fixture checks the stored prompt for each field; a separate test
 checks the existing acceptance and constraint length bounds. Long fields remain
 truncated, and follow-up tool-loop turns use a bounded recap that can omit later
-context; inclusion is not a guarantee that a model follows the instructions.
+context in that revision; the follow-up checkpoint below improves the recap.
+Inclusion is not a guarantee that a model follows the instructions.
 
 The native suite passed 265 tests with seven ignored, and all 50 isolated
 browser/MCP workflow tests passed. One disposable `qwen25-coder-7b-q4`
@@ -3775,6 +3776,25 @@ checks and delivered to a disposable local Git remote. Its task details were
 also present in its description, so this single run does not establish that
 the restored fields caused success or that model reliability is solved.
 The worktree services were rebuilt and healthy after these checks.
+
+## Coding follow-up recap checkpoint
+
+The coding loop now builds a bounded recap from structured task context on each
+follow-up turn, reserving space for the title, problem, description, acceptance
+criteria, constraints, plan and skill instructions before adding any remaining
+base-prompt excerpt. Individual fields are capped and marked when truncated;
+the combined recap remains limited to 3,500 characters. This retains the start
+of each field, not every detail of a long requirement, and does not guarantee
+the model will obey it.
+
+On 2026-11-14, a simulated HTTP provider verified acceptance and constraint
+markers in both the first and second actual coding requests; multiline and long
+context tests verified the recap and its bounds. The native suite passed 267
+tests with seven ignored, the extended coding-stage test passed, and all 50
+isolated browser/MCP workflows passed. One disposable 7B JSON-mode extend-module
+workflow passed syntax and independent behavioral checks and delivered to a
+disposable local remote. This is one model sample, not broad reliability or
+proof that the recap caused success. The rebuilt worktree services were healthy.
 
 The coding output now begins with an explicit no-files-changed notice when the
 agent returns `no_changes_needed`, identifying it as the model's claim to

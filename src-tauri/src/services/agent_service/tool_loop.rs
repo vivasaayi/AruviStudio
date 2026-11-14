@@ -46,6 +46,7 @@ impl AgentService {
         agent_run: &AgentRun,
         model_def: &ModelDefinition,
         base_prompt: &str,
+        coding_recap: &str,
         stage_agent: &AgentDefinition,
         boundaries: &AgentExecutionBoundaries,
         response_token_budget: i64,
@@ -121,6 +122,7 @@ impl AgentService {
                 write_tool_trace_snapshot(&trace_path, &trace).await?;
                 let step_prompt = build_coding_tool_prompt(
                     base_prompt,
+                    coding_recap,
                     &allowed_tools,
                     &tool_observations,
                     step,
