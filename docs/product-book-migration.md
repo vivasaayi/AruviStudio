@@ -30,6 +30,12 @@ remove the desktop renderer or claim export parity until these steps pass.
   concurrent changes from mixing versions. Desktop exports and the authenticated
   MCP catalog action use it. Database tests exercise concurrent writes, reference
   scope and more than 2,000 work items; the snapshot is still unbounded in size.
+- [x] Move EPUB archive packaging into a reusable Rust service and use it for
+  desktop export. This no longer invokes the system `zip` utility or writes a
+  temporary source tree; archive tests inspect the first uncompressed mimetype,
+  book content, navigation and escaped metadata. The service currently packages
+  caller-rendered XHTML in memory; real renderer output and EPUB reader
+  compatibility still need end-to-end validation.
 - [ ] Port the Docs HTML and Book renderers to shared backend services, including
   all rich text, reference, index, numbering, layout and trim semantics. Compare
   output against desktop fixtures and inspect representative rendered pages.

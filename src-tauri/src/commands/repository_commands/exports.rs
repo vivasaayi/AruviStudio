@@ -6,9 +6,8 @@ use std::path::PathBuf;
 use std::process::Command;
 use tracing::info;
 
-mod epub;
-use epub::export_epub_archive;
-pub use epub::BookExportTocItem;
+use crate::services::product_book_epub::render_epub_archive;
+pub use crate::services::product_book_epub::BookExportTocItem;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ExportProductOverviewPdfCommand {
@@ -59,30 +58,14 @@ pub async fn export_product_overview_epub(
     let export_dir = export_documents_dir()?;
     let safe_name = sanitize_export_file_name_with_extension(&file_name, "product-book", "epub");
     let destination = export_dir.join(safe_name);
-    if destination.exists() {
-        fs::remove_file(&destination)?;
-    }
-
-    let temp_root =
-        std::env::temp_dir().join(format!("aruvi-epub-export-{}", uuid::Uuid::new_v4()));
-    fs::create_dir_all(&temp_root)?;
-
-    let result = export_epub_archive(
-        &temp_root,
-        &destination,
+    let bytes = render_epub_archive(
         &title,
         &html,
         &toc_items,
         author.as_deref().unwrap_or("Aruvi Studio"),
         language.as_deref().unwrap_or("en"),
-    );
-
-    let cleanup_result = fs::remove_dir_all(&temp_root);
-    if let Err(error) = cleanup_result {
-        info!("Failed to cleanup temporary EPUB export directory: {error}");
-    }
-
-    result?;
+    )?;
+    fs::write(&destination, bytes)?;
 
     Ok(destination.to_string_lossy().to_string())
 }

@@ -46,6 +46,16 @@ provider hosting into the model-host service as part of this work.
 
 ## Product Book export data
 
+- Desktop EPUB packaging now uses a shared Rust archive service instead of a
+  system `zip` process and temporary directory. A real archive structure test
+  checks its mimetype, contents, nested navigation and escaped metadata. The
+  service packages already-rendered XHTML; complete renderer and reader checks
+  remain open. The 2026-11-13 RustSec scan of the updated lockfile reports the
+  existing RSA advisory and 15 warnings, with no ZIP advisory; its crates.io
+  index refresh failed, although the advisory database was fetched.
+  With the patched ZIP dependency, both native and Linux Rust suites passed
+  207 tests, with two live tests ignored in each suite. The isolated remote
+  UI and MCP suite passed 23 tests against the rebuilt image.
 - Desktop exports now read the product, hierarchy, product-scoped references and
   all work items through one SQLite snapshot. The same source is exposed as the
   authenticated MCP catalog action `get_product_book_source`. A concurrent-write

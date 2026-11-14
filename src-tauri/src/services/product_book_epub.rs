@@ -1,9 +1,8 @@
 use crate::error::AppError;
 use chrono::Utc;
 use serde::Deserialize;
-use std::fs;
-use std::path::Path;
-use std::process::Command;
+use std::io::{Cursor, Write};
+use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -19,42 +18,34 @@ struct EpubNavNode {
     children: Vec<EpubNavNode>,
 }
 
-pub(super) fn export_epub_archive(
-    temp_root: &Path,
-    destination: &Path,
+/// Package already-rendered XHTML as an EPUB 3 artifact without host utilities
+/// or filesystem paths. The caller is responsible for rendering valid XHTML.
+pub(crate) fn render_epub_archive(
     title: &str,
     html: &str,
     toc_items: &[BookExportTocItem],
     author: &str,
     language: &str,
-) -> Result<(), AppError> {
-    let meta_inf_dir = temp_root.join("META-INF");
-    let oebps_dir = temp_root.join("OEBPS");
-    fs::create_dir_all(&meta_inf_dir)?;
-    fs::create_dir_all(&oebps_dir)?;
-
-    fs::write(temp_root.join("mimetype"), "application/epub+zip")?;
-    fs::write(
-        meta_inf_dir.join("container.xml"),
-        r#"<?xml version="1.0" encoding="UTF-8"?>
+) -> Result<Vec<u8>, AppError> {
+    let mut archive = ZipWriter::new(Cursor::new(Vec::new()));
+    let stored = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+    let compressed = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    let zip_error = |error| AppError::Internal(format!("Failed to create EPUB archive: {error}"));
+    // EPUB requires the uncompressed mimetype as the first entry, without an
+    // extra field. ZipWriter emits no extras for these simple file options.
+    archive.start_file("mimetype", stored).map_err(zip_error)?;
+    archive.write_all(b"application/epub+zip")?;
+    archive.start_file("META-INF/container.xml", compressed).map_err(zip_error)?;
+    archive.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
-  <rootfiles>
-    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
-  </rootfiles>
-</container>"#,
-    )?;
-
-    let now = Utc::now();
+  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>"#)?;
+    archive.start_file("OEBPS/book.xhtml", compressed).map_err(zip_error)?;
+    archive.write_all(html.as_bytes())?;
+    archive.start_file("OEBPS/nav.xhtml", compressed).map_err(zip_error)?;
+    archive.write_all(build_epub_nav_document(title, toc_items, language).as_bytes())?;
     let identifier = format!("urn:uuid:{}", uuid::Uuid::new_v4());
-    fs::write(oebps_dir.join("book.xhtml"), html)?;
-    fs::write(
-        oebps_dir.join("nav.xhtml"),
-        build_epub_nav_document(title, toc_items, language),
-    )?;
-    fs::write(
-        oebps_dir.join("content.opf"),
-        format!(
-            r#"<?xml version="1.0" encoding="UTF-8"?>
+    let metadata = format!(r#"<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:identifier id="bookid">{}</dc:identifier>
@@ -67,57 +58,13 @@ pub(super) fn export_epub_archive(
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
     <item id="book" href="book.xhtml" media-type="application/xhtml+xml"/>
   </manifest>
-  <spine>
-    <itemref idref="nav"/>
-    <itemref idref="book"/>
-  </spine>
+  <spine><itemref idref="nav"/><itemref idref="book"/></spine>
 </package>"#,
-            escape_xml(identifier.as_str()),
-            escape_xml(title),
-            escape_xml(author),
-            escape_xml(language),
-            now.format("%Y-%m-%dT%H:%M:%SZ")
-        ),
-    )?;
-
-    let first_status = Command::new("zip")
-        .current_dir(temp_root)
-        .arg("-X0")
-        .arg(destination)
-        .arg("mimetype")
-        .status()
-        .map_err(|error| {
-            AppError::Validation(format!(
-                "Failed to invoke zip while building EPUB. Ensure the system zip utility is available: {error}"
-            ))
-        })?;
-
-    if !first_status.success() {
-        return Err(AppError::Validation(
-            "The zip utility failed while writing the EPUB mimetype entry.".to_string(),
-        ));
-    }
-
-    let second_status = Command::new("zip")
-        .current_dir(temp_root)
-        .arg("-Xr9D")
-        .arg(destination)
-        .arg("META-INF")
-        .arg("OEBPS")
-        .status()
-        .map_err(|error| {
-            AppError::Validation(format!(
-                "Failed to invoke zip while finalizing the EPUB archive: {error}"
-            ))
-        })?;
-
-    if !second_status.success() {
-        return Err(AppError::Validation(
-            "The zip utility failed while finalizing the EPUB archive.".to_string(),
-        ));
-    }
-
-    Ok(())
+        escape_xml(&identifier), escape_xml(title), escape_xml(author),
+        escape_xml(language), Utc::now().format("%Y-%m-%dT%H:%M:%SZ"));
+    archive.start_file("OEBPS/content.opf", compressed).map_err(zip_error)?;
+    archive.write_all(metadata.as_bytes())?;
+    Ok(archive.finish().map_err(zip_error)?.into_inner())
 }
 
 fn build_epub_nav_document(title: &str, toc_items: &[BookExportTocItem], language: &str) -> String {
@@ -247,10 +194,54 @@ fn render_epub_nav_nodes(nodes: &[EpubNavNode], depth: usize) -> String {
 }
 
 fn escape_xml(value: &str) -> String {
-    value
+    value.chars().filter(|&c| matches!(c, '\u{9}' | '\u{a}' | '\u{d}' | '\u{20}'..='\u{d7ff}' | '\u{e000}'..='\u{fffd}' | '\u{10000}'..='\u{10ffff}'))
+        .collect::<String>()
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Read;
+    use zip::ZipArchive;
+
+    #[test]
+    fn epub_is_a_readable_archive_with_required_order_and_escaped_navigation() {
+        let html = "<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><h1 id=\"part\">Book</h1><h2 id=\"sub\">Story</h2></body></html>";
+        let items = vec![
+            BookExportTocItem { id: "part".into(), title: "Part & <one>".into(), level: 0 },
+            BookExportTocItem { id: "sub".into(), title: "Story 'two'".into(), level: 1 },
+        ];
+        let bytes = render_epub_archive("Title & <book>\u{0}", html, &items, "Author & Co", "en").unwrap();
+        // The first local file header must name mimetype, use STORE, and have
+        // no extra field, as required by EPUB's OCF container specification.
+        assert_eq!(&bytes[0..4], b"PK\x03\x04");
+        assert_eq!(u16::from_le_bytes([bytes[8], bytes[9]]), 0);
+        assert_eq!(u16::from_le_bytes([bytes[28], bytes[29]]), 0);
+        assert_eq!(&bytes[30..38], b"mimetype");
+        let mut zip = ZipArchive::new(Cursor::new(bytes)).unwrap();
+        assert_eq!(zip.len(), 5);
+        let mut mimetype = String::new();
+        zip.by_index(0).unwrap().read_to_string(&mut mimetype).unwrap();
+        assert_eq!(mimetype, "application/epub+zip");
+        let mut book = String::new();
+        zip.by_name("OEBPS/book.xhtml").unwrap().read_to_string(&mut book).unwrap();
+        assert_eq!(book, html);
+        let mut nav = String::new();
+        zip.by_name("OEBPS/nav.xhtml").unwrap().read_to_string(&mut nav).unwrap();
+        assert!(nav.contains("Part &amp; &lt;one&gt;"));
+        assert!(nav.contains("book.xhtml#part"));
+        assert!(nav.contains("book.xhtml#sub"));
+        assert!(nav.contains("Story &apos;two&apos;"));
+        let mut metadata = String::new();
+        zip.by_name("OEBPS/content.opf").unwrap().read_to_string(&mut metadata).unwrap();
+        assert!(metadata.contains("Title &amp; &lt;book&gt;"));
+        assert!(!metadata.contains('\u{0}'));
+        assert!(metadata.contains("Author &amp; Co"));
+        assert!(zip.by_name("META-INF/container.xml").is_ok());
+    }
 }
