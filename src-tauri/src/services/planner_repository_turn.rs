@@ -250,6 +250,7 @@ pub async fn analyze_repository_for_planner(
 
     if plan.actions.is_empty() {
         return Ok(PlannerTurnResponse {
+            view_hint: None,
             session_id,
             status: "clarification".to_string(),
             assistant_message: plan
@@ -294,6 +295,7 @@ pub async fn analyze_repository_for_planner(
     }
 
     Ok(PlannerTurnResponse {
+        view_hint: None,
         session_id,
         status: "proposal".to_string(),
         assistant_message: plan.assistant_response.clone(),

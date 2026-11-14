@@ -27,6 +27,7 @@ pub(crate) fn build_session_state_response(
     trace_events: Vec<PlannerTraceEvent>,
 ) -> PlannerTurnResponse {
     PlannerTurnResponse {
+        view_hint: None,
         session_id,
         status: status.to_string(),
         assistant_message,

@@ -925,6 +925,18 @@ test("browser voice can send a scoped transcript to the planner", async ({ page,
   expect((await response.json()).selected_draft_node_id).toBe(selectedNode);
   await expect(page.locator("#voiceConversation")).toContainText("Stock");
   await expect(page.locator("#voiceMeta")).toHaveText("Planner reply ready.");
+  await page.locator("#voiceComposer").fill("Show trace.");
+  const traceResponse = page.waitForResponse((response) => response.url().endsWith("/voice-turn"));
+  await page.locator("#voiceSendButton").click();
+  expect((await (await traceResponse).json()).view_hint).toBe("trace");
+  await expect(page.locator("#plannerTrace")).toHaveAttribute("open", "");
+  await expect(page.locator("#plannerTraceContent")).not.toHaveText("No planner trace yet.");
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await page.locator("#voiceComposer").fill("Back to chat.");
+  const chatResponse = page.waitForResponse((response) => response.url().endsWith("/voice-turn"));
+  await page.locator("#voiceSendButton").click();
+  expect((await (await chatResponse).json()).view_hint).toBe("conversation");
+  await expect(page.locator("#conversation")).toBeVisible();
 });
 
 test("voice records, reviews, and sends a transcribed message", async ({ page, request }) => {

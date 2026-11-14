@@ -84,6 +84,30 @@ async fn submit_planner_voice_turn_selects_draft_nodes() {
 }
 
 #[tokio::test]
+async fn voice_view_commands_are_handled_without_a_model() {
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("voice_view_commands").await;
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None)
+        .await
+        .expect("create session");
+    for (command, view) in [("Show trace.", "trace"), ("Back to chat.", "conversation")] {
+        let response = submit_planner_voice_turn(
+            state.planner_service.clone(),
+            &state,
+            session.session_id.clone(),
+            command.into(),
+            None,
+            None,
+        )
+        .await
+        .expect("view command does not need a provider");
+        assert_eq!(response.status, "session_update");
+        assert_eq!(response.view_hint.as_deref(), Some(view));
+        assert!(response.pending_plan.is_none());
+    }
+}
+
+#[tokio::test]
 async fn commit_draft_plan_persists_tree_structure() {
     let _guard = acquire_planner_test_lock().await;
     let state = make_test_state("commit_draft").await;

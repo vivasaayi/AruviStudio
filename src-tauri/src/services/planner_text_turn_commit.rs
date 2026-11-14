@@ -92,6 +92,7 @@ pub(crate) async fn commit_confirmed_draft_plan(
     let mut service = planner_service.lock().await;
     service.save_session(&session_id, session);
     Ok(PlannerTurnResponse {
+        view_hint: None,
         session_id,
         status: "execution".to_string(),
         assistant_message: "Applied design to catalog.".to_string(),

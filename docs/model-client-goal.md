@@ -12,6 +12,19 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Browser planner voice view commands
+
+The Rust planner voice endpoint recognizes the desktop trace and conversation
+view phrases without calling a model, persists the exchange, and returns an
+optional view hint. The browser opens a planner trace panel or returns to the
+conversation accordingly. The panel shows the latest available trace in this
+browser session and clears it when a new planner session is started; it is not
+a persisted trace history. The isolated Docker build and all 36 workflow tests
+passed, including a staged-design browser voice scenario for both view commands.
+A focused Rust test was added but has not yet been run separately. This does not
+validate physical microphones, native-window voice interaction, or every desktop
+voice command.
+
 ### Browser planner voice destination
 
 The browser Voice tab can now send a reviewed or automatic transcript to the

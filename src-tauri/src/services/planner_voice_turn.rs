@@ -12,7 +12,10 @@ use crate::services::planner_text_turn::submit_planner_turn_locked;
 use crate::services::planner_turn_policy::normalize;
 
 fn exact_voice_command_text(normalized: &str) -> &str {
-    normalized.strip_suffix('.').unwrap_or(normalized).trim_end()
+    normalized
+        .strip_suffix('.')
+        .unwrap_or(normalized)
+        .trim_end()
 }
 
 #[cfg(test)]
@@ -190,6 +193,53 @@ pub async fn submit_planner_voice_turn(
             vec![],
             trace,
         ));
+    }
+
+    let view_hint = match normalized_command {
+        "view trace" | "show trace" | "open trace" => Some("trace"),
+        "view conversation" | "open conversation" | "show conversation" | "back to chat"
+        | "view chat" => Some("conversation"),
+        _ => None,
+    };
+    if let Some(view) = view_hint {
+        let assistant_message = match view {
+            "trace" => "Showing the planner trace.",
+            _ => "Showing the planner conversation.",
+        }
+        .to_string();
+        persist_session_exchange(
+            &state.db,
+            &session_id,
+            session.pending_plan.as_ref(),
+            session.draft_plan.as_ref(),
+            session.selected_draft_node_id.as_deref(),
+            &spoken,
+            &assistant_message,
+        )
+        .await?;
+        session.conversation.push(PlannerConversationEntry {
+            role: "user".to_string(),
+            content: spoken,
+        });
+        session.conversation.push(PlannerConversationEntry {
+            role: "assistant".to_string(),
+            content: assistant_message.clone(),
+        });
+        planner_service
+            .lock()
+            .await
+            .save_session(&session_id, session.clone());
+        let mut response = build_session_state_response(
+            session_id,
+            "session_update",
+            assistant_message,
+            &session,
+            vec![],
+            vec![],
+            trace,
+        );
+        response.view_hint = Some(view.to_string());
+        return Ok(response);
     }
 
     let is_draft_view_command = matches!(

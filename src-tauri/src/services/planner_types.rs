@@ -58,4 +58,6 @@ pub struct PlannerTurnResponse {
     pub execution_lines: Vec<String>,
     pub execution_errors: Vec<String>,
     pub trace_events: Vec<PlannerTraceEvent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view_hint: Option<String>,
 }

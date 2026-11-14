@@ -371,6 +371,7 @@ pub(crate) async fn submit_planner_turn_locked(
     let mut service = planner_service.lock().await;
     service.save_session(&session_id, session);
     Ok(PlannerTurnResponse {
+        view_hint: None,
         session_id,
         status: if is_informational_only(&plan) {
             "report".to_string()

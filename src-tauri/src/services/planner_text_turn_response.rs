@@ -19,6 +19,7 @@ pub(crate) fn planner_error_response(
     trace_events: Vec<PlannerTraceEvent>,
 ) -> PlannerTurnResponse {
     PlannerTurnResponse {
+        view_hint: None,
         session_id,
         status: "error".to_string(),
         assistant_message: assistant_message.clone(),
@@ -38,6 +39,7 @@ pub(crate) fn selection_required_response(
     trace_events: Vec<PlannerTraceEvent>,
 ) -> PlannerTurnResponse {
     PlannerTurnResponse {
+        view_hint: None,
         session_id,
         status: "clarification".to_string(),
         assistant_message:
@@ -66,6 +68,7 @@ pub(crate) struct ProposalResponseInput {
 
 pub(crate) fn proposal_response(input: ProposalResponseInput) -> PlannerTurnResponse {
     PlannerTurnResponse {
+        view_hint: None,
         session_id: input.session_id,
         status: "proposal".to_string(),
         assistant_message: input.assistant_message,
@@ -89,6 +92,7 @@ pub(crate) fn clarification_response(
     trace_events: Vec<PlannerTraceEvent>,
 ) -> PlannerTurnResponse {
     PlannerTurnResponse {
+        view_hint: None,
         session_id,
         status: "clarification".to_string(),
         assistant_message,

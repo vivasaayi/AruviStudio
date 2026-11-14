@@ -478,6 +478,11 @@
               </section>
 
               <section class="panel">
+                <div class="panel-header"><div class="panel-title">Planner Trace</div></div>
+                <div class="panel-body"><details id="plannerTrace"><summary>Latest planner trace</summary><pre id="plannerTraceContent">No planner trace yet.</pre></details></div>
+              </section>
+
+              <section class="panel">
                 <div class="panel-header">
                   <div class="panel-title">Draft Tree</div>
                 </div>
@@ -1044,6 +1049,8 @@
       plannerRepositoryStatus: document.getElementById("plannerRepositoryStatus"),
       connectionMeta: document.getElementById("connectionMeta"),
       draftTree: document.getElementById("draftTree"),
+      plannerTrace: document.getElementById("plannerTrace"),
+      plannerTraceContent: document.getElementById("plannerTraceContent"),
       validateDraftButton: document.getElementById("validateDraftButton"),
       exportDraftButton: document.getElementById("exportDraftButton"),
       draftValidation: document.getElementById("draftValidation"),
@@ -1816,6 +1823,10 @@
 
     function applyPlannerResponse(response, target) {
       state.sessionId = response.session_id || state.sessionId;
+      if (!response.view_hint && Array.isArray(response.trace_events) && response.trace_events.length) {
+        el.plannerTraceContent.textContent = response.trace_events.map((event) =>
+          `${event.step}. ${event.title} (${event.stage})\n${event.detail}`).join("\n\n");
+      }
       localStorage.setItem(storageKeys.session, state.sessionId);
       if (Object.prototype.hasOwnProperty.call(response, "selected_draft_node_id")) {
         state.selectedNodeId = response.selected_draft_node_id || "";
@@ -2113,6 +2124,15 @@
           appendMessage(el.conversation, "assistant", response.assistant_message || "");
           speakOnDevice(response.assistant_message || "");
           setVoiceMeta("Planner reply ready.");
+          if (response.view_hint === "trace" || response.view_hint === "conversation") {
+            switchTab("planner");
+            if (response.view_hint === "trace") {
+              el.plannerTrace.open = true;
+              el.plannerTrace.scrollIntoView({ block: "center" });
+            } else {
+              el.conversation.scrollIntoView({ block: "center" });
+            }
+          }
         }
         setStatus("Connected", "ok");
       } catch (error) {
@@ -2173,6 +2193,8 @@
     }
 
     function newSession() {
+      el.plannerTraceContent.textContent = "No planner trace yet.";
+      el.plannerTrace.open = false;
       state.sessionId = "";
       state.selectedNodeId = "";
       state.draftTreeNodes = [];

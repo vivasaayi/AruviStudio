@@ -123,6 +123,7 @@ pub async fn rename_planner_draft_node(
         actions: vec![action],
     };
     Ok(PlannerTurnResponse {
+        view_hint: None,
         session_id,
         status: "proposal".to_string(),
         assistant_message: plan.assistant_response.clone(),
@@ -212,6 +213,7 @@ pub async fn add_planner_draft_child(
         actions: vec![created.details.clone()],
     };
     Ok(PlannerTurnResponse {
+        view_hint: None,
         session_id,
         status: "proposal".to_string(),
         assistant_message: plan.assistant_response.clone(),
@@ -325,6 +327,7 @@ pub async fn delete_planner_draft_node(
         actions: vec![action],
     };
     Ok(PlannerTurnResponse {
+        view_hint: None,
         session_id,
         status: "proposal".to_string(),
         assistant_message: plan.assistant_response.clone(),
