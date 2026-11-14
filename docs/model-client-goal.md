@@ -119,6 +119,27 @@ violations. The backup is local and is not a release artifact.
 The final rebuilt branch was healthy at `127.0.0.1:55085`; all 26 isolated
 remote tests passed after the product dropdown was added.
 
+## Current integration revalidation
+
+On 2026-11-14 the native Rust library suite passed 224 tests with six ignored;
+the frontend suite passed 102 tests. `npm audit --omit=dev --audit-level=high`
+reported no vulnerabilities. The independent Git consumer built from its pinned
+client revision with network disabled after vendoring and passed 20 tests. Its
+non-root, read-only Linux probe also passed real Model Host discovery, completion,
+streaming and token-limit checks. Studio's MCP coding fixture passed against the
+same running 7B model.
+
+The normal `host-shared-client` script could not query the older Model Host
+validation checkout because its staging port no longer matches the central
+reservation. For this revalidation, the probe read that running worktree's
+existing loopback endpoint and private token from its runtime state, without
+changing the Model Host deployment. The script/checkout environment mismatch
+remains to be reconciled; this fallback does not establish that its launcher
+currently works. The branch app remained healthy at `127.0.0.1:55085`.
+An additional native migration test upgraded a pre-053 database containing a
+legacy channel binding, confirmed it remains unscoped, rejected an invalid
+product reference, and verified product deletion clears the reference.
+
 ## Managed local model installation
 
 - Local Whisper providers support transcription, not agent text completion.

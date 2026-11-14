@@ -144,6 +144,25 @@ async fn migrate_through_version(pool: &SqlitePool, version: i64) {
 }
 
 #[tokio::test]
+async fn channel_product_scope_migration_preserves_legacy_bindings() {
+    let (pool, _) = create_unmigrated_test_pool("channel_product_scope").await;
+    migrate_through_version(&pool, 52).await;
+    sqlx::query("INSERT INTO planner_sessions(id) VALUES('legacy-session')").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO planner_channel_bindings(id,channel,remote_user_id,remote_conversation_id,planner_session_id) VALUES('legacy-binding','twilio_whatsapp','user','conversation','legacy-session')").execute(&pool).await.unwrap();
+    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+    let binding = crate::persistence::planner_repo::get_channel_binding(&pool, "twilio_whatsapp", "conversation").await.unwrap().unwrap();
+    assert_eq!(binding.planner_session_id, "legacy-session");
+    assert_eq!(binding.product_id, None);
+    sqlx::query("INSERT INTO products(id,name) VALUES('channel-product','Channel product')").execute(&pool).await.unwrap();
+    sqlx::query("UPDATE planner_channel_bindings SET product_id='channel-product' WHERE id='legacy-binding'").execute(&pool).await.unwrap();
+    assert!(sqlx::query("UPDATE planner_channel_bindings SET product_id='missing' WHERE id='legacy-binding'").execute(&pool).await.is_err());
+    sqlx::query("DELETE FROM products WHERE id='channel-product'").execute(&pool).await.unwrap();
+    let binding = crate::persistence::planner_repo::get_channel_binding(&pool, "twilio_whatsapp", "conversation").await.unwrap().unwrap();
+    assert_eq!(binding.product_id, None);
+    assert!(sqlx::query("PRAGMA foreign_key_check").fetch_all(&pool).await.unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn local_speech_binding_guard_preserves_legacy_data_and_blocks_new_incompatible_edits() {
     let (pool, _) = create_unmigrated_test_pool("local_speech_guard").await;
     migrate_through_version(&pool, 51).await;
