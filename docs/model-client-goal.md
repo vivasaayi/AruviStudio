@@ -63,6 +63,14 @@ provider hosting into the model-host service as part of this work.
   Docker probe passed real 7B Model Host discovery, completion, streaming and
   token-limit checks.
 
+## Parity inventory reconciliation
+
+- Updated the leading findings in `web-parity-audit.md` to reflect the later
+  real Model Host browser and MCP checks, repository analysis, hierarchy placement
+  and two-process planner fixture. Older dated results remain historical evidence,
+  not current deployment status. Native interaction, physical audio, third-party
+  live services and real Aruvici integration remain open.
+
 ## Atomic planner conversation exchanges
 
 - Local voice-command responses (including clear and draft selection), text

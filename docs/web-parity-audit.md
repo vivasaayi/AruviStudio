@@ -1,6 +1,14 @@
 # Web and MCP parity audit
 
-**Latest revalidation:** Docker capacity was increased and the worktree database
+**Current evidence:** The later checkpoints in [model-client-goal.md](model-client-goal.md)
+supersede the historical results in this document. They include real Model Host
+browser coding and speech generation, a browser repository-analysis flow with MCP
+confirmation, an MCP speech generation/transcription round trip, and a two-server
+planner concurrency fixture. These are specific scenarios, not proof of full parity.
+Physical desktop interaction and audio devices, live third-party providers, and a
+real Aruvici connection remain unverified.
+
+**Earlier revalidation:** Docker capacity was increased and the worktree database
 passed a read-only SQLite `quick_check`. The current worktree image built and started
 successfully. The Rust library suite passed 145 tests with one live-provider test
 ignored; the frontend suite passed 90 tests. The deployed-browser smoke test, 16
@@ -45,13 +53,12 @@ The model service is simulated; this is not proof of real-provider behavior. On 
 running worktree MCP discovery and product listing succeeded, but no repository was
 registered and the default LM Studio endpoint was unavailable.
 
-- Planner draft rename, add and delete now have browser controls backed by the same
-  Rust services used by desktop and MCP. Repository analysis still lacks browser
-  controls. Concurrent draft edits
-  require an explicit safety design and tests.
-- Real model and transcription providers, physical microphone and speech playback,
-  and a real Aruvici connection have not been validated. Automated workflow and CI
-  tests use simulated services.
+- Planner draft editing and repository analysis have browser controls backed by
+  Rust services also used by desktop and MCP. Cooperating Unix processes coordinate
+  planner session mutations; the limitations are recorded in the planner checkpoint.
+- Real Model Host coding and a speech fixture have been exercised. Physical
+  microphone and audible playback, live third-party providers and a real Aruvici
+  connection remain unverified; automated CI tests use a simulated service.
 - The desktop IDE, native file reveal, local model runtime management, channel
   routing and remaining settings need action-by-action comparison or a documented
   browser alternative. Passing section navigation does not establish full parity.
@@ -61,8 +68,8 @@ registered and the default LM Studio endpoint was unavailable.
 | Desktop area | Current remote UI | Relevant MCP | Initial assessment |
 | --- | --- | --- | --- |
 | Portfolio, product overview, products | Create products, product areas, capabilities and features; edit and delete hierarchy nodes; list, summary and on-demand hierarchy tree | `aruvi_catalog` | Partial: remaining hierarchy fields, story/task navigation and other desktop overview behavior still need comparison. |
-| Work items and delivery | Create work with problem, outcome, acceptance criteria, constraints, type, priority and complexity; edit task details, approve/start, configure a test command, inspect test results, delivery and gates | `aruvi_work_items`, `aruvi_workflows`, `aruvi_checkpoints` | Partial: hierarchy placement, remaining edit fields, navigation and workflow actions need comparison; test commands execute inside the server container. |
-| Planner | Planner session, turns, confirm and clear | `aruvi_planner` | Partial: compare draft editing, repository analysis and voice. |
+| Work items and delivery | Create work with problem, outcome, acceptance criteria, constraints, type, priority, complexity and hierarchy placement; edit task details, approve/start, configure a test command, inspect test results, delivery and gates | `aruvi_work_items`, `aruvi_workflows`, `aruvi_checkpoints` | Partial: remaining edit fields, navigation and workflow actions need comparison; test commands execute inside the server container. |
+| Planner | Sessions, turns, draft editing, repository analysis, confirmation and clear | `aruvi_planner` | Partial: native interaction, physical voice and other desktop behaviors need comparison. |
 | Repositories and IDE | Register and attach workspaces; browse and edit text files, inspect Git status and diff, change defaults and detach for products and product areas | `aruvi_repositories` | Partial: Git operations beyond status and diff, desktop IDE and native dialogs require comparison and implementation. |
 | Agents and teams | Manage agent definitions, team profiles, rosters, product/area/capability scope assignments, skill definitions and links, and workflow-stage routing; inspect and replace individual agent model bindings from Models | `aruvi_agents`, `aruvi_agent_work` | Partial: bulk bindings and prompt-template application still need browser parity or implementation. |
 | Models and providers | Add, edit (including OpenAI-compatible and Anthropic protocol), enable/disable and remove providers and models; test providers and select a browser model | `aruvi_models` | Partial: API-key removal and comprehensive credential cleanup, local runtime management and remaining provider/model fields still need browser parity. |
@@ -81,21 +88,20 @@ handlers. An available handler is not evidence of a successful real-model workfl
 | Create or update a planner session and choose provider/model | Browser connection settings create/update a session; `aruvi_planner` provides both operations. |
 | Submit a planner turn with selected draft node and product | Browser presents a product selector and sends its selected node and product; MCP accepts both. Simulated browser tests cover scope. An isolated MCP test exercised a scoped proposal and confirmation with the real 7B Model Host; other models and real-provider browser turns remain unverified. |
 | Select and inspect the staged draft tree | Browser renders/selects nodes and can request structural validation; MCP exposes the same validation service. Desktop requests the shared validation command, with its previous calculation as a fallback while unavailable; it additionally shows node details, suggested prompts and recent actions. |
-| Rename a draft node, add a child or delete a draft node | Browser and `aruvi_planner` expose these operations. An isolated Docker browser test exercised the real authenticated API and verified the actual product remained unchanged; a Rust API test checked draft persistence. Concurrent session mutations within one server process are serialized; a regression test preserves both simultaneous draft edits. Cross-process access to the same database remains unverified. |
+| Rename a draft node, add a child or delete a draft node | Browser and `aruvi_planner` expose these operations. An isolated Docker browser test exercised the authenticated API and verified the actual product remained unchanged. A two-server Linux fixture covers cooperating processes sharing a database; see the planner coordination checkpoint for platform and filesystem limitations. |
 | Analyze a registered repository into a design draft | Browser and `aruvi_planner` can analyze a registered workspace into the selected product draft. Simulated tests cover authentication, staging and scan-failure recovery. A disposable browser test also analyzed a synthetic workspace with the real 7B Model Host, then confirmed the staged design through MCP; broader repositories and models remain unverified. |
 | Confirm or clear a staged design | Browser and MCP expose both; failure, conflict and multi-client behavior require further validation. |
 | Export and reveal a design-review packet | Browser can download and MCP can retrieve a Rust-generated HTML packet from a staged session. It contains the tree, validation, current context, pending actions and review sections. Desktop uses the same backend renderer for active sessions and retains native file/reveal; its prior renderer remains as a no-session fallback. The offline SVG and pending-action summaries differ from the older Mermaid packet, and native UI verification remains open. |
-| Voice transcription, voice planner commands and native speech | Browser has transcription and device speech controls; MCP exposes speech and voice-turn operations. Desktop view-switch commands, physical microphone and real speech services remain unverified. |
+| Voice transcription, voice planner commands and native speech | Browser has transcription and device speech controls; MCP exposes speech and voice-turn operations. A real Model Host speech round trip passed through MCP. Desktop view-switch commands, physical microphone and audible playback remain unverified. |
 | WhatsApp or phone contact routing | Desktop uses Twilio commands; MCP has channel operations. Equivalent browser planner controls and real-service tests were not found. |
 
 For each desktop action, parity requires a real backend operation, an appropriate
 browser or MCP entry point, and tests for success, failure, authorization and
 persistence. Native-only behavior such as revealing a file in Finder needs an
-explicit browser alternative or a documented platform limitation. The shared planner
-draft operations load a session snapshot and persist updates in separate steps;
-concurrent edits from multiple clients have not been proven safe and need a
-conflict/serialization design and regression tests before browser editing is treated
-as complete.
+explicit browser alternative or a documented platform limitation. Planner session
+locking covers cooperating Unix processes under the conditions documented in the
+planner coordination checkpoint; direct database writers, mixed versions and Windows
+are outside that guarantee.
 
 The 14 host desktop Playwright tests use mocked Tauri calls and cover a deterministic
 planner flow, repository analysis and voice commands. They do not prove these actions
