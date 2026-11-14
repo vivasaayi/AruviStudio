@@ -301,3 +301,53 @@ async fn updating_repository_propagates_new_default_branch_to_assigned_work_item
     );
     assert_eq!(updated_work_item.branch_name.as_deref(), Some("develop"));
 }
+
+#[cfg(unix)]
+#[test]
+fn desktop_ipc_reviews_and_guards_cross_repository_file_aliases() {
+    use tauri::test::{mock_builder, mock_context, noop_assets, INVOKE_KEY};
+    let directory = tempfile::tempdir().unwrap();
+    let first = directory.path().join("first");
+    let second = directory.path().join("second");
+    std::fs::create_dir_all(&first).unwrap();
+    std::fs::create_dir_all(&second).unwrap();
+    std::fs::write(first.join("Example.txt"), "old\n").unwrap();
+    std::fs::hard_link(first.join("Example.txt"), second.join("Alias.txt")).unwrap();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let state = runtime.block_on(async {
+        let db = crate::persistence::db::create_pool(&format!("sqlite:{}", directory.path().join("db.sqlite").display())).await.unwrap();
+        AppState::new(db, directory.path().to_path_buf()).await.unwrap()
+    });
+    let app = mock_builder().manage(state)
+        .invoke_handler(tauri::generate_handler![super::register_repository, super::matching_repository_files, super::preview_repository_patch, super::apply_reviewed_repository_patch])
+        .build(mock_context(noop_assets())).unwrap();
+    let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
+    let invoke = |cmd: &str, body: serde_json::Value| {
+        tauri::test::get_ipc_response(&webview, tauri::webview::InvokeRequest {
+            cmd: cmd.into(), callback: tauri::ipc::CallbackFn(0), error: tauri::ipc::CallbackFn(1),
+            url: "http://tauri.localhost".parse().unwrap(), body: tauri::ipc::InvokeBody::Json(body),
+            headers: Default::default(), invoke_key: INVOKE_KEY.to_string(),
+        })
+    };
+    let register = |name: &str, path: &std::path::Path| {
+        invoke("register_repository", serde_json::json!({"name":name, "localPath":path.to_str().unwrap(), "remoteUrl":"", "defaultBranch":"main"}))
+            .unwrap().deserialize::<serde_json::Value>().unwrap()["id"].as_str().unwrap().to_string()
+    };
+    let first_id = register("first", &first);
+    let second_id = register("second", &second);
+    let matched = invoke("matching_repository_files", serde_json::json!({"repositoryId":first_id, "relativePath":"Example.txt", "openRepositoryId":second_id, "openPaths":["Alias.txt"]})).unwrap().deserialize::<Vec<String>>().unwrap();
+    assert_eq!(matched, vec!["Alias.txt"]);
+    if first.join("example.txt").exists() {
+        let case_match = invoke("matching_repository_files", serde_json::json!({"repositoryId":first_id, "relativePath":"example.txt", "openRepositoryId":first_id, "openPaths":["Example.txt"]})).unwrap().deserialize::<Vec<String>>().unwrap();
+        assert_eq!(case_match, vec!["Example.txt"]);
+    }
+    let patch = "@@ -1 +1 @@\n-old\n+new\n";
+    let preview = invoke("preview_repository_patch", serde_json::json!({"repositoryId":first_id, "relativePath":"Example.txt", "patch":patch, "baseSha256":null})).unwrap().deserialize::<serde_json::Value>().unwrap();
+    let apply = |hash: &str| invoke("apply_reviewed_repository_patch", serde_json::json!({"repositoryId":first_id, "relativePath":"Example.txt", "patch":patch, "baseSha256":hash, "expectedExists":true}));
+    std::fs::write(first.join("Example.txt"), "changed\n").unwrap();
+    assert!(apply(preview["base_sha256"].as_str().unwrap()).is_err());
+    assert_eq!(std::fs::read_to_string(&first.join("Example.txt")).unwrap(), "changed\n");
+    std::fs::write(first.join("Example.txt"), "old\n").unwrap();
+    apply(preview["base_sha256"].as_str().unwrap()).unwrap();
+    assert_eq!(std::fs::read_to_string(&second.join("Alias.txt")).unwrap(), "new\n");
+}

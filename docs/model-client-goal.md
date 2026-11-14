@@ -2284,8 +2284,11 @@ application and clean aliases are refreshed. For a new target, dirty open buffer
 must be saved or closed first. Identity checks and writes are separate filesystem
 operations, so external concurrent renames or replacements can still race them.
 Open editor buffers in other registered repositories are included in the identity
-check and refreshed through their owning workspace. Windows and case-insensitive
-filesystem behavior require native validation.
+check and refreshed through their owning workspace. Windows requires native
+validation. On the Mac case-insensitive temporary filesystem, a Tauri mock-runtime
+IPC test verified case variants and cross-workspace hard links, then previewed a
+patch, rejected a stale base and successfully applied the unchanged base. This
+is not a native-window interaction test.
 On 2026-11-14, the native symlink/hard-link test, 123 frontend tests,
 the frontend build and a mocked desktop Copilot browser check passed.
 A cross-workspace follow-up passed the native hard-link identity fixture and all
