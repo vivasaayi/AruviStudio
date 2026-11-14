@@ -41,6 +41,9 @@ rejected, including after earlier text was emitted. Consumers must check the
 final stream result before treating those earlier chunks as a complete answer.
 SSE choices are checked for non-text or malformed content in both `delta` and
 `message` fields, including providers that return SSE for a buffered request.
+When an SSE choice supplies a full message, it is emitted once if no deltas
+preceded it; otherwise it must match the accumulated deltas and is not appended
+again. Conflicting full messages or later text deltas fail the request.
 See the [Anthropic Messages reference](https://platform.claude.com/docs/en/api/messages/create)
 for provider content-block types.
 For Anthropic, a supplied stop reason indicating token truncation, a paused turn,

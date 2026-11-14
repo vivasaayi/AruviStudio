@@ -245,6 +245,8 @@ const server = http.createServer((request, response) => {
         if (response.destroyed) return;
         if (last.includes("stream failure")) return response.end('data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n');
         if (last.includes("stream message tool")) return response.end('data: {"choices":[{"message":{"content":"hidden","tool_calls":[{"id":"fixture"}]}}]}\n\ndata: [DONE]\n\n');
+        if (last.includes("stream full message")) return response.end('data: {"choices":[{"delta":{"content":"second"},"message":{"content":"First second"}}]}\n\ndata: [DONE]\n\n');
+        if (last.includes("stream conflicting message")) return response.end('data: {"choices":[{"message":{"content":"different"}}]}\n\ndata: [DONE]\n\n');
         if (last.includes("stream malformed")) return response.end('data: {"choices":[{"delta":{"content":42},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
         response.write('data: {"choices":[{"delta":{"content":"second"},"finish_reason":"stop"}]}\n\n');
         response.end('data: [DONE]\n\n');

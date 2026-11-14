@@ -1103,6 +1103,12 @@ test("browser chat streams, reports errors, and can stop", async ({ page, reques
   await expect(page.locator("#chatConversation .assistant").last()).toHaveText("First ");
   await expect(page.locator("#chatConversation .assistant").last()).toHaveText("First second");
   await expect(page.locator("#status")).toHaveText("Connected");
+  await send("stream full message");
+  await expect(page.locator("#chatConversation .assistant").last()).toHaveText("First second");
+  await expect(page.locator("#status")).toHaveText("Connected");
+  await send("stream conflicting message");
+  await expect(page.locator("#chatConversation .assistant").last()).toContainText("full message conflicts");
+  await expect(page.locator("#status")).toContainText("full message conflicts");
   await send("stream failure");
   await expect(page.locator("#chatConversation")).toContainText("Response incomplete");
   await expect(page.locator("#status")).toContainText("truncated");
@@ -1122,7 +1128,7 @@ test("browser chat streams, reports errors, and can stop", async ({ page, reques
   await expect.poll(async () => {
     const calls = await (await request.get("/api/mobile/model-calls?limit=100", { headers })).json();
     return calls.filter((call) => call.provider_id === provider.id && call.source_kind === "mobile_chat").map((call) => call.status).sort();
-  }).toEqual(["completed", "failed", "failed", "failed", "failed"]);
+  }).toEqual(["completed", "completed", "failed", "failed", "failed", "failed", "failed"]);
 });
 
 test("browser streams Anthropic text and preserves errors and usage", async ({ page, request }) => {

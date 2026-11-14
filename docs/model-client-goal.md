@@ -144,6 +144,17 @@ repository and deployed host were not changed.
 
 ### Current branch build and security checks
 
+The OpenAI-compatible client now handles full `message` content in SSE without
+silently dropping it or duplicating an accumulated response. It emits a
+message-only answer once, accepts a matching final message after deltas, and
+rejects a conflict or later delta. All 61 native client tests passed. A
+disposable native Studio and synthetic-provider browser fixture passed matching
+and conflicting streams. The branch Docker image built, but was not started:
+Docker's Linux filesystem had about 265 MB available after removing only
+identified build caches from this task. The previously deployed branch remains
+healthy and does not yet include this change. The full Docker workflow suite and
+the independent consumer's new pin remain to be validated after space is available.
+
 Desktop transcription choices and planner auto-selection now follow the
 backend's explicit `stt`/`asr` capability ranking and synthesis exclusions.
 The reserved DeepSeek synthesis selector cannot be auto-selected for

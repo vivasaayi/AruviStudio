@@ -162,6 +162,7 @@ impl OpenAiCompatibleClient {
 
     fn parse_sse_fallback(raw_body: &str) -> Result<CompletionResponse, ClientError> {
         let mut result = CompletionResponse::default();
+        let mut message_seen = false;
         // Buffered completions permit the final event without a blank separator,
         // as before, while still requiring the provider's terminal marker.
         let mut parser = crate::sse::EventParser::new(8 * 1024 * 1024 + 2);
@@ -175,9 +176,7 @@ impl OpenAiCompatibleClient {
             let choice = Self::first_choice(&event)?;
             crate::CompletionMetadata::merge(&mut result.metadata, &event, choice.and_then(|v| v.get("finish_reason")));
             if let Some(choice) = choice {
-                Self::reject_non_text_choice(choice, "delta")?;
-                Self::reject_non_text_choice(choice, "message")?;
-                if let Some(content) = Self::extract_choice_content(choice) { result.content.push_str(&content); }
+                Self::append_sse_choice(choice, &mut result.content, &mut message_seen, &mut |_| {})?;
             }
             if let Some(usage) = event.get("usage") {
                 result.token_count_input = usage.get("prompt_tokens").and_then(|v| v.as_i64()).or(result.token_count_input);
@@ -189,6 +188,29 @@ impl OpenAiCompatibleClient {
         if !done { return Err(ClientError::Provider("Model stream ended before its terminal event".into())); }
         if result.content.is_empty() { return Err(ClientError::Provider("Model stream returned no text".into())); }
         Ok(result)
+    }
+
+    fn append_sse_choice<F: FnMut(&str)>(choice: &serde_json::Value, content: &mut String, message_seen: &mut bool, on_delta: &mut F) -> Result<(), ClientError> {
+        Self::reject_non_text_choice(choice, "delta")?;
+        Self::reject_non_text_choice(choice, "message")?;
+        let delta = choice.pointer("/delta/content").and_then(serde_json::Value::as_str).unwrap_or("");
+        if *message_seen && !delta.is_empty() {
+            return Err(ClientError::Provider("Model stream continued after its full message".into()));
+        }
+        let message = choice.get("message").filter(|value| !value.is_null()).and_then(|message| {
+            Self::extract_choice_content(&serde_json::json!({"message":message}))
+        }).filter(|text| !text.is_empty());
+        if let Some(full) = message.as_deref() {
+            if !(content.is_empty() && delta.is_empty()) && (full.len() != content.len() + delta.len() || !full.starts_with(content.as_str()) || &full[content.len()..] != delta) {
+                return Err(ClientError::Provider("Model stream full message conflicts with streamed text".into()));
+            }
+        }
+        if !delta.is_empty() { content.push_str(delta); on_delta(delta); }
+        if let Some(full) = message {
+            if content.is_empty() { content.push_str(&full); on_delta(&full); }
+            *message_seen = true;
+        }
+        Ok(())
     }
 
     fn reject_non_text_choice(choice: &serde_json::Value, field: &str) -> Result<(), ClientError> {
@@ -270,6 +292,7 @@ impl OpenAiCompatibleClient {
             return Err(ClientError::http("Model stream API error", response.status()));
         }
         let mut result = CompletionResponse::default();
+        let mut message_seen = false;
         crate::sse::read_sse(response, "Model", |data| {
             if data == b"[DONE]" { return Ok(true); }
             let event: serde_json::Value = serde_json::from_slice(data)
@@ -284,11 +307,7 @@ impl OpenAiCompatibleClient {
             let choice = Self::first_choice(&event)?;
             crate::CompletionMetadata::merge(&mut result.metadata, &event, choice.and_then(|v| v.get("finish_reason")));
             if let Some(choice) = choice {
-                Self::reject_non_text_choice(choice, "delta")?;
-                Self::reject_non_text_choice(choice, "message")?;
-                if let Some(content) = choice.pointer("/delta/content").and_then(|value| value.as_str()) {
-                    if !content.is_empty() { result.content.push_str(content); on_delta(content); }
-                }
+                Self::append_sse_choice(choice, &mut result.content, &mut message_seen, &mut on_delta)?;
             }
             Ok(false)
         }).await?;
@@ -643,6 +662,29 @@ mod tests {
         }
         let message_only = "data: {\"choices\":[{\"message\":{\"content\":\"valid\"}}]}\n\ndata: [DONE]\n\n";
         assert_eq!(OpenAiCompatibleClient::parse_sse_fallback(message_only).unwrap().content, "valid");
+    }
+
+    #[tokio::test]
+    async fn sse_full_messages_are_not_dropped_duplicated_or_allowed_to_conflict() {
+        let valid = [
+            ("data: {\"choices\":[{\"message\":{\"content\":\"hello\"}}]}\n\ndata: [DONE]\n\n", "hello"),
+            ("data: {\"choices\":[{\"delta\":{\"content\":\"hé\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"llo\"},\"message\":{\"content\":\"héllo\"}}]}\n\ndata: [DONE]\n\n", "héllo"),
+        ];
+        for (body, expected) in valid {
+            let (result, deltas) = openai_stream_fixture(body).await;
+            assert_eq!(result.unwrap().content, expected);
+            assert_eq!(deltas.concat(), expected);
+            assert_eq!(OpenAiCompatibleClient::parse_sse_fallback(body).unwrap().content, expected);
+        }
+        for body in [
+            "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\ndata: {\"choices\":[{\"message\":{\"content\":\"different\"}}]}\n\ndata: [DONE]\n\n",
+            "data: {\"choices\":[{\"message\":{\"content\":\"partial\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"later\"}}]}\n\ndata: [DONE]\n\n",
+        ] {
+            let (result, deltas) = openai_stream_fixture(body).await;
+            assert_eq!(deltas.concat(), "partial");
+            assert!(result.is_err());
+            assert!(OpenAiCompatibleClient::parse_sse_fallback(body).is_err());
+        }
     }
 
     #[tokio::test]
