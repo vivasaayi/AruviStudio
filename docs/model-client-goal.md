@@ -160,7 +160,11 @@ the pinned sources. To avoid Docker's nearly full filesystem, the temporary
 vendor and build directories were bind-mounted from the Mac and then removed.
 An independently built non-root Linux probe of that pin also passed real
 `qwen25-coder-7b-q4` Model Host discovery, completion, streaming and token-limit
-checks. This validates text, not speech, for the new pin; no release image was built.
+checks. A separate non-root Linux probe of the same pin passed a synthetic
+`piper-ljspeech` to `whisper-tiny-metal` round trip and `qwen-05b-comparison`
+text discovery, completion, streaming and token-limit checks against the
+existing integration host. No release image was built; physical audio and live
+third-party services remain unverified.
 
 After the planner voice change at `2a7e433`, the isolated Docker workflow
 suite passed all 49 cases on 2026-11-14. It covers simulated OpenAI-compatible
@@ -964,7 +968,7 @@ scope is reviewed, not merely until an example passes.
 
 | Requirement | Current evidence | Remaining work |
 | --- | --- | --- |
-| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and by a separate project pinned to commit `c4cac799d99ffef77e6199711c07b85d4db6fd1a`; 26 independent native and Linux tests passed offline, and a non-root Linux probe passed real Model Host text discovery, completion, streaming and token-limit checks. The prior `c130a4bc1af205d64f1ea37df897ccd4193aee66` pin also passed a synthetic Piper/Whisper speech round trip. | Revalidate speech with the new pin; decide independent ownership, versioning and a migration plan for other projects. The current pin is a checkpoint, not a published release. |
+| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and by a separate project pinned to commit `c4cac799d99ffef77e6199711c07b85d4db6fd1a`; 26 independent native and Linux tests passed offline, and non-root Linux probes passed real Model Host text discovery, completion, streaming, token-limit checks and a synthetic Piper/Whisper speech round trip. | Decide independent ownership, versioning and a migration plan for other projects. The current pin is a checkpoint, not a published release. |
 | OpenAI-compatible and Anthropic protocols | Shared clients cover text, streaming, discovery and error handling; OpenAI-compatible voice is implemented. Contract fixtures cover both protocols and the reasoning request profile. | Live third-party OpenAI, Anthropic, DeepSeek and LM Studio sessions remain unverified; compatibility with each model and provider cannot be inferred from adapter capabilities. |
 | Local coding integration | The isolated 7B Model Host passed real MCP completion and an extend-module workflow through code review and a disposable local Git remote. A later new-module attempt produced a missing function definition; independent behavior checks caught it before delivery. | Investigate reliability on broader coding tasks and actual authenticated network delivery; syntax-only checks do not establish correctness. |
 | Speech and local fallback | Real Model Host speech generation and transcription and checksum-pinned local Whisper have been exercised with synthetic audio; browser and MCP fixtures exist. | Physical microphone permission/capture, audible playback, other languages and recognition quality remain unverified. |
