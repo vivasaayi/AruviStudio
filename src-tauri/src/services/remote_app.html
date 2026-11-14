@@ -3983,7 +3983,9 @@
         const page = await request("/api/mobile/providers/discover", { method: "POST", body: { id: provider, cursor } });
         if (sequence !== discoverySequence || discoveryProvider !== provider || el.modelProvider.value !== provider) return;
         for (const model of page.models) {
-          const option = new Option(model.display_name ? model.display_name + " (" + model.id + ")" : model.id, model.id);
+          const task = typeof model.metadata?.task === "string" ? model.metadata.task.trim().slice(0, 80) : "";
+          const label = (model.display_name ? model.display_name + " (" + model.id + ")" : model.id) + (task ? " — provider task: " + task : "");
+          const option = new Option(label, model.id);
           el.discoveredModels.add(option);
         }
         discoveryCursor = page.next_cursor;

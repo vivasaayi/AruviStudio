@@ -44,6 +44,21 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Discovered model tasks
+
+The desktop and browser model selectors show a provider-reported `task` from
+discovery metadata alongside the model ID. This helps distinguish Model Host's
+text, speech, transcription and image entries before registration. The label
+is informational: provider task vocabulary is not standardized, and it does not
+automatically assign capabilities or establish that Studio supports the task.
+Missing or non-string task values are ignored, and long labels are bounded.
+Desktop browser tests cover paging, labels and the selected model ID; the remote
+workflow tests cover the label, selection and stale discovery responses.
+On 2026-11-14, `npm run build`, all 6 desktop model-provider Playwright tests,
+and all 23 isolated remote Playwright tests passed. The rebuilt worktree app and
+its PDF service passed their health checks; its dynamic endpoint was
+`127.0.0.1:55079` at this checkpoint.
+
 ## Managed local model installation
 
 - Local Whisper providers support transcription, not agent text completion.

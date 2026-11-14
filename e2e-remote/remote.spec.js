@@ -798,7 +798,7 @@ test("browser configures and selects a model", async ({ page, request }) => {
         discoveryRequests++;
         const old = discoveryRequests === 1;
         if (old) { startedOld(); await oldGate; }
-        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ models: [{ id: old ? "stale-model" : "fresh-model" }], next_cursor: null }) });
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ models: [{ id: old ? "stale-model" : "fresh-model", metadata: { task: "transcription" } }], next_cursor: null }) });
       });
       await page.getByRole("button", { name: "Discover available models" }).click();
       await oldStarted;
@@ -807,6 +807,9 @@ test("browser configures and selects a model", async ({ page, request }) => {
       await page.getByLabel("Provider for model").selectOption(providerId);
       await page.getByRole("button", { name: "Discover available models" }).click();
       await expect(page.locator("#discoveredModels")).toContainText("fresh-model");
+      await expect(page.locator('#discoveredModels option[value="fresh-model"]')).toHaveText("fresh-model — provider task: transcription");
+      await page.locator("#discoveredModels").selectOption("fresh-model");
+      await expect(page.getByLabel("Model name", { exact: true })).toHaveValue("fresh-model");
       const oldResponse = page.waitForResponse((response) => response.url().endsWith("/api/mobile/providers/discover") && response.request().postDataJSON()?.id === providerId);
       releaseOld();
       await (await oldResponse).finished();

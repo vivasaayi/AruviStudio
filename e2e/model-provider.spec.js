@@ -69,8 +69,8 @@ test("desktop discovers and selects paged provider models", async ({ page }) => 
     window.__ARUVI_E2E__.invoke = async (command, args) => {
       if (command === "discover_provider_models") {
         return args.cursor
-          ? { models: [{ id: "second-model", display_name: "Second", metadata: {} }], next_cursor: null }
-          : { models: [{ id: "first-model", display_name: "First", metadata: {} }], next_cursor: "first-model" };
+          ? { models: [{ id: "second-model", display_name: "Second", metadata: { task: { unexpected: true } } }], next_cursor: null }
+          : { models: [{ id: "first-model", display_name: "First", metadata: { task: "transcription" } }], next_cursor: "first-model" };
       }
       return original(command, args);
     };
@@ -78,9 +78,11 @@ test("desktop discovers and selects paged provider models", async ({ page }) => 
   await page.getByRole("button", { name: "+ Add Model" }).click();
   await page.getByLabel("Provider for model").selectOption("provider-deepseek-hosted");
   await page.getByRole("button", { name: "Discover available models" }).click();
+  await expect(page.getByLabel("Available model").locator('option[value="first-model"]')).toHaveText("First (first-model) — provider task: transcription");
   await page.getByLabel("Available model").selectOption("first-model");
   await expect(page.getByLabel("Model name", { exact: true })).toHaveValue("first-model");
   await page.getByRole("button", { name: "Load next page" }).click();
+  await expect(page.getByLabel("Available model").locator('option[value="second-model"]')).toHaveText("Second (second-model)");
   await page.getByLabel("Available model").selectOption("second-model");
   await expect(page.getByLabel("Model name", { exact: true })).toHaveValue("second-model");
 });

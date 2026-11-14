@@ -187,7 +187,10 @@ export function ModelProviderListPage() {
           </select>
           <button type="button" style={styles.btn} disabled={!modelForm.providerId || discovering} onClick={() => void discoverModels(false)}>{discovering ? "Discovering..." : "Discover available models"}</button>
           {discoveryCursor && <button type="button" style={styles.btn} disabled={discovering} onClick={() => void discoverModels(true)}>Load next page</button>}
-          {discoveredModels.length > 0 && <><label style={styles.label}>Available model</label><select aria-label="Available model" style={styles.select} value="" onChange={(e) => { if (e.target.value) setModelForm({ ...modelForm, name: e.target.value }); }}><option value="">Select a discovered model</option>{discoveredModels.map((model) => <option key={model.id} value={model.id}>{model.display_name ? `${model.display_name} (${model.id})` : model.id}</option>)}</select></>}
+          {discoveredModels.length > 0 && <><label style={styles.label}>Available model</label><select aria-label="Available model" style={styles.select} value="" onChange={(e) => { if (e.target.value) setModelForm({ ...modelForm, name: e.target.value }); }}><option value="">Select a discovered model</option>{discoveredModels.map((model) => {
+            const task = typeof model.metadata?.task === "string" ? model.metadata.task.trim().slice(0, 80) : "";
+            return <option key={model.id} value={model.id}>{model.display_name ? `${model.display_name} (${model.id})` : model.id}{task ? ` — provider task: ${task}` : ""}</option>;
+          })}</select></>}
           <label style={styles.label}>Model Name</label>
           <input aria-label="Model name" style={styles.input} value={modelForm.name} onChange={(e) => setModelForm({ ...modelForm, name: e.target.value })} placeholder="e.g. deepseek-chat or deepseek-coder" />
           <label style={styles.label}>Context Window (optional)</label>
