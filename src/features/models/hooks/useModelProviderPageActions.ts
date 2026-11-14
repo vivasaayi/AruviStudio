@@ -299,12 +299,19 @@ export function useModelProviderPageActions({
     }
   };
 
-  const applyPreset = (preset: "deepseek" | "lm_studio") => {
+  const applyPreset = (preset: "deepseek" | "lm_studio" | "model_host") => {
     if (preset === "deepseek") {
       setForm({
         name: "DeepSeek (Hosted)",
         providerType: "openai_compatible",
         baseUrl: "https://api.deepseek.com/v1",
+        authSecretRef: "",
+      });
+    } else if (preset === "model_host") {
+      setForm({
+        name: "Aruvi Model Host",
+        providerType: "openai_compatible",
+        baseUrl: "",
         authSecretRef: "",
       });
     } else {

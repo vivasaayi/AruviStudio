@@ -81,7 +81,7 @@ export function ManagedLocalSpeechModelsPanel({
         })}
       </div>
       <div style={{ color: "#8f96a3", fontSize: 12, marginTop: 12 }}>
-        This release manages local Whisper models for speech. Local in-app hosting for GGUF chat/coding models is the next runtime step after speech.
+        These managed Whisper models are for transcription. Connect Aruvi Model Host as an OpenAI-compatible provider for centrally hosted local chat and coding models.
       </div>
     </div>
   );

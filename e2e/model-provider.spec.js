@@ -168,3 +168,14 @@ test("desktop provider key fields are masked and clear on close", async ({ page 
   await card.getByRole("button", { name: "Edit", exact: true }).click();
   await expect(rotateKey).toHaveValue("");
 });
+
+
+test("desktop Model Host preset requests an endpoint without assuming a port", async ({ page }) => {
+  await page.goto("/models");
+  await page.getByRole("button", { name: "Use Aruvi Model Host" }).click();
+  await expect(page.getByLabel("Provider name")).toHaveValue("Aruvi Model Host");
+  await expect(page.getByLabel("Provider type")).toHaveValue("openai_compatible");
+  await expect(page.getByLabel("Provider base URL")).toHaveValue("");
+  await expect(page.getByText(/ports can change/)).toBeVisible();
+  await expect(page.getByLabel("API Key / Secret Ref (optional)")).toHaveAttribute("type", "password");
+});

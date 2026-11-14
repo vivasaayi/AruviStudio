@@ -145,13 +145,13 @@ export function ModelProviderListPage() {
         <div style={styles.form}>
           <label style={styles.label}>Provider Name</label><input aria-label="Provider name" style={styles.input} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. DeepSeek (Hosted)" />
           <label style={styles.label}>Provider Type</label><select aria-label="Provider type" style={styles.select} value={form.providerType} onChange={(e) => setForm({ ...form, providerType: e.target.value })}><option value="openai_compatible">OpenAI Compatible</option><option value="openai_reasoning">OpenAI reasoning models</option><option value="anthropic">Anthropic Messages</option><option value="local_runtime">Local Runtime</option></select>
-          <label style={styles.label}>{form.providerType === "local_runtime" ? "Local Model Path" : "Base URL"}</label><input aria-label="Provider base URL" style={styles.input} value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} />
+          <label style={styles.label}>{form.providerType === "local_runtime" ? "Local Model Path" : "Base URL"}</label><input aria-label="Provider base URL" placeholder="http://host:port/v1" style={styles.input} value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} />
           <div style={{ fontSize: 12, color: "#8f96a3", marginBottom: 8 }}>
             {form.providerType === "local_runtime"
               ? <>For Whisper.cpp local speech, use an absolute path like <code>/Users/you/models/ggml-base.en.bin</code>.</>
               : form.providerType === "anthropic" ? <>Use <code>https://api.anthropic.com</code> and an Anthropic API key.</>
               : form.providerType === "openai_reasoning" ? <>Use this for models that accept <code>max_completion_tokens</code> and do not support temperature. Temperature is omitted.</>
-              : <>You can use <code>http://localhost:1234</code> or <code>http://localhost:1234/v1</code>. Aruvi normalizes both.</>}
+              : <>For Aruvi Model Host, enter its running endpoint and API token; ports can change. For LM Studio, you can use <code>http://localhost:1234/v1</code>.</>}
           </div>
           <label style={styles.label}>API Key / Secret Ref (optional)</label><input aria-label="API Key / Secret Ref (optional)" type="password" autoComplete="new-password" style={styles.input} value={form.authSecretRef} onChange={(e) => setForm({ ...form, authSecretRef: e.target.value })} placeholder={form.providerType === "local_runtime" ? "Leave empty for local runtime" : "Paste API key (stored in Keychain) or ref:provider:... value"} />
           <div style={{ fontSize: 12, color: "#8f96a3", marginBottom: 12 }}>
@@ -270,7 +270,7 @@ export function ModelProviderListPage() {
             onEditModel={startEditingModel}
           />
         </>
-      ) : (<div style={styles.empty}>No providers configured. Add DeepSeek (hosted) for a fast end-to-end path or LM Studio for local runs.</div>)}
+      ) : (<div style={styles.empty}>No providers configured. Connect Aruvi Model Host for local coding models, or add another compatible provider.</div>)}
 
       {editingProvider && (
         <div style={styles.modalBackdrop}>

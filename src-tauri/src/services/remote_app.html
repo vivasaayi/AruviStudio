@@ -775,6 +775,7 @@
             <section class="panel">
               <div class="panel-header"><div class="panel-title">Add model provider</div><button class="secondary" id="refreshModelsButton" type="button">Refresh</button></div>
               <div class="panel-body stack">
+                <p class="empty">For Aruvi Model Host, enter its running OpenAI-compatible endpoint and API token. The address must be reachable from the Studio server.</p>
                 <form id="providerForm" class="stack">
                   <label><span class="label">Provider name</span><input id="providerName" required /></label>
                   <label><span class="label">Protocol</span><select id="providerProtocol"><option value="openai_compatible">OpenAI compatible</option><option value="openai_reasoning">OpenAI reasoning models (no temperature)</option><option value="anthropic">Anthropic Messages</option></select></label>

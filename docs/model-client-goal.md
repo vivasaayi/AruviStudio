@@ -2299,6 +2299,14 @@ model discovery, completion, streaming and token-limit handling with
 `qwen25-coder-7b-q4`. This verifies the pinned revision; later client changes
 require a new pin and revalidation. No release was published.
 
+## Model Host setup in provider UI
+
+The desktop quick start includes an Aruvi Model Host preset with a blank endpoint
+and masked token field; the browser provider form explains that the address must
+be reachable from the Studio server. Neither assumes a fixed port or configures
+the host automatically. Eight simulated desktop provider checks and 124 frontend
+unit tests passed; real native-window interaction remains unverified.
+
 ## Studio transcription upload bounds
 
 Studio now applies the existing 32 MiB decoded-audio limit to remote as well as
