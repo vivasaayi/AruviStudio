@@ -716,6 +716,23 @@ product reference, and verified product deletion clears the reference.
   passed. The branch Docker deployment rebuilt
   and both its app and isolated PDF service passed health checks.
 
+## Repeated coding edits
+
+Two fresh 7B `extend-module` workflow attempts reached planning and coding but
+failed the syntax gate before delivery. In the captured second trace the model
+repeated the same successful line-range replacement three times, duplicating code.
+The coding tool loop now rejects an identical successful replacement until the
+file is reread or another edit changes it, and gives the model an actionable
+observation. A simulated tool-loop regression verifies the repeated call is not
+applied; the check does not detect all semantically duplicate edits or guarantee
+model correctness. Existing line-range replacement can introduce an extra blank
+line when replacement text already ends in a newline; that formatting issue is
+still open. After rebuilding, a fresh 7B `extend-module` run passed its syntax
+and isolated behavioral checks and delivered to the disposable Git remote. The
+model did not repeat its edit in that run, so the guard itself was exercised by
+the simulated regression, not the successful live run. The two preceding failures
+remain evidence of nondeterministic coding reliability.
+
 ## Independent client revalidation
 
 - The independent Git consumer now pins

@@ -10,7 +10,34 @@ use crate::error::AppError;
 use crate::execution::workspace::WorkItemWorkspace;
 use crate::persistence::{artifact_repo, work_item_repo, workflow_repo};
 use crate::services::agent_execution_limits::{self, AgentExecutionBoundaries};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+
+#[derive(Default)]
+struct ReplacementGuard { last: HashMap<String, (u64, u64, String)> }
+
+impl ReplacementGuard {
+    fn signature(tool: &str, args: &serde_json::Value) -> Option<(String, (u64, u64, String))> {
+        if !tool.trim().eq_ignore_ascii_case("repo.replace_range") { return None; }
+        let path = agent_execution_limits::normalize_relative_path(args.get("path")?.as_str()?)?;
+        Some((path, (args.get("start_line")?.as_u64()?, args.get("end_line")?.as_u64()?, args.get("content")?.as_str()?.trim_end_matches(['\r', '\n']).to_owned())))
+    }
+    fn check(&self, tool: &str, args: &serde_json::Value) -> Result<(), AppError> {
+        if let Some((path, signature)) = Self::signature(tool, args) {
+            if self.last.get(&path) == Some(&signature) {
+                return Err(AppError::Validation(format!("This replacement already succeeded for {path}; reread the file before repeating it or finish the task.")));
+            }
+        }
+        Ok(())
+    }
+    fn record_success(&mut self, tool: &str, args: &serde_json::Value) {
+        if let Some((path, signature)) = Self::signature(tool, args) {
+            self.last.insert(path, signature);
+        } else if ["repo.read_file", "repo.write_file", "repo.apply_patch"].iter().any(|name| tool.trim().eq_ignore_ascii_case(name)) {
+            if let Some(path) = args.get("path").and_then(serde_json::Value::as_str).and_then(agent_execution_limits::normalize_relative_path) { self.last.remove(&path); }
+        }
+    }
+}
+
 use tracing::{info, warn};
 
 impl AgentService {
@@ -59,6 +86,7 @@ impl AgentService {
 
         let allowed_tools = resolve_allowed_tools(&stage_agent.allowed_tools);
         let max_steps = agent_execution_limits::max_tool_steps(boundaries);
+        let mut replacement_guard = ReplacementGuard::default();
         let mut tool_observations: Vec<String> = Vec::new();
         let mut trace: Vec<ToolLoopTraceEntry> = Vec::new();
         let mut changed_files: HashSet<String> = HashSet::new();
@@ -120,7 +148,9 @@ impl AgentService {
                     arguments,
                     reason,
                 }) => {
-                    let execution = self
+                    let execution = match replacement_guard.check(&tool, &arguments) {
+                        Err(error) => Err(error),
+                        Ok(()) => self
                         .execute_tool_call_in_workspace(
                             &workspace,
                             &tool,
@@ -129,9 +159,11 @@ impl AgentService {
                             boundaries,
                             &mut changed_files,
                         )
-                        .await;
+                        .await,
+                    };
                     match execution {
                         Ok(result) => {
+                            replacement_guard.record_success(&tool, &arguments);
                             let rendered = serde_json::to_string_pretty(&result)
                                 .unwrap_or_else(|_| "{}".to_string());
                             tool_observations.push(
@@ -342,5 +374,25 @@ impl AgentService {
                 changed_files_list.join(", ")
             }
         ))
+    }
+}
+
+#[cfg(test)]
+mod replacement_guard_tests {
+    use super::ReplacementGuard;
+    use serde_json::json;
+
+    #[test]
+    fn repeated_replacement_requires_a_fresh_read() {
+        let mut guard = ReplacementGuard::default();
+        let edit = json!({"path":"src/math.js", "start_line":2, "end_line":2, "content":"new code\n"});
+        assert!(guard.check("repo.replace_range", &edit).is_ok());
+        guard.record_success("repo.replace_range", &edit);
+        let repeated = json!({"path":"src/math.js", "start_line":2, "end_line":2, "content":"new code"});
+        assert!(guard.check("repo.replace_range", &repeated).is_err());
+        guard.record_success("repo.read_file", &json!({"path":"another.js"}));
+        assert!(guard.check("repo.replace_range", &repeated).is_err());
+        guard.record_success("repo.read_file", &json!({"path":"src/math.js"}));
+        assert!(guard.check("repo.replace_range", &repeated).is_ok());
     }
 }
