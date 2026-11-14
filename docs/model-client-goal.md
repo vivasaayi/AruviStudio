@@ -107,6 +107,20 @@ saved-file patch. Real web and MCP saved-file follow-ups and patch previews
 also passed. This is one fixture, not a general coding-quality guarantee. The
 rebuilt branch was healthy at `127.0.0.1:55087` on 2026-11-14.
 
+## Web Copilot generation controls
+
+Web and MCP file Copilot now accept a file-context switch, bounded context
+budget, additional system instruction, temperature and output token limit.
+The server retains its own instruction and validates these values. When file
+context is disabled, neither the file path nor its contents are sent in the
+model messages. The browser resets conversation history when these settings
+change. The isolated remote suite passed 26 cases using a simulated provider,
+including inspection of outgoing requests, MCP context truncation and rejection
+of an invalid budget. Defaults preserve previous behavior. Provider-specific
+limits may be narrower than the server's accepted bounds. The rebuilt branch
+was healthy at `127.0.0.1:55089` on 2026-11-14. The existing real 7B Model
+Host browser and MCP Copilot workflow also passed with default settings.
+
 ## External planner defaults in the browser
 
 Routing now exposes the server-wide provider ID and model name for external
