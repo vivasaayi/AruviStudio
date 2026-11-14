@@ -40,6 +40,17 @@ function model(
 }
 
 describe("plannerModelSelection", () => {
+  it("prefers explicitly tagged transcription, skips synthesis, and falls back for an empty provider selection", () => {
+    const models = [
+      model("tts", "provider-1", "audio-tts", ["audio"]),
+      model("heuristic", "provider-1", "whisper-small"),
+      model("asr", "provider-1", "custom", [" ASR "]),
+    ];
+    expect(resolvePlannerSpeechModelSelection({ models, providerId: "provider-1", speechProviderSetting: "", speechModelSetting: "" }))
+      .toEqual({ providerId: "provider-1", modelName: "custom", source: "planner" });
+    expect(resolvePlannerSpeechModelSelection({ models: [models[0]], providerId: "provider-1", speechProviderSetting: "provider-1", speechModelSetting: "" }))
+      .toEqual({ providerId: "provider-1", modelName: "whisper-1", source: "settings" });
+  });
   it("recognizes an untagged DeepSeek transcription selector", () => {
     expect(resolvePlannerSpeechModelSelection({ models: [model("voice", "provider-1", "deepseek-voice-transcription")],
       providerId: "provider-1", speechProviderSetting: "", speechModelSetting: "" })).toEqual({

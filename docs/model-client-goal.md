@@ -144,6 +144,16 @@ repository and deployed host were not changed.
 
 ### Current branch build and security checks
 
+Desktop transcription choices and planner auto-selection now follow the
+backend's explicit `stt`/`asr` capability ranking and synthesis exclusions.
+The reserved DeepSeek synthesis selector cannot be auto-selected for
+transcription even if it has a conflicting tag. When a speech provider is saved
+without a model, desktop planner fallback now uses `whisper-1` instead of an
+empty string. The native ranking test, 128 frontend tests, frontend build and
+13 mocked desktop provider tests passed. The rebuilt branch also passed the
+synthetic Piper-to-Whisper round trip through MCP. Native-window and physical
+audio acceptance remain open.
+
 Studio's speech service now rejects using the DeepSeek transcription selector
 for synthesis or the synthesis selector for transcription before making a
 provider request. A native service test covers mixed-case selectors and remote

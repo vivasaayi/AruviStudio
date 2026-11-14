@@ -1,5 +1,11 @@
 import type { ModelDefinition, ModelProvider } from "../../../lib/types";
-import { isTranscriptionModel, isVoiceOnlySelector } from "../../../lib/speechModel";
+import { transcriptionModelRank, isVoiceOnlySelector } from "../../../lib/speechModel";
+
+function preferredTranscriptionModel(models: ModelDefinition[], providerId?: string): ModelDefinition | undefined {
+  const eligible = models.filter((model) => !providerId || model.provider_id === providerId);
+  return eligible.find((model) => transcriptionModelRank(model) === 0)
+    ?? eligible.find((model) => transcriptionModelRank(model) === 1);
+}
 
 export type PlannerModelPickerOption = {
   value: string;
@@ -44,10 +50,10 @@ export function resolvePlannerSpeechModelSelection({
       return { providerId: speechProviderSetting, modelName: speechModelSetting, source: "settings" };
     }
     if (speechProviderSetting) {
-      const providerSpeechModel = models.find((model) => model.enabled && model.provider_id === speechProviderSetting && isTranscriptionModel(model));
+      const providerSpeechModel = preferredTranscriptionModel(models, speechProviderSetting);
       return {
         providerId: speechProviderSetting,
-        modelName: providerSpeechModel?.name ?? speechModelSetting ?? "whisper-1",
+        modelName: providerSpeechModel?.name ?? (speechModelSetting || "whisper-1"),
         source: "settings",
       };
     }
@@ -57,12 +63,12 @@ export function resolvePlannerSpeechModelSelection({
     }
   }
 
-  const sameProvider = models.find((model) => model.enabled && model.provider_id === providerId && isTranscriptionModel(model));
+  const sameProvider = providerId ? preferredTranscriptionModel(models, providerId) : undefined;
   if (sameProvider) {
     return { providerId: sameProvider.provider_id, modelName: sameProvider.name, source: "planner" };
   }
 
-  const anySpeechModel = models.find((model) => model.enabled && isTranscriptionModel(model));
+  const anySpeechModel = preferredTranscriptionModel(models);
   if (anySpeechModel) {
     return { providerId: anySpeechModel.provider_id, modelName: anySpeechModel.name, source: "auto" };
   }

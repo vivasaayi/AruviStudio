@@ -30,6 +30,25 @@ test("desktop settings offers an untagged DeepSeek transcription selector", asyn
   await expect(model).toHaveValue("deepseek-voice-transcription");
 });
 
+test("desktop transcription choices include ASR and exclude synthesis-only audio", async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = window.__ARUVI_E2E__.invoke;
+    window.__ARUVI_E2E__.invoke = async (command, args) => {
+      if (command === "list_model_definitions") {
+        const models = await original(command, args);
+        const base = { provider_id: "provider-deepseek-hosted", context_window: null, notes: "", enabled: true, created_at: "", updated_at: "" };
+        return [...models, { ...base, id: "asr-fixture", name: "custom-asr", capability_tags: ["ASR"] },
+          { ...base, id: "tts-fixture", name: "voice-tts", capability_tags: ["audio"] }];
+      }
+      return original(command, args);
+    };
+  });
+  await page.goto("/settings");
+  await page.getByLabel("Speech provider").selectOption("provider-deepseek-hosted");
+  await expect(page.getByLabel("Speech model").locator('option[value="custom-asr"]')).toHaveCount(1);
+  await expect(page.getByLabel("Speech model").locator('option[value="voice-tts"]')).toHaveCount(0);
+});
+
 test("desktop settings preserves an unregistered saved speech selector while models load", async ({ page }) => {
   await page.addInitScript(() => {
     const original = window.__ARUVI_E2E__.invoke;

@@ -182,6 +182,7 @@ pub fn looks_like_transcription_model(name: &str) -> bool {
 
 fn transcription_model_rank(model: &crate::domain::model::ModelDefinition) -> Option<u8> {
     if !model.enabled { return None; }
+    if model.name.trim().eq_ignore_ascii_case(DEEPSEEK_SYNTHESIS) { return None; }
     let tags: Vec<_> = model.capability_tags.iter().map(|tag| tag.trim().to_ascii_lowercase().replace('-', "_")).collect();
     if tags.iter().any(|tag| matches!(tag.as_str(), "speech_to_text" | "transcription" | "stt" | "asr")) { return Some(0); }
     let name = model.name.to_ascii_lowercase();
@@ -453,6 +454,7 @@ mod tests {
         assert_eq!(super::transcription_model_rank(&model("speech-model", &["text_to_speech"], true)), None);
         assert_eq!(super::transcription_model_rank(&model("audio-tts", &["audio", "speech_to_text"], true)), Some(0));
         assert_eq!(super::transcription_model_rank(&model("custom", &["ASR"], true)), Some(0));
+        assert_eq!(super::transcription_model_rank(&model(" DeepSeek-Voice-Synthesis ", &["speech_to_text"], true)), None);
         assert_eq!(super::transcription_model_rank(&model("speech-model", &[], true)), Some(1));
         assert_eq!(super::transcription_model_rank(&model("whisper", &[], false)), None);
     }
