@@ -3821,10 +3821,11 @@
         });
         if (providers.some((provider) => provider.id === previous)) el.modelProvider.value = previous;
         models.forEach((model) => {
-          if (model.enabled) {
+          const provider = providers.find((entry) => entry.id === model.provider_id);
+          const localSpeech = provider?.provider_type === "local_runtime";
+          if (model.enabled && !localSpeech) {
             const option = document.createElement("option");
             option.value = model.id;
-            const provider = providers.find((entry) => entry.id === model.provider_id);
             option.textContent = model.name + " · " + (provider ? provider.name : model.provider_id);
             option.disabled = !provider || !provider.enabled;
             el.bindingModel.appendChild(option);
@@ -3832,18 +3833,25 @@
           const card = document.createElement("div");
           card.className = "tool-card";
           const title = document.createElement("div");
-          const provider = providers.find((entry) => entry.id === model.provider_id);
           title.textContent = model.name + " · " + (provider ? provider.name : model.provider_id) + (model.enabled ? "" : " · disabled");
           const use = document.createElement("button");
           use.type = "button";
           use.className = "secondary";
-          use.textContent = "Use for this browser";
+          use.textContent = localSpeech ? "Use for transcription" : "Use for this browser";
           use.disabled = !model.enabled || !provider || !provider.enabled;
           use.addEventListener("click", () => {
-            el.providerInput.value = model.provider_id;
-            el.modelInput.value = model.name;
-            saveSettings();
-            setStatus("Model selected", "ok");
+            if (localSpeech) {
+              localStorage.setItem(storageKeys.voiceProvider, model.provider_id);
+              localStorage.setItem(storageKeys.voiceModel, model.name);
+              el.voiceModel.value = model.name;
+              loadVoiceProviders();
+              setStatus("Transcription model selected for this browser", "ok");
+            } else {
+              el.providerInput.value = model.provider_id;
+              el.modelInput.value = model.name;
+              saveSettings();
+              setStatus("Model selected", "ok");
+            }
           });
           const edit = document.createElement("details"); const editSummary = document.createElement("summary"); editSummary.textContent = "Manage model";
           const form = document.createElement("form"); form.className = "stack";
@@ -3866,6 +3874,10 @@
               const fields = { name: nameInput.value, provider_id: providerSelect.value, context_window: windowSize, notes: notes.value, enabled: enabled.checked };
               await request("/api/mobile/models/update", { method: "POST", body: { id: model.id, expected, fields } });
               if (el.providerInput.value === model.provider_id && el.modelInput.value === model.name) { el.providerInput.value = fields.provider_id; el.modelInput.value = fields.name.trim(); saveSettings(); }
+              if (localStorage.getItem(storageKeys.voiceProvider) === model.provider_id && localStorage.getItem(storageKeys.voiceModel) === model.name) {
+                localStorage.setItem(storageKeys.voiceProvider, fields.provider_id); localStorage.setItem(storageKeys.voiceModel, fields.name.trim());
+                el.voiceModel.value = fields.name.trim(); await loadVoiceProviders();
+              }
               await loadModelConfiguration(); setStatus("Model saved", "ok");
             } catch (error) { setStatus(error.message || String(error), "error"); }
             finally { save.disabled = false; }
@@ -3876,6 +3888,10 @@
             try {
               await request("/api/mobile/models/delete", { method: "POST", body: { id: model.id, expected_name: model.name } });
               if (el.providerInput.value === model.provider_id && el.modelInput.value === model.name) { el.providerInput.value = ""; el.modelInput.value = ""; saveSettings(); }
+              if (localStorage.getItem(storageKeys.voiceProvider) === model.provider_id && localStorage.getItem(storageKeys.voiceModel) === model.name) {
+                localStorage.removeItem(storageKeys.voiceProvider); localStorage.removeItem(storageKeys.voiceModel);
+                el.voiceModel.value = ""; await loadVoiceProviders();
+              }
               await loadModelConfiguration(); setStatus("Model deleted", "ok");
             } catch (error) { setStatus(error.message || String(error), "error"); }
             finally { remove.disabled = false; }

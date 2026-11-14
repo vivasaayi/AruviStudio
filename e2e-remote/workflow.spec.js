@@ -567,12 +567,33 @@ test("browser registers a server local speech model and preserves it on repeat",
   const registered = await response.json();
   expect(registered.provider.provider_type).toBe("local_runtime");
   expect(registered.provider).not.toHaveProperty("auth_secret_ref");
-  expect(registered.model_definition.capability_tags).toContain("speech_to_text");
+  expect(registered.model_definition.capability_tags).toEqual(["speech_to_text", "transcription", "audio", "local_runtime"]);
   await expect(page.locator("#providerList")).toContainText(data.provider_name);
   await expect(page.locator("#modelList")).toContainText(data.model_name);
   const repeat = await request.post(endpoint, { headers, data });
   expect(repeat.ok()).toBeTruthy();
   expect((await repeat.json()).model_definition.id).toBe(registered.model_definition.id);
+  await expect(page.locator("#bindingModel").locator(`option[value="${registered.model_definition.id}"]`)).toHaveCount(0);
+  async function agents(action, arguments_) {
+    const response = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` },
+      data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_agents", arguments: { action, arguments: arguments_ } } } });
+    return (await response.json()).result;
+  }
+  const before = (await agents("list_agent_model_bindings", {})).structuredContent.result.filter((b) => b.agent_id === "coding-agent");
+  const rejected = await agents("set_primary_agent_model_binding", { agent_id: "coding-agent", model_id: registered.model_definition.id });
+  expect(rejected.isError).toBeTruthy();
+  expect(JSON.stringify(rejected.content)).toContain("Local Whisper models cannot");
+  const after = (await agents("list_agent_model_bindings", {})).structuredContent.result.filter((b) => b.agent_id === "coding-agent");
+  expect(after).toEqual(before);
+  const previousChat = await page.locator("#modelInput").inputValue();
+  await page.locator("#modelList .tool-card").filter({ hasText: data.model_name }).getByRole("button", { name: "Use for transcription" }).click();
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await expect(page.getByLabel("Transcription provider")).toHaveValue(registered.provider.id);
+  await expect(page.getByLabel("Transcription model")).toHaveValue(data.model_name);
+  expect(await page.locator("#modelInput").inputValue()).toBe(previousChat);
+  await page.reload();
+  await expect(page.getByLabel("Transcription provider")).toHaveValue(registered.provider.id);
+  await expect(page.getByLabel("Transcription model")).toHaveValue(data.model_name);
 });
 
 test("MCP managed local model install confines paths and reuses the completed file", async ({ request }) => {

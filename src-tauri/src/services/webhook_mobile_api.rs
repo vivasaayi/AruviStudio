@@ -1027,7 +1027,7 @@ pub(crate) async fn mobile_register_local_model(State(state): State<WebhookState
     if body.provider_name.trim().is_empty() || body.model_name.trim().is_empty() || body.model_path.trim().is_empty() {
         return (StatusCode::BAD_REQUEST, "Provider name, model name and server model path are required").into_response();
     }
-    model_action(&state, "register_local_runtime_model", serde_json::json!({"provider_name":body.provider_name.trim(), "model_name":body.model_name.trim(), "model_path":body.model_path.trim(), "capability_tags":["speech_to_text"]})).await
+    model_action(&state, "register_local_runtime_model", serde_json::json!({"provider_name":body.provider_name.trim(), "model_name":body.model_name.trim(), "model_path":body.model_path.trim(), "capability_tags":["speech_to_text", "transcription", "audio", "local_runtime"]})).await
 }
 
 pub(crate) async fn mobile_install_local_model(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileInstallLocalModelRequest>) -> impl IntoResponse {
@@ -1041,7 +1041,7 @@ pub(crate) async fn mobile_install_local_model(State(state): State<WebhookState>
     model_action(&state, "install_managed_local_model", serde_json::json!({
         "provider_name": provider, "model_name": model, "file_name": filename,
         "download_url": format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/{filename}?download=true"), "expected_sha256": sha256,
-        "capability_tags": ["speech_to_text"]
+        "capability_tags": ["speech_to_text", "transcription", "audio", "local_runtime"]
     })).await
 }
 

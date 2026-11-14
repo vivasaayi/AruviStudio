@@ -46,6 +46,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Managed local model installation
 
+- Local Whisper providers support transcription, not agent text completion.
+  Browser model cards now select them for transcription without replacing the
+  browser's chat model, and they are excluded from the browser agent selector.
+  The shared binding repository rejects local Whisper assignments from browser,
+  desktop or MCP without removing existing bindings. New browser-created local
+  models use the same speech capability tags as desktop. Native Rust passed
+  222 tests with six ignored; 23 remote UI and 31 isolated workflow cases
+  passed, including actual local Whisper transcription with synthetic audio and
+  MCP rejection preserving the previous binding. Remote provider capability
+  labels do not prove the selected endpoint or model supports a task.
+
 - Branch runtime routing checkpoint: all nine seeded agents were bound to
   `deepseek-coder` on the container-local LM Studio endpoint, which failed its
   connectivity check. After confirming these were untouched default bindings,

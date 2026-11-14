@@ -71,6 +71,11 @@ pub async fn replace_primary_agent_model_binding(
     model_id: &str,
 ) -> Result<AgentModelBinding, AppError> {
     let mut tx = pool.begin().await?;
+    let provider_type: Option<String> = sqlx::query_scalar("SELECT p.provider_type FROM model_definitions m JOIN model_providers p ON p.id=m.provider_id WHERE m.id=?")
+        .bind(model_id).fetch_optional(&mut *tx).await?;
+    if provider_type.as_deref() == Some("local_runtime") {
+        return Err(AppError::Validation("Local Whisper models cannot be used for agent text completion".into()));
+    }
     sqlx::query("DELETE FROM agent_model_bindings WHERE agent_id=?")
         .bind(agent_id).execute(&mut *tx).await?;
     sqlx::query("INSERT INTO agent_model_bindings (id,agent_id,model_id,priority) VALUES (?,?,?,1)")
