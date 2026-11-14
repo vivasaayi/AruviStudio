@@ -738,6 +738,11 @@ and delivered, but the generated replacement duplicated an existing `sumEven`
 function declaration. The gates did not detect that code-quality defect, so this
 is not evidence of clean code or general coding reliability. The full native Rust
 suite passed 236 tests with six ignored on 2026-11-14.
+The disposable evaluator now checks for repeated named `sumEven` and `clamp`
+function declarations before approving delivery. Its negative control supplied
+behaviorally correct code with a duplicate and verified rejection with the Git
+remote unchanged. This is a fixture-specific textual check, not a general parser,
+product-level quality gate, or proof against duplicate code in other forms.
 
 ## Independent client revalidation
 

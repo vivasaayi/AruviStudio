@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -17,8 +18,11 @@ parser.add_argument("--scenario", choices=("new-module", "extend-module"), defau
 parser.add_argument("--json-mode", action="store_true", help="Opt the disposable coding agent into JSON-object output")
 parser.add_argument("--verify-gate-rejects-invalid", action="store_true", help="Prove an invalid JavaScript fixture fails the workflow test gate")
 parser.add_argument("--verify-behavior-rejection", action="store_true", help="Prove the independent behavioral review blocks delivery of invalid exports")
+parser.add_argument("--verify-duplicate-rejection", action="store_true", help="Prove a behaviorally correct duplicate declaration is rejected before delivery")
 parser.add_argument("--other-stage-model", help="Use another installed model for non-coding agents in this disposable fixture")
 args = parser.parse_args()
+if args.verify_duplicate_rejection and (args.scenario != "extend-module" or args.verify_behavior_rejection or args.verify_gate_rejects_invalid):
+    parser.error("--verify-duplicate-rejection requires extend-module without other rejection flags")
 host = args.host.expanduser().resolve()
 container = None
 volume = None
@@ -195,6 +199,13 @@ try:
     assertions += "console.log('generated code passed');\n"
     if not code or len(code.encode()) > 8192: raise ValueError("Generated file missing or oversized")
     review_code = "module.exports = {};\n" if args.verify_behavior_rejection else code
+    if args.verify_duplicate_rejection:
+        # This control passes the functional assertions while containing the
+        # duplicate declaration observed in the real model output.
+        review_code = ("function sumEven(a){return a.filter(n => n % 2 === 0).reduce((x,y) => x+y,0);}\n"
+                       "function sumEven(a){return a.filter(n => n % 2 === 0).reduce((x,y) => x+y,0);}\n"
+                       "function clamp(v,min,max){if(min>max)throw new RangeError();return Math.min(Math.max(v,min),max);}\n"
+                       "module.exports = {sumEven,clamp};\n")
     check = subprocess.run(["docker", "run", "--rm", "-i", "--network", "none", "--read-only", "--memory", "256m", "--cpus", "1", "--pids-limit", "32", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", "65534:65534", "node:22-bookworm-slim", "node"], input=review_code+assertions, text=True, capture_output=True, timeout=30)
     if check.returncode:
         remote = subprocess.run(["docker", "exec", container, "git", "--git-dir=/repositories/coding-origin.git", "show", "main:src/math.js"], text=True, capture_output=True)
@@ -205,6 +216,19 @@ try:
             sys.exit(0)
         raise ValueError("Workflow-generated code failed the isolated assertions: " + check.stderr.strip()[:500])
     if args.verify_behavior_rejection: raise ValueError("Expected invalid exports to fail behavioral review")
+    # Task-specific quality check: duplicated named function declarations were
+    # observed in this fixture even when syntax and behavior both passed. This
+    # is deliberately not a general JavaScript parser or linting guarantee.
+    duplicate = any(len(re.findall(r"\bfunction\s+" + name + r"\s*\(", review_code)) > 1 for name in ("sumEven", "clamp"))
+    if duplicate:
+        remote = subprocess.run(["docker", "exec", container, "git", "--git-dir=/repositories/coding-origin.git", "show", "main:src/math.js"], text=True, capture_output=True)
+        unchanged = (remote.returncode == 0 and remote.stdout == original) if args.scenario == "extend-module" else remote.returncode != 0
+        if not unchanged: raise ValueError("Duplicate review failed but the disposable remote changed")
+        if args.verify_duplicate_rejection:
+            print("Duplicate declaration rejected after functional checks; disposable remote unchanged", flush=True)
+            sys.exit(0)
+        raise ValueError("Workflow-generated code contains duplicate fixture function declarations")
+    if args.verify_duplicate_rejection: raise ValueError("Expected duplicate declarations to fail review")
     call("aruvi_workflows", "handle_workflow_user_action", {"workflow_run_id": run_id, "action": "approve"})
     run = call("aruvi_workflows", "get_workflow_run", {"workflow_run_id": run_id})
     if run["current_stage"] != "done": raise ValueError("Workflow did not finish")
