@@ -130,6 +130,14 @@ live providers and release review remain open.
 
 ### Current real coding-host revalidation
 
+After rebuilding Studio at `2a7e433` on 2026-11-14, the configured real
+`qwen25-coder-7b-q4` host again generated JavaScript through Studio MCP that
+passed three independent assertions in a network-isolated container. A
+one-token request produced the expected truncation error. The browser-origin
+MCP check passed on the newly assigned worktree port and rejected missing
+credentials and the tested cross-origin requests. This is one coding fixture,
+not a broad quality or full browser-workflow evaluation.
+
 At Studio revision `ac0774a321525b36fd2bdaffe64f3568aea0c2c0`, the running
 worktree used `qwen25-coder-7b-q4` for an MCP coding completion that passed
 independent JavaScript assertions; a one-token request produced the expected
