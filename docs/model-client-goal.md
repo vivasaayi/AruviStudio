@@ -335,6 +335,14 @@ provider hosting into the model-host service as part of this work.
 
 ## Independent client revalidation
 
+- The independent Git consumer now pins
+  `5d49cfd5bd0cf55294cccdabba81f9121be9051e`, including the Anthropic
+  credential-header fix. All 20 consumer tests passed offline on macOS and in
+  a network-disabled Linux build after vendoring. A separate non-root,
+  read-only container used that pinned client against the real 7B Model Host
+  and passed discovery, completion, streaming and token-limit handling. The
+  Anthropic credential behavior was simulated, not tested against live Claude.
+
 - The independent consumer pins `0496499073bcd0a6771a485a02b326ab05fcad27`
   and passed 19 network-disabled vendored tests, including explicit completion
   request fields. A separate live Model Host probe passed discovery, text,

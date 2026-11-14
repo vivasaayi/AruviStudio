@@ -4,6 +4,13 @@ mod tests {
     use aruvi_model_client::{anthropic::AnthropicClient, openai_compatible::OpenAiCompatibleClient, ChatMessage, CompletionRequest, ModelGateway};
     use std::{io::{Read, Write}, net::TcpListener, thread};
 
+    #[test]
+    fn rejects_invalid_anthropic_credentials_without_exposing_them() {
+        let error = AnthropicClient::new("https://example.invalid".into(), "private-key\ninjected".into()).err().expect("invalid key must fail at construction");
+        assert!(matches!(error, aruvi_model_client::ClientError::InvalidInput(_)));
+        assert!(!format!("{error:?} {error}").contains("private-key"));
+    }
+
     #[tokio::test]
     async fn configures_openai_completion_fields_from_an_independent_project() {
         use aruvi_model_client::openai_compatible::{CompletionOptions, TemperatureMode, TokenLimitField};
