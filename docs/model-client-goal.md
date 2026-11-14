@@ -283,6 +283,19 @@ provider hosting into the model-host service as part of this work.
 
 ## Dependency advisory update
 
+- On 2026-11-14, cargo-audit 0.23.0 refreshed RustSec to commit
+  `4ef2df8e806a65e2f1ecc14f56f51249062b23d6` (database update timestamp
+  2026-11-13) and scanned the current lockfiles. The independent consumer had
+  no vulnerabilities or warnings. Studio reported RUSTSEC-2023-0071 (`rsa`),
+  13 unmaintained warnings and two unsound warnings: RUSTSEC-2024-0429 (`glib`)
+  and RUSTSEC-2026-0097 (`rand` 0.7.3). `cargo tree --locked --target all -i
+  rsa` found no selected path for the current features; target/feature changes
+  can change that. The old `rand` is in Tauri's build dependency chain, and
+  Linux ARM64 selects `glib` through GTK/Tauri. These are not proof of either
+  exploitability or safety. The scanner does not audit our locally patched SQLx
+  source. A fresh `npm audit` reported zero advisories. Review these findings
+  and the patch provenance before release.
+
 - On macOS ARM64, revision `0275579` passed 204 Studio Rust library tests with
   two live tests ignored, and the independently Git-pinned consumer passed 14
   tests. Both native Studio desktop and server debug binaries built with the
