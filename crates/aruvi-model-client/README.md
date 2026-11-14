@@ -61,6 +61,15 @@ let client = OpenAiCompatibleClient::new("https://api.openai.com/v1".into(), Non
     });
 ```
 
+For compatible streaming endpoints, opt in to the OpenAI
+[`stream_options.include_usage`](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)
+request with `client.with_stream_usage(true)`. It is omitted by default because
+some OpenAI-compatible providers reject unknown fields. If supplied, the final
+usage event is reflected in the returned token counts and metadata; a provider
+may omit it, especially after an interrupted stream. The option only affects
+streaming and does not prove endpoint support. Studio does not yet expose this
+option in provider settings.
+
 Use the model/provider documentation to select these options. Omitting
 `temperature` intentionally disregards the value in `CompletionRequest`;
 non-finite supplied values are still rejected. The options configure request

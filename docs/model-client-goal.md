@@ -12,6 +12,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Optional OpenAI-compatible stream usage
+
+The shared client now offers `with_stream_usage(true)` to request a terminal
+usage event on compatible streaming endpoints. It defaults off so existing
+Model Host, LM Studio and other compatible configurations retain their request
+shape; providers may reject the option or omit usage. Studio does not yet expose
+this option in provider settings. All 56 shared-client tests passed in Linux,
+including an HTTP fixture that checks both request shapes and returned usage.
+The Studio Docker build and all 38 isolated workflows passed with the option
+disabled. LM Studio's configured endpoint was unreachable during this check; no live
+OpenAI or DeepSeek credential was used.
+
 ### GTK and rand advisory investigation
 
 At branch revision `53eeffa` on 2026-11-14, `cargo tree --locked --offline

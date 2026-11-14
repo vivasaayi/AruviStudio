@@ -60,24 +60,33 @@ pub struct OpenAiCompatibleClient {
     api_key: Option<String>,
     client: Option<Client>,
     completion_options: CompletionOptions,
+    include_stream_usage: bool,
 }
 
 impl OpenAiCompatibleClient {
     pub fn new(base_url: String, api_key: Option<String>) -> Self {
         let client = crate::http::build_client(crate::ClientOptions::default()).ok();
-        Self { base_url, api_key, client, completion_options: CompletionOptions::default() }
+        Self { base_url, api_key, client, completion_options: CompletionOptions::default(), include_stream_usage: false }
     }
 
     /// Construct a client with explicitly bounded connection and total request timeouts.
     pub fn with_options(base_url: String, api_key: Option<String>, options: crate::ClientOptions) -> Result<Self, ClientError> {
         let client = crate::http::build_client(options)?;
-        Ok(Self { base_url, api_key, client: Some(client), completion_options: CompletionOptions::default() })
+        Ok(Self { base_url, api_key, client: Some(client), completion_options: CompletionOptions::default(), include_stream_usage: false })
     }
 
     /// Select the request fields used for ordinary, JSON and streaming chat.
     /// Other operations, including discovery and voice, are unaffected.
     pub fn with_completion_options(mut self, options: CompletionOptions) -> Self {
         self.completion_options = options;
+        self
+    }
+
+    /// Request a final usage event on streaming completions when supported by
+    /// the endpoint. Disabled by default for compatibility with local servers.
+    /// A provider may omit usage, especially if a stream is interrupted.
+    pub fn with_stream_usage(mut self, enabled: bool) -> Self {
+        self.include_stream_usage = enabled;
         self
     }
 
@@ -250,6 +259,9 @@ impl OpenAiCompatibleClient {
         Self::validate_completion_request(&request)?;
         let mut body = self.completion_body(&request);
         body["stream"] = serde_json::Value::Bool(true);
+        if self.include_stream_usage {
+            body["stream_options"] = serde_json::json!({"include_usage": true});
+        }
         let mut http = self.client()?.post(self.endpoint_url("/chat/completions")?).json(&body);
         if let Some(key) = &self.api_key { http = http.bearer_auth(key); }
         let response = http.send().await.map_err(|error| crate::http::transport_error("Model stream request failed", error))?;
@@ -760,6 +772,37 @@ mod tests {
         let result = client.stream_completion(CompletionRequest { model:"fixture".into(), messages:vec![ChatMessage { role:"user".into(), content:"Hello".into() }], temperature:None, max_tokens:Some(20) }, &mut |delta| chunks.push(delta.to_owned())).await;
         server.join().unwrap();
         (result, chunks)
+    }
+
+    #[tokio::test]
+    async fn stream_usage_is_opt_in_and_returns_provider_usage() {
+        for enabled in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            let server = thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                let mut data = Vec::new(); let mut buffer = [0; 4096];
+                let end = loop {
+                    let count = socket.read(&mut buffer).unwrap(); assert_ne!(count, 0);
+                    data.extend_from_slice(&buffer[..count]);
+                    if let Some(pos) = data.windows(4).position(|v| v == b"\r\n\r\n") { break pos + 4; }
+                };
+                let headers = String::from_utf8_lossy(&data[..end]).to_lowercase();
+                let len: usize = headers.lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().trim().parse().unwrap();
+                while data.len() < end + len { let count = socket.read(&mut buffer).unwrap(); assert_ne!(count, 0); data.extend_from_slice(&buffer[..count]); }
+                let body: serde_json::Value = serde_json::from_slice(&data[end..end + len]).unwrap();
+                assert_eq!(body["stream"], true);
+                if enabled { assert_eq!(body["stream_options"]["include_usage"], true); }
+                else { assert!(body.get("stream_options").is_none()); }
+                let events = "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"},\"finish_reason\":\"stop\"}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2}}\n\ndata: [DONE]\n\n";
+                write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", events.len(), events).unwrap();
+            });
+            let client = OpenAiCompatibleClient::new(format!("http://{addr}"), None).with_stream_usage(enabled);
+            let response = client.stream_completion(completion_request(), |_| {}).await.unwrap();
+            assert_eq!(response.content, "hello");
+            assert_eq!((response.token_count_input, response.token_count_output), (Some(4), Some(2)));
+            server.join().unwrap();
+        }
     }
 
     #[tokio::test]
