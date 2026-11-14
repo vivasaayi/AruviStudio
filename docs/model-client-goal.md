@@ -101,6 +101,12 @@ the adapter still needs reconciliation and runtime testing with the candidate ho
 
 ### Current branch build and security checks
 
+After the planner voice change at `2a7e433`, the isolated Docker workflow
+suite passed all 49 cases on 2026-11-14. It covers simulated OpenAI-compatible
+and Anthropic streaming, provider error and usage handling, DeepSeek voice,
+browser voice, and MCP paths; it does not validate live third-party providers
+or physical audio devices.
+
 Named planner voice selection and expand/collapse now accept mixed-case node
 types and retry a reference without one final period when its original spelling
 finds no match. An existing punctuated node name takes precedence and ambiguous
