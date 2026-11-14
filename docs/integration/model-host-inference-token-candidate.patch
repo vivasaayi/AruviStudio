@@ -1,0 +1,236 @@
+--- a/src/api.rs
++++ b/src/api.rs
+@@ -153,0 +154,23 @@
++    let inference_valid = host
++        .config
++        .inference_token
++        .as_ref()
++        .is_some_and(|token| console_auth::matches(&format!("Bearer {token}"), bearer));
++    if !signed_in && !bearer_valid && inference_valid {
++        let inference_route = matches!(
++            (request.method(), request.uri().path()),
++            (&axum::http::Method::GET, "/v1/models")
++                | (&axum::http::Method::POST, "/v1/chat/completions")
++                | (&axum::http::Method::POST, "/v1/audio/transcriptions")
++                | (&axum::http::Method::POST, "/v1/audio/speech")
++                | (&axum::http::Method::POST, "/v1/images/generations")
++        );
++        if !inference_route {
++            return Error(
++                StatusCode::FORBIDDEN,
++                "Inference credential cannot access this route".into(),
++            )
++            .into_response();
++        }
++        return next.run(request).await;
++    }
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -32,0 +33,13 @@
++    let inference_token = std::env::var("MODEL_HOST_INFERENCE_TOKEN")
++        .ok()
++        .filter(|value| !value.trim().is_empty());
++    if inference_token.is_some() && token.is_none() {
++        bail!("MODEL_HOST_TOKEN is required when MODEL_HOST_INFERENCE_TOKEN is set");
++    }
++    if inference_token
++        .as_ref()
++        .zip(token.as_ref())
++        .is_some_and(|(inference, admin)| console_auth::matches(inference, admin))
++    {
++        bail!("Inference and management tokens must differ");
++    }
+@@ -65,0 +79 @@
++        inference_token,
+--- a/src/runtime.rs
++++ b/src/runtime.rs
+@@ -37,0 +38 @@
++    pub inference_token: Option<String>,
+--- a/scripts/native_env.py
++++ b/scripts/native_env.py
+@@ -316 +316 @@
+-    for key in ['HF_TOKEN', 'MODEL_HOST_CONSOLE_USERNAME', 'MODEL_HOST_CONSOLE_PASSWORD', 'MODEL_HOST_CONSOLE_ALLOW_HTTP', 'MODEL_HOST_IDLE_TIMEOUT_SECONDS', 'MODEL_HOST_MAX_LOADED', 'MODEL_HOST_MEMORY_MB', 'MODEL_HOST_MAX_REQUESTS', 'MODEL_HOST_MAX_ARTIFACT_BYTES', 'MODEL_HOST_LOAD_TIMEOUT_SECONDS', 'MODEL_HOST_REQUEST_TIMEOUT_SECONDS', 'MODEL_HOST_PRELOAD', 'LLAMA_ARG_LOG_VERBOSITY']:
++    for key in ['MODEL_HOST_INFERENCE_TOKEN', 'HF_TOKEN', 'MODEL_HOST_CONSOLE_USERNAME', 'MODEL_HOST_CONSOLE_PASSWORD', 'MODEL_HOST_CONSOLE_ALLOW_HTTP', 'MODEL_HOST_IDLE_TIMEOUT_SECONDS', 'MODEL_HOST_MAX_LOADED', 'MODEL_HOST_MEMORY_MB', 'MODEL_HOST_MAX_REQUESTS', 'MODEL_HOST_MAX_ARTIFACT_BYTES', 'MODEL_HOST_LOAD_TIMEOUT_SECONDS', 'MODEL_HOST_REQUEST_TIMEOUT_SECONDS', 'MODEL_HOST_PRELOAD', 'LLAMA_ARG_LOG_VERBOSITY']:
+--- a/deploy/compose.worktree.yaml
++++ b/deploy/compose.worktree.yaml
+@@ -11,0 +12 @@
++      MODEL_HOST_INFERENCE_TOKEN: ${MODEL_HOST_INFERENCE_TOKEN:-}
+--- a/deploy/compose.staging.yaml
++++ b/deploy/compose.staging.yaml
+@@ -8,0 +9 @@
++      MODEL_HOST_INFERENCE_TOKEN: ${MODEL_HOST_INFERENCE_TOKEN:-}
+--- a/deploy/compose.production.yaml
++++ b/deploy/compose.production.yaml
+@@ -8,0 +9 @@
++      MODEL_HOST_INFERENCE_TOKEN: ${MODEL_HOST_INFERENCE_TOKEN:-}
+--- a/README.md
++++ b/README.md
+@@ -135,0 +136,10 @@
++
++## Optional inference-only credential
++
++Set `MODEL_HOST_INFERENCE_TOKEN` in the environment's private configuration to a
++separate strong random value. It can list models and call the `/v1` text, audio
++and image inference routes; it cannot use `/api` management routes. The existing
++`MODEL_HOST_TOKEN` remains the management credential and is required when the
++inference credential is set. The credentials must differ. If the inference
++credential is absent, existing authentication behavior is unchanged. These
++credentials do not replace TLS for access over an untrusted network.
+--- a/tests/fake_worker.py
++++ b/tests/fake_worker.py
+@@ -91 +91 @@
+-                        'credentials_present': any(key in os.environ for key in ['HF_TOKEN', 'MODEL_HOST_TOKEN'])}
++                        'credentials_present': any(key in os.environ for key in ['HF_TOKEN', 'MODEL_HOST_TOKEN', 'MODEL_HOST_INFERENCE_TOKEN'])}
+--- a/tests/lifecycle.py
++++ b/tests/lifecycle.py
+@@ -44 +44 @@
+-                                MODEL_HOST_TOKEN='fixture-token', HF_TOKEN='fixture-source-token',
++                                MODEL_HOST_TOKEN='fixture-token', MODEL_HOST_INFERENCE_TOKEN='fixture-inference-token', HF_TOKEN='fixture-source-token',
+@@ -301,0 +302,44 @@
++    def test_absent_inference_token_preserves_existing_authentication(self):
++        self.stop()
++        self.environment.pop('MODEL_HOST_INFERENCE_TOKEN')
++        self.start()
++        self.assertEqual(self.request('/v1/models')['data'], [])
++        self.assertEqual(self.request('/api/models')['data'], [])
++        with self.assertRaises(urllib.error.HTTPError) as error:
++            self.request('/v1/models', authenticated=False)
++        self.assertEqual(error.exception.code, 401)
++
++    def test_inference_token_cannot_manage_the_host(self):
++        def invoke(path, method='GET', token='fixture-inference-token', body=None):
++            headers = {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'}
++            request = urllib.request.Request(self.url + path, method=method, headers=headers, data=body)
++            try:
++                with urllib.request.urlopen(request, timeout=5) as response:
++                    return response.status
++            except urllib.error.HTTPError as error:
++                return error.code
++        self.assertEqual(invoke('/v1/models'), 200)
++        self.register()
++        self.assertEqual(self.install()['installation'], 'installed')
++        body = json.dumps({'model': 'fixture', 'messages': [{'role': 'user', 'content': 'Hello'}]}).encode()
++        request = urllib.request.Request(self.url + '/v1/chat/completions', data=body, headers={'Authorization':'Bearer fixture-inference-token', 'Content-Type':'application/json'})
++        with urllib.request.urlopen(request, timeout=10) as response:
++            self.assertFalse(json.load(response)['credentials_present'])
++        for path in ['/api/models', '/api/catalog', '/api/jobs', '/api/workers', '/api/activity', '/api/aliases']:
++            self.assertEqual(invoke(path), 403, path)
++        for path in ['/api/models/fixture/unload', '/api/jobs/image', '/api/aliases/fixture']:
++            self.assertEqual(invoke(path, 'POST', body=b'{}'), 403, path)
++        self.assertEqual(invoke('/v1/models', 'POST', body=b'{}'), 403)
++        self.assertEqual(invoke('/api/models', token='fixture-token'), 200)
++        self.assertEqual(invoke('/v1/models', token='wrong-token'), 401)
++        for path in ['/v1/chat/completions', '/v1/audio/transcriptions', '/v1/audio/speech', '/v1/images/generations']:
++            self.assertNotIn(invoke(path, 'POST', body=b'{}'), (401, 403), path)
++        unsafe = dict(self.environment, MODEL_HOST_INFERENCE_TOKEN='fixture-token')
++        result = subprocess.run([BINARY], env=unsafe, capture_output=True, timeout=5)
++        self.assertNotEqual(result.returncode, 0)
++        self.assertIn(b'must differ', result.stderr)
++        unsafe.pop('MODEL_HOST_TOKEN')
++        result = subprocess.run([BINARY], env=unsafe, capture_output=True, timeout=5)
++        self.assertNotEqual(result.returncode, 0)
++        self.assertIn(b'MODEL_HOST_TOKEN is required', result.stderr)
++
+--- a/tests/native_adapter.py
++++ b/tests/native_adapter.py
+@@ -54 +54 @@
+-            (state / 'environment.env').write_text('HF_TOKEN=fixture-source-token\nMODEL_HOST_PRELOAD=text,audio\nMODEL_HOST_LOAD_TIMEOUT_SECONDS=240\n')
++            (state / 'environment.env').write_text('HF_TOKEN=fixture-source-token\nMODEL_HOST_INFERENCE_TOKEN=fixture-inference-token\nMODEL_HOST_PRELOAD=text,audio\nMODEL_HOST_LOAD_TIMEOUT_SECONDS=240\n')
+@@ -68,0 +69 @@
++            self.assertEqual(document['EnvironmentVariables']['MODEL_HOST_INFERENCE_TOKEN'], 'fixture-inference-token')
+--- /dev/null
++++ b/tests/studio_inference_scope.py
+@@ -0,0 +1,52 @@
++"""Disposable Studio and simulated Model Host scoped-credential integration."""
++import json, os, socket, subprocess, tempfile, time, urllib.error, urllib.request
++from pathlib import Path
++from tests.lifecycle import Lifecycle
++
++host = Lifecycle('test_inference_token_cannot_manage_the_host')
++host.setUp()
++child = None
++try:
++    host.register()
++    assert host.install()['installation'] == 'installed'
++    with tempfile.TemporaryDirectory(prefix='studio-scoped-host-', dir='/private/tmp') as directory:
++        root = Path(directory)
++        with socket.socket() as reserved:
++            reserved.bind(('127.0.0.1', 0))
++            port = reserved.getsockname()[1]
++        credential_file = root / 'llm.json'
++        credential_file.write_text(json.dumps({'refs':{'fixture':'fixture-inference-token'}}))
++        credential_file.chmod(0o600)
++        environment = {k:v for k,v in os.environ.items() if not k.startswith('ARUVI_')}
++        environment.update(ARUVI_APP_DATA_DIR=str(root), ARUVI_DB_PATH=str(root / 'studio.db'),
++            ARUVI_LLM_CONFIG_PATH=str(root / 'llm.json'), ARUVI_WEBHOOK_HOST='127.0.0.1',
++            ARUVI_WEBHOOK_PORT=str(port), ARUVI_MOBILE_API_TOKEN='studio-fixture-token', ARUVI_MCP_API_TOKEN='studio-fixture-token')
++        child = subprocess.Popen([os.environ['ARUVI_STUDIO_TEST_BIN']], env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
++        base = f'http://127.0.0.1:{port}'
++        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
++        for _ in range(100):
++            if child.poll() is not None: raise RuntimeError('Studio stopped before readiness')
++            try:
++                with opener.open(base + '/health', timeout=1): break
++            except OSError: time.sleep(.1)
++        else: raise RuntimeError('Studio readiness timed out')
++        def mcp(action, arguments):
++            payload = {'jsonrpc':'2.0', 'id':1, 'method':'tools/call', 'params':{'name':'aruvi_models', 'arguments':{'action':action, 'arguments':arguments}}}
++            req = urllib.request.Request(base + '/api/mcp', data=json.dumps(payload).encode(), headers={'Authorization':'Bearer studio-fixture-token', 'Content-Type':'application/json'})
++            with opener.open(req, timeout=10) as response: result = json.load(response)['result']
++            if result.get('isError'): raise RuntimeError('MCP fixture failed: ' + action + ': ' + json.dumps(result.get('content', [])))
++            return result['structuredContent']['result']
++        provider = mcp('create_provider', {'name':'scoped fixture', 'base_url':host.url + '/v1', 'auth_secret_ref':'ref:fixture'})
++        result = mcp('run_model_chat_completion', {'provider_id':provider['id'], 'model':'fixture', 'messages':[{'role':'user','content':'hello'}], 'max_tokens':20})
++        assert result['content'] == 'fixture response'
++        req = urllib.request.Request(host.url + '/api/models', headers={'Authorization':'Bearer fixture-inference-token'})
++        try:
++            opener.open(req, timeout=2)
++            raise AssertionError('Management unexpectedly allowed')
++        except urllib.error.HTTPError as error: assert error.code == 403
++        print('Disposable Studio MCP completion passed with inference-only token; host management denied.')
++finally:
++    if child is not None and child.poll() is None:
++        child.terminate()
++        child.wait(timeout=10)
++    host.tearDown()
+--- /dev/null
++++ b/tests/studio_docker_inference_scope.py
+@@ -0,0 +1,38 @@
++"""Disposable containerized Studio and simulated scoped Model Host check."""
++import json, os, subprocess, time, urllib.error, urllib.request
++from tests.lifecycle import Lifecycle
++
++host = Lifecycle('test_inference_token_cannot_manage_the_host')
++host.setUp()
++container = None
++try:
++    host.register()
++    assert host.install()['installation'] == 'installed'
++    result = subprocess.run(['docker','run','-d','--rm','--tmpfs','/data:mode=1777','--tmpfs','/repositories:mode=1777',
++      '-p','127.0.0.1::8787','-e','ARUVI_MOBILE_API_TOKEN=studio-fixture-token','-e','ARUVI_MCP_API_TOKEN=studio-fixture-token',
++      '-e','ARUVI_LLM_CONFIG_PATH=/data/llm.json',os.environ['ARUVI_STUDIO_TEST_IMAGE']],check=True,capture_output=True,text=True)
++    container = result.stdout.strip()
++    address = subprocess.check_output(['docker','port',container,'8787/tcp'],text=True).strip().splitlines()[0]
++    if not address.startswith('127.0.0.1:'): raise RuntimeError('Fixture is not bound to loopback')
++    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
++    base = 'http://' + address
++    for _ in range(200):
++        try:
++            with opener.open(base + '/health', timeout=1): break
++        except OSError: time.sleep(.1)
++    else: raise RuntimeError('Studio readiness timed out')
++    def mcp(action, arguments):
++        body = {'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':'aruvi_models','arguments':{'action':action,'arguments':arguments}}}
++        req = urllib.request.Request(base + '/api/mcp',data=json.dumps(body).encode(),headers={'Authorization':'Bearer studio-fixture-token','Content-Type':'application/json'})
++        with opener.open(req,timeout=30) as response: result = json.load(response)['result']
++        if result.get('isError'): raise RuntimeError('MCP fixture failed: ' + action)
++        return result['structuredContent']['result']
++    host_port = host.url.rsplit(':',1)[1]
++    provider = mcp('create_provider', {'name':'scoped fixture','base_url':f'http://host.docker.internal:{host_port}/v1','auth_secret_ref':'fixture-inference-token'})
++    response = mcp('run_model_chat_completion', {'provider_id':provider['id'],'model':'fixture','messages':[{'role':'user','content':'hello'}],'max_tokens':20})
++    assert response['content'] == 'fixture response'
++    print('Disposable Docker Studio MCP completion passed with inference-only token.')
++finally:
++    if container:
++        subprocess.run(['docker','stop',container],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
++    host.tearDown()

@@ -12,6 +12,36 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Candidate inference-only Model Host credential
+
+The Model Host source at `6edb84979f0b670c304192600052f98533a86439` currently
+uses the same bearer credential for inference and management. A candidate patch
+at `docs/integration/model-host-inference-token-candidate.patch` adds an optional
+separate credential accepted only on the explicit `/v1` model-listing, text,
+audio and image inference routes. The management token remains required and
+the two values must differ. Without the new credential, existing authorization
+is retained. This controls API access, not inference resource consumption, and
+does not replace TLS on an untrusted network.
+
+The zero-context patch applies to the committed host revision with `git apply
+--unidiff-zero`; review the exact base revision before applying it. A disposable snapshot
+passed 16 simulated lifecycle tests, seven Rust tests and six native-adapter
+tests; worker fixtures verified credentials do not enter worker environments.
+The three tracked Compose adapters passed synthetic configuration checks. Native
+and Docker Studio fixtures completed MCP inference through the candidate host
+with the scoped token, and the native fixture verified management was denied.
+The tests used synthetic models and credentials, not real host inference. The
+snapshot's native and Docker probes require `MODEL_HOST_TEST_BIN` plus
+`ARUVI_STUDIO_TEST_BIN` or `ARUVI_STUDIO_TEST_IMAGE` respectively.
+
+This remains a **candidate**, not a host commit or deployment. The host's main
+checkout contains unrelated uncommitted changes, including a separate untracked
+integration Compose adapter; those changes were not modified or incorporated.
+The managed isolated checkout request is still pending. Before adopting the
+patch, reconcile it with that work, add the inference token to the integration
+adapter, independently review authorization and test real inference. The running
+Studio branch still uses the existing management-capable host credential.
+
 ### Current branch build and security checks
 
 At revision `040092f`, the native macOS ARM64 Rust library suite passed 256
