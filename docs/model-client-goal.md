@@ -14,6 +14,12 @@ provider hosting into the model-host service as part of this work.
 
 ### Shared guarded PDF export
 
+At revision `e0a572a`, the broad native Rust suite passed 253 tests with seven
+ignored, and 43 mocked-desktop browser tests passed. The new guarded desktop PDF
+test also passed separately with the macOS development defaults for Node and
+Playwright and an explicitly selected installed Chrome. This does not exercise
+the native window, a packaged application or Windows.
+
 Desktop Product Book PDF export now uses the server's guarded renderer and image
 validation while retaining the requested page dimensions, margins and header
 labels. The obsolete separate Playwright export script was removed. A native
