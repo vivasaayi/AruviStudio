@@ -567,3 +567,33 @@ async fn remote_repository_analysis_requires_auth_and_stages_design() {
     std::fs::remove_dir_all(root).unwrap();
     server.abort();
 }
+
+#[tokio::test]
+async fn remote_catalog_settings_are_authenticated_conflict_aware_and_seed_examples() {
+    let app: tauri::App<MockRuntime> = make_test_app("remote_catalog_settings").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "catalog-test-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let uri = "/api/mobile/catalog-settings";
+    let (status, _) = send_json(&router, Method::GET, uri, None, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/catalog-seed-examples", None, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, body) = send_json(&router, Method::GET, uri, Some("catalog-test-token"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let initial = parse_json(&body);
+    let update = json!({"expected_raw":initial["raw"], "enabled":false});
+    let (status, _) = send_json(&router, Method::POST, uri, Some("catalog-test-token"), Some(update.clone())).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = send_json(&router, Method::POST, uri, Some("catalog-test-token"), Some(update)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/catalog-seed-examples", Some("catalog-test-token"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let count = product_repo::list_products(&state.db).await.unwrap().len();
+    assert!(count > 0);
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/catalog-seed-examples", Some("catalog-test-token"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(product_repo::list_products(&state.db).await.unwrap().len(), count);
+    let (_, body) = send_json(&router, Method::GET, uri, Some("catalog-test-token"), None).await;
+    assert_eq!(parse_json(&body)["enabled"], false);
+}

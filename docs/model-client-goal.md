@@ -2240,6 +2240,16 @@ product reference, and verified product deletion clears the reference.
   records restored free space; the existing worktree volume was retained and the
   rebuilt container restarted healthy. The dynamically assigned port can change.
 
+## Browser example-catalog settings
+
+The Routing page exposes the desktop's hide-example-products preference and
+seed/repair action. Changes use authenticated Rust endpoints and compare the
+previous setting value so a concurrent MCP edit is not silently overwritten;
+seed/repair calls the same catalog service as desktop and MCP. The backend test
+covers authentication, conflicts, persisted settings and repeat seeding. All 27
+isolated browser tests passed, including an MCP edit between browser load and
+save and a confirmed seed/repair action.
+
 ## Remote speech locale compatibility
 
 Studio converts locale hints such as `en-US` and `pt_BR` to their primary

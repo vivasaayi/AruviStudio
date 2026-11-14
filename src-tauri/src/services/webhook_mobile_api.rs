@@ -115,6 +115,40 @@ pub(crate) async fn mobile_update_planner_defaults(State(state): State<WebhookSt
     }
 }
 
+pub(crate) async fn mobile_catalog_settings(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match settings_repo::get_setting(&state.app_state.db, HIDE_EXAMPLE_PRODUCTS_KEY).await {
+        Ok(raw) => Json(serde_json::json!({"enabled":settings_repo::parse_bool_setting(raw.as_deref(), true),"raw":raw})).into_response(),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct CatalogSettingsUpdate { expected_raw: Option<String>, enabled: bool }
+
+pub(crate) async fn mobile_update_catalog_settings(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<CatalogSettingsUpdate>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let value = if body.enabled { "true" } else { "false" };
+    let result = if let Some(expected) = body.expected_raw {
+        sqlx::query("UPDATE settings SET value=?,updated_at=datetime('now') WHERE key=? AND value=?").bind(value).bind(HIDE_EXAMPLE_PRODUCTS_KEY).bind(expected).execute(&state.app_state.db).await
+    } else {
+        sqlx::query("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO NOTHING").bind(HIDE_EXAMPLE_PRODUCTS_KEY).bind(value).execute(&state.app_state.db).await
+    };
+    match result {
+        Ok(result) if result.rows_affected() == 1 => Json(serde_json::json!({"raw":value,"enabled":body.enabled})).into_response(),
+        Ok(_) => (StatusCode::CONFLICT, "Catalog setting changed. Refresh before saving.").into_response(),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+    }
+}
+
+pub(crate) async fn mobile_seed_example_products(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match crate::services::product_service::initialize_example_catalog(&state.app_state.db).await {
+        Ok(()) => Json(serde_json::json!({"ok":true})).into_response(),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+    }
+}
+
 const WORKFLOW_AUTOMATION_KEYS: [&str; 3] = [
     "workflow.auto_start_after_work_item_approval",
     "workflow.auto_approve_plan",

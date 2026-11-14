@@ -1633,3 +1633,32 @@ test("planner analyzes a selected workspace into the selected product", async ({
   await expect(page.getByRole("button", { name: /Inventory/ })).toBeVisible();
   await expect(page.locator("#status")).toContainText("Workspace analyzed");
 });
+
+test("browser manages example catalog with conflict protection", async ({ page, request }) => {
+  test.skip(!token || !mcpToken || process.env.ARUVI_TEST_INSPECT !== "1", "Requires disposable remote fixture");
+  const url = "/api/mobile/catalog-settings", headers = { Authorization: `Bearer ${token}` };
+  expect((await request.get(url)).status()).toBe(401);
+  expect((await request.post("/api/mobile/catalog-seed-examples")).status()).toBe(401);
+  await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Routing", exact: true }).click();
+  const toggle = page.getByLabel("Hide example products", { exact: true });
+  await expect(toggle).toBeEnabled();
+  const initial = await (await request.get(url, { headers })).json();
+  const firstSave = page.waitForResponse((response) => response.url().endsWith(url) && response.request().method() === "POST");
+  await toggle.setChecked(!initial.enabled);
+  expect((await firstSave).status()).toBe(200);
+  await expect(toggle).toBeEnabled();
+  await expect.poll(async () => (await (await request.get(url, { headers })).json()).enabled).toBe(!initial.enabled);
+  const mcp = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}`, Accept: "application/json, text/event-stream" }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_settings", arguments: { action: "set_setting", arguments: { key: "catalog.hide_example_products", value: String(initial.enabled) } } } } });
+  expect((await mcp.json()).result.isError).not.toBeTruthy();
+  const conflict = page.waitForResponse((response) => response.url().endsWith(url) && response.request().method() === "POST");
+  await toggle.setChecked(initial.enabled);
+  expect((await conflict).status()).toBe(409);
+  await expect(toggle).toHaveJSProperty("checked", !initial.enabled);
+  await page.getByRole("button", { name: "Refresh catalog settings" }).click();
+  await expect(toggle).toHaveJSProperty("checked", initial.enabled);
+  page.once("dialog", (dialog) => dialog.accept());
+  const seeded = page.waitForResponse((response) => response.url().endsWith("/api/mobile/catalog-seed-examples"));
+  await page.getByRole("button", { name: "Seed / repair examples" }).click();
+  expect((await seeded).status()).toBe(200);
+});

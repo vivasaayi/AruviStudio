@@ -82,7 +82,7 @@ registered and the default LM Studio endpoint was unavailable.
 
 | Desktop action | Browser and MCP assessment |
 | --- | --- |
-| Hide seeded products and repair example catalog | MCP `aruvi_settings` reads/sets the catalog preference; `aruvi_catalog` seeds examples. Browser support for these Settings controls still needs investigation and end-to-end verification. |
+| Hide seeded products and repair example catalog | Browser Routing exposes the preference and seed/repair action; MCP `aruvi_settings` reads/sets the same preference and `aruvi_catalog` seeds examples. Browser updates reject stale values. |
 | Docker daemon and workflow retry settings | MCP generic setting operations can read and update the same stored keys; whether each execution path honors them in the Docker environment needs verification. |
 | Planner defaults, speech defaults and workflow approval switches | Browser Routing and Voice expose relevant server settings; MCP generic settings operations also exist. Device-local speech controls are browser-specific and are not proof of physical audio parity. |
 | MCP/mobile bind, token and bridge status | MCP exposes settings and both status reads; bind changes need a restart and deployment environment variables may override saved values. Browser connection settings do not establish equivalent operational administration. |

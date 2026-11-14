@@ -876,6 +876,13 @@
 
         <section class="tab-panel" id="tab-routing">
           <section class="panel">
+            <div class="panel-header"><div class="panel-title">Example products</div><button class="secondary" id="refreshCatalogSettings" type="button">Refresh catalog settings</button></div>
+            <div class="panel-body"><p>Example products remain in the database when hidden. Seed / repair creates missing examples and repairs built-in catalog data.</p>
+              <label><input type="checkbox" id="hideExampleProducts" disabled /> Hide example products</label>
+              <button type="button" id="seedExampleProducts" disabled>Seed / repair examples</button>
+            </div>
+          </section>
+          <section class="panel">
             <div class="panel-header"><div class="panel-title">External planner defaults</div><button class="secondary" id="refreshPlannerDefaults" type="button">Refresh defaults</button></div>
             <div class="panel-body"><p>These defaults apply to new external planner conversations. Each conversation keeps its original product scope. Server environment variables can override the provider and model. Browser session settings remain separate.</p>
               <form id="plannerDefaultsForm" class="stack"><label><span class="label">Default planner provider ID</span><input id="plannerDefaultProvider" /></label><label><span class="label">Default planner model name</span><input id="plannerDefaultModel" /></label><label><span class="label">External channel product</span><select id="plannerDefaultProduct"><option value="">No product selected</option></select></label><button type="submit">Save planner defaults</button></form>
@@ -1347,6 +1354,7 @@
       }
       if (tabId === "routing") {
         void loadRouting();
+        void loadCatalogSettings();
         void loadWorkflowAutomation();
         void loadPlannerDefaults();
       }
@@ -3341,6 +3349,38 @@
         setStatus("Planner defaults saved", "ok");
       } catch (error) { setStatus(error.message || String(error), "error"); }
       finally { plannerDefaultsBusy = false; for (const control of form.elements) control.disabled = false; refresh.disabled = false; }
+    });
+
+    let catalogSettings = null, catalogSettingsSequence = 0, catalogSettingsBusy = false;
+    async function loadCatalogSettings() {
+      if (catalogSettingsBusy) return;
+      const sequence = ++catalogSettingsSequence;
+      const toggle = document.getElementById("hideExampleProducts"), seed = document.getElementById("seedExampleProducts");
+      toggle.disabled = true; seed.disabled = true;
+      try {
+        const value = await request("/api/mobile/catalog-settings");
+        if (sequence !== catalogSettingsSequence) return;
+        catalogSettings = value; toggle.checked = value.enabled; toggle.disabled = false; seed.disabled = false;
+      } catch (error) { if (sequence === catalogSettingsSequence) setStatus(error.message || String(error), "error"); }
+    }
+    document.getElementById("refreshCatalogSettings").addEventListener("click", loadCatalogSettings);
+    document.getElementById("hideExampleProducts").addEventListener("change", async (event) => {
+      const toggle = event.currentTarget;
+      if (!catalogSettings || catalogSettingsBusy) return;
+      catalogSettingsBusy = true; toggle.disabled = true; document.getElementById("refreshCatalogSettings").disabled = true;
+      try {
+        catalogSettings = await request("/api/mobile/catalog-settings", { method: "POST", body: { expected_raw: catalogSettings.raw, enabled: toggle.checked } });
+        setStatus("Catalog setting saved", "ok");
+        await loadProducts();
+      } catch (error) { toggle.checked = catalogSettings.enabled; setStatus(error.message || String(error), "error"); }
+      finally { catalogSettingsBusy = false; toggle.disabled = false; document.getElementById("refreshCatalogSettings").disabled = false; }
+    });
+    document.getElementById("seedExampleProducts").addEventListener("click", async (event) => {
+      if (catalogSettingsBusy || !window.confirm("Create missing examples and repair the built-in catalog?")) return;
+      catalogSettingsBusy = true; event.currentTarget.disabled = true;
+      try { await request("/api/mobile/catalog-seed-examples", { method: "POST" }); setStatus("Examples seeded / repaired", "ok"); await loadProducts(); }
+      catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { catalogSettingsBusy = false; event.currentTarget.disabled = false; }
     });
 
     let workflowAutomationSequence = 0, workflowAutomationBusy = false;
