@@ -299,8 +299,10 @@ pub async fn run_model_chat_completion(
 pub async fn list_model_calls(
     state: State<'_, AppState>,
     limit: Option<i64>,
+    before_created_at: Option<String>,
+    before_id: Option<String>,
 ) -> Result<Vec<ModelCall>, AppError> {
-    model_call_repo::list_model_calls(&state.db, limit.unwrap_or(200)).await
+    model_call_repo::list_model_calls_filtered(&state.db, limit.unwrap_or(200), None, before_created_at.as_deref(), before_id.as_deref()).await
 }
 
 #[tauri::command]
@@ -359,6 +361,33 @@ async fn read_snapshot_file(artifact_base: &std::path::Path, snapshot_path: &str
 #[cfg(test)]
 mod provider_ipc_tests {
     use tauri::test::{mock_builder, mock_context, noop_assets, INVOKE_KEY};
+
+    #[test]
+    fn desktop_ipc_model_call_cursor_and_legacy_arguments() {
+        let directory = tempfile::tempdir().unwrap();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let state = runtime.block_on(async {
+            let db = crate::persistence::db::create_pool(&format!("sqlite:{}", directory.path().join("calls.db").display())).await.unwrap();
+            for (id, index) in [("b", 1), ("a", 2)] {
+                sqlx::query("INSERT INTO model_calls (id,source_kind,provider_id,model_name,call_index,created_at) VALUES (?, 'desktop_chat', 'p', 'm', ?, '2026-01-01 00:00:00')")
+                    .bind(id).bind(index).execute(&db).await.unwrap();
+            }
+            crate::state::AppState::new(db, directory.path().to_path_buf()).await.unwrap()
+        });
+        let app = mock_builder().manage(state).invoke_handler(tauri::generate_handler![super::list_model_calls])
+            .build(mock_context(noop_assets())).unwrap();
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
+        let invoke = |body| tauri::test::get_ipc_response(&webview, tauri::webview::InvokeRequest {
+            cmd: "list_model_calls".into(), callback: tauri::ipc::CallbackFn(0), error: tauri::ipc::CallbackFn(1),
+            url: "http://tauri.localhost".parse().unwrap(), body: tauri::ipc::InvokeBody::Json(body),
+            headers: Default::default(), invoke_key: INVOKE_KEY.to_string(),
+        });
+        let legacy = invoke(serde_json::json!({"limit":1})).unwrap().deserialize::<serde_json::Value>().unwrap();
+        assert_eq!(legacy[0]["id"], "b");
+        let next = invoke(serde_json::json!({"limit":1,"beforeCreatedAt":"2026-01-01 00:00:00","beforeId":"b"})).unwrap().deserialize::<serde_json::Value>().unwrap();
+        assert_eq!(next[0]["id"], "a");
+        assert!(invoke(serde_json::json!({"beforeId":"b"})).is_err());
+    }
 
     #[test]
     fn desktop_ipc_preserves_provider_completion_profiles() {

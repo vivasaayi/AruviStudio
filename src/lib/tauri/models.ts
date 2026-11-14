@@ -182,7 +182,8 @@ export const startDesktopCopilotStream = (data: {
   system_prompt: data.systemPrompt, patch_mode: data.patchMode, file: data.file, context_budget: data.contextBudget,
   temperature: data.temperature, max_tokens: data.maxTokens, source_id: data.sourceId,
 } });
-export const listModelCalls = (limit = 200) => invoke<ModelCall[]>("list_model_calls", { limit });
+export const listModelCalls = (limit = 200, cursor?: { createdAt: string; id: string }) =>
+  invoke<ModelCall[]>("list_model_calls", { limit, beforeCreatedAt: cursor?.createdAt, beforeId: cursor?.id });
 export const getModelCall = (id: string) => invoke<ModelCall>("get_model_call", { id });
 export const readModelCallSnapshot = (id: string, kind: "request" | "response") =>
   invoke<string>("read_model_call_snapshot", { id, kind });

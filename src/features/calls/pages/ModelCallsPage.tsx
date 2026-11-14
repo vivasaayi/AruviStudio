@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listModelCalls, readModelCallSnapshot } from "../../../lib/tauri";
 import { styles } from "./ModelCallsPage.styles";
 import {
@@ -17,12 +17,17 @@ export function ModelCallsPage() {
   const [filter, setFilter] = useState<CallFilter>("all");
   const [selectedSessionKey, setSelectedSessionKey] = useState<string | null>(null);
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
-  const callsQuery = useQuery({
+  const [browsingHistory, setBrowsingHistory] = useState(false);
+  const queryClient = useQueryClient();
+  const callsQuery = useInfiniteQuery({
     queryKey: ["modelCalls"],
-    queryFn: () => listModelCalls(300),
-    refetchInterval: 5000,
+    initialPageParam: null as { createdAt: string; id: string } | null,
+    queryFn: ({ pageParam }) => listModelCalls(100, pageParam ?? undefined),
+    getNextPageParam: (page) => page.length === 100 ? { createdAt: page[page.length - 1].created_at, id: page[page.length - 1].id } : undefined,
+    retry: false,
+    refetchInterval: browsingHistory ? false : 5000,
   });
-  const calls = callsQuery.data ?? [];
+  const calls = useMemo(() => callsQuery.data?.pages.flat() ?? [], [callsQuery.data]);
   const filteredCalls = useMemo(
     () => calls.filter((call) => matchesModelCallFilter(call, filter)),
     [calls, filter],
@@ -69,7 +74,7 @@ export function ModelCallsPage() {
           <div style={styles.subtitle}>Model-call ledger across desktop, mobile, planner, and workflow sources.</div>
         </div>
         <div style={styles.actions}>
-          <button style={styles.btn} onClick={() => callsQuery.refetch()}>
+          <button style={styles.btn} disabled={callsQuery.isFetching} onClick={() => { setBrowsingHistory(false); void queryClient.resetQueries({ queryKey: ["modelCalls"], exact: true }); }}>
             {callsQuery.isFetching ? "Refreshing..." : "Refresh"}
           </button>
         </div>
@@ -92,7 +97,7 @@ export function ModelCallsPage() {
           <div style={styles.panelHeader}>
             <div style={styles.panelTitle}>Recent Sessions</div>
             <div style={styles.panelMeta}>
-              {sessions.length} sessions · {filteredCalls.length} calls · {calls.length} loaded
+              {sessions.length} sessions · {filteredCalls.length} calls · {calls.length} loaded · filter applies to loaded calls{browsingHistory ? " · auto-refresh paused; Refresh returns to latest" : ""}
             </div>
           </div>
           <div style={styles.list}>
@@ -122,6 +127,8 @@ export function ModelCallsPage() {
               <div style={styles.empty}>No sessions match this filter.</div>
             )}
           </div>
+          {callsQuery.hasNextPage && <button style={styles.btn} disabled={callsQuery.isFetching} onClick={() => { setBrowsingHistory(true); void callsQuery.fetchNextPage(); }}>{callsQuery.isFetchingNextPage ? "Loading..." : "Load older calls"}</button>}
+          {callsQuery.isError && <div role="alert" style={styles.empty}>Unable to load model calls: {String(callsQuery.error)}</div>}
         </section>
 
         <section style={styles.listPanel}>

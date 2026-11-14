@@ -890,7 +890,11 @@ included in subsequent pages. The browser Activity view now loads older calls in
 the latest page. Its filters apply to loaded calls, not the whole ledger. An
 isolated browser fixture covered failed-page retry and refresh, and an authenticated
 API fixture compared filtered pages. All 29 isolated remote and 49 workflow tests
-passed. Desktop remains limited to the latest 300 calls.
+passed. Desktop now also loads 100-call pages, pauses refresh during history
+browsing and filters loaded calls. The frontend build and mocked desktop browser
+test passed, including failed-page retry and return to latest. A native Tauri
+mock-runtime IPC test verified cursor arguments, timestamp ties and legacy calls
+without cursor arguments. Native-window acceptance remains open.
 
 This table summarizes the current evidence; dated sections below are historical
 and may describe issues that were subsequently fixed. A passing fixture proves
