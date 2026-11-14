@@ -252,6 +252,23 @@ provider hosting into the model-host service as part of this work.
   and MCP Copilot fixture. These results do not prove exploitability or its
   absence, and the remaining advisories require review before release.
 
+## OpenAI-compatible completion parameters
+
+- The shared client can explicitly select `max_completion_tokens` instead of
+  `max_tokens`, and independently omit `temperature`, for ordinary, JSON and
+  streamed completions. Existing defaults remain unchanged for Model Host and
+  DeepSeek. A simulated HTTP server verifies the fields for all three paths.
+  The [OpenAI reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)
+  says `max_tokens` is incompatible with o-series models; the
+  [DeepSeek reference](https://api-docs.deepseek.com/api/create-chat-completion/)
+  specifies `max_tokens`. Model-specific support for JSON, streaming and other
+  parameters remains the endpoint's responsibility. Studio does not yet expose
+  these options; persistent provider configuration, desktop/web/MCP controls,
+  migration and end-to-end integration remain open. No live OpenAI call was run.
+  The client passed 46 tests; Studio passed 219 native tests with six ignored
+  and 27 isolated workflow cases. Real Model Host coding and token-limit
+  handling passed through MCP using the unchanged default request shape.
+
 ## Structured provider HTTP errors
 
 - Reqwest transport errors now omit request URLs, protecting proxy paths and

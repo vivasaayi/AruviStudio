@@ -36,6 +36,32 @@ For Anthropic, a supplied stop reason indicating token truncation, a paused turn
 a refusal, tool use, or an unknown outcome is returned as an error instead of a
 completed text response. Some compatible proxies omit stop reasons; their absence
 is accepted for compatibility, so completeness cannot be inferred from that field.
+OpenAI-compatible clients default to `max_tokens` and a configured or default
+`temperature`, preserving the behavior used by Model Host and DeepSeek. Some
+OpenAI models require `max_completion_tokens` or do not accept temperature.
+Call `with_completion_options` on `OpenAiCompatibleClient` to select those
+fields explicitly; it applies to ordinary, JSON-object and streaming completion
+requests and does not change discovery or voice:
+
+```rust
+use aruvi_model_client::openai_compatible::{
+    CompletionOptions, OpenAiCompatibleClient, TemperatureMode, TokenLimitField,
+};
+let client = OpenAiCompatibleClient::new("https://api.openai.com/v1".into(), None)
+    .with_completion_options(CompletionOptions {
+        token_limit_field: TokenLimitField::MaxCompletionTokens,
+        temperature: TemperatureMode::Omit,
+    });
+```
+
+Use the model/provider documentation to select these options. Omitting
+`temperature` intentionally disregards the value in `CompletionRequest`;
+non-finite supplied values are still rejected. The options configure request
+shape, not model capability, and JSON mode or other parameters can still be
+unsupported. Studio does not yet expose this selection. See the
+[OpenAI Chat Completions reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)
+and [DeepSeek Chat Completions reference](https://api-docs.deepseek.com/api/create-chat-completion/).
+
 OpenAI-compatible ordinary, JSON-object and streaming completions validate a
 nonempty model and message list, positive explicit token limit, and finite
 temperature before making a request. Provider-specific temperature ranges remain

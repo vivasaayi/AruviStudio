@@ -30,22 +30,68 @@ fn has_wav_audio(bytes: &[u8]) -> bool {
     offset == bytes.len() && format && data
 }
 
+/// Field used for the completion token budget. Choose explicitly for the
+/// endpoint/model; compatible providers do not all support the same field.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TokenLimitField {
+    #[default]
+    MaxTokens,
+    MaxCompletionTokens,
+}
+
+/// Controls whether the adapter sends a temperature parameter.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TemperatureMode {
+    #[default]
+    ConfiguredOrDefault,
+    Omit,
+}
+
+/// Request-shape choices for OpenAI-compatible chat completions. This does not
+/// imply the endpoint or model supports a particular combination of options.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CompletionOptions {
+    pub token_limit_field: TokenLimitField,
+    pub temperature: TemperatureMode,
+}
+
 pub struct OpenAiCompatibleClient {
     base_url: String,
     api_key: Option<String>,
     client: Option<Client>,
+    completion_options: CompletionOptions,
 }
 
 impl OpenAiCompatibleClient {
     pub fn new(base_url: String, api_key: Option<String>) -> Self {
         let client = crate::http::build_client(crate::ClientOptions::default()).ok();
-        Self { base_url, api_key, client }
+        Self { base_url, api_key, client, completion_options: CompletionOptions::default() }
     }
 
     /// Construct a client with explicitly bounded connection and total request timeouts.
     pub fn with_options(base_url: String, api_key: Option<String>, options: crate::ClientOptions) -> Result<Self, ClientError> {
         let client = crate::http::build_client(options)?;
-        Ok(Self { base_url, api_key, client: Some(client) })
+        Ok(Self { base_url, api_key, client: Some(client), completion_options: CompletionOptions::default() })
+    }
+
+    /// Select the request fields used for ordinary, JSON and streaming chat.
+    /// Other operations, including discovery and voice, are unaffected.
+    pub fn with_completion_options(mut self, options: CompletionOptions) -> Self {
+        self.completion_options = options;
+        self
+    }
+
+    fn completion_body(&self, request: &CompletionRequest) -> serde_json::Value {
+        let mut body = serde_json::json!({ "model": request.model, "messages": request.messages });
+        let field = match self.completion_options.token_limit_field {
+            TokenLimitField::MaxTokens => "max_tokens",
+            TokenLimitField::MaxCompletionTokens => "max_completion_tokens",
+        };
+        body[field] = serde_json::json!(request.max_tokens.unwrap_or(4096));
+        if self.completion_options.temperature == TemperatureMode::ConfiguredOrDefault {
+            body["temperature"] = serde_json::json!(request.temperature.unwrap_or(0.7));
+        }
+        body
     }
 
     fn client(&self) -> Result<&Client, ClientError> {
@@ -192,11 +238,8 @@ impl OpenAiCompatibleClient {
     pub async fn stream_completion<F>(&self, request: CompletionRequest, mut on_delta: F) -> Result<CompletionResponse, ClientError>
     where F: FnMut(&str) + Send {
         Self::validate_completion_request(&request)?;
-        let body = serde_json::json!({
-            "model": request.model, "messages": request.messages,
-            "temperature": request.temperature.unwrap_or(0.7),
-            "max_tokens": request.max_tokens.unwrap_or(4096), "stream": true,
-        });
+        let mut body = self.completion_body(&request);
+        body["stream"] = serde_json::Value::Bool(true);
         let mut http = self.client()?.post(self.endpoint_url("/chat/completions")?).json(&body);
         if let Some(key) = &self.api_key { http = http.bearer_auth(key); }
         let response = http.send().await.map_err(|error| crate::http::transport_error("Model stream request failed", error))?;
@@ -299,15 +342,7 @@ impl OpenAiCompatibleClient {
     ) -> Result<CompletionResponse, ClientError> {
         Self::validate_completion_request(&request)?;
         let url = self.endpoint_url("/chat/completions")?;
-        let mut body = serde_json::json!({
-            "model": request.model,
-            "messages": request.messages.iter().map(|m| serde_json::json!({
-                "role": m.role,
-                "content": m.content,
-            })).collect::<Vec<_>>(),
-            "temperature": request.temperature.unwrap_or(0.7),
-            "max_tokens": request.max_tokens.unwrap_or(4096),
-        });
+        let mut body = self.completion_body(&request);
 
         if json_object { body["response_format"] = serde_json::json!({"type":"json_object"}); }
         let mut req = self.client()?.post(&url).json(&body);
@@ -415,6 +450,49 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;
+
+    #[tokio::test]
+    async fn configured_completion_fields_apply_to_regular_json_and_streaming_requests() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            for index in 0..3 {
+                let (mut socket, _) = listener.accept().unwrap();
+                socket.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+                let mut bytes = Vec::new(); let mut buffer = [0; 4096];
+                let header_end = loop {
+                    let count = socket.read(&mut buffer).unwrap(); assert_ne!(count, 0);
+                    bytes.extend_from_slice(&buffer[..count]);
+                    if let Some(index) = bytes.windows(4).position(|part| part == b"\r\n\r\n") { break index + 4; }
+                };
+                let headers = String::from_utf8_lossy(&bytes[..header_end]).to_ascii_lowercase();
+                assert!(headers.contains("authorization: bearer synthetic-key"));
+                let length: usize = headers.lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().trim().parse().unwrap();
+                while bytes.len() < header_end + length {
+                    let count = socket.read(&mut buffer).unwrap(); assert_ne!(count, 0); bytes.extend_from_slice(&buffer[..count]);
+                }
+                let body: serde_json::Value = serde_json::from_slice(&bytes[header_end..header_end + length]).unwrap();
+                assert_eq!(body["max_completion_tokens"], 42);
+                assert!(body.get("max_tokens").is_none());
+                assert!(body.get("temperature").is_none());
+                assert_eq!(body.get("stream").and_then(|v| v.as_bool()).unwrap_or(false), index == 2);
+                assert_eq!(body.pointer("/response_format/type").and_then(|v| v.as_str()), if index == 1 { Some("json_object") } else { None });
+                let response = if index == 2 {
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n".to_string()
+                } else {
+                    serde_json::json!({"choices":[{"message":{"content":"{\"ok\":true}"},"finish_reason":"stop"}]}).to_string()
+                };
+                write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).unwrap();
+            }
+        });
+        let client = OpenAiCompatibleClient::new(format!("http://{address}"), Some("synthetic-key".into()))
+            .with_completion_options(CompletionOptions { token_limit_field: TokenLimitField::MaxCompletionTokens, temperature: TemperatureMode::Omit });
+        let request = || CompletionRequest { model: "fixture".into(), messages: vec![ChatMessage { role: "user".into(), content: "hello".into() }], temperature: Some(0.4), max_tokens: Some(42) };
+        assert_eq!(client.run_completion(request()).await.unwrap().content, "{\"ok\":true}");
+        assert_eq!(client.run_json_completion(request()).await.unwrap().content, "{\"ok\":true}");
+        assert_eq!(client.stream_completion(request(), |_| {}).await.unwrap().content, "hello");
+        server.join().unwrap();
+    }
 
     #[tokio::test]
     async fn posts_authenticated_completion_and_extracts_usage() {
