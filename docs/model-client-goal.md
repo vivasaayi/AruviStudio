@@ -754,6 +754,16 @@ check rejected the generated module because it omitted the `sumEven` export;
 the run stopped before delivery. Its trace included malformed tool-call envelopes.
 The live run did not demonstrate the adjacent-overlap guard, and broader coding
 reliability and malformed-output recovery remain open.
+The coding-loop parser still refuses malformed flat tool calls, but for an
+unambiguous allowed call it now provides a bounded corrected envelope as a
+suggestion; only a later model response can trigger an action. Multiple actions,
+including mixed flat and valid envelopes, are rejected. Parser and simulated
+coding-loop tests confirm the malformed call itself is not executed. This does
+not guarantee that a model follows the correction.
+A subsequent real 7B `extend-module` run passed syntax, behavior and the
+fixture-specific duplicate check and delivered to its disposable remote. The
+model did not emit a malformed envelope in that run, so recovery remains
+verified by deterministic tests only.
 
 ## Independent client revalidation
 

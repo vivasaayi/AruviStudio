@@ -167,6 +167,24 @@ pub(super) fn parser_error_observation(
         return format!("tool_error step={} tool=parser error=Response contained multiple actions; no action was executed. Return exactly one tool_call OR one final object, not both.", step);
     }
     let mut message = format!("tool_error step={} tool=parser error=Response did not match tool/final JSON contract; no action was executed.", step);
+    // A common local-model mistake places the tool name in `type` and its
+    // arguments at top level. Offer a bounded corrected envelope as data only;
+    // the model must submit a new action and normal tool authorization applies.
+    if let Some(payload) = extract_json_payload(output) {
+        if let Ok(Value::Object(mut object)) = serde_json::from_str::<Value>(&payload) {
+            let tool = object.remove("type").and_then(|value| value.as_str().map(str::to_owned));
+            if let Some(tool) = tool.filter(|name| allowed_tools.contains(name)) {
+                let reason = object.remove("reason").filter(Value::is_string);
+                let corrected = serde_json::json!({"type":"tool_call", "tool":tool, "arguments":object, "reason":reason});
+                let serialized = serde_json::to_string(&corrected).unwrap_or_default();
+                if serialized.len() <= 1600 {
+                    message.push_str(" To retry this attempted action, return exactly this single object (no action has run): ");
+                    message.push_str(&serialized);
+                    return message;
+                }
+            }
+        }
+    }
     if allowed_tools.contains("repo.write_file") {
         message.push_str(" If the previous response contains intended file content, submit it as one repo.write_file tool_call with path and complete content; a final response does not write files.");
     }
@@ -240,7 +258,7 @@ pub(super) fn has_multiple_actions(output: &str) -> bool {
                             .and_then(|value| {
                                 value.get("type").and_then(Value::as_str).map(str::to_owned)
                             })
-                            .is_some_and(|kind| matches!(kind.as_str(), "tool_call" | "final"))
+                            .is_some_and(|kind| matches!(kind.as_str(), "tool_call" | "final" | "repo.read_file" | "repo.list_tree" | "repo.search" | "repo.write_file" | "repo.replace_range" | "repo.apply_patch"))
                     {
                         objects += 1;
                         if objects > 1 {
@@ -387,6 +405,24 @@ mod configured_tool_tests {
         assert!(parse_tool_loop_response(incomplete_action).is_none());
         let legacy = "File: src/a.js\n```js\nconst a = {\"x\":1}; const b = {\"y\":2};\n```";
         assert!(!has_multiple_actions(legacy));
+    }
+
+    #[test]
+    fn flat_tool_calls_are_rejected_but_receive_allowed_targeted_guidance() {
+        let flat = r#"Tool call: {"type":"repo.replace_range","path":"a.js","start_line":2,"end_line":2,"content":"new","reason":"fix"}"#;
+        assert!(parse_tool_loop_response(flat).is_none());
+        let guidance = parser_error_observation(3, flat, false, &resolve_allowed_tools(&[]));
+        assert!(guidance.contains("no action was executed"));
+        assert!(guidance.contains(r#""type":"tool_call""#));
+        assert!(guidance.contains(r#""tool":"repo.replace_range""#));
+        assert!(guidance.contains(r#""start_line":2"#));
+        assert!(!guidance.contains("complete content"));
+        let restricted = parser_error_observation(3, flat, false, &resolve_allowed_tools(&["read".into()]));
+        assert!(!restricted.contains("To retry this attempted action"));
+        let multiple = format!(r#"{{"type":"final","summary":"done"}} {flat}"#);
+        assert!(has_multiple_actions(&multiple));
+        assert!(parse_tool_loop_response(&multiple).is_none());
+        assert!(!parser_error_observation(3, &multiple, true, &resolve_allowed_tools(&[])).contains("To retry"));
     }
 
     #[test]

@@ -184,6 +184,7 @@ async fn coding_stage_creates_tool_trace_artifact() {
             json!({"type":"tool_call", "tool":"repo.write_file", "arguments":{"path":"adjacent.js","content":format!("{adjacent_line}\nold\n")}}).to_string(),
             json!({"type":"tool_call", "tool":"repo.replace_range", "arguments":{"path":"adjacent.js","start_line":2,"end_line":2,"content":format!("{adjacent_line}\nnew\n")}}).to_string(),
             json!({"type":"tool_call", "tool":"repo.replace_range", "arguments":{"path":"adjacent.js","start_line":2,"end_line":2,"content":format!("{adjacent_line}\nnew\n"),"allow_adjacent_duplicate":true}}).to_string(),
+            json!({"type":"repo.write_file", "path":"flat-must-not-exist.txt", "content":"not executed"}).to_string(),
             json!({
                 "type": "final",
                 "summary": "Implemented coding changes",
@@ -234,6 +235,8 @@ async fn coding_stage_creates_tool_trace_artifact() {
     assert!(!repo_dir.join("must-not-exist.txt").exists());
     assert!(!repo_dir.join("legacy-must-not-exist.txt").exists());
     assert!(!repo_dir.join("invalid.txt").exists());
+    assert!(!repo_dir.join("flat-must-not-exist.txt").exists());
+    assert!(trace_content.contains("To retry this attempted action"));
     assert!(trace_content.contains("Previous invalid response (quoted data)"));
     assert!(trace_content.contains("MODEL_CANDIDATE_MARKER"));
     assert!(trace_content.contains("No files were changed"));
