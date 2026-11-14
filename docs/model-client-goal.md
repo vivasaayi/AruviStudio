@@ -2389,6 +2389,14 @@ before base64 decoding as well as by the shared client; other Studio
 transcription retains its 32 MiB limit. Nine native speech tests passed with
 one local Whisper case ignored, and all 35 isolated workflow tests passed with
 mixed-case DeepSeek selectors through the simulated API and MCP fixture.
+Known DeepSeek voice selectors and local Whisper providers are excluded from
+automatic agent text fallback. New agent bindings reject voice-only selectors;
+an existing invalid binding fails explicitly rather than silently choosing a
+different model. This guard does not classify arbitrary model capability tags
+as voice-only. A native test covered fallback, rejected binding and legacy
+binding behavior; the frontend build, eleven mocked desktop provider tests,
+and all 35 isolated workflow tests passed. MCP tool discovery now describes
+the DeepSeek voice selectors and their constraints.
 
 ## Shared-client example pin
 

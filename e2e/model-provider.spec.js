@@ -192,7 +192,7 @@ test("desktop agent model selector marks local Whisper as transcription only", a
     const original = window.__ARUVI_E2E__.invoke;
     window.__ARUVI_E2E__.invoke = async (command, args) => {
       if (command === "list_providers") return [...await original(command, args), { id: "local-speech", name: "Local speech", provider_type: "local_runtime", enabled: true }];
-      if (command === "list_model_definitions") return [...await original(command, args), { id: "whisper-fixture", provider_id: "local-speech", name: "Whisper fixture", enabled: true, capability_tags: ["speech_to_text"] }];
+      if (command === "list_model_definitions") return [...await original(command, args), { id: "whisper-fixture", provider_id: "local-speech", name: "Whisper fixture", enabled: true, capability_tags: ["speech_to_text"] }, { id: "deepseek-voice-fixture", provider_id: "provider-deepseek-hosted", name: "deepseek-voice-transcription", enabled: true, capability_tags: [] }];
       return original(command, args);
     };
   });
@@ -201,6 +201,7 @@ test("desktop agent model selector marks local Whisper as transcription only", a
   await expect(selector).toBeEnabled();
   await expect(selector.locator('option[value="whisper-fixture"]')).toBeDisabled();
   await expect(selector.locator('option[value="whisper-fixture"]')).toHaveText("Whisper fixture · transcription only");
+  await expect(selector.locator('option[value="deepseek-voice-fixture"]')).toBeDisabled();
   await expect(selector.locator('option[value="model-deepseek-chat"]')).toBeEnabled();
 });
 

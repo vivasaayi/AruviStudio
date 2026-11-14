@@ -273,7 +273,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
         ),
         action_tool(
             "aruvi_speech",
-            "Transcribe audio, generate remote WAV speech, and trigger native speech output.",
+            "Transcribe audio, generate remote WAV speech, and trigger native speech output. For DeepSeek voice use model_name deepseek-voice-transcription or model deepseek-voice-synthesis with a configured DeepSeek provider; transcription detects language, and synthesis supports voices stella and tide without speed control.",
             &["transcribe_audio", "generate_speech", "speak_text_natively"],
         ),
     ]

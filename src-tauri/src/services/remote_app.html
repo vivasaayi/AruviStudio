@@ -3960,8 +3960,10 @@
         if (providers.some((provider) => provider.id === previous)) el.modelProvider.value = previous;
         models.forEach((model) => {
           const provider = providers.find((entry) => entry.id === model.provider_id);
-          const localSpeech = provider?.provider_type === "local_runtime";
-          if (model.enabled && !localSpeech) {
+          const selector = model.name.trim().toLowerCase();
+          const localSpeech = provider?.provider_type === "local_runtime" || selector === "deepseek-voice-transcription";
+          const voiceOnly = localSpeech || selector === "deepseek-voice-synthesis";
+          if (model.enabled && !voiceOnly) {
             const option = document.createElement("option");
             option.value = model.id;
             option.textContent = model.name + " · " + (provider ? provider.name : model.provider_id);
@@ -3975,8 +3977,8 @@
           const use = document.createElement("button");
           use.type = "button";
           use.className = "secondary";
-          use.textContent = localSpeech ? "Use for transcription" : "Use for this browser";
-          use.disabled = !model.enabled || !provider || !provider.enabled;
+          use.textContent = localSpeech ? "Use for transcription" : voiceOnly ? "Voice synthesis only" : "Use for this browser";
+          use.disabled = !model.enabled || !provider || !provider.enabled || (voiceOnly && !localSpeech);
           use.addEventListener("click", () => {
             if (localSpeech) {
               localStorage.setItem(storageKeys.voiceProvider, model.provider_id);

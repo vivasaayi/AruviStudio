@@ -200,9 +200,18 @@ test("MCP creates a product and drives a workflow through delivery", async ({ pa
 test("DeepSeek voice uses its dedicated endpoints through browser, API and MCP", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const discovery = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 3, method: "tools/list", params: {} } });
+  const speechTool = (await discovery.json()).result.tools.find((tool) => tool.name === "aruvi_speech");
+  expect(speechTool.description).toContain("deepseek-voice-transcription");
   const created = await request.post("/api/mobile/providers", { headers, data: { name: "DeepSeek voice fixture", base_url: process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/deepseek/v1"), api_key: "synthetic-deepseek-key" } });
   expect(created.ok()).toBeTruthy();
   const provider = await created.json();
+  const voiceModelResponse = await request.post("/api/mobile/models", { headers, data: { provider_id: provider.id, name: "deepseek-voice-transcription" } });
+  expect(voiceModelResponse.ok()).toBeTruthy();
+  const voiceModel = await voiceModelResponse.json();
+  expect((await request.post("/api/mobile/agent-model-bindings", { headers, data: { agent_id: "coding-agent", model_id: voiceModel.id } })).status()).toBe(400);
+  const agentBinding = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "aruvi_agents", arguments: { action: "set_primary_agent_model_binding", arguments: { agent_id: "coding-agent", model_id: voiceModel.id } } } } });
+  expect((await agentBinding.json()).result.isError).toBeTruthy();
   const transcript = { provider_id: provider.id, model_name: " DeepSeek-Voice-Transcription ", audio_bytes_base64: "AA==", mime_type: "audio/wav", locale: "en-US" };
   const speech = { provider_id: provider.id, model: " DeepSeek-Voice-Synthesis ", text: "Hello", voice: "tide" };
   const mcp = async (action, args) => (await (await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_speech", arguments: { action, arguments: args } } } })).json()).result;
@@ -227,6 +236,8 @@ test("DeepSeek voice uses its dedicated endpoints through browser, API and MCP",
   await page.locator("#speechText").fill("Hello");
   await page.getByRole("button", { name: "Generate speech" }).click();
   await expect(page.locator("#generatedSpeech")).toBeVisible();
+  await page.getByRole("button", { name: "Models", exact: true }).click();
+  await expect(page.locator("#bindingModel").locator(`option[value="${voiceModel.id}"]`)).toHaveCount(0);
 });
 
 test("remote speech generation works through UI, API and MCP", async ({ page, request }) => {

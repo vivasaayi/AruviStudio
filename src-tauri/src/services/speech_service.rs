@@ -15,6 +15,11 @@ const LOCAL_WHISPER_MAX_DURATION_SECONDS: u64 = 10 * 60;
 const DEEPSEEK_TRANSCRIPTION: &str = "deepseek-voice-transcription";
 const DEEPSEEK_SYNTHESIS: &str = "deepseek-voice-synthesis";
 
+pub(crate) fn is_voice_only_selector(name: &str) -> bool {
+    let name = name.trim();
+    name.eq_ignore_ascii_case(DEEPSEEK_TRANSCRIPTION) || name.eq_ignore_ascii_case(DEEPSEEK_SYNTHESIS)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpeechToTextRequest {
     pub audio_bytes_base64: String,

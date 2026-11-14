@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from "react";
 
 import type { AgentDefinition, AgentTeam, AgentTeamMembership, ModelDefinition, ModelProvider, Skill } from "../../../lib/types";
+import { isVoiceOnlySelector } from "../../../lib/speechModel";
 import { styles } from "../lib/agentRegistryPageStyles";
 import type { AgentDraft } from "../lib/agentRegistryPageModel";
 import { AgentOrgTreeRail } from "./AgentOrgTreeRail";
@@ -180,14 +181,14 @@ export function AgentProfileTab({
               <option value="">Select a model definition</option>
               {modelDefinitions.map((model) => {
                 const provider = modelProviders.find((item) => item.id === model.provider_id);
-                const localSpeech = provider?.provider_type === "local_runtime";
-                return <option key={model.id} value={model.id} disabled={!provider || localSpeech}>
-                  {model.name}{localSpeech ? " · transcription only" : !provider ? " · provider unavailable" : ""}
+                const voiceOnly = provider?.provider_type === "local_runtime" || isVoiceOnlySelector(model.name);
+                return <option key={model.id} value={model.id} disabled={!provider || voiceOnly}>
+                  {model.name}{voiceOnly ? (model.name.trim().toLowerCase() === "deepseek-voice-synthesis" ? " · speech synthesis only" : " · transcription only") : !provider ? " · provider unavailable" : ""}
                 </option>;
               })}
             </select>
             <div style={styles.toolbar}>
-              <button type="button" style={styles.buttonSecondary} onClick={onBindSelectedAgentModel} disabled={!selectedAgent || !selectedAgentModelId || !modelProvidersReady || !modelProviders.some((provider) => provider.id === modelDefinitions.find((model) => model.id === selectedAgentModelId)?.provider_id && provider.provider_type !== "local_runtime")}>
+              <button type="button" style={styles.buttonSecondary} onClick={onBindSelectedAgentModel} disabled={!selectedAgent || !selectedAgentModelId || !modelProvidersReady || isVoiceOnlySelector(modelDefinitions.find((model) => model.id === selectedAgentModelId)?.name ?? "") || !modelProviders.some((provider) => provider.id === modelDefinitions.find((model) => model.id === selectedAgentModelId)?.provider_id && provider.provider_type !== "local_runtime")}>
                 Bind Model
               </button>
               {selectedAgentModelId ? (

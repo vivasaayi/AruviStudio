@@ -21,6 +21,9 @@ pub(crate) async fn find_model_for_agent(
         if !provider.enabled {
             return Err(AppError::Validation("The agent's bound model provider is disabled. Enable it or select another model binding.".into()));
         }
+        if provider.provider_type.as_str() == "local_runtime" || crate::services::speech_service::is_voice_only_selector(&model.name) {
+            return Err(AppError::Validation("The agent's bound model supports voice, not text completion. Select another model binding.".into()));
+        }
         debug!(agent_id = %agent_id, model_id = %model.id, model_name = %model.name, "Found model for agent");
         return Ok(model);
     }
@@ -57,7 +60,8 @@ pub(crate) async fn find_model_for_agent(
 
     for model in shared_models {
         let provider = model_repo::get_provider(db, &model.provider_id).await?;
-        if provider.enabled {
+        if provider.enabled && provider.provider_type.as_str() != "local_runtime"
+            && !crate::services::speech_service::is_voice_only_selector(&model.name) {
             info!(
                 agent_id = %agent_id,
                 model_id = %model.id,
@@ -112,6 +116,29 @@ fn matched_model_tags(model: &ModelDefinition, preferred_tags: &[&str]) -> Vec<S
 mod tests {
     use super::*;
     use crate::persistence::{agent_repo, db, model_repo};
+
+    #[tokio::test]
+    async fn voice_only_models_are_not_selected_for_agent_text() {
+        let directory = tempfile::tempdir().unwrap();
+        let pool = db::create_pool(&format!("sqlite:{}", directory.path().join("voice.db").display())).await.unwrap();
+        sqlx::query("DELETE FROM agent_model_bindings WHERE agent_id='coding-agent'").execute(&pool).await.unwrap();
+        sqlx::query("UPDATE model_definitions SET enabled=0").execute(&pool).await.unwrap();
+        model_repo::create_provider(&pool, "voice-provider", "Voice", "openai_compatible", "http://example.invalid", None).await.unwrap();
+        model_repo::create_model_definition(&pool, "voice-only", "voice-provider", " DeepSeek-Voice-Transcription ", None, None, None).await.unwrap();
+        model_repo::create_provider(&pool, "text-provider", "Text", "openai_compatible", "http://example.invalid", None).await.unwrap();
+        model_repo::create_model_definition(&pool, "text-model", "text-provider", "text", None, None, None).await.unwrap();
+        assert_eq!(find_model_for_agent(&pool, "coding-agent").await.unwrap().id, "text-model");
+        agent_repo::replace_primary_agent_model_binding(&pool, "text-binding", "coding-agent", "text-model").await.unwrap();
+        assert!(agent_repo::replace_primary_agent_model_binding(&pool, "voice-binding", "coding-agent", "voice-only").await.is_err());
+        assert_eq!(find_model_for_agent(&pool, "coding-agent").await.unwrap().id, "text-model");
+        // Existing bindings from older versions fail clearly, without silently falling back.
+        sqlx::query("UPDATE agent_model_bindings SET model_id='voice-only' WHERE agent_id='coding-agent'").execute(&pool).await.unwrap();
+        assert!(matches!(find_model_for_agent(&pool, "coding-agent").await, Err(AppError::Validation(message)) if message.contains("not text completion")));
+        sqlx::query("DELETE FROM agent_model_bindings WHERE agent_id='coding-agent'").execute(&pool).await.unwrap();
+        sqlx::query("UPDATE model_definitions SET enabled=0 WHERE id='text-model'").execute(&pool).await.unwrap();
+        assert!(matches!(find_model_for_agent(&pool, "coding-agent").await, Err(AppError::NotFound(_))));
+        pool.close().await;
+    }
 
     #[tokio::test]
     async fn explicit_binding_requires_enabled_model_and_provider_without_silent_fallback() {
