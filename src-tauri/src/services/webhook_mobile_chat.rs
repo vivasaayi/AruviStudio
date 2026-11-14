@@ -23,6 +23,10 @@ pub(crate) async fn mobile_chat_stream(
     State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileChatCompletionRequest>,
 ) -> axum::response::Response {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    stream_mobile_completion(state, body, "mobile_chat", "Mobile Chat").await
+}
+
+async fn stream_mobile_completion(state: WebhookState, body: MobileChatCompletionRequest, source_kind: &'static str, source_label: &'static str) -> axum::response::Response {
     let messages: Vec<_> = body.messages.into_iter().filter(|message| !message.content.trim().is_empty()).collect();
     if messages.is_empty() { return (StatusCode::BAD_REQUEST, "At least one chat message is required.").into_response(); }
     let provider_id = match resolve_mobile_chat_provider_id(&state.app_state, body.provider_id).await {
@@ -70,7 +74,7 @@ pub(crate) async fn mobile_chat_stream(
             None => ("failed", Some("Stream cancelled by client"), None, None),
         };
         if let Err(record_error) = record_webhook_model_call(&state.app_state, WebhookModelCallRecord {
-            context: WebhookModelCallContext { source_kind: "mobile_chat", source_id: None, source_label: "Mobile Chat", session_id: None, product_id: None },
+            context: WebhookModelCallContext { source_kind, source_id: None, source_label, session_id: None, product_id: None },
             provider: &provider, model_name: &model_name, messages: &messages, max_tokens, temperature,
             response_chars: char_count_i64(&partial), token_count_input: input, token_count_output: output_tokens,
             duration_ms: elapsed_ms(started), status, error_message: message, response_text: Some(&partial),
@@ -135,7 +139,22 @@ fn completion_response(result: CompletionResult) -> axum::response::Response {
     match result { Ok(response) => Json(response).into_response(), Err((status, message)) => (status, message).into_response() }
 }
 
+pub(crate) async fn mobile_file_copilot_stream(
+    State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileFileCopilotRequest>,
+) -> axum::response::Response {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match build_file_copilot_request(&state.app_state, body).await {
+        Ok(request) => stream_mobile_completion(state, request, "mobile_ide", "Browser IDE").await,
+        Err((status, message)) => (status, message).into_response(),
+    }
+}
+
 pub(crate) async fn run_file_copilot(state: &crate::state::AppState, body: MobileFileCopilotRequest, source_kind: &str, source_label: &str) -> CompletionResult {
+    let request = build_file_copilot_request(state, body).await?;
+    run_mobile_completion(state, request, source_kind, source_label).await
+}
+
+async fn build_file_copilot_request(state: &crate::state::AppState, body: MobileFileCopilotRequest) -> Result<MobileChatCompletionRequest, (StatusCode, String)> {
     use sha2::{Digest, Sha256};
     if body.provider_id.trim().is_empty() || body.model_name.trim().is_empty() || body.question.trim().is_empty()
         || body.question.chars().count() > 4000 || body.relative_path.len() > 4096
@@ -173,7 +192,7 @@ pub(crate) async fn run_file_copilot(state: &crate::state::AppState, body: Mobil
         provider_id: Some(body.provider_id), model_name: Some(body.model_name),
         messages, temperature: Some(0.2), max_tokens: Some(4096),
     };
-    run_mobile_completion(state, request, source_kind, source_label).await
+    Ok(request)
 }
 
 async fn run_mobile_completion(state: &crate::state::AppState, body: MobileChatCompletionRequest, source_kind: &str, source_label: &str) -> CompletionResult {

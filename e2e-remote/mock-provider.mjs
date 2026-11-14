@@ -124,6 +124,11 @@ const server = http.createServer((request, response) => {
           { path: "patch-safety-fixture.txt", description: "Change the middle line", patch: "@@ -2 +2 @@\n-middle\n+reviewed" },
           { path: "proposal-created.txt", description: "Create a file", patch: "@@ -0,0 +1 @@\n+created" },
         ] });
+        if (body.stream) {
+          response.setHeader("Content-Type", "text/event-stream");
+          response.write("data: " + JSON.stringify({ choices: [{ delta: { content }, finish_reason: null }] }) + "\n\n");
+          return response.end('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
+        }
         return response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content } }] }));
       }
       if (body.messages?.at(-1)?.content?.includes("Synthetic Copilot failure")) { response.statusCode = 500; return response.end(JSON.stringify({ error: "fixture failure" })); }

@@ -18,6 +18,7 @@ try {
   await row.getByRole("button", { name: "Browse workspace" }).click();
   await page.locator("#repositoryTree").getByRole("button", { name: "math.js" }).click();
   await page.getByLabel("Selected file contents").waitFor();
+  await page.getByLabel("Stream Copilot response").check();
   await page.getByLabel("Copilot question").fill("Change the function to multiply by 9 instead of 7. Keep its name. Return a single patch for math.js.");
   await page.getByRole("button", { name: "Propose changes" }).click();
   const review = page.locator("#repositoryPatchReview");

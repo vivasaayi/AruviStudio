@@ -46,6 +46,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Browser file-aware Copilot
 
+- Browser file Copilot can optionally stream questions and patch proposals,
+  with a stop control. The streaming route shares file hash, context, provider
+  and history validation with buffered requests and records the `mobile_ide`
+  Activity source. Only completed streams enter conversation history or become
+  reviewable proposals. The 22 remote UI cases passed, covering authentication,
+  stale hashes, invalid history, successful streaming, failure, cancellation,
+  and streamed patch review. A headless browser streamed and applied a simple
+  proposal from real `qwen25-coder-7b-q4`; the Linux Rust suite passed 204 tests
+  with two live tests ignored. MCP file Copilot remains buffered. The branch
+  container was healthy on port 55030 after this validation.
+
 - A disposable real Model Host test now asks `qwen25-coder-7b-q4` for a
   one-line JavaScript change through both the browser API and MCP, previews and
   applies each proposal through its corresponding API, and checks the result. A
@@ -67,8 +78,7 @@ provider hosting into the model-host service as part of this work.
   atomic multi-file transaction and can race external filesystem writers; the
   browser reports how many files were applied if a later patch fails. Review
   validates the active file's original hash, while other files are based on
-  their contents at preview time. Generation is non-streaming and model output
-  remains untrusted. The 22 remote UI cases passed with a simulated provider,
+  their contents at preview time. Model output remains untrusted. The 22 remote UI cases passed with a simulated provider,
   covering review without writes, stale files, existence conflicts, partial and
   successful application, new-file creation and MCP generation; the Linux Rust
   suite passed 204 tests with two live tests ignored. That checkpoint used a
@@ -104,14 +114,14 @@ provider hosting into the model-host service as part of this work.
   only in the current page for the same saved file and provider/model, resets it
   after a save or explicit reset, and excludes failed turns. MCP callers supply
   and scope their own history. The server rejects invalid role ordering and
-  oversized history before model access. This remains non-streaming.
+  oversized history before model access. At that checkpoint it was non-streaming.
 - The 22 remote UI, 23 workflow and one simulated CI cases passed; the Linux Rust
   suite passed 198 tests with two live tests ignored. Browser checks cover model
   changes, reset, failed turns and oversized transcript handling. A disposable
   real `qwen25-coder-7b-q4` fixture passed web and MCP follow-ups. Other models
   and live third-party providers remain unverified.
 
-- The workspace browser can ask non-streaming questions about the selected
+- The workspace browser can ask questions about the selected
   saved file using an explicitly selected provider and model. The server confines
   the read to the registered repository, checks the saved file's SHA-256 against
   the opened version, and sends the question, relative path and at most 12,000
@@ -129,7 +139,7 @@ provider hosting into the model-host service as part of this work.
   matching hashes, stale-file rejection and telemetry; a disposable real 7B
   Model Host fixture passed both interfaces. The 22 remote and 23 workflow cases
   passed, and the Linux Rust suite passed 198 tests with two live tests ignored.
-  This was not full desktop IDE parity at that checkpoint; streaming remains open.
+  This was not full desktop IDE parity at that checkpoint.
 
 ## Browser planner node review
 
