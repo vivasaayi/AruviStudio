@@ -487,6 +487,7 @@
                   <div class="panel-title">Draft Tree</div>
                 </div>
                 <div class="panel-body">
+                  <div class="button-row"><button type="button" class="secondary" id="expandDraftButton">Expand all</button><button type="button" class="secondary" id="collapseDraftButton">Collapse all</button></div>
                   <div class="tree" id="draftTree"></div>
                   <div class="tool-card" id="draftNodeDetails" aria-live="polite">Select a draft node to inspect its details.</div>
                   <button type="button" class="secondary" id="validateDraftButton">Validate design</button>
@@ -1008,6 +1009,7 @@
       selectedProductId: localStorage.getItem(storageKeys.selectedProduct) || "",
       selectedWorkItemId: localStorage.getItem(storageKeys.selectedWorkItem) || "",
       draftTreeNodes: [],
+      collapsedDraftNodes: new Set(),
       latestPlannerActions: [],
       products: [],
       productSummary: null,
@@ -1049,6 +1051,8 @@
       plannerRepositoryStatus: document.getElementById("plannerRepositoryStatus"),
       connectionMeta: document.getElementById("connectionMeta"),
       draftTree: document.getElementById("draftTree"),
+      expandDraftButton: document.getElementById("expandDraftButton"),
+      collapseDraftButton: document.getElementById("collapseDraftButton"),
       plannerTrace: document.getElementById("plannerTrace"),
       plannerTraceContent: document.getElementById("plannerTraceContent"),
       validateDraftButton: document.getElementById("validateDraftButton"),
@@ -1314,6 +1318,8 @@
       el.plannerRepositorySelect.disabled = nextBusy;
       el.refreshPlannerRepositoriesButton.disabled = nextBusy;
       el.analyzePlannerRepositoryButton.disabled = nextBusy;
+      el.expandDraftButton.disabled = nextBusy || !state.draftTreeNodes.length;
+      el.collapseDraftButton.disabled = nextBusy || !state.draftTreeNodes.length;
       el.draftTree.querySelectorAll("button").forEach((button) => { button.disabled = nextBusy; });
       document.getElementById("draftNodeDetails").querySelectorAll("button").forEach((button) => { button.disabled = nextBusy; });
       const hasSelectedDraftNode = (nodes) => nodes.some((node) => node.id === state.selectedNodeId || hasSelectedDraftNode(node.children || []));
@@ -1783,6 +1789,24 @@
       }
 
       function renderNode(node, depth) {
+        const children = node.children || [];
+        if (children.length) {
+          const toggle = document.createElement("button");
+          toggle.type = "button";
+          toggle.className = "secondary";
+          toggle.style.marginLeft = Math.min(depth * 12, 36) + "px";
+          toggle.disabled = state.busy;
+          const collapsed = state.collapsedDraftNodes.has(node.id);
+          toggle.textContent = collapsed ? "Expand" : "Collapse";
+          toggle.setAttribute("aria-label", (collapsed ? "Expand " : "Collapse ") + (node.label || "Untitled"));
+          toggle.setAttribute("aria-expanded", String(!collapsed));
+          toggle.onclick = () => {
+            if (collapsed) state.collapsedDraftNodes.delete(node.id);
+            else state.collapsedDraftNodes.add(node.id);
+            renderDraftTree();
+          };
+          el.draftTree.appendChild(toggle);
+        }
         const card = document.createElement("button");
         card.type = "button";
         card.disabled = state.busy;
@@ -1815,11 +1839,27 @@
         }
 
         el.draftTree.appendChild(card);
-        (node.children || []).forEach((child) => renderNode(child, depth + 1));
+        if (!state.collapsedDraftNodes.has(node.id)) children.forEach((child) => renderNode(child, depth + 1));
       }
 
       state.draftTreeNodes.forEach((node) => renderNode(node, 0));
     }
+
+    function setDraftExpanded(expanded) {
+      state.collapsedDraftNodes.clear();
+      if (!expanded) {
+        const collapse = (nodes) => nodes.forEach((node) => {
+          if (node.children && node.children.length) {
+            state.collapsedDraftNodes.add(node.id);
+            collapse(node.children);
+          }
+        });
+        collapse(state.draftTreeNodes);
+      }
+      renderDraftTree();
+    }
+    el.expandDraftButton.addEventListener("click", () => setDraftExpanded(true));
+    el.collapseDraftButton.addEventListener("click", () => setDraftExpanded(false));
 
     function applyPlannerResponse(response, target) {
       state.sessionId = response.session_id || state.sessionId;
@@ -2124,11 +2164,14 @@
           appendMessage(el.conversation, "assistant", response.assistant_message || "");
           speakOnDevice(response.assistant_message || "");
           setVoiceMeta("Planner reply ready.");
-          if (response.view_hint === "trace" || response.view_hint === "conversation") {
+          if (["trace", "conversation", "expand_draft", "collapse_draft"].includes(response.view_hint)) {
             switchTab("planner");
             if (response.view_hint === "trace") {
               el.plannerTrace.open = true;
               el.plannerTrace.scrollIntoView({ block: "center" });
+            } else if (response.view_hint === "expand_draft" || response.view_hint === "collapse_draft") {
+              setDraftExpanded(response.view_hint === "expand_draft");
+              el.draftTree.scrollIntoView({ block: "center" });
             } else {
               el.conversation.scrollIntoView({ block: "center" });
             }
@@ -2193,6 +2236,7 @@
     }
 
     function newSession() {
+      state.collapsedDraftNodes.clear();
       el.plannerTraceContent.textContent = "No planner trace yet.";
       el.plannerTrace.open = false;
       state.sessionId = "";

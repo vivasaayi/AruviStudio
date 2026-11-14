@@ -197,6 +197,9 @@ pub async fn submit_planner_voice_turn(
 
     let view_hint = match normalized_command {
         "view trace" | "show trace" | "open trace" => Some("trace"),
+        "expand draft" | "expand the draft" | "expand tree" | "expand all"
+        | "open all branches" | "expand design" | "expand the design" => Some("expand_draft"),
+        "collapse draft" | "collapse the draft" | "collapse tree" | "collapse all" => Some("collapse_draft"),
         "view conversation" | "open conversation" | "show conversation" | "back to chat"
         | "view chat" => Some("conversation"),
         _ => None,
@@ -204,6 +207,10 @@ pub async fn submit_planner_voice_turn(
     if let Some(view) = view_hint {
         let assistant_message = match view {
             "trace" => "Showing the planner trace.",
+            "expand_draft" if session.draft_plan.is_none() => "There is no staged design tree yet.",
+            "collapse_draft" if session.draft_plan.is_none() => "There is no staged design tree yet.",
+            "expand_draft" => "Expanded the staged design tree.",
+            "collapse_draft" => "Collapsed the staged design tree.",
             _ => "Showing the planner conversation.",
         }
         .to_string();

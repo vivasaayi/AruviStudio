@@ -90,7 +90,12 @@ async fn voice_view_commands_are_handled_without_a_model() {
     let session = create_planner_session(state.planner_service.clone(), &state.db, None, None)
         .await
         .expect("create session");
-    for (command, view) in [("Show trace.", "trace"), ("Back to chat.", "conversation")] {
+    for (command, view) in [
+        ("Show trace.", "trace"),
+        ("Back to chat.", "conversation"),
+        ("Collapse all.", "collapse_draft"),
+        ("Open all branches.", "expand_draft"),
+    ] {
         let response = submit_planner_voice_turn(
             state.planner_service.clone(),
             &state,

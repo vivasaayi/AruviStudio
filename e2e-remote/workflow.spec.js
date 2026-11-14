@@ -937,6 +937,24 @@ test("browser voice can send a scoped transcript to the planner", async ({ page,
   await page.locator("#voiceSendButton").click();
   expect((await (await chatResponse).json()).view_hint).toBe("conversation");
   await expect(page.locator("#conversation")).toBeVisible();
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await page.locator("#voiceComposer").fill("Collapse all.");
+  const collapseResponse = page.waitForResponse((response) => response.url().endsWith("/voice-turn"));
+  await page.locator("#voiceSendButton").click();
+  const collapsed = await (await collapseResponse).json();
+  expect(collapsed.view_hint).toBe("collapse_draft");
+  expect(collapsed.selected_draft_node_id).toBe(selectedNode);
+  await expect(stock).toHaveCount(0);
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await page.locator("#voiceComposer").fill("Open all branches.");
+  const expandResponse = page.waitForResponse((response) => response.url().endsWith("/voice-turn"));
+  await page.locator("#voiceSendButton").click();
+  expect((await (await expandResponse).json()).view_hint).toBe("expand_draft");
+  await expect(stock).toBeVisible();
+  await page.locator("#collapseDraftButton").click();
+  await expect(stock).toHaveCount(0);
+  await page.locator("#expandDraftButton").click();
+  await expect(stock).toBeVisible();
 });
 
 test("voice records, reviews, and sends a transcribed message", async ({ page, request }) => {

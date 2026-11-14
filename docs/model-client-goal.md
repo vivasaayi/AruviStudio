@@ -21,9 +21,12 @@ conversation accordingly. The panel shows the latest available trace in this
 browser session and clears it when a new planner session is started; it is not
 a persisted trace history. The isolated Docker build and all 36 workflow tests
 passed, including a staged-design browser voice scenario for both view commands.
-A focused Rust test was added but has not yet been run separately. This does not
-validate physical microphones, native-window voice interaction, or every desktop
-voice command.
+A focused Linux Rust test passed without a configured model. The browser also
+supports expanding and collapsing the staged tree through individual branch
+controls, global controls and desktop-equivalent voice phrases; selection is
+preserved. Its isolated staged-design voice scenario covers both directions and
+the global controls. This does not validate physical microphones, native-window
+voice interaction, or every desktop voice command.
 
 ### Browser planner voice destination
 
