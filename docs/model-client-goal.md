@@ -12,6 +12,20 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Current real coding-host revalidation
+
+At Studio revision `ac0774a321525b36fd2bdaffe64f3568aea0c2c0`, the running
+worktree used `qwen25-coder-7b-q4` for an MCP coding completion that passed
+independent JavaScript assertions; a one-token request produced the expected
+truncation error. An authenticated browser received a streamed coding response.
+In disposable Studio and Git fixtures, browser and MCP file Copilot discussed
+an unsaved file, reviewed and applied a patch, and MCP reviewed and applied a
+two-file proposal. A separate real-model `extend-module` workflow reached test
+review, passed its syntax gate and independent behavioral assertions, and
+completed delivery to a disposable local Git remote. These are individual
+fixture runs, not broad model-quality, live cloud-provider or remote Git
+acceptance. The running worktree records telemetry for the MCP and browser checks.
+
 ### Browser Twilio configuration
 
 Routing now edits the desktop's Twilio account, sender and webhook settings and
