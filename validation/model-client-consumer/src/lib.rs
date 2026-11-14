@@ -5,6 +5,16 @@ mod tests {
     use std::{io::{Read, Write}, net::TcpListener, thread};
 
     #[tokio::test]
+    async fn rejects_empty_transcription_before_network() {
+        let client = OpenAiCompatibleClient::new("not a URL".into(), None);
+        let input = aruvi_model_client::TranscriptionRequest {
+            model: "whisper".into(), audio: vec![], mime_type: "audio/wav".into(),
+            filename: "fixture.wav".into(), language: None,
+        };
+        assert!(matches!(client.transcribe(input).await, Err(aruvi_model_client::ClientError::InvalidInput(message)) if message.contains("nonempty audio")));
+    }
+
+    #[tokio::test]
     async fn rejects_credentials_in_provider_url_without_exposing_them() {
         let client = OpenAiCompatibleClient::new("http://user:synthetic-secret@127.0.0.1:1".into(), None);
         let error = client.list_models_page(None).await.unwrap_err().to_string();

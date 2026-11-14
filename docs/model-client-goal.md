@@ -57,8 +57,11 @@ provider hosting into the model-host service as part of this work.
 - OpenAI's [file transcription guide](https://developers.openai.com/api/docs/guides/speech-to-text)
   deprecates `whisper-1` and recommends `gpt-transcribe` for new OpenAI usage.
   No generic provider default was changed; Model Host and other compatible
-  services need their own supported model names. Independent consumer re-pinning
-  and its network-isolated Docker test are tracked separately below.
+  services need their own supported model names. The independent consumer now
+  pins `8a6b7d209a2af6555afb960f8e3d59d3fea227f9`; its network-isolated Docker
+  build passed 13 tests, including empty-audio validation, and its separate
+  Docker probe passed real 7B Model Host discovery, completion, streaming and
+  token-limit checks.
 
 ## Atomic planner conversation exchanges
 
