@@ -4,6 +4,35 @@ mod tests {
     use aruvi_model_client::{anthropic::AnthropicClient, openai_compatible::OpenAiCompatibleClient, ChatMessage, CompletionRequest, ModelGateway};
     use std::{io::{Read, Write}, net::TcpListener, thread};
 
+    #[tokio::test]
+    async fn independent_client_can_call_deepseek_voice() {
+        use aruvi_model_client::deepseek::{DeepSeekVoiceClient, Voice};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut bytes = Vec::new(); let mut buffer = [0; 4096];
+            let end = loop {
+                let n = socket.read(&mut buffer).unwrap(); assert_ne!(n, 0); bytes.extend_from_slice(&buffer[..n]);
+                if let Some(index) = bytes.windows(4).position(|part| part == b"\r\n\r\n") { break index + 4; }
+            };
+            let headers = String::from_utf8_lossy(&bytes[..end]).to_ascii_lowercase();
+            assert!(headers.starts_with("post /v1/tools/tts "));
+            assert!(headers.contains("authorization: bearer synthetic-key"));
+            let length: usize = headers.lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().trim().parse().unwrap();
+            while bytes.len() < end + length { let n = socket.read(&mut buffer).unwrap(); assert_ne!(n, 0); bytes.extend_from_slice(&buffer[..n]); }
+            let body: serde_json::Value = serde_json::from_slice(&bytes[end..end + length]).unwrap();
+            assert_eq!(body["voice_id"], "tide");
+            let body = "private fixture response";
+            write!(socket, "HTTP/1.1 429 Too Many Requests\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+        });
+        let client = DeepSeekVoiceClient::new(format!("http://{address}"), "synthetic-key".into()).unwrap();
+        let error = client.generate_speech("Hello", Some(Voice::Tide)).await.unwrap_err();
+        assert_eq!(error.http_status(), Some(429));
+        assert!(!error.to_string().contains("private fixture response"));
+        server.join().unwrap();
+    }
+
     #[test]
     fn rejects_invalid_anthropic_credentials_without_exposing_them() {
         let error = AnthropicClient::new("https://example.invalid".into(), "private-key\ninjected".into()).err().expect("invalid key must fail at construction");

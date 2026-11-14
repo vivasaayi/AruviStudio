@@ -34,7 +34,19 @@ try:
             options += ["--env", f"ARUVI_PROBE_VOICE_MODEL={args.voice_model}", "--env", f"ARUVI_PROBE_TRANSCRIPTION_MODEL={args.transcription_model}"]
         result = subprocess.run(["docker", "run", "--rm", "-i", "--read-only", "--cap-drop", "ALL", "--user", "65534:65534", "--security-opt", "no-new-privileges", "--memory", "512m", "--cpus", "1", "--pids-limit", "64", "--mount", f"type=bind,src={binary},dst=/host_probe,readonly", "--env", f"ARUVI_PROBE_BASE_URL=http://host.docker.internal:{port}/v1", "--env", f"ARUVI_PROBE_MODEL={args.model}"] + options + ["rust:1-bookworm@sha256:e6f2cff35d0f309acf8433b4f05878ed77092602c5065cc81801177da0bb3a9c", "/host_probe"], input=token, text=True, capture_output=True, check=True, timeout=240)
         print(result.stdout.strip())
-except (OSError, ValueError, KeyError, TypeError, StopIteration, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+except subprocess.CalledProcessError as error:
+    # Classify only fixed, known probe errors. Never forward arbitrary provider
+    # output, request URLs, model text or credentials from the child process.
+    known = ("Requested model not advertised", "Requested voice models not advertised",
+             "Completion did not answer the fixture prompt", "Stream chunks or completed response did not match the fixture prompt",
+             "Speech fixture transcript did not contain expected words", "Expected token-limit error was not received",
+             "Model stream ended before its terminal event", "Model response was truncated by a token limit",
+             "Speech provider did not return valid WAV audio")
+    child = error.stderr if isinstance(error.stderr, str) else ""
+    detail = next((message for message in known if message in child), "unclassified child failure")
+    print(f"Independent Model Host probe failed: {detail}", file=sys.stderr)
+    sys.exit(1)
+except (OSError, ValueError, KeyError, TypeError, StopIteration, subprocess.TimeoutExpired) as error:
     # Do not forward subprocess output or request contents into logs.
     print(f"Independent Model Host probe failed ({type(error).__name__})", file=sys.stderr)
     sys.exit(1)
