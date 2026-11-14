@@ -19,6 +19,9 @@ before the terminal error.
 For Anthropic, client tool calls, server-side tool calls and tool-result blocks
 are rejected even when the provider reports a completed turn. A streaming
 callback may already have received partial text before that error.
+Malformed Anthropic stream envelopes and non-object message deltas are rejected,
+including after text has been emitted; unknown named event types remain ignored
+for compatibility with future provider events.
 Mixed Anthropic content rejects invalid or unsupported blocks instead of returning
 partial text as a complete response. Documented `thinking` and `redacted_thinking`
 blocks are omitted from text-only responses; tool-use turns remain unsupported.

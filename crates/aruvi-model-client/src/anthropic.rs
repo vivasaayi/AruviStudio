@@ -147,13 +147,23 @@ struct StreamState {
 
 impl StreamState {
     fn event<F: FnMut(&str)>(&mut self, event: &Value, on_delta: &mut F) -> Result<(), ClientError> {
+        if !event.is_object() || !event.get("type").is_some_and(Value::is_string) {
+            return Err(ClientError::Provider("Invalid Anthropic stream event".into()));
+        }
         match event.get("type").and_then(Value::as_str) {
             Some("message_start") => {
+                if event.get("message").is_some_and(|value| !value.is_null() && !value.is_object()) {
+                    return Err(ClientError::Provider("Invalid Anthropic stream message".into()));
+                }
+                AnthropicClient::validate_stop_reason(event.pointer("/message/stop_reason"))?;
                 if let Some(message) = event.get("message") { crate::CompletionMetadata::merge(&mut self.metadata, message, message.get("stop_reason")); }
                 self.input_tokens = event.pointer("/message/usage/input_tokens").and_then(Value::as_i64);
                 self.output_tokens = event.pointer("/message/usage/output_tokens").and_then(Value::as_i64);
             }
             Some("message_delta") => {
+                if event.get("delta").is_some_and(|value| !value.is_null() && !value.is_object()) {
+                    return Err(ClientError::Provider("Invalid Anthropic message delta".into()));
+                }
                 AnthropicClient::validate_stop_reason(event.pointer("/delta/stop_reason"))?;
                 crate::CompletionMetadata::merge(&mut self.metadata, event, event.pointer("/delta/stop_reason"));
                 self.input_tokens = event.pointer("/usage/input_tokens").and_then(Value::as_i64).or(self.input_tokens);
@@ -431,6 +441,25 @@ mod tests {
         }
         let body = "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}\n\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{}\"}}\n\ndata: {\"type\":\"message_stop\"}\n\n";
         assert!(stream_fixture(body).await.0.is_err());
+    }
+
+    #[tokio::test]
+    async fn rejects_malformed_envelopes_after_partial_text() {
+        for invalid in [
+            json!([]),
+            json!({"type": 4}),
+            json!({"message": "missing type"}),
+            json!({"type": "message_start", "message": 5}),
+            json!({"type": "message_start", "message": {"stop_reason": "max_tokens"}}),
+            json!({"type": "message_delta", "delta": false}),
+        ] {
+            let body = format!("data: {{\"type\":\"content_block_delta\",\"delta\":{{\"type\":\"text_delta\",\"text\":\"partial\"}}}}\n\ndata: {invalid}\n\ndata: {{\"type\":\"message_stop\"}}\n\n");
+            let (result, chunks) = stream_fixture(&body).await;
+            assert_eq!(chunks, ["partial"]);
+            assert!(result.is_err(), "stream accepted {invalid}");
+        }
+        let body = "data: {\"type\":\"future_event\"}\n\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\ndata: {\"type\":\"message_stop\"}\n\n";
+        assert_eq!(stream_fixture(body).await.0.unwrap().content, "ok");
     }
 
     #[tokio::test]

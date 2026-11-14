@@ -44,6 +44,16 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Anthropic stream validation
+
+- The shared client rejects malformed Anthropic event envelopes and non-object
+  message/delta payloads after partial text, and validates an explicit stop
+  reason in a message-start payload. Unknown named event types remain ignored,
+  consistent with Anthropic's streaming guidance. The macOS client suite passed
+  43 tests; the Linux Studio suite passed 204 with two live tests ignored. All
+  23 isolated workflow cases passed, including a simulated Claude stream that
+  fails after emitting text. Live Anthropic validation remains open.
+
 ## OpenAI-compatible stream validation
 
 - The shared client rejects malformed choice containers, message/delta objects

@@ -84,6 +84,7 @@ const server = http.createServer((request, response) => {
       setTimeout(() => {
         if (response.destroyed) return;
         if (last.includes("stream failure")) return response.end('data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"}}\n\n');
+        if (last.includes("stream malformed")) return response.end('data: {"type":"message_delta","delta":42}\n\ndata: {"type":"message_stop"}\n\n');
         response.write('data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"fixture"}}\n\n');
         response.write('data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":3}}\n\n');
         response.end('data: {"type":"message_stop"}\n\n');
