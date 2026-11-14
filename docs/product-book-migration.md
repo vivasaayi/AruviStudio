@@ -112,9 +112,12 @@ limitations and validation items below are not complete.
   Other servers can use `ARUVI_PDF_SOCKET` for an isolated service, or configure
   `ARUVI_PDF_NODE`, `ARUVI_PDF_BROWSER`, and `ARUVI_PDF_PLAYWRIGHT_PATH` for a
   local worker; local `ARUVI_PDF_SANDBOX` defaults to `1`.
-  Desktop PDF files still use the older Playwright writer, which relies on a
-  source-checkout script and does not yet apply the backend worker's request
-  blocking. Unifying native and server-side PDF generation remains open.
+  Desktop PDF export now uses the same guarded PDF renderer and image policy,
+  retaining the requested page dimensions, margins and header labels. Native
+  runtime configuration may specify `ARUVI_PDF_NODE`, `ARUVI_PDF_BROWSER`, and
+  `ARUVI_PDF_PLAYWRIGHT_PATH`; on macOS the development fallback locates
+  Playwright in the source checkout and its browser cache in the user's home.
+  A packaged native dependency layout and Windows validation remain open.
 - [x] Move desktop exports to the shared backend renderer and retain the native
   file writers and reveal flow. Tauri IPC is exercised with a real database and
   the export UI is tested with mocked native file writes. Actual native window,

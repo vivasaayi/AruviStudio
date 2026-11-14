@@ -29,19 +29,37 @@ pub async fn render_pdf(html: &str, name: &str, trim: &Value) -> Result<Vec<u8>,
         return render_pdf_via_socket(&socket, html, name, trim).await;
     }
     let temp = tempfile::Builder::new().prefix("aruvi-book-pdf-").tempdir()?;
-    let node = std::env::var_os("ARUVI_PDF_NODE").unwrap_or_else(|| "/usr/local/bin/node".into());
-    let browser = std::env::var_os("ARUVI_PDF_BROWSER").unwrap_or_else(|| "/usr/bin/chromium".into());
-    let playwright = std::env::var_os("ARUVI_PDF_PLAYWRIGHT_PATH").unwrap_or_else(|| "/usr/local/lib/aruvi-pdf/playwright-core".into());
+    let node = std::env::var_os("ARUVI_PDF_NODE").unwrap_or_else(|| if cfg!(target_os = "linux") { "/usr/local/bin/node".into() } else { "node".into() });
+    let browser = std::env::var_os("ARUVI_PDF_BROWSER").or_else(|| if cfg!(target_os = "linux") { Some("/usr/bin/chromium".into()) } else { None });
+    let playwright = std::env::var_os("ARUVI_PDF_PLAYWRIGHT_PATH").unwrap_or_else(|| if cfg!(target_os = "linux") {
+        "/usr/local/lib/aruvi-pdf/playwright-core".into()
+    } else {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap_or_else(|| std::path::Path::new("."))
+            .join("node_modules/playwright-core").into_os_string()
+    });
     let sandbox = std::env::var("ARUVI_PDF_SANDBOX").unwrap_or_else(|_| "1".into());
     if sandbox != "0" && sandbox != "1" { return Err(AppError::Validation("ARUVI_PDF_SANDBOX must be 0 or 1".into())); }
     let request = serde_json::to_vec(&serde_json::json!({"html": html, "name": name, "trim": trim}))?;
     let mut command = Command::new(node);
+    let path = if cfg!(target_os = "linux") { "/usr/bin:/bin:/usr/local/bin".into() } else { std::env::var_os("PATH").unwrap_or_default() };
     command.arg("--max-old-space-size=256").arg("-e").arg(WORKER)
-        .env_clear().env("PATH", "/usr/bin:/bin:/usr/local/bin")
+        .env_clear().env("PATH", path)
         .env("HOME", temp.path()).env("TMPDIR", temp.path())
-        .env("ARUVI_PDF_BROWSER", browser).env("ARUVI_PDF_PLAYWRIGHT_PATH", playwright)
+        .env("ARUVI_PDF_PLAYWRIGHT_PATH", playwright)
         .env("ARUVI_PDF_SANDBOX", sandbox)
         .current_dir(temp.path()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+    if let Some(browser) = browser { command.env("ARUVI_PDF_BROWSER", browser); }
+    if cfg!(windows) {
+        for key in ["SystemRoot", "WINDIR"] { if let Some(value) = std::env::var_os(key) { command.env(key, value); } }
+        command.env("TEMP", temp.path()).env("TMP", temp.path());
+    }
+    if !cfg!(target_os = "linux") {
+        let browser_cache = std::env::var_os("PLAYWRIGHT_BROWSERS_PATH").or_else(|| {
+            if cfg!(target_os = "macos") { std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join("Library/Caches/ms-playwright").into_os_string()) }
+            else { std::env::var_os("LOCALAPPDATA").map(|root| std::path::PathBuf::from(root).join("ms-playwright").into_os_string()) }
+        });
+        if let Some(cache) = browser_cache { command.env("PLAYWRIGHT_BROWSERS_PATH", cache); }
+    }
     #[cfg(unix)]
     command.process_group(0);
     #[cfg(not(unix))]

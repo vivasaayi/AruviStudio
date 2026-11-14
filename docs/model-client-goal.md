@@ -12,6 +12,19 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Shared guarded PDF export
+
+Desktop Product Book PDF export now uses the server's guarded renderer and image
+validation while retaining the requested page dimensions, margins and header
+labels. The obsolete separate Playwright export script was removed. A native
+Chrome/Playwright test passed, including an attempted external stylesheet fetch
+and script, and produced a tagged 432-by-648-point PDF. A native test rejected
+remote images before rendering. The worktree image built and 27 isolated browser
+tests passed, including browser/MCP exports and PDF sidecar failure handling.
+This is not native-window acceptance: macOS development still needs available
+Node, Playwright and Chromium, and packaged native dependencies and Windows
+behavior remain unverified.
+
 ### Running branch model routing and inference
 
 At revision `596c095`, the running worktree's nine active agents all had explicit

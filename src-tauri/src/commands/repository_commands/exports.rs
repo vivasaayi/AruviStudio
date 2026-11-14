@@ -3,8 +3,6 @@ use directories::UserDirs;
 use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
-use tracing::info;
 
 use crate::services::product_book_epub::render_epub_archive_with_images;
 pub use crate::services::product_book_epub::BookExportTocItem;
@@ -76,63 +74,20 @@ pub async fn export_product_overview_pdf(
         sanitize_export_file_name_with_extension(&request.file_name, "product-book", "pdf");
     let destination = export_dir.join(safe_name);
 
-    let temp_root = std::env::temp_dir().join(format!("aruvi-pdf-export-{}", uuid::Uuid::new_v4()));
-    fs::create_dir_all(&temp_root)?;
-    let source_path = temp_root.join("book.html");
-    fs::write(&source_path, request.html)?;
-
-    let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .ok_or_else(|| AppError::Internal("Could not resolve workspace root".to_string()))?
-        .to_path_buf();
-    let script_path = workspace_root.join("scripts").join("export-book-pdf.mjs");
-    if !script_path.exists() {
-        return Err(AppError::Validation(format!(
-            "PDF export script is missing at {}",
-            script_path.to_string_lossy()
-        )));
-    }
-
-    let output = Command::new("node")
-        .current_dir(&workspace_root)
-        .arg(&script_path)
-        .arg(&source_path)
-        .arg(&destination)
-        .arg(request.page_width)
-        .arg(request.page_height)
-        .arg(request.margin_top)
-        .arg(request.margin_right)
-        .arg(request.margin_bottom)
-        .arg(request.margin_left)
-        .arg(request.header_title)
-        .arg(
-            request
-                .header_right
-                .unwrap_or_else(|| "Aruvi Studio Book".to_string()),
-        )
-        .output()
-        .map_err(|error| {
-            AppError::Validation(format!(
-                "Failed to launch the PDF export renderer. Ensure Node.js is installed: {error}"
-            ))
-        })?;
-
-    let cleanup_result = fs::remove_dir_all(&temp_root);
-    if let Err(error) = cleanup_result {
-        info!("Failed to cleanup temporary PDF export directory: {error}");
-    }
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        let detail = if !stderr.is_empty() { stderr } else { stdout };
-        return Err(AppError::Validation(format!(
-            "Playwright PDF export failed. Ensure npm dependencies are installed. {}",
-            detail
-        )));
-    }
+    let bytes = render_desktop_pdf(request).await?;
+    fs::write(&destination, bytes)?;
 
     Ok(destination.to_string_lossy().to_string())
+}
+
+async fn render_desktop_pdf(request: ExportProductOverviewPdfCommand) -> Result<Vec<u8>, AppError> {
+    let trim = serde_json::json!({"pageWidth":request.page_width,"pageHeight":request.page_height,
+        "marginTop":request.margin_top,"marginRight":request.margin_right,"marginBottom":request.margin_bottom,
+        "marginLeft":request.margin_left,"label":request.header_right.unwrap_or_else(|| "Aruvi Studio Book".into())});
+    let html = request.html;
+    let (html, _) = tokio::task::spawn_blocking(move || crate::services::product_book_images::prepare_book_images(&html, crate::services::product_book_images::ImageTarget::Pdf)).await
+        .map_err(|error| AppError::Internal(format!("PDF image task failed: {error}")))??;
+    crate::services::product_book_pdf::render_pdf(&html, &request.header_title, &trim).await
 }
 
 fn export_documents_dir() -> Result<PathBuf, AppError> {
@@ -174,5 +129,35 @@ fn sanitize_export_file_name_with_extension(
         sanitized
     } else {
         format!("{sanitized}.{extension}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pdf_request(html: String) -> ExportProductOverviewPdfCommand {
+        ExportProductOverviewPdfCommand { file_name: "fixture.pdf".into(), html,
+            page_width: "6in".into(), page_height: "9in".into(), margin_top: "0.75in".into(),
+            margin_right: "0.72in".into(), margin_bottom: "0.85in".into(), margin_left: "0.82in".into(),
+            header_title: "Fixture".into(), header_right: Some("Trade".into()) }
+    }
+
+    #[tokio::test]
+    async fn desktop_pdf_rejects_remote_images_before_rendering() {
+        let request = pdf_request("<html><head></head><body><img src=\"https://example.invalid/image.png\"></body></html>".into());
+        assert!(render_desktop_pdf(request).await.is_err());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires configured Chromium and Playwright"]
+    async fn desktop_pdf_uses_guarded_renderer() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/private", listener.local_addr().unwrap());
+        let html = format!("<html><head><style>@import url('{url}');</style></head><body><script>fetch('{url}')</script><p>Safe fixture</p></body></html>");
+        let bytes = render_desktop_pdf(pdf_request(html)).await.unwrap();
+        assert!(bytes.starts_with(b"%PDF-"));
+        if let Ok(path) = std::env::var("ARUVI_DESKTOP_PDF_TEST_OUTPUT") { std::fs::write(path, &bytes).unwrap(); }
+        assert!(tokio::time::timeout(std::time::Duration::from_secs(2), listener.accept()).await.is_err());
     }
 }
