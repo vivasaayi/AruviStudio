@@ -12,6 +12,24 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Follow-up on ignored Rust cases
+
+Five cases ignored by the broad Linux Rust run passed separately on 2026-11-14:
+the embedded Product Book renderer matched a fixture captured from the mocked
+desktop browser, that fixture generated an EPUB, two real Chromium PDF tests
+passed, and local Whisper transcribed synthetic Piper audio. EPUBCheck 5.4.0
+reported no errors or warnings. The PDF tests ran as a non-root user in
+read-only, network-isolated containers with dropped capabilities and Chromium's
+own sandbox disabled; they are not evidence of the production sandbox. The
+renderer fixture uses mocked Tauri calls and is not native-window acceptance.
+
+The remaining ignored live calculator workflow was not run in this pass. Its
+model-generated workflow needs a live host token, and the inspected host token
+also grants management access; the test's execution environment has not been
+shown to prevent generated code from accessing that credential or reaching other
+network destinations. Previous disposable real-model workflow evidence remains
+separate and does not prove this ignored test passes.
+
 ### Current broad regression run
 
 At branch revision `b448186` with the test-only fixes in this checkpoint, the
