@@ -68,6 +68,11 @@ class WatchTests(unittest.TestCase):
             update = next(call.args[1] for call in mcp.call_args_list if call.args[0] == "update_provider")
             self.assertEqual(update["completion_profile"], "standard")
             self.assertEqual(update["base_url"], "http://host.docker.internal:10002/v1")
+            self.assertEqual(update["auth_secret_ref"], "synthetic-token")
+            mcp.reset_mock()
+            module.configure(10002, "synthetic-token", "coding", "Fixture", rotate_credential=False)
+            update = next(call.args[1] for call in mcp.call_args_list if call.args[0] == "update_provider")
+            self.assertNotIn("auth_secret_ref", update)
             for address in ["http://host.docker.internal.evil:10001/v1", "http://host.docker.internal:10001/other", "http://user@host.docker.internal:10001/v1", "http://host.docker.internal:10001/v1?secret=1"]:
                 existing["base_url"] = address
                 mcp.reset_mock()
@@ -100,6 +105,7 @@ class WatchTests(unittest.TestCase):
                 module.main()
         self.assertEqual(configure.call_count, 2)
         self.assertEqual([call.args[:2] for call in configure.call_args_list], [(10001, "synthetic-one"), (10002, "synthetic-two")])
+        self.assertEqual([call.kwargs["rotate_credential"] for call in configure.call_args_list], [True, True])
         self.assertIn("retrying", errors.getvalue())
         self.assertNotIn("synthetic-secret", errors.getvalue() + output.getvalue())
         self.assertNotIn("synthetic-one", errors.getvalue() + output.getvalue())
@@ -115,6 +121,17 @@ class WatchTests(unittest.TestCase):
             with self.assertRaises(KeyboardInterrupt):
                 module.main()
         self.assertEqual(configure.call_count, 2)
+
+    def test_port_change_does_not_rotate_unchanged_token(self):
+        states = [(10001, "synthetic-token"), (10002, "synthetic-token"), (10002, "rotated-token")]
+        with mock.patch.object(sys, "argv", ["configure-native-model-host", ".", "--watch", "--poll-seconds", "1"]), \
+             mock.patch.object(module, "read_host", side_effect=states), \
+             mock.patch.object(module, "configure", return_value={"provider": "Fixture"}) as configure, \
+             mock.patch.object(module.time, "sleep", side_effect=[None, None, KeyboardInterrupt()]), \
+             contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(KeyboardInterrupt):
+                module.main()
+        self.assertEqual([call.kwargs["rotate_credential"] for call in configure.call_args_list], [True, False, True])
 
 
 if __name__ == "__main__":

@@ -50,7 +50,7 @@ def read_host(host, environment):
     return endpoint.port, token
 
 
-def configure(port, token, model, name):
+def configure(port, token, model, name, *, rotate_credential=True):
     discovery_request = urllib.request.Request(f"http://127.0.0.1:{port}/v1/models", headers={"Authorization": "Bearer " + token})
     with urllib.request.build_opener(urllib.request.ProxyHandler({}), RejectRedirects()).open(discovery_request, timeout=20) as response:
         body = response.read(2 * 1024 * 1024 + 1)
@@ -71,7 +71,10 @@ def configure(port, token, model, name):
                 or address.port is None or address.username or address.password
                 or address.path.rstrip("/") != "/v1" or address.query or address.fragment):
             raise SetupError("Existing provider is not an owned native-host configuration")
-        provider = mcp("update_provider", {"id": existing["id"], "base_url": base_url, "auth_secret_ref": token, "completion_profile": "standard"})
+        update = {"id": existing["id"], "base_url": base_url, "completion_profile": "standard"}
+        if rotate_credential:
+            update["auth_secret_ref"] = token
+        provider = mcp("update_provider", update)
     else:
         provider = mcp("create_provider", {"name": name, "provider_type": "openai_compatible", "base_url": base_url, "auth_secret_ref": token, "completion_profile": "standard"})
     page = mcp("discover_provider_models", {"id": provider["id"]})
@@ -101,7 +104,7 @@ def main():
         try:
             current = read_host(host, args.environment)
             if current != last:
-                result = configure(*current, args.model, args.name)
+                result = configure(*current, args.model, args.name, rotate_credential=last is None or current[1] != last[1])
                 print(json.dumps(result), flush=True)
                 last = current
             last_error = None

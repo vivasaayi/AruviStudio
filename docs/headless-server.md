@@ -106,7 +106,8 @@ adding a provider does not change existing bindings automatically.
 
 Native worktree ports can change after a restart. Add `--watch` to keep the helper
 running in the foreground; it polls every five seconds, retries outages, and
-refreshes the provider when the endpoint or token changes. Stop it with Ctrl-C.
+refreshes the provider when the endpoint or token changes. Port-only changes
+reuse the existing stored credential; changed tokens are rotated. Stop it with Ctrl-C.
 This watcher is opt-in and does not start automatically at login. Requests may
 fail during a restart until refresh succeeds. Run the one-shot command again if
 no watcher is active. The helper targets Studio's Docker worktree, using

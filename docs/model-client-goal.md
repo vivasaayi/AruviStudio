@@ -72,6 +72,11 @@ provider hosting into the model-host service as part of this work.
   checks passed. The stable native staging host advertises speech, transcription,
   image and small text fixtures, but not the validated 7B coding model; the
   current coding provider uses the dedicated native worktree and its dynamic port.
+- The optional host watcher now updates a changed port without rotating an
+  unchanged token; a changed token still rotates the credential. Six helper
+  tests cover retry, redirection and both change types. A real host refresh
+  preserved the Studio credential revision and the MCP coding fixture passed.
+  The watcher remains opt-in and does not survive a machine restart by itself.
 
 - Desktop and MCP now share the same managed installer. It rejects paths in
   model filenames, refuses symlink destinations and symlink model directories,
