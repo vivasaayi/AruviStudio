@@ -6,7 +6,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function fixture(options: { fail?: "constructor" | "resume" | "connect" | "close"; closeGate?: Promise<void> } = {}) {
+function fixture(options: { fail?: "constructor" | "resume" | "connect" | "close"; closeGate?: Promise<void>; sampleRate?: number } = {}) {
   const track = { stop: vi.fn() };
   const disconnect = vi.fn();
   const source = { connect: vi.fn(), disconnect };
@@ -19,7 +19,7 @@ function fixture(options: { fail?: "constructor" | "resume" | "connect" | "close
   });
   const resume = vi.fn(async () => { if (options.fail === "resume") throw new Error("resume failed"); });
   class AudioContextFixture {
-    sampleRate = 16000;
+    sampleRate = options.sampleRate ?? 16000;
     destination = {};
     constructor() { if (options.fail === "constructor") throw new Error("constructor failed"); }
     resume = resume;
@@ -60,6 +60,40 @@ describe("desktop PCM capture lifecycle", () => {
     expect(wav.getUint32(24, true)).toBe(16000);
     expect(wav.getUint32(40, true)).toBe(4);
     await vi.advanceTimersByTimeAsync(1000);
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("automatically stops manual capture at the sample limit even if timers are delayed", async () => {
+    vi.useFakeTimers();
+    const { track, close, processor } = fixture();
+    const capture = await startWavCapture();
+    processor.onaudioprocess?.({ inputBuffer: { getChannelData: () => new Float32Array(480001).fill(0.25) } });
+    const blob = await capture.completed;
+    expect(blob.size).toBe(44 + 480000 * 2);
+    expect(new DataView(await blob.arrayBuffer()).getUint32(24, true)).toBe(16000);
+    expect(track.stop).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
+    expect(await capture.stop()).toBe(blob);
+  });
+
+  it("limits 48 kHz capture and produces a 30-second 16 kHz WAV", async () => {
+    vi.useFakeTimers();
+    const { track, processor } = fixture({ sampleRate: 48000 });
+    const capture = await startWavCapture();
+    processor.onaudioprocess?.({ inputBuffer: { getChannelData: () => new Float32Array(1440001).fill(0.25) } });
+    const blob = await capture.completed;
+    expect(blob.size).toBe(44 + 480000 * 2);
+    expect(new DataView(await blob.arrayBuffer()).getUint32(24, true)).toBe(16000);
+    expect(track.stop).toHaveBeenCalledOnce();
+  });
+
+  it("automatically stops manual capture when its time limit expires", async () => {
+    vi.useFakeTimers();
+    const { track, close } = fixture();
+    const capture = await startWavCapture();
+    await vi.advanceTimersByTimeAsync(30000);
+    await expect(capture.completed).resolves.toBeInstanceOf(Blob);
+    expect(track.stop).toHaveBeenCalledOnce();
     expect(close).toHaveBeenCalledOnce();
   });
 

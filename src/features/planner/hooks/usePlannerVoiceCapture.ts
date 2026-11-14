@@ -119,6 +119,9 @@ export function usePlannerVoiceCapture({
     }
   };
 
+  const stopVoiceCaptureRef = useRef(stopVoiceCapture);
+  stopVoiceCaptureRef.current = stopVoiceCapture;
+
   useEffect(() => {
     if (!voiceEnabled) {
       void stopVoiceCapture(false);
@@ -174,7 +177,7 @@ export function usePlannerVoiceCapture({
 
     try {
       setSpeechError(null);
-      setVoiceActivity("Listening...");
+      setVoiceActivity("Listening (up to 30 seconds)...");
       setVoiceElapsedMs(0);
       setVoiceCaptureStartedAt(Date.now());
       setPendingVoiceTranscript(null);
@@ -183,6 +186,12 @@ export function usePlannerVoiceCapture({
       audioCaptureRef.current = capture;
       mediaStreamRef.current = capture.stream;
       setIsListening(true);
+      // Automatic completion uses the same path as a manual stop. Clearing the
+      // ref before manual stop or unmount prevents duplicate transcription.
+      void capture.completed.then(
+        () => { if (audioCaptureRef.current === capture) void stopVoiceCaptureRef.current(true); },
+        () => { if (audioCaptureRef.current === capture) void stopVoiceCaptureRef.current(true); },
+      );
     } catch (error) {
       setSpeechError(error instanceof Error ? error.message : String(error));
       setIsListening(false);

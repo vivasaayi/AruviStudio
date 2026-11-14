@@ -1,11 +1,12 @@
 export type ActiveAudioCapture = {
   stream: MediaStream;
   stop: () => Promise<Blob>;
-};
-
-export type SilenceAwareAudioCapture = ActiveAudioCapture & {
   completed: Promise<Blob>;
 };
+
+export type SilenceAwareAudioCapture = ActiveAudioCapture;
+
+export const MANUAL_CAPTURE_MAX_MS = 30_000;
 
 export function speakInBrowser(text: string) {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) {
@@ -157,6 +158,8 @@ async function createPcmCapture(options?: PcmCaptureOptions) {
   const minSpeechDurationMs = options?.minSpeechDurationMs ?? 500;
   const maxDurationMs = options?.maxDurationMs ?? null;
   const silenceThreshold = options?.silenceThreshold ?? 0.012;
+  const maxSamples = maxDurationMs == null ? null : Math.max(1, Math.floor(sampleRate * maxDurationMs / 1000));
+  let capturedSamples = 0;
   let heardSpeech = false;
   let lastSpeechAt = Date.now();
   let finished = false;
@@ -198,7 +201,17 @@ async function createPcmCapture(options?: PcmCaptureOptions) {
       return;
     }
     const input = event.inputBuffer.getChannelData(0);
-    chunks.push(new Float32Array(input));
+    const remaining = maxSamples == null ? input.length : Math.max(0, maxSamples - capturedSamples);
+    if (remaining > 0) {
+      const chunk = new Float32Array(input.subarray(0, remaining));
+      chunks.push(chunk);
+      capturedSamples += chunk.length;
+    }
+    // Bound sample memory even if a backgrounded browser delays the timer.
+    if (maxSamples != null && capturedSamples >= maxSamples) {
+      void finalize().catch(() => undefined);
+      return;
+    }
     if (silenceDurationMs == null) {
       return;
     }
@@ -245,11 +258,7 @@ async function createPcmCapture(options?: PcmCaptureOptions) {
 }
 
 export async function startWavCapture(): Promise<ActiveAudioCapture> {
-  const capture = await createPcmCapture();
-  return {
-    stream: capture.stream,
-    stop: capture.stop,
-  };
+  return createPcmCapture({ maxDurationMs: MANUAL_CAPTURE_MAX_MS });
 }
 
 export async function startSilenceAwareWavCapture(options?: PcmCaptureOptions): Promise<SilenceAwareAudioCapture> {

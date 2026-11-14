@@ -208,30 +208,37 @@ export function ChatPage() {
     sessionIdRef.current = crypto.randomUUID();
   };
 
+  const stopListening = async () => {
+    const capture = audioCaptureRef.current;
+    if (!capture) return;
+    audioCaptureRef.current = null;
+    setIsListening(false);
+    try {
+      const audioBlob = await capture.stop();
+      const transcript = await transcribeAudioMutation.mutateAsync({
+        audioBytesBase64: await blobToBase64(audioBlob),
+        mimeType: audioBlob.type || "audio/wav",
+      });
+      setDraft((current) => [current.trim(), transcript.trim()].filter(Boolean).join(current.trim() ? "\n" : ""));
+    } catch (listenError) {
+      setError(String(listenError));
+    }
+  };
+
   const toggleListening = async () => {
     setError(null);
-    if (isListening && audioCaptureRef.current) {
-      try {
-        const audioBlob = await audioCaptureRef.current.stop();
-        audioCaptureRef.current = null;
-        setIsListening(false);
-        const transcript = await transcribeAudioMutation.mutateAsync({
-          audioBytesBase64: await blobToBase64(audioBlob),
-          mimeType: audioBlob.type || "audio/wav",
-        });
-        setDraft((current) => [current.trim(), transcript.trim()].filter(Boolean).join(current.trim() ? "\n" : ""));
-      } catch (listenError) {
-        audioCaptureRef.current = null;
-        setIsListening(false);
-        setError(String(listenError));
-      }
+    if (audioCaptureRef.current) {
+      await stopListening();
       return;
     }
-
     try {
       const capture = await startWavCapture();
       audioCaptureRef.current = capture;
       setIsListening(true);
+      void capture.completed.then(
+        () => { if (audioCaptureRef.current === capture) void stopListening(); },
+        () => { if (audioCaptureRef.current === capture) void stopListening(); },
+      );
     } catch (listenError) {
       setError(String(listenError));
     }
@@ -357,7 +364,7 @@ export function ChatPage() {
       </div>
       {(isListening || transcribeAudioMutation.isPending) && (
         <div style={styles.info}>
-          {isListening ? "Listening for speech..." : "Transcribing audio with the configured speech provider..."}
+          {isListening ? "Listening for speech (up to 30 seconds)..." : "Transcribing audio with the configured speech provider..."}
         </div>
       )}
       {error && <div style={styles.error}>{error}</div>}

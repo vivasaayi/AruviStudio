@@ -190,6 +190,15 @@ provider hosting into the model-host service as part of this work.
 
 ## Real browser voice revalidation
 
+- Manual desktop chat and planner recording now stop after 30 seconds or
+  the corresponding sample count, even if timers are delayed. The captured
+  audio follows the same transcription flow as a manual stop, and the UI shows
+  the limit. Shared capture tests verify a bounded 48 kHz input produces a
+  30-second 16 kHz WAV. All 102 frontend tests passed; four desktop-style
+  browser cases covered manual and automatic stops, single transcription and
+  track cleanup in chat and planner. These use mocked audio and Tauri; real
+  native-window and physical microphone behavior remains unverified.
+
 - Desktop PCM capture now releases microphone tracks if context setup or
   audio-node connection fails. Manual stop, silence and timeout share one
   finalization result; automatic close failures reject Voice Chat completion
@@ -198,7 +207,7 @@ provider hosting into the model-host service as part of this work.
   error/cleanup test, frontend build, and 23 isolated browser/MCP cases passed.
   The browser test uses a mocked Tauri bridge and microphone; real native-window
   behavior and physical hardware remain unverified. Manual desktop recording
-  still has no duration limit.
+  was uncapped at that earlier checkpoint; the later limit is described above.
 
 - Browser recording now requests a 16 kHz AudioContext so a 30-second
   recording remains within the existing 600,000-sample cap. If the browser
