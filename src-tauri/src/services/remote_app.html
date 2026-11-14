@@ -780,6 +780,9 @@
                   <div class="row"><button type="button" class="secondary" id="discoverModelsButton">Discover available models</button><button type="button" class="secondary" id="discoverMoreModelsButton" hidden>Load next page</button></div>
                   <label id="discoveredModelsLabel" hidden><span class="label">Available model</span><select id="discoveredModels"><option value="">Select a discovered model</option></select></label>
                   <label><span class="label">Model name</span><input id="newModelName" required /></label>
+                  <label><span class="label">Context window (optional)</span><input id="newModelContext" type="number" min="1" step="1" /></label>
+                  <label><span class="label">Capability tags (comma-separated)</span><input id="newModelTags" /></label>
+                  <label><span class="label">Notes</span><textarea id="newModelNotes"></textarea></label>
                   <button type="submit" id="createModelButton">Add model</button>
                 </form>
                 <div id="modelList" class="tool-list"></div>
@@ -1070,6 +1073,9 @@
       modelForm: document.getElementById("modelForm"),
       modelProvider: document.getElementById("modelProvider"),
       newModelName: document.getElementById("newModelName"),
+      newModelContext: document.getElementById("newModelContext"),
+      newModelTags: document.getElementById("newModelTags"),
+      newModelNotes: document.getElementById("newModelNotes"),
       discoverModelsButton: document.getElementById("discoverModelsButton"),
       discoverMoreModelsButton: document.getElementById("discoverMoreModelsButton"),
       discoveredModelsLabel: document.getElementById("discoveredModelsLabel"),
@@ -3860,18 +3866,19 @@
           providers.forEach((entry) => { const option = document.createElement("option"); option.value = entry.id; option.textContent = entry.name; providerSelect.appendChild(option); });
           providerSelect.value = model.provider_id;
           const context = document.createElement("input"); context.type = "number"; context.min = "1"; context.step = "1"; context.value = model.context_window ?? ""; context.setAttribute("aria-label", "Context window " + model.name);
+          const tags = document.createElement("input"); tags.value = model.capability_tags.join(", "); tags.setAttribute("aria-label", "Capability tags " + model.name);
           const notes = document.createElement("textarea"); notes.value = model.notes; notes.setAttribute("aria-label", "Model notes " + model.name);
           const enabledLabel = document.createElement("label"); const enabled = document.createElement("input"); enabled.type = "checkbox"; enabled.checked = model.enabled; enabledLabel.append(enabled, document.createTextNode(" Model enabled"));
           const save = document.createElement("button"); save.type = "submit"; save.textContent = "Save model";
           const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger"; remove.textContent = "Delete model";
-          form.append(nameInput, providerSelect, context, notes, enabledLabel, save, remove); edit.append(editSummary, form);
+          form.append(nameInput, providerSelect, context, tags, notes, enabledLabel, save, remove); edit.append(editSummary, form);
           form.addEventListener("submit", async (event) => {
             event.preventDefault(); save.disabled = true;
             try {
               const windowSize = context.value === "" ? null : Number(context.value);
               if (windowSize !== null && (!Number.isSafeInteger(windowSize) || windowSize <= 0)) throw new Error("Context window must be a positive whole number");
-              const expected = { name: model.name, provider_id: model.provider_id, context_window: model.context_window, notes: model.notes, enabled: model.enabled };
-              const fields = { name: nameInput.value, provider_id: providerSelect.value, context_window: windowSize, notes: notes.value, enabled: enabled.checked };
+              const expected = { name: model.name, provider_id: model.provider_id, context_window: model.context_window, capability_tags: model.capability_tags, notes: model.notes, enabled: model.enabled };
+              const fields = { name: nameInput.value, provider_id: providerSelect.value, context_window: windowSize, capability_tags: tags.value.split(",").map((tag) => tag.trim()).filter(Boolean), notes: notes.value, enabled: enabled.checked };
               await request("/api/mobile/models/update", { method: "POST", body: { id: model.id, expected, fields } });
               if (el.providerInput.value === model.provider_id && el.modelInput.value === model.name) { el.providerInput.value = fields.provider_id; el.modelInput.value = fields.name.trim(); saveSettings(); }
               if (localStorage.getItem(storageKeys.voiceProvider) === model.provider_id && localStorage.getItem(storageKeys.voiceModel) === model.name) {
@@ -4000,8 +4007,11 @@
       event.preventDefault();
       el.createModelButton.disabled = true;
       try {
-        await request("/api/mobile/models", { method: "POST", body: { provider_id: el.modelProvider.value, name: el.newModelName.value.trim() } });
+        const context = el.newModelContext.value === "" ? null : Number(el.newModelContext.value);
+        if (context !== null && (!Number.isSafeInteger(context) || context <= 0)) throw new Error("Context window must be a positive whole number");
+        await request("/api/mobile/models", { method: "POST", body: { provider_id: el.modelProvider.value, name: el.newModelName.value.trim(), context_window: context, capability_tags: el.newModelTags.value.split(",").map((tag) => tag.trim()).filter(Boolean), notes: el.newModelNotes.value.trim() } });
         el.newModelName.value = "";
+        el.newModelContext.value = ""; el.newModelTags.value = ""; el.newModelNotes.value = "";
         await loadModelConfiguration();
         setStatus("Model added", "ok");
       } catch (error) { setStatus(error.message || String(error), "error"); }

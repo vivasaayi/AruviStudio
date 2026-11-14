@@ -825,11 +825,16 @@ test("browser configures and selects a model", async ({ page, request }) => {
     } else {
       await page.getByLabel("Model name", { exact: true }).fill("browser-test-model");
     }
+    await page.getByLabel("Context window (optional)").fill("4096");
+    await page.getByLabel("Capability tags (comma-separated)").fill("coding, testing");
+    await page.getByLabel("Notes", { exact: true }).fill("Initial notes");
     const modelResponse = page.waitForResponse((r) => r.url().endsWith("/api/mobile/models") && r.request().method() === "POST");
     await page.getByRole("button", { name: "Add model", exact: true }).click();
     const model = await modelResponse;
     expect(model.ok()).toBeTruthy();
-    modelId = (await model.json()).id;
+    const createdModel = await model.json();
+    expect(createdModel).toMatchObject({ context_window: 4096, capability_tags: ["coding", "testing"], notes: "Initial notes" });
+    modelId = createdModel.id;
     const card = page.locator("#modelList .tool-card").filter({ hasText: "browser-test-model" }).filter({ hasText: name });
     await expect(card).toBeVisible();
     await page.locator("#bindingAgent").selectOption(agentId, { timeout: 5000 });
@@ -851,15 +856,16 @@ test("browser configures and selects a model", async ({ page, request }) => {
     await modelCard.getByText("Manage model", { exact: true }).click();
     await modelCard.getByLabel("Edit model name browser-test-model").fill("renamed-browser-model");
     await modelCard.getByLabel("Context window browser-test-model").fill("8192");
+    await modelCard.getByLabel("Capability tags browser-test-model").fill("planning, analysis");
     await modelCard.getByLabel("Model notes browser-test-model").fill("Updated notes");
     await modelCard.getByRole("button", { name: "Save model" }).click();
     await expect(page.locator("#status")).toHaveText("Model saved");
     let models = await (await request.get("/api/mobile/models", { headers: { Authorization: `Bearer ${token}` } })).json();
-    expect(models.find((item) => item.id === modelId)).toMatchObject({ name: "renamed-browser-model", context_window: 8192, notes: "Updated notes" });
+    expect(models.find((item) => item.id === modelId)).toMatchObject({ name: "renamed-browser-model", context_window: 8192, capability_tags: ["planning", "analysis"], notes: "Updated notes" });
     modelCard = page.locator("#modelList .tool-card").filter({ hasText: "renamed-browser-model" }).filter({ hasText: name });
     await modelCard.getByText("Manage model", { exact: true }).click();
     await modelCard.getByLabel("Edit model name renamed-browser-model").fill("unsaved-model-name");
-    await call("aruvi_models", "update_model_definition", { id: modelId, notes: "Concurrent model edit" });
+    await call("aruvi_models", "update_model_definition", { id: modelId, capability_tags: ["concurrent"] });
     const conflict = page.waitForResponse((r) => r.url().endsWith("/api/mobile/models/update"));
     await modelCard.getByRole("button", { name: "Save model" }).click();
     expect((await conflict).status()).toBe(409);

@@ -220,6 +220,9 @@ pub(crate) struct MobileCreateProviderRequest {
 pub(crate) struct MobileCreateModelRequest {
     provider_id: String,
     name: String,
+    context_window: Option<i64>,
+    capability_tags: Option<Vec<String>>,
+    notes: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -879,7 +882,7 @@ pub(crate) struct ProviderEditFields { name: String, base_url: String, enabled: 
 #[derive(Debug, Deserialize)]
 pub(crate) struct ProviderEditRequest { id: String, expected: ProviderEditFields, fields: ProviderEditFields }
 #[derive(Debug, Deserialize)]
-pub(crate) struct ModelEditFields { name: String, provider_id: String, context_window: Option<i64>, notes: String, enabled: bool }
+pub(crate) struct ModelEditFields { name: String, provider_id: String, context_window: Option<i64>, notes: String, enabled: bool, capability_tags: Option<Vec<String>> }
 #[derive(Debug, Deserialize)]
 pub(crate) struct ModelEditRequest { id: String, expected: ModelEditFields, fields: ModelEditFields }
 #[derive(Debug, Deserialize)]
@@ -973,9 +976,11 @@ pub(crate) async fn mobile_update_model(State(state): State<WebhookState>, heade
     if f.name.trim().is_empty() || f.provider_id.trim().is_empty() || f.context_window.is_some_and(|v| v <= 0) {
         return (StatusCode::BAD_REQUEST, "A name, provider and positive context window are required").into_response();
     }
-    let result = sqlx::query("UPDATE model_definitions SET name=?,provider_id=?,context_window=?,notes=?,enabled=?,updated_at=datetime('now') WHERE id=? AND name=? AND provider_id=? AND context_window IS ? AND notes=? AND enabled=?")
+    let expected_tags = e.capability_tags.as_ref().map(|tags| serde_json::to_string(tags).expect("string arrays serialize"));
+    let next_tags = f.capability_tags.as_ref().map(|tags| serde_json::to_string(tags).expect("string arrays serialize"));
+    let result = sqlx::query("UPDATE model_definitions SET name=?,provider_id=?,context_window=?,notes=?,enabled=?,capability_tags=COALESCE(?,capability_tags),updated_at=datetime('now') WHERE id=? AND name=? AND provider_id=? AND context_window IS ? AND notes=? AND enabled=? AND (? IS NULL OR (json_valid(capability_tags) AND json(capability_tags)=json(?)))")
         .bind(f.name.trim()).bind(&f.provider_id).bind(f.context_window).bind(&f.notes).bind(f.enabled)
-        .bind(&body.id).bind(&e.name).bind(&e.provider_id).bind(e.context_window).bind(&e.notes).bind(e.enabled).execute(&state.app_state.db).await;
+        .bind(next_tags).bind(&body.id).bind(&e.name).bind(&e.provider_id).bind(e.context_window).bind(&e.notes).bind(e.enabled).bind(&expected_tags).bind(&expected_tags).execute(&state.app_state.db).await;
     match result { Ok(result) if result.rows_affected() == 1 => Json(serde_json::json!({"ok":true})).into_response(),
         Ok(_) => (StatusCode::CONFLICT, "Model changed or was removed. Refresh and review your edits.").into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response() }
@@ -1047,10 +1052,10 @@ pub(crate) async fn mobile_install_local_model(State(state): State<WebhookState>
 
 pub(crate) async fn mobile_create_model(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileCreateModelRequest>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
-    if body.name.trim().is_empty() || body.provider_id.trim().is_empty() {
+    if body.name.trim().is_empty() || body.provider_id.trim().is_empty() || body.context_window.is_some_and(|v| v <= 0) {
         return (StatusCode::BAD_REQUEST, "Provider and model name are required").into_response();
     }
-    model_action(&state, "create_model_definition", serde_json::json!({"name": body.name.trim(), "provider_id": body.provider_id.trim()})).await
+    model_action(&state, "create_model_definition", serde_json::json!({"name": body.name.trim(), "provider_id": body.provider_id.trim(), "context_window": body.context_window, "capability_tags": body.capability_tags, "notes": body.notes})).await
 }
 
 #[derive(Debug, Deserialize)]

@@ -59,6 +59,16 @@ and all 23 isolated remote Playwright tests passed. The rebuilt worktree app and
 its PDF service passed their health checks; its dynamic endpoint was
 `127.0.0.1:55079` at this checkpoint.
 
+## Web model definition fields
+
+The browser now creates and edits the desktop model definition fields: context
+window, capability tags and notes. An authenticated browser workflow verified
+creation, editing and a tag-only concurrent MCP edit returning a conflict while
+preserving the browser's draft. Older API clients that omit tags continue to
+leave them unchanged; they do not receive tag conflict detection. The isolated
+remote suite passed 23 tests on 2026-11-14, and the rebuilt branch services were
+healthy at `127.0.0.1:55080`. Provider/model parity as a whole remains open.
+
 ## Managed local model installation
 
 - Local Whisper providers support transcription, not agent text completion.
