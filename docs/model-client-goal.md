@@ -144,6 +144,16 @@ repository and deployed host were not changed.
 
 ### Current branch build and security checks
 
+Agent model calls now re-read the selected model and provider before each call.
+Disabled models or providers stop the next call, as do changes to the selected
+model's name, provider or context window. This is a pre-request check, not an
+atomic lock: an edit can race a request already in flight. The native regression
+test verifies rejection and recovery across successive queued calls; all 260
+native Rust tests passed with seven ignored. All 49 isolated workflows passed,
+and a disposable real 7B `extend-module` workflow passed its syntax and
+independent generated-code assertions. That run did not change the model during
+execution and does not prove cancellation of an in-flight request.
+
 The OpenAI-compatible client now handles full `message` content in SSE without
 silently dropping it or duplicating an accumulated response. It emits a
 message-only answer once, accepts a matching final message after deltas, and
@@ -2304,8 +2314,9 @@ verified by deterministic tests only.
 - An explicitly bound agent model is now checked for both model and provider
   enablement before the agent run starts. Disabled bindings fail with a clear
   validation error rather than silently selecting another shared model. The
-  existing first-priority binding policy remains unchanged. A model disabled
-  after it was selected for a running stage is not rechecked between calls.
+  existing first-priority binding policy remains unchanged. At this older
+  checkpoint, a model disabled after selection was not rechecked between calls;
+  the current checkpoint above records the subsequent revalidation change.
   A database test covers disabled model, disabled provider, recovery and the
   presence of an enabled fallback; 216 native Studio tests passed with six
   ignored. The isolated workflow suite passed 23 cases, including a failed

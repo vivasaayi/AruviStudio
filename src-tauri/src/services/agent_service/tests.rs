@@ -18,6 +18,34 @@ fn make_temp_dir(name: &str) -> PathBuf {
 }
 
 #[tokio::test]
+async fn agent_model_calls_revalidate_selected_model_and_provider() {
+    use crate::domain::agent::{AgentRun, AgentRunStatus};
+    let temp = tempfile::tempdir().unwrap();
+    let pool = db_service::create_pool(&format!("sqlite:{}", temp.path().join("models.db").display())).await.unwrap();
+    model_repo::create_provider(&pool, "run-provider", "Fixture", "openai_compatible", "http://example.invalid", None).await.unwrap();
+    let model = model_repo::create_model_definition(&pool, "run-model", "run-provider", "fixture", Some(8192), None, None).await.unwrap();
+    let db = Arc::new(pool.clone());
+    let service = AgentService::new(Arc::clone(&db), Arc::new(ModelService::new(Arc::clone(&db))), temp.path().join("artifacts"), temp.path().join("workspaces"));
+    let run = AgentRun { id: "run".into(), workflow_run_id: "model-revalidation-fixture".into(), agent_id: "agent".into(), stage: "coding".into(), status: AgentRunStatus::Running,
+        prompt_snapshot_path: None, output_snapshot_path: None, token_count_input: None, token_count_output: None, duration_ms: None, error_message: None,
+        started_at: "".into(), ended_at: None, created_at: "".into() };
+    AgentService::set_test_model_outputs_for_workflow(&run.workflow_run_id, vec!["first".into(), "second".into()]);
+    assert_eq!(service.execute_agent_run(&run, &model, "prompt", 10, false).await.unwrap().content, "first");
+    sqlx::query("UPDATE model_definitions SET enabled=0 WHERE id='run-model'").execute(&pool).await.unwrap();
+    assert!(matches!(service.execute_agent_run(&run, &model, "prompt", 10, false).await, Err(crate::error::AppError::Validation(message)) if message.contains("model is disabled")));
+    sqlx::query("UPDATE model_definitions SET enabled=1 WHERE id='run-model'").execute(&pool).await.unwrap();
+    sqlx::query("UPDATE model_providers SET enabled=0 WHERE id='run-provider'").execute(&pool).await.unwrap();
+    assert!(matches!(service.execute_agent_run(&run, &model, "prompt", 10, false).await, Err(crate::error::AppError::Validation(message)) if message.contains("provider is disabled")));
+    sqlx::query("UPDATE model_providers SET enabled=1 WHERE id='run-provider'").execute(&pool).await.unwrap();
+    sqlx::query("UPDATE model_definitions SET name='changed' WHERE id='run-model'").execute(&pool).await.unwrap();
+    assert!(matches!(service.execute_agent_run(&run, &model, "prompt", 10, false).await, Err(crate::error::AppError::Validation(message)) if message.contains("model changed")));
+    sqlx::query("UPDATE model_definitions SET name='fixture', context_window=4096 WHERE id='run-model'").execute(&pool).await.unwrap();
+    assert!(matches!(service.execute_agent_run(&run, &model, "prompt", 10, false).await, Err(crate::error::AppError::Validation(message)) if message.contains("model changed")));
+    sqlx::query("UPDATE model_definitions SET context_window=8192 WHERE id='run-model'").execute(&pool).await.unwrap();
+    assert_eq!(service.execute_agent_run(&run, &model, "prompt", 10, false).await.unwrap().content, "second");
+}
+
+#[tokio::test]
 async fn coding_stage_creates_tool_trace_artifact() {
     let temp_root = make_temp_dir("coding_trace");
     let db_path = temp_root.join("aruvi-test.db");

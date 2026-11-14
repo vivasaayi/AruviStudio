@@ -18,6 +18,17 @@ impl AgentService {
         max_tokens: i64,
         json_object: bool,
     ) -> Result<AgentModelOutput, AppError> {
+        let current = model_repo::get_model_definition(&self.db, &model_def.id).await?;
+        if !current.enabled {
+            return Err(AppError::Validation("The selected agent model is disabled. Enable it before continuing.".into()));
+        }
+        if current.provider_id != model_def.provider_id || current.name != model_def.name || current.context_window != model_def.context_window {
+            return Err(AppError::Validation("The selected agent model changed during the run. Restart the run with the updated model.".into()));
+        }
+        let provider = model_repo::get_provider(&self.db, &current.provider_id).await?;
+        if !provider.enabled {
+            return Err(AppError::Validation("The selected agent model provider is disabled. Enable it before continuing.".into()));
+        }
         #[cfg(test)]
         if let Some(queue_map) = super::TEST_MODEL_OUTPUTS.get() {
             let mut guard = queue_map
@@ -58,7 +69,6 @@ impl AgentService {
 
         debug!(agent_run_id = %agent_run.id, model_id = %model_def.id, model_name = %model_def.name, prompt_length = prompt.len(), max_tokens = max_tokens, "Executing agent run");
 
-        let provider = model_repo::get_provider(&self.db, &model_def.provider_id).await?;
         debug!(agent_run_id = %agent_run.id, provider_id = %provider.id, provider_name = %provider.name, "Retrieved model provider");
 
         let gateway = self.model_service.create_gateway(&provider)?;
