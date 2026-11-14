@@ -4,6 +4,7 @@ let workflowCalls = 0;
 let workflowPrompts = [];
 let workflowRequests = [];
 let coordinatorCodingCalls = 0;
+let streamDisconnects = 0;
 const workflowOutputs = [
   "requirement analysis complete",
   "planning complete",
@@ -15,7 +16,9 @@ const workflowOutputs = [
 
 const server = http.createServer((request, response) => {
   response.setHeader("Content-Type", "application/json");
-  if (request.method === "POST" && request.url === "/workflow/reset") {
+  if (request.method === "GET" && request.url === "/stream/stats") {
+    response.end(JSON.stringify({ disconnects: streamDisconnects }));
+  } else if (request.method === "POST" && request.url === "/workflow/reset") {
     workflowCalls = 0;
     workflowPrompts = [];
     workflowRequests = [];
@@ -83,11 +86,21 @@ const server = http.createServer((request, response) => {
       response.setHeader("Content-Type", "audio/wav"); response.end(wav);
     });
   } else if (request.method === "POST" && request.url === "/v1/chat/completions") {
-    request.resume();
-    request.on("end", () => response.end(JSON.stringify({
-      choices: [{ message: { role: "assistant", content: "Container provider reply" } }],
-      usage: { prompt_tokens: 12, completion_tokens: 4 },
-    })));
+    const chunks = []; request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      let body; try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { response.statusCode = 400; return response.end(); }
+      if (!body.stream) return response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "Container provider reply" } }], usage: { prompt_tokens: 12, completion_tokens: 4 } }));
+      response.setHeader("Content-Type", "text/event-stream");
+      response.on("close", () => { if (!response.writableEnded) streamDisconnects++; });
+      response.write('data: {"choices":[{"delta":{"content":"First "}}]}\n\n');
+      const last = body.messages.at(-1)?.content || "";
+      setTimeout(() => {
+        if (response.destroyed) return;
+        if (last.includes("stream failure")) return response.end('data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n');
+        response.write('data: {"choices":[{"delta":{"content":"second"},"finish_reason":"stop"}]}\n\n');
+        response.end('data: [DONE]\n\n');
+      }, last.includes("stream cancel") ? 5000 : 500);
+    });
   } else {
     response.statusCode = 404;
     response.end(JSON.stringify({ error: "Not found" }));

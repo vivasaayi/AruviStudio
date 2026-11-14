@@ -13,7 +13,7 @@ case "${1:-}" in
   host-planner) shift; python3 scripts/test-host-planner "$@" ;;
   planner-multiprocess) python3 scripts/test-planner-multiprocess ;;
   host-coding) python3 scripts/test-host-coding ;;
-  host-coding-ui) node scripts/test-host-coding-ui.mjs ;;
+  host-coding-ui) shift; node scripts/test-host-coding-ui.mjs "$@" ;;
   host-coding-workflow) shift; python3 scripts/test-host-coding-workflow "$@" ;;
   shared-client-consumer) docker build --no-cache --target test --output=type=cacheonly validation/model-client-consumer ;;
   host-shared-client) shift; python3 scripts/test-shared-client-host "$@" ;;

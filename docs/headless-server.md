@@ -45,6 +45,14 @@ for a service listening on the Mac, `host.docker.internal` can be used in place 
 volume's `llm-config.json`, with owner-only file permissions on Unix. Verify the
 provider URL before entering a real key.
 
+In **Chat**, select **Stream response** to show text as it arrives and use
+**Stop** to cancel the request. Partial output is marked incomplete when a
+stream fails or is stopped, and is not added to the conversation history.
+Streaming uses the configured provider's shared client and records completed,
+failed and cancelled calls in the existing model-call ledger. If the browser
+cannot consume the bounded event queue fast enough, the stream fails rather than
+silently dropping text. Ordinary non-streaming chat remains available.
+
 To stop using a provider key, the browser's **Detach API key** action disables
 that provider's configured credential and legacy fallback keys. MCP clients can
 call `aruvi_models` with action `get_provider_credential_state` and the provider

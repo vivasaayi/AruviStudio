@@ -24,7 +24,7 @@ use crate::services::webhook_mobile_api::{
     mobile_get_workflow_test_config, mobile_set_workflow_test_config, mobile_ci_read, mobile_ci_run, mobile_ci_log, mobile_ci_run_action, mobile_ci_bindings, mobile_ci_binding_action, mobile_ci_revisions, mobile_ci_artifact_readiness, mobile_ci_feedback_list, mobile_ci_feedback_create,
     mobile_submit_planner_voice_turn, mobile_transcribe_audio, mobile_generate_speech, mobile_update_planner_session,
 };
-use crate::services::webhook_mobile_chat::mobile_chat_completion;
+use crate::services::webhook_mobile_chat::{mobile_chat_completion, mobile_chat_stream};
 use crate::services::webhook_mobile_planner_chat::{
     mobile_create_planner_chat_session, mobile_submit_planner_chat_turn,
 };
@@ -446,6 +446,7 @@ pub(crate) fn build_webhook_router(app_state: AppState) -> Router {
             post(mobile_edit_planner_draft),
         )
         .route("/api/mobile/chat/completions", post(mobile_chat_completion))
+        .route("/api/mobile/chat/stream", post(mobile_chat_stream))
         .route(
             "/api/mobile/planner-chat/sessions",
             post(mobile_create_planner_chat_session),

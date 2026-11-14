@@ -357,6 +357,41 @@ test("disabled providers cannot transcribe through web or MCP", async ({ request
   expect(JSON.stringify(mcp.content)).toContain("Selected provider is disabled");
 });
 
+test("browser chat streams, reports errors, and can stop", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const created = await request.post("/api/mobile/providers", { headers, data: { name: "Streaming fixture", base_url: process.env.ARUVI_TEST_MODEL_URL } });
+  const provider = await created.json();
+  const body = { provider_id: provider.id, model_name: "browser-test-model", messages: [{ role: "user", content: "hello" }] };
+  expect((await request.post("/api/mobile/chat/stream", { data: body })).status()).toBe(401);
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#providerInput").fill(provider.id);
+  await page.locator("#modelInput").fill("browser-test-model");
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await page.getByLabel("Stream response").check();
+  async function send(text) { await page.locator("#chatComposer").fill(text); await page.locator("#chatSendButton").click(); }
+  await send("stream success");
+  await expect(page.locator("#chatConversation .assistant").last()).toHaveText("First ");
+  await expect(page.locator("#chatConversation .assistant").last()).toHaveText("First second");
+  await expect(page.locator("#status")).toHaveText("Connected");
+  await send("stream failure");
+  await expect(page.locator("#chatConversation")).toContainText("Response incomplete");
+  await expect(page.locator("#status")).toContainText("truncated");
+  const statsUrl = process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/stream/stats");
+  const beforeStop = (await (await request.get(statsUrl)).json()).disconnects;
+  await send("stream cancel");
+  await expect(page.locator("#chatConversation .assistant").last()).toHaveText("First ");
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(page.locator("#status")).toHaveText("Stream stopped");
+  await expect.poll(async () => (await (await request.get(statsUrl)).json()).disconnects).toBeGreaterThan(beforeStop);
+  await expect.poll(async () => {
+    const calls = await (await request.get("/api/mobile/model-calls?limit=100", { headers })).json();
+    return calls.filter((call) => call.provider_id === provider.id && call.source_kind === "mobile_chat").map((call) => call.status).sort();
+  }).toEqual(["completed", "failed", "failed"]);
+});
+
 test("voice records, reviews, and sends a transcribed message", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };

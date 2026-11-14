@@ -694,6 +694,8 @@
                 <textarea id="chatComposer" placeholder="Ask Aruvi"></textarea>
                 <div class="button-row">
                   <button id="chatSendButton" type="button">Send</button>
+                  <label><input id="chatStreaming" type="checkbox"> Stream response</label>
+                  <button id="chatStopButton" type="button" disabled>Stop</button>
                 </div>
               </div>
             </div>
@@ -1309,6 +1311,49 @@
       bubble.textContent = content;
       target.appendChild(bubble);
       target.scrollTop = target.scrollHeight;
+      return bubble;
+    }
+
+    let chatStreamController = null;
+    document.getElementById("chatStopButton").addEventListener("click", () => chatStreamController?.abort());
+    async function streamChat(body, target) {
+      const token = el.tokenInput.value.trim() || localStorage.getItem(storageKeys.token) || "";
+      if (!token) throw new Error("mobile.api_token is required");
+      const controller = new AbortController(); chatStreamController = controller;
+      const stop = document.getElementById("chatStopButton"); stop.disabled = false;
+      let bubble = null, content = "", pending = "", done = false;
+      try {
+        const response = await fetch("/api/mobile/chat/stream", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token }, body: JSON.stringify(body), signal: controller.signal });
+        if (!response.ok) throw new Error((await response.text()) || "Stream request failed");
+        if (!response.body) throw new Error("Streaming is unavailable in this browser");
+        const reader = response.body.getReader(), decoder = new TextDecoder();
+        while (true) {
+          const next = await reader.read();
+          pending += decoder.decode(next.value || new Uint8Array(), { stream: !next.done });
+          if (pending.length > 8 * 1024 * 1024) throw new Error("Stream event exceeds size limit");
+          let newline;
+          while ((newline = pending.indexOf("\n")) >= 0) {
+            const line = pending.slice(0, newline); pending = pending.slice(newline + 1);
+            if (!line) continue;
+            const event = JSON.parse(line);
+            if (done) throw new Error("Unexpected event after stream completion");
+            if (event.type === "delta" && typeof event.content === "string") {
+              content += event.content;
+              if (!bubble) bubble = appendMessage(target, "assistant", "");
+              bubble.textContent = content; target.scrollTop = target.scrollHeight;
+            } else if (event.type === "error") throw new Error(event.error || "Stream failed");
+            else if (event.type === "done") done = true;
+            else throw new Error("Invalid stream event");
+          }
+          if (next.done) break;
+        }
+        if (!done || pending.trim() || !content) throw new Error("Stream ended before completion");
+        return { content };
+      } catch (error) {
+        if (bubble) bubble.textContent += "\n[Response incomplete]";
+        if (error.name === "AbortError") throw new Error("Stream stopped");
+        throw error;
+      } finally { controller.abort(); stop.disabled = true; chatStreamController = null; }
     }
 
     function speakOnDevice(text) {
@@ -1834,19 +1879,18 @@
             ...state[historyKey],
             userMessage
           ];
-          const response = await request("/api/mobile/chat/completions", {
-            method: "POST",
-            body: {
+          const chatBody = {
               provider_id: el.providerInput.value.trim() || undefined,
               model_name: el.modelInput.value.trim() || undefined,
               messages,
               temperature: 0.7,
               max_tokens: 4096
-            }
-          });
+            };
+          const streaming = mode === "chat" && document.getElementById("chatStreaming").checked;
+          const response = streaming ? await streamChat(chatBody, config.target) : await request("/api/mobile/chat/completions", { method: "POST", body: chatBody });
           const assistantMessage = { role: "assistant", content: (response.content || "").trim() };
           state[historyKey] = [...state[historyKey], userMessage, assistantMessage].slice(-20);
-          appendMessage(config.target, "assistant", assistantMessage.content || "(empty response)");
+          if (!streaming) appendMessage(config.target, "assistant", assistantMessage.content || "(empty response)");
           if (mode === "voice") {
             speakOnDevice(assistantMessage.content);
             setVoiceMeta("Reply ready.");

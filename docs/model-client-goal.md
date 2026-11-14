@@ -44,6 +44,23 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Browser chat streaming
+
+- Browser chat has an opt-in streaming mode with a Stop control. The authenticated
+  server uses the shared provider client and records completed, failed and
+  cancelled calls in the existing model-call ledger. Partial replies are visibly
+  marked incomplete and excluded from history; the client requires an explicit
+  terminal event. A bounded event queue fails a stream rather than dropping text
+  if the browser cannot keep up. Closing the browser response cancels the upstream
+  request. Ordinary browser chat and voice remain non-streaming.
+- The isolated browser fixture covers authentication, incremental text, token-limit
+  failure, cancellation observed at the simulated provider, and telemetry for all
+  three outcomes. The browser smoke, 21 remote, one simulated CI and 21 isolated
+  workflow cases passed. On the rebuilt worktree,
+  `ARUVI_CODING_TEST_MODEL=qwen25-coder-7b-q4 bash scripts/test host-coding-ui --stream`
+  returned real coding output through the browser. This is one model and prompt,
+  not a quality guarantee or validation of live third-party services.
+
 ## Browser provider credential detachment
 
 - MCP now exposes `get_provider_credential_state` and
