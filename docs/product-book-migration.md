@@ -1,8 +1,9 @@
 # Product Book migration checkpoint
 
 The desktop Product Book is a separate feature from the planner review packet.
-The browser and MCP do not yet have equivalent Product Book exports. Preserve
-the shared renderer source and do not claim export parity until these steps pass.
+Browser and MCP exports now cover Docs HTML, Book HTML, EPUB and PDF using the
+shared renderer. Full parity and release readiness remain open because the
+limitations and validation items below are not complete.
 
 ## Existing behavior to preserve
 
@@ -16,8 +17,8 @@ the shared renderer source and do not claim export parity until these steps pass
   status and empty-section behavior must remain product-scoped and escaped.
   Long text, malformed markup and untrusted URLs require explicit handling.
 - Native exports render through the shared backend and use Rust commands to
-  write files or produce PDF/EPUB. Browser downloads and MCP access need an
-  appropriate server-side artifact interface, without requiring a host path.
+  write files or produce PDF/EPUB. Browser downloads and MCP access use a
+  server-side artifact interface without requiring a host path.
 
 ## Work remaining
 

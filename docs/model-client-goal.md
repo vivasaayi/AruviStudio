@@ -190,6 +190,12 @@ provider hosting into the model-host service as part of this work.
 
 ## Real browser voice revalidation
 
+- On the current branch after the provider-profile migration, real Model Host
+  `piper-ljspeech` generation and `whisper-tiny-metal` transcription passed as
+  an MCP round trip. A separate browser check recorded synthetic Piper audio at
+  16 kHz and transcribed it with the real host. This does not verify a physical
+  microphone, audible playback or model quality for other languages.
+
 - Manual desktop chat and planner recording now stop after 30 seconds or
   the corresponding sample count, even if timers are delayed. The captured
   audio follows the same transcription flow as a manual stop, and the UI shows
