@@ -46,6 +46,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Product Book export data
 
+- Browser and MCP Product Book exports now include PDF through a bounded
+  Chromium worker. The isolated browser suite downloaded PDFs in all three trim
+  sizes and invoked MCP PDF export. Captured PDFs had the expected dimensions,
+  tags and searchable, product-scoped text; an A5 chapter was visually checked.
+  Native real-browser tests verified external requests and scripts are blocked.
+  PDF and EPUB still reject books containing images. The worktree's Chromium
+  sandbox is disabled because this Mac's container runtime rejects its required
+  namespace operation; the image defaults to sandboxing. The legacy desktop PDF
+  writer is not yet unified with this worker. These are release limitations.
+  The native and Linux Rust suites each passed 211 tests, with six ignored;
+  two real Chromium PDF tests passed separately, as did the 23-case remote suite.
 - The authenticated browser and `aruvi_catalog.export_product_book` can now
   produce Docs HTML, Book HTML and EPUB from the shared backend. MCP returns
   base64 bytes; browser responses are attachments. The real browser download

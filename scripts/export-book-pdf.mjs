@@ -62,7 +62,7 @@ const footerTemplate = `
   </style>
   <div class="frame">
     <span>Aruvi Studio export</span>
-    <span class="pageNumber"></span>/<span class="totalPages"></span>
+    <span><span class="pageNumber"></span>/<span class="totalPages"></span></span>
   </div>
 `;
 

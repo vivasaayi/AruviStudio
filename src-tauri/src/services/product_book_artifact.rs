@@ -8,7 +8,7 @@ const MAX_ARTIFACT_BYTES: usize = 24 * 1024 * 1024;
 static ARTIFACT_SLOTS: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
 
 #[derive(Clone, Copy)]
-pub enum ProductBookArtifactFormat { DocsHtml, BookHtml, Epub }
+pub enum ProductBookArtifactFormat { DocsHtml, BookHtml, Epub, Pdf }
 
 impl ProductBookArtifactFormat {
     pub fn parse(value: &str) -> Result<Self, AppError> {
@@ -16,7 +16,8 @@ impl ProductBookArtifactFormat {
             "docs_html" => Ok(Self::DocsHtml),
             "book_html" => Ok(Self::BookHtml),
             "epub" => Ok(Self::Epub),
-            _ => Err(AppError::Validation("format must be docs_html, book_html or epub".into())),
+            "pdf" => Ok(Self::Pdf),
+            _ => Err(AppError::Validation("format must be docs_html, book_html, epub or pdf".into())),
         }
     }
 }
@@ -43,8 +44,17 @@ pub async fn build_product_book_artifact(pool: &SqlitePool, product_id: &str, fo
         ProductBookArtifactFormat::DocsHtml => (ProductBookFormat::Docs, ProductBookRenderMode::Web, "overview.html", "text/html; charset=utf-8"),
         ProductBookArtifactFormat::BookHtml => (ProductBookFormat::Book, ProductBookRenderMode::Web, "book.html", "text/html; charset=utf-8"),
         ProductBookArtifactFormat::Epub => (ProductBookFormat::Book, ProductBookRenderMode::Epub, "book.epub", "application/epub+zip"),
+        ProductBookArtifactFormat::Pdf => (ProductBookFormat::Book, ProductBookRenderMode::Print, "book.pdf", "application/pdf"),
     };
     let rendered = render_product_book_for_product(pool, product_id, book_format, mode, trim).await?;
+    if matches!(format, ProductBookArtifactFormat::Pdf) {
+        let name = rendered["productName"].as_str().ok_or_else(|| AppError::Internal("Product Book title missing".into()))?;
+        let html = rendered["html"].as_str().ok_or_else(|| AppError::Internal("Product Book HTML missing".into()))?;
+        if contains_images(html) { return Err(AppError::Validation("PDF export with images is not yet supported".into())); }
+        let bytes = crate::services::product_book_pdf::render_pdf(html, name, &rendered["trimPreset"]).await?;
+        drop(permit);
+        return Ok(ProductBookArtifact { filename: format!("{}-{suffix}", filename_slug(name)), content_type, bytes });
+    }
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
         let name = rendered["productName"].as_str().ok_or_else(|| AppError::Internal("Product Book title missing".into()))?;
@@ -52,7 +62,7 @@ pub async fn build_product_book_artifact(pool: &SqlitePool, product_id: &str, fo
         let bytes = if matches!(format, ProductBookArtifactFormat::Epub) {
             // Images must be collected and packaged before EPUB export can safely
             // support them; do not return an archive with broken dependencies.
-            if regex::Regex::new(r"(?i)<img(?:[\s/>])").expect("constant image pattern").is_match(html) {
+            if contains_images(html) {
                 return Err(AppError::Validation("EPUB export with images is not yet supported".into()));
             }
             let toc: Vec<BookExportTocItem> = serde_json::from_value(rendered["tocItems"].clone())?;
@@ -63,6 +73,10 @@ pub async fn build_product_book_artifact(pool: &SqlitePool, product_id: &str, fo
         }
         Ok(ProductBookArtifact { filename: format!("{}-{suffix}", filename_slug(name)), content_type, bytes })
     }).await.map_err(|e| AppError::Internal(format!("Product Book export task failed: {e}")))?
+}
+
+fn contains_images(html: &str) -> bool {
+    regex::Regex::new(r"(?i)<img(?:[\s/>])").expect("constant image pattern").is_match(html)
 }
 
 fn filename_slug(name: &str) -> String {

@@ -60,22 +60,22 @@ the shared renderer source and do not claim export parity until these steps pass
   seconds, and simultaneous snapshots/renders to two. Source snapshot creation
   and serialization are currently unbounded before the input-size check.
   Desktop HTML, EPUB and PDF exports call this same backend renderer and retain
-  their native file writers. Browser and MCP HTML/EPUB exports use it as well;
-  image-resource packaging, browser/MCP PDF and visual comparison remain open.
+  their native file writers. Browser and MCP HTML/EPUB/PDF exports use it as well;
+  image-resource packaging and broad visual comparison remain open.
   For a local worktree, request a rendered book with:
 
   ```sh
   scripts/mcp call aruvi_catalog '{"action":"render_product_book","arguments":{"product_id":"PRODUCT_ID","format":"book","render_mode":"epub","trim_preset":"a5"}}'
   ```
 - [ ] Provide authenticated browser and MCP export interfaces for each supported
-  artifact. Docs HTML, Book HTML and EPUB are available through the product
+  artifact. Docs HTML, Book HTML, EPUB and PDF are available through the product
   browser and `aruvi_catalog.export_product_book`; MCP returns a filename, media
-  type and base64 bytes. Artifacts over 24 MiB fail explicitly. EPUB requests
-  containing images currently fail rather than returning a broken archive;
-  image packaging and browser/MCP PDF export remain to be implemented. HTML
-  may still reference external or repository-relative resources.
+  type and base64 bytes. Artifacts over 24 MiB fail explicitly; PDF source is
+  limited to 12 MiB and PDF rendering to 60 seconds. EPUB and PDF requests
+  containing images fail rather than returning an incomplete file. Image
+  packaging remains open. HTML may still reference external resources.
   The export action accepts `product_id`, `format` (`docs_html`, `book_html`,
-  or `epub`) and `trim_preset` (`trade-6x9`, `a5`, or `us-letter`). For example:
+  `epub`, or `pdf`) and `trim_preset` (`trade-6x9`, `a5`, or `us-letter`). For example:
 
   ```sh
   scripts/mcp call aruvi_catalog '{"action":"export_product_book","arguments":{"product_id":"PRODUCT_ID","format":"epub","trim_preset":"a5"}}'
@@ -86,6 +86,25 @@ the shared renderer source and do not claim export parity until these steps pass
   passed EPUBCheck 5.4.0 with zero findings. A 2,102-item backend HTML artifact
   test covers pagination and child items. Set `ARUVI_REMOTE_EPUB_OUTPUT` when
   running `scripts/test-container-remote.sh` to retain the test EPUB.
+  The same suite downloads PDF in all three trim presets and exercises MCP PDF
+  export. Captured PDFs had expected page dimensions, tagged structure and
+  searchable product-scoped content; an A5 chapter was visually inspected. Set
+  `ARUVI_REMOTE_PDF_OUTPUT_DIR` to retain those fixture files. Native real-browser
+  tests also verify that scripts and external requests do not execute.
+  PDF uses Chromium and Playwright with JavaScript disabled, external requests
+  blocked, an empty secret environment and a private temporary directory.
+  The image defaults to Chromium sandboxing, but the worktree and test Compose
+  files explicitly disable it because this Mac's container runtime rejects the
+  required namespace operation. Without Chromium's sandbox the browser shares
+  the app container's OS identity; do not promote this setting as production
+  isolation. A sandbox-capable deployment or separately isolated renderer still
+  needs validation before release.
+  Non-container servers must configure `ARUVI_PDF_NODE`, `ARUVI_PDF_BROWSER`,
+  and `ARUVI_PDF_PLAYWRIGHT_PATH` to their Node, Chromium and Playwright Core
+  locations; `ARUVI_PDF_SANDBOX` defaults to `1` unless explicitly set to `0`.
+  Desktop PDF files still use the older Playwright writer, which relies on a
+  source-checkout script and does not yet apply the backend worker's request
+  blocking. Unifying native and server-side PDF generation remains open.
 - [x] Move desktop exports to the shared backend renderer and retain the native
   file writers and reveal flow. Tauri IPC is exercised with a real database and
   the export UI is tested with mocked native file writes. Actual native window,

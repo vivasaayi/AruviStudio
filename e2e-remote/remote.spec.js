@@ -248,6 +248,7 @@ test("CI view reports an offline service and renders service data safely", async
 });
 
 test("browser registers and attaches a container workspace", async ({ page, request }) => {
+  test.setTimeout(120000);
   test.skip(!token || !mcpToken || !process.env.ARUVI_TEST_REPOSITORY_PATH, "Set tokens and a disposable Git repository path inside the container");
   async function call(name, action, arguments_) {
     const response = await request.post("/api/mcp", {
@@ -310,9 +311,12 @@ test("browser registers and attaches a container workspace", async ({ page, requ
     const extractBook = (bytes) => execFileSync("python3", ["-c", "import io,sys,zipfile; print(zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())).read('OEBPS/book.xhtml').decode())"], { input: bytes, encoding: "utf8" });
     expect(extractBook(mcpEpub)).toContain("Snapshot area reference");
     expect(extractBook(mcpEpub)).not.toContain("Other snapshot reference");
+    const mcpPdf = await call("aruvi_catalog", "export_product_book", { product_id: product.id, format: "pdf", trim_preset: "a5" });
+    expect(mcpPdf.media_type).toBe("application/pdf");
+    expect(Buffer.from(mcpPdf.data_base64, "base64").subarray(0, 5).toString()).toBe("%PDF-");
     const artifactPath = `/api/mobile/products/${product.id}/book-export`;
     expect((await request.post(artifactPath, { data: { format: "epub" } })).status()).toBe(401);
-    expect((await request.post(artifactPath, { headers: { Authorization: `Bearer ${token}` }, data: { format: "pdf" } })).status()).toBe(400);
+    expect((await request.post(artifactPath, { headers: { Authorization: `Bearer ${token}` }, data: { format: "invalid" } })).status()).toBe(400);
     const htmlDownload = await request.post(artifactPath, { headers: { Authorization: `Bearer ${token}` }, data: { format: "book_html" } });
     expect(htmlDownload.status()).toBe(200);
     expect(htmlDownload.headers()["content-disposition"]).toContain("attachment;");
@@ -348,10 +352,24 @@ test("browser registers and attaches a container workspace", async ({ page, requ
     expect(extractBook(epubBytes)).toContain("Snapshot area reference");
     expect(extractBook(epubBytes)).not.toContain("Other snapshot reference");
     if (process.env.ARUVI_TEST_BOOK_EPUB_CAPTURE) await copyFile(downloadPath, process.env.ARUVI_TEST_BOOK_EPUB_CAPTURE);
+    await page.locator("#productBookFormat").selectOption("pdf");
+    for (const preset of ["trade-6x9", "a5", "us-letter"]) {
+      await page.locator("#productBookTrim").selectOption(preset);
+      const pdfPromise = page.waitForEvent("download");
+      await page.locator("#productBookDownload").click();
+      const pdfDownload = await pdfPromise;
+      expect(pdfDownload.suggestedFilename()).toMatch(/-book\.pdf$/);
+      const pdfPath = await pdfDownload.path();
+      expect((await readFile(pdfPath)).subarray(0, 5).toString()).toBe("%PDF-");
+      if (process.env.ARUVI_TEST_BOOK_PDF_CAPTURE_DIR) await copyFile(pdfPath, `${process.env.ARUVI_TEST_BOOK_PDF_CAPTURE_DIR}/${preset}.pdf`);
+    }
     await call("aruvi_catalog", "update_product", { id: product.id, description: "![Diagram](images/diagram.png)" });
     const imageFailure = await request.post(artifactPath, { headers: { Authorization: `Bearer ${token}` }, data: { format: "epub" } });
     expect(imageFailure.status()).toBe(400);
     expect(await imageFailure.text()).toContain("images");
+    const pdfImageFailure = await request.post(artifactPath, { headers: { Authorization: `Bearer ${token}` }, data: { format: "pdf" } });
+    expect(pdfImageFailure.status()).toBe(400);
+    expect(await pdfImageFailure.text()).toContain("images");
     const mcpImageFailure = await request.post("/api/mcp", {
       headers: { Authorization: `Bearer ${mcpToken}`, Accept: "application/json, text/event-stream" },
       data: { jsonrpc: "2.0", id: 23, method: "tools/call", params: { name: "aruvi_catalog", arguments: { action: "export_product_book", arguments: artifactArgs } } },

@@ -5,6 +5,7 @@ services:
       ARUVI_MOBILE_API_TOKEN: workflow-mobile-test
       ARUVI_MCP_API_TOKEN: workflow-mcp-test
       ARUVI_LLM_CONFIG_PATH: /data/llm-config.json
+      ARUVI_PDF_SANDBOX: "0"
       ARUVI_CI_SOCKET: /ci/ci.sock
       DBUS_SESSION_BUS_ADDRESS: unix:path=/nonexistent
     tmpfs:

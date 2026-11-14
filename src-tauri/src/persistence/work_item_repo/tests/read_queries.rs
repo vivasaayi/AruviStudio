@@ -1,6 +1,20 @@
 use super::*;
 
 #[tokio::test]
+#[ignore = "requires a configured Chromium and Playwright installation"]
+async fn product_book_pdf_renders_with_real_browser() {
+    use crate::services::product_book_artifact::{build_product_book_artifact, ProductBookArtifactFormat};
+    use crate::services::product_book_renderer::ProductBookTrim;
+    let pool = create_test_pool("book_pdf").await;
+    create_test_product(&pool, "pdf-product").await;
+    create_work_item(&pool, test_work_item_input("pdf-story", "pdf-product", "Searchable PDF story")).await.unwrap();
+    let pdf = build_product_book_artifact(&pool, "pdf-product", ProductBookArtifactFormat::Pdf, ProductBookTrim::A5).await.unwrap();
+    assert_eq!(pdf.content_type, "application/pdf");
+    assert!(pdf.bytes.starts_with(b"%PDF-"));
+    if let Ok(path) = std::env::var("ARUVI_TEST_PDF_OUTPUT") { std::fs::write(path, pdf.bytes).unwrap(); }
+}
+
+#[tokio::test]
 async fn product_book_artifacts_are_scoped_and_epub_rejects_unpackaged_images() {
     use crate::services::product_book_artifact::{build_product_book_artifact, ProductBookArtifactFormat};
     use crate::services::product_book_renderer::ProductBookTrim;
