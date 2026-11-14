@@ -45,6 +45,15 @@ for a service listening on the Mac, `host.docker.internal` can be used in place 
 volume's `llm-config.json`, with owner-only file permissions on Unix. Verify the
 provider URL before entering a real key.
 
+To stop using a provider key, the browser's **Detach API key** action disables
+that provider's configured credential and legacy fallback keys. MCP clients can
+call `aruvi_models` with action `get_provider_credential_state` and the provider
+`id`, then call `detach_provider_credential` with that `id` and the returned
+`credential_revision`. A concurrent credential change invalidates the revision;
+fetch the state again before retrying. Detaching does not erase or revoke the
+stored key, which may be shared by another provider. Replacing the key re-enables
+credential use.
+
 ### Connecting a native Aruvi Model Host
 
 Model Host manages its own models and credentials. Start the Studio worktree and

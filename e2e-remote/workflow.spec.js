@@ -322,6 +322,19 @@ test("isolated provider key rotation uses the new credential", async ({ page, re
   expect(after.credential_revision).not.toBe(before.credential_revision);
   expect((await (await request.post(`/api/mobile/providers/${provider.id}/test`, { headers })).json()).message).not.toBe("Connection successful");
   expect((await (await request.post(`/api/mobile/providers/${sharedAgain.id}/test`, { headers })).json()).message).toBe("Connection successful");
+  const oldState = await mcp("get_provider_credential_state", { id: sharedAgain.id });
+  expect(oldState.credentials_disabled).toBeFalsy();
+  const sharedView = (await (await request.get("/api/mobile/providers", { headers })).json()).find((item) => item.id === sharedAgain.id);
+  const sharedExpected = { name: sharedView.name, base_url: sharedView.base_url, enabled: sharedView.enabled, protocol: sharedView.protocol };
+  expect((await request.post("/api/mobile/providers/credential", { headers, data: { id: sharedAgain.id, expected: sharedExpected, api_key: key } })).ok()).toBeTruthy();
+  const staleMcp = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}`, Accept: "application/json, text/event-stream" },
+    data: { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "aruvi_models", arguments: { action: "detach_provider_credential", arguments: { id: sharedAgain.id, credential_revision: oldState.credential_revision } } } } });
+  expect((await staleMcp.json()).result.isError).toBeTruthy();
+  expect((await (await request.post(`/api/mobile/providers/${sharedAgain.id}/test`, { headers })).json()).message).toBe("Connection successful");
+  const currentState = await mcp("get_provider_credential_state", { id: sharedAgain.id });
+  await mcp("detach_provider_credential", { id: sharedAgain.id, credential_revision: currentState.credential_revision });
+  expect((await mcp("get_provider_credential_state", { id: sharedAgain.id })).credentials_disabled).toBeTruthy();
+  expect((await (await request.post(`/api/mobile/providers/${sharedAgain.id}/test`, { headers })).json()).message).not.toBe("Connection successful");
 });
 
 

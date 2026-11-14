@@ -222,6 +222,8 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "create_provider",
                 "list_providers",
                 "update_provider",
+                "get_provider_credential_state",
+                "detach_provider_credential",
                 "delete_provider",
                 "create_model_definition",
                 "list_model_definitions",

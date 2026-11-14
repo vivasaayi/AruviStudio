@@ -50,6 +50,21 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             "list_providers",
             model_repo::list_providers(&state.db).await?,
         ),
+        "get_provider_credential_state" => {
+            let id = args.required_string(&["id"], "id")?;
+            let (revision, disabled): (String, bool) = sqlx::query_as("SELECT credential_revision, auth_secret_ref IS ? FROM model_providers WHERE id=?")
+                .bind(secrets::NO_PROVIDER_CREDENTIAL).bind(&id).fetch_optional(&state.db).await?
+                .ok_or_else(|| AppError::NotFound(format!("Provider {id} not found")))?;
+            action_result("get_provider_credential_state", json!({"id":id,"credential_revision":revision,"credentials_disabled":disabled}))
+        }
+        "detach_provider_credential" => {
+            let id = args.required_string(&["id"], "id")?;
+            let revision = args.required_string(&["credential_revision", "credentialRevision"], "credential_revision")?;
+            let result = sqlx::query("UPDATE model_providers SET auth_secret_ref=?,updated_at=datetime('now') WHERE id=? AND credential_revision=? AND auth_secret_ref IS NOT ?")
+                .bind(secrets::NO_PROVIDER_CREDENTIAL).bind(&id).bind(revision).bind(secrets::NO_PROVIDER_CREDENTIAL).execute(&state.db).await?;
+            if result.rows_affected() != 1 { return Err(AppError::Validation("Provider or credential changed or was removed. Refresh before detaching the key.".into())); }
+            Ok(action_ok("detach_provider_credential"))
+        }
         "update_provider" => {
             let id = args.required_string(&["id"], "id")?;
             let stored_secret_ref = if let Some(secret_input) =

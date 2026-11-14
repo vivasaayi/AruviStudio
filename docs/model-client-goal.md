@@ -46,6 +46,12 @@ provider hosting into the model-host service as part of this work.
 
 ## Browser provider credential detachment
 
+- MCP now exposes `get_provider_credential_state` and
+  `detach_provider_credential` with the same revision check used by the browser.
+  An isolated cross-interface test rotates through the web API, rejects a stale
+  MCP detach, and confirms a current MCP detach prevents authentication. All 20
+  isolated workflow cases passed; the rebuilt worktree server is healthy and
+  advertises both actions through MCP discovery.
 - Browser provider management can explicitly detach a key and disable legacy
   provider/global fallback keys for that provider. It retains stored credentials
   because references can be shared; this does not revoke keys. Setting a new key
