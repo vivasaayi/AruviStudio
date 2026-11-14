@@ -916,8 +916,13 @@ test("MCP transport errors omit the provider URL path", async ({ request }) => {
   const provider = created.structuredContent.result;
   const failed = await call("run_model_chat_completion", { provider_id: provider.id, model: "fixture", messages: [{ role: "user", content: "hello" }] });
   expect(failed.isError).toBeTruthy();
+  expect(failed.structuredContent.provider_transport_kind).toBe("connect");
   expect(JSON.stringify(failed.content)).toContain("Request failed");
   expect(JSON.stringify(failed.content)).not.toContain("sensitive-proxy-path");
+  const stream = await request.post("/api/mobile/chat/stream", { headers: { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` }, data: { provider_id: provider.id, model_name: "fixture", messages: [{ role: "user", content: "hello" }] } });
+  const error = JSON.parse((await stream.text()).trim());
+  expect(error).toMatchObject({ type: "error", provider_transport_kind: "connect" });
+  expect(JSON.stringify(error)).not.toContain("sensitive-proxy-path");
 });
 
 test("reasoning provider persists through browser and MCP and sends the right request fields", async ({ page, request }) => {

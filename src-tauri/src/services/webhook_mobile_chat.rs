@@ -62,15 +62,15 @@ async fn stream_mobile_completion(state: WebhookState, body: MobileChatCompletio
             let future = gateway.stream_completion(CompletionRequest { model: model_name.clone(), messages: messages.clone(), temperature, max_tokens }, &mut on_delta);
             tokio::pin!(future);
             tokio::select! {
-                result = &mut future => Some(result.map_err(|error| (error.to_string(), error.http_status()))),
+                result = &mut future => Some(result.map_err(|error| (error.to_string(), error.http_status(), error.transport_kind()))),
                 _ = sender.closed() => None,
-                _ = slow.notified() => Some(Err(("Stream consumer could not keep up".to_string(), None))),
+                _ = slow.notified() => Some(Err(("Stream consumer could not keep up".to_string(), None, None))),
             }
         };
-        let result = if overflow && result.is_some() { Some(Err(("Stream consumer could not keep up".to_string(), None))) } else { result };
+        let result = if overflow && result.is_some() { Some(Err(("Stream consumer could not keep up".to_string(), None, None))) } else { result };
         let (status, message, input, output_tokens) = match &result {
             Some(Ok(response)) => ("completed", None, response.token_count_input, response.token_count_output),
-            Some(Err((error, _))) => ("failed", Some(error.as_str()), None, None),
+            Some(Err((error, _, _))) => ("failed", Some(error.as_str()), None, None),
             None => ("failed", Some("Stream cancelled by client"), None, None),
         };
         if let Err(record_error) = record_webhook_model_call(&state.app_state, WebhookModelCallRecord {
@@ -81,9 +81,10 @@ async fn stream_mobile_completion(state: WebhookState, body: MobileChatCompletio
         }).await { error!(error = %record_error, "Failed to record mobile stream telemetry"); }
         let terminal = match result {
             Some(Ok(response)) => Some(serde_json::json!({"type":"done","metadata":response.metadata})),
-            Some(Err((error, status))) => {
+            Some(Err((error, status, kind))) => {
                 let mut event = serde_json::json!({"type":"error","error":error});
                 if let Some(status) = status { event["provider_http_status"] = status.into(); }
+                if let Some(kind) = kind { event["provider_transport_kind"] = serde_json::json!(kind); }
                 Some(event)
             },
             None => None,

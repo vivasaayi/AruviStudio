@@ -83,6 +83,9 @@ pub(super) fn error_tool_result(tool_name: &str, error: &crate::error::AppError)
     if let crate::error::AppError::ProviderHttp { status, .. } = error {
         result["structuredContent"] = json!({ "provider_http_status": status });
     }
+    if let crate::error::AppError::ProviderTransport { kind, .. } = error {
+        result["structuredContent"] = json!({ "provider_transport_kind": kind });
+    }
     result
 }
 
@@ -99,6 +102,10 @@ mod tests {
         assert!(result["content"][0]["text"].as_str().unwrap().contains("Provider error: API error 429"));
         let local = error_tool_result("aruvi_models", &crate::error::AppError::Validation("invalid".into()));
         assert!(local.get("structuredContent").is_none());
+        let transport = crate::error::AppError::from(aruvi_model_client::ClientError::Transport { kind: aruvi_model_client::TransportErrorKind::Timeout, message: "timed out".into() });
+        let result = error_tool_result("aruvi_models", &transport);
+        assert_eq!(result["structuredContent"]["provider_transport_kind"], "timeout");
+        assert!(result["content"][0]["text"].as_str().unwrap().contains("Provider error: timed out"));
     }
 
     #[test]

@@ -284,6 +284,15 @@ remain separate checks.
 
 ### Current requirement audit — 2026-11-14
 
+The shared client now exposes structured timeout, connection, request, body
+and other transport categories while retaining its previous error text and URL
+redaction. MCP and browser streaming errors expose the category as optional
+metadata. The new `ClientError` variant requires exhaustive-match consumers to
+update when they opt into this revision; the category alone does not establish
+retry safety. All 57 native client tests, a native MCP error test and 45 isolated
+Studio workflows passed. The independent Git-pinned consumer still needs to be
+updated and validated against this revision.
+
 The shared DeepSeek voice client now implements the common `ModelGateway`
 interface with transcription and WAV synthesis capabilities. It rejects
 unsupported language hints, speed, output formats, discovery, health and text

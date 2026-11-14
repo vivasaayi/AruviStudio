@@ -78,7 +78,7 @@ fn workflow_start_error(
     let status = match &error {
         AppError::NotFound(_) => StatusCode::NOT_FOUND,
         AppError::Validation(_) => StatusCode::CONFLICT,
-        AppError::Provider(_) | AppError::ProviderHttp { .. } => StatusCode::BAD_GATEWAY,
+        AppError::Provider(_) | AppError::ProviderHttp { .. } | AppError::ProviderTransport { .. } => StatusCode::BAD_GATEWAY,
         AppError::Database(_)
         | AppError::Git(_)
         | AppError::Io(_)

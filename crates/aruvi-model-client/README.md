@@ -103,6 +103,13 @@ callers with exhaustive `ClientError` matches to add a case. Health checks
 retain their existing boolean result, the recognized unsupported transcription
 response retains its existing variant, and embedded errors in a successful HTTP
 response have no HTTP status. A status does not by itself imply retry safety.
+Network and response-body failures return `ClientError::Transport` with a
+`TransportErrorKind` available through `transport_kind()`: timeout, connect,
+request, body or other. The displayed error keeps the previous wording and
+omits the request URL. Classification does not guarantee a retry is safe: a
+timeout or disconnect may occur after the provider accepted a request or after
+partial stream output. This adds an enum variant; consumers that exhaustively
+match `ClientError` must handle it when updating their pinned revision.
 OpenAI-compatible and Anthropic requests reject redirects and
 base URLs containing credentials, queries, or fragments.
 Anthropic keys are marked sensitive on the HTTP header so request debug output

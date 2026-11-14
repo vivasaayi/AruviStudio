@@ -19,11 +19,20 @@ pub enum ClientError {
     /// A non-success HTTP response. The provider response body is never retained.
     #[error("{message}")]
     Http { status: u16, message: String },
+    /// A transport failure. The message omits the request URL.
+    #[error("{message}")]
+    Transport { kind: TransportErrorKind, message: String },
     #[error("Provider does not support multipart transcription uploads")]
     UnsupportedTranscription,
     #[error("Client transport does not implement {0}")]
     UnsupportedOperation(&'static str),
 }
+
+/// A transport failure category, not an instruction to retry a request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum TransportErrorKind { Timeout, Connect, Request, Body, Other }
 
 impl ClientError {
     /// Return a remote HTTP status when the operation reached an HTTP response.
@@ -31,6 +40,11 @@ impl ClientError {
     /// have no HTTP status here. A status does not imply an automatic retry.
     pub fn http_status(&self) -> Option<u16> {
         match self { Self::Http { status, .. } => Some(*status), _ => None }
+    }
+
+    /// Return the transport category, including failures while reading a response.
+    pub fn transport_kind(&self) -> Option<TransportErrorKind> {
+        match self { Self::Transport { kind, .. } => Some(*kind), _ => None }
     }
 
     pub(crate) fn http(label: &str, status: reqwest::StatusCode) -> Self {

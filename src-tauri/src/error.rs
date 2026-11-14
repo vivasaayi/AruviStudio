@@ -20,6 +20,9 @@ pub enum AppError {
     #[error("Provider error: {message}")]
     ProviderHttp { status: u16, message: String },
 
+    #[error("Provider error: {message}")]
+    ProviderTransport { kind: aruvi_model_client::TransportErrorKind, message: String },
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
@@ -34,6 +37,7 @@ impl From<aruvi_model_client::ClientError> for AppError {
     fn from(error: aruvi_model_client::ClientError) -> Self {
         match error {
             aruvi_model_client::ClientError::Http { status, message } => Self::ProviderHttp { status, message },
+            aruvi_model_client::ClientError::Transport { kind, message } => Self::ProviderTransport { kind, message },
             other => Self::Provider(other.to_string()),
         }
     }

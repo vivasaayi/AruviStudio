@@ -1,11 +1,16 @@
-use crate::{ClientError, ClientOptions};
+use crate::{ClientError, ClientOptions, TransportErrorKind};
 use reqwest::{Client, redirect::Policy};
 use std::time::Duration;
 
 /// Reqwest errors may include request URLs, including provider-specific secret
 /// paths or discovery cursors. Keep the failure category without the URL.
 pub(crate) fn transport_error(label: &str, error: reqwest::Error) -> ClientError {
-    ClientError::Provider(format!("{label}: {}", error.without_url()))
+    let kind = if error.is_timeout() { TransportErrorKind::Timeout }
+        else if error.is_connect() { TransportErrorKind::Connect }
+        else if error.is_body() { TransportErrorKind::Body }
+        else if error.is_request() { TransportErrorKind::Request }
+        else { TransportErrorKind::Other };
+    ClientError::Transport { kind, message: format!("{label}: {}", error.without_url()) }
 }
 
 pub(crate) fn build_client(options: ClientOptions) -> Result<Client, ClientError> {
@@ -37,7 +42,7 @@ pub(crate) async fn read_bounded(mut response: reqwest::Response, limit: usize, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{anthropic::AnthropicClient, openai_compatible::OpenAiCompatibleClient, ChatMessage, CompletionRequest, ModelGateway};
+    use crate::{anthropic::AnthropicClient, deepseek::DeepSeekVoiceClient, openai_compatible::OpenAiCompatibleClient, ChatMessage, CompletionRequest, ModelGateway};
     use std::{io::{Read, Write}, net::TcpListener, thread};
 
     fn request() -> CompletionRequest {
@@ -122,7 +127,8 @@ mod tests {
         drop(listener);
         let base = format!("http://{address}/sensitive-proxy-path");
         let openai = OpenAiCompatibleClient::new(base.clone(), Some("synthetic-key".into()));
-        let anthropic = AnthropicClient::new(base, "synthetic-key".into()).unwrap();
+        let anthropic = AnthropicClient::new(base.clone(), "synthetic-key".into()).unwrap();
+        let deepseek = DeepSeekVoiceClient::new(base, "synthetic-key".into()).unwrap();
         let results = vec![
             openai.run_completion(request()).await.map(|_| ()),
             openai.stream_completion(request(), |_| {}).await.map(|_| ()),
@@ -134,9 +140,13 @@ mod tests {
             anthropic.stream_completion(request(), |_| {}).await.map(|_| ()),
             anthropic.list_models_page(Some("sensitive-cursor")).await.map(|_| ()),
             anthropic.health_check().await.map(|_| ()),
+            deepseek.transcribe(vec![1], "fixture.wav".into(), "audio/wav".into()).await.map(|_| ()),
+            deepseek.generate_speech("hello", None).await.map(|_| ()),
         ];
         for result in results {
             let error = result.unwrap_err();
+            assert_eq!(error.transport_kind(), Some(TransportErrorKind::Connect));
+            assert_eq!(error.http_status(), None);
             let message = format!("{error:?} {error}");
             assert!(!message.contains("sensitive-proxy-path"), "{message}");
             assert!(!message.contains("sensitive-cursor"), "{message}");
@@ -195,12 +205,14 @@ mod tests {
         let (url, server) = stalled_stream();
         let client = OpenAiCompatibleClient::with_options(url, None, options).unwrap();
         let error = client.stream_completion(request(), |_| {}).await.unwrap_err();
+        assert_eq!(error.transport_kind(), Some(TransportErrorKind::Timeout));
         assert!(error.to_string().contains("stream read failed"));
         assert!(!server.is_finished(), "request should time out before the server closes");
         server.join().unwrap();
         let (url, server) = stalled_stream();
         let client = AnthropicClient::with_options(url, "synthetic-key".into(), options).unwrap();
         let error = client.stream_completion(request(), |_| {}).await.unwrap_err();
+        assert_eq!(error.transport_kind(), Some(TransportErrorKind::Timeout));
         assert!(error.to_string().contains("stream read failed"));
         assert!(!server.is_finished(), "request should time out before the server closes");
         server.join().unwrap();
