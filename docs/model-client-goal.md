@@ -2345,12 +2345,15 @@ model adapter and remote speech errors. MCP tool error results include an
 optional `structuredContent.provider_http_status` while retaining the existing
 text and `isError` flag. The upstream response body is not included. The value
 is an upstream status, not an automatic retry recommendation; provider errors
-without an HTTP status omit it. Browser HTTP status behavior and streaming error
-events are unchanged. Targeted Rust tests and all 34 isolated workflow tests
+without an HTTP status omit it. Browser HTTP status behavior is unchanged; web
+and desktop streaming error events include an optional `provider_http_status`
+when the provider returned an HTTP error. Targeted Rust tests and all 34 isolated workflow tests
 passed; the MCP provider fixture validates end-to-end 429 cases for buffered
 chat, remote transcription and remote speech generation without returning the
-synthetic provider body. This is simulated-provider coverage, not a live rate
-limit test.
+synthetic provider body. The web stream fixture and native Tauri mock-runtime
+test also verify the 429 field and body redaction; the desktop cancellation
+test verifies the field is omitted without an upstream HTTP status. This is
+simulated-provider coverage, not a live rate limit or native-window test.
 
 ## Independent shared-client voice probe
 

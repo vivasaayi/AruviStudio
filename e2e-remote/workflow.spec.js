@@ -814,6 +814,12 @@ test("MCP preserves upstream provider HTTP status without provider body", async 
   expect(result.isError).toBeTruthy();
   expect(result.structuredContent.provider_http_status).toBe(429);
   expect(JSON.stringify(result)).not.toContain("synthetic-provider-private-body");
+  const streamed = await request.post("/api/mobile/chat/stream", { headers, data: { provider_id: provider.id, model_name: "fixture", messages } });
+  expect(streamed.status()).toBe(200);
+  const streamError = JSON.parse((await streamed.text()).trim());
+  expect(streamError.type).toBe("error");
+  expect(streamError.provider_http_status).toBe(429);
+  expect(JSON.stringify(streamError)).not.toContain("synthetic-provider-private-body");
   for (const [action, args] of [
     ["transcribe_audio", { provider_id: provider.id, model_name: "whisper-1", audio_bytes_base64: "AA==", mime_type: "audio/wav" }],
     ["generate_speech", { provider_id: provider.id, model: "fixture", text: "hello" }],

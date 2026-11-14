@@ -27,6 +27,8 @@ struct ChatStreamDoneEvent {
 struct ChatStreamErrorEvent {
     stream_id: String,
     error: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider_http_status: Option<u16>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -160,8 +162,9 @@ async fn start_provider_stream<R: tauri::Runtime>(
             token_count_output: output_tokens, duration_ms: elapsed_ms(started), status,
             error_message: error_message.as_deref(), response_text: Some(&response_text),
         }).await { warn!(error = %record_error, "Failed to record stream telemetry"); }
+        let provider_http_status = result.as_ref().and_then(|result| result.as_ref().err()).and_then(|error| error.http_status());
         match error_message {
-            Some(error) => { let _ = app.emit("chat_stream_error", ChatStreamErrorEvent { stream_id: task_id.clone(), error }); }
+            Some(error) => { let _ = app.emit("chat_stream_error", ChatStreamErrorEvent { stream_id: task_id.clone(), error, provider_http_status }); }
             None => { let _ = app.emit("chat_stream_done", ChatStreamDoneEvent { stream_id: task_id.clone(), metadata: result.and_then(Result::ok).and_then(|response| response.metadata) }); }
         }
         registry.lock().await.remove(&task_id);
@@ -277,10 +280,38 @@ mod tests {
         let (kind, payload) = tokio::time::timeout(std::time::Duration::from_secs(8), receiver.recv()).await.unwrap().unwrap();
         assert_eq!(kind, "chat_stream_error");
         assert_eq!(payload["error"], "Stream cancelled by user");
+        assert!(payload.get("provider_http_status").is_none());
         let row: (String, i64) = sqlx::query_as("SELECT status, response_chars FROM model_calls WHERE source_id=?")
             .bind(&id).fetch_one(&app.state::<AppState>().db).await.unwrap();
         assert_eq!(row, ("failed".into(), 7));
         assert!(tokio::task::spawn_blocking(move || server.join().unwrap()).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn desktop_stream_reports_provider_http_status_without_body() {
+        async fn endpoint() -> impl axum::response::IntoResponse {
+            (axum::http::StatusCode::TOO_MANY_REQUESTS, "synthetic-provider-private-body")
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, axum::Router::new().route("/v1/chat/completions", post(endpoint))).await.unwrap(); });
+        let app = make_test_app("desktop_provider_status").await;
+        let provider = ModelProvider { id: "status-fixture".into(), name: "Fixture".into(),
+            provider_type: ProviderType::OpenaiCompatible, protocol: "openai_compatible".into(), completion_profile: "standard".into(),
+            base_url: format!("http://{address}"), auth_secret_ref: None,
+            enabled: true, created_at: "".into(), updated_at: "".into() };
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<Value>();
+        app.listen_any("chat_stream_error", move |event| { let _ = sender.send(serde_json::from_str(event.payload()).unwrap()); });
+        let id = uuid::Uuid::new_v4().to_string();
+        let request = ModelChatCommand { stream_id: Some(id.clone()), provider_id: provider.id.clone(), model: "fixture".into(),
+            messages: vec![ChatMessage { role: "user".into(), content: "Hello".into() }], temperature: None, max_tokens: Some(20),
+            source_kind: None, source_id: None, source_label: None };
+        start_provider_stream(app.handle().clone(), app.state::<AppState>(), provider, request, id.clone()).await.unwrap();
+        let payload = tokio::time::timeout(std::time::Duration::from_secs(10), receiver.recv()).await.unwrap().unwrap();
+        assert_eq!(payload["stream_id"], id);
+        assert_eq!(payload["provider_http_status"], 429);
+        assert!(!payload.to_string().contains("synthetic-provider-private-body"));
+        server.abort();
     }
 
     #[tokio::test]
