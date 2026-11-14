@@ -15,8 +15,17 @@ pub(crate) async fn resolve_mobile_chat_provider_id(
         .into_iter()
         .filter(|provider| provider.enabled && provider.provider_type.as_str() != "local_runtime")
         .collect::<Vec<_>>();
-    if requested_model_name.is_none_or(|name| name.trim().is_empty()) {
-        let models = model_repo::list_model_definitions(&state.db).await.map_err(|error| error.to_string())?;
+    let models = model_repo::list_model_definitions(&state.db).await.map_err(|error| error.to_string())?;
+    if let Some(name) = requested_model_name.filter(|name| !name.trim().is_empty()) {
+        let matching: Vec<_> = providers.iter().filter(|provider| models.iter().any(|model|
+            model.enabled && model.provider_id == provider.id && model.name == name)).collect();
+        match matching.as_slice() {
+            [provider] => return Ok(provider.id.clone()),
+            [] if models.iter().any(|model| model.name == name) => return Err("The requested model has no enabled text provider and model binding.".into()),
+            [] => {}, // Keep the existing fallback for an unregistered model name.
+            _ => return Err("The requested model is registered with multiple providers; select a provider explicitly.".into()),
+        }
+    } else {
         if let Some(provider) = providers.iter().find(|provider| models.iter().any(|model|
             model.enabled && model.provider_id == provider.id && !crate::services::speech_service::is_voice_only_selector(&model.name))) {
             return Ok(provider.id.clone());
@@ -66,5 +75,10 @@ mod tests {
         assert_eq!(resolve_mobile_chat_provider_id(&state, Some("voice".into()), None).await.unwrap(), "voice");
         assert!(resolve_mobile_chat_model_name(&state, "voice", None).await.is_err());
         assert_eq!(resolve_mobile_chat_provider_id(&state, None, Some("unregistered-model")).await.unwrap(), "voice");
+        assert_eq!(resolve_mobile_chat_provider_id(&state, None, Some("chat-model")).await.unwrap(), "text");
+        model_repo::create_model_definition(&state.db, "duplicate-model", "voice", "chat-model", None, None, None).await.unwrap();
+        assert!(resolve_mobile_chat_provider_id(&state, None, Some("chat-model")).await.unwrap_err().contains("multiple providers"));
+        sqlx::query("UPDATE model_definitions SET enabled=0 WHERE name='chat-model'").execute(&state.db).await.unwrap();
+        assert!(resolve_mobile_chat_provider_id(&state, None, Some("chat-model")).await.unwrap_err().contains("no enabled"));
     }
 }

@@ -1,6 +1,38 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
+test("model-only chat selects the registered provider and rejects ambiguous routes", async ({ request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated providers");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const create = async (path, data) => {
+    const response = await request.post(path, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return response.json();
+  };
+  const base = process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "");
+  const earlier = await create("/api/mobile/providers", { name: "A incorrect routing fixture", base_url: `${base}/reasoning/v1` });
+  const selected = await create("/api/mobile/providers", { name: "Z correct routing fixture", base_url: `${base}/usage/v1` });
+  const model = await create("/api/mobile/models", { provider_id: selected.id, name: "routing-unique-fixture" });
+  const body = { model_name: model.name, messages: [{ role: "user", content: "hello" }] };
+  const buffered = await request.post("/api/mobile/chat/completions", { headers, data: body });
+  expect(buffered.ok(), await buffered.text()).toBeTruthy();
+  expect((await buffered.json()).content).toBe("buffered");
+  const streaming = await request.post("/api/mobile/chat/stream", { headers, data: body });
+  expect(streaming.ok()).toBeTruthy();
+  expect((await streaming.text()).trim().split("\n").map(JSON.parse).at(-1).type).toBe("done");
+  const duplicate = await create("/api/mobile/models", { provider_id: earlier.id, name: model.name });
+  const ambiguous = await request.post("/api/mobile/chat/completions", { headers, data: body });
+  expect(ambiguous.status()).toBe(400);
+  expect(await ambiguous.text()).toContain("multiple providers");
+  const explicit = await request.post("/api/mobile/chat/completions", { headers, data: { ...body, provider_id: selected.id } });
+  expect(explicit.ok()).toBeTruthy();
+  const mcp = async (action, arguments_) => (await (await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 51, method: "tools/call", params: { name: "aruvi_models", arguments: { action, arguments: arguments_ } } } })).json()).result;
+  for (const id of [model.id, duplicate.id]) expect((await mcp("update_model_definition", { id, enabled: false })).isError).not.toBeTruthy();
+  const disabled = await request.post("/api/mobile/chat/stream", { headers, data: body });
+  expect(disabled.status()).toBe(400);
+  expect(await disabled.text()).toContain("no enabled text provider and model binding");
+});
+
 test("workspace provisioning preserves existing paths and validates scope", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and repository volume");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };

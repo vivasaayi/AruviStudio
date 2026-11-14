@@ -284,6 +284,16 @@ remain separate checks.
 
 ### Current requirement audit — 2026-11-14
 
+For mobile/browser chat API calls without a provider ID, a registered model name
+now selects its unique enabled text provider. Duplicate enabled registrations
+require an explicit provider; a registered model with no enabled binding fails
+instead of being sent elsewhere. Explicit provider selection retains precedence.
+For compatibility, an unregistered model name still falls back to the first
+enabled provider; callers that need deterministic routing should specify one.
+The focused Rust routing test and 41 isolated workflows passed. A model-only
+mobile request to the real `qwen25-coder-7b-q4` Model Host also returned a
+response, and the completed-call ledger recorded the Model Host provider.
+
 The browser Workspaces page can now create a workspace for its selected product
 or area in a specified absolute server directory, attach it as default and
 retain existing attachments. The full 40-test isolated workflow suite passed,
