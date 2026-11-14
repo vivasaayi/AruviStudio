@@ -4,6 +4,7 @@ import {
   exportProductOverviewHtml,
   exportProductOverviewPdf,
   getProductTree,
+  listProductExportWorkItems,
 } from "../../../lib/tauri";
 import type { Product, ProductReference, ProductTree, WorkItem } from "../../../lib/types";
 import {
@@ -16,13 +17,11 @@ import { buildProductOverviewHtml } from "../lib/productOverview";
 
 type ProductOverviewExportArgs = {
   selectedProduct: Product | null;
-  workItems: WorkItem[];
   productReferences: ProductReference[];
 };
 
 export function useProductOverviewExports({
   selectedProduct,
-  workItems,
   productReferences,
 }: ProductOverviewExportArgs) {
   const [exportPath, setExportPath] = React.useState<string | null>(null);
@@ -48,7 +47,7 @@ export function useProductOverviewExports({
     try {
       setIsExporting(true);
       setExportError(null);
-      const exportTree = await getProductTree(selectedProduct.id);
+      const [exportTree, workItems] = await Promise.all([getProductTree(selectedProduct.id), listProductExportWorkItems(selectedProduct.id)]);
       const html = builder({
         product: selectedProduct,
         tree: exportTree,
@@ -82,7 +81,7 @@ export function useProductOverviewExports({
     try {
       setIsExporting(true);
       setExportError(null);
-      const exportTree = await getProductTree(selectedProduct.id);
+      const [exportTree, workItems] = await Promise.all([getProductTree(selectedProduct.id), listProductExportWorkItems(selectedProduct.id)]);
       const bundle = buildProductOverviewBookBundle(
         {
           product: selectedProduct,

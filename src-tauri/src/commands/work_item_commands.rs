@@ -6,6 +6,11 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 use tracing::{debug, error, info, warn};
 
+#[tauri::command]
+pub async fn list_product_export_work_items(state: State<'_, AppState>, product_id: String) -> Result<Vec<WorkItem>, AppError> {
+    work_item_repo::list_product_export_work_items(&state.db, &product_id).await
+}
+
 fn resolve_required(value: Option<String>, field_name: &str) -> Result<String, AppError> {
     value.ok_or_else(|| AppError::Validation(format!("missing {}", field_name)))
 }

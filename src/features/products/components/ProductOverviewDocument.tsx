@@ -19,6 +19,7 @@ type ProductOverviewDocumentProps = {
   product: Product;
   tree?: ProductTree;
   workItems?: WorkItem[];
+  workItemsLoaded?: boolean;
   metricsOverride?: WorkItemMetrics;
   nodeCountsOverride?: {
     productAreaCount: number;
@@ -50,6 +51,7 @@ export function ProductOverviewDocument({
   product,
   tree,
   workItems,
+  workItemsLoaded = true,
   metricsOverride,
   nodeCountsOverride,
   activeWorkItemCountOverride,
@@ -206,6 +208,7 @@ export function ProductOverviewDocument({
               productAreaTree={productAreaTree}
               chapterNumber={index + 1}
               allWorkItems={allWorkItems}
+              workItemsLoaded={workItemsLoaded}
               references={bookReferences}
               onEditProductArea={onEditProductArea}
               onEditCapability={onEditCapability}

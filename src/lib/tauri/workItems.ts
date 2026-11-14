@@ -32,6 +32,8 @@ export const createWorkItem = (data: {
   });
 
 export const getWorkItem = (id: string) => invoke<WorkItem>("get_work_item", { id });
+export const listProductExportWorkItems = (productId: string) =>
+  invoke<WorkItem[]>("list_product_export_work_items", { productId });
 export const listWorkItemsPage = (filters?: {
   productId?: string;
   productAreaId?: string;

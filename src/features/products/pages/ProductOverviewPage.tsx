@@ -65,6 +65,11 @@ export function ProductOverviewPage() {
     treeLoading,
     treeSummary,
     workItems,
+    workItemsLoading,
+    workItemsError,
+    workItemsRequested,
+    loadWorkItems,
+    retryWorkItems,
   } = useProductOverviewPageController({
     activeProductId,
     setActiveProduct,
@@ -179,11 +184,17 @@ export function ProductOverviewPage() {
         </div>
       </div>
 
-      {selectedProduct ? (
+      {selectedProduct && !workItemsRequested ? (
+        <div style={styles.helper}>Delivery items are not loaded. <button style={styles.ghostBtn} onClick={loadWorkItems}>Load delivery items</button></div>
+      ) : null}
+      {selectedProduct && workItemsRequested && workItemsError ? (
+        <div style={styles.errorText}>Unable to load product work items: {String(workItemsError)} <button style={styles.ghostBtn} onClick={retryWorkItems}>Retry loading delivery items</button></div>
+      ) : selectedProduct ? (
         <ProductOverviewDocument
           product={selectedProduct}
           tree={tree}
           workItems={workItems}
+          workItemsLoaded={workItemsRequested && !workItemsLoading && !workItemsError}
           metricsOverride={overviewMetrics}
           nodeCountsOverride={treeSummary ? {
             productAreaCount: treeSummary.product_area_count,
@@ -192,7 +203,7 @@ export function ProductOverviewPage() {
           } : undefined}
           activeWorkItemCountOverride={selectedProductWorkItemSummary?.active_count ?? 0}
           references={productReferences}
-          isLoading={treeLoading || summariesLoading || referencesLoading}
+          isLoading={treeLoading || summariesLoading || referencesLoading || workItemsLoading}
           onEditProduct={editProduct}
           onEditProductArea={editProductArea}
           onEditCapability={editCapability}

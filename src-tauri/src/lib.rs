@@ -124,6 +124,7 @@ pub fn run() {
             commands::work_item_commands::get_work_item,
             commands::work_item_commands::list_work_items,
             commands::work_item_commands::list_work_items_page,
+            commands::work_item_commands::list_product_export_work_items,
             commands::work_item_commands::summarize_work_items_by_product,
             commands::work_item_commands::summarize_work_items_by_scope,
             commands::work_item_commands::update_work_item,

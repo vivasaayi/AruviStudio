@@ -984,6 +984,9 @@ test("browser places work in hierarchy and under a parent", async ({ page, reque
     created = page.waitForResponse((r) => r.url().endsWith("/api/mobile/work-items") && r.request().method() === "POST");
     await page.locator("#createWorkButton").click(); child = await (await created).json();
     expect(child).toMatchObject({ parent_work_item_id: parent.id, source_node_id: feature.id, source_node_type: "capability" });
+    const exportItems = await mcp("aruvi_work_items", "list_product_export_work_items", { product_id: product.id });
+    expect(exportItems.map((item) => item.id).sort()).toEqual([parent.id, scoped.id, child.id].sort());
+    expect(exportItems.find((item) => item.id === child.id).parent_work_item_id).toBe(parent.id);
   } finally {
     for (const item of [child, scoped, parent]) if (item?.id) await mcp("aruvi_work_items", "delete_work_item", { id: item.id });
     await mcp("aruvi_catalog", "archive_product", { id: other.id });

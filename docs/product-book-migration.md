@@ -1,0 +1,42 @@
+# Product Book migration checkpoint
+
+The desktop Product Book is a separate feature from the planner review packet.
+The browser and MCP do not yet have equivalent Product Book exports. Do not
+remove the desktop renderer or claim export parity until these steps pass.
+
+## Existing behavior to preserve
+
+- Docs HTML renders product narrative, hierarchy, scoped references, delivery
+  stories and tasks, metrics, navigation and status labels.
+- Book HTML, EPUB and PDF share a book renderer with chapter numbering, nested
+  hierarchy, rich text, reference atlas, index, table of contents and front/back
+  matter. EPUB has its own navigation and archive layout; PDF uses a browser
+  print step. Trim presets are trade 6×9, A5 and US Letter.
+- Product and reference data, area/capability ordering, parent/child work items,
+  status and empty-section behavior must remain product-scoped and escaped.
+  Long text, malformed markup and untrusted URLs require explicit handling.
+- Native exports currently render HTML in TypeScript and use Rust commands to
+  write files or produce PDF/EPUB. Browser downloads and MCP access need an
+  appropriate server-side artifact interface, without requiring a host path.
+
+## Work remaining
+
+- [x] Correct the desktop view/export source: fetch complete product work items
+  through a shared Rust query; expose it via MCP. The page loads delivery items
+  on request, while exports load them automatically. The query does not cap
+  results, so very large products can still consume substantial memory.
+- [ ] Define and implement a consistent product-scoped snapshot containing the
+  product, complete hierarchy, references and all work items. Current separate
+  reads can observe concurrent changes. Avoid exposing other products' references.
+- [ ] Port the Docs HTML and Book renderers to shared backend services, including
+  all rich text, reference, index, numbering, layout and trim semantics. Compare
+  output against desktop fixtures and inspect representative rendered pages.
+- [ ] Provide authenticated browser and MCP export interfaces for each supported
+  artifact. Implement EPUB and PDF with actual runtime dependencies or document
+  explicit platform limitations; do not return an incomplete artifact as success.
+- [ ] Move desktop exports to the same backend renderer and retain native file
+  save/reveal behavior. Remove the old renderer only after parity is demonstrated.
+- [ ] Validate multi-product isolation, nested stories/tasks, more than 2,000
+  work items, empty products, malformed content, concurrent edits, unauthorized
+  requests and export failures. Test all artifact formats, trim presets and the
+  actual browser download, plus native desktop behavior where available.

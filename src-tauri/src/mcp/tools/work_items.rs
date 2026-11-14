@@ -151,6 +151,10 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             "summarize_work_items_by_product",
             work_item_repo::summarize_work_items_by_product(&state.db).await?,
         ),
+        "list_product_export_work_items" => {
+            let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
+            action_result("list_product_export_work_items", work_item_repo::list_product_export_work_items(&state.db, &product_id).await?)
+        }
         "update_work_item" => {
             let id = args.required_string(&["id"], "id")?;
             let title = args.optional_string(&["title"])?;

@@ -134,10 +134,12 @@ test("product overview avoids full tree and work item loads until a chapter is o
     fullTree: window.__ARUVI_E2E__.getInvokeCallCount("get_product_tree"),
     workItems: window.__ARUVI_E2E__.getInvokeCallCount("list_work_items"),
     pagedWorkItems: window.__ARUVI_E2E__.getInvokeCallCount("list_work_items_page"),
+    exportWorkItems: window.__ARUVI_E2E__.getInvokeCallCount("list_product_export_work_items"),
   }));
   expect(overviewLoadCalls.fullTree).toBe(0);
   expect(overviewLoadCalls.workItems).toBe(0);
   expect(overviewLoadCalls.pagedWorkItems).toBe(0);
+  expect(overviewLoadCalls.exportWorkItems).toBe(0);
 
   await page.evaluate(() => window.__ARUVI_E2E__.clearInvokeCalls());
   await page.getByRole("button", { name: "Refresh Overview" }).click();

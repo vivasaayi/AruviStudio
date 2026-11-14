@@ -19,6 +19,7 @@ type CapabilityChapterProps = {
   capabilityTree: CapabilityTree;
   numbering: string;
   allWorkItems: WorkItem[];
+  workItemsLoaded: boolean;
   references: ProductReference[];
   onEditCapability: (capability: Capability) => void;
   onOpenWorkItem: (workItem: WorkItem) => void;
@@ -31,6 +32,7 @@ export function CapabilityChapter({
   capabilityTree,
   numbering,
   allWorkItems,
+  workItemsLoaded,
   references,
   onEditCapability,
   onOpenWorkItem,
@@ -77,7 +79,7 @@ export function CapabilityChapter({
             <span style={styles.summaryPill}>{capabilityTree.capability.status.replace(/_/g, " ")}</span>
             <span style={styles.summaryPill}>{capabilityTree.capability.priority} priority</span>
             <span style={styles.summaryPill}>{capabilityTree.capability.risk} risk</span>
-            <MetricPills metrics={metrics} />
+            {workItemsLoaded ? <MetricPills metrics={metrics} /> : null}
           </div>
           <div style={styles.nodeActionRow}>
             <button
@@ -176,7 +178,9 @@ export function CapabilityChapter({
 
           <ReferenceList references={capabilityReferences} title={`${capabilityType} References`} />
 
-          {directWorkItems.length > 0 ? (
+          {!workItemsLoaded ? (
+            <div style={styles.empty}>Load delivery items to view stories.</div>
+          ) : directWorkItems.length > 0 ? (
             <div>
               <div style={styles.sectionTitle}>Delivery Stories</div>
               <WorkItemTree product={product} nodes={directWorkItems} onOpenWorkItem={onOpenWorkItem} onPlanFromItem={onPlanFromItem} />
@@ -195,6 +199,7 @@ export function CapabilityChapter({
                   capabilityTree={child}
                   numbering={`${numbering}.${index + 1}`}
                   allWorkItems={allWorkItems}
+                  workItemsLoaded={workItemsLoaded}
                   references={references}
                   onEditCapability={onEditCapability}
                   onOpenWorkItem={onOpenWorkItem}

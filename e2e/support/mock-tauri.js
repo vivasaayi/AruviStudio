@@ -41,6 +41,10 @@
       name,
       description,
       purpose,
+      explanation: "",
+      examples: "",
+      implementation_notes: "",
+      test_guidance: "",
       sort_order: sortOrder,
       created_at: FIXED_TIMESTAMP,
       updated_at: FIXED_TIMESTAMP,
@@ -1574,8 +1578,10 @@
   }
 
   const invokeCalls = [];
+  let productExportFailure = false;
 
   window.__ARUVI_E2E__ = {
+    setProductExportFailure(enabled) { productExportFailure = enabled; },
     clearInvokeCalls() {
       invokeCalls.length = 0;
     },
@@ -1813,6 +1819,11 @@
             .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.title.localeCompare(b.title));
           return ok(items.slice(offset, offset + limit));
         }
+        case "list_product_export_work_items": {
+          if (productExportFailure) throw new Error("Synthetic product work-item read failure");
+          const productId = getArg(args, "productId", "product_id");
+          return ok(state.workItems.filter((item) => item.product_id === productId));
+        }
         case "list_work_items_page": {
           const offset = Math.max(0, Number(getArg(args, "offset") ?? 0));
           const rawLimit = getArg(args, "limit");
@@ -2017,6 +2028,8 @@
         case "build_planner_review_packet_command":
           return ok({ filename: "shared-design-review-packet.html", html: "<!doctype html><h1>Shared packet fixture</h1>" });
         case "export_product_overview_html":
+        case "export_product_overview_epub":
+        case "export_product_overview_pdf":
           return ok(`/tmp/aruvi-e2e/${getArg(args, "fileName", "file_name") ?? "export.html"}`);
         case "reveal_in_finder":
           return ok(null);

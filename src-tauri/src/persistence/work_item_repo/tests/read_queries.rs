@@ -1,6 +1,23 @@
 use super::*;
 
 #[tokio::test]
+async fn product_export_includes_all_pages_and_children_without_other_products() {
+    let pool = create_test_pool("product_export").await;
+    create_test_product(&pool, "book-product").await;
+    create_test_product(&pool, "other-product").await;
+    sqlx::query("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<2101) INSERT INTO work_items (id,product_id,title) SELECT 'book-' || x,'book-product','Story ' || x FROM n")
+        .execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO work_items (id,product_id,title,parent_work_item_id,work_item_type) VALUES ('book-child','book-product','Child task','book-1','task')")
+        .execute(&pool).await.unwrap();
+    create_work_item(&pool, test_work_item_input("other-item", "other-product", "Other product")).await.unwrap();
+    let items = list_product_export_work_items(&pool, "book-product").await.unwrap();
+    assert_eq!(items.len(), 2102);
+    assert!(items.iter().any(|item| item.id == "book-child" && item.parent_work_item_id.as_deref() == Some("book-1")));
+    assert!(items.iter().all(|item| item.product_id.as_deref() == Some("book-product")));
+    assert!(list_product_export_work_items(&pool, "missing-product").await.is_err());
+}
+
+#[tokio::test]
 async fn list_work_items_page_applies_limit_and_offset() {
     let pool = create_test_pool("list_page").await;
     create_test_product(&pool, "product-work-page").await;

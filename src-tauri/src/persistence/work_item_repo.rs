@@ -1,7 +1,7 @@
 pub use crate::persistence::work_item_read_repo::{
     get_sub_work_items_page, get_work_item, list_top_level_work_items_page,
     list_top_level_work_items_page_with_metadata, list_work_items_page,
-    list_work_items_page_with_metadata, search_work_items_by_title,
+    list_work_items_page_with_metadata, list_product_export_work_items, search_work_items_by_title,
     summarize_work_items_by_product, summarize_work_items_by_scope, WorkItemListQuery,
     DEFAULT_LIST_WORK_ITEMS_LIMIT, MAX_LIST_WORK_ITEMS_LIMIT,
 };

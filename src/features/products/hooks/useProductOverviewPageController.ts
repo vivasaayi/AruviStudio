@@ -4,6 +4,7 @@ import type { NavigateFunction } from "react-router-dom";
 import {
   listCapabilities,
   listProductAreas,
+  listProductExportWorkItems,
   listProductReferences,
   listProducts,
   summarizeProductTree,
@@ -121,7 +122,15 @@ export function useProductOverviewPageController({
       completion: total > 0 ? Math.round((done / total) * 100) : 0,
     };
   }, [selectedProductWorkItemSummary]);
-  const workItems = React.useMemo<WorkItem[]>(() => [], []);
+  const [requestedWorkItemsProductId, setRequestedWorkItemsProductId] = React.useState<string | null>(null);
+  const workItemsRequested = !!selectedProductId && requestedWorkItemsProductId === selectedProductId;
+  const { data: loadedWorkItems = [], isLoading: workItemsLoading, error: workItemsError, refetch: refetchWorkItems } = useQuery<WorkItem[]>({
+    queryKey: ["productOverviewWorkItems", selectedProductId],
+    queryFn: () => listProductExportWorkItems(selectedProductId!),
+    enabled: workItemsRequested,
+    retry: false,
+  });
+  const workItems = workItemsRequested ? loadedWorkItems : [];
 
   const { data: productReferences = [], isLoading: referencesLoading } = useQuery<ProductReference[]>({
     queryKey: ["productOverviewPageReferences"],
@@ -138,7 +147,6 @@ export function useProductOverviewPageController({
     setBookTrimPresetId,
   } = useProductOverviewExports({
     selectedProduct,
-    workItems,
     productReferences,
   });
 
@@ -287,5 +295,10 @@ export function useProductOverviewPageController({
     treeLoading,
     treeSummary,
     workItems,
+    workItemsLoading,
+    workItemsError,
+    workItemsRequested,
+    loadWorkItems: () => setRequestedWorkItemsProductId(selectedProductId),
+    retryWorkItems: () => { void refetchWorkItems(); },
   };
 }

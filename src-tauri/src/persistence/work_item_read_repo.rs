@@ -68,6 +68,15 @@ pub async fn list_work_items_page(
     list_work_items_internal(pool, query, false, MAX_LIST_WORK_ITEMS_LIMIT).await
 }
 
+/// Export all items for one product, including children. Unlike interactive
+/// list pages this must never silently stop at the pagination limit.
+pub async fn list_product_export_work_items(pool: &SqlitePool, product_id: &str) -> Result<Vec<WorkItem>, AppError> {
+    if product_id.trim().is_empty() { return Err(AppError::Validation("A product ID is required".into())); }
+    crate::persistence::product_repo::get_product(pool, product_id).await?;
+    sqlx::query_as::<_, WorkItem>(&format!("SELECT {WORK_ITEM_SELECT_COLUMNS} FROM work_items WHERE product_id=? ORDER BY sort_order, created_at DESC, id"))
+        .bind(product_id).fetch_all(pool).await.map_err(Into::into)
+}
+
 pub async fn list_work_items_page_with_metadata(
     pool: &SqlitePool,
     query: WorkItemListQuery<'_>,

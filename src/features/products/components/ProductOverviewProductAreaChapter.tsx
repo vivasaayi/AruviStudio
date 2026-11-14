@@ -20,6 +20,7 @@ type ProductOverviewProductAreaChapterProps = {
   productAreaTree: ProductAreaTree;
   chapterNumber: number;
   allWorkItems: WorkItem[];
+  workItemsLoaded: boolean;
   references: ProductReference[];
   onEditProductArea: (product_area: ProductArea) => void;
   onEditCapability: (capability: Capability) => void;
@@ -34,6 +35,7 @@ export function ProductOverviewProductAreaChapter({
   productAreaTree,
   chapterNumber,
   allWorkItems,
+  workItemsLoaded,
   references,
   onEditProductArea,
   onEditCapability,
@@ -117,7 +119,7 @@ export function ProductOverviewProductAreaChapter({
                   ? "Open to load sections"
                   : `${loadedChildCount} ${loadedChildCount === 1 ? "child node" : "child nodes"}`}
             </span>
-            {shouldLazyLoad && loadState !== "loaded" ? null : <MetricPills metrics={metrics} />}
+            {workItemsLoaded && !(shouldLazyLoad && loadState !== "loaded") ? <MetricPills metrics={metrics} /> : null}
           </div>
           <div style={styles.nodeActionRow}>
             <button
@@ -217,6 +219,7 @@ export function ProductOverviewProductAreaChapter({
                 capabilityTree={capabilityTree}
                 numbering={`${chapterNumber}.${index + 1}`}
                 allWorkItems={allWorkItems}
+                workItemsLoaded={workItemsLoaded}
                 references={references}
                 onEditCapability={onEditCapability}
                 onOpenWorkItem={onOpenWorkItem}

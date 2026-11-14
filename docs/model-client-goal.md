@@ -44,6 +44,20 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Product Book export data
+
+- The desktop Product Book previously passed an empty work-item array to its
+  view and exports. A product-scoped Rust query now returns all work items,
+  including child tasks, and is available through desktop and MCP. The view
+  loads delivery items on request and indicates when they are not loaded;
+  exports fetch them automatically and report read failures rather than
+  producing an incomplete file. A 2,102-item database fixture and mocked
+  desktop HTML/EPUB/PDF request checks cover the source data and product scope.
+  Very large products can consume substantial memory when explicitly loaded or
+  exported, and the separately loaded product tree, references and work items
+  do not form one consistent snapshot. The browser/MCP Product Book renderer
+  and artifact exports remain open; see [the migration plan](product-book-migration.md).
+
 ## Anthropic stream validation
 
 - The shared client rejects malformed Anthropic event envelopes and non-object
