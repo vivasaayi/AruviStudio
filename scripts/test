@@ -12,7 +12,7 @@ case "${1:-}" in
   host-speech-cycle) python3 scripts/test-host-speech-cycle ;;
   host-speech-defaults) python3 scripts/test-host-speech-defaults ;;
   local-whisper-preset) shift; python3 scripts/test-local-whisper-preset "$@" ;;
-  host-voice-browser) node scripts/test-host-voice-browser.mjs ;;
+  host-voice-browser) shift; node scripts/test-host-voice-browser.mjs "$@" ;;
   host-planner) shift; python3 scripts/test-host-planner "$@" ;;
   planner-multiprocess) python3 scripts/test-planner-multiprocess ;;
   host-coding) python3 scripts/test-host-coding ;;

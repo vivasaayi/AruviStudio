@@ -108,6 +108,11 @@ OpenAI-compatible completion profile for that Model Host provider. Choose the
 registered model in browser chat or bind it to the desired agents in Models;
 adding a provider does not change existing bindings automatically.
 
+`bash scripts/test host-voice-browser --planner` exercises synthetic browser
+recording and real Model Host transcription, then sends a corrected review
+transcript to Planner. It does not test a physical microphone or guarantee
+hands-free recognition accuracy.
+
 For DeepSeek's standalone voice API, configure an OpenAI-compatible DeepSeek
 provider with its API key. Select `deepseek-voice-transcription` for speech to
 text, or `deepseek-voice-synthesis` for speech generation. These are Studio

@@ -24,6 +24,13 @@ with a `show draft` voice turn; the response retains that selection. The suite
 also covers the existing synthetic microphone/direct-chat flow. Native view
 switch commands, physical microphone input and live-provider voice quality
 remain unverified.
+The running branch also passed `bash scripts/test host-voice-browser --planner`
+with synthetic Piper audio and real Model Host Whisper: the browser recorded and
+transcribed the audio, then a corrected review transcript reached Planner. The
+short command was misrecognized in one run, so this is not evidence of accurate
+hands-free command recognition. An initial fixture also looped the short audio;
+the test now pads it with silence. The existing longer synthetic recording
+probe passed separately. Neither probe uses a physical microphone.
 
 ### Running branch Model Host revalidation — 2026-11-14
 
