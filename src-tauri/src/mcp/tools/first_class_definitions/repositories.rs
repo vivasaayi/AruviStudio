@@ -75,7 +75,7 @@ pub(super) fn definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "repositories.workspaces.create_for_scope",
             "Create Local Workspace",
-            "Create a local workspace for a product, product area, or work item scope.",
+            "Create a new local workspace for a product, product area, or work item scope. Existing destinations are never overwritten; register an existing repository instead.",
             object_schema(
                 vec![
                     ("productId", string_property("Optional product id.")),

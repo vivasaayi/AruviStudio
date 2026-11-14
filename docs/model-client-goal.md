@@ -284,6 +284,16 @@ remain separate checks.
 
 ### Current requirement audit — 2026-11-14
 
+The workspace parity audit found that desktop and MCP workspace creation could
+overwrite files in an existing destination and remove a previous default
+repository attachment. Workspace creation now refuses existing destinations,
+including symlinks, checks the product-area scope, retains old attachments, and
+initializes a new Git repository on `main`. The isolated workflow suite passed
+40 tests, including existing-file preservation, mismatched scope, empty slugs,
+new repository creation and retry, attachment preservation, and branch checks.
+Workspace provisioning can still leave a newly created partial directory after
+an I/O or database failure; an operator must inspect it before retrying.
+
 At branch revision `aba6e547aadf8573ea0c3b07920c26348d6862b6`, the current
 shared-client source passed all 56 tests on native macOS ARM64 with Rust 1.99.1.
 The source was copied to a temporary directory and tested offline using a lock

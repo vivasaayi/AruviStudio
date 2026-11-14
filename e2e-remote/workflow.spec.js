@@ -1,6 +1,38 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
+test("workspace provisioning preserves existing paths and validates scope", async ({ request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and repository volume");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };
+  const call = async (name, action, args) => (await (await request.post("/api/mcp", { headers, data: { jsonrpc: "2.0", id: 11, method: "tools/call", params: { name, arguments: { action, arguments: args } } } })).json()).result;
+  const createProduct = async (name) => (await call("aruvi_catalog", "create_product", { name })).structuredContent.result;
+  const occupied = await createProduct("Occupied Workspace");
+  const alias = await createProduct("Alias Workspace");
+  for (const product of [occupied, alias]) {
+    const result = await call("aruvi_repositories", "create_local_workspace", { product_id: product.id, preferred_path: "/repositories" });
+    expect(result.isError).toBeTruthy();
+    expect(JSON.stringify(result.content)).toContain("Workspace path already exists");
+  }
+  const other = await createProduct("Other Product");
+  const area = (await call("aruvi_catalog", "create_product_area", { product_id: occupied.id, name: "Foreign Area" })).structuredContent.result;
+  const mismatch = await call("aruvi_repositories", "create_local_workspace", { product_id: other.id, product_area_id: area.id, preferred_path: "/repositories" });
+  expect(mismatch.isError).toBeTruthy();
+  expect(JSON.stringify(mismatch.content)).toContain("does not belong to the selected product");
+  const empty = await createProduct("☘️");
+  expect((await call("aruvi_repositories", "create_local_workspace", { product_id: empty.id, preferred_path: "/repositories" })).isError).toBeTruthy();
+  const fresh = await createProduct("Fresh Workspace");
+  const existing = (await call("aruvi_repositories", "register_repository", { name: "Existing", local_path: "/repositories/occupied-workspace" })).structuredContent.result;
+  expect((await call("aruvi_repositories", "attach_repository", { scope_type: "product", scope_id: fresh.id, repository_id: existing.id, is_default: true })).isError).not.toBeTruthy();
+  const created = await call("aruvi_repositories", "create_local_workspace", { product_id: fresh.id, preferred_path: "/repositories" });
+  expect(created.isError).not.toBeTruthy();
+  expect(created.structuredContent.result.created_path).toBe("/repositories/fresh-workspace");
+  const attachments = (await call("aruvi_repositories", "list_repository_attachments", { scope_type: "product", scope_id: fresh.id })).structuredContent.result;
+  expect(attachments).toHaveLength(2);
+  expect(attachments.find((item) => item.repository_id === existing.id).is_default).toBe(false);
+  expect(attachments.find((item) => item.repository_id === created.structuredContent.result.repository.id).is_default).toBe(true);
+  expect((await call("aruvi_repositories", "create_local_workspace", { product_id: fresh.id, preferred_path: "/repositories" })).isError).toBeTruthy();
+});
+
 for (const scenario of ["passed", "failed", "skipped"]) test(`isolated workflow records ${scenario} test execution`, async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable isolated server and simulated provider");
   test.setTimeout(180000);

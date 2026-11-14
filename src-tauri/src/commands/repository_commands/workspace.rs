@@ -55,7 +55,7 @@ pub(crate) async fn create_local_workspace_for_scope(
         let product = crate::persistence::product_repo::get_product(&state.db, &product_id).await?;
         let product_area_name = if let Some(product_area_id) = work_item.product_area_id.as_deref()
         {
-            Some(resolve_product_area_name(&state.db, product_area_id).await?)
+            Some(resolve_product_area_name(&state.db, &product_id, product_area_id).await?)
         } else {
             None
         };
@@ -71,7 +71,7 @@ pub(crate) async fn create_local_workspace_for_scope(
             product_id.ok_or_else(|| AppError::Validation("missing product id".to_string()))?;
         let product = crate::persistence::product_repo::get_product(&state.db, &product_id).await?;
         let product_area_name = if let Some(product_area_id) = product_area_id.as_deref() {
-            Some(resolve_product_area_name(&state.db, product_area_id).await?)
+            Some(resolve_product_area_name(&state.db, &product_id, product_area_id).await?)
         } else {
             None
         };
@@ -93,8 +93,16 @@ pub(crate) async fn create_local_workspace_for_scope(
         .as_ref()
         .map(|product_area| format!("{}-{}", slugify(&product_name), slugify(product_area)))
         .unwrap_or_else(|| slugify(&product_name));
+    if slugify(&product_name).is_empty() || product_area_name.as_deref().is_some_and(|name| slugify(name).is_empty()) {
+        return Err(AppError::Validation("Product and area names must contain a letter or number to create a workspace".into()));
+    }
     let workspace_path = workspace_root.join(folder_name);
-    std::fs::create_dir_all(&workspace_path)?;
+    std::fs::create_dir_all(&workspace_root)?;
+    match std::fs::create_dir(&workspace_path) {
+        Ok(()) => {},
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Err(AppError::Validation("Workspace path already exists; register the existing repository or choose another location".into())),
+        Err(error) => return Err(error.into()),
+    }
 
     let readme = format!("# {}\n\nWorkspace prepared by AruviStudio.\n", product_name);
     let gitignore = "node_product_areas/\ndist/\nbuild/\ncoverage/\n.env\n.DS_Store\n";
@@ -135,14 +143,6 @@ pub(crate) async fn create_local_workspace_for_scope(
         } else {
             ("product".to_string(), product_id.clone())
         };
-
-    sqlx::query(
-        "DELETE FROM repository_attachments WHERE scope_type = ? AND scope_id = ? AND is_default = 1",
-    )
-    .bind(&attached_scope_type)
-    .bind(&attached_scope_id)
-    .execute(&state.db)
-    .await?;
 
     let attachment_id = uuid::Uuid::new_v4().to_string();
     repository_repo::attach_repository(
@@ -188,13 +188,16 @@ fn default_workspace_root() -> PathBuf {
 
 async fn resolve_product_area_name(
     db: &sqlx::SqlitePool,
+    product_id: &str,
     product_area_id: &str,
 ) -> Result<String, AppError> {
-    sqlx::query_scalar::<_, String>("SELECT name FROM product_areas WHERE id = ?")
+    sqlx::query_scalar::<_, String>("SELECT name FROM product_areas WHERE id = ? AND product_id = ?")
         .bind(product_area_id)
-        .fetch_one(db)
+        .bind(product_id)
+        .fetch_optional(db)
         .await
-        .map_err(|error| error.into())
+        .map_err(AppError::from)?
+        .ok_or_else(|| AppError::Validation("Product area does not belong to the selected product".into()))
 }
 
 fn slugify(input: &str) -> String {
@@ -231,7 +234,7 @@ fn ensure_git_repository(workspace_path: &PathBuf, product_name: &str) -> Result
     let repo = if workspace_path.join(".git").exists() {
         GitRepository::open(workspace_path)?
     } else {
-        GitRepository::init(workspace_path)?
+        GitRepository::init_opts(workspace_path, git2::RepositoryInitOptions::new().initial_head("main"))?
     };
 
     let mut index = repo.index()?;
