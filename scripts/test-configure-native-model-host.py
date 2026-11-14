@@ -6,6 +6,7 @@ import importlib.machinery
 import io
 from pathlib import Path
 import sys
+import subprocess
 import threading
 import unittest
 import urllib.error
@@ -121,6 +122,28 @@ class WatchTests(unittest.TestCase):
             with self.assertRaises(KeyboardInterrupt):
                 module.main()
         self.assertEqual(configure.call_count, 2)
+
+    def test_subprocess_calls_have_timeouts(self):
+        with mock.patch.object(module.subprocess, "run", return_value=mock.Mock(stdout='{"result": {}}')) as run:
+            module.mcp("list_providers", {})
+            self.assertEqual(run.call_args.kwargs["timeout"], 30)
+        with mock.patch.object(module.subprocess, "check_output", side_effect=subprocess.TimeoutExpired("private-token", 15)) as call:
+            with self.assertRaises(subprocess.TimeoutExpired):
+                module.read_host(Path("."), "worktree")
+            self.assertEqual(call.call_args.kwargs["timeout"], 15)
+
+    def test_watcher_retries_subprocess_timeout_without_leaking_output(self):
+        timeout = subprocess.TimeoutExpired("synthetic-private-token", 15, output="synthetic-private-token")
+        with mock.patch.object(sys, "argv", ["configure-native-model-host", ".", "--watch", "--poll-seconds", "1"]), \
+             mock.patch.object(module, "read_host", side_effect=[timeout, (10001, "synthetic-private-token")]), \
+             mock.patch.object(module, "configure", return_value={"provider": "Fixture"}) as configure, \
+             mock.patch.object(module.time, "sleep", side_effect=[None, KeyboardInterrupt()]), \
+             contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()) as errors:
+            with self.assertRaises(KeyboardInterrupt):
+                module.main()
+        self.assertEqual(configure.call_count, 1)
+        self.assertIn("TimeoutExpired", errors.getvalue())
+        self.assertNotIn("synthetic-private-token", errors.getvalue() + output.getvalue())
 
     def test_port_change_does_not_rotate_unchanged_token(self):
         states = [(10001, "synthetic-token"), (10002, "synthetic-token"), (10002, "rotated-token")]

@@ -29,14 +29,14 @@ class RejectRedirects(urllib.request.HTTPRedirectHandler):
 def mcp(action, arguments):
     payload = json.dumps({"action": action, "arguments": arguments})
     result = subprocess.run([str(ROOT / "scripts/mcp"), "call", "aruvi_models", "-"], cwd=ROOT,
-                            input=payload, text=True, capture_output=True, check=True)
+                            input=payload, text=True, capture_output=True, check=True, timeout=30)
     return json.loads(result.stdout)["result"]
 
 
 def read_host(host, environment):
     env = dict(os.environ, ARUVI_MODEL_HOST_ENV="native")
     def info(action):
-        return json.loads(subprocess.check_output(["bash", "scripts/env", environment, action], cwd=host, env=env, text=True, stderr=subprocess.DEVNULL))
+        return json.loads(subprocess.check_output(["bash", "scripts/env", environment, action], cwd=host, env=env, text=True, stderr=subprocess.DEVNULL, timeout=15))
     plan, status = info("plan"), info("status")
     if not status["registered"] or not status.get("endpoint"):
         raise SetupError("Native Model Host is not running")
@@ -108,7 +108,7 @@ def main():
                 print(json.dumps(result), flush=True)
                 last = current
             last_error = None
-        except (OSError, ValueError, KeyError, TypeError, StopIteration, subprocess.CalledProcessError) as error:
+        except (OSError, ValueError, KeyError, TypeError, StopIteration, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
             # Neither HTTP response content nor subprocess output should reach logs.
             message = f"Unable to configure native Model Host: {error}" if isinstance(error, SetupError) else f"Unable to configure native Model Host ({type(error).__name__})"
             if not args.watch:

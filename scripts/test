@@ -7,6 +7,7 @@ case "${1:-}" in
   integration) npm run integration-test ;;
   host-layout) node scripts/test-host-layout.mjs ;;
   model-routing) python3 scripts/test-model-routing.py ;;
+  native-model-host-sync) python3 scripts/test-configure-native-model-host.py ;;
   host-planner-scope) node scripts/test-host-planner-scope.mjs ;;
   host-mcp-origin) node scripts/test-host-mcp-origin.mjs ;;
   host-speech) node scripts/test-host-speech.mjs ;;
@@ -42,5 +43,5 @@ case "${1:-}" in
       bash scripts/test-container-ci.sh
       bash scripts/test-container-workflow.sh
     fi ;;
-  *) printf '%s\n' 'Usage: scripts/test unit|integration|ui|staging|host-layout|model-routing|host-planner-scope|host-mcp-origin|host-speech|host-speech-cycle|host-speech-defaults|local-whisper-preset|host-voice-browser|host-planner|planner-multiprocess|host-coding|native-model-host|host-coding-ui|host-file-copilot|host-coding-workflow|shared-client-consumer|host-shared-client' >&2; exit 2 ;;
+  *) printf '%s\n' 'Usage: scripts/test unit|integration|ui|staging|host-layout|model-routing|native-model-host-sync|host-planner-scope|host-mcp-origin|host-speech|host-speech-cycle|host-speech-defaults|local-whisper-preset|host-voice-browser|host-planner|planner-multiprocess|host-coding|native-model-host|host-coding-ui|host-file-copilot|host-coding-workflow|shared-client-consumer|host-shared-client' >&2; exit 2 ;;
 esac
