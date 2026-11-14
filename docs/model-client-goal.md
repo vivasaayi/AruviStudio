@@ -46,6 +46,16 @@ provider hosting into the model-host service as part of this work.
 
 ## Browser planner node review
 
+- Suggested prompts now come from one Rust service used by the native desktop
+  command, authenticated browser API and MCP `suggest_planner_prompts` action.
+  Selecting a browser suggestion fills the composer without submitting it. The
+  browser ignores responses for a previously selected node. Legacy product-area
+  metadata is now classified before generic product metadata.
+- The Rust suggestion test, 90 frontend unit tests, 22 remote UI cases and five
+  mocked desktop planner cases passed. Browser and MCP responses were compared
+  in an authenticated fixture, and the running branch MCP action returned the
+  expected result. The desktop harness mocks the native command; actual native
+  window interaction remains unverified.
 - The browser displays the selected draft node's path, type, summary, source,
   confidence and evidence as text. A response explicitly clearing the selected
   node now clears both the browser state and persisted selection instead of

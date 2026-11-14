@@ -5,11 +5,11 @@ export function parseDraftNodeType(meta?: string | null) {
   if (!meta) {
     return "node";
   }
-  if (meta.includes("product")) {
-    return "product";
-  }
   if (meta.includes("product area") || meta.includes("product_area")) {
     return "product area";
+  }
+  if (meta.includes("product")) {
+    return "product";
   }
   if (meta.includes("capability")) {
     return "capability";
@@ -279,47 +279,6 @@ export function buildDraftValidation(nodes: PlannerTreeNode[]): DraftValidationS
   const warningCount = issues.filter((issue) => issue.tone === "warn").length;
   const score = Math.max(35, 100 - warningCount * 12);
   return { score, counts, issues };
-}
-
-export function buildSuggestedPrompts(node: PlannerTreeNode | null): string[] {
-  if (!node) {
-    return [
-      "Design the selected product's product areas, capabilities, features, and starter stories in one review packet.",
-      "Show me what is missing in this design before I apply it.",
-    ];
-  }
-  const resolvedNodeType = getPlannerNodeType(node);
-  switch (resolvedNodeType) {
-    case "product":
-      return [
-        `Expand ${node.label} with missing capabilities and operational areas.`,
-        `What is missing under ${node.label} before I apply it?`,
-        `Add notification, reporting, and integration capabilities under ${node.label}.`,
-      ];
-    case "product area":
-      return [
-        `Enhance ${node.label} with 3 concrete capabilities.`,
-        `Break ${node.label} into capabilities, features, and starter stories.`,
-        `What risks or missing features exist under ${node.label}?`,
-      ];
-    case "capability":
-      return [
-        `Add implementation stories and tasks under ${node.label}.`,
-        `Revise ${node.label} to be more concrete and execution-ready.`,
-        `What acceptance criteria or technical notes are missing for ${node.label}?`,
-      ];
-    case "work item":
-      return [
-        `Revise ${node.label} to be more specific and testable.`,
-        `Split ${node.label} into smaller stories or tasks if needed.`,
-        `Add risks, constraints, and acceptance criteria to ${node.label}.`,
-      ];
-    default:
-      return [
-        `Expand ${node.label}.`,
-        `What is missing under ${node.label}?`,
-      ];
-  }
 }
 
 export function getAllowedDraftChildTypes(node: PlannerTreeNode | null): PlannerDraftChildType[] {

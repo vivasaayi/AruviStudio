@@ -9,6 +9,11 @@ use crate::state::AppState;
 use tauri::State;
 
 #[tauri::command]
+pub fn planner_suggested_prompts_command(node: Option<crate::services::planner_suggestions::SuggestionNode>) -> Vec<String> {
+    crate::services::planner_suggestions::suggested_prompts(node.as_ref())
+}
+
+#[tauri::command]
 pub async fn build_planner_review_packet_command(
     state: State<'_, AppState>, session_id: String,
     expected_nodes: Vec<crate::services::planner_types::PlannerTreeNode>, selected_node_id: Option<String>,

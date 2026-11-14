@@ -113,6 +113,11 @@ test("planner shows selected node evidence and honors server-cleared selection",
   await page.addInitScript(() => localStorage.setItem("aruvi.remote.token", "synthetic-token"));
   await page.route("**/api/mobile/products", (route) => route.fulfill({ json: [] }));
   await page.route("**/api/mobile/planner/sessions", (route) => route.fulfill({ json: { session_id: "details-session" } }));
+  await page.route("**/api/mobile/planner/suggestions", async (route) => {
+    const node = route.request().postDataJSON().node;
+    if (node.label === "Area") await new Promise((resolve) => setTimeout(resolve, 300));
+    await route.fulfill({ json: [`Prompt for ${node.label}`] });
+  });
   const requests = [];
   await page.route("**/api/mobile/planner/sessions/*/turn", (route) => {
     requests.push(route.request().postDataJSON());
@@ -123,6 +128,12 @@ test("planner shows selected node evidence and honors server-cleared selection",
   await expect(page.locator("#plannerProductSelect")).toBeEnabled();
   async function send(text) { await page.locator("#composer").fill(text); await page.locator("#sendButton").click(); }
   await send("Create draft");
+  const stale = page.waitForResponse((response) => response.url().endsWith("/planner/suggestions") && response.request().postDataJSON().node.label === "Area");
+  await page.locator("#draftTree button").filter({ hasText: "Area" }).click();
+  await page.locator("#draftTree button").first().click();
+  await stale;
+  await expect(page.locator("#draftNodeDetails")).toContainText("Prompt for Product");
+  await expect(page.locator("#draftNodeDetails")).not.toContainText("Prompt for Area");
   await page.locator("#draftTree button").filter({ hasText: "Area" }).click();
   const details = page.locator("#draftNodeDetails");
   await expect(details).toContainText("Path: Product / Area");
@@ -167,6 +178,14 @@ test("browser edits a real planner draft through the authenticated API", async (
     await expect(page.locator("#draftTree")).toContainText("Draft area");
     await expect(page.locator("#draftNodeDetails")).toContainText("Reviewable design details fixture");
     await expect(page.locator("#draftNodeDetails")).toContainText("Renamed draft / Draft area");
+    const suggestionPayload = { node: { label: "Draft area", node_type: "product_area", meta: null } };
+    expect((await request.post("/api/mobile/planner/suggestions", { data: suggestionPayload })).status()).toBe(401);
+    const suggested = await (await request.post("/api/mobile/planner/suggestions", { headers, data: suggestionPayload })).json();
+    const mcpSuggested = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` }, data: { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "aruvi_planner", arguments: { action: "suggest_planner_prompts", arguments: suggestionPayload } } } });
+    expect((await mcpSuggested.json()).result.structuredContent.result).toEqual(suggested);
+    expect(suggested[0]).toBe("Enhance Draft area with 3 concrete capabilities.");
+    await page.getByRole("button", { name: suggested[0], exact: true }).click();
+    await expect(page.locator("#composer")).toHaveValue(suggested[0]);
     await page.getByRole("button", { name: "Validate design" }).click();
     await expect(page.locator("#draftValidation")).toContainText("Readiness: 88/100");
     await expect(page.locator("#draftValidation")).toContainText("Draft area is empty");

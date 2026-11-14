@@ -18,6 +18,10 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
     let args = tool_action.args();
 
     match tool_action.action.as_str() {
+        "suggest_planner_prompts" => {
+            let node: Option<crate::services::planner_suggestions::SuggestionNode> = args.optional_deserialize(&["node"], "node")?;
+            action_result("suggest_planner_prompts", crate::services::planner_suggestions::suggested_prompts(node.as_ref()))
+        }
         "create_planner_session" => action_result(
             "create_planner_session",
             create_planner_session(

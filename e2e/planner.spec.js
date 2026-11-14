@@ -124,3 +124,21 @@ test("planner displays validation returned by the shared native command", async 
   await expect(page.getByText("Shared service validation")).toBeVisible();
   await expect(page.getByText("Validated 1 roots")).toBeVisible();
 });
+
+test("planner uses suggested prompts from the shared native command", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => {
+    const bridge = window.__ARUVI_E2E__;
+    const original = bridge.invoke;
+    bridge.invoke = (command, args) => command === "planner_suggested_prompts_command"
+      ? [`Shared suggestion for ${args.node?.label}`]
+      : original(command, args);
+  });
+  await page.getByLabel("Planner product").selectOption("example-product-calculator");
+  await page.getByTestId("planner-input").fill("Design input, history, reporting, and expression product areas for this product");
+  await page.getByTestId("planner-send").click();
+  await page.getByTestId("planner-view-draft").click();
+  await page.getByTestId("draft-node-draft-product_area-input-experience").click();
+  await page.getByRole("button", { name: "Shared suggestion for Input Experience" }).click();
+  await expect(page.getByTestId("planner-input")).toHaveValue("Shared suggestion for Input Experience");
+});

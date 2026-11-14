@@ -13,6 +13,9 @@ export const buildPlannerReviewPacket = (sessionId: string, expectedNodes: unkno
 export const validatePlannerTree = <T>(nodes: unknown[]) =>
   invoke<T>("validate_planner_tree_command", { nodes });
 
+export const plannerSuggestedPrompts = (node: { label: string; node_type?: string | null; meta?: string | null } | null) =>
+  invoke<string[]>("planner_suggested_prompts_command", { node });
+
 // Planner commands
 export const createPlannerSession = (data?: { providerId?: string; modelName?: string }) =>
   invoke<PlannerSessionInfo>("create_planner_session_command", {

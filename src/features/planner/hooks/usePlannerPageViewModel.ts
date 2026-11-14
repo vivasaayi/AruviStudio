@@ -8,6 +8,7 @@ import {
   listProviders,
   listRepositories,
   listWorkItemsPage,
+  plannerSuggestedPrompts,
   validatePlannerTree,
 } from "../../../lib/tauri";
 import type { ProductArea } from "../../../lib/types";
@@ -18,7 +19,6 @@ import {
   buildDraftValidation,
   buildPlannerStatusSummary,
   buildProductAreaOnlyTree,
-  buildSuggestedPrompts,
   findLatestAssistantMessage,
   findLatestDraftPlan,
   findRelevantPlanActions,
@@ -127,10 +127,13 @@ export function usePlannerPageViewModel({
     () => findLatestDraftPlan(messages, pendingPlan),
     [messages, pendingPlan],
   );
-  const selectedDraftNodePrompts = useMemo(
-    () => buildSuggestedPrompts(selectedDraftNode),
-    [selectedDraftNode],
-  );
+  const { data: sharedSuggestions } = useQuery({
+    queryKey: ["plannerSuggestedPrompts", selectedDraftNode?.label, selectedDraftNode?.node_type, selectedDraftNode?.meta],
+    queryFn: () => plannerSuggestedPrompts(selectedDraftNode ? { label: selectedDraftNode.label, node_type: selectedDraftNode.node_type, meta: selectedDraftNode.meta } : null),
+    staleTime: Infinity,
+    retry: false,
+  });
+  const selectedDraftNodePrompts = sharedSuggestions ?? [];
   const allowedDraftChildTypes = useMemo(
     () => getAllowedDraftChildTypes(selectedDraftNode),
     [selectedDraftNode],

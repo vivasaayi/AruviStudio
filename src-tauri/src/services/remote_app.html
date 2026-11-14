@@ -1212,6 +1212,7 @@
       el.refreshPlannerRepositoriesButton.disabled = nextBusy;
       el.analyzePlannerRepositoryButton.disabled = nextBusy;
       el.draftTree.querySelectorAll("button").forEach((button) => { button.disabled = nextBusy; });
+      document.getElementById("draftNodeDetails").querySelectorAll("button").forEach((button) => { button.disabled = nextBusy; });
       const hasSelectedDraftNode = (nodes) => nodes.some((node) => node.id === state.selectedNodeId || hasSelectedDraftNode(node.children || []));
       [el.renameDraftNodeButton, el.addDraftChildButton, el.deleteDraftNodeButton].forEach((button) => { button.disabled = nextBusy || !state.sessionId || !hasSelectedDraftNode(state.draftTreeNodes); });
       el.validateDraftButton.disabled = nextBusy || !state.sessionId;
@@ -1571,8 +1572,10 @@
       }
     }
 
+    let suggestionRequestId = 0;
     function renderDraftTree() {
       el.draftTree.innerHTML = "";
+      const requestId = ++suggestionRequestId;
       const details = document.getElementById("draftNodeDetails");
       details.replaceChildren();
       function findPath(nodes, id, path = []) {
@@ -1600,6 +1603,18 @@
         addDetail("Source", node.source);
         addDetail("Confidence", node.confidence);
         if (Array.isArray(node.evidence)) node.evidence.forEach((item) => { if (typeof item === "string") addDetail("Evidence", item); });
+        const suggestions = document.createElement("div"); suggestions.className = "stack";
+        suggestions.textContent = "Loading suggested prompts…"; details.appendChild(suggestions);
+        void request("/api/mobile/planner/suggestions", { method: "POST", body: { node: { label: node.label || "Untitled", node_type: node.node_type || null, meta: node.meta || null } } }).then((prompts) => {
+          if (requestId !== suggestionRequestId) return;
+          suggestions.replaceChildren();
+          if (!Array.isArray(prompts) || !prompts.every((prompt) => typeof prompt === "string")) throw new Error("Invalid suggested prompts");
+          const title = document.createElement("div"); title.textContent = "Suggested prompts"; suggestions.appendChild(title);
+          prompts.forEach((prompt) => {
+            const button = document.createElement("button"); button.type = "button"; button.className = "secondary"; button.textContent = prompt; button.disabled = state.busy;
+            button.addEventListener("click", () => { el.composer.value = prompt; el.composer.focus(); }); suggestions.appendChild(button);
+          });
+        }).catch(() => { if (requestId === suggestionRequestId) suggestions.textContent = "Suggested prompts unavailable."; });
       } else details.textContent = "Select a draft node to inspect its details.";
       if (!state.draftTreeNodes.length) {
         const empty = document.createElement("div");

@@ -227,6 +227,7 @@ pub fn run() {
             // Planner commands
             commands::planner_commands::build_planner_review_packet_command,
             commands::planner_commands::validate_planner_tree_command,
+            commands::planner_commands::planner_suggested_prompts_command,
             commands::planner_commands::create_planner_session_command,
             commands::planner_commands::update_planner_session_command,
             commands::planner_commands::clear_planner_pending_command,
