@@ -3629,3 +3629,15 @@ A cross-workspace follow-up passed the native hard-link identity fixture and all
   before implementing them. Do not equate ChatGPT subscriptions with API access.
 - Preserve the previously audited planner concurrency and parity gaps; this goal
   does not imply those have already been solved.
+
+## Agent run failure checkpoint
+
+On 2026-11-14, agent preparation and successful-output persistence failures were
+changed to mark the already-created agent run as failed and record the error.
+A database failure during that status update, process termination, or task
+cancellation can still leave a running record requiring recovery. A coding-stage
+fixture forces a preparation database error before any model call and an output
+artifact insertion failure after execution; both produce failed runs. The full
+native library suite passed (261 passed, 7 ignored). The running branch image
+does not yet contain this change: Docker reported only 731 MB available, so a
+rebuild was deferred to avoid exhausting space used by other projects.

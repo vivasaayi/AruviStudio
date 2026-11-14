@@ -361,5 +361,31 @@ async fn coding_stage_creates_tool_trace_artifact() {
     assert!(service.run_agent_for_stage(&retained.id, "coding").await.is_err());
     assert_eq!(std::fs::read_dir(&workspace_dir).unwrap().count(), 2, "keep_workspace=true must retain a failed workspace");
 
+    // A preparation failure occurs after the run is created but before a model
+    // call. It must be visible as a failed run rather than a perpetual one.
+    let preparation = workflow_repo::create_workflow_run(&pool, "test-preparation-failure", &work_item.id).await.unwrap();
+    sqlx::query("ALTER TABLE skills RENAME TO unavailable_skills").execute(&pool).await.unwrap();
+    let error = service.run_agent_for_stage(&preparation.id, "coding").await.unwrap_err();
+    sqlx::query("ALTER TABLE unavailable_skills RENAME TO skills").execute(&pool).await.unwrap();
+    let runs = agent_repo::list_agent_runs_for_workflow(&pool, &preparation.id).await.unwrap();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].status, crate::domain::agent::AgentRunStatus::Failed);
+    assert_eq!(runs[0].error_message.as_deref(), Some(error.to_string().as_str()));
+    assert!(runs[0].ended_at.is_some());
+    assert!(crate::persistence::model_call_repo::list_model_calls_for_workflow(&pool, &preparation.id).await.unwrap().is_empty());
+
+    // A persistence failure after model execution must likewise finish the run.
+    sqlx::query("CREATE TRIGGER reject_test_prompt BEFORE INSERT ON artifacts WHEN NEW.artifact_type = 'coding_prompt' BEGIN SELECT RAISE(FAIL, 'prompt storage unavailable'); END")
+        .execute(&pool).await.unwrap();
+    let output_failure = workflow_repo::create_workflow_run(&pool, "test-output-failure", &work_item.id).await.unwrap();
+    AgentService::set_test_model_outputs_for_workflow(&output_failure.id, vec![json!({"type":"final", "summary":"No change required", "no_changes_needed":true}).to_string()]);
+    let error = service.run_agent_for_stage(&output_failure.id, "coding").await.unwrap_err();
+    assert!(error.to_string().contains("prompt storage unavailable"));
+    let runs = agent_repo::list_agent_runs_for_workflow(&pool, &output_failure.id).await.unwrap();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].status, crate::domain::agent::AgentRunStatus::Failed);
+    assert!(runs[0].error_message.as_deref().unwrap().contains("prompt storage unavailable"));
+    assert!(runs[0].ended_at.is_some());
+
     let _ = std::fs::remove_dir_all(temp_root);
 }

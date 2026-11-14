@@ -135,27 +135,36 @@ impl AgentService {
         )
         .await?;
 
-        self.store_manager_handoff(&work_item, &workflow_run, stage_name, &execution_context)
-            .await?;
-
-        // Build context and prompt
-        let context = self
-            .build_agent_context(
-                &work_item,
-                &workflow_run,
+        let preparation = async {
+            self.store_manager_handoff(&work_item, &workflow_run, stage_name, &execution_context)
+                .await?;
+            let context = self
+                .build_agent_context(
+                    &work_item,
+                    &workflow_run,
+                    stage_name,
+                    &execution_context,
+                    &boundaries,
+                    context_budget_chars,
+                )
+                .await?;
+            agent_prompt::build_agent_prompt(
+                &execution_context.stage_agent,
+                &context,
                 stage_name,
                 &execution_context,
                 &boundaries,
-                context_budget_chars,
             )
-            .await?;
-        let prompt = agent_prompt::build_agent_prompt(
-            &execution_context.stage_agent,
-            &context,
-            stage_name,
-            &execution_context,
-            &boundaries,
-        )?;
+        }
+        .await;
+        let prompt = match preparation {
+            Ok(prompt) => prompt,
+            Err(error) => {
+                agent_repo::update_agent_run_failure(&self.db, &agent_run_id, &error.to_string())
+                    .await?;
+                return Err(error);
+            }
+        };
 
         // Execute the agent
         let execution_result = if stage_name == "coding" {
@@ -183,9 +192,14 @@ impl AgentService {
 
         match execution_result {
             Ok(processed_output) => {
-                // Store the output as an artifact
-                self.store_agent_output(&agent_run, &prompt, &processed_output)
-                    .await?;
+                if let Err(error) = self
+                    .store_agent_output(&agent_run, &prompt, &processed_output)
+                    .await
+                {
+                    agent_repo::update_agent_run_failure(&self.db, &agent_run_id, &error.to_string())
+                        .await?;
+                    return Err(error);
+                }
 
                 // Update agent run as completed
                 agent_repo::update_agent_run_status(
