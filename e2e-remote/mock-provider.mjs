@@ -183,6 +183,13 @@ const server = http.createServer((request, response) => {
       if (request.headers.authorization !== "Bearer synthetic-deepseek-key" || !body.includes('name="file"') || body.includes('name="model"') || body.includes('name="language"')) { response.statusCode = 400; return response.end(); }
       response.end(JSON.stringify({ text: "DeepSeek fixture transcript", duration_ms: 100 }));
     });
+  } else if (request.method === "POST" && request.url === "/locale-default/v1/audio/transcriptions") {
+    const chunks = []; request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      const body = Buffer.concat(chunks);
+      if (!body.includes('name="language"\r\n\r\nta\r\n')) { response.statusCode = 400; return response.end(); }
+      response.end(JSON.stringify({ text: "Saved locale transcript" }));
+    });
   } else if (request.method === "POST" && request.url === "/custom-voice/v1/audio/transcriptions") {
     const chunks = []; request.on("data", (chunk) => chunks.push(chunk));
     request.on("end", () => {

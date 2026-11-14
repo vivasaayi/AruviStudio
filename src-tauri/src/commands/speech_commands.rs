@@ -40,7 +40,7 @@ pub async fn transcribe_audio_command(
     let request = SpeechToTextRequest {
         audio_bytes_base64,
         mime_type,
-        locale: locale.or(settings_repo::get_setting(&state.db, SPEECH_LOCALE_KEY).await?),
+        locale: locale.filter(|value| !value.trim().is_empty()).or(settings_repo::get_setting(&state.db, SPEECH_LOCALE_KEY).await?),
     };
     let provider = model_repo::get_provider(&state.db, &provider_id).await?;
     transcribe_audio_with_provider(&provider, &model_name, request).await
@@ -90,14 +90,16 @@ mod tests {
             let len: usize = headers.lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().trim().parse().unwrap();
             while bytes.len() < end + len { let n = socket.read(&mut buffer).unwrap(); assert_ne!(n, 0); bytes.extend_from_slice(&buffer[..n]); }
             assert!(bytes[end..end + len].windows(b"custom-voice-v2".len()).any(|part| part == b"custom-voice-v2"));
+            assert!(bytes[end..end + len].windows(b"name=\"language\"\r\n\r\nta\r\n".len()).any(|part| part == b"name=\"language\"\r\n\r\nta\r\n"));
             let response = r#"{"text":"desktop custom transcript"}"#;
             write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).unwrap();
         });
         let app = crate::commands::test_helpers::make_test_app("desktop_custom_speech").await;
         let state = app.state::<AppState>();
         model_repo::create_provider(&state.db, "custom-speech", "Custom speech", "openai_compatible", &format!("http://{address}"), None).await.unwrap();
+        settings_repo::set_setting(&state.db, SPEECH_LOCALE_KEY, "ta-IN").await.unwrap();
         let response = transcribe_audio_command(state, Some("custom-speech".into()), Some("custom-voice-v2".into()),
-            base64::engine::general_purpose::STANDARD.encode(b"synthetic audio"), "audio/wav".into(), None).await.unwrap();
+            base64::engine::general_purpose::STANDARD.encode(b"synthetic audio"), "audio/wav".into(), Some("  ".into())).await.unwrap();
         assert_eq!(response.transcript, "desktop custom transcript");
         server.join().unwrap();
     }

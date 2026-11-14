@@ -58,6 +58,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                     mime_type: args.required_string(&["mime_type", "mimeType"], "mime_type")?,
                     locale: args
                         .optional_string(&["locale"])?
+                        .filter(|value| !value.trim().is_empty())
                         .or(settings_repo::get_setting(&state.db, "speech.locale").await?),
                 },
             )

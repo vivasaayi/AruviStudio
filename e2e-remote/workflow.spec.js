@@ -168,6 +168,30 @@ test("custom transcription model IDs work through browser API and MCP", async ({
   expect(result.structuredContent.result.transcript).toBe("Custom model transcript");
 });
 
+test("blank transcription locale uses the saved locale through browser API and MCP", async ({ request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const mcpHeaders = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };
+  const mcp = async (name, action, arguments_) => (await (await request.post("/api/mcp", { headers: mcpHeaders, data: { jsonrpc: "2.0", id: 24, method: "tools/call", params: { name, arguments: { action, arguments: arguments_ } } } })).json()).result;
+  const previous = (await mcp("aruvi_settings", "get_setting", { key: "speech.locale" })).structuredContent.result.value;
+  const base_url = process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/locale-default/v1");
+  const providerResponse = await request.post("/api/mobile/providers", { headers, data: { name: "Saved locale fixture", base_url } });
+  expect(providerResponse.ok()).toBeTruthy();
+  const provider = await providerResponse.json();
+  const payload = { provider_id: provider.id, model_name: "fixture", audio_bytes_base64: Buffer.from("synthetic audio").toString("base64"), mime_type: "audio/wav", locale: "  " };
+  try {
+    expect((await mcp("aruvi_settings", "set_setting", { key: "speech.locale", value: "ta-IN" })).isError).not.toBeTruthy();
+    const browser = await request.post("/api/mobile/speech/transcribe", { headers, data: payload });
+    expect(browser.ok(), await browser.text()).toBeTruthy();
+    expect((await browser.json()).transcript).toBe("Saved locale transcript");
+    const result = await mcp("aruvi_speech", "transcribe_audio", payload);
+    expect(result.isError, JSON.stringify(result)).not.toBeTruthy();
+    expect(result.structuredContent.result.transcript).toBe("Saved locale transcript");
+  } finally {
+    await mcp("aruvi_settings", "set_setting", { key: "speech.locale", value: previous ?? "" });
+  }
+});
+
 test("model-only chat selects the registered provider and rejects ambiguous routes", async ({ request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated providers");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
