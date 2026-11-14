@@ -21,10 +21,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let page = gateway.list_models_page(None).await?;
     if !page.models.iter().any(|entry| entry.id == model) { return Err("Requested model not advertised".into()); }
     let response = gateway.run_completion(request(&model, "Reply with the word ready.", 100)).await?;
-    if response.content.trim().is_empty() { return Err("Empty completion".into()); }
+    if !response.content.to_lowercase().contains("ready") { return Err("Completion did not answer the fixture prompt".into()); }
     let mut chunks = 0;
-    let stream = gateway.stream_completion(request(&model, "Reply with the word ready.", 100), &mut |_| { chunks += 1; }).await?;
-    if stream.content.trim().is_empty() || chunks == 0 { return Err("Empty streamed completion".into()); }
+    let mut emitted = String::new();
+    let stream = gateway.stream_completion(request(&model, "Reply with the word ready.", 100), &mut |delta| { chunks += 1; emitted.push_str(delta); }).await?;
+    if chunks == 0 || emitted != stream.content || !stream.content.to_lowercase().contains("ready") {
+        return Err("Stream chunks or completed response did not match the fixture prompt".into());
+    }
     if std::env::var_os("ARUVI_PROBE_JSON_MODE").is_some() {
         let json = gateway.run_json_completion(request(&model, "Return a JSON object with type set to final and summary set to ready.", 100)).await?;
         if json.content.trim().is_empty() { return Err("Empty JSON completion".into()); }

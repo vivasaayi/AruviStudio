@@ -44,6 +44,17 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Independent client revalidation
+
+- The public Git-pinned consumer at `ecad3179607859044ffeca6de2139f70e0cb9236`
+  has the same client source as the current branch (only the crate README has
+  changed). Its clean vendored, network-disabled build passed 14 tests. Its
+  separate container then used the native `qwen25-coder-7b-q4` Model Host for
+  discovery, text completion, streamed completion, JSON-object mode and a
+  token-limit error. The live probe now checks the requested answer and verifies
+  that concatenated stream callbacks equal the final response. This is one local
+  model and does not validate live third-party providers or general quality.
+
 ## Browser model discovery
 
 - Authenticated MCP `aruvi_models.get_provider_transport_capabilities` and the
