@@ -41,7 +41,13 @@ impl AnthropicClient {
         if matches!(kind, "tool_use" | "server_tool_use") || kind.ends_with("_tool_result") {
             return Err(ClientError::Provider("Anthropic tool-use responses are not supported by the text client".into()));
         }
-        Ok(())
+        match kind {
+            "text" if block.get("text").is_some_and(Value::is_string) => Ok(()),
+            // Thinking blocks are not returned to text callers. They are safe to
+            // omit outside tool-use turns, which this client rejects separately.
+            "thinking" | "redacted_thinking" => Ok(()),
+            _ => Err(ClientError::Provider("Anthropic returned an unsupported or invalid content block".into())),
+        }
     }
 
     // Some compatible proxies omit stop_reason. When supplied, never let a
@@ -154,7 +160,7 @@ impl StreamState {
                 self.output_tokens = event.pointer("/usage/output_tokens").and_then(Value::as_i64).or(self.output_tokens);
             }
             Some("content_block_start") => {
-                if let Some(block) = event.get("content_block") { AnthropicClient::reject_tool_block(block)?; }
+                AnthropicClient::reject_tool_block(event.get("content_block").unwrap_or(&Value::Null))?;
                 if event.pointer("/content_block/type").and_then(Value::as_str) == Some("text") {
                     if let Some(text) = event.pointer("/content_block/text").and_then(Value::as_str).filter(|text| !text.is_empty()) {
                         self.content.push_str(text); on_delta(text);
@@ -165,6 +171,10 @@ impl StreamState {
                 let text = event.pointer("/delta/text").and_then(Value::as_str).ok_or_else(|| ClientError::Provider("Invalid Anthropic text delta".into()))?;
                 self.content.push_str(text); on_delta(text);
             }
+            Some("content_block_delta") => match event.pointer("/delta/type").and_then(Value::as_str) {
+                Some("thinking_delta" | "signature_delta" | "citations_delta") => {},
+                _ => return Err(ClientError::Provider("Anthropic returned an unsupported or invalid content delta".into())),
+            },
             Some("error") => return Err(ClientError::Provider("Anthropic stream returned an error".into())),
             Some("message_stop") => self.stopped = true,
             _ => {} // Ping and future event types may be safely ignored.
@@ -405,6 +415,22 @@ mod tests {
             assert!(client.run_completion(request).await.is_err(), "completion accepted {kind}");
             server.join().unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn rejects_invalid_mixed_content_and_accepts_thinking_blocks() {
+        for block in [json!({"type":"text","text":null}), json!({"type":"future_block"})] {
+            let body = format!("data: {{\"type\":\"content_block_delta\",\"delta\":{{\"type\":\"text_delta\",\"text\":\"partial\"}}}}\n\ndata: {{\"type\":\"content_block_start\",\"content_block\":{block}}}\n\ndata: {{\"type\":\"message_stop\"}}\n\n");
+            let (result, chunks) = stream_fixture(&body).await;
+            assert_eq!(chunks, ["partial"]);
+            assert!(result.is_err());
+            assert!(AnthropicClient::reject_tool_block(&block).is_err());
+        }
+        for block in [json!({"type":"thinking","thinking":"private","signature":"opaque"}), json!({"type":"redacted_thinking","data":"opaque"})] {
+            assert!(AnthropicClient::reject_tool_block(&block).is_ok());
+        }
+        let body = "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}\n\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{}\"}}\n\ndata: {\"type\":\"message_stop\"}\n\n";
+        assert!(stream_fixture(body).await.0.is_err());
     }
 
     #[tokio::test]

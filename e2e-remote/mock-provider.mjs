@@ -60,6 +60,10 @@ const server = http.createServer((request, response) => {
       catch { response.statusCode = 400; return response.end(JSON.stringify({ error: "Invalid workflow request" })); }
       response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content } }], usage: { prompt_tokens: 12, completion_tokens: 4 } }));
     });
+  } else if (request.method === "POST" && request.url === "/malformed/v1/chat/completions") {
+    request.resume(); request.on("end", () => response.end(JSON.stringify({ choices: [{ message: { content: [{ type: "text", text: "partial" }, { type: "image", url: "fixture" }] }, finish_reason: "stop" }] })));
+  } else if (request.method === "POST" && request.url === "/anthropic-malformed/v1/messages") {
+    request.resume(); request.on("end", () => response.end(JSON.stringify({ content: [{ type: "text", text: "partial" }, { type: "text", text: null }], stop_reason: "end_turn" })));
   } else if (request.method === "POST" && request.url === "/anthropic/v1/messages") {
     const chunks = []; request.on("data", (chunk) => chunks.push(chunk));
     request.on("end", () => {

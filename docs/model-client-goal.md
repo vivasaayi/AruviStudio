@@ -76,6 +76,21 @@ provider hosting into the model-host service as part of this work.
   (one model call, no format retries). Other repositories and model behavior
   remain unverified.
 
+## Mixed provider content validation
+
+- The shared client rejects malformed or unsupported OpenAI-compatible content
+  parts and multipart streaming deltas instead of silently returning incomplete
+  text. Anthropic responses reject invalid or unsupported content blocks and
+  deltas; documented thinking blocks remain omitted from text-only responses,
+  and tool use remains unsupported. A stream may have delivered partial text
+  before returning an error.
+- All 41 shared-client tests and 23 isolated workflow cases passed, including
+  simulated malformed responses through both web and MCP. The rebuilt worktree
+  is healthy; real 7B Model Host browser streaming returned coding output. These
+  tests do not establish live Anthropic or other third-party behavior.
+- Anthropic's [Messages reference](https://platform.claude.com/docs/en/api/messages/create)
+  describes the text, thinking, redacted-thinking and tool content blocks.
+
 ## Real coding workflow revalidation
 
 - On the current branch, a real `qwen25-coder-7b-q4` JSON-mode extend-module

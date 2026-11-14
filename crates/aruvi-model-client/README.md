@@ -19,6 +19,13 @@ before the terminal error.
 For Anthropic, client tool calls, server-side tool calls and tool-result blocks
 are rejected even when the provider reports a completed turn. A streaming
 callback may already have received partial text before that error.
+Mixed Anthropic content rejects invalid or unsupported blocks instead of returning
+partial text as a complete response. Documented `thinking` and `redacted_thinking`
+blocks are omitted from text-only responses; tool-use turns remain unsupported.
+OpenAI-compatible multipart messages likewise reject unsupported or malformed parts,
+and multipart streaming deltas are rejected instead of silently dropped.
+See the [Anthropic Messages reference](https://platform.claude.com/docs/en/api/messages/create)
+for provider content-block types.
 For Anthropic, a supplied stop reason indicating token truncation, a paused turn,
 a refusal, tool use, or an unknown outcome is returned as an error instead of a
 completed text response. Some compatible proxies omit stop reasons; their absence

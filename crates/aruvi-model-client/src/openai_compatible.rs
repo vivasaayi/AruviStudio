@@ -157,6 +157,15 @@ impl OpenAiCompatibleClient {
         if message.and_then(|value| value.get("refusal")).is_some_and(|value| !value.is_null()) {
             return Err(ClientError::Provider("Model refused the request".into()));
         }
+        if let Some(parts) = message.and_then(|value| value.get("content")).and_then(serde_json::Value::as_array) {
+            if field == "delta" { return Err(ClientError::Provider("Multipart model stream deltas are not supported by the text client".into())); }
+            for part in parts {
+                if part.get("type").is_some_and(|kind| !matches!(kind.as_str(), Some("text" | "output_text")))
+                    || !(part.get("text").is_some_and(serde_json::Value::is_string) || part.get("content").is_some_and(serde_json::Value::is_string)) {
+                    return Err(ClientError::Provider("Model returned an unsupported or invalid content part".into()));
+                }
+            }
+        }
         Ok(())
     }
 
@@ -476,6 +485,21 @@ mod tests {
         assert_eq!((meta.response_id.as_deref(), meta.model.as_deref(), meta.finish_reason.as_deref()), (Some("buffered"), Some("fixture"), Some("stop")));
         assert_eq!(meta.usage.unwrap()["prompt_tokens"], 3);
         assert!(OpenAiCompatibleClient::parse_sse_fallback("data: [DONE]\n").is_err());
+    }
+
+    #[tokio::test]
+    async fn rejects_unsupported_or_malformed_multipart_content_without_partial_success() {
+        for part in [serde_json::json!({"type":"image","url":"fixture"}), serde_json::json!({"type":"refusal","refusal":"no"}), serde_json::json!({"type":"text","text":null})] {
+            let choice = serde_json::json!({"message":{"content":[{"type":"text","text":"partial"},part]}});
+            assert!(OpenAiCompatibleClient::reject_non_text_choice(&choice, "message").is_err());
+        }
+        let valid = serde_json::json!({"message":{"content":[{"text":"one"},{"type":"text","text":" two"}]}});
+        assert!(OpenAiCompatibleClient::reject_non_text_choice(&valid, "message").is_ok());
+        let body = "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":[{\"type\":\"text\",\"text\":\"ignored\"}]}}]}\n\ndata: [DONE]\n\n";
+        let (result, deltas) = openai_stream_fixture(body).await;
+        assert_eq!(deltas, ["partial"]);
+        assert!(result.is_err());
+        assert!(OpenAiCompatibleClient::parse_sse_fallback(body).is_err());
     }
 
     #[tokio::test]
