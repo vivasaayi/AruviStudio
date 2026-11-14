@@ -226,9 +226,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Independent client revalidation
 
+- The independent consumer and documented dependency now pin public commit
+  `8a0b3fa422ee77d66f4d04519826854e47b112cf`, incorporating the later
+  malformed-response validation fixes. Its clean container vendored the
+  locked dependency and passed all 16 tests with networking disabled during
+  the test build. A separate container tested the pinned client against the
+  running native `qwen25-coder-7b-q4`: discovery, completion, streaming,
+  JSON-object mode and token-limit handling passed. This validates one local
+  model and does not establish live third-party provider compatibility.
+
 - The public Git-pinned consumer at `ecad3179607859044ffeca6de2139f70e0cb9236`
-  has the same client source as the current branch (only the crate README has
-  changed). Its clean vendored, network-disabled build passed 14 tests. Its
+  was tested at that checkpoint. Its clean vendored, network-disabled build
+  passed 14 tests. Its
   separate container then used the native `qwen25-coder-7b-q4` Model Host for
   discovery, text completion, streamed completion, JSON-object mode and a
   token-limit error. The live probe now checks the requested answer and verifies
