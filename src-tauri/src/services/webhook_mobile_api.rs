@@ -157,6 +157,32 @@ pub(crate) async fn mobile_update_contact_defaults(State(state): State<WebhookSt
 }
 
 #[derive(Deserialize)]
+pub(crate) struct DirectContactBody { to: String, content: Option<String> }
+
+pub(crate) async fn mobile_direct_contact(State(state): State<WebhookState>, headers: HeaderMap, Path(channel): Path<String>, Json(body): Json<DirectContactBody>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let to = body.to.trim();
+    let content = body.content.as_deref().unwrap_or("").trim();
+    if to.is_empty() || to.len() > 256 || content.len() > 4096 || !matches!(channel.as_str(), "whatsapp" | "voice") || (channel == "whatsapp" && content.is_empty()) {
+        return (StatusCode::BAD_REQUEST, "Invalid destination, message or channel").into_response();
+    }
+    if channel == "voice" && crate::services::channel_contact_policy::looks_like_whatsapp_destination(to) {
+        return (StatusCode::BAD_REQUEST, "Voice calls need a phone number, not a WhatsApp-prefixed destination").into_response();
+    }
+    let result = if channel == "whatsapp" {
+        let destination = crate::services::channel_contact_policy::normalize_whatsapp_destination(to);
+        crate::services::channel_service::send_whatsapp_message(&state.app_state, destination, content.to_owned()).await
+    } else {
+        crate::services::channel_service::start_voice_call(&state.app_state, to.to_owned(), (!content.is_empty()).then(|| content.to_owned())).await
+    };
+    match result {
+        Ok(()) => Json(serde_json::json!({"status":"submitted", "channel":channel, "reason":"Provider accepted the request; delivery is not confirmed. Planner policy was not applied."})).into_response(),
+        Err(crate::error::AppError::Validation(message)) => (StatusCode::BAD_REQUEST, message).into_response(),
+        Err(_) => (StatusCode::BAD_GATEWAY, "Contact request failed; delivery may have occurred. Check before retrying.").into_response(),
+    }
+}
+
+#[derive(Deserialize)]
 pub(crate) struct PlannerContactBody {
     to: String,
     content: String,

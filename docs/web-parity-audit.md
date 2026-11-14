@@ -58,7 +58,7 @@ or evidence that a setting affects runtime behavior.
 | Hide examples; seed/repair catalog | Routing controls and authenticated catalog APIs | `aruvi_settings` and catalog actions | Existing isolated browser tests cover catalog settings; confirm native comparison. |
 | Set planner provider and model | Routing defaults form; environment values can override | `aruvi_settings` | Existing browser form uses a revision check; desktop/MCP setting writes are last-write-wins. |
 | Set outbound channel preference, ambiguity escalation and call quiet hours | Routing contact policy form updates the four server settings atomically | `aruvi_settings` can update the underlying keys | The isolated browser test covers invalid times, authentication and rollback after a concurrent MCP edit; live outbound routing and native comparison remain open. Quiet hours use the server's local timezone. |
-| Send WhatsApp, start a voice call or route planner contact | Routing provides a confirmed planner-contact form using the existing policy, including channel preference, quiet hours and fallback | `aruvi_channels` exposes all three operations | Direct sends remain MCP/desktop only. Browser behavior uses a simulated response; live outbound delivery remains unverified. |
+| Send WhatsApp, start a voice call or route planner contact | Routing offers planner contact and direct WhatsApp/voice actions; direct actions explicitly bypass planner policy | `aruvi_channels` exposes all three operations | Browser actions use simulated responses in tests; live outbound delivery remains unverified. |
 | Configure Twilio and default contact details | Routing edits contact defaults and Twilio settings; the auth token is write-only in the browser form, with conflict checks and environment override indicators | Generic `aruvi_settings` operations | The existing settings database stores the token and generic desktop/MCP settings can read it. Live Twilio remains unverified. |
 | Set transcription provider/model/locale | Voice server-default controls; browser can also choose per-session values | `aruvi_settings` and `aruvi_speech` | Environment overrides and client/session-specific values need explicit verification. |
 | Set native voice, microphone, automatic speech and transcript review | Browser Voice has device-specific recording, review and speech controls | `aruvi_speech` supports speech operations | Native OS voice and microphone preferences are not the same as browser device settings; physical capture and playback remain unverified. |
@@ -87,7 +87,8 @@ returning provider details. Isolated browser coverage intercepts the outbound
 request, verifies cancellation and blocked-result display, and checks authentication,
 invalid inputs and unconfigured service handling. A separate browser-to-server test confirmed the real policy blocks a voice
 fallback during quiet hours with outbound HTTPS disabled. It does not test an
-actual Twilio send, the provider-error path or direct-send parity.
+actual Twilio send or the provider-error path. Direct browser sends and calls
+have separate simulated coverage and explicitly bypass planner policy.
 
 The four outbound policy keys are consumed by `channel_contact_policy.rs`. The
 browser form writes those keys and validates complete time ranges; it does not

@@ -26,6 +26,17 @@ completed delivery to a disposable local Git remote. These are individual
 fixture runs, not broad model-quality, live cloud-provider or remote Git
 acceptance. The running worktree records telemetry for the MCP and browser checks.
 
+### Direct browser contact actions
+
+The browser contact form offers direct WhatsApp and voice actions alongside
+planner routing. Direct actions bypass planner policy and quiet hours, which the
+form and confirmation state explicitly. Provider acceptance is shown as submitted,
+not confirmed delivery. The mobile API validates input and authentication and
+uses the existing channel services. The 28 isolated browser tests passed,
+covering cancellation, both simulated actions, authentication, invalid requests
+and an unconfigured server. Actual Twilio delivery remains unverified; no real
+message or call was made. The branch image restarted healthy.
+
 ### Outbound channel transport
 
 The shared Twilio transport now rejects redirects, bounds connection time to
@@ -74,7 +85,7 @@ warn that delivery may be uncertain. The isolated browser test mocks outbound
 routing and verifies cancellation, request fields and blocked feedback; it also
 checks authentication, invalid inputs and an unconfigured server. All 28 isolated
 browser tests passed on the final image; the worktree deployment restarted healthy
-and passed the browser-origin MCP check. Actual Twilio delivery, provider-error handling and direct-send browser controls remain
+and passed the browser-origin MCP check. Actual Twilio delivery, provider-error handling and actual direct sends remain
 unverified. A separate browser-to-server fixture configured voice-only routing
 and verified quiet hours blocked the fallback, with outbound HTTPS disabled.
 No external message or call was made in validation.

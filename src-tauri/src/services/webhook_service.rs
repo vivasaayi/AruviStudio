@@ -21,7 +21,7 @@ use crate::services::webhook_mobile_api::{
     mobile_list_skills, mobile_create_skill, mobile_update_skill, mobile_delete_skill,
     mobile_list_skill_links, mobile_add_skill_link, mobile_remove_skill_link,
     mobile_catalog_settings, mobile_update_catalog_settings, mobile_seed_example_products, mobile_database_settings, mobile_update_database_override,
-    mobile_list_routing_policies, mobile_save_routing_policy, mobile_delete_routing_policy, mobile_workflow_automation, mobile_update_workflow_automation, mobile_planner_defaults, mobile_update_planner_defaults, mobile_speech_defaults, mobile_update_speech_defaults, mobile_channel_policy, mobile_update_channel_policy, mobile_route_planner_contact, mobile_contact_defaults, mobile_update_contact_defaults, mobile_twilio_settings, mobile_update_twilio_settings,
+    mobile_list_routing_policies, mobile_save_routing_policy, mobile_delete_routing_policy, mobile_workflow_automation, mobile_update_workflow_automation, mobile_planner_defaults, mobile_update_planner_defaults, mobile_speech_defaults, mobile_update_speech_defaults, mobile_channel_policy, mobile_update_channel_policy, mobile_route_planner_contact, mobile_direct_contact, mobile_contact_defaults, mobile_update_contact_defaults, mobile_twilio_settings, mobile_update_twilio_settings,
     mobile_get_workflow_test_config, mobile_set_workflow_test_config, mobile_ci_read, mobile_ci_run, mobile_ci_log, mobile_ci_run_action, mobile_ci_bindings, mobile_ci_binding_action, mobile_ci_revisions, mobile_ci_artifact_readiness, mobile_ci_feedback_list, mobile_ci_feedback_create,
     mobile_submit_planner_voice_turn, mobile_transcribe_audio, mobile_generate_speech, mobile_update_planner_session,
 };
@@ -350,6 +350,7 @@ pub(crate) fn build_webhook_router(app_state: AppState) -> Router {
         .route("/api/mobile/planner-defaults", get(mobile_planner_defaults).post(mobile_update_planner_defaults))
         .route("/api/mobile/channel-policy", get(mobile_channel_policy).post(mobile_update_channel_policy))
         .route("/api/mobile/planner/contact", post(mobile_route_planner_contact))
+        .route("/api/mobile/channels/:channel/contact", post(mobile_direct_contact))
         .route("/api/mobile/planner/contact-defaults", get(mobile_contact_defaults).post(mobile_update_contact_defaults))
         .route("/api/mobile/twilio-settings", get(mobile_twilio_settings).post(mobile_update_twilio_settings))
         .route("/api/mobile/speech-defaults", get(mobile_speech_defaults).post(mobile_update_speech_defaults))

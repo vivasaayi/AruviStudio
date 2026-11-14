@@ -943,12 +943,13 @@
             </div>
           </section>
           <section class="panel">
-            <div class="panel-header"><div class="panel-title">Contact through planner</div><button class="secondary" id="refreshContactDefaults" type="button">Refresh contact defaults</button></div>
-            <div class="panel-body"><p>Send an opening message or start a call using the contact policy. Routing may fall back to the other configured channel. Voice calls observe quiet hours unless you explicitly allow them.</p>
+            <div class="panel-header"><div class="panel-title">Contact</div><button class="secondary" id="refreshContactDefaults" type="button">Refresh contact defaults</button></div>
+            <div class="panel-body"><p>Planner routing may fall back to another channel and observes quiet hours unless overridden. Direct sends and calls bypass planner routing and quiet hours.</p>
               <form id="contactDefaultsForm" class="stack"><label><span class="label">Saved destination</span><input id="contactDefaultTarget" maxlength="256" /></label><label><span class="label">Saved opening message</span><textarea id="contactDefaultMessage" maxlength="4096"></textarea></label><div class="button-row"><button type="submit" id="saveContactDefaults" disabled>Save defaults</button><button class="secondary" type="button" id="useContactDefaults" disabled>Use saved defaults</button></div></form>
               <form id="plannerContactForm" class="stack">
+                <label><span class="label">Contact method</span><select id="plannerContactMethod"><option value="planner">Planner routing</option><option value="whatsapp">Direct WhatsApp</option><option value="voice">Direct voice call</option></select></label>
                 <label><span class="label">Destination</span><input id="plannerContactTo" maxlength="256" required placeholder="+15551234567" /></label>
-                <label><span class="label">Opening message</span><textarea id="plannerContactMessage" maxlength="4096" required></textarea></label>
+                <label><span class="label">Opening message</span><textarea id="plannerContactMessage" maxlength="4096"></textarea></label>
                 <label><span class="label">Preferred channel</span><select id="plannerContactChannel"><option value="">Use contact policy</option><option value="whatsapp">WhatsApp</option><option value="voice">Voice call</option></select></label>
                 <label><input type="checkbox" id="plannerContactAfterHours" /> Allow voice calls during quiet hours</label>
                 <button type="submit" id="plannerContactSend">Contact</button>
@@ -3685,22 +3686,32 @@
       finally { contactDefaultsBusy = false; controls.forEach((control) => control.disabled = false); refresh.disabled = false; }
     });
 
+    function updateContactMethod() {
+      const direct = document.getElementById("plannerContactMethod").value !== "planner";
+      document.getElementById("plannerContactChannel").disabled = direct;
+      document.getElementById("plannerContactAfterHours").disabled = direct;
+    }
+    document.getElementById("plannerContactMethod").addEventListener("change", updateContactMethod);
     document.getElementById("plannerContactForm").addEventListener("submit", async (event) => {
       event.preventDefault();
       const to = document.getElementById("plannerContactTo").value.trim();
       const content = document.getElementById("plannerContactMessage").value.trim();
+      const method = document.getElementById("plannerContactMethod").value;
       const preference = document.getElementById("plannerContactChannel").value;
       const allowAfterHours = document.getElementById("plannerContactAfterHours").checked;
       const output = document.getElementById("plannerContactResult");
-      if (!to || !content) { output.textContent = "Destination and opening message are required."; return; }
-      if (!window.confirm("Contact " + to + "? The policy may select a voice call or WhatsApp.")) return;
+      if (!to || (!content && method !== "voice")) { output.textContent = "Destination and opening message are required."; return; }
+      const confirmation = method === "planner" ? "Contact " + to + "? The policy may select a voice call or WhatsApp." : "Send a direct " + (method === "voice" ? "voice call" : "WhatsApp message") + " to " + to + "? Planner routing and quiet hours will not apply.";
+      if (!window.confirm(confirmation)) return;
       const controls = Array.from(event.currentTarget.elements);
       controls.forEach((control) => control.disabled = true); output.textContent = "Contacting…";
       try {
-        const result = await request("/api/mobile/planner/contact", { method: "POST", body: { to, content, preferred_channel: preference || null, allow_after_hours: allowAfterHours } });
+        const path = method === "planner" ? "/api/mobile/planner/contact" : "/api/mobile/channels/" + method + "/contact";
+        const body = method === "planner" ? { to, content, preferred_channel: preference || null, allow_after_hours: allowAfterHours } : { to, content: content || null };
+        const result = await request(path, { method: "POST", body });
         output.textContent = result.status + " · " + result.channel + " · " + result.reason;
       } catch (error) { output.textContent = error.message || String(error); }
-      finally { controls.forEach((control) => control.disabled = false); }
+      finally { controls.forEach((control) => control.disabled = false); updateContactMethod(); }
     });
 
     let channelPolicy = null, channelPolicySequence = 0, channelPolicyBusy = false;
