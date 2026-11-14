@@ -34,6 +34,19 @@ for (const scenario of ["passed", "failed", "skipped"]) test(`isolated workflow 
   await mcp("aruvi_settings", "set_setting", { key: "workflow.auto_approve_test_review", value: scenario === "skipped" ? "true" : "false" });
   await api("/api/mobile/workflow-test-config", { argv: ["/bin/false"] });
   const product = await api("/api/mobile/products", { name: `Isolated workflow ${scenario}` });
+  if (scenario === "passed") {
+    await mcp("aruvi_settings", "set_setting", { key: "workflow.auto_start_after_work_item_approval", value: "false" });
+    await mcp("aruvi_models", "update_model_definition", { id: model.id, enabled: false });
+    const blockedItem = await mcp("aruvi_work_items", "create_work_item", { product_id: product.id, title: "Disabled model fixture", work_item_type: "task" });
+    await mcp("aruvi_checkpoints", "approve_work_item", { work_item_id: blockedItem.id });
+    const blocked = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` }, data: { jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "aruvi_workflows", arguments: { action: "start_work_item_workflow", arguments: { work_item_id: blockedItem.id } } } } });
+    const result = (await blocked.json()).result;
+    expect(result.isError).toBeTruthy();
+    expect(JSON.stringify(result.content)).toContain("bound model is disabled");
+    expect(await (await request.get("http://127.0.0.1:19876/workflow/prompts")).json()).toEqual([]);
+    await mcp("aruvi_models", "update_model_definition", { id: model.id, enabled: true });
+    await mcp("aruvi_settings", "set_setting", { key: "workflow.auto_start_after_work_item_approval", value: "true" });
+  }
   let assignedTeam, assignedAgent, codingPolicy;
   if (scenario === "passed") {
     assignedTeam = await api("/api/mobile/teams", { name: "Workflow owner", department: "Engineering", description: "", enabled: true, max_concurrent_workflows: 2 });

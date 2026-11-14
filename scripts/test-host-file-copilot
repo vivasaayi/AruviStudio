@@ -11,7 +11,7 @@ import urllib.request
 
 root = Path(__file__).resolve().parent.parent
 host = root.parent / "aruvi-model-host-studio-validation"
-container = volume = None
+container = volume = pdf_volume = None
 container_created = volume_owned = False
 
 def command(argv, **kwargs):
@@ -33,11 +33,12 @@ try:
     port = int(host_url.rsplit(":", 1)[1])
     container = f'{studio["project"]}-file-copilot-{os.getpid()}'
     volume = f'{studio["project"]}_file_copilot_socket_{os.getpid()}'
-    for kind, name in [("container", container), ("volume", volume)]:
+    pdf_volume = volume + "_pdf"
+    for kind, name in [("container", container), ("volume", volume), ("volume", pdf_volume)]:
         if subprocess.run(["docker", kind, "inspect", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
             raise ValueError(f"Disposable {kind} name already exists")
     volume_owned = True
-    compose_env = dict(os.environ, APP_IMAGE=environment(envfile)["APP_IMAGE"], PRODUCT_SOURCE=str(root), TEST_SOCKET_NAME=volume, COMPOSE_IGNORE_ORPHANS="true")
+    compose_env = dict(os.environ, APP_IMAGE=environment(envfile)["APP_IMAGE"], PRODUCT_SOURCE=str(root), TEST_SOCKET_NAME=volume, TEST_PDF_SOCKET_NAME=pdf_volume, COMPOSE_IGNORE_ORPHANS="true")
     compose = ["docker", "compose", "--project-name", studio["project"], "--project-directory", str(root), "--env-file", str(envfile), "-f", str(root / "deploy/compose.test.yaml")]
     command(compose + ["run", "--rm", "-d", "--name", container, "-p", "127.0.0.1::8787", "fixture"], env=compose_env)
     container_created = True
@@ -140,4 +141,4 @@ except (OSError, KeyError, TypeError, ValueError, subprocess.SubprocessError) as
     sys.exit(1)
 finally:
     if container_created: subprocess.run(["docker", "rm", "-f", container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    if volume_owned: subprocess.run(["docker", "volume", "rm", volume], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if volume_owned: subprocess.run(["docker", "volume", "rm", volume, pdf_volume], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

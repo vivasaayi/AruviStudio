@@ -706,6 +706,33 @@ provider hosting into the model-host service as part of this work.
   these crafted-file checks. Running server SHA-256:
   `59ff6ee9727e5039544ba3ccc8ffd6c653ffe4f42189c83e2c7359fe8c9cfd15`.
 
+## Disabled agent model bindings
+
+- An explicitly bound agent model is now checked for both model and provider
+  enablement before the agent run starts. Disabled bindings fail with a clear
+  validation error rather than silently selecting another shared model. The
+  existing first-priority binding policy remains unchanged. A model disabled
+  after it was selected for a running stage is not rechecked between calls.
+  A database test covers disabled model, disabled provider, recovery and the
+  presence of an enabled fallback; 216 native Studio tests passed with six
+  ignored. The isolated workflow suite passed 23 cases, including a failed
+  MCP workflow start that makes no provider request followed by a successful
+  workflow after re-enabling the model.
+- The real-model coding, planner and file-Copilot fixture scripts now supply
+  the private PDF-socket volume required by the current test Compose file,
+  check for name collisions and clean up their own volumes. These changes do
+  not configure a PDF worker for fixtures that do not need PDF export.
+  The disposable coding workflow reached plan and test review with the real
+  `qwen25-coder-7b-q4`, passed its syntax gate and separate network-disabled
+  generated-code assertions for the new-module JSON-mode scenario. This is
+  one model and task, not a general model-quality guarantee.
+  The file-Copilot fixture also passed real web and MCP patch proposals and
+  follow-up questions. The real planner fixture started, but its text-turn
+  test failed after a format retry: the model requested a capability under a
+  product area that was not present, and Studio rejected the draft mutation.
+  Planner recovery for this case remains open; this failure does not establish
+  a general conclusion about other models or prompts.
+
 ## Disabled shared model providers
 
 - Studio now rejects disabled OpenAI-compatible and Anthropic providers at

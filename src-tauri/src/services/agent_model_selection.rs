@@ -14,6 +14,13 @@ pub(crate) async fn find_model_for_agent(
     let bindings = agent_repo::get_agent_model_bindings(db, agent_id).await?;
     if let Some(binding) = bindings.first() {
         let model = model_repo::get_model_definition(db, &binding.model_id).await?;
+        if !model.enabled {
+            return Err(AppError::Validation("The agent's bound model is disabled. Enable it or select another model binding.".into()));
+        }
+        let provider = model_repo::get_provider(db, &model.provider_id).await?;
+        if !provider.enabled {
+            return Err(AppError::Validation("The agent's bound model provider is disabled. Enable it or select another model binding.".into()));
+        }
         debug!(agent_id = %agent_id, model_id = %model.id, model_name = %model.name, "Found model for agent");
         return Ok(model);
     }
@@ -99,4 +106,30 @@ fn matched_model_tags(model: &ModelDefinition, preferred_tags: &[&str]) -> Vec<S
         })
         .map(|tag| (*tag).to_string())
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::persistence::{agent_repo, db, model_repo};
+
+    #[tokio::test]
+    async fn explicit_binding_requires_enabled_model_and_provider_without_silent_fallback() {
+        let directory = tempfile::tempdir().unwrap();
+        let pool = db::create_pool(&format!("sqlite:{}", directory.path().join("agent.db").display())).await.unwrap();
+        model_repo::create_provider(&pool, "bound-provider", "Bound", "openai_compatible", "http://example.invalid", None).await.unwrap();
+        model_repo::create_model_definition(&pool, "bound-model", "bound-provider", "bound", None, None, None).await.unwrap();
+        model_repo::create_provider(&pool, "fallback-provider", "Fallback", "openai_compatible", "http://example.invalid", None).await.unwrap();
+        model_repo::create_model_definition(&pool, "fallback-model", "fallback-provider", "fallback", None, None, None).await.unwrap();
+        agent_repo::replace_primary_agent_model_binding(&pool, "binding", "coding-agent", "bound-model").await.unwrap();
+        assert_eq!(find_model_for_agent(&pool, "coding-agent").await.unwrap().id, "bound-model");
+        sqlx::query("UPDATE model_definitions SET enabled=0 WHERE id='bound-model'").execute(&pool).await.unwrap();
+        assert!(matches!(find_model_for_agent(&pool, "coding-agent").await, Err(AppError::Validation(message)) if message.contains("bound model is disabled")));
+        sqlx::query("UPDATE model_definitions SET enabled=1 WHERE id='bound-model'").execute(&pool).await.unwrap();
+        sqlx::query("UPDATE model_providers SET enabled=0 WHERE id='bound-provider'").execute(&pool).await.unwrap();
+        assert!(matches!(find_model_for_agent(&pool, "coding-agent").await, Err(AppError::Validation(message)) if message.contains("provider is disabled")));
+        sqlx::query("UPDATE model_providers SET enabled=1 WHERE id='bound-provider'").execute(&pool).await.unwrap();
+        assert_eq!(find_model_for_agent(&pool, "coding-agent").await.unwrap().id, "bound-model");
+        pool.close().await;
+    }
 }
