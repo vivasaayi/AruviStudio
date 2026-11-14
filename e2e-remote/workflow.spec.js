@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
-test("quiet hours block a voice fallback when WhatsApp is unavailable", async ({ request }) => {
+test("quiet hours block a voice fallback when WhatsApp is unavailable", async ({ request, page }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires the disposable fixture with blocked HTTPS egress");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };
   const call = async (name, action, arguments_) => (await (await request.post("/api/mcp", { headers, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: { action, arguments: arguments_ } } } })).json()).result;
@@ -13,6 +13,15 @@ test("quiet hours block a voice fallback when WhatsApp is unavailable", async ({
   const result = await call("aruvi_channels", "route_planner_contact", { to: "+15550000001", content: "Fixture" });
   expect(result.isError, JSON.stringify(result)).not.toBeTruthy();
   expect(result.structuredContent.result).toMatchObject({ channel: "voice", status: "blocked" });
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Routing", exact: true }).click();
+  await page.locator("#plannerContactTo").fill("+15550000001");
+  await page.locator("#plannerContactMessage").fill("Fixture");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator("#plannerContactSend").click();
+  await expect(page.locator("#plannerContactResult")).toContainText("blocked · voice");
   const whatsappDestination = await call("aruvi_channels", "route_planner_contact", { to: "whatsapp:+15550000001", content: "Fixture", allow_after_hours: true });
   expect(whatsappDestination.isError).toBeTruthy();
   expect(JSON.stringify(whatsappDestination.content)).toContain("not a WhatsApp-prefixed destination");
@@ -1110,8 +1119,14 @@ test("browser streams Anthropic text and preserves errors and usage", async ({ p
   await page.locator("#chatComposer").fill("stream malformed");
   await page.locator("#chatSendButton").click();
   await expect(page.locator("#status")).toContainText("Invalid Anthropic message delta");
+  await page.locator("#chatComposer").fill("embedded stream error");
+  await page.locator("#chatSendButton").click();
+  await expect(page.locator("#status")).toContainText("Anthropic stream returned an error");
+  await expect(page.locator("#status")).not.toContainText("private-anthropic-fixture");
+  await expect(page.locator("#chatConversation .assistant").nth(-2)).toContainText("Response incomplete");
+  await expect(page.locator("#chatConversation .assistant").last()).toContainText("Anthropic stream returned an error");
   const calls = (await (await request.get("/api/mobile/model-calls?limit=100", { headers })).json()).filter((call) => call.provider_id === provider.id);
-  expect(calls.map((call) => call.status).sort()).toEqual(["completed", "failed", "failed"]);
+  expect(calls.map((call) => call.status).sort()).toEqual(["completed", "failed", "failed", "failed"]);
   expect(calls.find((call) => call.status === "completed")).toMatchObject({ token_count_input: 17, token_count_output: 3 });
 });
 

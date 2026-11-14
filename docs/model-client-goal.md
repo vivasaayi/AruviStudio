@@ -23,7 +23,9 @@ routing and verifies cancellation, request fields and blocked feedback; it also
 checks authentication, invalid inputs and an unconfigured server. All 28 isolated
 browser tests passed on the final image; the worktree deployment restarted healthy
 and passed the browser-origin MCP check. Actual Twilio delivery, provider-error handling and direct-send browser controls remain
-unverified. No external message or call was made in validation.
+unverified. A separate browser-to-server fixture configured voice-only routing
+and verified quiet hours blocked the fallback, with outbound HTTPS disabled.
+No external message or call was made in validation.
 
 ### Candidate Aruvici CI protocol
 
@@ -3202,7 +3204,11 @@ Anthropic streaming now also rejects a non-null error field in any event, even
 when the event has another type and partial text has already been emitted. The
 returned error omits the provider body. All 59 standalone shared-client tests
 passed, including synthetic ping, message-delta and unknown-event failures;
-this is fixture coverage, not live Anthropic acceptance. The worktree image was
+a separate browser workflow then verified partial text is marked incomplete,
+the error is shown without private provider details, and telemetry marks the call
+failed. The full 47-case isolated workflow suite passed after correcting an initial
+assertion that targeted the separate error bubble instead of the partial bubble.
+This is fixture coverage, not live Anthropic acceptance. The worktree image was
 rebuilt and restarted healthy; Chrome verified authenticated MCP access on its
 published port and rejection of missing credentials and cross-origin requests.
 

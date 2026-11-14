@@ -72,8 +72,9 @@ can allow calls during quiet hours explicitly; routing may otherwise fall back
 between configured channels. Provider failures report uncertain delivery without
 returning provider details. Isolated browser coverage intercepts the outbound
 request, verifies cancellation and blocked-result display, and checks authentication,
-invalid inputs and unconfigured service handling. It does not test an actual
-Twilio send, the provider-error path or direct-send parity.
+invalid inputs and unconfigured service handling. A separate browser-to-server test confirmed the real policy blocks a voice
+fallback during quiet hours with outbound HTTPS disabled. It does not test an
+actual Twilio send, the provider-error path or direct-send parity.
 
 The four outbound policy keys are consumed by `channel_contact_policy.rs`. The
 browser form writes those keys and validates complete time ranges; it does not
