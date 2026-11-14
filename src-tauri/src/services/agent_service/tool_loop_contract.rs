@@ -172,6 +172,14 @@ pub(super) fn parser_error_observation(
     // the model must submit a new action and normal tool authorization applies.
     if let Some(payload) = extract_json_payload(output) {
         if let Ok(Value::Object(mut object)) = serde_json::from_str::<Value>(&payload) {
+            // Some models put a proposed tool action inside a final response.
+            // Offer the same bounded retry envelope as for a flat action; never
+            // execute the nested content without a new, authorized tool call.
+            if object.get("type").and_then(Value::as_str) == Some("final") {
+                if let Some(Value::Object(nested)) = object.remove("result") {
+                    object = nested;
+                }
+            }
             let tool = object.remove("type").and_then(|value| value.as_str().map(str::to_owned));
             if let Some(tool) = tool.filter(|name| allowed_tools.contains(name)) {
                 let reason = object.remove("reason").filter(Value::is_string);
@@ -485,5 +493,13 @@ mod configured_tool_tests {
         let ambiguous = parser_error_observation(2, &output, true, &writer);
         assert!(ambiguous.contains("multiple actions"));
         assert!(!ambiguous.contains("candidate"));
+
+        let nested = r#"{"type":"final","summary":"proposed edit","result":{"type":"repo.replace_range","path":"src/math.js","start_line":1,"end_line":1,"content":"replacement"}}"#;
+        let replacer = resolve_allowed_tools(&["repo.replace_range".into()]);
+        let feedback = parser_error_observation(3, nested, false, &replacer);
+        assert!(feedback.contains("To retry this attempted action"));
+        assert!(feedback.contains("\"tool\":\"repo.replace_range\""));
+        assert!(feedback.contains("\"content\":\"replacement\""));
+        assert!(!parser_error_observation(3, nested, false, &reader).contains("To retry this attempted action"));
     }
 }

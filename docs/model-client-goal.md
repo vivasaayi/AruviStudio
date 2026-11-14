@@ -3645,3 +3645,27 @@ healthy, and all 49 isolated browser/MCP workflow checks passed against the new
 image. The worktree port is dynamic; obtain the current address with
 `bash scripts/env worktree status`. These checks use test providers and do not
 replace the outstanding native-window and physical microphone acceptance.
+
+## Real coding retry guidance checkpoint
+
+On 2026-11-14, the rebuilt worktree passed a real `qwen25-coder-7b-q4` MCP
+coding completion with independent JavaScript assertions and a token-limit
+error check; authenticated browser streaming also returned model output.
+Three disposable extend-module workflow attempts did not complete delivery.
+The ordinary profile failed its configured test command after the model first
+returned multiple actions in one response. A JSON-mode attempt repeatedly put a
+proposed tool action inside a final response and exhausted eight steps. A later
+JSON-mode attempt asserted no changes were needed; its syntax check passed, but
+independent behavioral assertions found the requested `clamp` export missing
+and blocked delivery. These are small samples, not a comparative evaluation of
+the modes. The syntax gate alone does not establish functional correctness.
+
+Parser feedback now offers a bounded corrected tool-call envelope when a final
+response contains a nested action for an allowed tool. It does not execute the
+action: the model must issue a new call, which remains subject to normal tool
+authorization and safety checks. A focused native test covers the correction
+and omission for a disallowed tool. The later real attempt did not exercise
+this particular correction, so improvement in live-model reliability remains
+unverified. The native library suite passed 261 tests with seven ignored; the
+rebuilt worktree services were healthy and all 49 isolated browser/MCP workflow
+tests passed against that image.
