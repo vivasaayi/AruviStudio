@@ -928,6 +928,19 @@
             </div>
           </section>
           <section class="panel">
+            <div class="panel-header"><div class="panel-title">Contact through planner</div></div>
+            <div class="panel-body"><p>Send an opening message or start a call using the contact policy. Routing may fall back to the other configured channel. Voice calls observe quiet hours unless you explicitly allow them.</p>
+              <form id="plannerContactForm" class="stack">
+                <label><span class="label">Destination</span><input id="plannerContactTo" maxlength="256" required placeholder="+15551234567" /></label>
+                <label><span class="label">Opening message</span><textarea id="plannerContactMessage" maxlength="4096" required></textarea></label>
+                <label><span class="label">Preferred channel</span><select id="plannerContactChannel"><option value="">Use contact policy</option><option value="whatsapp">WhatsApp</option><option value="voice">Voice call</option></select></label>
+                <label><input type="checkbox" id="plannerContactAfterHours" /> Allow voice calls during quiet hours</label>
+                <button type="submit" id="plannerContactSend">Contact</button>
+                <div id="plannerContactResult" role="status"></div>
+              </form>
+            </div>
+          </section>
+          <section class="panel">
             <div class="panel-header"><div class="panel-title">Workflow automation</div><button class="secondary" id="refreshWorkflowAutomation" type="button">Refresh automation</button></div>
             <div class="panel-body"><p>These settings control when workflows start and whether planning and test review are approved automatically.</p><div id="workflowAutomation" class="stack"></div></div>
           </section>
@@ -3584,6 +3597,24 @@
       } catch (error) { setStatus(error.message || String(error), "error"); }
       finally { el.createWorkspaceButton.disabled = !el.repositoryProduct.value; }
     }
+
+    document.getElementById("plannerContactForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const to = document.getElementById("plannerContactTo").value.trim();
+      const content = document.getElementById("plannerContactMessage").value.trim();
+      const preference = document.getElementById("plannerContactChannel").value;
+      const allowAfterHours = document.getElementById("plannerContactAfterHours").checked;
+      const output = document.getElementById("plannerContactResult");
+      if (!to || !content) { output.textContent = "Destination and opening message are required."; return; }
+      if (!window.confirm("Contact " + to + "? The policy may select a voice call or WhatsApp.")) return;
+      const controls = Array.from(event.currentTarget.elements);
+      controls.forEach((control) => control.disabled = true); output.textContent = "Contacting…";
+      try {
+        const result = await request("/api/mobile/planner/contact", { method: "POST", body: { to, content, preferred_channel: preference || null, allow_after_hours: allowAfterHours } });
+        output.textContent = result.status + " · " + result.channel + " · " + result.reason;
+      } catch (error) { output.textContent = error.message || String(error); }
+      finally { controls.forEach((control) => control.disabled = false); }
+    });
 
     let channelPolicy = null, channelPolicySequence = 0, channelPolicyBusy = false;
     async function loadChannelPolicy() {

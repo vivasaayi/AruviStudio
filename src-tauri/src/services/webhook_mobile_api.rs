@@ -16,6 +16,34 @@ use axum::response::IntoResponse;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
+pub(crate) struct PlannerContactBody {
+    to: String,
+    content: String,
+    preferred_channel: Option<String>,
+    #[serde(default)]
+    allow_after_hours: bool,
+}
+
+pub(crate) async fn mobile_route_planner_contact(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<PlannerContactBody>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let to = body.to.trim();
+    let content = body.content.trim();
+    if to.is_empty() || to.len() > 256 || content.is_empty() || content.len() > 4096 ||
+        body.preferred_channel.as_deref().is_some_and(|channel| !matches!(channel, "voice" | "whatsapp")) {
+        return (StatusCode::BAD_REQUEST, "Invalid destination, message or channel preference").into_response();
+    }
+    let request = crate::services::channel_service::PlannerContactRequest {
+        to: to.to_owned(), content: content.to_owned(), preferred_channel: body.preferred_channel,
+        allow_after_hours: Some(body.allow_after_hours),
+    };
+    match crate::services::channel_service::route_planner_contact(&state.app_state, request).await {
+        Ok(result) => Json(result).into_response(),
+        Err(crate::error::AppError::Validation(message)) => (StatusCode::BAD_REQUEST, message).into_response(),
+        Err(_) => (StatusCode::BAD_GATEWAY, "Contact request failed; delivery may have occurred. Check before retrying.").into_response(),
+    }
+}
+
+#[derive(Deserialize)]
 pub(crate) struct DatabaseOverrideUpdate {
     path: serde_json::Value,
 }

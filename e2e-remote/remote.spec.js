@@ -1714,3 +1714,32 @@ test("browser manages example catalog with conflict protection", async ({ page, 
   await page.getByRole("button", { name: "Seed / repair examples" }).click();
   expect((await seeded).status()).toBe(200);
 });
+
+test("planner contact asks before sending and displays routed outcomes", async ({ page, request }) => {
+  test.skip(!token, "Set ARUVI_MOBILE_API_TOKEN for an isolated server");
+  const rejected = await request.post("/api/mobile/planner/contact", { data: { to: "+15550000000", content: "fixture" } });
+  expect(rejected.status()).toBe(401);
+  const invalid = await request.post("/api/mobile/planner/contact", { headers: { Authorization: `Bearer ${token}` }, data: { to: "+15550000000", content: "fixture", preferred_channel: "invalid" } });
+  expect(invalid.status()).toBe(400);
+  const unconfigured = await request.post("/api/mobile/planner/contact", { headers: { Authorization: `Bearer ${token}` }, data: { to: "+15550000000", content: "fixture" } });
+  expect(unconfigured.status()).toBe(400);
+  expect(await unconfigured.text()).toContain("not configured");
+  await page.addInitScript((value) => localStorage.setItem("aruvi.remote.token", value), token);
+  const calls = [];
+  await page.route("**/api/mobile/planner/contact", async (route) => {
+    calls.push(route.request().postDataJSON());
+    await route.fulfill({ json: { status: "blocked", channel: "voice", reason: "quiet hours" } });
+  });
+  await page.goto("/remote");
+  await page.getByRole("button", { name: "Routing", exact: true }).click();
+  await page.locator("#plannerContactTo").fill("+15550000000");
+  await page.locator("#plannerContactMessage").fill("Fixture opening");
+  await page.locator("#plannerContactChannel").selectOption("voice");
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.locator("#plannerContactSend").click();
+  expect(calls).toHaveLength(0);
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator("#plannerContactSend").click();
+  await expect(page.locator("#plannerContactResult")).toHaveText("blocked · voice · quiet hours");
+  expect(calls).toEqual([{ to: "+15550000000", content: "Fixture opening", preferred_channel: "voice", allow_after_hours: false }]);
+});

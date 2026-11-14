@@ -12,6 +12,19 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Browser planner contact
+
+The Routing page now provides a confirmed planner-contact form backed by the
+existing Rust contact policy. It supports channel preference and explicit quiet
+hours override, and reports blocked or sent outcomes. The API requires the mobile
+token and bounds inputs; provider failures avoid returning provider details and
+warn that delivery may be uncertain. The isolated browser test mocks outbound
+routing and verifies cancellation, request fields and blocked feedback; it also
+checks authentication, invalid inputs and an unconfigured server. All 28 isolated
+browser tests passed on the final image; the worktree deployment restarted healthy
+and passed the browser-origin MCP check. Actual Twilio delivery, provider-error handling and direct-send browser controls remain
+unverified. No external message or call was made in validation.
+
 ### Candidate Aruvici CI protocol
 
 A candidate patch against Aruvici `5851f25` is saved at
