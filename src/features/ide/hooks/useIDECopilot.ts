@@ -7,6 +7,7 @@ import {
   startModelChatStream,
 } from "../../../lib/tauri";
 import type { ModelDefinition, ModelProvider } from "../../../lib/types";
+import { applyCopilotPatches } from "../lib/applyCopilotPatches";
 import {
   parsePatchProposal,
   truncateForContext,
@@ -27,9 +28,6 @@ type UseIDECopilotInput = {
   models: ModelDefinition[];
   activeFile: IDEOpenFile | null;
   selectedRepoId: string;
-  openFiles: IDEOpenFile[];
-  replaceFileContent: (id: string, content: string) => void;
-  markFileSaved: (id: string) => void;
   refetchTree: () => Promise<unknown>;
 };
 
@@ -38,9 +36,6 @@ export function useIDECopilot({
   models,
   activeFile,
   selectedRepoId,
-  openFiles,
-  replaceFileContent,
-  markFileSaved,
   refetchTree,
 }: UseIDECopilotInput) {
   const [copilotError, setCopilotError] = useState<string | null>(null);
@@ -248,24 +243,7 @@ Rules:
     setCopilotError(null);
     setIsApplyingProposal(true);
     try {
-      for (const patch of proposal.patches) {
-        await applyRepositoryPatch({
-          repositoryId: selectedRepoId,
-          relativePath: patch.path,
-          patch: patch.patch,
-          baseSha256: patch.base_sha256 ?? undefined,
-        });
-        const openedFileId = `${selectedRepoId}:${patch.path}`;
-        const existing = openFiles.find((entry) => entry.id === openedFileId);
-        if (existing) {
-          const refreshed = await readRepositoryFile({
-            repositoryId: selectedRepoId,
-            relativePath: patch.path,
-          });
-          replaceFileContent(openedFileId, refreshed);
-          markFileSaved(openedFileId);
-        }
-      }
+      await applyCopilotPatches(selectedRepoId, proposal.patches, { apply: applyRepositoryPatch, read: readRepositoryFile });
       await refetchTree();
     } catch (error) {
       setCopilotError(String(error));

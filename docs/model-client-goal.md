@@ -121,6 +121,19 @@ limits may be narrower than the server's accepted bounds. The rebuilt branch
 was healthy at `127.0.0.1:55089` on 2026-11-14. The existing real 7B Model
 Host browser and MCP Copilot workflow also passed with default settings.
 
+## Desktop Copilot patch safety
+
+The native IDE no longer refreshes a patched open file over unsaved editor
+content. It checks every target before starting and checks each target again
+between patches. If the user edits a file while its patch is being applied,
+the editor preserves that buffer and reports that the disk patch must be
+reconciled. Multi-file application can still be partial if a later target
+changes or another operation fails. Four frontend regression tests cover the
+dirty-before-start, dirty-during-apply, later-target and clean-refresh cases;
+the frontend build, all 106 frontend tests and three mocked desktop navigation
+checks passed. Native window interaction remains unverified. The isolated
+worktree app remained healthy at `127.0.0.1:55095` on 2026-11-14.
+
 ## Automatic speech model selection
 
 When the browser sends no transcription model, the server now selects the

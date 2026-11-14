@@ -192,9 +192,6 @@ export function useIDEWorkspaceController() {
     models,
     activeFile,
     selectedRepoId,
-    openFiles,
-    replaceFileContent,
-    markFileSaved,
     refetchTree,
   });
 
