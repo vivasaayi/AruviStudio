@@ -70,10 +70,19 @@ through a headless Chrome chat session using the same scoped credential. No live
 host deployment or data was modified; the temporary host and Studio container
 were stopped. This tests one model and
 prompt, not broad model quality or a deployed scoped host. The reusable
-`scripts/test scoped-real-host` command accepts explicit candidate-host binary,
+`scripts/test-scoped-real-host` command accepts explicit candidate-host binary,
 worker binary, model file and Studio image paths. The snapshot's other probes require `MODEL_HOST_TEST_BIN` plus `ARUVI_STUDIO_TEST_BIN` or
 `ARUVI_STUDIO_TEST_IMAGE` and `ARUVI_STUDIO_ROOT` respectively. Applying the
 patch to the exact base reproduced all 15 candidate files byte for byte.
+
+On 2026-11-14, the same isolated fixture also passed with the real
+`qwen25-coder-7b-q4` model and GPU inference. It denied management access,
+completed MCP and streaming requests, and exercised browser chat. The MCP
+response generated a JavaScript function whose behavior passed two independent
+checks in a network-isolated container. This is one coding prompt, not a broad
+quality evaluation; the scoped host remains an undeployed candidate. The fixture
+supports `--coding`, `--memory-mb`, `--gpu-layers` and `--install-timeout` for
+larger models.
 
 This remains a **candidate**, not a host commit or deployment. The host's main
 checkout contains unrelated uncommitted changes, including a separate untracked

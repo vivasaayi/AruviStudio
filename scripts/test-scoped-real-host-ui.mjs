@@ -16,15 +16,15 @@ try {
   await page.locator("#saveButton").click();
   await page.getByRole("button", { name: "Chat", exact: true }).click();
   await page.getByLabel("Stream response").check();
-  await page.locator("#chatComposer").fill("Reply with exactly the word READY.");
+  await page.locator("#chatComposer").fill(fixture.prompt);
   await page.locator("#chatSendButton").click();
-  await page.waitForFunction(() => {
+  await page.waitForFunction((expected) => {
     const messages = document.querySelectorAll("#chatConversation .bubble.assistant");
     const text = messages[messages.length - 1]?.textContent || "";
-    return text.toLowerCase().includes("ready") && !text.includes("Response incomplete") &&
+    return text.toLowerCase().includes(expected.toLowerCase()) && !text.includes("Response incomplete") &&
       document.querySelector("#status")?.textContent === "Connected" &&
       !document.querySelector("#chatSendButton")?.disabled;
-  }, null, { timeout: 180000 });
+  }, fixture.expected, { timeout: 180000 });
   console.log("Disposable browser streaming completed with the scoped credential.");
 } finally {
   await browser.close();
