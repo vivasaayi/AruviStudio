@@ -56,9 +56,15 @@ consumer also passed its scoped-token probe against a simulated worker. The thre
 synthetic configuration checks. Native and Docker Studio fixtures completed MCP
 inference through the candidate host with the scoped token; the native fixture
 verified management was denied, and the Docker fixture exercised idempotent
-configuration through Studio's scope-checking helper. The tests used synthetic
-models and credentials, not real host inference. The snapshot's native and Docker
-probes require `MODEL_HOST_TEST_BIN` plus `ARUVI_STUDIO_TEST_BIN` or
+configuration through Studio's scope-checking helper. Those lifecycle and cross-project tests used synthetic models and credentials.
+A separate temporary host built from the candidate then copied the installed
+`qwen-05b-comparison` model into its own state, ran it with CPU inference, denied
+management with a fresh scoped token, and passed Docker Studio MCP completion
+and browser API streaming twice. No live host deployment or data was modified;
+the temporary host and Studio container were stopped. This tests one model and
+prompt, not broad model quality or a deployed scoped host. The reusable
+`scripts/test scoped-real-host` command accepts explicit candidate-host binary,
+worker binary, model file and Studio image paths. The snapshot's other probes require `MODEL_HOST_TEST_BIN` plus `ARUVI_STUDIO_TEST_BIN` or
 `ARUVI_STUDIO_TEST_IMAGE` and `ARUVI_STUDIO_ROOT` respectively. Applying the
 patch to the exact base reproduced all 14 candidate files byte for byte.
 
@@ -67,7 +73,7 @@ checkout contains unrelated uncommitted changes, including a separate untracked
 integration Compose adapter; those changes were not modified or incorporated.
 The managed isolated checkout request is still pending. Before adopting the
 patch, reconcile it with that work, add the inference token to the integration
-adapter, independently review authorization and test real inference. The running
+adapter, independently review authorization and validate the intended deployment. The running
 Studio branch still uses the existing management-capable host credential.
 
 ### Current branch build and security checks

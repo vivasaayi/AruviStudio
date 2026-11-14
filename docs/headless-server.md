@@ -104,6 +104,20 @@ it does not remove or revoke an existing management token.
 The independent-client probe also accepts `--credential-scope inference` after
 its model argument and performs the same check before launching the container.
 
+To exercise a candidate host binary with an installed local model without
+changing a running host, use the disposable real-model fixture (it copies the
+model into temporary storage and starts an extra CPU worker):
+
+```sh
+bash scripts/test scoped-real-host --host-binary /path/to/candidate-host \
+  --worker-binary /path/to/llama-server --model-file /path/to/model.gguf \
+  --studio-image YOUR_LOCAL_STUDIO_IMAGE
+```
+
+It creates synthetic credentials and isolated data, checks that management is
+denied to the scoped token, and tests Docker Studio MCP and API streaming. This
+is an acceptance fixture for the supplied binary and model, not a deployment.
+
 The helper reads the selected host's private token without printing it, verifies
 model discovery from both the Mac and the Studio container, and updates the named
 provider without replacing its ID. Discovery rejects HTTP redirects. For native staging, select `--environment
