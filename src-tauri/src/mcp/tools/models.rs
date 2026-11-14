@@ -25,6 +25,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 repository_id: args.required_string(&["repository_id", "repositoryId"], "repository_id")?,
                 relative_path: args.required_string(&["relative_path", "relativePath"], "relative_path")?,
                 expected_sha256: args.required_string(&["expected_sha256", "expectedSha256"], "expected_sha256")?,
+                working_content: args.optional_string(&["working_content", "workingContent"])?,
                 provider_id: args.required_string(&["provider_id", "providerId"], "provider_id")?,
                 model_name: args.required_string(&["model_name", "modelName"], "model_name")?,
                 question: args.required_string(&["question"], "question")?,

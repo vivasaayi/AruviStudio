@@ -589,7 +589,7 @@
               <div class="button-row"><button id="saveRepositoryFileButton" type="button" disabled>Save file</button><button id="discardRepositoryFileButton" class="secondary" type="button" disabled>Discard file edits</button></div>
               <div class="tool-card stack">
                 <strong>Ask Copilot about this file</strong>
-                <div class="empty">Sends the saved file path, up to 12,000 characters of its content, your question and recent conversation to the provider and model selected in Connection. Requests and responses are recorded in Activity. Conversation resets when the file or provider changes.</div>
+                <div class="empty">Sends the file path, up to 12,000 characters of the current editor content, your question and recent conversation to the selected provider. Unsaved edits are included. Requests and responses are recorded in Activity. Conversation resets when the file content or provider changes. Save before proposing changes.</div>
                 <label><span class="label">Copilot question</span><textarea id="repositoryCopilotQuestion" maxlength="4000" placeholder="What would you like to know about this file?"></textarea></label>
                 <label><input id="repositoryCopilotStream" type="checkbox"> Stream Copilot response</label>
                 <button id="repositoryCopilotButton" type="button" disabled>Ask about saved file</button>
@@ -3003,7 +3003,8 @@
       const dirty = !!fileIsDirty();
       el.saveRepositoryFileButton.disabled = !dirty || fileSaving || copilotBusy || !openedFile.editable;
       el.discardRepositoryFileButton.disabled = !dirty || fileSaving || copilotBusy;
-      document.getElementById("repositoryCopilotButton").disabled = !openedFile || dirty || fileSaving || copilotBusy || !openedFile.sha256;
+      document.getElementById("repositoryCopilotButton").disabled = !openedFile || fileSaving || copilotBusy || !openedFile.sha256;
+      document.getElementById("repositoryCopilotButton").textContent = dirty ? "Ask about unsaved file" : "Ask about saved file";
       document.getElementById("repositoryCopilotPatchButton").disabled = !openedFile || dirty || fileSaving || copilotBusy || !openedFile.sha256;
       document.getElementById("repositoryPatchApply").disabled = !reviewedPatch || !openedFile || dirty || fileSaving || copilotBusy;
       document.getElementById("repositoryCopilotReset").disabled = !openedFile || copilotBusy;
@@ -3140,19 +3141,20 @@
     }
 
     async function askRepositoryCopilot(patchMode = false) {
-      if (!openedFile || fileIsDirty() || fileSaving || copilotBusy || !openedFile.sha256) return;
+      if (!openedFile || (patchMode && fileIsDirty()) || fileSaving || copilotBusy || !openedFile.sha256) return;
       const question = document.getElementById("repositoryCopilotQuestion").value.trim();
       const provider = el.providerInput.value.trim(), model = el.modelInput.value.trim();
       if (!question || !provider || !model) { setStatus("Select a provider and model in Connection and enter a question", "warn"); return; }
       const file = openedFile, result = document.getElementById("repositoryCopilotResult");
       clearPatchReview();
-      const scope = JSON.stringify([provider, model]);
+      const workingContent = fileIsDirty() ? el.repositoryFileContent.value : null;
+      const scope = JSON.stringify([provider, model, workingContent]);
       if (file.copilotScope !== scope) { file.history = []; file.copilotScope = scope; result.textContent = ""; }
       const previous = result.textContent;
       let partial = "";
       copilotBusy = true; el.repositoryFileContent.readOnly = true; updateFileControls(); result.textContent = previous + (previous ? "\n\n" : "") + "Asking about " + file.path + "…";
       try {
-        const body = { repository_id: file.repositoryId, relative_path: file.path, expected_sha256: file.sha256, provider_id: provider, model_name: model, question, history: file.history, patch_mode: patchMode };
+        const body = { repository_id: file.repositoryId, relative_path: file.path, expected_sha256: file.sha256, working_content: workingContent, provider_id: provider, model_name: model, question, history: file.history, patch_mode: patchMode };
         const response = document.getElementById("repositoryCopilotStream").checked
           ? await streamFileCopilot(body, (content) => { partial = content; result.textContent = boundedCopilotTranscript(previous + (previous ? "\n\n" : "") + "You: " + question + "\nCopilot: " + content); })
           : await request("/api/mobile/repository-file/copilot", { method: "POST", body });

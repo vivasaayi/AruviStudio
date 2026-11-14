@@ -91,6 +91,19 @@ leave them unchanged; they do not receive tag conflict detection. The isolated
 remote suite passed 23 tests on 2026-11-14, and the rebuilt branch services were
 healthy at `127.0.0.1:55080`. Provider/model parity as a whole remains open.
 
+## Unsaved file-aware Copilot chat
+
+The web workspace can ask Copilot about the current unsaved editor buffer, as
+the desktop can. The backend verifies the saved file's original hash first,
+bounds the submitted buffer, labels it as unsaved and truncates the excerpt
+sent to the provider. Conversation history resets when editor content changes.
+The request and response remain subject to the model-call Activity ledger.
+Patch proposals still require a saved file and reject unsaved content at the
+API; asking about a buffer does not write it. Browser and MCP coverage uses a
+simulated provider, so it does not establish live-provider behavior. The final
+isolated remote suite passed all 26 cases; the rebuilt branch was healthy at
+`127.0.0.1:55087` on 2026-11-14.
+
 ## External planner defaults in the browser
 
 Routing now exposes the server-wide provider ID and model name for external
