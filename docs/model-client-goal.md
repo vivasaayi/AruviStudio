@@ -74,6 +74,12 @@ Docker's 128 GiB disk image was full. Removing only the rebuildable
 healthy and its authenticated MCP provider listing succeeded. No data volume was
 removed. Docker still had approximately 4.2 GB free, so future image builds
 may require additional capacity; rebuilding the removed cache will take longer.
+Subsequently, 36 obsolete unshared runtime cache chains identified by this
+repository's Dockerfile steps were removed by explicit cache ID, in dependency
+order. Docker then reported approximately 11 GB free; the worktree stayed
+healthy and authenticated MCP provider listing still succeeded. Running images,
+data volumes and other projects' images were not removed. Docker usage is
+shared and may grow again during future builds.
 
 The browser now keeps up to 25 open files per workspace with separate unsaved
 buffers, dirty indicators and close confirmation. It blocks workspace changes
