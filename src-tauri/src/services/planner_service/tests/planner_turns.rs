@@ -311,6 +311,12 @@ async fn explicit_planner_model_never_falls_back_to_another_provider() {
             Some("planner-test-name".into())
         )
     );
+    model_repo::create_model_definition(&state.db, "planner-voice-only", "planner-test-provider", "deepseek-voice-transcription", None, None, None).await.unwrap();
+    assert!(resolve(Some("planner-test-provider"), Some("deepseek-voice-transcription")).await.is_err());
+    assert_eq!(resolve(Some("planner-test-provider"), None).await.unwrap(), (Some("planner-test-provider".into()), Some("planner-test-name".into())));
+    model_repo::create_provider(&state.db, "planner-local-speech", "Local speech", "local_runtime", "/tmp/fixture-whisper.bin", None).await.unwrap();
+    model_repo::create_model_definition(&state.db, "planner-local-model", "planner-local-speech", "whisper-fixture", None, None, None).await.unwrap();
+    assert!(resolve(Some("planner-local-speech"), Some("whisper-fixture")).await.is_err());
 }
 
 #[tokio::test]

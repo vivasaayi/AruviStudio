@@ -12,7 +12,7 @@ pub(crate) async fn resolve_mobile_chat_provider_id(
         .await
         .map_err(|error| error.to_string())?
         .into_iter()
-        .find(|provider| provider.enabled)
+        .find(|provider| provider.enabled && provider.provider_type.as_str() != "local_runtime")
         .map(|provider| provider.id)
         .ok_or_else(|| "No enabled model provider is configured.".to_string())
 }
@@ -23,13 +23,17 @@ pub(crate) async fn resolve_mobile_chat_model_name(
     requested_model_name: Option<String>,
 ) -> Result<String, String> {
     if let Some(model_name) = requested_model_name.filter(|value| !value.trim().is_empty()) {
+        if crate::services::speech_service::is_voice_only_selector(&model_name) {
+            return Err("Voice-only selectors cannot be used for text chat.".into());
+        }
         return Ok(model_name);
     }
     model_repo::list_model_definitions(&state.db)
         .await
         .map_err(|error| error.to_string())?
         .into_iter()
-        .find(|model| model.enabled && model.provider_id == provider_id)
+        .find(|model| model.enabled && model.provider_id == provider_id
+            && !crate::services::speech_service::is_voice_only_selector(&model.name))
         .map(|model| model.name)
         .ok_or_else(|| "No enabled model is configured for the selected provider.".to_string())
 }

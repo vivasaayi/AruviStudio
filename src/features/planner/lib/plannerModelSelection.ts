@@ -1,5 +1,5 @@
 import type { ModelDefinition, ModelProvider } from "../../../lib/types";
-import { isTranscriptionModel } from "../../../lib/speechModel";
+import { isTranscriptionModel, isVoiceOnlySelector } from "../../../lib/speechModel";
 
 export type PlannerModelPickerOption = {
   value: string;
@@ -17,7 +17,8 @@ export function buildPlannerModelPickerOptions(
   providers: ModelProvider[],
 ): PlannerModelPickerOption[] {
   return models
-    .filter((model) => model.enabled)
+    .filter((model) => model.enabled && !isVoiceOnlySelector(model.name)
+      && providers.find((provider) => provider.id === model.provider_id)?.provider_type !== "local_runtime")
     .map((model) => {
       const provider = providers.find((entry) => entry.id === model.provider_id);
       return {

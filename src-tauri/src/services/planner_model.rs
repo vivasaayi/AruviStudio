@@ -174,13 +174,14 @@ pub(crate) async fn resolve_planner_model_binding(
     let providers = model_repo::list_providers(db).await?;
     let enabled_provider_ids = providers
         .into_iter()
-        .filter(|provider| provider.enabled)
+        .filter(|provider| provider.enabled && provider.provider_type.as_str() != "local_runtime")
         .map(|provider| provider.id)
         .collect::<BTreeSet<_>>();
     let enabled_models = model_repo::list_model_definitions(db)
         .await?
         .into_iter()
-        .filter(|model| model.enabled && enabled_provider_ids.contains(&model.provider_id))
+        .filter(|model| model.enabled && enabled_provider_ids.contains(&model.provider_id)
+            && !crate::services::speech_service::is_voice_only_selector(&model.name))
         .collect::<Vec<_>>();
 
     // Never silently route an explicitly selected model to a different provider.

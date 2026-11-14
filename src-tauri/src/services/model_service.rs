@@ -44,6 +44,7 @@ impl ModelGateway for SharedGatewayAdapter {
         &self,
         request: CompletionRequest,
     ) -> Result<CompletionResponse, AppError> {
+        validate_text_model_name(&request.model)?;
         self.0
             .run_completion(request)
             .await
@@ -51,8 +52,16 @@ impl ModelGateway for SharedGatewayAdapter {
     }
 
     async fn run_json_completion(&self, request: CompletionRequest) -> Result<CompletionResponse, AppError> {
+        validate_text_model_name(&request.model)?;
         self.0.run_json_completion(request).await.map_err(AppError::from)
     }
+}
+
+pub(crate) fn validate_text_model_name(name: &str) -> Result<(), AppError> {
+    if crate::services::speech_service::is_voice_only_selector(name) {
+        return Err(AppError::Validation("Voice-only selectors cannot be used for text completion".into()));
+    }
+    Ok(())
 }
 
 /// Select the transport from the saved provider protocol, resolving credentials

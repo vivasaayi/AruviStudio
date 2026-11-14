@@ -2397,6 +2397,13 @@ as voice-only. A native test covered fallback, rejected binding and legacy
 binding behavior; the frontend build, eleven mocked desktop provider tests,
 and all 35 isolated workflow tests passed. MCP tool discovery now describes
 the DeepSeek voice selectors and their constraints.
+Planner and browser chat automatic selection also skip known voice-only
+selectors; planner additionally excludes local runtime providers. Explicit
+voice-selector text requests are rejected in buffered Studio model calls,
+desktop streaming and browser chat. The frontend build, six planner picker
+tests, native planner resolution test and all 35 isolated workflows passed,
+including simulated browser and MCP chat rejection. Other models are not
+classified as voice-only solely from capability tags.
 
 ## Shared-client example pin
 

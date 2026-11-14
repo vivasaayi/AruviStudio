@@ -57,6 +57,17 @@ describe("plannerModelSelection", () => {
     ]);
   });
 
+  it("keeps voice-only selectors and local speech providers out of the text picker", () => {
+    const local = { ...provider("local", "Whisper"), provider_type: "local_runtime" as const };
+    expect(buildPlannerModelPickerOptions([
+      model("voice", "provider-1", "deepseek-voice-transcription"),
+      model("local-model", "local", "whisper"),
+      model("text", "provider-1", "deepseek-flash"),
+    ], [provider("provider-1", "DeepSeek"), local])).toEqual([
+      { value: "provider-1::deepseek-flash", label: "DeepSeek / deepseek-flash" },
+    ]);
+  });
+
   it("resolves explicit speech provider and model settings first", () => {
     expect(resolvePlannerSpeechModelSelection({
       models: [model("model-1", "provider-1", "whisper-large", ["speech_to_text"])],

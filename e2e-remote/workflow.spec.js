@@ -209,6 +209,17 @@ test("DeepSeek voice uses its dedicated endpoints through browser, API and MCP",
   const voiceModelResponse = await request.post("/api/mobile/models", { headers, data: { provider_id: provider.id, name: "deepseek-voice-transcription" } });
   expect(voiceModelResponse.ok()).toBeTruthy();
   const voiceModel = await voiceModelResponse.json();
+  const chat = { provider_id: provider.id, model_name: "deepseek-voice-transcription", messages: [{ role: "user", content: "hello" }] };
+  const explicitChat = await request.post("/api/mobile/chat/completions", { headers, data: chat });
+  expect(explicitChat.status()).toBe(400);
+  expect(await explicitChat.text()).toContain("Voice-only selectors");
+  const automaticChat = await request.post("/api/mobile/chat/completions", { headers, data: { ...chat, model_name: "" } });
+  expect(automaticChat.status()).toBe(400);
+  expect(await automaticChat.text()).toContain("No enabled model");
+  const mcpChat = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "aruvi_models", arguments: { action: "run_model_chat_completion", arguments: { provider_id: provider.id, model: "deepseek-voice-transcription", messages: chat.messages } } } } });
+  const rejectedChat = (await mcpChat.json()).result;
+  expect(rejectedChat.isError).toBeTruthy();
+  expect(JSON.stringify(rejectedChat.content)).toContain("Voice-only selectors");
   expect((await request.post("/api/mobile/agent-model-bindings", { headers, data: { agent_id: "coding-agent", model_id: voiceModel.id } })).status()).toBe(400);
   const agentBinding = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "aruvi_agents", arguments: { action: "set_primary_agent_model_binding", arguments: { agent_id: "coding-agent", model_id: voiceModel.id } } } } });
   expect((await agentBinding.json()).result.isError).toBeTruthy();
