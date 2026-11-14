@@ -748,6 +748,8 @@
                 <label><span class="label">Transcription provider</span><select id="voiceProvider" aria-label="Transcription provider"><option value="">Use server default</option></select></label>
                 <label><span class="label">Transcription model</span><input id="voiceModel" aria-label="Transcription model" placeholder="Server default (or whisper-1)" /></label>
                 <label><span class="label">Speech locale</span><input id="voiceLocale" aria-label="Speech locale" placeholder="Server default" /></label>
+                <label><span class="label">Send transcript to</span><select id="voiceTarget"><option value="chat">Voice chat</option><option value="planner">Planner</option></select></label>
+                <div class="empty">Planner voice uses the product scope and selected draft node from the Planner tab.</div>
                 <label><input id="voiceReview" type="checkbox" checked /> Review transcript before sending</label>
               </div>
               <div class="composer">
@@ -1207,6 +1209,7 @@
       voiceModel: document.getElementById("voiceModel"),
       voiceLocale: document.getElementById("voiceLocale"),
       voiceReview: document.getElementById("voiceReview"),
+      voiceTarget: document.getElementById("voiceTarget"),
       bridgeState: document.getElementById("bridgeState"),
       bridgeUrl: document.getElementById("bridgeUrl"),
       healthDetails: document.getElementById("healthDetails"),
@@ -1299,6 +1302,7 @@
       }
       el.confirmButton.disabled = nextBusy || !state.sessionId;
       el.plannerProductSelect.disabled = nextBusy || plannerProductsLoading || !plannerProductsReady;
+      el.voiceTarget.disabled = nextBusy || Boolean(state.voiceRecording);
       el.refreshPlannerProductsButton.disabled = nextBusy || plannerProductsLoading;
       el.plannerRepositorySelect.disabled = nextBusy;
       el.refreshPlannerRepositoriesButton.disabled = nextBusy;
@@ -2048,19 +2052,21 @@
       if (!prompt) {
         return;
       }
-      if (mode === "planner" && (el.plannerProductSelect.disabled || el.plannerProductSelect.value === "__choose__")) {
+      const plannerVoice = mode === "voice" && el.voiceTarget.value === "planner";
+      if ((mode === "planner" || plannerVoice) && (el.plannerProductSelect.disabled || el.plannerProductSelect.value === "__choose__")) {
         setStatus("Choose a planner product scope before sending", "warn");
+        if (plannerVoice) setVoiceMeta("Open Planner and choose a product scope before sending.");
         return;
       }
-      const plannerProductId = mode === "planner" ? el.plannerProductSelect.value || null : null;
-      const plannerNodeId = mode === "planner" ? state.selectedNodeId || null : null;
+      const plannerProductId = mode === "planner" || plannerVoice ? el.plannerProductSelect.value || null : null;
+      const plannerNodeId = mode === "planner" || plannerVoice ? state.selectedNodeId || null : null;
       saveSettings();
       appendMessage(config.target, "user", prompt);
       config.box.value = "";
       try {
         setBusy(true);
         setStatus(config.status, "warn");
-        if (mode === "chat" || mode === "voice") {
+        if (mode === "chat" || (mode === "voice" && !plannerVoice)) {
           const historyKey = mode === "voice" ? "voiceMessages" : "chatMessages";
           const userMessage = { role: "user", content: prompt };
           const messages = [
@@ -2102,6 +2108,12 @@
           }
         });
         applyPlannerResponse(response, config.target);
+        if (plannerVoice) {
+          appendMessage(el.conversation, "user", prompt);
+          appendMessage(el.conversation, "assistant", response.assistant_message || "");
+          speakOnDevice(response.assistant_message || "");
+          setVoiceMeta("Planner reply ready.");
+        }
         setStatus("Connected", "ok");
       } catch (error) {
         appendMessage(config.target, "assistant", "Error: " + (error.message || String(error)));
@@ -4480,6 +4492,7 @@
     el.voiceModel.addEventListener("input", () => localStorage.setItem(storageKeys.voiceModel, el.voiceModel.value));
     el.voiceLocale.addEventListener("input", () => localStorage.setItem(storageKeys.locale, el.voiceLocale.value.trim()));
     el.voiceReview.addEventListener("change", () => localStorage.setItem(storageKeys.voiceReview, String(el.voiceReview.checked)));
+    el.voiceTarget.addEventListener("change", () => { if (el.voiceTarget.value === "planner" && !plannerProductsReady) void loadPlannerProducts(); });
     el.voiceRecordButton.addEventListener("click", () => toggleVoiceRecording());
     el.voiceSendButton.addEventListener("click", () => submitPrompt("voice"));
     el.generateSpeechButton.addEventListener("click", () => void generateSpeech());
