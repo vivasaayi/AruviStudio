@@ -23,7 +23,7 @@ scope is reviewed, not merely until an example passes.
 | --- | --- | --- |
 | Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and by a separate project pinned to commit `0cabaeb392db9c88d1aecea29f1c0296dca9254e`; 20 independent tests passed offline after vendoring. Its non-root Linux probe passed real Model Host discovery, completion, streaming, token-limit handling and a synthetic speech round trip. | Decide independent ownership, versioning and a migration plan for other projects. The current pin is a checkpoint, not a published release. |
 | OpenAI-compatible and Anthropic protocols | Shared clients cover text, streaming, discovery and error handling; OpenAI-compatible voice is implemented. Contract fixtures cover both protocols and the reasoning request profile. | Live third-party OpenAI, Anthropic, DeepSeek and LM Studio sessions remain unverified; compatibility with each model and provider cannot be inferred from adapter capabilities. |
-| Local coding integration | The isolated 7B Model Host passed real MCP completion and an extend-module workflow through code review and a disposable local Git remote. | Revalidate broader coding tasks and actual authenticated network delivery when appropriate; one task is not a reliability guarantee. |
+| Local coding integration | The isolated 7B Model Host passed real MCP completion and an extend-module workflow through code review and a disposable local Git remote. A later new-module attempt produced a missing function definition; independent behavior checks caught it before delivery. | Investigate reliability on broader coding tasks and actual authenticated network delivery; syntax-only checks do not establish correctness. |
 | Speech and local fallback | Real Model Host speech generation and transcription and checksum-pinned local Whisper have been exercised with synthetic audio; browser and MCP fixtures exist. | Physical microphone permission/capture, audible playback, other languages and recognition quality remain unverified. |
 | Desktop, browser and MCP parity | Browser and MCP support many model, planner, agent, repository and product workflows; the detailed action inventory is in `web-parity-audit.md`. Recent native Rust, frontend and isolated web suites passed. | Complete action-by-action comparison, especially native IDE/dialogs, runtime management, settings and CI. A locked Mac prevented native window interaction; simulated Tauri tests are not native acceptance. |
 | Data, configuration and credentials | The branch has isolated Docker data and a loopback endpoint; the model-host setup stores its token outside Git. Migration 053 passed backup, integrity and foreign-key checks. | Review token scope, host restart operations, cross-platform behavior and upgrade paths. Existing external-channel bindings remain unscoped until explicitly migrated or replaced. |
@@ -2298,6 +2298,24 @@ Its non-root, read-only Linux probe then reached the real Model Host and passed
 model discovery, completion, streaming and token-limit handling with
 `qwen25-coder-7b-q4`. This verifies the pinned revision; later client changes
 require a new pin and revalidation. No release was published.
+
+## Real Model Host new-module workflow
+
+On 2026-11-14, two disposable MCP workflows used the native Model Host's
+`qwen25-coder-7b-q4` to create and export `sumEven` in a new JavaScript module.
+The ordinary profile wrote only an export referencing an undefined function.
+Its configured `node --check` syntax gate passed, but the separate networkless
+behavioral assertions failed and verified that the disposable Git remote was
+unchanged. This independent review is part of the test fixture, not an
+automatic general Studio workflow gate; a real workflow needs an appropriate
+project test command and review before approval.
+
+One subsequent run with the coding agent's JSON-object output enabled passed
+the syntax and independent behavior checks and delivered the checked module to
+the disposable local Git remote. It also modified the fixture README, which the
+task-specific assertions did not evaluate. One run per profile does not prove
+relative reliability or cover arbitrary generated changes. Neither run used a
+real external Git service.
 
 ## MCP provider HTTP error metadata
 
