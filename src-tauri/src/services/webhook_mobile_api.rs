@@ -9,7 +9,6 @@ use crate::services::speech_service::{
 };
 use crate::services::webhook_bridge::ensure_mobile_api_authorized;
 use crate::services::webhook_service::WebhookState;
-use crate::state::AppState;
 use axum::extract::{Json, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
@@ -2042,9 +2041,9 @@ pub(crate) async fn mobile_transcribe_audio(
     }
 
     let (default_provider_id, default_model_name, default_locale) =
-        match resolve_mobile_speech_defaults(&state.app_state).await {
+        match crate::services::speech_service::resolve_transcription_defaults(&state.app_state.db).await {
             Ok(values) => values,
-            Err(error) => return (StatusCode::BAD_REQUEST, error).into_response(),
+            Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
         };
     let default_model_name = crate::services::speech_service::compatible_speech_model_default(body.provider_id.as_deref(), default_provider_id.as_deref(), default_model_name);
     let provider_id = body
@@ -2107,26 +2106,4 @@ pub(crate) async fn mobile_generate_speech(
         Ok(audio) => ([(axum::http::header::CONTENT_TYPE, "audio/wav"), (axum::http::header::CACHE_CONTROL, "no-store")], audio).into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
     }
-}
-
-async fn resolve_mobile_speech_defaults(
-    state: &AppState,
-) -> Result<(Option<String>, Option<String>, Option<String>), String> {
-    let provider_id =
-        std::env::var("ARUVI_SPEECH_PROVIDER_ID")
-            .ok()
-            .or(settings_repo::get_setting(&state.db, SPEECH_PROVIDER_KEY)
-                .await
-                .map_err(|error| error.to_string())?);
-    let model_name = std::env::var("ARUVI_SPEECH_MODEL_NAME")
-        .ok()
-        .or(settings_repo::get_setting(&state.db, SPEECH_MODEL_KEY)
-            .await
-            .map_err(|error| error.to_string())?);
-    let locale = std::env::var("ARUVI_SPEECH_LOCALE")
-        .ok()
-        .or(settings_repo::get_setting(&state.db, SPEECH_LOCALE_KEY)
-            .await
-            .map_err(|error| error.to_string())?);
-    Ok((provider_id, model_name, locale))
 }

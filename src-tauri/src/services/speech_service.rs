@@ -203,6 +203,20 @@ pub(crate) fn compatible_speech_model_default(requested_provider: Option<&str>, 
     }
 }
 
+/// Explicit request values are handled by callers. Environment values retain
+/// the browser API's existing precedence, including an explicitly blank value.
+pub(crate) async fn resolve_transcription_defaults(db: &sqlx::SqlitePool) -> Result<(Option<String>, Option<String>, Option<String>), AppError> {
+    async fn value(db: &sqlx::SqlitePool, environment: &str, key: &str) -> Result<Option<String>, AppError> {
+        let saved = crate::persistence::settings_repo::get_setting(db, key).await?;
+        Ok(std::env::var(environment).ok().or(saved))
+    }
+    Ok((
+        value(db, "ARUVI_SPEECH_PROVIDER_ID", "speech.transcription_provider_id").await?,
+        value(db, "ARUVI_SPEECH_MODEL_NAME", "speech.transcription_model_name").await?,
+        value(db, "ARUVI_SPEECH_LOCALE", "speech.locale").await?,
+    ))
+}
+
 pub(crate) async fn default_transcription_model(db: &sqlx::SqlitePool, provider_id: &str) -> Result<String, AppError> {
     Ok(crate::persistence::model_repo::list_model_definitions(db).await?
         .into_iter().filter(|model| model.provider_id == provider_id)

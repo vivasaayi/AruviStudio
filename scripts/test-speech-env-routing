@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+"""Exercise browser and MCP speech environment precedence in a disposable server."""
+import base64
+import json
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+import uuid
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+TOKEN = "speech-env-fixture"
+PROVIDER = "lm-studio-default"
+
+
+def command(*args):
+    return subprocess.check_output(args, text=True).strip()
+
+
+def post(address, path, data):
+    request = urllib.request.Request(f"http://{address}{path}", data=json.dumps(data).encode(), headers={
+        "Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json", "Accept": "application/json",
+    })
+    with urllib.request.urlopen(request, timeout=20) as response:
+        return json.load(response)
+
+
+def mcp(address, tool, action, arguments):
+    result = post(address, "/api/mcp", {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+        "name": tool, "arguments": {"action": action, "arguments": arguments},
+    }})["result"]
+    if result.get("isError"):
+        raise ValueError(f"MCP {action} failed")
+    return result.get("structuredContent", {}).get("result")
+
+
+def main():
+    plan = json.loads(command("bash", "scripts/env", "worktree", "plan"))
+    values = dict(line.split("=", 1) for line in (Path(plan["state"]) / "environment.env").read_text().splitlines() if line and not line.startswith("#") and "=" in line)
+    name = f"aruvi-speech-env-{uuid.uuid4().hex[:12]}"
+    started = False
+    try:
+        command("docker", "run", "--rm", "-d", "--name", name, "-p", "127.0.0.1::8787", "--tmpfs", "/data:mode=1777",
+                "-e", f"ARUVI_MCP_API_TOKEN={TOKEN}", "-e", f"ARUVI_MOBILE_API_TOKEN={TOKEN}",
+                "-e", f"ARUVI_SPEECH_PROVIDER_ID={PROVIDER}", "-e", "ARUVI_SPEECH_MODEL_NAME=env-model",
+                "-e", "ARUVI_SPEECH_LOCALE=ta-IN", values["APP_IMAGE"])
+        started = True
+        address = command("docker", "port", name, "8787/tcp").splitlines()[0]
+        if not address.startswith("127.0.0.1:"): raise ValueError("Fixture is not loopback-only")
+        deadline = time.monotonic() + 45
+        while True:
+            try:
+                with urllib.request.urlopen(f"http://{address}/health", timeout=2) as response:
+                    if response.status == 200: break
+            except (OSError, urllib.error.URLError):
+                if time.monotonic() >= deadline: raise ValueError("Fixture did not become healthy")
+                time.sleep(0.2)
+        mock = r'''require("http").createServer((req,res)=>{let chunks=[];req.on("data",x=>chunks.push(x));req.on("end",()=>{let s=Buffer.concat(chunks).toString();let model=s.match(/name="model"\r\n\r\n([^\r]+)/)?.[1];let lang=s.match(/name="language"\r\n\r\n([^\r]+)/)?.[1];res.setHeader("Content-Type","application/json");res.end(JSON.stringify({text:`${model}:${lang}`}));});}).listen(19877,"127.0.0.1")'''
+        command("docker", "exec", "-d", name, "node", "-e", mock)
+        readiness = 'fetch("http://127.0.0.1:19877/").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))'
+        deadline = time.monotonic() + 10
+        while subprocess.run(["docker", "exec", name, "node", "-e", readiness], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
+            if time.monotonic() >= deadline: raise ValueError("Simulated speech provider did not become ready")
+        mcp(address, "aruvi_models", "update_provider", {"id": PROVIDER, "base_url": "http://127.0.0.1:19877/v1"})
+        for key, value in [("speech.transcription_provider_id", "saved-provider"), ("speech.transcription_model_name", "saved-model"), ("speech.locale", "de-DE")]:
+            mcp(address, "aruvi_settings", "set_setting", {"key": key, "value": value})
+        audio = {"audio_bytes_base64": base64.b64encode(b"fixture audio").decode(), "mime_type": "audio/wav"}
+        second = mcp(address, "aruvi_models", "create_provider", {"name": "Explicit provider", "base_url": "http://127.0.0.1:19877/v1"})["id"]
+        for extra, expected in [({}, "env-model:ta"), ({"provider_id": PROVIDER, "model_name": "explicit-model", "locale": "fr-FR"}, "explicit-model:fr"), ({"provider_id": second, "locale": "fr-FR"}, "whisper-1:fr")]:
+            payload = dict(audio, **extra)
+            browser = post(address, "/api/mobile/speech/transcribe", payload)
+            result = mcp(address, "aruvi_speech", "transcribe_audio", payload)
+            if browser.get("transcript") != expected or result.get("transcript") != expected:
+                raise ValueError("Browser and MCP speech defaults did not match expected precedence")
+        print("Browser and MCP use environment defaults and respect explicit transcription overrides")
+    finally:
+        if started: subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+if __name__ == "__main__":
+    try: main()
+    except (OSError, KeyError, ValueError, subprocess.SubprocessError) as error:
+        print(f"Speech environment fixture failed: {type(error).__name__}: {error if isinstance(error, ValueError) else 'fixture operation failed'}", file=sys.stderr)
+        sys.exit(1)

@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::persistence::{model_repo, settings_repo};
 use crate::services::speech_service::{
-    compatible_speech_model_default, default_transcription_model, speak_text_natively, synthesize_remote_speech, transcribe_audio_with_provider,
+    compatible_speech_model_default, default_transcription_model, resolve_transcription_defaults, speak_text_natively, synthesize_remote_speech, transcribe_audio_with_provider,
     SpeechToTextRequest, TextToSpeechRequest,
 };
 use crate::state::AppState;
@@ -26,10 +26,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             action_result("generate_speech", serde_json::json!({"mime_type":"audio/wav", "audio_bytes_base64":base64::engine::general_purpose::STANDARD.encode(audio)}))
         }
         "transcribe_audio" => {
-            let provider_setting =
-                settings_repo::get_setting(&state.db, "speech.transcription_provider_id").await?;
-            let model_setting =
-                settings_repo::get_setting(&state.db, "speech.transcription_model_name").await?;
+            let (provider_setting, model_setting, locale_setting) = resolve_transcription_defaults(&state.db).await?;
             let requested_provider = args.optional_string(&["provider_id", "providerId"])?;
             let default_model = compatible_speech_model_default(requested_provider.as_deref(), provider_setting.as_deref(), model_setting);
             let provider_id = requested_provider
@@ -59,7 +56,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                     locale: args
                         .optional_string(&["locale"])?
                         .filter(|value| !value.trim().is_empty())
-                        .or(settings_repo::get_setting(&state.db, "speech.locale").await?),
+                        .or(locale_setting),
                 },
             )
             .await?;

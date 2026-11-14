@@ -3690,8 +3690,31 @@ accessed through browser API and MCP verified that a saved `ta-IN` produces the
 `ta` multipart hint. All 50 isolated browser/MCP workflow checks passed, and
 the rebuilt worktree services were healthy. These are synthetic requests, not
 native-window or real Tamil recognition tests. Browser-only speech environment
-overrides still have different precedence from desktop and MCP; the comparison
-is recorded in `web-parity-audit.md`.
+overrides previously had different precedence from desktop and MCP; the
+subsequent checkpoint below records the alignment.
+
+## Transcription environment precedence
+
+Browser API, desktop and MCP transcription now share the browser's existing
+default precedence: explicit nonblank request values, then environment values
+when present, then saved settings. A present blank environment value continues
+to suppress its saved counterpart. An explicitly selected different provider
+does not inherit the configured model. This changes desktop and MCP behavior
+when `ARUVI_SPEECH_PROVIDER_ID`, `ARUVI_SPEECH_MODEL_NAME` or
+`ARUVI_SPEECH_LOCALE` is set; deployments relying on the old divergence should
+review their environment before upgrading. The current branch environment did
+not define these keys when checked. Native speech playback settings are separate.
+
+On 2026-11-14, a desktop command ran in a separate process with environment
+overrides and conflicting saved settings. A disposable Linux server and a
+simulated provider verified the browser API and MCP default path, explicit
+overrides, and a different provider without the configured model. All 263
+native library tests passed with seven ignored; all 50 isolated browser/MCP
+workflow checks passed. These checks do not establish native-window interaction
+or live external-provider recognition. A separate disposable fixture used the
+real integration Model Host's synthetic Piper speech and Whisper transcription
+through browser-configured server defaults and MCP; it did not set environment
+overrides or use a physical microphone.
 
 ## Real coding retry guidance checkpoint
 

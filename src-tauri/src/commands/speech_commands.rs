@@ -1,14 +1,12 @@
 use crate::error::AppError;
 use crate::persistence::{model_repo, settings_repo};
 use crate::services::speech_service::{
-    compatible_speech_model_default, default_transcription_model, speak_text_natively, transcribe_audio_with_provider,
+    compatible_speech_model_default, default_transcription_model, resolve_transcription_defaults, speak_text_natively, transcribe_audio_with_provider,
     SpeechToTextRequest, SpeechToTextResponse, TextToSpeechRequest,
 };
 use crate::state::AppState;
 use tauri::State;
 
-const SPEECH_PROVIDER_KEY: &str = "speech.transcription_provider_id";
-const SPEECH_MODEL_KEY: &str = "speech.transcription_model_name";
 const SPEECH_LOCALE_KEY: &str = "speech.locale";
 const SPEECH_NATIVE_VOICE_KEY: &str = "speech.native_voice";
 
@@ -21,8 +19,7 @@ pub async fn transcribe_audio_command(
     mime_type: String,
     locale: Option<String>,
 ) -> Result<SpeechToTextResponse, AppError> {
-    let provider_setting = settings_repo::get_setting(&state.db, SPEECH_PROVIDER_KEY).await?;
-    let model_setting = settings_repo::get_setting(&state.db, SPEECH_MODEL_KEY).await?;
+    let (provider_setting, model_setting, locale_setting) = resolve_transcription_defaults(&state.db).await?;
     let default_model = compatible_speech_model_default(provider_id.as_deref(), provider_setting.as_deref(), model_setting);
     let provider_id = provider_id
         .filter(|value| !value.trim().is_empty())
@@ -40,7 +37,7 @@ pub async fn transcribe_audio_command(
     let request = SpeechToTextRequest {
         audio_bytes_base64,
         mime_type,
-        locale: locale.filter(|value| !value.trim().is_empty()).or(settings_repo::get_setting(&state.db, SPEECH_LOCALE_KEY).await?),
+        locale: locale.filter(|value| !value.trim().is_empty()).or(locale_setting),
     };
     let provider = model_repo::get_provider(&state.db, &provider_id).await?;
     transcribe_audio_with_provider(&provider, &model_name, request).await
@@ -102,5 +99,49 @@ mod tests {
             base64::engine::general_purpose::STANDARD.encode(b"synthetic audio"), "audio/wav".into(), Some("  ".into())).await.unwrap();
         assert_eq!(response.transcript, "desktop custom transcript");
         server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn desktop_transcription_environment_fixture() {
+        if std::env::var_os("ARUVI_SPEECH_TEST_CHILD").is_none() { return; }
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut data = Vec::new(); let mut buffer = [0; 4096];
+            let end = loop {
+                let n = socket.read(&mut buffer).unwrap(); assert_ne!(n, 0); data.extend_from_slice(&buffer[..n]);
+                if let Some(i) = data.windows(4).position(|part| part == b"\r\n\r\n") { break i + 4; }
+            };
+            let headers = String::from_utf8_lossy(&data[..end]).to_lowercase();
+            let len: usize = headers.lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().trim().parse().unwrap();
+            while data.len() < end + len { let n = socket.read(&mut buffer).unwrap(); assert_ne!(n, 0); data.extend_from_slice(&buffer[..n]); }
+            let body = String::from_utf8_lossy(&data[end..end+len]);
+            assert!(body.contains("name=\"model\"\r\n\r\nenv-model\r\n"));
+            assert!(body.contains("name=\"language\"\r\n\r\nta\r\n"));
+            let reply = r#"{"text":"environment fixture"}"#;
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", reply.len(), reply).unwrap();
+        });
+        let app = crate::commands::test_helpers::make_test_app("desktop_speech_environment").await;
+        let state = app.state::<AppState>();
+        model_repo::create_provider(&state.db, "env-provider", "Environment fixture", "openai_compatible", &format!("http://{address}"), None).await.unwrap();
+        settings_repo::set_setting(&state.db, "speech.transcription_provider_id", "saved-provider").await.unwrap();
+        settings_repo::set_setting(&state.db, "speech.transcription_model_name", "saved-model").await.unwrap();
+        settings_repo::set_setting(&state.db, "speech.locale", "fr-FR").await.unwrap();
+        let response = transcribe_audio_command(state, None, None, base64::engine::general_purpose::STANDARD.encode(b"synthetic audio"), "audio/wav".into(), None).await.unwrap();
+        assert_eq!(response.transcript, "environment fixture");
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn desktop_transcription_environment_overrides_saved_defaults() {
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "commands::speech_commands::tests::desktop_transcription_environment_fixture", "--nocapture"])
+            .env("ARUVI_SPEECH_TEST_CHILD", "1")
+            .env("ARUVI_SPEECH_PROVIDER_ID", "env-provider")
+            .env("ARUVI_SPEECH_MODEL_NAME", "env-model")
+            .env("ARUVI_SPEECH_LOCALE", "ta-IN")
+            .status().unwrap();
+        assert!(status.success());
     }
 }
