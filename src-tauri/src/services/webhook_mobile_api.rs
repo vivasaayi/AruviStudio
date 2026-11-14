@@ -1608,7 +1608,7 @@ pub(crate) async fn mobile_transcribe_audio(
     let provider_id = body
         .provider_id
         .filter(|value| !value.trim().is_empty())
-        .or(default_provider_id);
+        .or(default_provider_id.filter(|value| !value.trim().is_empty()));
     let Some(provider_id) = provider_id else {
         return (
             StatusCode::BAD_REQUEST,
@@ -1619,12 +1619,18 @@ pub(crate) async fn mobile_transcribe_audio(
     let model_name = body
         .model_name
         .filter(|value| !value.trim().is_empty())
-        .or(default_model_name)
-        .unwrap_or_else(|| "whisper-1".to_string());
+        .or(default_model_name.filter(|value| !value.trim().is_empty()));
+    let model_name = match model_name {
+        Some(model_name) => model_name,
+        None => match crate::services::speech_service::default_transcription_model(&state.app_state.db, &provider_id).await {
+            Ok(model_name) => model_name,
+            Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+        },
+    };
     let request = SpeechToTextRequest {
         audio_bytes_base64: body.audio_bytes_base64,
         mime_type: body.mime_type,
-        locale: body.locale.or(default_locale),
+        locale: body.locale.filter(|value| !value.trim().is_empty()).or(default_locale.filter(|value| !value.trim().is_empty())),
     };
     let provider = match model_repo::get_provider(&state.app_state.db, &provider_id).await {
         Ok(provider) => provider,

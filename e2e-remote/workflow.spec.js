@@ -791,6 +791,10 @@ test("voice records, reviews, and sends a transcribed message", async ({ page, r
   const created = await request.post("/api/mobile/providers", { headers, data: { name: "Voice fixture", base_url: process.env.ARUVI_TEST_MODEL_URL } });
   expect(created.ok()).toBeTruthy();
   const provider = await created.json();
+  const speechModel = await request.post("/api/mobile/models", { headers, data: { provider_id: provider.id, name: "synthetic-stt-model", capability_tags: ["transcription"] } });
+  expect(speechModel.ok()).toBeTruthy();
+  const clearModelSetting = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}`, Accept: "application/json, text/event-stream" }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_settings", arguments: { action: "set_setting", arguments: { key: "speech.transcription_model_name", value: "" } } } } });
+  expect((await clearModelSetting.json()).result.isError).not.toBeTruthy();
   expect((await request.post("/api/mobile/speech/transcribe", { data: { audio_bytes_base64: "", mime_type: "audio/wav" } })).status()).toBe(401);
   const emptyAudio = { provider_id: provider.id, model_name: "synthetic-stt-model", audio_bytes_base64: "", mime_type: "audio/wav" };
   const invalid = await request.post("/api/mobile/speech/transcribe", { headers, data: emptyAudio });
@@ -850,12 +854,16 @@ test("voice records, reviews, and sends a transcribed message", async ({ page, r
     };
   });
   await page.getByLabel("Review transcript before sending").uncheck();
+  await page.getByLabel("Transcription model").fill("");
   const transcription = page.waitForResponse((response) => response.url().endsWith("/api/mobile/speech/transcribe"));
   await page.getByRole("button", { name: "Record", exact: true }).click();
   const cappedResponse = await transcription;
   expect(cappedResponse.ok()).toBeTruthy();
   const cappedRequest = cappedResponse.request().postDataJSON();
   expect(cappedRequest.audio_bytes_base64.length).toBeLessThan(1280100);
+  expect(cappedRequest.model_name).toBeUndefined();
+  const autoMcp = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}`, Accept: "application/json, text/event-stream" }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_speech", arguments: { action: "transcribe_audio", arguments: cappedRequest } } } });
+  expect((await autoMcp.json()).result.isError).not.toBeTruthy();
   await expect(page.getByRole("button", { name: "Record", exact: true })).toBeEnabled();
   expect(await page.evaluate(() => window.fixtureTracksStopped)).toBe(3);
   await expect(page.locator("#voiceConversation").getByText("Container provider reply", { exact: true })).toHaveCount(2);

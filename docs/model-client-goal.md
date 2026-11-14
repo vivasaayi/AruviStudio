@@ -121,6 +121,21 @@ limits may be narrower than the server's accepted bounds. The rebuilt branch
 was healthy at `127.0.0.1:55089` on 2026-11-14. The existing real 7B Model
 Host browser and MCP Copilot workflow also passed with default settings.
 
+## Automatic speech model selection
+
+When the browser sends no transcription model, the server now selects the
+first enabled registered transcription model for the chosen provider using
+the same name/tag predicate as desktop and MCP; if none exists, it retains the
+`whisper-1` fallback. Blank saved model and provider values are treated as
+unset by all three paths. Explicit browser model IDs continue to be forwarded
+as before. A disposable browser recording and MCP transcription test passed
+with a registered synthetic speech model and an empty saved model setting;
+all 31 isolated workflow cases passed. The rebuilt branch was healthy at
+`127.0.0.1:55091` on 2026-11-14. Server-wide speech defaults still lack a web
+settings editor, and physical microphone and provider-specific accuracy remain
+unverified. The native speech-focused run passed five tests and ignored its
+installed-model fixture.
+
 ## External planner defaults in the browser
 
 Routing now exposes the server-wide provider ID and model name for external

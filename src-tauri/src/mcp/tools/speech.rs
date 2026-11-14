@@ -1,8 +1,7 @@
-use crate::domain::model::ModelDefinition;
 use crate::error::AppError;
 use crate::persistence::{model_repo, settings_repo};
 use crate::services::speech_service::{
-    looks_like_transcription_model, speak_text_natively, synthesize_remote_speech, transcribe_audio_with_provider,
+    looks_like_transcription_model, model_supports_transcription, speak_text_natively, synthesize_remote_speech, transcribe_audio_with_provider,
     SpeechToTextRequest, TextToSpeechRequest,
 };
 use crate::state::AppState;
@@ -34,14 +33,14 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let provider_id = args
                 .optional_string(&["provider_id", "providerId"])?
                 .filter(|value| !value.trim().is_empty())
-                .or(provider_setting)
+                .or(provider_setting.filter(|value| !value.trim().is_empty()))
                 .ok_or_else(|| {
                     AppError::Validation("A speech transcription provider is required".to_string())
                 })?;
             let requested_model_name = args
                 .optional_string(&["model_name", "modelName"])?
                 .filter(|value| !value.trim().is_empty())
-                .or(model_setting);
+                .or(model_setting.filter(|value| !value.trim().is_empty()));
             let provider_models = model_repo::list_model_definitions(&state.db)
                 .await?
                 .into_iter()
@@ -102,13 +101,4 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             "unsupported aruvi_speech action: {other}"
         ))),
     }
-}
-
-fn model_supports_transcription(model: &ModelDefinition) -> bool {
-    model.enabled
-        && (model
-            .capability_tags
-            .iter()
-            .any(|tag| matches!(tag.as_str(), "speech_to_text" | "transcription" | "audio"))
-            || looks_like_transcription_model(&model.name))
 }

@@ -144,6 +144,16 @@ pub fn looks_like_transcription_model(name: &str) -> bool {
         || normalized.contains("audio")
 }
 
+pub(crate) fn model_supports_transcription(model: &crate::domain::model::ModelDefinition) -> bool {
+    model.enabled && (model.capability_tags.iter().any(|tag| matches!(tag.as_str(), "speech_to_text" | "transcription" | "audio")) || looks_like_transcription_model(&model.name))
+}
+
+pub(crate) async fn default_transcription_model(db: &sqlx::SqlitePool, provider_id: &str) -> Result<String, AppError> {
+    Ok(crate::persistence::model_repo::list_model_definitions(db).await?
+        .into_iter().find(|model| model.provider_id == provider_id && model_supports_transcription(model))
+        .map(|model| model.name).unwrap_or_else(|| "whisper-1".to_string()))
+}
+
 pub fn resolve_local_runtime_model_path(raw_value: &str) -> Result<PathBuf, AppError> {
     let trimmed = raw_value.trim();
     if trimmed.is_empty() {

@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::persistence::{model_repo, settings_repo};
 use crate::services::speech_service::{
-    looks_like_transcription_model, speak_text_natively, transcribe_audio_with_provider,
+    looks_like_transcription_model, model_supports_transcription, speak_text_natively, transcribe_audio_with_provider,
     SpeechToTextRequest, SpeechToTextResponse, TextToSpeechRequest,
 };
 use crate::state::AppState;
@@ -11,15 +11,6 @@ const SPEECH_PROVIDER_KEY: &str = "speech.transcription_provider_id";
 const SPEECH_MODEL_KEY: &str = "speech.transcription_model_name";
 const SPEECH_LOCALE_KEY: &str = "speech.locale";
 const SPEECH_NATIVE_VOICE_KEY: &str = "speech.native_voice";
-
-fn model_supports_transcription(model: &crate::domain::model::ModelDefinition) -> bool {
-    model.enabled
-        && (model
-            .capability_tags
-            .iter()
-            .any(|tag| matches!(tag.as_str(), "speech_to_text" | "transcription" | "audio"))
-            || looks_like_transcription_model(&model.name))
-}
 
 #[tauri::command]
 pub async fn transcribe_audio_command(
@@ -34,13 +25,13 @@ pub async fn transcribe_audio_command(
     let model_setting = settings_repo::get_setting(&state.db, SPEECH_MODEL_KEY).await?;
     let provider_id = provider_id
         .filter(|value| !value.trim().is_empty())
-        .or(provider_setting)
+        .or(provider_setting.filter(|value| !value.trim().is_empty()))
         .ok_or_else(|| {
             AppError::Validation("A speech transcription provider is required".to_string())
         })?;
     let requested_model_name = model_name
         .filter(|value| !value.trim().is_empty())
-        .or(model_setting);
+        .or(model_setting.filter(|value| !value.trim().is_empty()));
     let provider_models = model_repo::list_model_definitions(&state.db)
         .await?
         .into_iter()
