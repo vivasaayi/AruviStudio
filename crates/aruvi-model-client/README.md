@@ -24,6 +24,9 @@ partial text as a complete response. Documented `thinking` and `redacted_thinkin
 blocks are omitted from text-only responses; tool-use turns remain unsupported.
 OpenAI-compatible multipart messages likewise reject unsupported or malformed parts,
 and multipart streaming deltas are rejected instead of silently dropped.
+Malformed choice containers, message/delta objects or content types are also
+rejected, including after earlier text was emitted. Consumers must check the
+final stream result before treating those earlier chunks as a complete answer.
 See the [Anthropic Messages reference](https://platform.claude.com/docs/en/api/messages/create)
 for provider content-block types.
 For Anthropic, a supplied stop reason indicating token truncation, a paused turn,

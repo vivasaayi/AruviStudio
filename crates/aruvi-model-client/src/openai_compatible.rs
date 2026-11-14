@@ -117,7 +117,7 @@ impl OpenAiCompatibleClient {
             if event.get("error").is_some_and(|value| !value.is_null()) {
                 return Err(ClientError::Provider("Model stream returned an error".into()));
             }
-            let choice = event.get("choices").and_then(|v| v.as_array()).and_then(|v| v.first());
+            let choice = Self::first_choice(&event)?;
             crate::CompletionMetadata::merge(&mut result.metadata, &event, choice.and_then(|v| v.get("finish_reason")));
             if let Some(choice) = choice {
                 Self::reject_non_text_choice(choice, "delta")?;
@@ -136,7 +136,13 @@ impl OpenAiCompatibleClient {
     }
 
     fn reject_non_text_choice(choice: &serde_json::Value, field: &str) -> Result<(), ClientError> {
+        if !choice.is_object() {
+            return Err(ClientError::Provider("Invalid model choice".into()));
+        }
         let message = choice.get(field);
+        if message.is_some_and(|value| !value.is_null() && !value.is_object()) {
+            return Err(ClientError::Provider("Invalid model message or delta".into()));
+        }
         if message.and_then(|value| value.get("tool_calls")).is_some_and(|value| value.as_array().map_or(!value.is_null(), |calls| !calls.is_empty()))
             || message.and_then(|value| value.get("function_call")).is_some_and(|value| !value.is_null()) {
             return Err(ClientError::Provider("Model tool-use responses are not supported by the text client".into()));
@@ -157,6 +163,9 @@ impl OpenAiCompatibleClient {
         if message.and_then(|value| value.get("refusal")).is_some_and(|value| !value.is_null()) {
             return Err(ClientError::Provider("Model refused the request".into()));
         }
+        if message.and_then(|value| value.get("content")).is_some_and(|value| !value.is_null() && !value.is_string() && !value.is_array()) {
+            return Err(ClientError::Provider("Invalid model content".into()));
+        }
         if let Some(parts) = message.and_then(|value| value.get("content")).and_then(serde_json::Value::as_array) {
             if field == "delta" { return Err(ClientError::Provider("Multipart model stream deltas are not supported by the text client".into())); }
             for part in parts {
@@ -167,6 +176,15 @@ impl OpenAiCompatibleClient {
             }
         }
         Ok(())
+    }
+
+    fn first_choice(event: &serde_json::Value) -> Result<Option<&serde_json::Value>, ClientError> {
+        if !event.is_object() { return Err(ClientError::Provider("Invalid model response event".into())); }
+        match event.get("choices") {
+            None => Ok(None),
+            Some(serde_json::Value::Array(choices)) => Ok(choices.first()),
+            Some(_) => Err(ClientError::Provider("Invalid model choices".into())),
+        }
     }
 
     /// Stream one OpenAI-compatible chat response. Dropping the future cancels
@@ -197,7 +215,7 @@ impl OpenAiCompatibleClient {
                 result.token_count_input = usage.get("prompt_tokens").and_then(|value| value.as_i64()).or(result.token_count_input);
                 result.token_count_output = usage.get("completion_tokens").and_then(|value| value.as_i64()).or(result.token_count_output);
             }
-            let choice = event.get("choices").and_then(|value| value.as_array()).and_then(|values| values.first());
+            let choice = Self::first_choice(&event)?;
             crate::CompletionMetadata::merge(&mut result.metadata, &event, choice.and_then(|v| v.get("finish_reason")));
             if let Some(choice) = choice {
                 Self::reject_non_text_choice(choice, "delta")?;
@@ -317,7 +335,7 @@ impl OpenAiCompatibleClient {
         if json.get("error").is_some_and(|value| !value.is_null()) {
             return Err(ClientError::Provider("Model completion returned an error".into()));
         }
-        let choice = json.get("choices").and_then(|value| value.as_array()).and_then(|values| values.first())
+        let choice = Self::first_choice(&json)?
             .ok_or_else(|| ClientError::Provider("Model completion returned no choices".into()))?;
         Self::reject_non_text_choice(choice, "message")?;
         let content = Self::extract_choice_content(choice)
@@ -767,6 +785,24 @@ mod tests {
         let (url, server) = reply_fixture(reply);
         let error = OpenAiCompatibleClient::new(url, None).run_completion(completion_request()).await.unwrap_err().to_string();
         assert!(error.contains("size limit")); server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn malformed_stream_parts_do_not_return_partial_success() {
+        for invalid in [
+            r#"{"choices":[{"delta":{"content":42}}]}"#,
+            r#"{"choices":[{"delta":{"content":{"text":"lost"}}}]}"#,
+            r#"{"choices":[{"delta":false}]}"#,
+            r#"{"choices":[false]}"#,
+            r#"{"choices":"invalid"}"#,
+            r#""invalid event""#,
+        ] {
+            let stream = format!("data: {{\"choices\":[{{\"delta\":{{\"content\":\"partial\"}}}}]}}\n\ndata: {invalid}\n\ndata: [DONE]\n\n");
+            assert!(OpenAiCompatibleClient::parse_sse_fallback(&stream).is_err(), "{invalid}");
+            let (result, emitted) = openai_stream_fixture(&stream).await;
+            assert!(result.is_err(), "{invalid}");
+            assert_eq!(emitted, ["partial"]);
+        }
     }
 
     #[tokio::test]

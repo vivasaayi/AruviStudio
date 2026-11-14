@@ -44,6 +44,18 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## OpenAI-compatible stream validation
+
+- The shared client rejects malformed choice containers, message/delta objects
+  and content types rather than silently discarding malformed stream data after
+  earlier text. Missing optional fields and null intermediate content remain
+  supported. The standalone macOS client passed 42 tests, including buffered
+  and incremental malformed-stream cases; the Linux Studio suite passed 204
+  tests with two live tests ignored. All 23 isolated workflow cases passed,
+  including a browser stream that records an error after partial output. The
+  real 7B Model Host browser and MCP Copilot fixture also passed. The public
+  independent-consumer pin must be updated to include this client change.
+
 ## Browser workflow automation settings
 
 - The browser Routing screen now exposes desktop's auto-start, plan approval,

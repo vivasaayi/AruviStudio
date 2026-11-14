@@ -141,6 +141,7 @@ const server = http.createServer((request, response) => {
       setTimeout(() => {
         if (response.destroyed) return;
         if (last.includes("stream failure")) return response.end('data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n');
+        if (last.includes("stream malformed")) return response.end('data: {"choices":[{"delta":{"content":42},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
         response.write('data: {"choices":[{"delta":{"content":"second"},"finish_reason":"stop"}]}\n\n');
         response.end('data: [DONE]\n\n');
       }, last.includes("stream cancel") ? 5000 : 500);

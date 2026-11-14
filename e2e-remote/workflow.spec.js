@@ -379,6 +379,9 @@ test("browser chat streams, reports errors, and can stop", async ({ page, reques
   await send("stream failure");
   await expect(page.locator("#chatConversation")).toContainText("Response incomplete");
   await expect(page.locator("#status")).toContainText("truncated");
+  await send("stream malformed");
+  await expect(page.locator("#chatConversation .assistant").last()).toContainText("Invalid model content");
+  await expect(page.locator("#status")).toContainText("Invalid model content");
   const statsUrl = process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/stream/stats");
   const beforeStop = (await (await request.get(statsUrl)).json()).disconnects;
   await send("stream cancel");
@@ -389,7 +392,7 @@ test("browser chat streams, reports errors, and can stop", async ({ page, reques
   await expect.poll(async () => {
     const calls = await (await request.get("/api/mobile/model-calls?limit=100", { headers })).json();
     return calls.filter((call) => call.provider_id === provider.id && call.source_kind === "mobile_chat").map((call) => call.status).sort();
-  }).toEqual(["completed", "failed", "failed"]);
+  }).toEqual(["completed", "failed", "failed", "failed"]);
 });
 
 test("browser streams Anthropic text and preserves errors and usage", async ({ page, request }) => {
