@@ -26,7 +26,7 @@ scope is reviewed, not merely until an example passes.
 | Local coding integration | The isolated 7B Model Host passed real MCP completion and an extend-module workflow through code review and a disposable local Git remote. A later new-module attempt produced a missing function definition; independent behavior checks caught it before delivery. | Investigate reliability on broader coding tasks and actual authenticated network delivery; syntax-only checks do not establish correctness. |
 | Speech and local fallback | Real Model Host speech generation and transcription and checksum-pinned local Whisper have been exercised with synthetic audio; browser and MCP fixtures exist. | Physical microphone permission/capture, audible playback, other languages and recognition quality remain unverified. |
 | Desktop, browser and MCP parity | Browser and MCP support many model, planner, agent, repository and product workflows; the detailed action inventory is in `web-parity-audit.md`. Recent native Rust, frontend and isolated web suites passed. | Complete action-by-action comparison, especially native IDE/dialogs, runtime management, settings and CI. A locked Mac prevented native window interaction; simulated Tauri tests are not native acceptance. |
-| Data, configuration and credentials | The branch has isolated Docker data and a loopback endpoint; the model-host setup stores its token outside Git. Migration 053 passed backup, integrity and foreign-key checks. | Review token scope, host restart operations, cross-platform behavior and upgrade paths. Existing external-channel bindings remain unscoped until explicitly migrated or replaced. |
+| Data, configuration and credentials | The branch has isolated Docker data and a loopback endpoint; the model-host setup stores its token outside Git. Inspected Model Host source uses the same token for inference and management. Migration 053 passed backup, integrity and foreign-key checks. | Inference-only host credentials are not established; review host restart operations, cross-platform behavior and upgrade paths. Existing external-channel bindings remain unscoped until explicitly migrated or replaced. |
 | Security and release evidence | Independent client and npm scans found no advisories; the latest Studio lockfile scan found an RSA advisory and maintenance/soundness warnings. | Review those advisories and the locally patched SQLx dependency; verify target platforms and complete release acceptance. No release or master merge is authorized by this goal. |
 
 The currently running branch app is a worktree deployment. Its port is dynamic;
@@ -2316,6 +2316,18 @@ the disposable local Git remote. It also modified the fixture README, which the
 task-specific assertions did not evaluate. One run per profile does not prove
 relative reliability or cover arbitrary generated changes. Neither run used a
 real external Git service.
+
+## Model Host credential scope review
+
+The validation host checkout at `583b730` applies the same authorization
+middleware and bearer token to `/v1` inference and `/api/models` registration,
+installation, loading and unloading. The inspected main checkout at `6edb849`
+also shares its middleware across inference and management routes. This is a
+source review, not proof of the revision or settings of every deployed host.
+Studio's setup helper stores that token, so its secret-store readers and anyone
+with both the token and host network access must be trusted with host management.
+Neither an inference-only token nor an independently enforced proxy has been
+validated here. Host deployment and authorization were not changed.
 
 ## Shared-client example pin
 

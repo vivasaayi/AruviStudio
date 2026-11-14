@@ -97,8 +97,12 @@ provider without replacing its ID. Discovery rejects HTTP redirects. For native 
 staging` and the checkout used to manage that deployment; use a coding model
 actually installed there. The current native staging fixture does not contain one.
 Use `--name` to choose a different provider name. This setup stores the host's
-bearer token in Studio's secret store; it grants the token's full Model Host
-permissions. The helper neither installs models nor assigns them to agents.
+bearer token in Studio's secret store. In the inspected Model Host source, this
+same token authorizes both `/v1` inference and `/api` management operations,
+including model registration, installation, loading and unloading; it is not an
+inference-only credential. Anyone able to extract the token and reach the host
+can use those management routes. Limit access to Studio's secret store and the
+host endpoint accordingly. The helper neither installs models nor assigns them to agents.
 It requires a model advertised with the `text` task and selects the standard
 OpenAI-compatible completion profile for that Model Host provider. Choose the
 registered model in browser chat or bind it to the desired agents in Models;
