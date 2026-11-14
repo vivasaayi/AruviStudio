@@ -19,7 +19,8 @@ thinking, structured output and cross-provider capability negotiation remain ope
 For OpenAI-compatible text responses, a supplied finish reason indicating token
 truncation, filtering, tool use or an unknown outcome is returned as an error.
 Missing or null finish reasons are accepted for compatible providers, and cannot
-prove response completeness. A streaming callback may have received partial text
+prove response completeness. Empty buffered completion text is treated as an
+error, consistent with the text streaming and Anthropic clients. A streaming callback may have received partial text
 before the terminal error.
 For Anthropic, client tool calls, server-side tool calls and tool-result blocks
 are rejected even when the provider reports a completed turn. A streaming

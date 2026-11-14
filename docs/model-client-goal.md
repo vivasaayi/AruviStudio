@@ -2299,6 +2299,15 @@ model discovery, completion, streaming and token-limit handling with
 `qwen25-coder-7b-q4`. This verifies the pinned revision; later client changes
 require a new pin and revalidation. No release was published.
 
+## Empty completion handling
+
+OpenAI-compatible buffered text and JSON-object completions now reject an empty
+text result instead of reporting it as success, matching the existing streaming
+and Anthropic behavior. This changes behavior for callers that previously treated
+an empty answer as valid. All 52 standalone client tests passed, including both
+buffered modes. All 33 isolated workflow tests passed, including web and MCP
+error reporting against a simulated empty-response provider.
+
 ## Shared-client debug payloads
 
 Debug formatting for chat messages, speech and transcription requests, and

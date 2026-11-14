@@ -377,6 +377,7 @@ impl OpenAiCompatibleClient {
             .ok_or_else(|| ClientError::Provider("Model completion returned no choices".into()))?;
         Self::reject_non_text_choice(choice, "message")?;
         let content = Self::extract_choice_content(choice)
+            .filter(|content| !content.is_empty())
             .ok_or_else(|| ClientError::Provider("Model completion returned no text".into()))?;
 
         let mut metadata = None;
@@ -921,6 +922,19 @@ mod tests {
         assert!(error.contains("returned an error"));
         assert!(!error.contains("synthetic-secret"));
         server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejects_empty_text_in_buffered_completion_modes() {
+        for json_mode in [false, true] {
+            let body = r#"{"choices":[{"message":{"content":""},"finish_reason":"stop"}]}"#;
+            let reply = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
+            let (url, server) = reply_fixture(reply.into_bytes());
+            let client = OpenAiCompatibleClient::new(url, None);
+            let result = if json_mode { client.run_json_completion(completion_request()).await } else { client.run_completion(completion_request()).await };
+            assert!(matches!(result, Err(ClientError::Provider(message)) if message.contains("no text")));
+            server.join().unwrap();
+        }
     }
 
     #[tokio::test]

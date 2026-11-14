@@ -785,6 +785,21 @@ test("web and MCP reject partial mixed provider content", async ({ request }) =>
   }
 });
 
+test("web and MCP report empty buffered completions as errors", async ({ request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const created = await request.post("/api/mobile/providers", { headers, data: { name: "Empty completion fixture", base_url: process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/empty/v1") } });
+  expect(created.ok()).toBeTruthy();
+  const provider = await created.json(), messages = [{ role: "user", content: "hello" }];
+  const web = await request.post("/api/mobile/chat/completions", { headers, data: { provider_id: provider.id, model_name: "fixture", messages } });
+  expect(web.status()).toBe(400);
+  expect(await web.text()).toContain("no text");
+  const mcp = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_models", arguments: { action: "run_model_chat_completion", arguments: { provider_id: provider.id, model: "fixture", messages } } } } });
+  const result = (await mcp.json()).result;
+  expect(result.isError).toBeTruthy();
+  expect(JSON.stringify(result.content)).toContain("no text");
+});
+
 test("voice records, reviews, and sends a transcribed message", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
