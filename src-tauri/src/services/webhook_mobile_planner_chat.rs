@@ -49,7 +49,7 @@ pub(crate) async fn mobile_create_planner_chat_session(
         return response;
     }
     let provider_id =
-        match resolve_mobile_chat_provider_id(&state.app_state, body.provider_id).await {
+        match resolve_mobile_chat_provider_id(&state.app_state, body.provider_id, body.model_name.as_deref()).await {
             Ok(provider_id) => provider_id,
             Err(error) => return (StatusCode::BAD_REQUEST, error).into_response(),
         };
@@ -129,7 +129,7 @@ pub(crate) async fn mobile_submit_planner_chat_turn(
     };
 
     let provider_id =
-        match resolve_mobile_chat_provider_id(&state.app_state, body.provider_id).await {
+        match resolve_mobile_chat_provider_id(&state.app_state, body.provider_id, body.model_name.as_deref()).await {
             Ok(provider_id) => provider_id,
             Err(error) => return (StatusCode::BAD_REQUEST, error).into_response(),
         };

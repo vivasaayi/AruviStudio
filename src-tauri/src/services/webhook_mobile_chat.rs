@@ -29,7 +29,7 @@ pub(crate) async fn mobile_chat_stream(
 async fn stream_mobile_completion(state: WebhookState, body: MobileChatCompletionRequest, source_kind: &'static str, source_label: &'static str) -> axum::response::Response {
     let messages: Vec<_> = body.messages.into_iter().filter(|message| !message.content.trim().is_empty()).collect();
     if messages.is_empty() { return (StatusCode::BAD_REQUEST, "At least one chat message is required.").into_response(); }
-    let provider_id = match resolve_mobile_chat_provider_id(&state.app_state, body.provider_id).await {
+    let provider_id = match resolve_mobile_chat_provider_id(&state.app_state, body.provider_id, body.model_name.as_deref()).await {
         Ok(id) => id, Err(error) => return (StatusCode::BAD_REQUEST, error).into_response(),
     };
     let model_name = match resolve_mobile_chat_model_name(&state.app_state, &provider_id, body.model_name).await {
@@ -233,7 +233,7 @@ async fn run_mobile_completion(state: &crate::state::AppState, body: MobileChatC
     }
 
     let provider_id =
-        match resolve_mobile_chat_provider_id(state, body.provider_id).await {
+        match resolve_mobile_chat_provider_id(state, body.provider_id, body.model_name.as_deref()).await {
             Ok(provider_id) => provider_id,
             Err(error) => return Err((StatusCode::BAD_REQUEST, error)),
         };

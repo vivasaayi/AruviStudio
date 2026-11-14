@@ -2415,6 +2415,12 @@ desktop streaming and browser chat. The frontend build, six planner picker
 tests, native planner resolution test and all 35 isolated workflows passed,
 including simulated browser and MCP chat rejection. Other models are not
 classified as voice-only solely from capability tags.
+When neither provider nor model is supplied to browser chat or planner chat,
+Studio now prefers the first enabled provider that has an enabled non-voice
+model, rather than stopping at a voice-only provider. Explicit provider and
+model inputs keep their prior routing behavior. A native selection test and all
+35 isolated workflow cases passed; the fallback does not prove the selected
+provider is reachable or that its model is suitable for the requested task.
 
 ## Shared-client example pin
 
