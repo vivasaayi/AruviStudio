@@ -55,24 +55,36 @@ pub struct CompletionOptions {
     pub temperature: TemperatureMode,
 }
 
+/// Multipart language field for transcription endpoints.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TranscriptionLanguageMode {
+    /// Use `languages[]` for OpenAI's gpt-transcribe on its official HTTPS
+    /// endpoint; retain the legacy `language` field elsewhere.
+    #[default]
+    Auto,
+    Singular,
+    Array,
+}
+
 pub struct OpenAiCompatibleClient {
     base_url: String,
     api_key: Option<String>,
     client: Option<Client>,
     completion_options: CompletionOptions,
     include_stream_usage: bool,
+    transcription_language_mode: TranscriptionLanguageMode,
 }
 
 impl OpenAiCompatibleClient {
     pub fn new(base_url: String, api_key: Option<String>) -> Self {
         let client = crate::http::build_client(crate::ClientOptions::default()).ok();
-        Self { base_url, api_key, client, completion_options: CompletionOptions::default(), include_stream_usage: false }
+        Self { base_url, api_key, client, completion_options: CompletionOptions::default(), include_stream_usage: false, transcription_language_mode: TranscriptionLanguageMode::Auto }
     }
 
     /// Construct a client with explicitly bounded connection and total request timeouts.
     pub fn with_options(base_url: String, api_key: Option<String>, options: crate::ClientOptions) -> Result<Self, ClientError> {
         let client = crate::http::build_client(options)?;
-        Ok(Self { base_url, api_key, client: Some(client), completion_options: CompletionOptions::default(), include_stream_usage: false })
+        Ok(Self { base_url, api_key, client: Some(client), completion_options: CompletionOptions::default(), include_stream_usage: false, transcription_language_mode: TranscriptionLanguageMode::Auto })
     }
 
     /// Select the request fields used for ordinary, JSON and streaming chat.
@@ -88,6 +100,23 @@ impl OpenAiCompatibleClient {
     pub fn with_stream_usage(mut self, enabled: bool) -> Self {
         self.include_stream_usage = enabled;
         self
+    }
+
+    /// Override the transcription language field for a compatible proxy.
+    pub fn with_transcription_language_mode(mut self, mode: TranscriptionLanguageMode) -> Self {
+        self.transcription_language_mode = mode;
+        self
+    }
+
+    fn transcription_language_field(&self, model: &str) -> &'static str {
+        let array = match self.transcription_language_mode {
+            TranscriptionLanguageMode::Array => true,
+            TranscriptionLanguageMode::Singular => false,
+            TranscriptionLanguageMode::Auto => model == "gpt-transcribe" &&
+                reqwest::Url::parse(&self.base_url).is_ok_and(|url|
+                    url.scheme() == "https" && url.host_str() == Some("api.openai.com") && url.port_or_known_default() == Some(443)),
+        };
+        if array { "languages[]" } else { "language" }
     }
 
     fn completion_body(&self, request: &CompletionRequest) -> serde_json::Value {
@@ -324,9 +353,10 @@ impl OpenAiCompatibleClient {
             .file_name(input.filename)
             .mime_str(&input.mime_type)
             .map_err(|error| ClientError::InvalidInput(format!("Unsupported audio mime type: {error}")))?;
+        let language_field = self.transcription_language_field(&input.model);
         let mut form = reqwest::multipart::Form::new().text("model", input.model).part("file", file);
         if let Some(language) = input.language.filter(|value| !value.trim().is_empty()) {
-            form = form.text("language", language);
+            form = form.text(language_field, language);
         }
         let mut request = self.client()?.post(self.endpoint_url("/audio/transcriptions")?).multipart(form);
         if let Some(key) = &self.api_key { request = request.bearer_auth(key); }
@@ -732,6 +762,44 @@ mod tests {
         assert!(client.transport_capabilities().transcription);
         let text = client.transcribe(TranscriptionRequest { model: "whisper-fixture".into(), audio: b"RIFFfixture".to_vec(), mime_type: "audio/wav".into(), filename: "sample.wav".into(), language: Some("en-US".into()) }).await.unwrap();
         assert_eq!(text, "hello world");
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn transcription_language_shape_matches_selected_provider_contract() {
+        let official = OpenAiCompatibleClient::new("https://api.openai.com/v1".into(), None);
+        assert_eq!(official.transcription_language_field("gpt-transcribe"), "languages[]");
+        assert_eq!(official.transcription_language_field("whisper-1"), "language");
+        let proxy = OpenAiCompatibleClient::new("http://localhost:1234/v1".into(), None);
+        assert_eq!(proxy.transcription_language_field("gpt-transcribe"), "language");
+        let spoof = OpenAiCompatibleClient::new("https://api.openai.com.example.invalid/v1".into(), None);
+        assert_eq!(spoof.transcription_language_field("gpt-transcribe"), "language");
+        assert_eq!(official.with_transcription_language_mode(TranscriptionLanguageMode::Singular).transcription_language_field("gpt-transcribe"), "language");
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut data = Vec::new(); let mut buffer = [0; 4096];
+            let end = loop {
+                let n = socket.read(&mut buffer).unwrap(); assert_ne!(n, 0);
+                data.extend_from_slice(&buffer[..n]);
+                if let Some(i) = data.windows(4).position(|w| w == b"\r\n\r\n") { break i + 4; }
+            };
+            let headers = String::from_utf8_lossy(&data[..end]).to_lowercase();
+            let length: usize = headers.lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().trim().parse().unwrap();
+            while data.len() < end + length { let n = socket.read(&mut buffer).unwrap(); assert_ne!(n, 0); data.extend_from_slice(&buffer[..n]); }
+            let body = String::from_utf8_lossy(&data[end..end+length]);
+            assert!(body.contains("name=\"languages[]\""));
+            assert!(!body.contains("name=\"language\""));
+            assert!(body.contains("\r\n\r\nen\r\n"));
+            let reply = r#"{"text":"fixture"}"#;
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", reply.len(), reply).unwrap();
+        });
+        let client = OpenAiCompatibleClient::new(format!("http://{address}"), None)
+            .with_transcription_language_mode(TranscriptionLanguageMode::Array);
+        let result = client.transcribe(TranscriptionRequest { model: "gpt-transcribe".into(), audio: vec![1], mime_type: "audio/wav".into(), filename: "a.wav".into(), language: Some("en".into()) }).await.unwrap();
+        assert_eq!(result, "fixture");
         server.join().unwrap();
     }
 

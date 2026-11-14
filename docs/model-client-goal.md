@@ -3658,6 +3658,20 @@ the existing management-scoped credential and did not test cloud providers.
 The consumer test entry point now checks that the README, manifest and lockfile
 pins agree. Temporary mismatched README and lockfile controls were rejected.
 
+## OpenAI transcription language shape
+
+On 2026-11-14, the shared OpenAI-compatible client was updated for the
+[OpenAI transcription contract](https://developers.openai.com/api/docs/guides/speech-to-text):
+`gpt-transcribe` on the official HTTPS endpoint sends a supplied language hint
+as `languages[]`, while legacy models and other endpoints retain `language`.
+Consumers of compatible proxies can explicitly choose either field. A simulated
+multipart endpoint verified the array request and exclusive field selection;
+legacy multipart coverage and all 62 shared-client tests passed. Two Studio
+transcription language tests also passed. This is contract-fixture coverage,
+not a live OpenAI transcription; proxy support and language codes remain the
+operator's responsibility. The rebuilt worktree image passed all 49 isolated
+browser/MCP workflow tests, and its services restarted healthy.
+
 ## Real coding retry guidance checkpoint
 
 On 2026-11-14, the rebuilt worktree passed a real `qwen25-coder-7b-q4` MCP
