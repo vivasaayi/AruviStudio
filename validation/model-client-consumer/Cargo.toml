@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-aruvi-model-client = { git = "https://github.com/vivasaayi/AruviStudio.git", rev = "c130a4bc1af205d64f1ea37df897ccd4193aee66" }
+aruvi-model-client = { git = "https://github.com/vivasaayi/AruviStudio.git", rev = "c4cac799d99ffef77e6199711c07b85d4db6fd1a" }
 
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
