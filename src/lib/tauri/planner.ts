@@ -16,6 +16,9 @@ export const validatePlannerTree = <T>(nodes: unknown[]) =>
 export const plannerSuggestedPrompts = (node: { label: string; node_type?: string | null; meta?: string | null } | null) =>
   invoke<string[]>("planner_suggested_prompts_command", { node });
 
+export const plannerRelevantActions = <T>(actions: T[], node: { label: string; node_type?: string | null; meta?: string | null } | null) =>
+  invoke<T[]>("planner_relevant_actions_command", { actions, node });
+
 // Planner commands
 export const createPlannerSession = (data?: { providerId?: string; modelName?: string }) =>
   invoke<PlannerSessionInfo>("create_planner_session_command", {

@@ -46,6 +46,14 @@ provider hosting into the model-host service as part of this work.
 
 ## Browser planner node review
 
+- Desktop and browser now use a shared Rust matcher for plan actions associated
+  with the selected node, also exposed as MCP `match_planner_actions`. The
+  browser shows the latest plan held by the current page; this is not durable
+  history. Matching preserves the desktop's name-based rules, so duplicate node
+  names can be conflated and results should not be treated as an audit record.
+  The Linux matcher unit test, 90 frontend tests, five mocked desktop planner
+  cases, and 22 remote UI cases passed. The remote suite compared authenticated
+  web and MCP matches and checked the browser rendering of a draft edit.
 - Suggested prompts now come from one Rust service used by the native desktop
   command, authenticated browser API and MCP `suggest_planner_prompts` action.
   Selecting a browser suggestion fills the composer without submitting it. The

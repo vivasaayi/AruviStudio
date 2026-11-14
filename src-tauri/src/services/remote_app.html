@@ -927,6 +927,7 @@
       selectedProductId: localStorage.getItem(storageKeys.selectedProduct) || "",
       selectedWorkItemId: localStorage.getItem(storageKeys.selectedWorkItem) || "",
       draftTreeNodes: [],
+      latestPlannerActions: [],
       products: [],
       productSummary: null,
       workItems: [],
@@ -1615,6 +1616,18 @@
             button.addEventListener("click", () => { el.composer.value = prompt; el.composer.focus(); }); suggestions.appendChild(button);
           });
         }).catch(() => { if (requestId === suggestionRequestId) suggestions.textContent = "Suggested prompts unavailable."; });
+        const recent = document.createElement("div"); recent.className = "stack"; details.appendChild(recent);
+        if (!state.latestPlannerActions.length) recent.textContent = "No recent plan actions in this page session.";
+        else {
+          recent.textContent = "Loading recent plan actions…";
+          void request("/api/mobile/planner/match-actions", { method: "POST", body: { node: { label: node.label || "Untitled", node_type: node.node_type || null, meta: node.meta || null }, actions: state.latestPlannerActions } }).then((actions) => {
+            if (requestId !== suggestionRequestId) return;
+            if (!Array.isArray(actions)) throw new Error("Invalid action list");
+            recent.replaceChildren();
+            const title = document.createElement("div"); title.textContent = actions.length ? "Name-matched plan actions in this page session" : "No recent plan actions match this node."; recent.appendChild(title);
+            actions.forEach((action) => { const row = document.createElement("div"); row.textContent = JSON.stringify(action); recent.appendChild(row); });
+          }).catch(() => { if (requestId === suggestionRequestId) recent.textContent = "Recent plan actions unavailable."; });
+        }
       } else details.textContent = "Select a draft node to inspect its details.";
       if (!state.draftTreeNodes.length) {
         const empty = document.createElement("div");
@@ -1673,6 +1686,7 @@
         localStorage.setItem(storageKeys.selectedNode, state.selectedNodeId);
       } else localStorage.removeItem(storageKeys.selectedNode);
       state.draftTreeNodes = response.draft_tree_nodes || [];
+      if (Array.isArray(response.pending_plan?.actions) && response.pending_plan.actions.length) state.latestPlannerActions = response.pending_plan.actions;
       el.draftValidation.textContent = "Design changed. Validate again for current results.";
       const lines = [
         response.assistant_message,
@@ -1999,6 +2013,7 @@
           method: "POST"
         });
         state.draftTreeNodes = [];
+        state.latestPlannerActions = [];
         state.selectedNodeId = "";
         el.draftValidation.textContent = "Design cleared. Validate again for current results.";
         localStorage.removeItem(storageKeys.selectedNode);
@@ -2015,6 +2030,7 @@
       state.sessionId = "";
       state.selectedNodeId = "";
       state.draftTreeNodes = [];
+      state.latestPlannerActions = [];
       el.draftValidation.textContent = "Validate the staged design to see readiness and structural issues.";
       localStorage.removeItem(storageKeys.session);
       localStorage.removeItem(storageKeys.selectedNode);

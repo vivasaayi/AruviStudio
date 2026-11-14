@@ -99,6 +99,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "clear_planner_pending",
                 "validate_planner_draft",
                 "suggest_planner_prompts",
+                "match_planner_actions",
                 "export_planner_review_packet",
                 "submit_planner_turn",
                 "submit_planner_voice_turn",

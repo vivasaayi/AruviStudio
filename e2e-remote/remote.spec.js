@@ -186,6 +186,13 @@ test("browser edits a real planner draft through the authenticated API", async (
     expect(suggested[0]).toBe("Enhance Draft area with 3 concrete capabilities.");
     await page.getByRole("button", { name: suggested[0], exact: true }).click();
     await expect(page.locator("#composer")).toHaveValue(suggested[0]);
+    await expect(page.locator("#draftNodeDetails")).toContainText("create_product_area");
+    const matchPayload = { ...suggestionPayload, actions: [{ type: "create_product_area", name: "Draft area" }, { type: "create_product_area", name: "Other" }] };
+    expect((await request.post("/api/mobile/planner/match-actions", { data: matchPayload })).status()).toBe(401);
+    const matched = await (await request.post("/api/mobile/planner/match-actions", { headers, data: matchPayload })).json();
+    expect(matched).toEqual([matchPayload.actions[0]]);
+    const mcpMatch = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` }, data: { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "aruvi_planner", arguments: { action: "match_planner_actions", arguments: matchPayload } } } });
+    expect((await mcpMatch.json()).result.structuredContent.result).toEqual(matched);
     await page.getByRole("button", { name: "Validate design" }).click();
     await expect(page.locator("#draftValidation")).toContainText("Readiness: 88/100");
     await expect(page.locator("#draftValidation")).toContainText("Draft area is empty");

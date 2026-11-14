@@ -1291,6 +1291,16 @@ pub(crate) async fn mobile_validate_planner_draft(
 #[derive(Deserialize)]
 pub(crate) struct PlannerSuggestionsRequest { node: Option<crate::services::planner_suggestions::SuggestionNode> }
 
+#[derive(Deserialize)]
+pub(crate) struct PlannerMatchActionsRequest { node: Option<crate::services::planner_suggestions::SuggestionNode>, actions: Vec<serde_json::Value> }
+
+pub(crate) async fn mobile_planner_match_actions(
+    State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<PlannerMatchActionsRequest>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    Json(crate::services::planner_suggestions::relevant_actions(&body.actions, body.node.as_ref())).into_response()
+}
+
 pub(crate) async fn mobile_planner_suggestions(
     State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<PlannerSuggestionsRequest>,
 ) -> impl IntoResponse {

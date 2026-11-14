@@ -9,6 +9,7 @@ import {
   listRepositories,
   listWorkItemsPage,
   plannerSuggestedPrompts,
+  plannerRelevantActions,
   validatePlannerTree,
 } from "../../../lib/tauri";
 import type { ProductArea } from "../../../lib/types";
@@ -21,7 +22,6 @@ import {
   buildProductAreaOnlyTree,
   findLatestAssistantMessage,
   findLatestDraftPlan,
-  findRelevantPlanActions,
   findTreeNodeById,
   findTreeNodePath,
   getAllowedDraftChildTypes,
@@ -151,10 +151,13 @@ export function usePlannerPageViewModel({
   // Keep the existing local calculation while the request is pending or if the
   // native bridge is unavailable; the shared Rust result is authoritative.
   const draftValidation = serverDraftValidation ?? localDraftValidation;
-  const selectedNodeRecentActions = useMemo(
-    () => findRelevantPlanActions(latestDraftPlan, selectedDraftNode),
-    [latestDraftPlan, selectedDraftNode],
-  );
+  const { data: matchedActions } = useQuery({
+    queryKey: ["plannerRelevantActions", latestDraftPlan?.actions, selectedDraftNode?.label, selectedDraftNode?.node_type, selectedDraftNode?.meta],
+    queryFn: () => plannerRelevantActions(latestDraftPlan?.actions ?? [], selectedDraftNode ? { label: selectedDraftNode.label, node_type: selectedDraftNode.node_type, meta: selectedDraftNode.meta } : null),
+    staleTime: Infinity,
+    retry: false,
+  });
+  const selectedNodeRecentActions = Array.isArray(matchedActions) ? matchedActions : [];
   const latestAssistantMessage = useMemo(
     () => findLatestAssistantMessage(messages),
     [messages],

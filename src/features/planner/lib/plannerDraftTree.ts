@@ -1,5 +1,5 @@
 import type { PlannerDraftChildType } from "../../../lib/types";
-import type { PlannerAction, PlannerPlan, PlannerTreeNode } from "./plannerPageTypes";
+import type { PlannerPlan, PlannerTreeNode } from "./plannerPageTypes";
 
 export function parseDraftNodeType(meta?: string | null) {
   if (!meta) {
@@ -304,34 +304,4 @@ export function formatDraftChildTypeLabel(type: PlannerDraftChildType) {
     case "capability":
       return "Capability";
   }
-}
-
-export function findRelevantPlanActions(plan: PlannerPlan | null, node: PlannerTreeNode | null) {
-  if (!plan || !node) {
-    return [];
-  }
-
-  const nodeType = getPlannerNodeType(node);
-  return plan.actions.filter((action) => {
-    const target = (action as { target?: { productName?: string; productAreaName?: string; capabilityName?: string; workItemTitle?: string } }).target;
-    if (nodeType === "product") {
-      return target?.productName === node.label;
-    }
-    if (nodeType === "product area") {
-      return action.type === "create_product_area"
-        ? action.name === node.label || target?.productAreaName === node.label
-        : target?.productAreaName === node.label;
-    }
-    if (nodeType === "capability") {
-      return action.type === "create_capability" || action.type === "apply_capability_template"
-        ? action.name === node.label || target?.capabilityName === node.label
-        : target?.capabilityName === node.label;
-    }
-    if (nodeType === "work item") {
-      return action.type === "create_work_item"
-        ? action.title === node.label || target?.workItemTitle === node.label
-        : target?.workItemTitle === node.label;
-    }
-    return false;
-  });
 }

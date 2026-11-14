@@ -14,6 +14,11 @@ pub fn planner_suggested_prompts_command(node: Option<crate::services::planner_s
 }
 
 #[tauri::command]
+pub fn planner_relevant_actions_command(actions: Vec<serde_json::Value>, node: Option<crate::services::planner_suggestions::SuggestionNode>) -> Vec<serde_json::Value> {
+    crate::services::planner_suggestions::relevant_actions(&actions, node.as_ref())
+}
+
+#[tauri::command]
 pub async fn build_planner_review_packet_command(
     state: State<'_, AppState>, session_id: String,
     expected_nodes: Vec<crate::services::planner_types::PlannerTreeNode>, selected_node_id: Option<String>,

@@ -130,9 +130,12 @@ test("planner uses suggested prompts from the shared native command", async ({ p
   await page.evaluate(() => {
     const bridge = window.__ARUVI_E2E__;
     const original = bridge.invoke;
-    bridge.invoke = (command, args) => command === "planner_suggested_prompts_command"
-      ? [`Shared suggestion for ${args.node?.label}`]
-      : original(command, args);
+    bridge.invoke = (command, args) => {
+      if (command === "planner_suggested_prompts_command") return [`Shared suggestion for ${args.node?.label}`];
+      if (command === "planner_relevant_actions_command") return args.node?.label === "Input Experience"
+        ? [{ type: "update_product_area", target: { productAreaName: "Input Experience" }, fields: { description: "shared action" } }] : [];
+      return original(command, args);
+    };
   });
   await page.getByLabel("Planner product").selectOption("example-product-calculator");
   await page.getByTestId("planner-input").fill("Design input, history, reporting, and expression product areas for this product");
@@ -141,4 +144,5 @@ test("planner uses suggested prompts from the shared native command", async ({ p
   await page.getByTestId("draft-node-draft-product_area-input-experience").click();
   await page.getByRole("button", { name: "Shared suggestion for Input Experience" }).click();
   await expect(page.getByTestId("planner-input")).toHaveValue("Shared suggestion for Input Experience");
+  await expect(page.getByText("Update product area Input Experience")).toBeVisible();
 });

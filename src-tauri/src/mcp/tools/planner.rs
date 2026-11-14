@@ -18,6 +18,11 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
     let args = tool_action.args();
 
     match tool_action.action.as_str() {
+        "match_planner_actions" => {
+            let node: Option<crate::services::planner_suggestions::SuggestionNode> = args.optional_deserialize(&["node"], "node")?;
+            let actions: Vec<Value> = args.required_deserialize(&["actions"], "actions")?;
+            action_result("match_planner_actions", crate::services::planner_suggestions::relevant_actions(&actions, node.as_ref()))
+        }
         "suggest_planner_prompts" => {
             let node: Option<crate::services::planner_suggestions::SuggestionNode> = args.optional_deserialize(&["node"], "node")?;
             action_result("suggest_planner_prompts", crate::services::planner_suggestions::suggested_prompts(node.as_ref()))
