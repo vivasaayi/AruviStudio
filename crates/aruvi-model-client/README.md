@@ -39,6 +39,8 @@ and multipart streaming deltas are rejected instead of silently dropped.
 Malformed choice containers, message/delta objects or content types are also
 rejected, including after earlier text was emitted. Consumers must check the
 final stream result before treating those earlier chunks as a complete answer.
+SSE choices are checked for non-text or malformed content in both `delta` and
+`message` fields, including providers that return SSE for a buffered request.
 See the [Anthropic Messages reference](https://platform.claude.com/docs/en/api/messages/create)
 for provider content-block types.
 For Anthropic, a supplied stop reason indicating token truncation, a paused turn,

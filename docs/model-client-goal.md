@@ -144,6 +144,15 @@ repository and deployed host were not changed.
 
 ### Current branch build and security checks
 
+The OpenAI-compatible SSE parser now validates both `message` and `delta`
+fields. Previously, a later SSE message could contain tool calls or refusal
+after an earlier text delta without causing the stream to fail; buffered SSE
+fallback could also return message text without checking those fields. Sixty
+native client tests passed, including malformed and non-text message fixtures.
+All 49 isolated Studio workflows passed, including a browser stream that marks
+the partial response incomplete when a later message contains tool calls.
+Live third-party provider behavior remains unverified.
+
 After the planner voice change at `2a7e433`, the isolated Docker workflow
 suite passed all 49 cases on 2026-11-14. It covers simulated OpenAI-compatible
 and Anthropic streaming, provider error and usage handling, DeepSeek voice,

@@ -176,6 +176,7 @@ impl OpenAiCompatibleClient {
             crate::CompletionMetadata::merge(&mut result.metadata, &event, choice.and_then(|v| v.get("finish_reason")));
             if let Some(choice) = choice {
                 Self::reject_non_text_choice(choice, "delta")?;
+                Self::reject_non_text_choice(choice, "message")?;
                 if let Some(content) = Self::extract_choice_content(choice) { result.content.push_str(&content); }
             }
             if let Some(usage) = event.get("usage") {
@@ -284,6 +285,7 @@ impl OpenAiCompatibleClient {
             crate::CompletionMetadata::merge(&mut result.metadata, &event, choice.and_then(|v| v.get("finish_reason")));
             if let Some(choice) = choice {
                 Self::reject_non_text_choice(choice, "delta")?;
+                Self::reject_non_text_choice(choice, "message")?;
                 if let Some(content) = choice.pointer("/delta/content").and_then(|value| value.as_str()) {
                     if !content.is_empty() { result.content.push_str(content); on_delta(content); }
                 }
@@ -622,6 +624,25 @@ mod tests {
         assert_eq!(deltas, ["partial"]);
         assert!(result.is_err());
         assert!(OpenAiCompatibleClient::parse_sse_fallback(body).is_err());
+    }
+
+    #[tokio::test]
+    async fn sse_rejects_non_text_messages_even_after_partial_deltas() {
+        for message in [
+            serde_json::json!({"content":"hidden", "tool_calls":[{"id":"call"}]}),
+            serde_json::json!({"content":"hidden", "refusal":"no"}),
+            serde_json::json!({"content":[{"type":"image","url":"fixture"}]}),
+            serde_json::json!("invalid message"),
+        ] {
+            let event = serde_json::json!({"choices":[{"message":message}]}).to_string();
+            let body = format!("data: {{\"choices\":[{{\"delta\":{{\"content\":\"partial\"}}}}]}}\n\ndata: {event}\n\ndata: [DONE]\n\n");
+            let (result, deltas) = openai_stream_fixture(&body).await;
+            assert_eq!(deltas, ["partial"]);
+            assert!(result.is_err());
+            assert!(OpenAiCompatibleClient::parse_sse_fallback(&body).is_err());
+        }
+        let message_only = "data: {\"choices\":[{\"message\":{\"content\":\"valid\"}}]}\n\ndata: [DONE]\n\n";
+        assert_eq!(OpenAiCompatibleClient::parse_sse_fallback(message_only).unwrap().content, "valid");
     }
 
     #[tokio::test]
