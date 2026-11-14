@@ -65,7 +65,7 @@
 +      MODEL_HOST_INFERENCE_TOKEN: ${MODEL_HOST_INFERENCE_TOKEN:-}
 --- a/README.md
 +++ b/README.md
-@@ -135,0 +136,10 @@
+@@ -135,0 +136,16 @@
 +
 +## Optional inference-only credential
 +
@@ -76,6 +76,12 @@
 +inference credential is set. The credentials must differ. If the inference
 +credential is absent, existing authentication behavior is unchanged. These
 +credentials do not replace TLS for access over an untrusted network.
++
++The scoped-token lifecycle fixtures run with `MODEL_HOST_TEST_BIN` pointing to a
++locally built host. The cross-project checks additionally require
++`ARUVI_STUDIO_TEST_BIN` (native) or `ARUVI_STUDIO_TEST_IMAGE` and
++`ARUVI_STUDIO_ROOT` (Docker). They create disposable state and use simulated
++workers and synthetic credentials; they do not validate real-model quality.
 --- a/tests/fake_worker.py
 +++ b/tests/fake_worker.py
 @@ -91 +91 @@
@@ -86,7 +92,7 @@
 @@ -44 +44 @@
 -                                MODEL_HOST_TOKEN='fixture-token', HF_TOKEN='fixture-source-token',
 +                                MODEL_HOST_TOKEN='fixture-token', MODEL_HOST_INFERENCE_TOKEN='fixture-inference-token', HF_TOKEN='fixture-source-token',
-@@ -301,0 +302,44 @@
+@@ -301,0 +302,76 @@
 +    def test_absent_inference_token_preserves_existing_authentication(self):
 +        self.stop()
 +        self.environment.pop('MODEL_HOST_INFERENCE_TOKEN')
@@ -130,6 +136,38 @@
 +        result = subprocess.run([BINARY], env=unsafe, capture_output=True, timeout=5)
 +        self.assertNotEqual(result.returncode, 0)
 +        self.assertIn(b'MODEL_HOST_TOKEN is required', result.stderr)
++
++    def test_scoped_token_streaming_and_media_use_simulated_workers(self):
++        def source(path):
++            return {'kind': 'local', 'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
++        def scoped(path, body, content_type='application/json'):
++            return urllib.request.urlopen(urllib.request.Request(self.url + path, data=body,
++                headers={'Authorization':'Bearer fixture-inference-token', 'Content-Type':content_type}), timeout=10)
++        self.register()
++        self.assertEqual(self.install()['installation'], 'installed')
++        request = json.dumps({'model':'fixture','messages':[{'role':'user','content':'hello'}],'stream':True}).encode()
++        with scoped('/v1/chat/completions', request) as response:
++            self.assertIn(b'[DONE]', response.read())
++        audio_model = self.root / 'transcription.bin'; audio_model.write_bytes(b'lmggfixture-artifact')
++        self.request('/api/models', {'id':'transcription','task':'transcription','memory_mb':64,'source':source(audio_model)})
++        self.assertEqual(self.install('transcription')['installation'], 'installed')
++        audio = io.BytesIO()
++        with wave.open(audio, 'wb') as wav:
++            wav.setparams((1,2,16000,0,'NONE','not compressed')); wav.writeframes(b'\0' * 320)
++        boundary = uuid.uuid4().hex
++        body = f'--{boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\ntranscription\r\n--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="fixture.wav"\r\n\r\n'.encode() + audio.getvalue() + f'\r\n--{boundary}--\r\n'.encode()
++        with scoped('/v1/audio/transcriptions', body, f'multipart/form-data; boundary={boundary}') as response:
++            self.assertEqual(json.load(response)['text'], 'fixture transcript')
++        voice_model = self.root / 'voice.onnx'; voice_model.write_bytes(b'onnx-fixture')
++        voice_config = self.root / 'voice.json'; voice_config.write_text('{}')
++        self.request('/api/models', {'id':'voice','task':'speech','memory_mb':64,'source':source(voice_model),'config_source':source(voice_config)})
++        self.assertEqual(self.install('voice')['installation'], 'installed')
++        with scoped('/v1/audio/speech', json.dumps({'model':'voice','input':'hello','response_format':'wav'}).encode()) as response:
++            self.assertTrue(response.read().startswith(b'RIFF'))
++        self.request('/api/models', {'id':'image','task':'image','memory_mb':64,'source':source(self.artifact)})
++        self.assertEqual(self.install('image')['installation'], 'installed')
++        with scoped('/v1/images/generations', json.dumps({'model':'image','prompt':'fixture','size':'128x128','steps':1}).encode()) as response:
++            self.assertTrue(base64.b64decode(json.load(response)['data'][0]['b64_json']).startswith(b'\x89PNG'))
 +
 --- a/tests/native_adapter.py
 +++ b/tests/native_adapter.py
@@ -195,9 +233,9 @@
 +    host.tearDown()
 --- /dev/null
 +++ b/tests/studio_docker_inference_scope.py
-@@ -0,0 +1,38 @@
+@@ -0,0 +1,43 @@
 +"""Disposable containerized Studio and simulated scoped Model Host check."""
-+import json, os, subprocess, time, urllib.error, urllib.request
++import importlib.machinery, json, os, subprocess, time, urllib.error, urllib.request
 +from tests.lifecycle import Lifecycle
 +
 +host = Lifecycle('test_inference_token_cannot_manage_the_host')
@@ -226,10 +264,15 @@
 +        if result.get('isError'): raise RuntimeError('MCP fixture failed: ' + action)
 +        return result['structuredContent']['result']
 +    host_port = host.url.rsplit(':',1)[1]
-+    provider = mcp('create_provider', {'name':'scoped fixture','base_url':f'http://host.docker.internal:{host_port}/v1','auth_secret_ref':'fixture-inference-token'})
-+    response = mcp('run_model_chat_completion', {'provider_id':provider['id'],'model':'fixture','messages':[{'role':'user','content':'hello'}],'max_tokens':20})
++    helper = importlib.machinery.SourceFileLoader('studio_host_helper', os.path.join(os.environ['ARUVI_STUDIO_ROOT'], 'scripts/configure-native-model-host')).load_module()
++    helper.mcp = mcp
++    helper.verify_inference_scope(int(host_port), 'fixture-inference-token')
++    configured = helper.configure(int(host_port), 'fixture-inference-token', 'fixture', 'scoped fixture')
++    again = helper.configure(int(host_port), 'fixture-inference-token', 'fixture', 'scoped fixture', rotate_credential=False)
++    assert again['provider_id'] == configured['provider_id']
++    response = mcp('run_model_chat_completion', {'provider_id':configured['provider_id'],'model':'fixture','messages':[{'role':'user','content':'hello'}],'max_tokens':20})
 +    assert response['content'] == 'fixture response'
-+    print('Disposable Docker Studio MCP completion passed with inference-only token.')
++    print('Disposable Docker Studio helper configuration and MCP completion passed with inference-only token.')
 +finally:
 +    if container:
 +        subprocess.run(['docker','stop',container],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)

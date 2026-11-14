@@ -41,14 +41,18 @@ does not replace TLS on an untrusted network.
 
 The zero-context patch applies to the committed host revision with `git apply
 --unidiff-zero`; review the exact base revision before applying it. A disposable snapshot
-passed 16 simulated lifecycle tests, seven Rust tests and six native-adapter
+passed 17 simulated lifecycle tests, seven Rust tests and six native-adapter
 tests; worker fixtures verified credentials do not enter worker environments.
-The three tracked Compose adapters passed synthetic configuration checks. Native
-and Docker Studio fixtures completed MCP inference through the candidate host
-with the scoped token, and the native fixture verified management was denied.
-The tests used synthetic models and credentials, not real host inference. The
-snapshot's native and Docker probes require `MODEL_HOST_TEST_BIN` plus
-`ARUVI_STUDIO_TEST_BIN` or `ARUVI_STUDIO_TEST_IMAGE` respectively.
+The scoped token also exercised streaming, transcription, speech and image
+inference with simulated workers. The three tracked Compose adapters passed
+synthetic configuration checks. Native and Docker Studio fixtures completed MCP
+inference through the candidate host with the scoped token; the native fixture
+verified management was denied, and the Docker fixture exercised idempotent
+configuration through Studio's scope-checking helper. The tests used synthetic
+models and credentials, not real host inference. The snapshot's native and Docker
+probes require `MODEL_HOST_TEST_BIN` plus `ARUVI_STUDIO_TEST_BIN` or
+`ARUVI_STUDIO_TEST_IMAGE` and `ARUVI_STUDIO_ROOT` respectively. Applying the
+patch to the exact base reproduced all 13 candidate files byte for byte.
 
 This remains a **candidate**, not a host commit or deployment. The host's main
 checkout contains unrelated uncommitted changes, including a separate untracked
