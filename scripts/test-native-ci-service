@@ -17,6 +17,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("studio_binary", type=Path)
 parser.add_argument("aruvici_binary", type=Path)
 parser.add_argument("--docker-image", help="Optionally probe the temporary socket from this local image as UID 10001")
+parser.add_argument("--audit-protocol", action="store_true", help="Inspect a disposable target and report protocol support without queueing a build")
 args = parser.parse_args()
 studio = args.studio_binary.resolve(strict=True)
 aruvici = args.aruvici_binary.resolve(strict=True)
@@ -49,7 +50,14 @@ try:
         state = root / "ci"
         state.mkdir(mode=0o700)
         platform = root / "platform.toml"
-        platform.write_text('state_dir = ' + json.dumps(str(state)) + '\ntargets = []\n')
+        repository = root / "repository"
+        repository.mkdir()
+        config = 'state_dir = ' + json.dumps(str(state)) + '\n'
+        if args.audit_protocol:
+            config += '[[targets]]\nid = "fixture"\nrepository = ' + json.dumps(str(repository)) + '\nprofile = "native-ios@1"\n'
+        else:
+            config += 'targets = []\n'
+        platform.write_text(config)
         base_env = {key: value for key, value in os.environ.items() if not key.startswith("ARUVI_")}
         ci = subprocess.Popen([str(aruvici), "ci", "--platform", str(platform), "serve"], env=base_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         cleanup.callback(stop, ci)
@@ -78,19 +86,43 @@ try:
             if str(app.pid) not in owners: return False
             with opener.open(address + "/health", timeout=2) as response: return response.status == 200
         wait_for(health, [ci, app])
-        def mcp(action):
-            payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "aruvi_ci", "arguments": {"action": action, "arguments": {}}}}
+        def mcp_result(tool, action, arguments=None):
+            payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": {"action": action, "arguments": arguments or {}}}}
             request = urllib.request.Request(address + "/api/mcp", data=json.dumps(payload).encode(), headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
             with opener.open(request, timeout=10) as response: result = json.load(response)["result"]
+            return result
+        def call(tool, action, arguments=None):
+            result = mcp_result(tool, action, arguments)
             if result.get("isError"): raise RuntimeError("MCP CI action failed: " + action)
             return result["structuredContent"]["result"]
-        status = mcp("get_status")
+        status = call("aruvi_ci", "get_status")
         if status.get("status") != "online" or status.get("protocol") != 1: raise RuntimeError("Unexpected CI health response")
-        if mcp("list_targets") != [] or mcp("list_runs") != []: raise RuntimeError("Disposable CI registry is not empty")
+        targets = call("aruvi_ci", "list_targets")
+        if len(targets) != (1 if args.audit_protocol else 0) or call("aruvi_ci", "list_runs") != []: raise RuntimeError("Unexpected disposable CI registry")
         request = urllib.request.Request(address + "/api/mobile/ci/status", headers={"Authorization": "Bearer " + token})
         with opener.open(request, timeout=10) as response: mobile = json.load(response)
         if mobile.get("status") != "online" or mobile.get("protocol") != 1: raise RuntimeError("Unexpected browser CI health response")
         print("Disposable native Studio and Aruvici: MCP health, targets, runs and browser API health passed.")
+        if args.audit_protocol:
+            product = call("aruvi_catalog", "create_product", {"name": "CI protocol fixture"})
+            repo = call("aruvi_repositories", "register_repository", {"name": "CI fixture", "local_path": str(repository)})
+            call("aruvi_repositories", "attach_repository", {"scope_type": "product", "scope_id": product["id"], "repository_id": repo["id"]})
+            binding = mcp_result("aruvi_ci", "save_binding", {"product_id": product["id"], "repository_id": repo["id"], "target_id": "fixture"})
+            detail = json.dumps(binding.get("content", []))
+            if binding.get("isError") and "no repository metadata" in detail:
+                print("Protocol gap: target listing omits repository metadata; Studio rejects binding.")
+            elif binding.get("isError"):
+                raise RuntimeError("Unexpected target binding failure")
+            else:
+                print("Target repository metadata and binding are supported.")
+            for action in ("retry_run", "artifact_readiness"):
+                result = mcp_result("aruvi_ci", action, {"id": 1})
+                if result.get("isError") and "unsupported method" in json.dumps(result.get("content", [])):
+                    print("Protocol gap: " + action + " is unsupported by the service.")
+                elif result.get("isError"):
+                    print("Protocol result indeterminate for " + action + ": service returned an error.")
+                else:
+                    print("Protocol action succeeded: " + action + ".")
         if args.docker_image:
             probe = """const net=require('net');const s=net.connect('/ci/ci.sock');
 s.setTimeout(3000);s.on('connect',()=>s.write('{\"method\":\"health\"}\\n'));

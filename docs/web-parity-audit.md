@@ -166,6 +166,18 @@ passed MCP health, empty target/run listings and browser API health; its Docker
 Desktop socket-mount probe returned `ENOTSUP`. This does not validate a real
 target, build, or a working Docker-to-host CI transport.
 
+An additional disposable native protocol audit used Studio `f90987b` and Aruvici
+`5851f2594bbbd83193e259a566004088ac28c52e` with one planning-only fixture target.
+The real target response omitted the repository path that Studio requires for
+safe product/repository binding, so binding failed closed. The service also
+returned unsupported-method errors for Studio's retry and artifact-readiness
+requests. `bash scripts/test native-ci-service STUDIO_BINARY ARUVICI_BINARY
+--audit-protocol` reproduces these read-only protocol checks. A separate
+loopback TCP reachability probe from the Docker image succeeded, but network
+reachability alone does not fix the protocol or shared-repository identity
+requirements. A complete bridge must authenticate requests, reconcile trusted
+shared paths, and resolve the API mismatch before enabling build dispatch.
+
 | Desktop action | Dependency or constraint for web parity |
 | --- | --- |
 | Show service health, configured targets, pipeline readiness and recent runs | Authenticated browser and MCP reads now use the existing bounded JSON bridge. An explicitly configured trusted service still needs end-to-end validation. |

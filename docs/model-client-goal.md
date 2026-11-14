@@ -26,6 +26,13 @@ all Docker configurations. The running Docker branch still lacks a real CI
 transport; real targets, builds and browser rendering remain unverified. Both
 temporary services and their temporary state were removed after the check.
 
+The optional `--audit-protocol` fixture additionally revealed that this real
+Aruvici version omits the repository metadata required by Studio's safe target
+binding and does not implement Studio's retry or artifact-readiness methods.
+Binding was rejected and no build was queued. A separate temporary TCP probe
+reached Mac loopback from the branch image, but no relay was deployed: the
+protocol and shared-path gaps need resolution first. See `web-parity-audit.md`.
+
 ### Shared guarded PDF export
 
 On the development Mac, Playwright's default browser for the installed package
