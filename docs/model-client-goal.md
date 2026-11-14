@@ -3183,6 +3183,14 @@ A real MCP speech round trip using `en-US`, `piper-ljspeech` and
 
 ## Shared-client embedded error handling
 
+Anthropic streaming now also rejects a non-null error field in any event, even
+when the event has another type and partial text has already been emitted. The
+returned error omits the provider body. All 59 standalone shared-client tests
+passed, including synthetic ping, message-delta and unknown-event failures;
+this is fixture coverage, not live Anthropic acceptance. The worktree image was
+rebuilt and restarted healthy; Chrome verified authenticated MCP access on its
+published port and rejection of missing credentials and cross-origin requests.
+
 Anthropic completion, both providers' model discovery and OpenAI-compatible
 transcription now reject successful HTTP JSON responses that contain a non-null
 provider error, even if partial text or model data is also present. Errors do not

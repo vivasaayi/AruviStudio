@@ -153,6 +153,9 @@ impl StreamState {
         if !event.is_object() || !event.get("type").is_some_and(Value::is_string) {
             return Err(ClientError::Provider("Invalid Anthropic stream event".into()));
         }
+        if event.get("error").is_some_and(|value| !value.is_null()) {
+            return Err(ClientError::Provider("Anthropic stream returned an error".into()));
+        }
         match event.get("type").and_then(Value::as_str) {
             Some("message_start") => {
                 if event.get("message").is_some_and(|value| !value.is_null() && !value.is_object()) {
@@ -497,6 +500,21 @@ mod tests {
             assert!(result.is_err(), "stream accepted {invalid}");
         }
         let body = "data: {\"type\":\"future_event\"}\n\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\ndata: {\"type\":\"message_stop\"}\n\n";
+        assert_eq!(stream_fixture(body).await.0.unwrap().content, "ok");
+    }
+
+    #[tokio::test]
+    async fn stream_rejects_embedded_errors_without_exposing_details() {
+        for kind in ["ping", "message_delta", "future_event"] {
+            let failure = json!({"type":kind,"error":{"message":"private-provider-detail"}});
+            let body = format!("data: {{\"type\":\"content_block_delta\",\"delta\":{{\"type\":\"text_delta\",\"text\":\"partial\"}}}}\n\ndata: {failure}\n\ndata: {{\"type\":\"message_stop\"}}\n\n");
+            let (result, chunks) = stream_fixture(&body).await;
+            assert_eq!(chunks, ["partial"]);
+            let error = result.unwrap_err().to_string();
+            assert!(error.contains("stream returned an error"));
+            assert!(!error.contains("private-provider-detail"));
+        }
+        let body = "data: {\"type\":\"ping\",\"error\":null}\n\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\ndata: {\"type\":\"message_stop\"}\n\n";
         assert_eq!(stream_fixture(body).await.0.unwrap().content, "ok");
     }
 
