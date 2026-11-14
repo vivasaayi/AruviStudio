@@ -46,10 +46,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Dependency advisory update
 
+- On macOS ARM64, revision `0275579` passed 204 Studio Rust library tests with
+  two live tests ignored, and the independently Git-pinned consumer passed 14
+  tests. Both native Studio desktop and server debug binaries built with the
+  locked dependencies and were identified as ARM64 Mach-O executables. The
+  toolchain, build target and test data were isolated in temporary directories.
+  The native desktop window was not launched or interactively tested, and the
+  binaries are debug builds rather than release artifacts.
 - Updated Studio's lockfile to `anyhow` 1.0.103, `event-listener` 5.4.2,
   `rustix` 1.1.6 and `rand` 0.8.6, addressing four previously reported
   unsoundness warnings. The locked update also changes some Windows transitive
-  bindings; Windows and native macOS builds were not rerun in this environment.
+  bindings; Windows builds were not rerun in this environment.
 - A fresh `cargo-audit` 0.23.0 scan of the final lockfile reported one RSA
   vulnerability, 13 unmaintained warnings and two unsound warnings: `glib`
   0.18.5 and `rand` 0.7.3. `cargo tree --locked --target all` showed the old
