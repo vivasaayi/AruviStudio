@@ -73,6 +73,7 @@ async fn submit_planner_voice_turn_selects_draft_nodes() {
     .expect("voice turn should succeed");
 
     assert_eq!(response.status, "session_update");
+    assert_eq!(response.view_hint.as_deref(), Some("draft"));
     assert_eq!(
         response.selected_draft_node_id.as_deref(),
         Some(product_area_id.as_str())

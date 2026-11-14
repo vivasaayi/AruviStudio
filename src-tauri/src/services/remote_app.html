@@ -1861,6 +1861,22 @@
     el.expandDraftButton.addEventListener("click", () => setDraftExpanded(true));
     el.collapseDraftButton.addEventListener("click", () => setDraftExpanded(false));
 
+    function revealSelectedDraftNode() {
+      function reveal(nodes) {
+        for (const node of nodes) {
+          if (node.id === state.selectedNodeId) return true;
+          if (reveal(node.children || [])) {
+            state.collapsedDraftNodes.delete(node.id);
+            return true;
+          }
+        }
+        return false;
+      }
+      reveal(state.draftTreeNodes);
+      renderDraftTree();
+      (el.draftTree.querySelector(".tree-node.selected") || el.draftTree).scrollIntoView({ block: "center" });
+    }
+
     function applyPlannerResponse(response, target) {
       state.sessionId = response.session_id || state.sessionId;
       if (!response.view_hint && Array.isArray(response.trace_events) && response.trace_events.length) {
@@ -2164,11 +2180,13 @@
           appendMessage(el.conversation, "assistant", response.assistant_message || "");
           speakOnDevice(response.assistant_message || "");
           setVoiceMeta("Planner reply ready.");
-          if (["trace", "conversation", "expand_draft", "collapse_draft"].includes(response.view_hint)) {
+          if (["trace", "conversation", "draft", "expand_draft", "collapse_draft"].includes(response.view_hint)) {
             switchTab("planner");
             if (response.view_hint === "trace") {
               el.plannerTrace.open = true;
               el.plannerTrace.scrollIntoView({ block: "center" });
+            } else if (response.view_hint === "draft") {
+              revealSelectedDraftNode();
             } else if (response.view_hint === "expand_draft" || response.view_hint === "collapse_draft") {
               setDraftExpanded(response.view_hint === "expand_draft");
               el.draftTree.scrollIntoView({ block: "center" });

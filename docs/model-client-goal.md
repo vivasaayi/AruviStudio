@@ -25,8 +25,10 @@ A focused Linux Rust test passed without a configured model. The browser also
 supports expanding and collapsing the staged tree through individual branch
 controls, global controls and desktop-equivalent voice phrases; selection is
 preserved. Its isolated staged-design voice scenario covers both directions and
-the global controls. This does not validate physical microphones, native-window
-voice interaction, or every desktop voice command.
+the global controls. A subsequent browser scenario verifies that “show draft”
+opens the staged design and a spoken node selection reveals the selected node
+inside collapsed ancestors. This does not validate physical microphones,
+native-window voice interaction, or every desktop voice command.
 
 ### Browser planner voice destination
 

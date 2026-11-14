@@ -343,7 +343,7 @@ pub async fn submit_planner_voice_turn(
                 let mut service = planner_service.lock().await;
                 service.save_session(&session_id, session.clone());
             }
-            return Ok(build_session_state_response(
+            let mut response = build_session_state_response(
                 session_id,
                 "session_update",
                 assistant_message.clone(),
@@ -351,7 +351,9 @@ pub async fn submit_planner_voice_turn(
                 vec![assistant_message],
                 vec![],
                 trace,
-            ));
+            );
+            response.view_hint = Some("draft".to_string());
+            return Ok(response);
         }
 
         let command_matchers = ["select ", "choose ", "highlight ", "open ", "expand "];
@@ -477,7 +479,7 @@ pub async fn submit_planner_voice_turn(
                 let mut service = planner_service.lock().await;
                 service.save_session(&session_id, session.clone());
             }
-            return Ok(build_session_state_response(
+            let mut response = build_session_state_response(
                 session_id,
                 "session_update",
                 assistant_message.clone(),
@@ -485,7 +487,9 @@ pub async fn submit_planner_voice_turn(
                 vec![assistant_message],
                 vec![],
                 trace,
-            ));
+            );
+            response.view_hint = Some("draft".to_string());
+            return Ok(response);
         }
     }
 
