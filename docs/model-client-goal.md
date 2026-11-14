@@ -14,6 +14,18 @@ provider hosting into the model-host service as part of this work.
 
 ### Current branch regression checks
 
+At `dbcd245`, five of the six default-ignored native tests were also run
+individually: local Whisper transcribed a macOS-generated synthetic English WAV
+using the checksum-pinned Tiny.en model; native Chrome/Playwright rendered the
+PDF and passed its external-fetch/script-blocking check; and freshly captured
+mocked-Tauri Product Book fixtures passed embedded-renderer parity and EPUB
+generation. EPUBCheck 5.4.0 reported no errors or warnings. The initial browser
+fixture capture failed because Playwright's video recorder was unavailable; it
+passed with lightweight mode, which disables video and tracing. These captures
+do not prove native desktop-window behavior, physical audio, or broad speech
+accuracy. The ignored live calculator test was not run; the separate disposable
+Model Host workflow evidence is recorded below.
+
 At revision `e844cd3`, the isolated native macOS Rust library suite passed 252
 tests with six ignored. The ignored cases require configured Chromium/Playwright,
 captured desktop Product Book fixtures, a local Whisper model and synthetic WAV,
