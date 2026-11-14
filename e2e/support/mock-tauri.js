@@ -1771,6 +1771,14 @@
         }
         case "get_product_tree":
           return ok(buildProductTree(getArg(args, "productId", "product_id")));
+        case "render_product_book": {
+          const productId = getArg(args, "productId", "product_id");
+          return window.__ARUVI_E2E__.invoke("get_product_book_source", { productId }).then(async (source) => {
+            const { renderJson } = await import("/src/features/products/lib/productBookBackend.ts");
+            const output = JSON.parse(renderJson(JSON.stringify({ source, format: args.format, renderMode: args.renderMode, trimPreset: args.trimPreset })));
+            return { ...output, productName: source.tree.product.name };
+          });
+        }
         case "get_product_book_source": {
           if (productExportFailure) throw new Error("Synthetic product work-item read failure");
           const productId = getArg(args, "productId", "product_id");

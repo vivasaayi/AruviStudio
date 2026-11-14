@@ -101,6 +101,7 @@ pub fn run() {
             commands::product_commands::hierarchy::convert_capability_kind,
             commands::product_commands::hierarchy::get_product_tree,
             commands::product_commands::hierarchy::get_product_book_source,
+            commands::product_commands::hierarchy::render_product_book,
             commands::product_commands::hierarchy::summarize_product_tree,
             commands::product_commands::bulk_import::get_bulk_import_schema,
             commands::product_commands::bulk_import::submit_bulk_import,

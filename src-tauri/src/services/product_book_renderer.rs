@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::persistence::product_book_repo::ProductBookSource;
 use rquickjs::{Context, Function, Object, Runtime};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::SqlitePool;
 use std::sync::{Arc, OnceLock};
@@ -15,15 +15,15 @@ const MAX_RUNTIME_BYTES: usize = 256 * 1024 * 1024;
 const MAX_RENDER_TIME: Duration = Duration::from_secs(30);
 static RENDER_SLOTS: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
 
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProductBookFormat { Docs, Book }
 
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProductBookRenderMode { Web, Print, Epub }
 
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum ProductBookTrim {
     #[serde(rename = "trade-6x9")]
     Trade,
@@ -52,7 +52,10 @@ pub async fn render_product_book_for_product(pool: &SqlitePool, product_id: &str
     let source = crate::persistence::product_book_repo::get_product_book_source(pool, product_id).await?;
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        render_product_book(&source, format, render_mode, trim_preset)
+        let mut result = render_product_book(&source, format, render_mode, trim_preset)?;
+        result.as_object_mut().ok_or_else(|| AppError::Internal("Product Book renderer returned invalid output".into()))?
+            .insert("productName".into(), Value::String(source.tree.product.name.clone()));
+        Ok(result)
     }).await.map_err(|e| AppError::Internal(format!("Product Book renderer task failed: {e}")))?
 }
 

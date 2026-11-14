@@ -277,6 +277,7 @@ test("browser registers and attaches a container workspace", async ({ page, requ
     expect(snapshot.references.some((reference) => reference.id === otherReference.id)).toBe(false);
     expect(snapshot.work_items).toEqual([]);
     const renderedBook = await call("aruvi_catalog", "render_product_book", { product_id: product.id, format: "book", render_mode: "epub", trim_preset: "a5" });
+    expect(renderedBook.productName).toBe(name);
     expect(renderedBook.html).toContain("Snapshot area reference");
     expect(renderedBook.html).not.toContain("Other snapshot reference");
     expect(renderedBook.trimPreset.id).toBe("a5");

@@ -3,16 +3,13 @@ import {
   exportProductOverviewEpub,
   exportProductOverviewHtml,
   exportProductOverviewPdf,
-  getProductBookSource,
+  renderProductBook,
 } from "../../../lib/tauri";
-import type { Product, ProductReference, ProductTree, WorkItem } from "../../../lib/types";
+import type { Product } from "../../../lib/types";
 import {
   BOOK_EXPORT_TRIM_PRESETS,
-  buildProductOverviewBookBundle,
-  getBookExportTrimPreset,
   type BookExportTrimPresetId,
-} from "../lib/bookExport";
-import { buildProductOverviewHtml } from "../lib/productOverview";
+} from "../lib/bookExportOptions";
 
 type ProductOverviewExportArgs = {
   selectedProduct: Product | null;
@@ -28,15 +25,7 @@ export function useProductOverviewExports({
     BOOK_EXPORT_TRIM_PRESETS[0].id,
   );
 
-  const runExport = async (
-    variant: "overview" | "book",
-    builder: (input: {
-      product: Product;
-      tree?: ProductTree;
-      workItems?: WorkItem[];
-      references?: ProductReference[];
-    }) => string,
-  ) => {
+  const exportHtml = async () => {
     if (!selectedProduct) {
       return;
     }
@@ -44,16 +33,10 @@ export function useProductOverviewExports({
     try {
       setIsExporting(true);
       setExportError(null);
-      const source = await getProductBookSource(selectedProduct.id);
-      const html = builder({
-        product: source.tree.product,
-        tree: source.tree,
-        workItems: source.work_items,
-        references: source.references,
-      });
+      const rendered = await renderProductBook(selectedProduct.id, "docs", "web", bookTrimPresetId);
       const path = await exportProductOverviewHtml({
-        fileName: `${slugify(source.tree.product.name)}-${variant}.html`,
-        html,
+        fileName: `${slugify(rendered.productName)}-overview.html`,
+        html: rendered.html,
       });
       setExportPath(path);
     } catch (error) {
@@ -64,44 +47,28 @@ export function useProductOverviewExports({
     }
   };
 
-  const exportHtml = async () => {
-    await runExport("overview", buildProductOverviewHtml);
-  };
-
   const runBookArtifactExport = async (format: "html" | "pdf" | "epub") => {
     if (!selectedProduct) {
       return;
     }
 
-    const trimPreset = getBookExportTrimPreset(bookTrimPresetId);
-
     try {
       setIsExporting(true);
       setExportError(null);
-      const source = await getProductBookSource(selectedProduct.id);
-      const product = source.tree.product;
-      const bundle = buildProductOverviewBookBundle(
-        {
-          product,
-          tree: source.tree,
-          workItems: source.work_items,
-          references: source.references,
-        },
-        {
-          trimPreset,
-          renderMode: format === "html" ? "web" : format === "pdf" ? "print" : "epub",
-        },
-      );
+      const bundle = await renderProductBook(selectedProduct.id, "book", format === "html" ? "web" : format === "pdf" ? "print" : "epub", bookTrimPresetId);
+      if (!bundle.trimPreset || !bundle.tocItems) throw new Error("The product book renderer returned incomplete output");
+      const productName = bundle.productName;
+      const trimPreset = bundle.trimPreset;
 
       let path: string;
       if (format === "html") {
         path = await exportProductOverviewHtml({
-          fileName: `${slugify(product.name)}-book.html`,
+          fileName: `${slugify(productName)}-book.html`,
           html: bundle.html,
         });
       } else if (format === "pdf") {
         path = await exportProductOverviewPdf({
-          fileName: `${slugify(product.name)}-book.pdf`,
+          fileName: `${slugify(productName)}-book.pdf`,
           html: bundle.html,
           pageWidth: trimPreset.pageWidth,
           pageHeight: trimPreset.pageHeight,
@@ -109,13 +76,13 @@ export function useProductOverviewExports({
           marginRight: trimPreset.marginRight,
           marginBottom: trimPreset.marginBottom,
           marginLeft: trimPreset.marginLeft,
-          headerTitle: product.name,
+          headerTitle: productName,
           headerRight: trimPreset.label,
         });
       } else {
         path = await exportProductOverviewEpub({
-          fileName: `${slugify(product.name)}-book.epub`,
-          title: product.name,
+          fileName: `${slugify(productName)}-book.epub`,
+          title: productName,
           html: bundle.html,
           tocItems: bundle.tocItems,
           author: "Aruvi Studio",

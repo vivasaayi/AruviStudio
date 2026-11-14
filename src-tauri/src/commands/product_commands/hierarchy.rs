@@ -10,6 +10,17 @@ pub async fn get_product_book_source(
 ) -> Result<crate::persistence::product_book_repo::ProductBookSource, crate::error::AppError> {
     crate::persistence::product_book_repo::get_product_book_source(&state.db, &product_id).await
 }
+
+#[tauri::command]
+pub async fn render_product_book(
+    state: tauri::State<'_, crate::state::AppState>,
+    product_id: String,
+    format: crate::services::product_book_renderer::ProductBookFormat,
+    render_mode: crate::services::product_book_renderer::ProductBookRenderMode,
+    trim_preset: crate::services::product_book_renderer::ProductBookTrim,
+) -> Result<serde_json::Value, crate::error::AppError> {
+    crate::services::product_book_renderer::render_product_book_for_product(&state.db, &product_id, format, render_mode, trim_preset).await
+}
 use crate::domain::product::{
     Capability, NodeKindConversionResult, ProductArea, ProductTree, ProductTreeSummary,
     SemanticTemplateApplicationResult,

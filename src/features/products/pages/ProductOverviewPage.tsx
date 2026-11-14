@@ -4,7 +4,7 @@ import { revealInFinder } from "../../../lib/tauri";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
 import { useUIStore } from "../../../state/uiStore";
 import { ProductOverviewDocument } from "../components/ProductOverviewDocument";
-import { BOOK_EXPORT_TRIM_PRESETS, type BookExportTrimPresetId } from "../lib/bookExport";
+import { BOOK_EXPORT_TRIM_PRESETS, type BookExportTrimPresetId } from "../lib/bookExportOptions";
 import { useProductOverviewPageController } from "../hooks/useProductOverviewPageController";
 
 const styles: Record<string, React.CSSProperties> = {

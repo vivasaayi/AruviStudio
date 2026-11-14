@@ -276,5 +276,7 @@ export const getProductTree = (productId: string) =>
   invoke<ProductTree>("get_product_tree", { productId, product_id: productId });
 export const getProductBookSource = (productId: string) =>
   invoke<{ tree: ProductTree; work_items: WorkItem[]; references: ProductReference[] }>("get_product_book_source", { productId, product_id: productId });
+export const renderProductBook = (productId: string, format: "docs" | "book", renderMode: "web" | "print" | "epub", trimPreset: "trade-6x9" | "a5" | "us-letter") =>
+  invoke<{ productName: string; html: string; tocItems?: { id: string; title: string; level: number }[]; trimPreset?: { id: string; label: string; pageWidth: string; pageHeight: string; marginTop: string; marginRight: string; marginBottom: string; marginLeft: string } }>("render_product_book", { productId, format, renderMode, trimPreset });
 export const summarizeProductTree = (productId: string) =>
   invoke<ProductTreeSummary>("summarize_product_tree", { productId, product_id: productId });

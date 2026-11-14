@@ -1,5 +1,37 @@
 use super::*;
 
+#[test]
+fn desktop_ipc_renders_product_book_with_camel_case_arguments() {
+    use tauri::test::{mock_builder, mock_context, noop_assets, INVOKE_KEY};
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let (state, temp_root) = runtime.block_on(async {
+        let pool = create_test_pool("book_desktop_ipc").await;
+        create_test_product(&pool, "desktop-book").await;
+        create_work_item(&pool, test_work_item_input("desktop-story", "desktop-book", "Desktop IPC story")).await.unwrap();
+        let temp_root = make_temp_dir("book_desktop_ipc_state");
+        std::fs::create_dir_all(&temp_root).unwrap();
+        (crate::state::AppState::new(pool, temp_root.clone()).await.unwrap(), temp_root)
+    });
+    let app = mock_builder().manage(state)
+        .invoke_handler(tauri::generate_handler![crate::commands::product_commands::hierarchy::render_product_book])
+        .build(mock_context(noop_assets())).unwrap();
+    let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
+    let response = tauri::test::get_ipc_response(&webview, tauri::webview::InvokeRequest {
+        cmd: "render_product_book".into(),
+        callback: tauri::ipc::CallbackFn(0),
+        error: tauri::ipc::CallbackFn(1),
+        url: "http://tauri.localhost".parse().unwrap(),
+        body: tauri::ipc::InvokeBody::Json(serde_json::json!({ "productId": "desktop-book", "format": "book", "renderMode": "epub", "trimPreset": "a5" })),
+        headers: Default::default(),
+        invoke_key: INVOKE_KEY.to_string(),
+    }).expect("desktop IPC should render").deserialize::<serde_json::Value>().unwrap();
+    assert_eq!(response["productName"], "Test Product");
+    assert_eq!(response["trimPreset"]["id"], "a5");
+    assert!(response["html"].as_str().unwrap().contains("Desktop IPC story"));
+    drop(app);
+    std::fs::remove_dir_all(temp_root).ok();
+}
+
 #[tokio::test]
 async fn product_export_includes_all_pages_and_children_without_other_products() {
     let pool = create_test_pool("product_export").await;
@@ -52,6 +84,10 @@ async fn product_book_snapshot_is_consistent_and_product_scoped() {
     assert!(html.contains("Feature"));
     assert!(!html.contains("Other area"));
     assert!(rendered["tocItems"].as_array().unwrap().len() > 1);
+    let desktop = crate::services::product_book_renderer::render_product_book_for_product(&pool, "book-product", ProductBookFormat::Docs, ProductBookRenderMode::Web, ProductBookTrim::Trade).await.unwrap();
+    assert_eq!(desktop["productName"], "Test Product");
+    assert!(desktop["html"].as_str().unwrap().contains("Late"));
+    assert!(crate::services::product_book_renderer::render_product_book_for_product(&pool, "book-product", ProductBookFormat::Docs, ProductBookRenderMode::Epub, ProductBookTrim::Trade).await.is_err());
     assert!(product_book_repo::get_product_book_source(&pool, "missing").await.is_err());
 }
 

@@ -46,6 +46,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Product Book export data
 
+- Desktop Product Book exports now invoke the shared Rust backend renderer
+  before using the existing native HTML, PDF and EPUB file writers. A Tauri mock
+  IPC test exercises the actual command and database with camel-case frontend
+  arguments; desktop UI tests cover all formats, selected PDF trim dimensions
+  and rendering failures. This does not establish actual window, file reveal,
+  or reader behavior. The shared renderer and browser/MCP artifact gaps remain
+  tracked in `docs/product-book-migration.md`. Native and Linux Rust suites
+  each passed 209 tests with four ignored; 94 frontend unit tests, 11 focused
+  desktop UI cases and the renderer parity harness passed. The captured EPUB
+  fixture also passed EPUBCheck 5.4.0, and the isolated remote suite passed
+  23 cases against the rebuilt branch image.
 - The Rust backend can render Docs or Book HTML from a consistent product
   snapshot using the existing renderer in an isolated, resource-limited embedded
   JavaScript engine; MCP exposes `aruvi_catalog.render_product_book`. A

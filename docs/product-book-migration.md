@@ -1,8 +1,8 @@
 # Product Book migration checkpoint
 
 The desktop Product Book is a separate feature from the planner review packet.
-The browser and MCP do not yet have equivalent Product Book exports. Do not
-remove the desktop renderer or claim export parity until these steps pass.
+The browser and MCP do not yet have equivalent Product Book exports. Preserve
+the shared renderer source and do not claim export parity until these steps pass.
 
 ## Existing behavior to preserve
 
@@ -15,7 +15,7 @@ remove the desktop renderer or claim export parity until these steps pass.
 - Product and reference data, area/capability ordering, parent/child work items,
   status and empty-section behavior must remain product-scoped and escaped.
   Long text, malformed markup and untrusted URLs require explicit handling.
-- Native exports currently render HTML in TypeScript and use Rust commands to
+- Native exports render through the shared backend and use Rust commands to
   write files or produce PDF/EPUB. Browser downloads and MCP access need an
   appropriate server-side artifact interface, without requiring a host path.
 
@@ -59,8 +59,9 @@ remove the desktop renderer or claim export parity until these steps pass.
   runtime limits input to 64 MiB, JavaScript heap to 256 MiB, execution to 30
   seconds, and simultaneous snapshots/renders to two. Source snapshot creation
   and serialization are currently unbounded before the input-size check.
-  Desktop, browser downloads and MCP EPUB/PDF artifacts do not yet use this
-  renderer, and image-resource packaging and visual comparison remain open.
+  Desktop HTML, EPUB and PDF exports now call this same backend renderer and
+  retain their native file writers. Browser downloads and MCP EPUB/PDF artifacts
+  do not yet use it; image-resource packaging and visual comparison remain open.
   For a local worktree, request a rendered book with:
 
   ```sh
@@ -69,8 +70,11 @@ remove the desktop renderer or claim export parity until these steps pass.
 - [ ] Provide authenticated browser and MCP export interfaces for each supported
   artifact. Implement EPUB and PDF with actual runtime dependencies or document
   explicit platform limitations; do not return an incomplete artifact as success.
-- [ ] Move desktop exports to the same backend renderer and retain native file
-  save/reveal behavior. Remove the old renderer only after parity is demonstrated.
+- [x] Move desktop exports to the shared backend renderer and retain the native
+  file writers and reveal flow. Tauri IPC is exercised with a real database and
+  the export UI is tested with mocked native file writes. Actual native window,
+  file reveal, and real PDF/EPUB reader checks remain open; the TypeScript
+  renderer remains the shared source for the embedded bundle and is not removed.
 - [ ] Validate multi-product isolation, nested stories/tasks, more than 2,000
   work items, empty products, malformed content, concurrent edits, unauthorized
   requests and export failures. Test all artifact formats, trim presets and the
