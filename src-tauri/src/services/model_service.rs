@@ -3,7 +3,7 @@ use crate::error::AppError;
 use crate::providers::gateway::ModelGateway;
 use crate::providers::types::{CompletionRequest, CompletionResponse};
 use crate::secrets;
-use aruvi_model_client::{anthropic::AnthropicClient, openai_compatible::OpenAiCompatibleClient};
+use aruvi_model_client::{anthropic::AnthropicClient, openai_compatible::{OpenAiCompatibleClient, CompletionOptions, TemperatureMode, TokenLimitField}};
 use aruvi_model_client::{ClientOptions, ModelGateway as SharedModelGateway};
 use async_trait::async_trait;
 use sqlx::SqlitePool;
@@ -123,11 +123,18 @@ pub fn create_shared_gateway(provider: &ModelProvider) -> Result<Box<dyn SharedM
 }
 
 fn create_transport(provider: &ModelProvider, api_key: Option<String>, options: ClientOptions) -> Result<Box<dyn SharedModelGateway>, AppError> {
+    crate::persistence::model_repo::validate_provider_protocol(provider.provider_type.as_str(), &provider.protocol)?;
+    crate::persistence::model_repo::validate_completion_profile(provider.provider_type.as_str(), &provider.protocol, &provider.completion_profile)?;
     match provider.protocol.as_str() {
         "openai_compatible" => {
             let client = OpenAiCompatibleClient::with_options(provider.base_url.clone(), api_key, options)
                 .map_err(|error| AppError::Validation(error.to_string()))?;
-            Ok(Box::new(client))
+            let completion_options = match provider.completion_profile.as_str() {
+                "standard" => CompletionOptions::default(),
+                "openai_reasoning" => CompletionOptions { token_limit_field: TokenLimitField::MaxCompletionTokens, temperature: TemperatureMode::Omit },
+                _ => return Err(AppError::Validation("Unsupported provider completion profile".into())),
+            };
+            Ok(Box::new(client.with_completion_options(completion_options)))
         },
         "anthropic" => {
             let key = api_key
@@ -150,7 +157,7 @@ mod timeout_configuration_tests {
     fn disabled_providers_are_rejected_before_credentials_or_gateway_creation() {
         let mut provider = ModelProvider { id: "fixture".into(), name: "fixture".into(),
             provider_type: crate::domain::model::ProviderType::OpenaiCompatible,
-            protocol: "anthropic".into(), base_url: "not a valid URL".into(),
+            protocol: "anthropic".into(), completion_profile: "standard".into(), base_url: "not a valid URL".into(),
             auth_secret_ref: None, enabled: false, created_at: "".into(), updated_at: "".into() };
         for protocol in ["anthropic", "openai_compatible"] {
             provider.protocol = protocol.into();
@@ -173,7 +180,7 @@ mod timeout_configuration_tests {
         });
         let provider = ModelProvider { id: "fixture".into(), name: "fixture".into(),
             provider_type: crate::domain::model::ProviderType::OpenaiCompatible,
-            protocol: "openai_compatible".into(), base_url: format!("http://{address}"),
+            protocol: "openai_compatible".into(), completion_profile: "standard".into(), base_url: format!("http://{address}"),
             auth_secret_ref: None, enabled: true, created_at: "".into(), updated_at: "".into() };
         let options = model_client_options(Some("1"), Some("1")).unwrap();
         let client = create_transport(&provider, None, options).unwrap();

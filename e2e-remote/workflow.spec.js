@@ -485,6 +485,59 @@ test("MCP transport errors omit the provider URL path", async ({ request }) => {
   expect(JSON.stringify(failed.content)).not.toContain("sensitive-proxy-path");
 });
 
+test("reasoning provider persists through browser and MCP and sends the right request fields", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const mcpHeaders = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };
+  const baseUrl = process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/reasoning/v1");
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Models", exact: true }).click();
+  await page.getByLabel("Provider name", { exact: true }).fill("Reasoning fixture");
+  await page.locator("#providerProtocol").selectOption("openai_reasoning");
+  await page.getByLabel("API base URL").fill(baseUrl);
+  const created = page.waitForResponse((response) => response.url().endsWith("/api/mobile/providers") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Add provider", exact: true }).click();
+  const response = await created;
+  expect(response.ok()).toBeTruthy();
+  const provider = await response.json();
+  expect(provider.completion_profile).toBe("openai_reasoning");
+  const card = page.locator("#providerList .tool-card").filter({ hasText: "Reasoning fixture" });
+  await card.getByText("Manage provider", { exact: true }).click();
+  await expect(card.getByLabel("Edit provider protocol Reasoning fixture")).toHaveValue("openai_reasoning");
+  const saved = page.waitForResponse((r) => r.url().endsWith("/api/mobile/providers/update"));
+  await card.getByRole("button", { name: "Save provider" }).click();
+  expect((await saved).ok()).toBeTruthy();
+  const expected = { name: provider.name, base_url: baseUrl, enabled: true, protocol: "openai_compatible", completion_profile: "standard" };
+  const stale = await request.post("/api/mobile/providers/update", { headers, data: { id: provider.id, expected, fields: expected } });
+  expect(stale.status()).toBe(409);
+  const messages = [{ role: "user", content: "hello" }];
+  const body = { provider_id: provider.id, model_name: "fixture", messages, max_tokens: 80, temperature: 0.5 };
+  const ordinary = await request.post("/api/mobile/chat/completions", { headers, data: body });
+  expect(ordinary.ok()).toBeTruthy();
+  expect(JSON.stringify(await ordinary.json())).toContain("Reasoning fixture");
+  const stream = await request.post("/api/mobile/chat/stream", { headers, data: body });
+  expect(stream.ok()).toBeTruthy();
+  expect(await stream.text()).toContain("Reasoning fixture");
+  const mcp = await request.post("/api/mcp", { headers: mcpHeaders, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_models", arguments: { action: "run_model_chat_completion", arguments: { provider_id: provider.id, model: "fixture", messages, max_tokens: 80, temperature: 0.5 } } } } });
+  const result = (await mcp.json()).result;
+  expect(result.isError).toBeFalsy();
+  expect(JSON.stringify(result.structuredContent)).toContain("Reasoning fixture");
+  async function mcpCall(action, args) {
+    const response = await request.post("/api/mcp", { headers: mcpHeaders, data: { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "aruvi_models", arguments: { action, arguments: args } } } });
+    return (await response.json()).result;
+  }
+  const mcpCreated = await mcpCall("create_provider", { name: "MCP reasoning fixture", base_url: baseUrl, completion_profile: "openai_reasoning" });
+  expect(mcpCreated.isError).toBeFalsy();
+  const mcpProvider = mcpCreated.structuredContent.result;
+  expect(mcpProvider.completion_profile).toBe("openai_reasoning");
+  const mcpRenamed = await mcpCall("update_provider", { id: mcpProvider.id, name: "MCP reasoning renamed" });
+  expect(mcpRenamed.structuredContent.result.completion_profile).toBe("openai_reasoning");
+  const incompatible = await mcpCall("update_provider", { id: mcpProvider.id, protocol: "anthropic" });
+  expect(incompatible.isError).toBeTruthy();
+});
+
 test("browser chat streams, reports errors, and can stop", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };

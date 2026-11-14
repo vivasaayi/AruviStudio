@@ -225,7 +225,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
         ),
         action_tool(
             "aruvi_models",
-            "Manage providers and models, test connectivity, register local runtimes, and run chat completion.",
+            "Manage providers and models, test connectivity, register local runtimes, and run chat completion. Provider creation and updates accept completion_profile: standard (default) or openai_reasoning (OpenAI-compatible protocol only; uses max_completion_tokens and omits temperature).",
             &[
                 "create_provider",
                 "list_providers",

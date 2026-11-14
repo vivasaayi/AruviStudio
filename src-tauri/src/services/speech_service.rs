@@ -410,7 +410,7 @@ mod tests {
         let audio = std::fs::read(audio_path).expect("read WAV fixture");
         let provider = ModelProvider {
             id: "local-fixture".into(), name: "Local fixture".into(),
-            provider_type: ProviderType::LocalRuntime, protocol: "openai_compatible".into(),
+            provider_type: ProviderType::LocalRuntime, protocol: "openai_compatible".into(), completion_profile: "standard".into(),
             base_url: model, auth_secret_ref: None, enabled: true,
             created_at: "".into(), updated_at: "".into(),
         };
@@ -428,7 +428,7 @@ mod tests {
         for provider_type in [ProviderType::OpenaiCompatible, ProviderType::LocalRuntime] {
             let provider = ModelProvider {
                 id: "disabled".into(), name: "Disabled".into(), provider_type,
-                protocol: "openai_compatible".into(), base_url: "invalid".into(),
+                protocol: "openai_compatible".into(), completion_profile: "standard".into(), base_url: "invalid".into(),
                 auth_secret_ref: None, enabled: false, created_at: "".into(), updated_at: "".into(),
             };
             let request = SpeechToTextRequest {

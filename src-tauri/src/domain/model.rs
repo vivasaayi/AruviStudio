@@ -7,12 +7,16 @@ pub struct ModelProvider {
     pub provider_type: ProviderType,
     #[serde(default = "default_protocol")]
     pub protocol: String,
+    #[serde(default = "default_completion_profile")]
+    pub completion_profile: String,
     pub base_url: String,
     pub auth_secret_ref: Option<String>,
     pub enabled: bool,
     pub created_at: String,
     pub updated_at: String,
 }
+
+fn default_completion_profile() -> String { "standard".to_string() }
 
 fn default_protocol() -> String { "openai_compatible".to_string() }
 

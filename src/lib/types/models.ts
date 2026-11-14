@@ -3,6 +3,7 @@ export interface ModelProvider {
   name: string;
   provider_type: "openai_compatible" | "local_runtime";
   protocol?: "openai_compatible" | "anthropic";
+  completion_profile?: "standard" | "openai_reasoning";
   base_url: string;
   auth_secret_ref: string | null;
   enabled: boolean;

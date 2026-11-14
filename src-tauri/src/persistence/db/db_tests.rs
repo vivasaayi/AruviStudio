@@ -162,6 +162,7 @@ async fn protocol_migration_preserves_providers_models_and_bindings() {
         .unwrap();
     assert!(providers > 0 && models > 0 && bindings > 0);
     sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+    assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM model_providers WHERE completion_profile != 'standard'").fetch_one(&pool).await.unwrap(), 0);
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM model_providers")
             .fetch_one(&pool)

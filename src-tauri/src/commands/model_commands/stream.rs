@@ -155,7 +155,7 @@ mod tests {
         });
         let app = make_test_app("cancel_desktop_stream").await;
         let provider = ModelProvider { id: "cancel-fixture".into(), name: "Fixture".into(),
-            provider_type: ProviderType::OpenaiCompatible, protocol: "openai_compatible".into(),
+            provider_type: ProviderType::OpenaiCompatible, protocol: "openai_compatible".into(), completion_profile: "standard".into(),
             base_url: format!("http://{address}"), auth_secret_ref: None,
             enabled: true, created_at: "".into(), updated_at: "".into() };
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<(String, Value)>();
@@ -202,7 +202,7 @@ mod tests {
         let server = tokio::spawn(async move { axum::serve(listener, axum::Router::new().route("/v1/messages", post(endpoint))).await.unwrap(); });
         let app = make_test_app("anthropic_desktop_stream").await;
         let provider = ModelProvider { id: "anthropic-fixture".into(), name: "Fixture".into(),
-            provider_type: ProviderType::OpenaiCompatible, protocol: "anthropic".into(),
+            provider_type: ProviderType::OpenaiCompatible, protocol: "anthropic".into(), completion_profile: "standard".into(),
             base_url: format!("http://{address}"), auth_secret_ref: Some("sk-test-synthetic-key-123456".into()),
             enabled: true, created_at: "".into(), updated_at: "".into() };
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<(String, Value)>();
@@ -246,7 +246,7 @@ mod tests {
         let server = tokio::spawn(async move { axum::serve(listener, axum::Router::new().route("/v1/messages", post(endpoint))).await.unwrap(); });
         let app = make_test_app("anthropic_server_tool_desktop_stream").await;
         let provider = ModelProvider { id: "anthropic-fixture".into(), name: "Fixture".into(),
-            provider_type: ProviderType::OpenaiCompatible, protocol: "anthropic".into(),
+            provider_type: ProviderType::OpenaiCompatible, protocol: "anthropic".into(), completion_profile: "standard".into(),
             base_url: format!("http://{address}"), auth_secret_ref: Some("sk-test-synthetic-key-123456".into()),
             enabled: true, created_at: "".into(), updated_at: "".into() };
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<(String, Value)>();
@@ -288,7 +288,7 @@ mod tests {
         let server = tokio::spawn(async move { axum::serve(listener, axum::Router::new().route("/v1/chat/completions", post(endpoint))).await.unwrap(); });
         let app = make_test_app("openai_desktop_stream").await;
         let provider = ModelProvider { id: "anthropic-fixture".into(), name: "Fixture".into(),
-            provider_type: ProviderType::OpenaiCompatible, protocol: "openai_compatible".into(),
+            provider_type: ProviderType::OpenaiCompatible, protocol: "openai_compatible".into(), completion_profile: "standard".into(),
             base_url: format!("http://{address}"), auth_secret_ref: Some("sk-test-synthetic-key-123456".into()),
             enabled: true, created_at: "".into(), updated_at: "".into() };
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<(String, Value)>();

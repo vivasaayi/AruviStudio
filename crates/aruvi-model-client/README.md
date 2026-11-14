@@ -58,7 +58,9 @@ Use the model/provider documentation to select these options. Omitting
 `temperature` intentionally disregards the value in `CompletionRequest`;
 non-finite supplied values are still rejected. The options configure request
 shape, not model capability, and JSON mode or other parameters can still be
-unsupported. Studio does not yet expose this selection. See the
+unsupported. Studio exposes a per-provider `openai_reasoning` completion profile
+in its desktop and browser provider forms and through MCP; existing providers
+default to `standard`. See the
 [OpenAI Chat Completions reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)
 and [DeepSeek Chat Completions reference](https://api-docs.deepseek.com/api/create-chat-completion/).
 

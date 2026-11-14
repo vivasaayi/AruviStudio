@@ -213,6 +213,7 @@ pub(crate) struct MobileCreateProviderRequest {
     base_url: String,
     api_key: Option<String>,
     protocol: Option<String>,
+    completion_profile: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -862,7 +863,7 @@ async fn model_action(state: &WebhookState, action: &str, arguments: serde_json:
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct ProviderEditFields { name: String, base_url: String, enabled: bool, protocol: Option<String> }
+pub(crate) struct ProviderEditFields { name: String, base_url: String, enabled: bool, protocol: Option<String>, completion_profile: Option<String> }
 #[derive(Debug, Deserialize)]
 pub(crate) struct ProviderEditRequest { id: String, expected: ProviderEditFields, fields: ProviderEditFields }
 #[derive(Debug, Deserialize)]
@@ -882,8 +883,11 @@ pub(crate) async fn mobile_update_provider(State(state): State<WebhookState>, he
     if f.protocol.as_deref().is_some_and(|p| !matches!(p, "openai_compatible" | "anthropic")) {
         return (StatusCode::BAD_REQUEST, "Unsupported provider protocol").into_response();
     }
-    let result = sqlx::query("UPDATE model_providers SET name=?,base_url=?,enabled=?,protocol=COALESCE(?,protocol),updated_at=datetime('now') WHERE id=? AND name=? AND base_url=? AND enabled=? AND protocol=COALESCE(?,protocol) AND (provider_type='openai_compatible' OR COALESCE(?,protocol)='openai_compatible')")
-        .bind(f.name.trim()).bind(f.base_url.trim()).bind(f.enabled).bind(&f.protocol).bind(&body.id).bind(&e.name).bind(&e.base_url).bind(e.enabled).bind(&e.protocol).bind(&f.protocol).execute(&state.app_state.db).await;
+    if f.completion_profile.as_deref().is_some_and(|p| !matches!(p, "standard" | "openai_reasoning")) {
+        return (StatusCode::BAD_REQUEST, "Unsupported provider completion profile").into_response();
+    }
+    let result = sqlx::query("UPDATE model_providers SET name=?,base_url=?,enabled=?,protocol=COALESCE(?,protocol),completion_profile=COALESCE(?,completion_profile),updated_at=datetime('now') WHERE id=? AND name=? AND base_url=? AND enabled=? AND protocol=COALESCE(?,protocol) AND completion_profile=COALESCE(?,completion_profile) AND (provider_type='openai_compatible' OR COALESCE(?,protocol)='openai_compatible') AND (COALESCE(?,completion_profile)='standard' OR (provider_type='openai_compatible' AND COALESCE(?,protocol)='openai_compatible'))")
+        .bind(f.name.trim()).bind(f.base_url.trim()).bind(f.enabled).bind(&f.protocol).bind(&f.completion_profile).bind(&body.id).bind(&e.name).bind(&e.base_url).bind(e.enabled).bind(&e.protocol).bind(&e.completion_profile).bind(&f.protocol).bind(&f.completion_profile).bind(&f.protocol).execute(&state.app_state.db).await;
     match result { Ok(result) if result.rows_affected() == 1 => Json(serde_json::json!({"ok":true})).into_response(),
         Ok(_) => (StatusCode::CONFLICT, "Provider changed or was removed. Refresh and review your edits.").into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response() }
@@ -985,9 +989,9 @@ pub(crate) async fn mobile_delete_model(State(state): State<WebhookState>, heade
 pub(crate) async fn mobile_list_providers(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     #[derive(serde::Serialize, sqlx::FromRow)]
-    struct ProviderView { id: String, name: String, provider_type: String, protocol: String, base_url: String,
+    struct ProviderView { id: String, name: String, provider_type: String, protocol: String, completion_profile: String, base_url: String,
         enabled: bool, created_at: String, updated_at: String, credential_revision: String, credentials_disabled: bool }
-    let result = sqlx::query_as::<_, ProviderView>("SELECT id,name,provider_type,protocol,base_url,enabled,created_at,updated_at,credential_revision,auth_secret_ref IS ? AS credentials_disabled FROM model_providers ORDER BY name").bind(crate::secrets::NO_PROVIDER_CREDENTIAL).fetch_all(&state.app_state.db).await;
+    let result = sqlx::query_as::<_, ProviderView>("SELECT id,name,provider_type,protocol,completion_profile,base_url,enabled,created_at,updated_at,credential_revision,auth_secret_ref IS ? AS credentials_disabled FROM model_providers ORDER BY name").bind(crate::secrets::NO_PROVIDER_CREDENTIAL).fetch_all(&state.app_state.db).await;
     match result { Ok(providers) => Json(providers).into_response(), Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Unable to load providers").into_response() }
 }
 
@@ -998,7 +1002,7 @@ pub(crate) async fn mobile_create_provider(State(state): State<WebhookState>, he
     if name.is_empty() || !url.as_ref().is_ok_and(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some() && url.username().is_empty() && url.password().is_none()) {
         return (StatusCode::BAD_REQUEST, "A name and valid HTTP(S) base URL are required").into_response();
     }
-    model_action(&state, "create_provider", serde_json::json!({"name": name, "provider_type": "openai_compatible", "base_url": body.base_url.trim(), "auth_secret_ref": body.api_key, "protocol": body.protocol.unwrap_or_else(|| "openai_compatible".into())})).await
+    model_action(&state, "create_provider", serde_json::json!({"name": name, "provider_type": "openai_compatible", "base_url": body.base_url.trim(), "auth_secret_ref": body.api_key, "protocol": body.protocol.unwrap_or_else(|| "openai_compatible".into()), "completion_profile": body.completion_profile.unwrap_or_else(|| "standard".into())})).await
 }
 
 pub(crate) async fn mobile_list_models(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {

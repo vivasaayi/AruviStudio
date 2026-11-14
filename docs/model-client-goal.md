@@ -262,12 +262,27 @@ provider hosting into the model-host service as part of this work.
   says `max_tokens` is incompatible with o-series models; the
   [DeepSeek reference](https://api-docs.deepseek.com/api/create-chat-completion/)
   specifies `max_tokens`. Model-specific support for JSON, streaming and other
-  parameters remains the endpoint's responsibility. Studio does not yet expose
-  these options; persistent provider configuration, desktop/web/MCP controls,
-  migration and end-to-end integration remain open. No live OpenAI call was run.
+  parameters remains the endpoint's responsibility. Studio stores a per-provider
+  completion profile: `standard` preserves existing requests and
+  `openai_reasoning` selects `max_completion_tokens` and omits temperature.
+  The desktop and browser forms expose the profile as a provider type, and MCP
+  `aruvi_models` create/update actions accept `completion_profile` with either
+  value. The reasoning profile requires an OpenAI-compatible provider and
+  protocol. Migration 051 defaults existing providers to `standard`; a migration
+  test checks existing providers, models, bindings, credentials and foreign
+  keys. An isolated simulated endpoint checks ordinary and streamed browser
+  calls and MCP completion requests. No live OpenAI call was run.
   The client passed 46 tests; Studio passed 219 native tests with six ignored
   and 27 isolated workflow cases. Real Model Host coding and token-limit
   handling passed through MCP using the unchanged default request shape.
+- Provider profile integration checkpoint: the client passed 46 tests; Studio
+  passed 220 native tests with six ignored; frontend passed 102 tests, isolated
+  browser UI passed 23 cases, and isolated workflows passed 28 cases including
+  profile creation, edits, conflict handling and simulated reasoning completions.
+  The branch database upgraded to migration 51 with integrity and foreign-key
+  checks passing; all three existing providers retained the standard profile.
+  The real Model Host coding and token-limit MCP fixture passed again after the
+  branch deployment. The OpenAI reasoning endpoint was simulated, not called live.
 
 ## Structured provider HTTP errors
 

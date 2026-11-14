@@ -43,6 +43,8 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let provider_type = args.string_or_default(&["provider_type", "providerType"], "openai_compatible")?;
             let protocol = args.string_or_default(&["protocol"], "openai_compatible")?;
             model_repo::validate_provider_protocol(&provider_type, &protocol)?;
+            let profile = args.string_or_default(&["completion_profile", "completionProfile"], "standard")?;
+            model_repo::validate_completion_profile(&provider_type, &protocol, &profile)?;
             let name = args.required_string(&["name"], "name")?;
             let base_url = args.required_string(&["base_url", "baseUrl"], "base_url")?;
             model_repo::validate_provider_base_url(&provider_type, &base_url)?;
@@ -52,7 +54,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 args.optional_string(&["auth_secret_ref", "authSecretRef"])?
                     .as_deref(),
             )?;
-            let provider = model_repo::create_provider_with_protocol(
+            let provider = model_repo::create_provider_configured(
                 &state.db,
                 &id,
                 &name,
@@ -60,6 +62,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 &base_url,
                 stored_secret_ref.as_deref(),
                 &protocol,
+                &profile,
             )
             .await?;
             action_result("create_provider", provider)
@@ -88,11 +91,14 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let name = args.optional_string(&["name"])?;
             let provider_type = args.optional_string(&["provider_type", "providerType"])?;
             let protocol = args.optional_string(&["protocol"])?;
+            let profile = args.optional_string(&["completion_profile", "completionProfile"])?;
             let base_url = args.optional_string(&["base_url", "baseUrl"])?;
             let enabled = args.optional_bool(&["enabled"])?;
             let existing = model_repo::get_provider(&state.db, &id).await?;
             let next_type = provider_type.as_deref().unwrap_or(existing.provider_type.as_str());
-            model_repo::validate_provider_protocol(next_type, protocol.as_deref().unwrap_or(&existing.protocol))?;
+            let next_protocol = protocol.as_deref().unwrap_or(&existing.protocol);
+            model_repo::validate_provider_protocol(next_type, next_protocol)?;
+            model_repo::validate_completion_profile(next_type, next_protocol, profile.as_deref().unwrap_or(&existing.completion_profile))?;
             if base_url.is_some() || provider_type.is_some() {
                 model_repo::validate_provider_base_url(next_type, base_url.as_deref().unwrap_or(&existing.base_url))?;
             }
@@ -109,6 +115,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 name.as_deref(),
                 provider_type.as_deref(),
                 protocol.as_deref(),
+                profile.as_deref(),
                 base_url.as_deref(),
                 stored_secret_ref.as_deref(),
                 enabled,

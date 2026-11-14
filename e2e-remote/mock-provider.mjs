@@ -58,6 +58,19 @@ const server = http.createServer((request, response) => {
     response.end(JSON.stringify(response.statusCode === 401 ? { error: "unauthorized" } : { data: [{ id: "browser-test-model" }] }));
   } else if (request.method === "GET" && request.url === "/v1/models") {
     response.end(JSON.stringify({ data: [{ id: "browser-test-model" }] }));
+  } else if (request.method === "POST" && request.url === "/reasoning/v1/chat/completions") {
+    const chunks = []; request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      let body; try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { response.statusCode = 400; return response.end(); }
+      if (!(body.max_completion_tokens > 0) || "max_tokens" in body || "temperature" in body) {
+        response.statusCode = 400; return response.end(JSON.stringify({ error: "Unexpected reasoning request fields" }));
+      }
+      if (body.stream) {
+        response.setHeader("Content-Type", "text/event-stream");
+        return response.end('data: {"choices":[{"delta":{"content":"Reasoning fixture"},"finish_reason":null}]}\n\ndata: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
+      }
+      response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "Reasoning fixture" }, finish_reason: "stop" }] }));
+    });
   } else if (request.method === "POST" && request.url === "/workflow/v1/chat/completions") {
     const content = workflowOutputs[workflowCalls++] || "review complete";
     const chunks = [];

@@ -764,7 +764,7 @@
               <div class="panel-body stack">
                 <form id="providerForm" class="stack">
                   <label><span class="label">Provider name</span><input id="providerName" required /></label>
-                  <label><span class="label">Protocol</span><select id="providerProtocol"><option value="openai_compatible">OpenAI compatible</option><option value="anthropic">Anthropic Messages</option></select></label>
+                  <label><span class="label">Protocol</span><select id="providerProtocol"><option value="openai_compatible">OpenAI compatible</option><option value="openai_reasoning">OpenAI reasoning models (no temperature)</option><option value="anthropic">Anthropic Messages</option></select></label>
                   <label><span class="label">API base URL</span><input id="providerUrl" type="url" required placeholder="https://example.com/v1" /></label>
                   <label><span class="label">API key (optional)</span><input id="providerKey" type="password" autocomplete="off" /></label>
                   <button type="submit" id="createProviderButton">Add provider</button>
@@ -3726,8 +3726,8 @@
           const nameInput = document.createElement("input"); nameInput.value = provider.name; nameInput.required = true; nameInput.setAttribute("aria-label", "Edit provider name " + provider.name);
           const urlInput = document.createElement("input"); urlInput.type = "url"; urlInput.value = provider.base_url; urlInput.required = true; urlInput.setAttribute("aria-label", "Edit provider URL " + provider.name);
           const protocolSelect = document.createElement("select"); protocolSelect.setAttribute("aria-label", "Edit provider protocol " + provider.name);
-          [["openai_compatible", "OpenAI compatible"], ["anthropic", "Anthropic Messages"]].forEach(([value, label]) => { const option = document.createElement("option"); option.value = value; option.textContent = label; protocolSelect.appendChild(option); });
-          protocolSelect.value = provider.protocol || "openai_compatible"; protocolSelect.disabled = provider.provider_type === "local_runtime";
+          [["openai_compatible", "OpenAI compatible"], ["openai_reasoning", "OpenAI reasoning models (no temperature)"], ["anthropic", "Anthropic Messages"]].forEach(([value, label]) => { const option = document.createElement("option"); option.value = value; option.textContent = label; protocolSelect.appendChild(option); });
+          protocolSelect.value = provider.protocol !== "anthropic" && provider.completion_profile === "openai_reasoning" ? "openai_reasoning" : (provider.protocol || "openai_compatible"); protocolSelect.disabled = provider.provider_type === "local_runtime";
           const enabledLabel = document.createElement("label"); const enabled = document.createElement("input"); enabled.type = "checkbox"; enabled.checked = provider.enabled; enabledLabel.append(enabled, document.createTextNode(" Provider enabled"));
           const save = document.createElement("button"); save.type = "submit"; save.textContent = "Save provider";
           const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger"; remove.textContent = "Delete provider";
@@ -3736,8 +3736,8 @@
             event.preventDefault(); save.disabled = true;
             try {
               await request("/api/mobile/providers/update", { method: "POST", body: { id: provider.id,
-                expected: { name: provider.name, base_url: provider.base_url, enabled: provider.enabled, protocol: provider.protocol },
-                fields: { name: nameInput.value, base_url: urlInput.value, enabled: enabled.checked, protocol: protocolSelect.value } } });
+                expected: { name: provider.name, base_url: provider.base_url, enabled: provider.enabled, protocol: provider.protocol, completion_profile: provider.completion_profile || "standard" },
+                fields: { name: nameInput.value, base_url: urlInput.value, enabled: enabled.checked, protocol: protocolSelect.value === "openai_reasoning" ? "openai_compatible" : protocolSelect.value, completion_profile: protocolSelect.value === "openai_reasoning" ? "openai_reasoning" : "standard" } } });
               await loadModelConfiguration(); setStatus("Provider saved", "ok");
             } catch (error) { setStatus(error.message || String(error), "error"); }
             finally { save.disabled = false; }
@@ -3883,7 +3883,7 @@
       event.preventDefault();
       el.createProviderButton.disabled = true;
       try {
-        await request("/api/mobile/providers", { method: "POST", body: { name: el.providerName.value.trim(), protocol: el.providerProtocol.value, base_url: el.providerUrl.value.trim(), api_key: el.providerKey.value || null } });
+        await request("/api/mobile/providers", { method: "POST", body: { name: el.providerName.value.trim(), protocol: el.providerProtocol.value === "openai_reasoning" ? "openai_compatible" : el.providerProtocol.value, completion_profile: el.providerProtocol.value === "openai_reasoning" ? "openai_reasoning" : "standard", base_url: el.providerUrl.value.trim(), api_key: el.providerKey.value || null } });
         el.providerForm.reset();
         await loadModelConfiguration();
         setStatus("Provider added", "ok");

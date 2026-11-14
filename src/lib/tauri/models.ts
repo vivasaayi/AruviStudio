@@ -12,12 +12,13 @@ import type {
 export const createProvider = (data: { name: string; providerType: string; baseUrl: string; authSecretRef?: string }) =>
   invoke<ModelProvider>("create_provider", {
     name: data.name,
-    providerType: data.providerType === "anthropic" ? "openai_compatible" : data.providerType,
+    providerType: ["anthropic", "openai_reasoning"].includes(data.providerType) ? "openai_compatible" : data.providerType,
     protocol: data.providerType === "anthropic" ? "anthropic" : "openai_compatible",
+    completionProfile: data.providerType === "openai_reasoning" ? "openai_reasoning" : "standard",
     baseUrl: data.baseUrl,
     authSecretRef: data.authSecretRef,
     // Backward-compatible payload keys for mixed command argument conventions.
-    provider_type: data.providerType === "anthropic" ? "openai_compatible" : data.providerType,
+    provider_type: ["anthropic", "openai_reasoning"].includes(data.providerType) ? "openai_compatible" : data.providerType,
     base_url: data.baseUrl,
     auth_secret_ref: data.authSecretRef,
   });
@@ -33,9 +34,10 @@ export const updateProvider = (data: {
   invoke<ModelProvider>("update_provider", {
     id: data.id,
     name: data.name,
-    providerType: data.providerType === "anthropic" ? "openai_compatible" : data.providerType,
-    provider_type: data.providerType === "anthropic" ? "openai_compatible" : data.providerType,
+    providerType: data.providerType && ["anthropic", "openai_reasoning"].includes(data.providerType) ? "openai_compatible" : data.providerType,
+    provider_type: data.providerType && ["anthropic", "openai_reasoning"].includes(data.providerType) ? "openai_compatible" : data.providerType,
     protocol: data.providerType === undefined ? undefined : (data.providerType === "anthropic" ? "anthropic" : "openai_compatible"),
+    completionProfile: data.providerType === undefined ? undefined : (data.providerType === "openai_reasoning" ? "openai_reasoning" : "standard"),
     baseUrl: data.baseUrl,
     base_url: data.baseUrl,
     authSecretRef: data.authSecretRef,

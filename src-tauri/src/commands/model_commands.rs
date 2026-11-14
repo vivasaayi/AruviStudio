@@ -59,13 +59,16 @@ pub async fn create_provider(
     base_url: String,
     auth_secret_ref: Option<String>,
     protocol: Option<String>,
+    completion_profile: Option<String>,
 ) -> Result<ModelProvider, AppError> {
     let protocol = protocol.as_deref().unwrap_or("openai_compatible");
     model_repo::validate_provider_protocol(&provider_type, protocol)?;
+    let profile = completion_profile.as_deref().unwrap_or("standard");
+    model_repo::validate_completion_profile(&provider_type, protocol, profile)?;
     model_repo::validate_provider_base_url(&provider_type, &base_url)?;
     let id = uuid::Uuid::new_v4().to_string();
     let stored_secret_ref = secrets::store_provider_secret(&id, auth_secret_ref.as_deref())?;
-    model_repo::create_provider_with_protocol(
+    model_repo::create_provider_configured(
         &state.db,
         &id,
         &name,
@@ -73,6 +76,7 @@ pub async fn create_provider(
         &base_url,
         stored_secret_ref.as_deref(),
         protocol,
+        profile,
     )
     .await
 }
@@ -89,13 +93,16 @@ pub async fn update_provider(
     name: Option<String>,
     provider_type: Option<String>,
     protocol: Option<String>,
+    completion_profile: Option<String>,
     base_url: Option<String>,
     auth_secret_ref: Option<String>,
     enabled: Option<bool>,
 ) -> Result<ModelProvider, AppError> {
     let existing = model_repo::get_provider(&state.db, &id).await?;
     let next_type = provider_type.as_deref().unwrap_or(existing.provider_type.as_str());
-    model_repo::validate_provider_protocol(next_type, protocol.as_deref().unwrap_or(&existing.protocol))?;
+    let next_protocol = protocol.as_deref().unwrap_or(&existing.protocol);
+    model_repo::validate_provider_protocol(next_type, next_protocol)?;
+    model_repo::validate_completion_profile(next_type, next_protocol, completion_profile.as_deref().unwrap_or(&existing.completion_profile))?;
     if base_url.is_some() || provider_type.is_some() {
         model_repo::validate_provider_base_url(next_type, base_url.as_deref().unwrap_or(&existing.base_url))?;
     }
@@ -110,6 +117,7 @@ pub async fn update_provider(
         name.as_deref(),
         provider_type.as_deref(),
         protocol.as_deref(),
+        completion_profile.as_deref(),
         base_url.as_deref(),
         stored_secret_ref.as_deref(),
         enabled,
