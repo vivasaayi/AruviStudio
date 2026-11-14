@@ -111,6 +111,7 @@ pub(super) fn build_coding_tool_prompt(
     prompt.push_str(
         "\n- repo.replace_range -> {\"path\":\"relative/path.ext\",\"start_line\":10,\"end_line\":22,\"content\":\"replacement text\"}",
     );
+    prompt.push_str("\n  Include only replacement lines for the selected range, not unchanged neighboring lines. If an adjacent duplicate is intentional, set allow_adjacent_duplicate=true.");
     prompt.push_str(
         "\n- repo.apply_patch -> {\"path\":\"relative/path.ext\",\"patch\":\"unified diff hunk text\"}",
     );

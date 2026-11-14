@@ -180,6 +180,11 @@ pub(super) async fn replace_workspace_range(
         )));
     }
 
+    if !arguments.get("allow_adjacent_duplicate").and_then(Value::as_bool).unwrap_or(false) {
+        if let Some(line) = duplicated_boundary_line(&lines, start_line, end_line, replacement) {
+            return Err(AppError::Validation(format!("Replacement repeats unchanged neighboring line {line}; reread the file and adjust the range or set allow_adjacent_duplicate=true if intentional.")));
+        }
+    }
     let updated = merge_replacement_lines(&lines, start_line, end_line, replacement, had_trailing_newline);
     agent_execution_limits::ensure_write_limit(&updated, boundaries)?;
     workspace.write_file(&normalized, &updated).await?;
@@ -191,6 +196,21 @@ pub(super) async fn replace_workspace_range(
         "end_line": end_line,
         "replaced_lines": end_line.saturating_sub(start_line) + 1,
     }))
+}
+
+// Catch substantial exact context accidentally included outside the selected
+// range. Short punctuation and deliberate duplication are not blocked.
+fn duplicated_boundary_line(lines: &[String], start: usize, end: usize, replacement: &str) -> Option<usize> {
+    let mut replacement_lines: Vec<&str> = replacement.split('\n').collect();
+    if replacement.ends_with('\n') { replacement_lines.pop(); }
+    let substantial_match = |left: &str, right: &str| left.trim().len() >= 32 && left == right;
+    if start > 1 && replacement_lines.first().is_some_and(|line| substantial_match(&lines[start - 2], line)) {
+        return Some(start - 1);
+    }
+    if end < lines.len() && replacement_lines.last().is_some_and(|line| substantial_match(&lines[end], line)) {
+        return Some(end + 1);
+    }
+    None
 }
 
 // A final newline terminates the last replacement line; it is not an extra
@@ -209,7 +229,18 @@ fn merge_replacement_lines(lines: &[String], start: usize, end: usize, replaceme
 
 #[cfg(test)]
 mod replacement_line_tests {
-    use super::merge_replacement_lines;
+    use super::{duplicated_boundary_line, merge_replacement_lines};
+
+    #[test]
+    fn detects_substantial_neighboring_context_without_blocking_short_lines() {
+        let previous = "function sumEven(numbers) { return numbers.filter(n => n % 2 === 0); }";
+        let next = "module.exports = { sumEven, clamp, normalize, parse };";
+        let lines = vec![previous.into(), "replace".into(), next.into()];
+        assert_eq!(duplicated_boundary_line(&lines, 2, 2, &format!("{previous}\nreplacement")), Some(1));
+        assert_eq!(duplicated_boundary_line(&lines, 2, 2, &format!("replacement\n{next}\n")), Some(3));
+        assert_eq!(duplicated_boundary_line(&["}".into(), "replace".into()], 2, 2, "}\nnew"), None);
+        assert_eq!(duplicated_boundary_line(&lines, 2, 2, "different code"), None);
+    }
 
     #[test]
     fn newline_terminated_replacements_do_not_add_an_extra_blank_line() {

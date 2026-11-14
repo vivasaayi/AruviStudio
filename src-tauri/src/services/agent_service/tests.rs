@@ -65,7 +65,7 @@ async fn coding_stage_creates_tool_trace_artifact() {
     .expect("failed to bind coding agent to test model");
     sqlx::query(
             "UPDATE agent_definitions
-             SET boundaries='{\"max_tool_steps\":9,\"keep_workspace\":false,\"max_file_chars\":4000}',
+             SET boundaries='{\"max_tool_steps\":15,\"keep_workspace\":false,\"max_file_chars\":4000}',
                  enabled=1,
                  employment_status='active'
              WHERE id='coding-agent'",
@@ -115,6 +115,7 @@ async fn coding_stage_creates_tool_trace_artifact() {
     std::fs::create_dir_all(&repo_dir).expect("failed to create local repository directory");
     std::fs::write(repo_dir.join("README.md"), "# repo\n")
         .expect("failed to seed local repository");
+    let adjacent_line = "function existing(value) { return value + 123456789; }";
 
     let repository = repository_repo::create_repository(
         &pool,
@@ -180,6 +181,9 @@ async fn coding_stage_creates_tool_trace_artifact() {
             .to_string(),
             json!({"type":"tool_call", "tool":"repo.replace_range", "arguments":{"path":"hello.txt","start_line":1,"end_line":1,"content":"hello from tool loop\nsecond line\n"}}).to_string(),
             json!({"type":"tool_call", "tool":"repo.replace_range", "arguments":{"path":"hello.txt","start_line":1,"end_line":1,"content":"hello from tool loop\nsecond line"}}).to_string(),
+            json!({"type":"tool_call", "tool":"repo.write_file", "arguments":{"path":"adjacent.js","content":format!("{adjacent_line}\nold\n")}}).to_string(),
+            json!({"type":"tool_call", "tool":"repo.replace_range", "arguments":{"path":"adjacent.js","start_line":2,"end_line":2,"content":format!("{adjacent_line}\nnew\n")}}).to_string(),
+            json!({"type":"tool_call", "tool":"repo.replace_range", "arguments":{"path":"adjacent.js","start_line":2,"end_line":2,"content":format!("{adjacent_line}\nnew\n"),"allow_adjacent_duplicate":true}}).to_string(),
             json!({
                 "type": "final",
                 "summary": "Implemented coding changes",
@@ -234,6 +238,8 @@ async fn coding_stage_creates_tool_trace_artifact() {
     assert!(trace_content.contains("MODEL_CANDIDATE_MARKER"));
     assert!(trace_content.contains("No files were changed"));
     assert!(trace_content.contains("replacement already succeeded"));
+    assert!(trace_content.contains("Replacement repeats unchanged neighboring line"));
+    assert_eq!(std::fs::read_to_string(repo_dir.join("adjacent.js")).unwrap(), format!("{adjacent_line}\n{adjacent_line}\nnew\n"));
     assert!(trace_content.contains("repo.write_file creates parent directories"));
     assert!(
         trace_content.contains("tool_result"),

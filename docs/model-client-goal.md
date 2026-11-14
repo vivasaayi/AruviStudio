@@ -743,6 +743,17 @@ function declarations before approving delivery. Its negative control supplied
 behaviorally correct code with a duplicate and verified rejection with the Git
 remote unchanged. This is a fixture-specific textual check, not a general parser,
 product-level quality gate, or proof against duplicate code in other forms.
+The coding tool now rejects a range replacement that exactly repeats a
+substantial immediately adjacent line, with feedback to adjust the range or set
+`allow_adjacent_duplicate=true` when intentional. A simulated coding-loop test
+covers both rejection and override. This is a heuristic: it can require an explicit
+override for legitimate duplication and cannot detect semantic duplicates or
+nonadjacent context. It is not a general quality gate.
+In a subsequent real 7B run, syntax passed but the independent behavioral
+check rejected the generated module because it omitted the `sumEven` export;
+the run stopped before delivery. Its trace included malformed tool-call envelopes.
+The live run did not demonstrate the adjacent-overlap guard, and broader coding
+reliability and malformed-output recovery remain open.
 
 ## Independent client revalidation
 
