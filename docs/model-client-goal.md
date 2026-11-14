@@ -537,6 +537,19 @@ provider hosting into the model-host service as part of this work.
 
 ## Browser provider credential detachment
 
+- New remote provider URLs are validated consistently before desktop or MCP
+  credential storage and again at the shared persistence boundary. HTTP(S)
+  URLs containing user-info, a query or a fragment are rejected without
+  echoing their contents; local-runtime file paths remain supported. Existing
+  invalid legacy URLs are not migrated automatically and can still be disabled
+  or renamed through the shared repository path; replacing the URL or type
+  requires a valid value. Secrets in URL paths cannot be detected by this
+  validation and provider URLs remain visible in settings and telemetry.
+  The native Studio suite passed 218 tests with six ignored; 27 isolated
+  workflow cases passed, including web/MCP rejection and a rejected edit that
+  left an existing credential usable. Real `qwen25-coder-7b-q4` coding and
+  token-limit behavior also passed through MCP after the branch rebuild.
+
 - MCP now exposes `get_provider_credential_state` and
   `detach_provider_credential` with the same revision check used by the browser.
   An isolated cross-interface test rotates through the web API, rejects a stale

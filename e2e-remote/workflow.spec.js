@@ -436,6 +436,39 @@ test("MCP repository analysis repairs invalid actions and bounds failed retries"
   expect((await mcp("aruvi_catalog", "list_product_areas", { product_id: product.id })).some((area) => area.name === "Inventory")).toBeTruthy();
 });
 
+test("provider creation and edits reject unusable or credential-bearing URLs", async ({ request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires an isolated server");
+  const mobileHeaders = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const mcpHeaders = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };
+  async function mcp(action, arguments_) {
+    const response = await request.post("/api/mcp", { headers: mcpHeaders, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_models", arguments: { action, arguments: arguments_ } } } });
+    return (await response.json()).result;
+  }
+  for (const url of ["https://user:private-password@example.invalid/v1", "https://example.invalid/v1?key=private-query", "https://example.invalid/v1#private-fragment"]) {
+    const mobile = await request.post("/api/mobile/providers", { headers: mobileHeaders, data: { name: "Rejected URL", base_url: url, api_key: "private-api-key" } });
+    expect(mobile.status()).toBe(400);
+    expect(await mobile.text()).not.toContain("private-");
+    const result = await mcp("create_provider", { name: "Rejected URL", base_url: url, auth_secret_ref: "private-api-key" });
+    expect(result.isError).toBeTruthy();
+    expect(JSON.stringify(result.content)).not.toContain("private-");
+  }
+  const baseUrl = process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/credential/v1");
+  const created = await mcp("create_provider", { name: "Valid URL", base_url: baseUrl, auth_secret_ref: "synthetic-rotation-key-12345" });
+  expect(created.isError).toBeFalsy();
+  const provider = created.structuredContent.result;
+  const expected = { name: provider.name, base_url: provider.base_url, enabled: provider.enabled, protocol: provider.protocol };
+  const invalidWebUpdate = await request.post("/api/mobile/providers/update", { headers: mobileHeaders, data: { id: provider.id, expected, fields: { ...expected, base_url: "https://example.invalid/v1#private-fragment" } } });
+  expect(invalidWebUpdate.status()).toBe(400);
+  expect(await invalidWebUpdate.text()).not.toContain("private-fragment");
+  const invalidUpdate = await mcp("update_provider", { id: provider.id, base_url: "https://example.invalid/v1?key=private-query", auth_secret_ref: "wrong-key" });
+  expect(invalidUpdate.isError).toBeTruthy();
+  expect(JSON.stringify(invalidUpdate.content)).not.toContain("private-query");
+  expect((await (await request.post(`/api/mobile/providers/${provider.id}/test`, { headers: mobileHeaders })).json()).message).toBe("Connection successful");
+  const providers = (await mcp("list_providers", {})).structuredContent.result;
+  expect(providers.find((item) => item.id === provider.id).base_url).toBe(baseUrl);
+  expect(providers.some((item) => item.name === "Rejected URL")).toBeFalsy();
+});
+
 test("MCP transport errors omit the provider URL path", async ({ request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires an isolated server");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };

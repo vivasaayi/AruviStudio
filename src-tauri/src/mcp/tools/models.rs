@@ -43,6 +43,9 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let provider_type = args.string_or_default(&["provider_type", "providerType"], "openai_compatible")?;
             let protocol = args.string_or_default(&["protocol"], "openai_compatible")?;
             model_repo::validate_provider_protocol(&provider_type, &protocol)?;
+            let name = args.required_string(&["name"], "name")?;
+            let base_url = args.required_string(&["base_url", "baseUrl"], "base_url")?;
+            model_repo::validate_provider_base_url(&provider_type, &base_url)?;
             let id = uuid::Uuid::new_v4().to_string();
             let stored_secret_ref = secrets::store_provider_secret(
                 &id,
@@ -52,9 +55,9 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let provider = model_repo::create_provider_with_protocol(
                 &state.db,
                 &id,
-                &args.required_string(&["name"], "name")?,
+                &name,
                 &provider_type,
-                &args.required_string(&["base_url", "baseUrl"], "base_url")?,
+                &base_url,
                 stored_secret_ref.as_deref(),
                 &protocol,
             )
@@ -82,6 +85,17 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
         }
         "update_provider" => {
             let id = args.required_string(&["id"], "id")?;
+            let name = args.optional_string(&["name"])?;
+            let provider_type = args.optional_string(&["provider_type", "providerType"])?;
+            let protocol = args.optional_string(&["protocol"])?;
+            let base_url = args.optional_string(&["base_url", "baseUrl"])?;
+            let enabled = args.optional_bool(&["enabled"])?;
+            let existing = model_repo::get_provider(&state.db, &id).await?;
+            let next_type = provider_type.as_deref().unwrap_or(existing.provider_type.as_str());
+            model_repo::validate_provider_protocol(next_type, protocol.as_deref().unwrap_or(&existing.protocol))?;
+            if base_url.is_some() || provider_type.is_some() {
+                model_repo::validate_provider_base_url(next_type, base_url.as_deref().unwrap_or(&existing.base_url))?;
+            }
             let stored_secret_ref = if let Some(secret_input) =
                 args.optional_string(&["auth_secret_ref", "authSecretRef"])?
             {
@@ -92,13 +106,12 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let provider = model_repo::update_provider(
                 &state.db,
                 &id,
-                args.optional_string(&["name"])?.as_deref(),
-                args.optional_string(&["provider_type", "providerType"])?
-                    .as_deref(),
-                args.optional_string(&["protocol"])?.as_deref(),
-                args.optional_string(&["base_url", "baseUrl"])?.as_deref(),
+                name.as_deref(),
+                provider_type.as_deref(),
+                protocol.as_deref(),
+                base_url.as_deref(),
                 stored_secret_ref.as_deref(),
-                args.optional_bool(&["enabled"])?,
+                enabled,
             )
             .await?;
             action_result("update_provider", provider)

@@ -62,6 +62,7 @@ pub async fn create_provider(
 ) -> Result<ModelProvider, AppError> {
     let protocol = protocol.as_deref().unwrap_or("openai_compatible");
     model_repo::validate_provider_protocol(&provider_type, protocol)?;
+    model_repo::validate_provider_base_url(&provider_type, &base_url)?;
     let id = uuid::Uuid::new_v4().to_string();
     let stored_secret_ref = secrets::store_provider_secret(&id, auth_secret_ref.as_deref())?;
     model_repo::create_provider_with_protocol(
@@ -92,6 +93,12 @@ pub async fn update_provider(
     auth_secret_ref: Option<String>,
     enabled: Option<bool>,
 ) -> Result<ModelProvider, AppError> {
+    let existing = model_repo::get_provider(&state.db, &id).await?;
+    let next_type = provider_type.as_deref().unwrap_or(existing.provider_type.as_str());
+    model_repo::validate_provider_protocol(next_type, protocol.as_deref().unwrap_or(&existing.protocol))?;
+    if base_url.is_some() || provider_type.is_some() {
+        model_repo::validate_provider_base_url(next_type, base_url.as_deref().unwrap_or(&existing.base_url))?;
+    }
     let stored_secret_ref = if let Some(secret_input) = auth_secret_ref.as_deref() {
         secrets::store_updated_provider_secret(&id, secret_input)?
     } else {

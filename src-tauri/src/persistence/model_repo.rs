@@ -37,11 +37,24 @@ pub fn validate_provider_protocol(provider_type: &str, protocol: &str) -> Result
     }
 }
 
+/// Remote provider URLs must be usable by the shared client and must not put
+/// credentials in URL user-info or query fields. Local runtimes use file paths.
+pub fn validate_provider_base_url(provider_type: &str, base_url: &str) -> Result<(), AppError> {
+    if provider_type == "local_runtime" { return Ok(()); }
+    let valid = reqwest::Url::parse(base_url).is_ok_and(|url| {
+        matches!(url.scheme(), "http" | "https") && url.host_str().is_some()
+            && url.username().is_empty() && url.password().is_none()
+            && url.query().is_none() && url.fragment().is_none()
+    });
+    if valid { Ok(()) } else { Err(AppError::Validation("Remote provider requires an HTTP(S) base URL without credentials, query, or fragment".into())) }
+}
+
 pub async fn create_provider_with_protocol(
     pool: &SqlitePool, id: &str, name: &str, provider_type: &str, base_url: &str,
     auth_secret_ref: Option<&str>, protocol: &str,
 ) -> Result<ModelProvider, AppError> {
     validate_provider_protocol(provider_type, protocol)?;
+    validate_provider_base_url(provider_type, base_url)?;
     sqlx::query_as::<_, ModelProvider>("INSERT INTO model_providers (id,name,provider_type,base_url,auth_secret_ref,protocol,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,1,datetime('now'),datetime('now')) RETURNING id,name,provider_type,protocol,base_url,auth_secret_ref,enabled,created_at,updated_at")
         .bind(id).bind(name).bind(provider_type).bind(base_url).bind(auth_secret_ref).bind(protocol)
         .fetch_one(pool).await.map_err(|e| e.into())
@@ -75,6 +88,11 @@ pub async fn update_provider(
     let next_protocol = protocol.unwrap_or(&existing.protocol);
     validate_provider_protocol(next_provider_type, next_protocol)?;
     let next_base_url = base_url.unwrap_or(&existing.base_url);
+    // Existing invalid legacy URLs can still be disabled or renamed; any new
+    // URL or provider type must satisfy the current transport contract.
+    if base_url.is_some() || provider_type.is_some() {
+        validate_provider_base_url(next_provider_type, next_base_url)?;
+    }
     let next_auth_secret_ref = auth_secret_ref.or(existing.auth_secret_ref.as_deref());
     let next_enabled = enabled.unwrap_or(existing.enabled);
 
@@ -184,4 +202,32 @@ pub async fn delete_model_definition(pool: &SqlitePool, id: &str) -> Result<(), 
         .execute(pool)
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod provider_validation_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn remote_urls_are_validated_without_breaking_local_paths_or_legacy_edits() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = crate::persistence::db::create_pool(&format!("sqlite:{}", directory.path().join("provider.db").display())).await.unwrap();
+        for url in ["http://user:secret@example.invalid/v1", "https://example.invalid/v1?key=secret", "https://example.invalid/v1#secret", "file:///tmp/model", "not a url"] {
+            let result = create_provider(&db, "invalid", "Invalid", "openai_compatible", url, None).await;
+            assert!(matches!(result, Err(AppError::Validation(message)) if !message.contains("secret")), "{url}");
+        }
+        let provider = create_provider(&db, "remote", "Remote", "openai_compatible", "http://127.0.0.1:1234/v1", None).await.unwrap();
+        assert!(update_provider(&db, &provider.id, None, None, None, Some("http://localhost/v1?key=secret"), None, None).await.is_err());
+        assert_eq!(get_provider(&db, &provider.id).await.unwrap().base_url, provider.base_url);
+        sqlx::query("UPDATE model_providers SET base_url='http://localhost/v1?legacy=1' WHERE id=?").bind(&provider.id).execute(&db).await.unwrap();
+        let renamed = update_provider(&db, &provider.id, Some("Renamed"), None, None, None, None, Some(false)).await.unwrap();
+        assert_eq!(renamed.name, "Renamed");
+        assert!(!renamed.enabled);
+        assert_eq!(renamed.base_url, "http://localhost/v1?legacy=1");
+        let corrected = update_provider(&db, &provider.id, None, None, None, Some("https://example.invalid/v1"), None, None).await.unwrap();
+        assert_eq!(corrected.base_url, "https://example.invalid/v1");
+        let local = create_provider(&db, "local", "Local", "local_runtime", "/tmp/whisper-model.bin", None).await.unwrap();
+        assert_eq!(local.base_url, "/tmp/whisper-model.bin");
+        db.close().await;
+    }
 }
