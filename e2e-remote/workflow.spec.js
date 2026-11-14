@@ -1,6 +1,23 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
+test("quiet hours block a voice fallback when WhatsApp is unavailable", async ({ request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires the disposable fixture with blocked HTTPS egress");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };
+  const call = async (name, action, arguments_) => (await (await request.post("/api/mcp", { headers, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: { action, arguments: arguments_ } } } })).json()).result;
+  const now = new Date(), minute = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const time = (offset) => { const n = (minute + offset + 1440) % 1440; return `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`; };
+  for (const [key, value] of [["twilio.account_sid", "ACfixture"], ["twilio.auth_token", "fixture"], ["twilio.voice_from", "+15550000000"], ["twilio.webhook_base_url", "https://example.invalid"], ["twilio.whatsapp_from", ""], ["planner.channel_preference", "whatsapp"], ["planner.call_quiet_hours_start", time(-5)], ["planner.call_quiet_hours_end", time(5)]]) {
+    expect((await call("aruvi_settings", "set_setting", { key, value })).isError).not.toBeTruthy();
+  }
+  const result = await call("aruvi_channels", "route_planner_contact", { to: "+15550000001", content: "Fixture" });
+  expect(result.isError, JSON.stringify(result)).not.toBeTruthy();
+  expect(result.structuredContent.result).toMatchObject({ channel: "voice", status: "blocked" });
+  const whatsappDestination = await call("aruvi_channels", "route_planner_contact", { to: "whatsapp:+15550000001", content: "Fixture", allow_after_hours: true });
+  expect(whatsappDestination.isError).toBeTruthy();
+  expect(JSON.stringify(whatsappDestination.content)).toContain("not a WhatsApp-prefixed destination");
+});
+
 test("browser contact policy is validated and protects concurrent MCP edits", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };

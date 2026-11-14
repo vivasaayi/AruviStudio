@@ -9,7 +9,7 @@ browser="${project}-workflow-browser-$$"
 cleanup() { docker rm -f "$browser" "$name" >/dev/null 2>&1 || true; docker volume rm "$TEST_SOCKET_NAME" "$TEST_PDF_SOCKET_NAME" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
-"${fixture_compose[@]}" run --rm -d --name "$name" fixture >/dev/null
+"${fixture_compose[@]}" run --rm -d --name "$name" -e TZ=UTC -e HTTPS_PROXY=http://127.0.0.1:1 -e https_proxy=http://127.0.0.1:1 -e NO_PROXY= -e no_proxy= fixture >/dev/null
 docker exec "$name" sh -c 'for fixture in workflow-test workflow-test-passed workflow-test-failed workflow-test-skipped planner-active-fixture; do mkdir -p "/repositories/$fixture" && git init -q "/repositories/$fixture" && printf "test repo\n" > "/repositories/$fixture/README.md" || exit 1; done'
 docker exec "$name" sh -c 'mkdir -p /repositories/occupied-workspace && printf "existing readme\n" > /repositories/occupied-workspace/README.md && printf "existing ignore\n" > /repositories/occupied-workspace/.gitignore && ln -s occupied-workspace /repositories/alias-workspace'
 docker exec "$name" sh -c 'git init -q --bare /repositories/mcp-origin.git && git init -q -b main /repositories/mcp-fixture && git -C /repositories/mcp-fixture config user.name "Aruvi Test" && git -C /repositories/mcp-fixture config user.email "aruvi-test@example.invalid" && printf "MCP fixture\n" > /repositories/mcp-fixture/README.md && git -C /repositories/mcp-fixture add README.md && git -C /repositories/mcp-fixture commit -q -m initial && git -C /repositories/mcp-fixture remote add origin /repositories/mcp-origin.git && git -C /repositories/mcp-fixture push -q origin main'

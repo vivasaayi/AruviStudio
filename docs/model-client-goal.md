@@ -14,6 +14,15 @@ provider hosting into the model-host service as part of this work.
 
 ### Browser outbound contact policy
 
+Subsequent routing inspection found that a WhatsApp-to-voice availability
+fallback occurred after the quiet-hours and destination checks. The final channel
+is now checked again before I/O, preventing calls during quiet hours and calls to
+WhatsApp-formatted destinations through that fallback. A native guard test and
+47 isolated browser/MCP workflows passed, including a real MCP routing decision
+with synthetic credentials. The fixture forces HTTPS through an unreachable
+loopback proxy; no call or message was delivered. Live channel delivery remains
+unverified.
+
 The Routing page now edits the channel preference, ambiguity escalation and
 quiet hours consumed by the existing server policy. Writes use a transaction
 and compare the previously read values, including against changes made through

@@ -41,6 +41,10 @@ pub struct PlannerContactResult {
     pub reason: String,
 }
 
+fn voice_blocked_by_quiet_hours(channel: ChannelKind, allow_after_hours: bool, in_quiet_hours: bool) -> bool {
+    channel == ChannelKind::Voice && !allow_after_hours && in_quiet_hours
+}
+
 async fn resolve_default_planner_model(
     state: &AppState,
 ) -> Result<(Option<String>, Option<String>), AppError> {
@@ -142,7 +146,7 @@ pub async fn route_planner_contact(
     let mut selected_channel =
         select_initial_channel(&policy, explicit_channel, content, &mut reason_parts);
 
-    if selected_channel == ChannelKind::Voice && !allow_after_hours && policy.in_call_quiet_hours {
+    if voice_blocked_by_quiet_hours(selected_channel, allow_after_hours, policy.in_call_quiet_hours) {
         if whatsapp_available {
             selected_channel = ChannelKind::Whatsapp;
             reason_parts.push(format!(
@@ -202,6 +206,21 @@ pub async fn route_planner_contact(
         }
     }
 
+    // Channel availability can change a WhatsApp selection into a voice call.
+    // Enforce quiet hours again after all fallback decisions and before I/O.
+    if voice_blocked_by_quiet_hours(selected_channel, allow_after_hours, policy.in_call_quiet_hours) {
+        return Ok(PlannerContactResult {
+            channel: "voice".to_string(),
+            status: "blocked".to_string(),
+            reason: format!("{} and WhatsApp fallback is not configured", quiet_hours_summary(&policy)),
+        });
+    }
+    if selected_channel == ChannelKind::Voice && looks_like_whatsapp_destination(destination) {
+        return Err(AppError::Validation(
+            "Voice calls need a phone number like +15551234567, not a WhatsApp-prefixed destination".to_string(),
+        ));
+    }
+
     match selected_channel {
         ChannelKind::Whatsapp => {
             send_whatsapp_message(
@@ -226,4 +245,17 @@ pub async fn route_planner_contact(
         status: "sent".to_string(),
         reason: reason_parts.join(". "),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quiet_hours_guard_applies_to_final_channel() {
+        assert!(voice_blocked_by_quiet_hours(ChannelKind::Voice, false, true));
+        assert!(!voice_blocked_by_quiet_hours(ChannelKind::Whatsapp, false, true));
+        assert!(!voice_blocked_by_quiet_hours(ChannelKind::Voice, true, true));
+        assert!(!voice_blocked_by_quiet_hours(ChannelKind::Voice, false, false));
+    }
 }
