@@ -222,6 +222,7 @@ export function useModelProviderPageActions({
       await queryClient.invalidateQueries({ queryKey: ["providers"] });
       setProviderSuccess(`Provider "${provider.name}" updated.`);
       setProviderError(null);
+      setProviderEditForm((current) => ({ ...current, authSecretRef: "" }));
       setEditingProvider(null);
     },
     onError: (error) => {

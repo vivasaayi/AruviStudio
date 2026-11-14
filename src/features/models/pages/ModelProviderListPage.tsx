@@ -139,7 +139,7 @@ export function ModelProviderListPage() {
           <div style={styles.modal}>
             <div style={styles.modalHeader}>
               <div style={styles.modalTitle}>Add Provider</div>
-              <button style={{ ...styles.btn, backgroundColor: "#2c3139" }} onClick={() => setShowForm(false)}>Close</button>
+              <button style={{ ...styles.btn, backgroundColor: "#2c3139" }} onClick={() => { setForm((current) => ({ ...current, authSecretRef: "" })); setShowForm(false); }}>Close</button>
             </div>
             <div style={styles.modalBody}>
         <div style={styles.form}>
@@ -153,7 +153,7 @@ export function ModelProviderListPage() {
               : form.providerType === "openai_reasoning" ? <>Use this for models that accept <code>max_completion_tokens</code> and do not support temperature. Temperature is omitted.</>
               : <>You can use <code>http://localhost:1234</code> or <code>http://localhost:1234/v1</code>. Aruvi normalizes both.</>}
           </div>
-          <label style={styles.label}>API Key / Secret Ref (optional)</label><input style={styles.input} value={form.authSecretRef} onChange={(e) => setForm({ ...form, authSecretRef: e.target.value })} placeholder={form.providerType === "local_runtime" ? "Leave empty for local runtime" : "Paste API key (stored in Keychain) or ref:provider:... value"} />
+          <label style={styles.label}>API Key / Secret Ref (optional)</label><input aria-label="API Key / Secret Ref (optional)" type="password" autoComplete="new-password" style={styles.input} value={form.authSecretRef} onChange={(e) => setForm({ ...form, authSecretRef: e.target.value })} placeholder={form.providerType === "local_runtime" ? "Leave empty for local runtime" : "Paste API key (stored in Keychain) or ref:provider:... value"} />
           <div style={{ fontSize: 12, color: "#8f96a3", marginBottom: 12 }}>
             {form.providerType === "local_runtime"
               ? <>Local runtime providers do not require an API key. The path above should point directly to a downloaded Whisper model file.</>
@@ -277,7 +277,7 @@ export function ModelProviderListPage() {
           <div style={styles.modal}>
             <div style={styles.modalHeader}>
               <div style={styles.modalTitle}>Edit Provider</div>
-              <button style={{ ...styles.btn, backgroundColor: "#2c3139" }} onClick={() => setEditingProvider(null)}>Close</button>
+              <button style={{ ...styles.btn, backgroundColor: "#2c3139" }} onClick={() => { setProviderEditForm((current) => ({ ...current, authSecretRef: "" })); setEditingProvider(null); }}>Close</button>
             </div>
             <div style={styles.modalBody}>
               <div style={styles.form}>
@@ -294,7 +294,7 @@ export function ModelProviderListPage() {
                 <label style={styles.label}>Base URL</label>
                 <input style={styles.input} value={providerEditForm.baseUrl} onChange={(e) => setProviderEditForm({ ...providerEditForm, baseUrl: e.target.value })} />
                 <label style={styles.label}>Rotate API Key (optional)</label>
-                <input style={styles.input} value={providerEditForm.authSecretRef} onChange={(e) => setProviderEditForm({ ...providerEditForm, authSecretRef: e.target.value })} placeholder="Leave empty to keep current key" />
+                <input aria-label="Rotate API Key (optional)" type="password" autoComplete="new-password" style={styles.input} value={providerEditForm.authSecretRef} onChange={(e) => setProviderEditForm({ ...providerEditForm, authSecretRef: e.target.value })} placeholder="Leave empty to keep current key" />
                 <label style={{ ...styles.label, display: "flex", gap: 8, alignItems: "center" }}>
                   <input type="checkbox" checked={providerEditForm.enabled} onChange={(e) => setProviderEditForm({ ...providerEditForm, enabled: e.target.checked })} />
                   Enabled

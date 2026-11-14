@@ -2299,6 +2299,14 @@ model discovery, completion, streaming and token-limit handling with
 `qwen25-coder-7b-q4`. This verifies the pinned revision; later client changes
 require a new pin and revalidation. No release was published.
 
+## Desktop provider key entry
+
+Desktop provider creation and rotation inputs now mask typed credentials and
+clear their input state on close; successful rotation also clears it. The
+frontend build, 124 unit tests and seven simulated desktop provider checks
+passed. Masking does not establish native-window or keychain behavior, which
+remain separate validation items.
+
 ## Browser provider credential rotation
 
 Browser key rotation now sends the opaque credential revision and completion

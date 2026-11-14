@@ -147,3 +147,24 @@ test("desktop agent model selector marks local Whisper as transcription only", a
   await expect(selector.locator('option[value="whisper-fixture"]')).toHaveText("Whisper fixture · transcription only");
   await expect(selector.locator('option[value="model-deepseek-chat"]')).toBeEnabled();
 });
+
+
+test("desktop provider key fields are masked and clear on close", async ({ page }) => {
+  await page.goto("/models");
+  await page.getByRole("button", { name: "+ Add Provider" }).click();
+  const createKey = page.getByLabel("API Key / Secret Ref (optional)");
+  await expect(createKey).toHaveAttribute("type", "password");
+  await createKey.fill("synthetic-key");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "+ Add Provider" }).click();
+  await expect(createKey).toHaveValue("");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  const card = page.getByText("DeepSeek (Hosted)", { exact: true }).first().locator("..");
+  await card.getByRole("button", { name: "Edit", exact: true }).click();
+  const rotateKey = page.getByLabel("Rotate API Key (optional)");
+  await expect(rotateKey).toHaveAttribute("type", "password");
+  await rotateKey.fill("synthetic-key");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await card.getByRole("button", { name: "Edit", exact: true }).click();
+  await expect(rotateKey).toHaveValue("");
+});
