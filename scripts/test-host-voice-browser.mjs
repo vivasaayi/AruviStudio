@@ -26,6 +26,13 @@ try {
   browser = await chromium.launch({ executablePath: process.env.ARUVI_CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", headless: true,
     args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", `--use-file-for-fake-audio-capture=${path}`] });
   const page = await browser.newPage();
+  let capturedRate = null;
+  page.on("request", (request) => {
+    if (request.method() !== "POST" || !request.url().endsWith("/api/mobile/speech/transcribe")) return;
+    const payload = request.postDataJSON();
+    const wav = Buffer.from(payload.audio_bytes_base64, "base64");
+    if (wav.length >= 44 && wav.toString("ascii", 0, 4) === "RIFF") capturedRate = wav.readUInt32LE(24);
+  });
   await page.goto(`http://${port}/remote`);
   await page.locator("#tokenInput").fill(token);
   await page.locator("#saveButton").click();
@@ -42,7 +49,8 @@ try {
   const text = (await page.locator("#voiceComposer").inputValue()).toLowerCase();
   assert.match(text, /\bfox\b/);
   assert.match(text, /\bdog\b/);
-  console.log("Browser recorded synthetic Piper audio and transcribed it with real Model Host Whisper.");
+  assert.ok(capturedRate >= 8000 && capturedRate <= 192000, "Browser sent an unsupported WAV sample rate");
+  console.log(`Browser recorded synthetic Piper audio at ${capturedRate} Hz and transcribed it with real Model Host Whisper.`);
 } finally {
   if (browser) await browser.close();
   rmSync(directory, { recursive: true, force: true });

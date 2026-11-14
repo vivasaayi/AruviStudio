@@ -596,6 +596,31 @@ test("voice records, reviews, and sends a transcribed message", async ({ page, r
   await expect(page.getByRole("button", { name: "Record", exact: true })).toBeEnabled();
   expect(await page.evaluate(() => window.fixtureTracksStopped)).toBe(3);
   await expect(page.locator("#voiceConversation").getByText("Container provider reply", { exact: true })).toHaveCount(2);
+  await page.getByLabel("Review transcript before sending").check();
+  await page.evaluate(() => {
+    window.fixtureContextRates = [];
+    window.AudioContext = class {
+      constructor(options) {
+        window.fixtureContextRates.push(options?.sampleRate ?? null);
+        if (options) throw new Error("Requested sample rate unavailable");
+        this.sampleRate = 48000; this.destination = {};
+      }
+      createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+      createScriptProcessor() { return { connect() { setTimeout(() => this.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array(650000) }, outputBuffer: { getChannelData: () => new Float32Array(1) } }), 250); }, disconnect() {} }; }
+      async close() {}
+    };
+  });
+  const fallbackTranscription = page.waitForResponse((response) => response.url().endsWith("/api/mobile/speech/transcribe"));
+  await page.getByRole("button", { name: "Record", exact: true }).click();
+  await expect(page.locator("#voiceMeta")).toHaveText("Listening (up to 12.5 seconds)...");
+  const fallbackResponse = await fallbackTranscription;
+  expect(fallbackResponse.ok()).toBeTruthy();
+  const fallbackAudio = Buffer.from(fallbackResponse.request().postDataJSON().audio_bytes_base64, "base64");
+  expect(fallbackAudio.readUInt32LE(24)).toBe(48000);
+  expect(fallbackAudio.length).toBe(44 + 600000 * 2);
+  expect(await page.evaluate(() => window.fixtureContextRates)).toEqual([16000, null]);
+  expect(await page.evaluate(() => window.fixtureTracksStopped)).toBe(4);
+  await expect(page.locator("#voiceMeta")).toHaveText("Transcript ready.");
 });
 
 test("browser manages teams and preserves concurrent edits", async ({ page, request }) => {

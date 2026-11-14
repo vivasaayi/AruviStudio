@@ -1525,7 +1525,11 @@
       try {
         const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
         if (!AudioContextCtor) throw new Error("Audio capture is not available in this browser.");
-        audioContext = new AudioContextCtor();
+        // Browser resampling keeps a 30-second PCM recording within the server's
+        // request budget and matches common speech-model sample rates. Some
+        // engines cannot create a context at this rate, so fall back to theirs.
+        try { audioContext = new AudioContextCtor({ sampleRate: 16000 }); }
+        catch { audioContext = new AudioContextCtor(); }
         const source = audioContext.createMediaStreamSource(stream);
         const processor = audioContext.createScriptProcessor(4096, 1, 1);
         const chunks = [];
@@ -1550,7 +1554,8 @@
         processor.connect(audioContext.destination);
         state.voiceRecording = { stream, audioContext, source, processor, chunks, sampleRate: audioContext.sampleRate };
         el.voiceRecordButton.textContent = "Stop";
-        setVoiceMeta("Listening (up to 30 seconds)...");
+        const maxSeconds = Math.floor((maxSamples / audioContext.sampleRate) * 10) / 10;
+        setVoiceMeta(`Listening (up to ${maxSeconds} seconds)...`);
       } catch (error) {
         stream.getTracks().forEach((track) => track.stop());
         if (audioContext) await audioContext.close().catch(() => undefined);

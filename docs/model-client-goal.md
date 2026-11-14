@@ -190,6 +190,15 @@ provider hosting into the model-host service as part of this work.
 
 ## Real browser voice revalidation
 
+- Browser recording now requests a 16 kHz AudioContext so a 30-second
+  recording remains within the existing 600,000-sample cap. If the browser
+  cannot create that rate, it uses its default and displays the actual shorter
+  duration (12.5 seconds at 48 kHz). The isolated workflow suite passed 25
+  cases, including automatic stopping, 48 kHz WAV contents, rate fallback,
+  bounded payload size and track cleanup. A real headless Chrome capture used
+  16 kHz synthetic Piper audio and Model Host Whisper transcribed it. Physical
+  microphones, other browsers and speech recognition quality remain unverified.
+
 - After the dependency update, the running branch passed real Model Host Piper
   speech generation in Chrome and a Piper-to-Whisper transcription round trip
   through MCP. A new `bash scripts/test host-voice-browser` check also drives
