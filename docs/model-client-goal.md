@@ -283,6 +283,12 @@ provider hosting into the model-host service as part of this work.
   checks passing; all three existing providers retained the standard profile.
   The real Model Host coding and token-limit MCP fixture passed again after the
   branch deployment. The OpenAI reasoning endpoint was simulated, not called live.
+- Desktop provider profile checkpoint: a real Tauri mock-runtime IPC test now
+  exercises camel-case create/update arguments, persisted profile reads, legacy
+  defaults and rejection of incompatible protocol changes. Four Chrome tests
+  of the desktop provider page passed with a mocked Tauri bridge, including
+  creating the reasoning profile and restoring it when editing. These tests do
+  not exercise a native window or a live OpenAI endpoint.
 
 ## Structured provider HTTP errors
 

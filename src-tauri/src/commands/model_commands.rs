@@ -357,6 +357,49 @@ async fn read_snapshot_file(artifact_base: &std::path::Path, snapshot_path: &str
 }
 
 #[cfg(test)]
+mod provider_ipc_tests {
+    use tauri::test::{mock_builder, mock_context, noop_assets, INVOKE_KEY};
+
+    #[test]
+    fn desktop_ipc_preserves_provider_completion_profiles() {
+        let directory = tempfile::tempdir().unwrap();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let state = runtime.block_on(async {
+            let db = crate::persistence::db::create_pool(&format!("sqlite:{}", directory.path().join("providers.db").display())).await.unwrap();
+            crate::state::AppState::new(db, directory.path().to_path_buf()).await.unwrap()
+        });
+        let app = mock_builder().manage(state)
+            .invoke_handler(tauri::generate_handler![super::create_provider, super::update_provider, super::list_providers])
+            .build(mock_context(noop_assets())).unwrap();
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
+        let invoke = |cmd: &str, body: serde_json::Value| {
+            tauri::test::get_ipc_response(&webview, tauri::webview::InvokeRequest {
+                cmd: cmd.into(), callback: tauri::ipc::CallbackFn(0), error: tauri::ipc::CallbackFn(1),
+                url: "http://tauri.localhost".parse().unwrap(), body: tauri::ipc::InvokeBody::Json(body),
+                headers: Default::default(), invoke_key: INVOKE_KEY.to_string(),
+            })
+        };
+        let created = invoke("create_provider", serde_json::json!({"name":"Reasoning IPC", "providerType":"openai_compatible", "protocol":"openai_compatible", "completionProfile":"openai_reasoning", "baseUrl":"https://example.invalid/v1"}))
+            .unwrap().deserialize::<serde_json::Value>().unwrap();
+        assert_eq!(created["completion_profile"], "openai_reasoning");
+        let id = created["id"].as_str().unwrap();
+        let renamed = invoke("update_provider", serde_json::json!({"id":id,"name":"Renamed IPC"}))
+            .unwrap().deserialize::<serde_json::Value>().unwrap();
+        assert_eq!(renamed["completion_profile"], "openai_reasoning");
+        assert!(invoke("update_provider", serde_json::json!({"id":id,"protocol":"anthropic"})).is_err());
+        let updated = invoke("update_provider", serde_json::json!({"id":id,"protocol":"anthropic","completionProfile":"standard"}))
+            .unwrap().deserialize::<serde_json::Value>().unwrap();
+        assert_eq!(updated["protocol"], "anthropic");
+        assert_eq!(updated["completion_profile"], "standard");
+        let legacy = invoke("create_provider", serde_json::json!({"name":"Legacy IPC", "providerType":"openai_compatible", "baseUrl":"https://example.invalid/v1"}))
+            .unwrap().deserialize::<serde_json::Value>().unwrap();
+        assert_eq!(legacy["completion_profile"], "standard");
+        let listed = invoke("list_providers", serde_json::json!({})).unwrap().deserialize::<serde_json::Value>().unwrap();
+        assert!(listed.as_array().unwrap().iter().any(|p| p["id"] == id && p["completion_profile"] == "standard"));
+    }
+}
+
+#[cfg(test)]
 mod remote_snapshot_tests {
     use super::*;
 
