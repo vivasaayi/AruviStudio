@@ -75,21 +75,31 @@ pub(super) fn success_tool_result(payload: Value) -> Value {
     })
 }
 
-pub(super) fn error_tool_result(tool_name: &str, message: &str) -> Value {
-    json!({
-        "content": [
-            {
-                "type": "text",
-                "text": format!("{tool_name} failed: {message}")
-            }
-        ],
+pub(super) fn error_tool_result(tool_name: &str, error: &crate::error::AppError) -> Value {
+    let mut result = json!({
+        "content": [{ "type": "text", "text": format!("{tool_name} failed: {error}") }],
         "isError": true
-    })
+    });
+    if let crate::error::AppError::ProviderHttp { status, .. } = error {
+        result["structuredContent"] = json!({ "provider_http_status": status });
+    }
+    result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provider_http_error_retains_text_and_adds_status_without_other_error_metadata() {
+        let provider = crate::error::AppError::from(aruvi_model_client::ClientError::Http { status: 429, message: "API error 429".into() });
+        let result = error_tool_result("aruvi_models", &provider);
+        assert_eq!(result["isError"], true);
+        assert_eq!(result["structuredContent"]["provider_http_status"], 429);
+        assert!(result["content"][0]["text"].as_str().unwrap().contains("Provider error: API error 429"));
+        let local = error_tool_result("aruvi_models", &crate::error::AppError::Validation("invalid".into()));
+        assert!(local.get("structuredContent").is_none());
+    }
 
     #[test]
     fn initialize_defaults_to_latest_supported_protocol_version() {

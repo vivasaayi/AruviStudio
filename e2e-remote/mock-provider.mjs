@@ -122,6 +122,8 @@ const server = http.createServer((request, response) => {
     });
   } else if (request.method === "POST" && request.url === "/malformed/v1/chat/completions") {
     request.resume(); request.on("end", () => response.end(JSON.stringify({ choices: [{ message: { content: [{ type: "text", text: "partial" }, { type: "image", url: "fixture" }] }, finish_reason: "stop" }] })));
+  } else if (request.method === "POST" && request.url === "/rate-limit/v1/chat/completions") {
+    request.resume(); request.on("end", () => { response.statusCode = 429; response.end(JSON.stringify({ error: "synthetic-provider-private-body" })); });
   } else if (request.method === "POST" && request.url === "/empty/v1/chat/completions") {
     request.resume(); request.on("end", () => response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "" }, finish_reason: "stop" }] })));
   } else if (request.method === "POST" && request.url === "/anthropic-malformed/v1/messages") {

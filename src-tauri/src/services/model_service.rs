@@ -33,11 +33,11 @@ impl ModelGateway for SharedGatewayAdapter {
         self.0
             .health_check()
             .await
-            .map_err(|error| AppError::Provider(error.to_string()))
+            .map_err(AppError::from)
     }
 
     async fn list_models_page(&self, cursor: Option<&str>) -> Result<aruvi_model_client::ModelPage, AppError> {
-        self.0.list_models_page(cursor).await.map_err(|error| AppError::Provider(error.to_string()))
+        self.0.list_models_page(cursor).await.map_err(AppError::from)
     }
 
     async fn run_completion(
@@ -47,11 +47,11 @@ impl ModelGateway for SharedGatewayAdapter {
         self.0
             .run_completion(request)
             .await
-            .map_err(|error| AppError::Provider(error.to_string()))
+            .map_err(AppError::from)
     }
 
     async fn run_json_completion(&self, request: CompletionRequest) -> Result<CompletionResponse, AppError> {
-        self.0.run_json_completion(request).await.map_err(|error| AppError::Provider(error.to_string()))
+        self.0.run_json_completion(request).await.map_err(AppError::from)
     }
 }
 

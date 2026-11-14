@@ -46,7 +46,7 @@ pub async fn synthesize_remote_speech(
     client.generate_speech(aruvi_model_client::SpeechRequest { model, input, voice, speed, response_format: "wav".into() }).await
         .map_err(|error| match error {
             aruvi_model_client::ClientError::InvalidInput(message) => AppError::Validation(message),
-            other => AppError::Provider(other.to_string()),
+            other => AppError::from(other),
         })
 }
 
@@ -81,7 +81,7 @@ pub async fn transcribe_audio_with_provider(
             provider.name, model_name
         ))),
         Err(aruvi_model_client::ClientError::InvalidInput(message)) => Err(AppError::Validation(message)),
-        Err(error) => Err(AppError::Provider(error.to_string())),
+        Err(error) => Err(AppError::from(error)),
     }
 }
 

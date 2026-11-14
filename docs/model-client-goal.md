@@ -2299,6 +2299,17 @@ model discovery, completion, streaming and token-limit handling with
 `qwen25-coder-7b-q4`. This verifies the pinned revision; later client changes
 require a new pin and revalidation. No release was published.
 
+## MCP provider HTTP error metadata
+
+Studio now preserves a shared-client provider HTTP status through its buffered
+model adapter and remote speech errors. MCP tool error results include an
+optional `structuredContent.provider_http_status` while retaining the existing
+text and `isError` flag. The upstream response body is not included. The value
+is an upstream status, not an automatic retry recommendation; provider errors
+without an HTTP status omit it. Browser HTTP status behavior and streaming error
+events are unchanged. Targeted Rust tests and all 34 isolated workflow tests
+passed; the MCP provider fixture validates the end-to-end 429 case.
+
 ## Independent shared-client voice probe
 
 The separate Git-pinned consumer now exercises synthetic speech generation and

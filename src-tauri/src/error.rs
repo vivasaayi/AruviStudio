@@ -17,6 +17,9 @@ pub enum AppError {
     #[error("Provider error: {0}")]
     Provider(String),
 
+    #[error("Provider error: {message}")]
+    ProviderHttp { status: u16, message: String },
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
@@ -25,6 +28,15 @@ pub enum AppError {
 
     #[error("Internal error: {0}")]
     Internal(String),
+}
+
+impl From<aruvi_model_client::ClientError> for AppError {
+    fn from(error: aruvi_model_client::ClientError) -> Self {
+        match error {
+            aruvi_model_client::ClientError::Http { status, message } => Self::ProviderHttp { status, message },
+            other => Self::Provider(other.to_string()),
+        }
+    }
 }
 
 impl Serialize for AppError {

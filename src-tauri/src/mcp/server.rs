@@ -182,7 +182,7 @@ async fn handle_tool_call(state: &AppState, params: Option<Value>) -> Result<Val
 
     let payload = match tools::dispatch_tool(state, tool_name, arguments).await {
         Ok(value) => success_tool_result(value),
-        Err(error) => error_tool_result(tool_name, &error.to_string()),
+        Err(error) => error_tool_result(tool_name, &error),
     };
 
     Ok(payload)
