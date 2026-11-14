@@ -12,6 +12,21 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Broad regression and dependency scan — 2026-11-14
+
+At branch revision `8715d9c`, the native Studio Rust library suite passed 242
+tests with six ignored, and the frontend suite passed 125 tests. `npm audit`
+reported zero vulnerabilities. `cargo-audit` scanned the Studio lockfile using
+RustSec commit `4ef2df8e806a65e2f1ecc14f56f51249062b23d6` (updated
+2026-11-13) and reported RUSTSEC-2023-0071 for `rsa` 0.9.10, 13 unmaintained
+warnings and two unsound warnings (`glib` and `rand`). The current selected
+feature set produced no `cargo tree --target all -i rsa` path; this does not
+establish safety for other feature sets or inspect the locally patched SQLx
+source. The independent consumer lockfile scan reported no advisories or
+warnings. The scanner could not open its local crates.io index. Ignored native
+tests, physical hardware, native-window acceptance and live external providers
+remain separate checks.
+
 ### Current requirement audit — 2026-11-14
 
 This table summarizes the current evidence; dated sections below are historical
