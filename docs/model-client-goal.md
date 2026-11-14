@@ -284,6 +284,16 @@ remain separate checks.
 
 ### Current requirement audit — 2026-11-14
 
+The shared DeepSeek voice client now implements the common `ModelGateway`
+interface with transcription and WAV synthesis capabilities. It rejects
+unsupported language hints, speed, output formats, discovery, health and text
+operations rather than claiming support. Its generic request model field is not
+sent because these voice endpoints do not accept one. Studio routes its existing
+DeepSeek voice paths through the interface and continues to omit locale for
+automatic language detection. All 57 native shared-client tests and 45 isolated
+Studio workflows passed against fixtures; live DeepSeek voice remains unverified.
+The independent consumer still needs to be repinned and tested for this change.
+
 At branch revision `7215aaa`, a fresh npm audit reported zero vulnerabilities.
 Cargo audit against RustSec advisory database commit
 `4ef2df8e806a65e2f1ecc14f56f51249062b23d6` reported one vulnerability

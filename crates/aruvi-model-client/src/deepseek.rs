@@ -2,7 +2,8 @@
 //!
 //! These endpoints differ from OpenAI-compatible `/audio` APIs and do not
 //! accept a model or language parameter. Applications select this client explicitly.
-use crate::{ClientError, ClientOptions};
+use crate::{ClientError, ClientOptions, CompletionRequest, CompletionResponse, ModelGateway, ModelPage, SpeechRequest, TranscriptionRequest, TransportCapabilities};
+use async_trait::async_trait;
 use reqwest::{header::HeaderValue, Client, Url};
 use serde::Serialize;
 
@@ -85,6 +86,35 @@ mod tests {
         assert!(DeepSeekVoiceClient::new("http://user:secret@localhost".into(), "key".into()).is_err());
         assert!(DeepSeekVoiceClient::new("http://localhost".into(), "key\ninjected".into()).is_err());
     }
+
+    #[tokio::test]
+    async fn voice_gateway_supports_common_interface_without_inventing_capabilities() {
+        let (url, server) = fixture("/v1/tools/asr", br#"{"text":"hello"}"#.to_vec(), "200 OK", |body| {
+            let text = String::from_utf8_lossy(body);
+            assert!(text.contains("name=\"file\""));
+            assert!(!text.contains("name=\"model\""));
+            assert!(!text.contains("name=\"language\""));
+        });
+        let client: Box<dyn ModelGateway> = Box::new(DeepSeekVoiceClient::new(url, "synthetic-key".into()).unwrap());
+        assert_eq!(client.transport_capabilities(), TransportCapabilities { transcription: true, speech: true, ..Default::default() });
+        assert!(matches!(client.health_check().await, Err(ClientError::UnsupportedOperation(_))));
+        assert!(matches!(client.list_models_page(None).await, Err(ClientError::UnsupportedOperation(_))));
+        assert!(matches!(client.run_completion(CompletionRequest { model: "selector".into(), messages: vec![], temperature: None, max_tokens: None }).await, Err(ClientError::UnsupportedOperation(_))));
+        assert_eq!(client.transcribe(TranscriptionRequest { model: "selector".into(), audio: b"audio".to_vec(), filename: "clip.wav".into(), mime_type: "audio/wav".into(), language: None }).await.unwrap(), "hello");
+        server.join().unwrap();
+
+        let expected = wav();
+        let (url, server) = fixture("/v1/tools/tts", expected.clone(), "200 OK", |body| {
+            assert_eq!(serde_json::from_slice::<serde_json::Value>(body).unwrap(), serde_json::json!({"text":"hello","voice_id":"tide","format":"wav"}));
+        });
+        let client: Box<dyn ModelGateway> = Box::new(DeepSeekVoiceClient::new(url, "synthetic-key".into()).unwrap());
+        let request = SpeechRequest { model: "selector".into(), input: "hello".into(), voice: Some("tide".into()), speed: None, response_format: "wav".into() };
+        assert_eq!(client.generate_speech(request.clone()).await.unwrap(), expected);
+        server.join().unwrap();
+        assert!(matches!(client.generate_speech(SpeechRequest { speed: Some(1.0), ..request.clone() }).await, Err(ClientError::InvalidInput(_))));
+        assert!(matches!(client.generate_speech(SpeechRequest { response_format: "mp3".into(), ..request }).await, Err(ClientError::InvalidInput(_))));
+        assert!(matches!(client.transcribe(TranscriptionRequest { model: "selector".into(), audio: vec![1], filename: "clip.wav".into(), mime_type: "audio/wav".into(), language: Some("en".into()) }).await, Err(ClientError::InvalidInput(_))));
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,5 +183,45 @@ impl DeepSeekVoiceClient {
         let audio = crate::http::read_bounded(response, MAX_AUDIO_RESPONSE, "DeepSeek speech response").await?;
         if !crate::openai_compatible::has_wav_audio(&audio) { return Err(ClientError::Provider("DeepSeek did not return valid WAV audio".into())); }
         Ok(audio)
+    }
+}
+
+#[async_trait]
+impl ModelGateway for DeepSeekVoiceClient {
+    fn transport_capabilities(&self) -> TransportCapabilities {
+        TransportCapabilities { transcription: true, speech: true, ..TransportCapabilities::default() }
+    }
+
+    async fn health_check(&self) -> Result<bool, ClientError> {
+        Err(ClientError::UnsupportedOperation("DeepSeek voice health check"))
+    }
+
+    async fn list_models_page(&self, _cursor: Option<&str>) -> Result<ModelPage, ClientError> {
+        Err(ClientError::UnsupportedOperation("DeepSeek voice model discovery"))
+    }
+
+    async fn run_completion(&self, _request: CompletionRequest) -> Result<CompletionResponse, ClientError> {
+        Err(ClientError::UnsupportedOperation("DeepSeek voice text completion"))
+    }
+
+    async fn transcribe(&self, request: TranscriptionRequest) -> Result<String, ClientError> {
+        if request.language.as_deref().is_some_and(|language| !language.trim().is_empty()) {
+            return Err(ClientError::InvalidInput("DeepSeek voice detects language and does not accept a language hint".into()));
+        }
+        // The DeepSeek voice API does not accept a model identifier.
+        DeepSeekVoiceClient::transcribe(self, request.audio, request.filename, request.mime_type).await
+    }
+
+    async fn generate_speech(&self, request: SpeechRequest) -> Result<Vec<u8>, ClientError> {
+        if request.speed.is_some() { return Err(ClientError::InvalidInput("DeepSeek voice does not support speed control".into())); }
+        if !request.response_format.eq_ignore_ascii_case("wav") { return Err(ClientError::InvalidInput("DeepSeek voice only supports WAV output".into())); }
+        let voice = match request.voice.as_deref().map(str::trim).filter(|voice| !voice.is_empty()) {
+            None => None,
+            Some("stella") => Some(Voice::Stella),
+            Some("tide") => Some(Voice::Tide),
+            Some(_) => return Err(ClientError::InvalidInput("DeepSeek voice must be stella or tide".into())),
+        };
+        // The DeepSeek voice API does not accept a model identifier.
+        DeepSeekVoiceClient::generate_speech(self, &request.input, voice).await
     }
 }

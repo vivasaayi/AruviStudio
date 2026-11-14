@@ -51,15 +51,10 @@ pub async fn synthesize_remote_speech(
         return Err(AppError::Validation("Selected provider protocol does not support remote speech synthesis".into()));
     }
     if model.trim().eq_ignore_ascii_case(DEEPSEEK_SYNTHESIS) {
-        if speed.is_some() { return Err(AppError::Validation("DeepSeek voice does not support speed control".into())); }
-        let voice = match voice.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
-            None => None,
-            Some("stella") => Some(aruvi_model_client::deepseek::Voice::Stella),
-            Some("tide") => Some(aruvi_model_client::deepseek::Voice::Tide),
-            Some(_) => return Err(AppError::Validation("DeepSeek voice must be stella or tide".into())),
-        };
         let client = crate::services::model_service::create_deepseek_voice_client(provider)?;
-        return client.generate_speech(&input, voice).await.map_err(|error| match error {
+        return aruvi_model_client::ModelGateway::generate_speech(&client, aruvi_model_client::SpeechRequest {
+            model, input, voice, speed, response_format: "wav".into(),
+        }).await.map_err(|error| match error {
             aruvi_model_client::ClientError::InvalidInput(message) => AppError::Validation(message),
             other => AppError::from(other),
         });
@@ -93,7 +88,9 @@ pub async fn transcribe_audio_with_provider(
     if deepseek {
         let client = crate::services::model_service::create_deepseek_voice_client(provider)?;
         let filename = format!("planner-recording.{}", mime_extension_for_mime_type(&request.mime_type));
-        return client.transcribe(file_bytes, filename, request.mime_type).await
+        return aruvi_model_client::ModelGateway::transcribe(&client, aruvi_model_client::TranscriptionRequest {
+            model: model_name.into(), audio: file_bytes, filename, mime_type: request.mime_type, language: None,
+        }).await
             .map(|transcript| SpeechToTextResponse { transcript })
             .map_err(|error| match error {
                 aruvi_model_client::ClientError::InvalidInput(message) => AppError::Validation(message),

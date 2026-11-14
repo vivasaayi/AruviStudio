@@ -127,6 +127,15 @@ still enforces codec and duration. Unknown-length WAV headers cannot establish
 whether synthesis ended early. Contract tests use simulated endpoints; live
 DeepSeek voice remains unverified.
 
+`DeepSeekVoiceClient` also implements `ModelGateway` for callers that select a
+voice transport dynamically. Its capabilities report transcription and speech
+only; health checks, model discovery and text completion return unsupported
+operation errors. The common request's model field is not sent because these
+DeepSeek endpoints have no model parameter. The gateway rejects a nonempty
+language hint, unsupported output formats, speed and unknown voices instead of
+silently applying them. Studio retains its existing behavior of omitting the
+browser locale for DeepSeek transcription, whose service detects the language.
+
 Use `Box<dyn ModelGateway>` when a caller needs to switch providers without
 matching on concrete client types. Its methods cover text completion, opt-in
 JSON-object completion, text streaming, model discovery, remote transcription
