@@ -706,6 +706,24 @@ provider hosting into the model-host service as part of this work.
   these crafted-file checks. Running server SHA-256:
   `59ff6ee9727e5039544ba3ccc8ffd6c653ffe4f42189c83e2c7359fe8c9cfd15`.
 
+## Planner draft-action repair
+
+- Model-generated draft actions are now checked on a clone of the selected
+  session draft, after the same product scoping used for application. When
+  validation fails, the model receives the error and may return a corrected
+  proposal or ask for clarification. At most two action repairs are allowed
+  within the existing six-step limit. Nothing is persisted or executed by
+  the validation pass; repeated failures return an error. This applies to
+  text planner turns, not the separate repository-analysis path.
+- A simulated provider test verifies correction, bounded repeated failures and
+  unchanged draft state. The isolated MCP workflow fixture verifies a repaired
+  proposal, no catalog mutation before confirmation, and persistence after
+  confirmation. Studio passed 217 native tests with six ignored, 23 browser/MCP
+  cases and 24 isolated workflow cases. A real `qwen25-coder-7b-q4` planner
+  turn produced and confirmed the requested draft after one format retry; it
+  did not exercise the new action-repair retry in that run. Model behavior
+  remains variable and the earlier failed attempt remains historical evidence.
+
 ## Disabled agent model bindings
 
 - An explicitly bound agent model is now checked for both model and provider

@@ -167,6 +167,7 @@ pub(crate) async fn run_tool_loop(
     });
 
     let mut format_retries = 0;
+    let mut draft_retries = 0;
     for step in 0..6 {
         let completion = run_completion(
             input.db,
@@ -271,6 +272,31 @@ pub(crate) async fn run_tool_loop(
                 });
             }
             Err(plan) => {
+                // Validate against a clone using the same product scoping as the
+                // caller. Nothing is persisted or externally executed here.
+                if input.draft_plan.is_some() {
+                    let mut scoped = plan.clone();
+                    if let Some(product) = input.selected_product {
+                        crate::services::planner_turn_policy::scope_plan_to_selected_product(&mut scoped, product);
+                    }
+                    if crate::services::planner_turn_policy::has_draft_mutations(&scoped) {
+                        if let Err(error) = crate::services::planner_draft_apply::apply_actions_to_draft(
+                            input.draft_plan.cloned(), input.selected_draft_node_id, &scoped.actions,
+                        ) {
+                            if !matches!(error, AppError::Validation(_)) || draft_retries >= 2 || step == 5 {
+                                return Err(error);
+                            }
+                            draft_retries += 1;
+                            push_trace(trace, "draft_retry", "Invalid staged design actions", error.to_string());
+                            messages.push(ChatMessage { role: "assistant".into(), content: completion });
+                            messages.push(ChatMessage {
+                                role: "user".into(),
+                                content: format!("The proposed actions cannot be applied to the current staged design: {}. No actions were applied. Return a complete corrected final JSON object. Refer only to existing parents or include the necessary requested parent creation actions before their children. If the user's intent is unclear, ask for clarification rather than inventing it.", error),
+                            });
+                            continue;
+                        }
+                    }
+                }
                 push_trace(
                     trace,
                     "plan",
@@ -407,6 +433,56 @@ mod tests {
             Some(2)
         );
     }
+    #[tokio::test]
+    async fn repairs_missing_parent_without_mutating_draft_and_bounds_retries() {
+        use crate::persistence::model_repo;
+        use crate::services::planner_types::PlannerDraftNode;
+        use axum::{extract::State, routing::post, Json, Router};
+        use std::sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, Arc};
+        #[derive(Clone)]
+        struct Fixture { count: Arc<AtomicUsize>, always_invalid: Arc<AtomicBool> }
+        async fn complete(State(fixture): State<Fixture>, Json(request): Json<Value>) -> Json<Value> {
+            let count = fixture.count.fetch_add(1, Ordering::SeqCst);
+            if count > 0 {
+                assert!(request["messages"].as_array().unwrap().iter().any(|message|
+                    message["content"].as_str().unwrap_or("").contains("No actions were applied")));
+            }
+            let actions = if count == 0 || fixture.always_invalid.load(Ordering::SeqCst) {
+                json!([{ "type": "create_capability", "name": "Stock", "target": { "productName": "Shop", "productAreaName": "Inventory" } }])
+            } else {
+                json!([{ "type": "create_product_area", "name": "Inventory", "target": { "productName": "Shop" } },
+                       { "type": "create_capability", "name": "Stock", "target": { "productName": "Shop", "productAreaName": "Inventory" } }])
+            };
+            let content = json!({"type":"final", "assistant_response":"Draft prepared", "needs_confirmation":true, "clarification_question":null, "actions":actions}).to_string();
+            Json(json!({"choices":[{"message":{"content":content},"finish_reason":"stop"}]}))
+        }
+        let fixture = Fixture { count: Arc::new(AtomicUsize::new(0)), always_invalid: Arc::new(AtomicBool::new(false)) };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server_fixture = fixture.clone();
+        let server = tokio::spawn(async move { axum::serve(listener, Router::new().route("/v1/chat/completions", post(complete)).with_state(server_fixture)).await.unwrap() });
+        let pool = create_test_pool("draft_repair").await;
+        model_repo::create_provider(&pool, "draft-provider", "Fixture", "openai_compatible", &format!("http://{address}/v1"), None).await.unwrap();
+        let artifacts = make_temp_dir("draft_repair_artifacts");
+        std::fs::create_dir_all(&artifacts).unwrap();
+        let draft = PlannerDraftPlan { nodes: vec![PlannerDraftNode { id: "product".into(), parent_id: None, node_type: "product".into(), name: "Shop".into(), summary: None, details: json!({}) }] };
+        let original = serde_json::to_value(&draft).unwrap();
+        let input = || PlannerToolLoopInput { db: &pool, artifact_base_path: &artifacts, session_id: "fixture", provider_id: "draft-provider", model_name: "fixture", conversation: &[], pending_plan: None, draft_plan: Some(&draft), selected_draft_node_id: Some("product"), selected_product: None, user_input: "Add stock tracking to inventory" };
+        let mut trace = Vec::new();
+        let plan = run_tool_loop(input(), &mut trace).await.unwrap();
+        assert_eq!(plan.actions.len(), 2);
+        assert_eq!(fixture.count.load(Ordering::SeqCst), 2);
+        assert!(trace.iter().any(|event| event.stage == "draft_retry"));
+        assert_eq!(serde_json::to_value(&draft).unwrap(), original);
+        fixture.count.store(0, Ordering::SeqCst);
+        fixture.always_invalid.store(true, Ordering::SeqCst);
+        let error = run_tool_loop(input(), &mut Vec::new()).await.unwrap_err();
+        assert!(error.to_string().contains("Draft product area is required"));
+        assert_eq!(fixture.count.load(Ordering::SeqCst), 3);
+        assert_eq!(serde_json::to_value(&draft).unwrap(), original);
+        server.abort();
+    }
+
     #[tokio::test]
     async fn repairs_invalid_model_envelope_and_bounds_retries() {
         use crate::persistence::model_repo;

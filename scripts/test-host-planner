@@ -109,7 +109,8 @@ try:
         })
     model_events = [event for event in result.get("trace_events", []) if event.get("stage") == "model"]
     retries = sum(event.get("stage") == "format_retry" for event in result.get("trace_events", []))
-    print(f"Planner status: {result.get('status')}; model calls: {len(model_events)}; format retries: {retries}", flush=True)
+    draft_retries = sum(event.get("stage") == "draft_retry" for event in result.get("trace_events", []))
+    print(f"Planner status: {result.get('status')}; model calls: {len(model_events)}; format retries: {retries}; draft retries: {draft_retries}", flush=True)
     if result.get("status") == "error" or result.get("execution_errors"):
         print("Planner model trace:", json.dumps([event for event in result.get("trace_events", []) if event.get("stage") in ("model", "error")], ensure_ascii=False)[:6000], flush=True)
         raise ValueError("Planner returned an error: " + str(result.get("assistant_message"))[:700])

@@ -66,6 +66,18 @@ const server = http.createServer((request, response) => {
       catch { response.statusCode = 400; return response.end(JSON.stringify({ error: "Invalid workflow request" })); }
       response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content } }], usage: { prompt_tokens: 12, completion_tokens: 4 } }));
     });
+  } else if (request.method === "POST" && request.url === "/planner-repair/v1/chat/completions") {
+    const chunks = []; request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      const retry = body.messages.some((message) => message.content.includes("No actions were applied"));
+      const target = { productName: "Repair fixture", productAreaName: "Inventory" };
+      const actions = retry
+        ? [{ type: "create_product_area", name: "Inventory", target: { productName: "Repair fixture" } }, { type: "create_capability", name: "Stock", target }]
+        : [{ type: "create_capability", name: "Stock", target }];
+      const content = JSON.stringify({ type: "final", assistant_response: "Draft ready", needs_confirmation: true, clarification_question: null, actions });
+      response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content }, finish_reason: "stop" }] }));
+    });
   } else if (request.method === "POST" && request.url === "/malformed/v1/chat/completions") {
     request.resume(); request.on("end", () => response.end(JSON.stringify({ choices: [{ message: { content: [{ type: "text", text: "partial" }, { type: "image", url: "fixture" }] }, finish_reason: "stop" }] })));
   } else if (request.method === "POST" && request.url === "/anthropic-malformed/v1/messages") {

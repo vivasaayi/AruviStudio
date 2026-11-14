@@ -379,6 +379,29 @@ test("disabled providers reject transcription and MCP chat until re-enabled", as
   expect((await enabledChat.json()).result.isError).toBeFalsy();
 });
 
+test("MCP planner repairs missing draft parent without premature persistence", async ({ request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires isolated server and simulated provider");
+  async function mcp(name, action, arguments_) {
+    const response = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: { action, arguments: arguments_ } } } });
+    const result = (await response.json()).result;
+    expect(result.isError, JSON.stringify(result)).not.toBeTruthy();
+    return result.structuredContent.result;
+  }
+  const provider = await mcp("aruvi_models", "create_provider", { name: "Planner repair fixture", base_url: process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/planner-repair/v1") });
+  await mcp("aruvi_models", "create_model_definition", { provider_id: provider.id, name: "fixture" });
+  const product = await mcp("aruvi_catalog", "create_product", { name: "Repair fixture" });
+  const session = await mcp("aruvi_planner", "create_planner_session", { provider_id: provider.id, model_name: "fixture" });
+  const turn = await mcp("aruvi_planner", "submit_planner_turn", { session_id: session.session_id, product_id: product.id, user_input: "Add Inventory and stock tracking" });
+  expect(turn.status).toBe("proposal");
+  expect(turn.trace_events.filter((event) => event.stage === "draft_retry")).toHaveLength(1);
+  expect(JSON.stringify(turn.draft_tree_nodes)).toContain("Stock");
+  expect(await mcp("aruvi_catalog", "list_product_areas", { product_id: product.id })).toEqual([]);
+  const confirmation = await mcp("aruvi_planner", "confirm_planner_plan", { session_id: session.session_id });
+  expect(confirmation.status).not.toBe("error");
+  const areas = await mcp("aruvi_catalog", "list_product_areas", { product_id: product.id });
+  expect(areas.some((area) => area.name === "Inventory")).toBeTruthy();
+});
+
 test("browser chat streams, reports errors, and can stop", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
