@@ -15,6 +15,37 @@ async fn product_export_includes_all_pages_and_children_without_other_products()
     assert!(items.iter().any(|item| item.id == "book-child" && item.parent_work_item_id.as_deref() == Some("book-1")));
     assert!(items.iter().all(|item| item.product_id.as_deref() == Some("book-product")));
     assert!(list_product_export_work_items(&pool, "missing-product").await.is_err());
+    let snapshot = crate::persistence::product_book_repo::get_product_book_source(&pool, "book-product").await.unwrap();
+    assert_eq!(snapshot.work_items.len(), 2102);
+    assert!(snapshot.work_items.iter().all(|item| item.product_id.as_deref() == Some("book-product")));
+}
+
+#[tokio::test]
+async fn product_book_snapshot_is_consistent_and_product_scoped() {
+    use crate::persistence::{product_book_repo, product_tree_repo};
+    let pool = create_test_pool("book_snapshot").await;
+    create_test_product(&pool, "book-product").await;
+    create_test_product(&pool, "other-product").await;
+    create_test_product_area(&pool, "book-area", "book-product", "Area").await;
+    create_test_product_area(&pool, "other-area", "other-product", "Other").await;
+    create_test_capability(&pool, "book-cap", "book-area", None, "Capability", Some("capability")).await;
+    create_test_capability(&pool, "book-feature", "book-area", Some("book-cap"), "Feature", Some("feature")).await;
+    create_test_capability(&pool, "other-cap", "other-area", None, "Other capability", Some("capability")).await;
+    sqlx::query("INSERT INTO \"references\" (id, scope_type, scope_id, title) VALUES ('own-product','product','book-product','Own'), ('own-area','product_area','book-area','Area'), ('own-cap','capability','book-cap','Capability'), ('own-feature','feature','book-feature','Feature'), ('wrong-kind','capability','book-feature','Wrong'), ('other-cap-ref','capability','other-cap','Other capability'), ('other-product-ref','product','other-product','Other'), ('other-area-ref','product_area','other-area','Other area')").execute(&pool).await.unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    product_tree_repo::get_product_tree_in_conn(&mut tx, "book-product").await.unwrap();
+    create_work_item(&pool, test_work_item_input("late-item", "book-product", "Late")).await.unwrap();
+    sqlx::query("INSERT INTO \"references\" (id,scope_type,scope_id,title) VALUES ('late-ref','product','book-product','Late')").execute(&pool).await.unwrap();
+    let old = product_book_repo::read_product_book_source(&mut tx, "book-product").await.unwrap();
+    assert!(old.work_items.is_empty());
+    let mut ids: Vec<_> = old.references.iter().map(|r| r.id.as_str()).collect();
+    ids.sort();
+    assert_eq!(ids, vec!["own-area", "own-cap", "own-feature", "own-product"]);
+    tx.commit().await.unwrap();
+    let fresh = product_book_repo::get_product_book_source(&pool, "book-product").await.unwrap();
+    assert_eq!(fresh.work_items.len(), 1);
+    assert_eq!(fresh.references.len(), 5);
+    assert!(product_book_repo::get_product_book_source(&pool, "missing").await.is_err());
 }
 
 #[tokio::test]

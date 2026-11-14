@@ -266,6 +266,16 @@ test("browser registers and attaches a container workspace", async ({ page, requ
   let secondRepositoryId;
   let staleCopilotPayload;
   try {
+    const deniedSnapshot = await request.post("/api/mcp", { data: { jsonrpc: "2.0", id: 20, method: "tools/call", params: { name: "aruvi_catalog", arguments: { action: "get_product_book_source", arguments: { product_id: product.id } } } } });
+    expect(deniedSnapshot.status()).toBe(401);
+    const ownReference = await call("aruvi_catalog", "create_reference", { scope_type: "product_area", scope_id: area.id, title: "Snapshot area reference" });
+    const otherReference = await call("aruvi_catalog", "create_reference", { scope_type: "product_area", scope_id: otherArea.id, title: "Other snapshot reference" });
+    const snapshot = await call("aruvi_catalog", "get_product_book_source", { product_id: product.id });
+    expect(snapshot.tree.product.id).toBe(product.id);
+    expect(snapshot.tree.roots.some((node) => node.id === area.id)).toBe(true);
+    expect(snapshot.references.some((reference) => reference.id === ownReference.id)).toBe(true);
+    expect(snapshot.references.some((reference) => reference.id === otherReference.id)).toBe(false);
+    expect(snapshot.work_items).toEqual([]);
     await page.goto("/remote");
     await page.locator("#tokenInput").fill(token);
     if (copilotProvider) { await page.locator("#providerInput").fill(copilotProvider.id); await page.locator("#modelInput").fill("browser-test-model"); }

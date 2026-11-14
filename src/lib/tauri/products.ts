@@ -6,6 +6,8 @@ import type {
   ProductArea,
   ProductTree,
   ProductTreeSummary,
+  ProductReference,
+  WorkItem,
   SemanticTemplateApplicationResult,
 } from "../types";
 
@@ -272,5 +274,7 @@ export const convertCapabilityKind = (data: {
 // Product tree
 export const getProductTree = (productId: string) =>
   invoke<ProductTree>("get_product_tree", { productId, product_id: productId });
+export const getProductBookSource = (productId: string) =>
+  invoke<{ tree: ProductTree; work_items: WorkItem[]; references: ProductReference[] }>("get_product_book_source", { productId, product_id: productId });
 export const summarizeProductTree = (productId: string) =>
   invoke<ProductTreeSummary>("summarize_product_tree", { productId, product_id: productId });

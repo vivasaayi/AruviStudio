@@ -3,8 +3,7 @@ import {
   exportProductOverviewEpub,
   exportProductOverviewHtml,
   exportProductOverviewPdf,
-  getProductTree,
-  listProductExportWorkItems,
+  getProductBookSource,
 } from "../../../lib/tauri";
 import type { Product, ProductReference, ProductTree, WorkItem } from "../../../lib/types";
 import {
@@ -17,12 +16,10 @@ import { buildProductOverviewHtml } from "../lib/productOverview";
 
 type ProductOverviewExportArgs = {
   selectedProduct: Product | null;
-  productReferences: ProductReference[];
 };
 
 export function useProductOverviewExports({
   selectedProduct,
-  productReferences,
 }: ProductOverviewExportArgs) {
   const [exportPath, setExportPath] = React.useState<string | null>(null);
   const [exportError, setExportError] = React.useState<string | null>(null);
@@ -47,15 +44,15 @@ export function useProductOverviewExports({
     try {
       setIsExporting(true);
       setExportError(null);
-      const [exportTree, workItems] = await Promise.all([getProductTree(selectedProduct.id), listProductExportWorkItems(selectedProduct.id)]);
+      const source = await getProductBookSource(selectedProduct.id);
       const html = builder({
-        product: selectedProduct,
-        tree: exportTree,
-        workItems,
-        references: productReferences,
+        product: source.tree.product,
+        tree: source.tree,
+        workItems: source.work_items,
+        references: source.references,
       });
       const path = await exportProductOverviewHtml({
-        fileName: `${slugify(selectedProduct.name)}-${variant}.html`,
+        fileName: `${slugify(source.tree.product.name)}-${variant}.html`,
         html,
       });
       setExportPath(path);
@@ -81,13 +78,14 @@ export function useProductOverviewExports({
     try {
       setIsExporting(true);
       setExportError(null);
-      const [exportTree, workItems] = await Promise.all([getProductTree(selectedProduct.id), listProductExportWorkItems(selectedProduct.id)]);
+      const source = await getProductBookSource(selectedProduct.id);
+      const product = source.tree.product;
       const bundle = buildProductOverviewBookBundle(
         {
-          product: selectedProduct,
-          tree: exportTree,
-          workItems,
-          references: productReferences,
+          product,
+          tree: source.tree,
+          workItems: source.work_items,
+          references: source.references,
         },
         {
           trimPreset,
@@ -98,12 +96,12 @@ export function useProductOverviewExports({
       let path: string;
       if (format === "html") {
         path = await exportProductOverviewHtml({
-          fileName: `${slugify(selectedProduct.name)}-book.html`,
+          fileName: `${slugify(product.name)}-book.html`,
           html: bundle.html,
         });
       } else if (format === "pdf") {
         path = await exportProductOverviewPdf({
-          fileName: `${slugify(selectedProduct.name)}-book.pdf`,
+          fileName: `${slugify(product.name)}-book.pdf`,
           html: bundle.html,
           pageWidth: trimPreset.pageWidth,
           pageHeight: trimPreset.pageHeight,
@@ -111,13 +109,13 @@ export function useProductOverviewExports({
           marginRight: trimPreset.marginRight,
           marginBottom: trimPreset.marginBottom,
           marginLeft: trimPreset.marginLeft,
-          headerTitle: selectedProduct.name,
+          headerTitle: product.name,
           headerRight: trimPreset.label,
         });
       } else {
         path = await exportProductOverviewEpub({
-          fileName: `${slugify(selectedProduct.name)}-book.epub`,
-          title: selectedProduct.name,
+          fileName: `${slugify(product.name)}-book.epub`,
+          title: product.name,
           html: bundle.html,
           tocItems: bundle.tocItems,
           author: "Aruvi Studio",

@@ -344,6 +344,10 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             .await?;
             action_result("convert_capability_kind", result)
         }
+        "get_product_book_source" => {
+            let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
+            action_result("get_product_book_source", crate::persistence::product_book_repo::get_product_book_source(&state.db, &product_id).await?)
+        }
         "get_product_tree" => {
             let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
             let tree = product_repo::get_product_tree(&state.db, &product_id).await?;

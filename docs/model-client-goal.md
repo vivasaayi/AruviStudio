@@ -46,6 +46,15 @@ provider hosting into the model-host service as part of this work.
 
 ## Product Book export data
 
+- Desktop exports now read the product, hierarchy, product-scoped references and
+  all work items through one SQLite snapshot. The same source is exposed as the
+  authenticated MCP catalog action `get_product_book_source`. A concurrent-write
+  database test covers snapshot consistency and reference isolation. This does
+  not yet provide browser or MCP Product Book artifact exports; see
+  `docs/product-book-migration.md` for the remaining renderer and download work.
+  Validation: native and Linux Rust suites each passed 206 tests (two ignored),
+  the mocked desktop suite passed 10 tests, and the isolated remote suite passed
+  23 tests, including MCP authentication and cross-product reference isolation.
 - The desktop Product Book previously passed an empty work-item array to its
   view and exports. A product-scoped Rust query now returns all work items,
   including child tasks, and is available through desktop and MCP. The view

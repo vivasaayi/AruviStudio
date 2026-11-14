@@ -12,7 +12,7 @@ test("desktop product exports include all product work items beyond a list page"
     const before = await page.evaluate((name) => window.__ARUVI_E2E__.getInvokeCallCount(name), command);
     await page.getByRole("button", { name: label, exact: true }).click();
     await expect.poll(() => page.evaluate((name) => window.__ARUVI_E2E__.getInvokeCallCount(name), command)).toBe(before + 1);
-    const calls = await page.evaluate((name) => ({ source: window.__ARUVI_E2E__.getInvokeCalls("list_product_export_work_items"), exports: window.__ARUVI_E2E__.getInvokeCalls(name) }), command);
+    const calls = await page.evaluate((name) => ({ source: window.__ARUVI_E2E__.getInvokeCalls("get_product_book_source"), exports: window.__ARUVI_E2E__.getInvokeCalls(name) }), command);
     expect(calls.source).toHaveLength(++expectedSources);
     const args = calls.exports.at(-1).args;
     expect(args.html ?? args.request?.html).toContain("Virtual backlog story 501");

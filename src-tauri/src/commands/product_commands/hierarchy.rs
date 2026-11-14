@@ -2,6 +2,14 @@ use super::{
     ApplySemanticTemplateCommand, CreateCapabilityCommand, CreateProductAreaCommand,
     UpdateCapabilityCommand, UpdateProductAreaCommand,
 };
+
+#[tauri::command]
+pub async fn get_product_book_source(
+    state: tauri::State<'_, crate::state::AppState>,
+    product_id: String,
+) -> Result<crate::persistence::product_book_repo::ProductBookSource, crate::error::AppError> {
+    crate::persistence::product_book_repo::get_product_book_source(&state.db, &product_id).await
+}
 use crate::domain::product::{
     Capability, NodeKindConversionResult, ProductArea, ProductTree, ProductTreeSummary,
     SemanticTemplateApplicationResult,

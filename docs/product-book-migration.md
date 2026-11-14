@@ -25,9 +25,11 @@ remove the desktop renderer or claim export parity until these steps pass.
   through a shared Rust query; expose it via MCP. The page loads delivery items
   on request, while exports load them automatically. The query does not cap
   results, so very large products can still consume substantial memory.
-- [ ] Define and implement a consistent product-scoped snapshot containing the
-  product, complete hierarchy, references and all work items. Current separate
-  reads can observe concurrent changes. Avoid exposing other products' references.
+- [x] Implement a product-scoped snapshot containing the product, hierarchy,
+  reachable references and all work items. One SQLite read transaction prevents
+  concurrent changes from mixing versions. Desktop exports and the authenticated
+  MCP catalog action use it. Database tests exercise concurrent writes, reference
+  scope and more than 2,000 work items; the snapshot is still unbounded in size.
 - [ ] Port the Docs HTML and Book renderers to shared backend services, including
   all rich text, reference, index, numbering, layout and trim semantics. Compare
   output against desktop fixtures and inspect representative rendered pages.

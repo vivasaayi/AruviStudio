@@ -147,7 +147,6 @@ export function useProductOverviewPageController({
     setBookTrimPresetId,
   } = useProductOverviewExports({
     selectedProduct,
-    productReferences,
   });
 
   useEffect(() => {

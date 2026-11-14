@@ -1771,6 +1771,19 @@
         }
         case "get_product_tree":
           return ok(buildProductTree(getArg(args, "productId", "product_id")));
+        case "get_product_book_source": {
+          if (productExportFailure) throw new Error("Synthetic product work-item read failure");
+          const productId = getArg(args, "productId", "product_id");
+          const tree = buildProductTree(productId);
+          const scopes = new Set([`product:${productId}`]);
+          const visit = (node) => {
+            if (node.node_type === "product_area") scopes.add(`product_area:${node.id}`);
+            else if (node.capability_id) scopes.add(`${node.node_kind === "feature" ? "feature" : "capability"}:${node.capability_id}`);
+            node.children.forEach(visit);
+          };
+          tree.roots.forEach(visit);
+          return ok({ tree, work_items: state.workItems.filter((item) => item.product_id === productId), references: state.productReferences.filter((ref) => scopes.has(`${ref.scope_type}:${ref.scope_id}`)) });
+        }
         case "list_product_areas": {
           const productId = getArg(args, "productId", "product_id");
           return ok(

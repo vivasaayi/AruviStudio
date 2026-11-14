@@ -6,8 +6,8 @@ use crate::error::AppError;
 use crate::observability::performance::{
     elapsed_ms, record_persistence_query, record_persistence_query_error,
 };
-use crate::persistence::product_repo;
-use sqlx::SqlitePool;
+use crate::persistence::{product_area_repo, product_core_repo, product_repo};
+use sqlx::{SqliteConnection, SqlitePool};
 use std::collections::HashMap;
 use std::time::Instant;
 use tracing::trace;
@@ -38,7 +38,8 @@ pub async fn get_product_tree(
     product_id: &str,
 ) -> Result<ProductTree, AppError> {
     let started = Instant::now();
-    let result = get_product_tree_impl(pool, product_id).await;
+    let mut conn = pool.acquire().await?;
+    let result = get_product_tree_in_conn(&mut conn, product_id).await;
     let duration_ms = elapsed_ms(started);
     match &result {
         Ok(tree) => record_persistence_query(
@@ -51,15 +52,15 @@ pub async fn get_product_tree(
     result
 }
 
-async fn get_product_tree_impl(
-    pool: &SqlitePool,
+pub(crate) async fn get_product_tree_in_conn(
+    conn: &mut SqliteConnection,
     product_id: &str,
 ) -> Result<ProductTree, AppError> {
     trace!(product_id = %product_id, "persist get_product_tree");
-    let product = product_repo::get_product(pool, product_id).await?;
-    let product_areas = product_repo::list_product_areas(pool, product_id).await?;
+    let product = product_core_repo::get_product_in_conn(conn, product_id).await?;
+    let product_areas = product_area_repo::list_product_areas_in_conn(conn, product_id).await?;
     let capabilities_by_product_area =
-        group_capabilities_by_product_area(list_capabilities_for_product(pool, product_id).await?);
+        group_capabilities_by_product_area(list_capabilities_for_product(conn, product_id).await?);
     let mut product_area_trees = Vec::new();
     for product_area in product_areas {
         let capability_trees = build_capability_trees(
@@ -85,7 +86,7 @@ async fn get_product_tree_impl(
 }
 
 async fn list_capabilities_for_product(
-    pool: &SqlitePool,
+    conn: &mut SqliteConnection,
     product_id: &str,
 ) -> Result<Vec<Capability>, AppError> {
     let started = Instant::now();
@@ -97,7 +98,7 @@ async fn list_capabilities_for_product(
          ORDER BY pa.sort_order, c.product_area_id, c.sort_order, c.name"
     ))
     .bind(product_id)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await;
     let duration_ms = elapsed_ms(started);
     match &result {

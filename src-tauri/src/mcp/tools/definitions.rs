@@ -40,6 +40,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "apply_capability_template",
                 "convert_capability_kind",
                 "get_product_tree",
+                "get_product_book_source",
                 "list_references",
                 "create_reference",
                 "delete_reference",

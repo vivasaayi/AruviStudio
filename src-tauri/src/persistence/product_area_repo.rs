@@ -63,11 +63,19 @@ pub async fn list_product_areas(
     pool: &SqlitePool,
     product_id: &str,
 ) -> Result<Vec<ProductArea>, AppError> {
+    let mut conn = pool.acquire().await?;
+    list_product_areas_in_conn(&mut conn, product_id).await
+}
+
+pub(crate) async fn list_product_areas_in_conn(
+    conn: &mut SqliteConnection,
+    product_id: &str,
+) -> Result<Vec<ProductArea>, AppError> {
     sqlx::query_as::<_, ProductArea>(&format!(
         "SELECT {PRODUCT_AREA_SELECT_COLUMNS} FROM product_areas WHERE product_id=? ORDER BY sort_order"
     ))
     .bind(product_id)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|e| e.into())
 }
