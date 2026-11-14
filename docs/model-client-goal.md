@@ -885,8 +885,12 @@ descending creation-time/ID order. Existing requests and the returned array are
 unchanged. A database fixture covers timestamp ties and invalid cursors; the
 isolated workflow compares filtered MCP pages with the existing ledger. A cursor
 is a position rather than a snapshot: new calls before that position are not
-included in subsequent pages. Browser and desktop still display only the latest
-300 calls and do not use this pagination.
+included in subsequent pages. The browser Activity view now loads older calls in
+100-call pages and pauses auto-refresh while browsing history; Refresh returns to
+the latest page. Its filters apply to loaded calls, not the whole ledger. An
+isolated browser fixture covered failed-page retry and refresh, and an authenticated
+API fixture compared filtered pages. All 29 isolated remote and 49 workflow tests
+passed. Desktop remains limited to the latest 300 calls.
 
 This table summarizes the current evidence; dated sections below are historical
 and may describe issues that were subsequently fixed. A passing fixture proves

@@ -379,6 +379,13 @@ for (const scenario of ["passed", "failed", "skipped"]) test(`isolated workflow 
     const mcpCalls = await mcp("aruvi_models", "list_model_calls", { limit: 100 });
     expect(mcpCalls.find((item) => item.id === snapshotCall.id)).toEqual(snapshotCall);
     const filtered = mcpCalls.filter((item) => item.source_kind === snapshotCall.source_kind);
+    const mobilePage = await request.get(`/api/mobile/model-calls?${new URLSearchParams({ limit: "1", source_kind: snapshotCall.source_kind })}`, { headers });
+    expect(mobilePage.ok()).toBeTruthy();
+    const mobileFirst = await mobilePage.json();
+    expect(mobileFirst).toEqual(filtered.slice(0, 1));
+    const mobileCursor = new URLSearchParams({ limit: "100", source_kind: snapshotCall.source_kind, before_created_at: mobileFirst[0].created_at, before_id: mobileFirst[0].id });
+    expect(await (await request.get(`/api/mobile/model-calls?${mobileCursor}`, { headers })).json()).toEqual(filtered.slice(1));
+    expect((await request.get("/api/mobile/model-calls?before_id=bad", { headers })).status()).toBe(400);
     const firstPage = await mcp("aruvi_models", "list_model_calls", { limit: 1, source_kind: snapshotCall.source_kind });
     expect(firstPage).toEqual(filtered.slice(0, 1));
     const secondPage = await mcp("aruvi_models", "list_model_calls", { limit: 100, source_kind: snapshotCall.source_kind, before_created_at: firstPage[0].created_at, before_id: firstPage[0].id });

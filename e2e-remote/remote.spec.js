@@ -1123,7 +1123,7 @@ test("activity displays model calls and their details", async ({ page }) => {
   await page.locator("#tokenInput").fill(token);
   await page.locator("#saveButton").click();
   await page.getByRole("button", { name: "Activity", exact: true }).click();
-  await expect(page.locator("#modelCallSummary")).toHaveText("2 sessions · 3 calls · 3 loaded (latest 300 maximum)");
+  await expect(page.locator("#modelCallSummary")).toHaveText("2 sessions · 3 calls · 3 loaded · filter applies to loaded calls");
   await expect(page.locator("#modelCallList")).toContainText("2 calls · failed · input 50");
   await page.getByLabel("Call source").selectOption("workflow");
   await expect(page.locator("#modelCallSummary")).toContainText("1 sessions · 1 calls");
@@ -1142,6 +1142,38 @@ test("activity displays model calls and their details", async ({ page }) => {
   await expect(page.locator("#modelCallSummary")).toContainText("1 sessions · 3 calls · 4 loaded", { timeout: 10000 });
   await expect(page.getByLabel("Call source")).toHaveValue("planner");
   await expect(page.locator("#modelCallDetails")).toContainText("Snapshot remains visible");
+});
+
+test("activity loads older model calls and refresh returns to latest", async ({ page }) => {
+  test.skip(!token, "Set ARUVI_MOBILE_API_TOKEN for a running remote server");
+  const first = Array.from({ length: 100 }, (_, i) => ({ id: `call-${String(999 - i).padStart(3, "0")}`, source_kind: "desktop_chat", source_label: "Current", model_name: "fixture", status: "completed", created_at: "2026-01-02 00:00:00" }));
+  let olderRequests = 0;
+  await page.route("**/api/mobile/model-calls?*", (route) => {
+    const params = new URL(route.request().url()).searchParams;
+    if (params.has("before_id")) {
+      expect(params.get("before_id")).toBe("call-900");
+      expect(params.get("before_created_at")).toBe("2026-01-02 00:00:00");
+      olderRequests++;
+      if (olderRequests === 1) return route.fulfill({ status: 500, body: "fixture failure" });
+      return route.fulfill({ json: [{ ...first[0], id: "old-call", source_label: "Older call", created_at: "2026-01-01 00:00:00" }] });
+    }
+    return route.fulfill({ json: first });
+  });
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(token);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Activity", exact: true }).click();
+  await page.getByRole("button", { name: "Load older calls" }).click();
+  await expect(page.locator("#status")).toContainText("Could not load older calls");
+  await expect(page.locator("#modelCallSummary")).toContainText("100 loaded · auto-refresh paused");
+  await page.getByRole("button", { name: "Load older calls" }).click();
+  await expect(page.locator("#modelCallSummary")).toContainText("101 loaded · auto-refresh paused");
+  await expect(page.locator("#modelCallList")).toContainText("Older call");
+  await expect(page.getByRole("button", { name: "Load older calls" })).toBeHidden();
+  expect(olderRequests).toBe(2);
+  await page.locator("#refreshModelCallsButton").click();
+  await expect(page.locator("#modelCallSummary")).toContainText("100 loaded · filter applies to loaded calls");
+  await expect(page.locator("#modelCallList")).not.toContainText("Older call");
 });
 
 test("authenticated model-call ledger is available", async ({ request }) => {

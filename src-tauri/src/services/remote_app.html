@@ -1018,6 +1018,7 @@
                 <label>Call source <select id="modelCallFilter"><option value="all">All</option><option value="desktop">Desktop</option><option value="mobile">Mobile</option><option value="workflow">Workflow</option><option value="planner">Planner</option><option value="failed">Failed</option></select></label>
                 <div id="modelCallSummary" class="empty"></div>
                 <div id="modelCallList" class="tool-list"></div>
+                <button class="secondary" id="moreModelCallsButton" type="button" hidden>Load older calls</button>
                 <div id="modelCallDetails" class="tool-list"></div>
               </div>
             </section>
@@ -4829,6 +4830,7 @@
     }
 
     let modelCallEntries = [];
+    let modelCallHasMore = false, modelCallBrowsingHistory = false;
     function renderModelCallSessions() {
       const filter = document.getElementById("modelCallFilter").value;
       const matches = (call) => {
@@ -4849,7 +4851,8 @@
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(call);
       });
-      document.getElementById("modelCallSummary").textContent = `${groups.size} sessions · ${filtered.length} calls · ${modelCallEntries.length} loaded (latest 300 maximum)`;
+      document.getElementById("modelCallSummary").textContent = `${groups.size} sessions · ${filtered.length} calls · ${modelCallEntries.length} loaded${modelCallBrowsingHistory ? " · auto-refresh paused; Refresh returns to latest" : ""} · filter applies to loaded calls`;
+      document.getElementById("moreModelCallsButton").hidden = !modelCallHasMore;
       el.modelCallList.replaceChildren();
       if (!groups.size) el.modelCallList.textContent = "No sessions match this filter.";
       for (const calls of groups.values()) {
@@ -4875,26 +4878,39 @@
       clearTimeout(modelCallRefreshTimer);
       modelCallRefreshTimer = setTimeout(async () => {
         if (state.activeTab !== "activity") return;
+        if (modelCallBrowsingHistory) return;
         await loadModelCalls(true);
         if (state.activeTab === "activity") scheduleModelCallRefresh();
       }, 5000);
     }
 
-    async function loadModelCalls(silent = false) {
+    async function loadModelCalls(silent = false, older = false) {
       const requestId = ++modelCallListRequestId;
+      const more = document.getElementById("moreModelCallsButton");
+      if (older) { modelCallBrowsingHistory = true; clearTimeout(modelCallRefreshTimer); }
       if (!silent) el.refreshModelCallsButton.disabled = true;
+      more.disabled = true;
       if (!modelCallEntries.length) el.modelCallList.textContent = "Loading model calls…";
       try {
-        const calls = await request("/api/mobile/model-calls?limit=300");
+        const params = new URLSearchParams({ limit: "100" });
+        if (older) {
+          const last = modelCallEntries.at(-1);
+          if (!last) return;
+          params.set("before_created_at", last.created_at); params.set("before_id", last.id);
+        }
+        const calls = await request("/api/mobile/model-calls?" + params);
         if (requestId !== modelCallListRequestId) return;
-        modelCallEntries = calls;
+        modelCallEntries = older ? modelCallEntries.concat(calls) : calls;
+        modelCallHasMore = calls.length === 100;
+        if (!older) modelCallBrowsingHistory = false;
         renderModelCallSessions();
       } catch (error) {
         if (requestId !== modelCallListRequestId) return;
         if (!modelCallEntries.length) el.modelCallList.textContent = error.message || String(error);
+        else if (older) { renderModelCallSessions(); setStatus("Could not load older calls: " + (error.message || String(error)), "error"); }
         else document.getElementById("modelCallSummary").textContent = "Refresh failed: " + (error.message || String(error));
       } finally {
-        if (requestId === modelCallListRequestId) el.refreshModelCallsButton.disabled = false;
+        if (requestId === modelCallListRequestId) { el.refreshModelCallsButton.disabled = false; more.disabled = false; }
       }
     }
 
@@ -4969,7 +4985,8 @@
     el.createProductForm.addEventListener("submit", createProduct);
     el.createAreaForm.addEventListener("submit", createProductArea);
     el.resetPlanForm.addEventListener("submit", resetProductPlan);
-    el.refreshModelCallsButton.addEventListener("click", () => void loadModelCalls());
+    el.refreshModelCallsButton.addEventListener("click", () => void loadModelCalls().then(() => { if (state.activeTab === "activity") scheduleModelCallRefresh(); }));
+    document.getElementById("moreModelCallsButton").addEventListener("click", () => void loadModelCalls(false, true));
     document.getElementById("modelCallFilter").addEventListener("change", renderModelCallSessions);
     document.getElementById("refreshCiButton").addEventListener("click", loadCi);
     el.refreshModelsButton.addEventListener("click", loadModelConfiguration);

@@ -611,6 +611,9 @@ pub(crate) async fn mobile_edit_planner_draft(
 #[derive(Debug, Deserialize)]
 pub(crate) struct ModelCallListQuery {
     limit: Option<i64>,
+    source_kind: Option<String>,
+    before_created_at: Option<String>,
+    before_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1609,7 +1612,7 @@ pub(crate) async fn mobile_list_model_calls(
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await {
         return response;
     }
-    match model_call_repo::list_model_calls(&state.app_state.db, query.limit.unwrap_or(100)).await {
+    match model_call_repo::list_model_calls_filtered(&state.app_state.db, query.limit.unwrap_or(100), query.source_kind.as_deref(), query.before_created_at.as_deref(), query.before_id.as_deref()).await {
         Ok(calls) => Json(calls).into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
     }
