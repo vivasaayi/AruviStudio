@@ -80,6 +80,24 @@ isolated remote suite passed on 2026-11-14. Environment variables
 external channel resolution; browser session settings remain separate. This
 does not validate a live WhatsApp or voice-channel session.
 
+## External planner webhook authentication
+
+The WhatsApp and voice-gather routes share signature validation. Previously,
+either missing the Twilio auth token or missing the configured webhook base URL
+silently disabled signature verification. They now reject requests until both
+values are configured, and verify the decoded signature with the HMAC verifier.
+This changes existing deployments that relied on unsigned channel webhooks:
+configure `ARUVI_TWILIO_AUTH_TOKEN` and `ARUVI_WEBHOOK_BASE_URL` (or their
+corresponding settings) before enabling external channels. The Twilio voice
+entry route and other channel behavior are separate from the gather callback.
+On 2026-11-14, the native signature unit test and all 25 isolated remote tests
+passed; the HTTP fixture covered missing configuration, an invalid signature
+and a valid signature. The 7B coding fixture and token-limit error also passed
+through Studio MCP, and browser speech generation loaded real Model Host WAV
+audio before this webhook-only change. Native window and physical audio checks
+were unavailable because the console was locked. The rebuilt branch was healthy
+at `127.0.0.1:55083`.
+
 ## Managed local model installation
 
 - Local Whisper providers support transcription, not agent text completion.

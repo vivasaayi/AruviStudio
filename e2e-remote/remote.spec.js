@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { copyFile, readFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
+import { createHmac } from "node:crypto";
 
 const token = process.env.ARUVI_MOBILE_API_TOKEN;
 const mcpToken = process.env.ARUVI_MCP_API_TOKEN;
@@ -764,6 +765,19 @@ test("external planner defaults save atomically and reject stale MCP edits", asy
   await expect(page.getByLabel("Default planner provider ID")).toHaveValue("provider-unsaved");
   await page.getByRole("button", { name: "Refresh defaults" }).click();
   await expect(page.getByLabel("Default planner model name")).toHaveValue("model-external");
+});
+
+test("external planner webhook requires configured signature verification", async ({ request }) => {
+  test.skip(!mcpToken || process.env.ARUVI_TEST_INSPECT !== "1", "Requires disposable remote fixture");
+  const url = "/webhooks/twilio/whatsapp", form = { Body: "hello", From: "whatsapp:+15550000000" };
+  expect((await request.post(url, { form })).status()).toBe(401);
+  for (const [key, value] of [["twilio.auth_token", "fixture-secret"], ["twilio.webhook_base_url", "https://example.test"]]) {
+    const response = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}`, Accept: "application/json, text/event-stream" }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_settings", arguments: { action: "set_setting", arguments: { key, value } } } } });
+    expect((await response.json()).result.isError).not.toBeTruthy();
+  }
+  expect((await request.post(url, { form, headers: { "X-Twilio-Signature": "invalid" } })).status()).toBe(401);
+  const signature = createHmac("sha1", "fixture-secret").update("https://example.test" + url + "Body" + form.Body + "From" + form.From).digest("base64");
+  expect((await request.post(url, { form, headers: { "X-Twilio-Signature": signature } })).status()).toBe(200);
 });
 
 test("browser configures and selects a model", async ({ page, request }) => {

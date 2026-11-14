@@ -56,12 +56,10 @@ pub(crate) fn validate_twilio_signature(
     params: &HashMap<String, String>,
     headers: &HeaderMap,
 ) -> Result<(), String> {
-    let Some(auth_token) = auth_token else {
-        return Ok(());
-    };
-    let Some(base_url) = base_url else {
-        return Ok(());
-    };
+    let auth_token = auth_token.filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "Twilio webhook authentication is not configured".to_string())?;
+    let base_url = base_url.filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "Twilio webhook URL is not configured".to_string())?;
     let Some(signature) = headers
         .get("X-Twilio-Signature")
         .and_then(|value| value.to_str().ok())
@@ -80,9 +78,30 @@ pub(crate) fn validate_twilio_signature(
     let mut mac =
         Hmac::<Sha1>::new_from_slice(auth_token.as_bytes()).map_err(|error| error.to_string())?;
     mac.update(data.as_bytes());
-    let expected = STANDARD.encode(mac.finalize().into_bytes());
-    if expected != signature {
-        return Err("Invalid Twilio signature".to_string());
+    let supplied = STANDARD.decode(signature).map_err(|_| "Invalid Twilio signature".to_string())?;
+    mac.verify_slice(&supplied).map_err(|_| "Invalid Twilio signature".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    #[test]
+    fn webhook_signature_requires_configuration_and_valid_signature() {
+        let params = HashMap::from([("Body".to_string(), "hello".to_string()), ("From".to_string(), "whatsapp:+15550000000".to_string())]);
+        let mut headers = HeaderMap::new();
+        let validate = |token, url, headers: &HeaderMap| validate_twilio_signature(token, url, "/webhooks/twilio/whatsapp", &params, headers);
+        assert!(validate(None, None, &headers).is_err());
+        assert!(validate(Some(" "), Some("https://example.test"), &headers).is_err());
+        assert!(validate(Some("secret"), Some(""), &headers).is_err());
+        assert!(validate(Some("secret"), Some("https://example.test"), &headers).is_err());
+        let mut mac = Hmac::<Sha1>::new_from_slice(b"secret").unwrap();
+        mac.update(b"https://example.test/webhooks/twilio/whatsappBodyhelloFromwhatsapp:+15550000000");
+        headers.insert("X-Twilio-Signature", HeaderValue::from_str(&STANDARD.encode(mac.finalize().into_bytes())).unwrap());
+        assert!(validate(Some("secret"), Some("https://example.test/"), &headers).is_ok());
+        assert!(validate(Some("wrong"), Some("https://example.test"), &headers).is_err());
+        headers.insert("X-Twilio-Signature", HeaderValue::from_static("not-base64!"));
+        assert!(validate(Some("secret"), Some("https://example.test"), &headers).is_err());
     }
-    Ok(())
 }
