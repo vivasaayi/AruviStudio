@@ -953,10 +953,21 @@ pub(crate) struct MobileRepositoryInspectRequest {
     patch: Option<String>,
     base_sha256: Option<String>,
     expected_exists: Option<bool>,
+    open_paths: Option<Vec<String>>,
 }
 
 pub(crate) async fn mobile_inspect_repository(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileRepositoryInspectRequest>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    if body.action == "matching_repository_files" {
+        let repository = match repository_repo::get_repository(&state.app_state.db, &body.repository_id).await {
+            Ok(repository) => repository, Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+        };
+        let Some(path) = body.relative_path.as_deref() else { return (StatusCode::BAD_REQUEST, "Relative path is required").into_response(); };
+        let paths = body.open_paths.unwrap_or_default();
+        return match crate::services::repo_file_service::matching_repository_files(&repository.local_path, path, &repository.local_path, &paths) {
+            Ok(matches) => Json(matches).into_response(), Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+        };
+    }
     if !matches!(body.action.as_str(), "list_repository_tree" | "read_repository_file" | "get_git_status" | "get_git_diff" | "preview_repository_patch" | "apply_reviewed_repository_patch") {
         return (StatusCode::BAD_REQUEST, "Unsupported repository inspection action").into_response();
     }

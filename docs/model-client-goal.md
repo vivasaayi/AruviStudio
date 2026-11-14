@@ -49,6 +49,23 @@ third-party providers and broad model quality remain unverified.
 
 ### Browser workspace editor buffers
 
+The initial browser patch guard compared path strings, so a hard link or other
+alias could bypass protection for an unsaved tab. The browser now asks the
+authenticated server to compare filesystem identity before applying reviewed
+patches and invalidates matching clean tabs after each applied patch. The
+isolated browser test verified an unsaved hard-link alias blocks application,
+authorization is required, and a clean alias is invalidated after a partial
+application; 27 browser and 47 workflow tests passed. Identity checking and file
+writes are separate operations, so a non-cooperating process can still change
+filesystem identities between them.
+
+The subsequent worktree restart initially failed with SQLite disk I/O because
+Docker's 128 GiB disk image was full. Removing only the rebuildable
+`aruvistudio-cargo-target` build cache recovered 4.5 GB; the worktree restarted
+healthy and its authenticated MCP provider listing succeeded. No data volume was
+removed. Docker still had approximately 4.2 GB free, so future image builds
+may require additional capacity; rebuilding the removed cache will take longer.
+
 The browser now keeps up to 25 open files per workspace with separate unsaved
 buffers, dirty indicators and close confirmation. It blocks workspace changes
 while any buffer is dirty, keeps the existing stale-content save check, and

@@ -452,6 +452,10 @@ test("browser registers and attaches a container workspace", async ({ page, requ
       const patchFile = "patch-safety-fixture.txt";
       await call("aruvi_repositories", "write_repository_file", { repository_id: repositoryId, relative_path: patchFile, content: "alpha\nbeta\n" });
       const patchHash = (await call("aruvi_repositories", "get_repository_file_sha256", { repository_id: repositoryId, relative_path: patchFile })).sha256;
+      const identityRequest = { action: "matching_repository_files", repository_id: repositoryId, relative_path: patchFile, open_paths: ["patch-alias.txt", "inspection.txt"] };
+      expect((await request.post("/api/mobile/repository-inspect", { data: identityRequest })).status()).toBe(401);
+      const identities = await request.post("/api/mobile/repository-inspect", { headers: { Authorization: `Bearer ${token}` }, data: identityRequest });
+      expect(await identities.json()).toEqual(["patch-alias.txt"]);
       const previewArgs = { repository_id: repositoryId, relative_path: patchFile, base_sha256: patchHash, patch: "@@ -1,0 +2,1 @@\n+middle" };
       const preview = await call("aruvi_repositories", "preview_repository_patch", previewArgs);
       expect(preview.exists).toBe(true);
@@ -585,7 +589,7 @@ test("browser registers and attaches a container workspace", async ({ page, requ
         const afterLong = await (await request.get(process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/copilot/last"))).json();
         expect(afterLong.messages.map((entry) => entry.role)).toEqual(["system", "user"]);
         await page.getByRole("button", { name: "Refresh file tree" }).click();
-        await page.locator("#repositoryTree").getByRole("button", { name: patchFile }).click();
+        await page.locator("#repositoryTree").getByRole("button", { name: "patch-alias.txt" }).click();
         await expect(page.getByLabel("Selected file contents")).toHaveValue("alpha\nmiddle\nbeta\n");
         await page.getByLabel("Selected file contents").fill("unsaved patch target\n");
         await page.locator("#repositoryTree").getByRole("button", { name: "inspection.txt", exact: true }).click();
@@ -596,7 +600,7 @@ test("browser registers and attaches a container workspace", async ({ page, requ
         await page.getByRole("button", { name: "Apply reviewed changes" }).click();
         await expect(page.locator("#status")).toContainText("Save or discard edits to all files in the patch first");
         expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: patchFile })).content).toBe("alpha\nmiddle\nbeta\n");
-        await page.locator("#repositoryFileTabs").getByRole("button", { name: patchFile + " • unsaved" }).click();
+        await page.locator("#repositoryFileTabs").getByRole("button", { name: "patch-alias.txt • unsaved" }).click();
         await expect(page.getByLabel("Selected file contents")).toHaveValue("unsaved patch target\n");
         await page.getByRole("button", { name: "Discard file edits" }).click();
         await page.locator("#repositoryTree").getByRole("button", { name: "inspection.txt", exact: true }).click();
@@ -616,6 +620,7 @@ test("browser registers and attaches a container workspace", async ({ page, requ
         await call("aruvi_repositories", "write_repository_file", { repository_id: repositoryId, relative_path: "proposal-created.txt", content: "" });
         await page.getByRole("button", { name: "Apply reviewed changes" }).click();
         await expect(page.locator("#status")).toContainText("Applied 1 of 2 patches; stopped");
+        await expect(page.locator("#repositoryFileTabs")).not.toContainText("patch-alias.txt");
         expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: patchFile })).content).toBe("alpha\nreviewed\nbeta\n");
         await call("aruvi_repositories", "write_repository_file", { repository_id: repositoryId, relative_path: patchFile, content: "alpha\nmiddle\nbeta\n" });
         await page.getByLabel("Copilot question").fill("Propose fixture changes after partial application");

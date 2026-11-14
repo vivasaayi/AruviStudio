@@ -3505,9 +3505,17 @@
     async function applyReviewedPatch() {
       if (!reviewedPatch || !openedFile || fileIsDirty() || copilotBusy || fileSaving) return;
       const proposal = reviewedPatch, file = openedFile; let applied = 0;
-      if (proposal.patches.some((item) => openRepositoryFiles.some((entry) => entry.repositoryId === proposal.repositoryId && entry.path === item.path && fileIsDirty(entry)))) { setStatus("Save or discard edits to all files in the patch first", "warn"); return; }
       copilotBusy = true; el.repositoryFileContent.readOnly = true; updateFileControls();
+      let matchedPaths = [];
       try {
+        const openPaths = openRepositoryFiles.filter((entry) => entry.repositoryId === proposal.repositoryId).map((entry) => entry.path);
+        for (const item of proposal.patches) {
+          const matches = await request("/api/mobile/repository-inspect", { method: "POST", body: { action: "matching_repository_files", repository_id: proposal.repositoryId, relative_path: item.path, open_paths: openPaths } });
+          matchedPaths.push(matches);
+          if (matches.some((path) => openRepositoryFiles.some((entry) => entry.repositoryId === proposal.repositoryId && entry.path === path && fileIsDirty(entry)))) {
+            setStatus("Save or discard edits to all files in the patch first", "warn"); return;
+          }
+        }
         for (const item of proposal.patches) {
           await request("/api/mobile/repository-inspect", { method: "POST", body: { action: "apply_reviewed_repository_patch", repository_id: proposal.repositoryId, relative_path: item.path, patch: item.patch, base_sha256: item.base_sha256, expected_exists: item.expected_exists } });
           applied++;
@@ -3517,7 +3525,7 @@
       finally {
         clearPatchReview(); file.history = []; file.copilotScope = ""; copilotBusy = false;
         if (applied && openedFile === file) {
-          const affected = new Set(proposal.patches.slice(0, applied).map((item) => item.path));
+          const affected = new Set(proposal.patches.slice(0, applied).flatMap((item, index) => [item.path, ...matchedPaths[index]]));
           openRepositoryFiles = openRepositoryFiles.filter((entry) => entry.repositoryId !== proposal.repositoryId || !affected.has(entry.path));
           if (affected.has(file.path)) { openedFile = null; await inspectFile(file.repositoryId, file.path); }
           else el.repositoryFileContent.readOnly = !file.editable;
