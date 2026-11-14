@@ -43,6 +43,7 @@ urlencoding = "2"
 whisper-rs = "0.16"
 hound = "3.5"
 zip = { version = "9.5.1", default-features = false, features = ["deflate"] }
+rquickjs = { version = "0.14.0", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

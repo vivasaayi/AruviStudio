@@ -276,6 +276,29 @@ test("browser registers and attaches a container workspace", async ({ page, requ
     expect(snapshot.references.some((reference) => reference.id === ownReference.id)).toBe(true);
     expect(snapshot.references.some((reference) => reference.id === otherReference.id)).toBe(false);
     expect(snapshot.work_items).toEqual([]);
+    const renderedBook = await call("aruvi_catalog", "render_product_book", { product_id: product.id, format: "book", render_mode: "epub", trim_preset: "a5" });
+    expect(renderedBook.html).toContain("Snapshot area reference");
+    expect(renderedBook.html).not.toContain("Other snapshot reference");
+    expect(renderedBook.trimPreset.id).toBe("a5");
+    expect(renderedBook.tocItems.length).toBeGreaterThan(1);
+    for (const trim of ["trade-6x9", "us-letter"]) {
+      const book = await call("aruvi_catalog", "render_product_book", { product_id: product.id, format: "book", render_mode: "print", trim_preset: trim });
+      expect(book.trimPreset.id).toBe(trim);
+      expect(book.html).toContain("Snapshot area reference");
+    }
+    const renderedDocs = await call("aruvi_catalog", "render_product_book", { product_id: product.id, format: "docs" });
+    expect(renderedDocs.html).toContain("Snapshot area reference");
+    expect(renderedDocs.html).not.toContain("Other snapshot reference");
+    const invalidRender = await request.post("/api/mcp", {
+      headers: { Authorization: `Bearer ${mcpToken}`, Accept: "application/json, text/event-stream" },
+      data: { jsonrpc: "2.0", id: 21, method: "tools/call", params: { name: "aruvi_catalog", arguments: { action: "render_product_book", arguments: { product_id: product.id, trim_preset: "invalid" } } } },
+    });
+    expect((await invalidRender.json()).result.isError).toBe(true);
+    const invalidDocsMode = await request.post("/api/mcp", {
+      headers: { Authorization: `Bearer ${mcpToken}`, Accept: "application/json, text/event-stream" },
+      data: { jsonrpc: "2.0", id: 22, method: "tools/call", params: { name: "aruvi_catalog", arguments: { action: "render_product_book", arguments: { product_id: product.id, format: "docs", render_mode: "epub" } } } },
+    });
+    expect((await invalidDocsMode.json()).result.isError).toBe(true);
     await page.goto("/remote");
     await page.locator("#tokenInput").fill(token);
     if (copilotProvider) { await page.locator("#providerInput").fill(copilotProvider.id); await page.locator("#modelInput").fill("browser-test-model"); }

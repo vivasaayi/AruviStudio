@@ -45,6 +45,13 @@ async fn product_book_snapshot_is_consistent_and_product_scoped() {
     let fresh = product_book_repo::get_product_book_source(&pool, "book-product").await.unwrap();
     assert_eq!(fresh.work_items.len(), 1);
     assert_eq!(fresh.references.len(), 5);
+    use crate::services::product_book_renderer::{render_product_book, ProductBookFormat, ProductBookRenderMode, ProductBookTrim};
+    let rendered = render_product_book(&fresh, ProductBookFormat::Book, ProductBookRenderMode::Epub, ProductBookTrim::A5).unwrap();
+    let html = rendered["html"].as_str().unwrap();
+    assert!(html.contains("Late"));
+    assert!(html.contains("Feature"));
+    assert!(!html.contains("Other area"));
+    assert!(rendered["tocItems"].as_array().unwrap().len() > 1);
     assert!(product_book_repo::get_product_book_source(&pool, "missing").await.is_err());
 }
 

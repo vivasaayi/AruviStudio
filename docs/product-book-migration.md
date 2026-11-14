@@ -48,6 +48,24 @@ remove the desktop renderer or claim export parity until these steps pass.
 - [ ] Port the Docs HTML and Book renderers to shared backend services, including
   all rich text, reference, index, numbering, layout and trim semantics. Compare
   output against desktop fixtures and inspect representative rendered pages.
+  The existing TypeScript renderer is now bundled into an isolated QuickJS
+  runtime inside the Rust service. An authenticated MCP `aruvi_catalog` action
+  `render_product_book` returns Docs or Book HTML; Book output also includes
+  table of contents and trim metadata. Book supports web, print and EPUB modes
+  and all three trim presets; Docs supports web mode.
+  A 501-item fixture compares all four desktop render modes byte-for-byte apart
+  from their generation timestamps (`scripts/test-product-book-renderer`).
+  Bundled output is checked against source in the frontend test suite. The
+  runtime limits input to 64 MiB, JavaScript heap to 256 MiB, execution to 30
+  seconds, and simultaneous snapshots/renders to two. Source snapshot creation
+  and serialization are currently unbounded before the input-size check.
+  Desktop, browser downloads and MCP EPUB/PDF artifacts do not yet use this
+  renderer, and image-resource packaging and visual comparison remain open.
+  For a local worktree, request a rendered book with:
+
+  ```sh
+  scripts/mcp call aruvi_catalog '{"action":"render_product_book","arguments":{"product_id":"PRODUCT_ID","format":"book","render_mode":"epub","trim_preset":"a5"}}'
+  ```
 - [ ] Provide authenticated browser and MCP export interfaces for each supported
   artifact. Implement EPUB and PDF with actual runtime dependencies or document
   explicit platform limitations; do not return an incomplete artifact as success.

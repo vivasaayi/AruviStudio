@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$root"
+./node_modules/.bin/esbuild src/features/products/lib/productBookBackend.ts \
+  --bundle --platform=neutral --format=iife --global-name=AruviProductBook \
+  --target=es2020 --outfile=src-tauri/resources/product_book_renderer.js

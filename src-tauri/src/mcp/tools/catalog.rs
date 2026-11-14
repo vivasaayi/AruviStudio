@@ -348,6 +348,29 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
             action_result("get_product_book_source", crate::persistence::product_book_repo::get_product_book_source(&state.db, &product_id).await?)
         }
+        "render_product_book" => {
+            use crate::services::product_book_renderer::{render_product_book_for_product, ProductBookFormat, ProductBookRenderMode, ProductBookTrim};
+            let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
+            let format = match args.string_or_default(&["format"], "book")?.as_str() {
+                "docs" => ProductBookFormat::Docs,
+                "book" => ProductBookFormat::Book,
+                _ => return Err(AppError::Validation("format must be docs or book".into())),
+            };
+            let render_mode = match args.string_or_default(&["render_mode", "renderMode"], "web")?.as_str() {
+                "web" => ProductBookRenderMode::Web,
+                "print" => ProductBookRenderMode::Print,
+                "epub" => ProductBookRenderMode::Epub,
+                _ => return Err(AppError::Validation("render_mode must be web, print or epub".into())),
+            };
+            let trim = match args.string_or_default(&["trim_preset", "trimPreset"], "trade-6x9")?.as_str() {
+                "trade-6x9" => ProductBookTrim::Trade,
+                "a5" => ProductBookTrim::A5,
+                "us-letter" => ProductBookTrim::UsLetter,
+                _ => return Err(AppError::Validation("trim_preset must be trade-6x9, a5 or us-letter".into())),
+            };
+            let result = render_product_book_for_product(&state.db, &product_id, format, render_mode, trim).await?;
+            action_result("render_product_book", result)
+        }
         "get_product_tree" => {
             let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
             let tree = product_repo::get_product_tree(&state.db, &product_id).await?;
