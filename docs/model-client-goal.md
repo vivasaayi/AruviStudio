@@ -12,6 +12,19 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Browser workspace editor buffers
+
+The browser now keeps up to 25 open files per workspace with separate unsaved
+buffers, dirty indicators and close confirmation. It blocks workspace changes
+while any buffer is dirty, keeps the existing stale-content save check, and
+refuses a reviewed patch if another affected open file has unsaved edits. Clean
+affected tabs are invalidated after patch application. The worktree image built,
+47 isolated workflow tests and 27 browser tests passed; browser cases cover two
+unsaved files, switching, close cancellation, workspace protection, stale saves,
+and a patch targeting an unsaved tab. Buffers are in memory and do not survive
+page reload; the browser requests unload confirmation when any buffer is dirty.
+Native window acceptance and other IDE parity gaps remain open.
+
 ### Browser workspace tree filtering
 
 The browser can also refresh the workspace tree without clearing its open file

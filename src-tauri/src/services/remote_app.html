@@ -597,7 +597,7 @@
               <pre id="repositoryDiff" style="white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto"></pre>
               <label><span class="label">Filter workspace files</span><input id="repositoryTreeFilter" placeholder="Filter by name or path" /></label><button id="refreshRepositoryTree" type="button" class="secondary" disabled>Refresh file tree</button>
               <div id="repositoryTree" class="tree"></div><div id="repositoryTreeEmpty" class="empty" hidden>No matching files.</div>
-              <label><span class="label">Selected file</span><textarea id="repositoryFileContent" readonly rows="18" aria-label="Selected file contents"></textarea></label>
+              <div id="repositoryFileTabs" class="button-row" aria-label="Open workspace files"></div><label><span class="label">Selected file</span><textarea id="repositoryFileContent" readonly rows="18" aria-label="Selected file contents"></textarea></label>
               <div class="button-row"><button id="saveRepositoryFileButton" type="button" disabled>Save file</button><button id="discardRepositoryFileButton" class="secondary" type="button" disabled>Discard file edits</button></div>
               <div class="tool-card stack">
                 <strong>Ask Copilot about this file</strong>
@@ -3202,6 +3202,7 @@
     let inspectRequestId = 0;
     let fileRequestId = 0;
     let openedFile = null;
+    let openRepositoryFiles = [];
     let fileSaving = false;
     let copilotBusy = false;
     let copilotStreamController = null;
@@ -3211,7 +3212,42 @@
       const review = document.getElementById("repositoryPatchReview"), apply = document.getElementById("repositoryPatchApply");
       review.replaceChildren(); review.hidden = true; apply.hidden = true; apply.disabled = true;
     }
-    function fileIsDirty() { return openedFile && el.repositoryFileContent.value !== openedFile.displayBaseline; }
+    function fileIsDirty(file = openedFile) { return !!file && (file === openedFile ? el.repositoryFileContent.value : file.working) !== file.displayBaseline; }
+    function saveActiveBuffer() {
+      if (openedFile) { openedFile.working = el.repositoryFileContent.value; openedFile.transcript = document.getElementById("repositoryCopilotResult").textContent; }
+    }
+    function renderFileTabs() {
+      const tabs = document.getElementById("repositoryFileTabs"); tabs.replaceChildren();
+      for (const file of openRepositoryFiles) {
+        const group = document.createElement("span"), select = document.createElement("button"), close = document.createElement("button");
+        select.type = close.type = "button"; select.className = close.className = "secondary";
+        select.textContent = file.path + (fileIsDirty(file) ? " • unsaved" : "");
+        select.setAttribute("aria-pressed", String(file === openedFile));
+        select.addEventListener("click", () => activateRepositoryFile(file));
+        close.textContent = "×"; close.setAttribute("aria-label", "Close " + file.path);
+        close.addEventListener("click", () => closeRepositoryFile(file));
+        group.append(select, close); tabs.appendChild(group);
+      }
+    }
+    function activateRepositoryFile(file) {
+      if (fileSaving || copilotBusy) { setStatus("Wait for the current operation before switching files", "warn"); return; }
+      saveActiveBuffer(); fileRequestId++; openedFile = file;
+      el.repositoryFileContent.value = file.working; el.repositoryFileContent.readOnly = !file.editable;
+      el.repositoryInspectStatus.textContent = file.path;
+      document.getElementById("repositoryCopilotResult").textContent = file.transcript || "";
+      clearPatchReview(); updateFileControls(); renderFileTabs();
+    }
+    function closeRepositoryFile(file) {
+      if (fileSaving || copilotBusy) { setStatus("Wait for the current operation before closing files", "warn"); return; }
+      if (fileIsDirty(file) && !window.confirm("Discard unsaved changes to " + file.path + "?")) return;
+      const active = file === openedFile; openRepositoryFiles = openRepositoryFiles.filter((entry) => entry !== file);
+      if (active) {
+        openedFile = null; fileRequestId++;
+        if (openRepositoryFiles.length) activateRepositoryFile(openRepositoryFiles[openRepositoryFiles.length - 1]);
+        else { el.repositoryFileContent.value = ""; el.repositoryFileContent.readOnly = true; document.getElementById("repositoryCopilotResult").textContent = ""; clearPatchReview(); updateFileControls(); }
+      }
+      renderFileTabs();
+    }
     function updateFileControls() {
       const dirty = !!fileIsDirty();
       el.saveRepositoryFileButton.disabled = !dirty || fileSaving || copilotBusy || !openedFile.editable;
@@ -3224,7 +3260,7 @@
     }
     function canLeaveFile() {
       if (copilotBusy) { setStatus("Wait for Copilot before opening another file or workspace", "warn"); return false; }
-      if (fileSaving || fileIsDirty()) { setStatus("Save or discard file edits before opening another file or workspace", "warn"); return false; }
+      if (fileSaving || openRepositoryFiles.some((file) => fileIsDirty(file))) { setStatus("Save or discard file edits before opening another workspace", "warn"); return false; }
       return true;
     }
     function filterRepositoryTree() {
@@ -3278,7 +3314,7 @@
     });
     async function inspectWorkspace(repository) {
       if (!canLeaveFile()) return;
-      openedFile = null; el.repositoryFileContent.readOnly = true; updateFileControls();
+      openedFile = null; openRepositoryFiles = []; renderFileTabs(); el.repositoryFileContent.readOnly = true; updateFileControls();
       clearPatchReview();
       const requestId = ++inspectRequestId;
       fileRequestId++;
@@ -3317,25 +3353,24 @@
       } finally { if (repositoryId === inspectedRepositoryId) el.repositoryDiffButton.disabled = false; }
     }
     async function inspectFile(repositoryId, path) {
-      if (!canLeaveFile()) return;
-      openedFile = null; el.repositoryFileContent.readOnly = true; updateFileControls();
-      clearPatchReview();
+      if (fileSaving || copilotBusy) { setStatus("Wait for the current operation before switching files", "warn"); return; }
+      const existing = openRepositoryFiles.find((file) => file.repositoryId === repositoryId && file.path === path);
+      if (existing) { activateRepositoryFile(existing); return; }
+      if (openRepositoryFiles.length >= 25) { setStatus("Close a file before opening more than 25 files", "warn"); return; }
       const requestId = ++fileRequestId;
-      el.repositoryFileContent.value = "Loading " + path + "...";
       try {
         const file = await request("/api/mobile/repository-inspect", { method: "POST", body: { action: "read_repository_file", repository_id: repositoryId, relative_path: path } });
         if (requestId !== fileRequestId || repositoryId !== inspectedRepositoryId) return;
-        el.repositoryInspectStatus.textContent = path; el.repositoryFileContent.value = file.content;
         const withoutCrlf = file.content.replace(/\r\n/g, "");
         const mixed = withoutCrlf.includes("\r") || (file.content.includes("\r\n") && withoutCrlf.includes("\n"));
-        openedFile = { repositoryId, path, expected: file.content, displayBaseline: el.repositoryFileContent.value,
-          crlf: file.content.includes("\r\n") && !mixed, editable: !mixed, sha256: file.sha256, history: [], copilotScope: "" };
-        document.getElementById("repositoryCopilotResult").textContent = "";
-        el.repositoryFileContent.readOnly = mixed;
+        const display = file.content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+        const entry = { repositoryId, path, expected: file.content, displayBaseline: display, working: display,
+          crlf: file.content.includes("\r\n") && !mixed, editable: !mixed, sha256: file.sha256, history: [], copilotScope: "", transcript: "" };
+        openRepositoryFiles.push(entry); activateRepositoryFile(entry);
         if (mixed) setStatus("This file has mixed line endings and is available for reading only", "warn");
         updateFileControls();
       } catch (error) {
-        if (requestId === fileRequestId) { el.repositoryFileContent.value = ""; setStatus(error.message || String(error), "error"); }
+        if (requestId === fileRequestId) setStatus(error.message || String(error), "error");
       }
     }
 
@@ -3347,13 +3382,13 @@
       try {
         const saved = await request("/api/mobile/repository-file/save", { method: "POST", body: { repository_id: file.repositoryId,
           relative_path: file.path, expected_content: file.expected, content } });
-        if (openedFile === file) { file.expected = content; file.displayBaseline = el.repositoryFileContent.value; file.sha256 = saved.sha256; file.history = []; file.copilotScope = ""; clearPatchReview(); document.getElementById("repositoryCopilotResult").textContent = ""; setStatus("File saved", "ok"); }
+        if (openedFile === file) { file.expected = content; file.displayBaseline = el.repositoryFileContent.value; file.working = file.displayBaseline; file.sha256 = saved.sha256; file.history = []; file.copilotScope = ""; clearPatchReview(); document.getElementById("repositoryCopilotResult").textContent = ""; renderFileTabs(); setStatus("File saved", "ok"); }
       } catch (error) { setStatus(error.message || String(error), "error"); }
       finally { fileSaving = false; if (openedFile === file) el.repositoryFileContent.readOnly = !file.editable; updateFileControls(); }
     }
     function discardRepositoryFileEdits() {
       if (!openedFile || fileSaving) return;
-      el.repositoryFileContent.value = openedFile.displayBaseline; updateFileControls();
+      el.repositoryFileContent.value = openedFile.displayBaseline; openedFile.working = openedFile.displayBaseline; updateFileControls(); renderFileTabs();
     }
 
     function boundedCopilotTranscript(text) {
@@ -3470,6 +3505,7 @@
     async function applyReviewedPatch() {
       if (!reviewedPatch || !openedFile || fileIsDirty() || copilotBusy || fileSaving) return;
       const proposal = reviewedPatch, file = openedFile; let applied = 0;
+      if (proposal.patches.some((item) => openRepositoryFiles.some((entry) => entry.repositoryId === proposal.repositoryId && entry.path === item.path && fileIsDirty(entry)))) { setStatus("Save or discard edits to all files in the patch first", "warn"); return; }
       copilotBusy = true; el.repositoryFileContent.readOnly = true; updateFileControls();
       try {
         for (const item of proposal.patches) {
@@ -3480,7 +3516,13 @@
       } catch (error) { setStatus("Applied " + applied + " of " + proposal.patches.length + " patches; stopped: " + (error.message || String(error)), "error"); }
       finally {
         clearPatchReview(); file.history = []; file.copilotScope = ""; copilotBusy = false;
-        if (applied && openedFile === file) await inspectFile(file.repositoryId, file.path);
+        if (applied && openedFile === file) {
+          const affected = new Set(proposal.patches.slice(0, applied).map((item) => item.path));
+          openRepositoryFiles = openRepositoryFiles.filter((entry) => entry.repositoryId !== proposal.repositoryId || !affected.has(entry.path));
+          if (affected.has(file.path)) { openedFile = null; await inspectFile(file.repositoryId, file.path); }
+          else el.repositoryFileContent.readOnly = !file.editable;
+          renderFileTabs();
+        }
         else if (openedFile === file) el.repositoryFileContent.readOnly = !file.editable;
         updateFileControls();
       }
@@ -4807,7 +4849,7 @@
     el.createTeamForm.addEventListener("submit", createTeam);
     el.refreshWorkspacesButton.addEventListener("click", loadWorkspaces);
     el.repositoryDiffButton.addEventListener("click", loadRepositoryDiff);
-    el.repositoryFileContent.addEventListener("input", updateFileControls);
+    el.repositoryFileContent.addEventListener("input", () => { updateFileControls(); renderFileTabs(); });
     document.getElementById("repositoryCopilotIncludeFile").addEventListener("change", updateFileControls);
     document.getElementById("repositoryCopilotButton").addEventListener("click", () => void askRepositoryCopilot());
     document.getElementById("repositoryCopilotPatchButton").addEventListener("click", () => void askRepositoryCopilot(true));
@@ -4816,7 +4858,7 @@
     document.getElementById("repositoryCopilotReset").addEventListener("click", resetRepositoryCopilot);
     el.saveRepositoryFileButton.addEventListener("click", saveRepositoryFile);
     el.discardRepositoryFileButton.addEventListener("click", discardRepositoryFileEdits);
-    window.addEventListener("beforeunload", (event) => { if (fileIsDirty()) { event.preventDefault(); event.returnValue = ""; } });
+    window.addEventListener("beforeunload", (event) => { if (openRepositoryFiles.some((file) => fileIsDirty(file))) { event.preventDefault(); event.returnValue = ""; } });
     el.repositoryForm.addEventListener("submit", registerWorkspace);
     el.repositoryAttachForm.addEventListener("submit", attachWorkspace);
     el.createWorkspaceForm.addEventListener("submit", createWorkspace);
