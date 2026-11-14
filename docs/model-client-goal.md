@@ -44,6 +44,22 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Remote transcription input validation
+
+- The shared OpenAI-compatible transport rejects an empty model name or empty
+  audio before network access. It does not impose a provider-wide file-size or
+  format policy. Web and MCP tests verify empty audio is reported as invalid;
+  the real Piper-to-Whisper Model Host round trip still passes.
+- The client suite passed 38 tests, the macOS Studio suite passed 195 with two
+  live tests ignored, and the isolated workflow suite passed 20 cases. The
+  worktree image rebuilt and started healthy. Running server SHA-256:
+  `68b196271d7b6a3259cd1e5e55b1c39c38448a8da3b6b904d0b83f91d24f01c1`.
+- OpenAI's [file transcription guide](https://developers.openai.com/api/docs/guides/speech-to-text)
+  deprecates `whisper-1` and recommends `gpt-transcribe` for new OpenAI usage.
+  No generic provider default was changed; Model Host and other compatible
+  services need their own supported model names. Independent consumer re-pinning
+  and its network-isolated Docker test are tracked separately below.
+
 ## Atomic planner conversation exchanges
 
 - Local voice-command responses (including clear and draft selection), text

@@ -178,6 +178,9 @@ impl OpenAiCompatibleClient {
 
     /// Transcribe audio using an OpenAI-compatible multipart endpoint.
     pub async fn transcribe(&self, input: TranscriptionRequest) -> Result<String, ClientError> {
+        if input.model.trim().is_empty() || input.audio.is_empty() {
+            return Err(ClientError::InvalidInput("A model and nonempty audio are required for transcription".into()));
+        }
         let file = reqwest::multipart::Part::bytes(input.audio)
             .file_name(input.filename)
             .mime_str(&input.mime_type)
@@ -447,6 +450,18 @@ mod tests {
         assert_eq!((meta.response_id.as_deref(), meta.model.as_deref(), meta.finish_reason.as_deref()), (Some("buffered"), Some("fixture"), Some("stop")));
         assert_eq!(meta.usage.unwrap()["prompt_tokens"], 3);
         assert!(OpenAiCompatibleClient::parse_sse_fallback("data: [DONE]\n").is_err());
+    }
+
+    #[tokio::test]
+    async fn transcription_rejects_missing_model_or_audio_before_network() {
+        let client = OpenAiCompatibleClient::new("not a URL".into(), None);
+        for (model, audio) in [("", vec![1]), ("  ", vec![1]), ("whisper", vec![])] {
+            let input = TranscriptionRequest {
+                model: model.into(), audio, mime_type: "audio/wav".into(),
+                filename: "fixture.wav".into(), language: None,
+            };
+            assert!(matches!(client.transcribe(input).await, Err(ClientError::InvalidInput(message)) if message.contains("model and nonempty audio")));
+        }
     }
 
     #[tokio::test]

@@ -27,6 +27,12 @@ OpenAI-compatible ordinary, JSON-object and streaming completions validate a
 nonempty model and message list, positive explicit token limit, and finite
 temperature before making a request. Provider-specific temperature ranges remain
 subject to the endpoint.
+OpenAI-compatible transcription requires a nonempty model name and audio payload.
+The adapter does not impose a provider-wide upload size or format policy; check
+the selected provider's limits. OpenAI has deprecated `whisper-1` and recommends
+`gpt-transcribe` for new file-transcription integrations; this does not imply that
+other OpenAI-compatible providers support that model. See the [OpenAI file
+transcription guide](https://developers.openai.com/api/docs/guides/speech-to-text).
 OpenAI-compatible completion responses are capped at 8 MiB, transcription and
 discovery responses at 2 MiB, and WAV speech at 16 MiB. Anthropic completion and
 stream responses are capped at 2 MiB. These limits are fixed for now. Provider

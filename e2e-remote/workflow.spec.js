@@ -331,6 +331,14 @@ test("voice records, reviews, and sends a transcribed message", async ({ page, r
   expect(created.ok()).toBeTruthy();
   const provider = await created.json();
   expect((await request.post("/api/mobile/speech/transcribe", { data: { audio_bytes_base64: "", mime_type: "audio/wav" } })).status()).toBe(401);
+  const emptyAudio = { provider_id: provider.id, model_name: "synthetic-stt-model", audio_bytes_base64: "", mime_type: "audio/wav" };
+  const invalid = await request.post("/api/mobile/speech/transcribe", { headers, data: emptyAudio });
+  expect(invalid.status()).toBe(400);
+  expect(await invalid.text()).toContain("nonempty audio");
+  const invalidMcp = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_speech", arguments: { action: "transcribe_audio", arguments: emptyAudio } } } });
+  const invalidMcpResult = (await invalidMcp.json()).result;
+  expect(invalidMcpResult.isError).toBeTruthy();
+  expect(JSON.stringify(invalidMcpResult.content)).toContain("nonempty audio");
   await page.addInitScript(() => {
     window.fixtureTracksStopped = 0;
     Object.defineProperty(navigator, "mediaDevices", { value: { getUserMedia: async () => ({ getTracks: () => [{ stop() { window.fixtureTracksStopped++; } }] }) } });
