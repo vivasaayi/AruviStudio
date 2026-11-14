@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Candidate Aruvici target metadata
+
+A disposable source copy of Aruvici `5851f25` was modified to return the
+configured repository and current plan-approval state with each target. Six CI
+API tests passed, including approval transitions and rejection of an artifact
+replaced by a symlink. A native Studio/Aruvici protocol audit against the
+candidate passed target binding; retry and artifact readiness remain unsupported.
+No pipeline was queued. This candidate is not yet committed or deployed: it is
+in `/tmp/aruvici-audit.vHrl5K`, while isolated checkout creation remains pending.
+The symlink test covers replacement before inspection, not a concurrent race.
+
 ### Disposable native Aruvici connection
 
 Studio revision `f90987b` and Aruvici revision `5851f2594bbbd83193e259a566004088ac28c52e`
