@@ -46,6 +46,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Managed local model installation
 
+- Branch runtime routing checkpoint: all nine seeded agents were bound to
+  `deepseek-coder` on the container-local LM Studio endpoint, which failed its
+  connectivity check. After confirming these were untouched default bindings,
+  all nine were changed to `qwen25-coder-7b-q4` on the configured native Model
+  Host and read back through MCP. A disposable workflow using the same model
+  for all stages extended an existing module, passed syntax and independently
+  executed behavior checks, and delivered to a disposable Git remote. This is
+  evidence for that fixture, not a general quality guarantee. These branch-only
+  bindings are persistent runtime data, not established by a Git commit or
+  applied to other environments. Reconfigure individual agents if different
+  provider models are desired.
+
 - Native Model Host setup now only accepts an installed model advertised for
   text, explicitly restores the standard completion profile, and checks the
   existing provider's host, port and URL shape before updating it. Fixed setup
