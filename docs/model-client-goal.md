@@ -152,8 +152,11 @@ disposable native Studio and synthetic-provider browser fixture passed matching
 and conflicting streams. The branch Docker image built, but was not started:
 Docker's Linux filesystem had about 265 MB available after removing only
 identified build caches from this task. The previously deployed branch remains
-healthy and does not yet include this change. The full Docker workflow suite and
-the independent consumer's new pin remain to be validated after space is available.
+healthy and does not yet include this change. The full Docker workflow suite
+and Linux validation of the independent consumer's new pin remain open.
+The independent consumer pins `873617965bdf455f4cd89accea64cb1b3b69931b`; all
+27 native offline tests passed, including streamed and buffered full-message
+handling.
 
 Desktop transcription choices and planner auto-selection now follow the
 backend's explicit `stt`/`asr` capability ranking and synthesis exclusions.
@@ -1007,7 +1010,7 @@ scope is reviewed, not merely until an example passes.
 
 | Requirement | Current evidence | Remaining work |
 | --- | --- | --- |
-| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and by a separate project pinned to commit `c4cac799d99ffef77e6199711c07b85d4db6fd1a`; 26 independent native and Linux tests passed offline, and non-root Linux probes passed real Model Host text discovery, completion, streaming, token-limit checks and a synthetic Piper/Whisper speech round trip. | Decide independent ownership, versioning and a migration plan for other projects. The current pin is a checkpoint, not a published release. |
+| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and by a separate project pinned to commit `873617965bdf455f4cd89accea64cb1b3b69931b`; 27 independent native tests passed offline. The prior `c4cac799d99ffef77e6199711c07b85d4db6fd1a` pin passed 26 Linux tests and non-root real Model Host text and synthetic Piper/Whisper speech probes. | Validate the new pin on Linux; decide independent ownership, versioning and a migration plan for other projects. The current pin is a checkpoint, not a published release. |
 | OpenAI-compatible and Anthropic protocols | Shared clients cover text, streaming, discovery and error handling; OpenAI-compatible voice is implemented. Contract fixtures cover both protocols and the reasoning request profile. | Live third-party OpenAI, Anthropic, DeepSeek and LM Studio sessions remain unverified; compatibility with each model and provider cannot be inferred from adapter capabilities. |
 | Local coding integration | The isolated 7B Model Host passed real MCP completion and an extend-module workflow through code review and a disposable local Git remote. A later new-module attempt produced a missing function definition; independent behavior checks caught it before delivery. | Investigate reliability on broader coding tasks and actual authenticated network delivery; syntax-only checks do not establish correctness. |
 | Speech and local fallback | Real Model Host speech generation and transcription and checksum-pinned local Whisper have been exercised with synthetic audio; browser and MCP fixtures exist. | Physical microphone permission/capture, audible playback, other languages and recognition quality remain unverified. |
