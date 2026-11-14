@@ -89,7 +89,7 @@ def configure(port, token, model, name, *, rotate_credential=True):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("host_worktree", type=Path, help="Path to the native Model Host checkout")
-    parser.add_argument("--environment", choices=("worktree", "staging"), default="worktree")
+    parser.add_argument("--environment", choices=("worktree", "integration", "staging"), default="worktree")
     parser.add_argument("--model", default="qwen25-coder-15b-q4", help="Model ID advertised by Model Host")
     parser.add_argument("--name", default="Aruvi Model Host (Studio Coding Validation)")
     parser.add_argument("--watch", action="store_true", help="Keep running and refresh after an endpoint or token change")

@@ -217,6 +217,14 @@ remote tests passed after the product dropdown was added.
 
 ## Current integration revalidation
 
+On 2026-11-14, the current native macOS ARM64 desktop and server debug binaries
+built with locked dependencies. A separately configured native Studio server
+discovered and queried the real 7B coding host through MCP and generated and
+transcribed synthetic speech through the native Model Host integration
+environment. The host setup and validation scripts now accept the integration
+environment name. This does not verify the native desktop window or physical
+audio; the Mac console was locked during this check.
+
 On 2026-11-14, the isolated real-model `extend-module` workflow ran on the
 current branch image with `qwen25-coder-7b-q4`. It reached plan approval,
 inspected the existing JavaScript module, generated the requested extension,

@@ -151,8 +151,8 @@ input. It validates discovery, ordinary and streamed text, and a token-limit
 error. Add `--json-mode` to also test JSON-object completion when the chosen
 model supports it. The native host token grants whatever authority the host assigned it;
 this check does not modify host configuration, register models or prove model
-quality. Use `--environment staging` only when that deployment has the selected
-model installed and resources available.
+quality. Use `--environment integration` or `--environment staging` only when
+that deployment has the selected model installed and resources available.
 
 `examples/stream_probe.rs` is a minimal OpenAI-compatible stream smoke test. Set
 `ARUVI_PROBE_BASE_URL` and `ARUVI_PROBE_MODEL`, then provide the API key on

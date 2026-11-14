@@ -11,7 +11,7 @@ import tempfile
 root = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("host_worktree", type=Path, help="Native Model Host checkout")
-parser.add_argument("--environment", choices=("worktree", "staging"), default="worktree")
+parser.add_argument("--environment", choices=("worktree", "integration", "staging"), default="worktree")
 parser.add_argument("--model", required=True, help="Installed coding model ID")
 parser.add_argument("--json-mode", action="store_true", help="Also test JSON-object completion on a compatible model")
 args = parser.parse_args()

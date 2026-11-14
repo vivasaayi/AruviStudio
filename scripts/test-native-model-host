@@ -26,7 +26,7 @@ parser.add_argument("binary", type=Path, help="Built native aruvi-studio-server 
 parser.add_argument("host_worktree", type=Path, help="Running native Model Host worktree")
 parser.add_argument("--model", required=True, help="Installed text model ID")
 parser.add_argument("--speech-host", type=Path, help="Optional native Model Host checkout for speech")
-parser.add_argument("--speech-environment", choices=("worktree", "staging"), default="staging")
+parser.add_argument("--speech-environment", choices=("worktree", "integration", "staging"), default="staging")
 parser.add_argument("--voice-model", default="piper-ljspeech")
 parser.add_argument("--transcription-model", default="whisper-tiny-metal")
 args = parser.parse_args()
