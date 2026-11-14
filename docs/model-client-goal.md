@@ -12,6 +12,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Current branch regression checks
+
+At revision `e844cd3`, the isolated native macOS Rust library suite passed 252
+tests with six ignored. The ignored cases require configured Chromium/Playwright,
+captured desktop Product Book fixtures, a local Whisper model and synthetic WAV,
+or a live model provider. The frontend terminology check, 126 frontend tests,
+and TypeScript/Vite production build passed; `npm audit --audit-level=high`
+reported zero vulnerabilities. An isolated browser/MCP test against a simulated
+CI socket passed. Recent branch checks separately covered 27 remote-interface
+and 47 browser/MCP workflow cases; these do not establish native window or live
+third-party acceptance. The previously documented RustSec findings remain open.
+
 ### Current pinned client against both Model Hosts
 
 The independent consumer pinned to `1c02a8d09738b89cfc82b8d6fbf18d2d42e7de27`
