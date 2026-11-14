@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 
-import type { AgentDefinition, AgentTeam, AgentTeamMembership, ModelDefinition, Skill } from "../../../lib/types";
+import type { AgentDefinition, AgentTeam, AgentTeamMembership, ModelDefinition, ModelProvider, Skill } from "../../../lib/types";
 import { styles } from "../lib/agentRegistryPageStyles";
 import type { AgentDraft } from "../lib/agentRegistryPageModel";
 import { AgentOrgTreeRail } from "./AgentOrgTreeRail";
@@ -11,6 +11,8 @@ type AgentProfileTabProps = {
   teams: AgentTeam[];
   skills: Skill[];
   modelDefinitions: ModelDefinition[];
+  modelProviders: ModelProvider[];
+  modelProvidersReady: boolean;
   agentsLoading: boolean;
   teamsLoading: boolean;
   selectedAgentId: string | null;
@@ -46,6 +48,8 @@ export function AgentProfileTab({
   teams,
   skills,
   modelDefinitions,
+  modelProviders,
+  modelProvidersReady,
   agentsLoading,
   teamsLoading,
   selectedAgentId,
@@ -168,18 +172,22 @@ export function AgentProfileTab({
             <label style={styles.label}>Primary Model</label>
             <select
               style={styles.select}
+              aria-label="Primary model"
               value={selectedAgentModelId}
+              disabled={!modelProvidersReady}
               onChange={(e) => onSelectedAgentModelChange(e.target.value)}
             >
               <option value="">Select a model definition</option>
-              {modelDefinitions.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.name}
-                </option>
-              ))}
+              {modelDefinitions.map((model) => {
+                const provider = modelProviders.find((item) => item.id === model.provider_id);
+                const localSpeech = provider?.provider_type === "local_runtime";
+                return <option key={model.id} value={model.id} disabled={!provider || localSpeech}>
+                  {model.name}{localSpeech ? " · transcription only" : !provider ? " · provider unavailable" : ""}
+                </option>;
+              })}
             </select>
             <div style={styles.toolbar}>
-              <button type="button" style={styles.buttonSecondary} onClick={onBindSelectedAgentModel} disabled={!selectedAgent || !selectedAgentModelId}>
+              <button type="button" style={styles.buttonSecondary} onClick={onBindSelectedAgentModel} disabled={!selectedAgent || !selectedAgentModelId || !modelProvidersReady || !modelProviders.some((provider) => provider.id === modelDefinitions.find((model) => model.id === selectedAgentModelId)?.provider_id && provider.provider_type !== "local_runtime")}>
                 Bind Model
               </button>
               {selectedAgentModelId ? (

@@ -77,6 +77,8 @@ export function AgentRegistryTabPanels({
     agentsLoading,
     agentModelBindings: _agentModelBindings,
     modelDefinitions,
+    modelProviders,
+    modelProvidersReady,
     teams,
     teamsLoading,
     memberships,
@@ -106,6 +108,8 @@ export function AgentRegistryTabPanels({
         teams={teams}
         skills={skills}
         modelDefinitions={modelDefinitions}
+        modelProviders={modelProviders}
+        modelProvidersReady={modelProvidersReady}
         agentsLoading={agentsLoading}
         teamsLoading={teamsLoading}
         selectedAgentId={selectedAgentId}

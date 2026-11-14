@@ -6,6 +6,7 @@ import {
   listAgentSkillLinks,
   listAgentTeams,
   listModelDefinitions,
+  listProviders,
   listProductAreas,
   listProductCapabilities,
   listProducts,
@@ -45,6 +46,7 @@ export function useAgentRegistryViewModel({
   const { data: agents = [], isLoading: agentsLoading } = useQuery({ queryKey: ["agents"], queryFn: listAgentDefinitions });
   const { data: agentModelBindings = [] } = useQuery({ queryKey: ["agent-model-bindings"], queryFn: listAgentModelBindings });
   const { data: modelDefinitions = [] } = useQuery({ queryKey: ["model-definitions"], queryFn: listModelDefinitions });
+  const { data: modelProviders = [], isSuccess: modelProvidersReady } = useQuery({ queryKey: ["providers"], queryFn: listProviders });
   const { data: teams = [], isLoading: teamsLoading } = useQuery({ queryKey: ["agent-teams"], queryFn: listAgentTeams });
   const { data: memberships = [] } = useQuery({ queryKey: ["agent-team-memberships"], queryFn: listTeamMemberships });
   const { data: assignments = [] } = useQuery({ queryKey: ["agent-team-assignments"], queryFn: listTeamAssignments });
@@ -89,6 +91,8 @@ export function useAgentRegistryViewModel({
     agentsLoading,
     agentModelBindings,
     modelDefinitions,
+    modelProviders,
+    modelProvidersReady,
     teams,
     teamsLoading,
     memberships,

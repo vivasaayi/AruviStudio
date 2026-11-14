@@ -56,6 +56,10 @@ provider hosting into the model-host service as part of this work.
   passed, including actual local Whisper transcription with synthetic audio and
   MCP rejection preserving the previous binding. Remote provider capability
   labels do not prove the selected endpoint or model supports a task.
+- The desktop agent selector now marks local Whisper models as transcription
+  only and disables their selection; it also disables binding while provider
+  data is unavailable. Six mocked desktop browser cases, 102 frontend unit
+  tests and the frontend build passed. The real native window remains untested.
 
 - Branch runtime routing checkpoint: all nine seeded agents were bound to
   `deepseek-coder` on the container-local LM Studio endpoint, which failed its
