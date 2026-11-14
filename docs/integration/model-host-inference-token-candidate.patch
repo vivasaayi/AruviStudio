@@ -182,7 +182,9 @@
 @@ -54 +54 @@
 -            (state / 'environment.env').write_text('HF_TOKEN=fixture-source-token\nMODEL_HOST_PRELOAD=text,audio\nMODEL_HOST_LOAD_TIMEOUT_SECONDS=240\n')
 +            (state / 'environment.env').write_text('HF_TOKEN=fixture-source-token\nMODEL_HOST_INFERENCE_TOKEN=fixture-inference-token\nMODEL_HOST_PRELOAD=text,audio\nMODEL_HOST_LOAD_TIMEOUT_SECONDS=240\n')
-@@ -68,0 +69 @@
+@@ -67,2 +67,3 @@
+             document = plistlib.loads(plist.read_bytes())
+             self.assertEqual(document['EnvironmentVariables']['HF_TOKEN'], 'fixture-source-token')
 +            self.assertEqual(document['EnvironmentVariables']['MODEL_HOST_INFERENCE_TOKEN'], 'fixture-inference-token')
 --- /dev/null
 +++ b/tests/studio_inference_scope.py

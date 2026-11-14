@@ -92,6 +92,18 @@ patch, reconcile it with that work, add the inference token to the integration
 adapter, independently review authorization and validate the intended deployment. The running
 Studio branch still uses the existing management-capable host credential.
 
+A temporary snapshot combining the candidate with the current uncommitted host
+files exposed a zero-context patch hazard: Git reported a clean application but
+inserted a native-adapter test assertion before the variable it used. The patch
+now includes context around that insertion. Reapplying it to a fresh snapshot
+with the current local changes passed all seven native-adapter tests; the seven
+Rust host tests also passed in the manually reconciled snapshot. On the exact
+committed base, all 15 patched files still match the previously tested candidate
+byte for byte. The temporary reconciled snapshot also added the integration
+Compose token setting; that addition is not part of the candidate patch because
+the adapter is currently untracked. These checks do not establish that arbitrary
+future local changes are safe to patch; review the full diff before adoption.
+
 On 2026-11-14, a disposable copy of the untracked integration Compose adapter
 was rendered with `MODEL_HOST_INFERENCE_TOKEN: ${MODEL_HOST_INFERENCE_TOKEN:-}`
 added alongside its existing management-token setting. Docker Compose preserved
