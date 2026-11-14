@@ -7,6 +7,27 @@ test("desktop DeepSeek presets select currently documented model IDs", async ({ 
   await expect(page.getByLabel("Model name")).toHaveValue("deepseek-flash");
   await page.getByRole("button", { name: "DeepSeek V4 Pro Preset" }).click();
   await expect(page.getByLabel("Model name")).toHaveValue("deepseek-v4-pro");
+  await page.getByRole("button", { name: "DeepSeek Transcription Preset" }).click();
+  await expect(page.getByLabel("Model name")).toHaveValue("deepseek-voice-transcription");
+});
+
+test("desktop settings offers an untagged DeepSeek transcription selector", async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = window.__ARUVI_E2E__.invoke;
+    window.__ARUVI_E2E__.invoke = async (command, args) => {
+      if (command === "list_model_definitions") {
+        const models = await original(command, args);
+        return [...models, { id: "deepseek-voice", provider_id: "provider-deepseek-hosted", name: "deepseek-voice-transcription", context_window: null, capability_tags: [], notes: "", enabled: true, created_at: "", updated_at: "" }];
+      }
+      return original(command, args);
+    };
+  });
+  await page.goto("/settings");
+  await page.getByLabel("Speech provider").selectOption("provider-deepseek-hosted");
+  const model = page.getByLabel("Speech model");
+  await expect(model.locator('option[value="deepseek-voice-transcription"]')).toHaveCount(1);
+  await model.selectOption("deepseek-voice-transcription");
+  await expect(model).toHaveValue("deepseek-voice-transcription");
 });
 
 test("desktop provider setup sends Anthropic protocol", async ({ page }) => {

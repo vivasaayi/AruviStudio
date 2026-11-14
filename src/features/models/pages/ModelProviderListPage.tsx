@@ -231,6 +231,21 @@ export function ModelProviderListPage() {
               DeepSeek V4 Pro Preset
             </button>
             <button
+              style={{ ...styles.btn, backgroundColor: "#2c3139" }}
+              onClick={() => {
+                const deepSeekProvider = (providers ?? []).find((provider) => provider.base_url.includes("api.deepseek.com") || provider.name.toLowerCase().includes("deepseek"));
+                setModelForm({
+                  providerId: deepSeekProvider?.id ?? modelForm.providerId,
+                  name: "deepseek-voice-transcription",
+                  contextWindow: "",
+                  capabilityTags: "speech_to_text,transcription,audio",
+                  notes: "Studio selector for DeepSeek transcription; the service detects language.",
+                });
+              }}
+            >
+              DeepSeek Transcription Preset
+            </button>
+            <button
               style={{ ...styles.btn, backgroundColor: "#355c2b" }}
               onClick={() => {
                 const whisperProvider = (providers ?? []).find((provider) => provider.provider_type === "local_runtime" || provider.name.toLowerCase().includes("whisper"));

@@ -1,4 +1,5 @@
 import type { ModelDefinition, ModelProvider } from "../../../lib/types";
+import { isTranscriptionModel } from "../../../lib/speechModel";
 
 export type PlannerModelPickerOption = {
   value: string;
@@ -10,11 +11,6 @@ export type PlannerSpeechModelSelection = {
   modelName: string;
   source: "settings" | "planner" | "auto" | "fallback";
 };
-
-function looksLikeSpeechModel(model: ModelDefinition) {
-  return model.capability_tags.some((tag) => ["speech_to_text", "transcription", "audio"].includes(tag))
-    || /whisper|transcrib/i.test(model.name);
-}
 
 export function buildPlannerModelPickerOptions(
   models: ModelDefinition[],
@@ -47,7 +43,7 @@ export function resolvePlannerSpeechModelSelection({
       return { providerId: speechProviderSetting, modelName: speechModelSetting, source: "settings" };
     }
     if (speechProviderSetting) {
-      const providerSpeechModel = models.find((model) => model.enabled && model.provider_id === speechProviderSetting && looksLikeSpeechModel(model));
+      const providerSpeechModel = models.find((model) => model.enabled && model.provider_id === speechProviderSetting && isTranscriptionModel(model));
       return {
         providerId: speechProviderSetting,
         modelName: providerSpeechModel?.name ?? speechModelSetting ?? "whisper-1",
@@ -60,12 +56,12 @@ export function resolvePlannerSpeechModelSelection({
     }
   }
 
-  const sameProvider = models.find((model) => model.enabled && model.provider_id === providerId && looksLikeSpeechModel(model));
+  const sameProvider = models.find((model) => model.enabled && model.provider_id === providerId && isTranscriptionModel(model));
   if (sameProvider) {
     return { providerId: sameProvider.provider_id, modelName: sameProvider.name, source: "planner" };
   }
 
-  const anySpeechModel = models.find((model) => model.enabled && looksLikeSpeechModel(model));
+  const anySpeechModel = models.find((model) => model.enabled && isTranscriptionModel(model));
   if (anySpeechModel) {
     return { providerId: anySpeechModel.provider_id, modelName: anySpeechModel.name, source: "auto" };
   }

@@ -99,7 +99,7 @@ export function SettingsSpeechSection({
       <div style={styles.settingRow}>
         <div><div style={styles.label}>Speech Provider</div><div style={styles.desc}>Explicit provider used for planner voice transcription. Leave blank to allow automatic discovery.</div></div>
         <div style={{ display: "flex", alignItems: "center" }}>
-          <select style={styles.input} value={speechProviderId} onChange={(e) => onSpeechProviderIdChange(e.target.value)}>
+          <select aria-label="Speech provider" style={styles.input} value={speechProviderId} onChange={(e) => onSpeechProviderIdChange(e.target.value)}>
             <option value="">Automatic</option>
             {speechProviderOptions.map((provider) => (
               <option key={provider.id} value={provider.id}>
@@ -114,7 +114,7 @@ export function SettingsSpeechSection({
       <div style={styles.settingRow}>
         <div><div style={styles.label}>Speech Model</div><div style={styles.desc}>Pick a Whisper/transcription model explicitly so desktop and mobile voice use the same backend speech path.</div></div>
         <div style={{ display: "flex", alignItems: "center" }}>
-          <select style={styles.input} value={speechModelName} onChange={(e) => onSpeechModelNameChange(e.target.value)}>
+          <select aria-label="Speech model" style={styles.input} value={speechModelName} onChange={(e) => onSpeechModelNameChange(e.target.value)}>
             <option value="">Automatic</option>
             {speechModelOptions.map((model) => (
               <option key={model.id} value={model.name}>

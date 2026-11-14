@@ -2359,6 +2359,10 @@ speed control. All 35 isolated workflow tests passed, including synthetic
 transcription via API and MCP and synthesis via browser, API and MCP. Native
 speech-service tests passed eight cases with one local Whisper case ignored.
 No live DeepSeek voice call or physical audio test has been made.
+Desktop model setup now includes a transcription preset, and Settings and
+planner recognize the selector even without capability tags. The frontend build,
+five planner selection tests and ten mocked desktop provider checks passed;
+native-window and real-provider acceptance remain open.
 
 ## Shared-client example pin
 

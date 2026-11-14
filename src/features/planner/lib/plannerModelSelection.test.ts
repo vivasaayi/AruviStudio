@@ -40,6 +40,12 @@ function model(
 }
 
 describe("plannerModelSelection", () => {
+  it("recognizes an untagged DeepSeek transcription selector", () => {
+    expect(resolvePlannerSpeechModelSelection({ models: [model("voice", "provider-1", "deepseek-voice-transcription")],
+      providerId: "provider-1", speechProviderSetting: "", speechModelSetting: "" })).toEqual({
+      providerId: "provider-1", modelName: "deepseek-voice-transcription", source: "planner",
+    });
+  });
   it("builds picker options for enabled models with provider labels", () => {
     expect(buildPlannerModelPickerOptions([
       model("model-1", "provider-1", "planner"),

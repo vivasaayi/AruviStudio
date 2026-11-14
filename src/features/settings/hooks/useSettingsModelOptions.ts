@@ -2,18 +2,11 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { listModelDefinitions, listProviders } from "../../../lib/tauri";
 import type { ModelDefinition, ModelProvider } from "../../../lib/types";
+import { isTranscriptionModel } from "../../../lib/speechModel";
 
 type SettingsModelOptionsInput = {
   speechProviderId: string;
 };
-
-function looksLikeSpeechModel(model: ModelDefinition) {
-  return (
-    model.capability_tags.some((tag) =>
-      ["speech_to_text", "transcription", "audio"].includes(tag),
-    ) || /whisper|transcrib/i.test(model.name)
-  );
-}
 
 export function useSettingsModelOptions({
   speechProviderId,
@@ -36,7 +29,7 @@ export function useSettingsModelOptions({
       models.filter(
         (model) =>
           model.enabled &&
-          looksLikeSpeechModel(model) &&
+          isTranscriptionModel(model) &&
           (!speechProviderId || model.provider_id === speechProviderId),
       ),
     [models, speechProviderId],
