@@ -144,10 +144,47 @@ pub(crate) async fn mobile_file_copilot(
     completion_response(run_file_copilot(&state.app_state, body, "mobile_ide", "Browser IDE").await)
 }
 
-type CompletionResult = Result<CompletionResponse, (StatusCode, String)>;
+pub(crate) enum CompletionFailure {
+    Local(StatusCode, String),
+    Provider(crate::error::AppError),
+}
+
+impl From<(StatusCode, String)> for CompletionFailure {
+    fn from((status, message): (StatusCode, String)) -> Self { Self::Local(status, message) }
+}
+
+impl CompletionFailure {
+    pub(crate) fn into_app_error(self) -> crate::error::AppError {
+        match self {
+            Self::Local(_, message) => crate::error::AppError::Validation(message),
+            Self::Provider(error) => error,
+        }
+    }
+}
+
+type CompletionResult = Result<CompletionResponse, CompletionFailure>;
 
 fn completion_response(result: CompletionResult) -> axum::response::Response {
-    match result { Ok(response) => Json(response).into_response(), Err((status, message)) => (status, message).into_response() }
+    match result {
+        Ok(response) => Json(response).into_response(),
+        Err(CompletionFailure::Local(status, message)) => (status, message).into_response(),
+        Err(CompletionFailure::Provider(error)) => {
+            use axum::http::HeaderValue;
+            let mut response = (StatusCode::BAD_REQUEST, error.to_string()).into_response();
+            match error {
+                crate::error::AppError::ProviderHttp { status, .. } => {
+                    if let Ok(value) = HeaderValue::from_str(&status.to_string()) { response.headers_mut().insert("x-aruvi-provider-http-status", value); }
+                }
+                crate::error::AppError::ProviderTransport { kind, .. } => {
+                    if let Some(kind) = serde_json::to_value(kind).ok().and_then(|value| value.as_str().map(str::to_owned)) {
+                        if let Ok(value) = HeaderValue::from_str(&kind) { response.headers_mut().insert("x-aruvi-provider-transport-kind", value); }
+                    }
+                }
+                _ => {},
+            }
+            response
+        }
+    }
 }
 
 pub(crate) async fn mobile_file_copilot_stream(
@@ -230,30 +267,30 @@ async fn run_mobile_completion(state: &crate::state::AppState, body: MobileChatC
         .filter(|message| !message.content.trim().is_empty())
         .collect::<Vec<_>>();
     if messages.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "At least one chat message is required.".into()));
+        return Err((StatusCode::BAD_REQUEST, "At least one chat message is required.".into()).into());
     }
 
     let provider_id =
         match resolve_mobile_chat_provider_id(state, body.provider_id, body.model_name.as_deref()).await {
             Ok(provider_id) => provider_id,
-            Err(error) => return Err((StatusCode::BAD_REQUEST, error)),
+            Err(error) => return Err((StatusCode::BAD_REQUEST, error).into()),
         };
     let model_name =
         match resolve_mobile_chat_model_name(state, &provider_id, body.model_name).await
         {
             Ok(model_name) => model_name,
-            Err(error) => return Err((StatusCode::BAD_REQUEST, error)),
+            Err(error) => return Err((StatusCode::BAD_REQUEST, error).into()),
         };
     let provider = match model_repo::get_provider(&state.db, &provider_id).await {
         Ok(provider) if provider.enabled => provider,
         Ok(_) => {
-            return Err((StatusCode::BAD_REQUEST, "Selected provider is disabled.".into()))
+            return Err((StatusCode::BAD_REQUEST, "Selected provider is disabled.".into()).into())
         }
-        Err(error) => return Err((StatusCode::BAD_REQUEST, error.to_string())),
+        Err(error) => return Err((StatusCode::BAD_REQUEST, error.to_string()).into()),
     };
     let gateway = match create_gateway(&provider) {
         Ok(gateway) => gateway,
-        Err(error) => return Err((StatusCode::BAD_REQUEST, error.to_string())),
+        Err(error) => return Err(CompletionFailure::Provider(error)),
     };
     let max_tokens = body.max_tokens.or(Some(4096));
     let temperature = body.temperature;
@@ -328,7 +365,7 @@ async fn run_mobile_completion(state: &crate::state::AppState, body: MobileChatC
             {
                 error!(error = %record_error, "Failed to record failed mobile chat telemetry");
             }
-            Err((StatusCode::BAD_REQUEST, error_message))
+            Err(CompletionFailure::Provider(error))
         }
     }
 }

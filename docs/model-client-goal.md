@@ -289,8 +289,13 @@ and other transport categories while retaining its previous error text and URL
 redaction. MCP, browser streaming and desktop stream events expose the category
 as optional metadata. Native Tauri event tests and six mocked desktop chat UI
 tests passed; the UI still displays the text rather than using that category.
-Buffered browser errors remain plain text, and MCP file Copilot currently
-repackages its errors without the category. The new `ClientError` variant
+Buffered browser errors retain their plain-text bodies and expose optional
+`x-aruvi-provider-transport-kind` or `x-aruvi-provider-http-status` headers;
+MCP file Copilot preserves the corresponding structured provider error. Isolated
+connection-failure and HTTP 429 fixtures verify both paths and provider-detail
+redaction, and validation errors do not acquire a transport header. The worktree
+image build, 45 browser/MCP workflow tests and 27 remote-interface tests passed.
+The new `ClientError` variant
 requires exhaustive-match consumers to
 update when they opt into this revision; the category alone does not establish
 retry safety. All 57 native client tests, a native MCP error test and 45 isolated

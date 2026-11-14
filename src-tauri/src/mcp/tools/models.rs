@@ -46,7 +46,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 history: args.optional_deserialize(&["history"], "history")?.unwrap_or_default(),
             };
             let response = crate::services::webhook_mobile_chat::run_file_copilot(state, body, "mcp_ide", "MCP IDE")
-                .await.map_err(|(_, message)| AppError::Validation(message))?;
+                .await.map_err(crate::services::webhook_mobile_chat::CompletionFailure::into_app_error)?;
             action_result("run_file_copilot", response)
         }
         "read_model_call_snapshot" => {
