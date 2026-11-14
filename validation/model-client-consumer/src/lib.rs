@@ -5,6 +5,23 @@ mod tests {
     use std::{io::{Read, Write}, net::TcpListener, thread};
 
     #[tokio::test]
+    async fn independent_client_rejects_ambiguous_completion_choices() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0; 4096];
+            let _ = socket.read(&mut request).unwrap();
+            let response = r#"{"choices":[{"index":0,"message":{"content":"first"}},{"index":1,"message":{"content":"second"}}]}"#;
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).unwrap();
+        });
+        let client = OpenAiCompatibleClient::new(format!("http://{address}"), None);
+        let request = CompletionRequest { model: "fixture".into(), messages: vec![ChatMessage { role: "user".into(), content: "hello".into() }], temperature: None, max_tokens: Some(10) };
+        assert!(client.run_completion(request).await.is_err());
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
     async fn independent_client_can_call_deepseek_voice() {
         use aruvi_model_client::deepseek::{DeepSeekVoiceClient, Voice};
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();

@@ -18,9 +18,12 @@ The shared OpenAI-compatible client rejects multiple choices and a supplied
 choice index other than zero in both buffered and streaming completions. This
 avoids presenting a discarded or mixed choice as a complete answer. An absent
 index remains accepted for compatible providers; earlier stream chunks can
-already have been delivered when an invalid later event fails. The independent
-consumer must be updated to a Git revision containing this change. All 55
-shared-client tests passed in Linux, using an offline-resolved temporary lockfile.
+already have been delivered when an invalid later event fails. All 55 shared-client tests passed in Linux, using an offline-resolved temporary
+lockfile. A separate consumer pinned to `a81f2a155bee2a8f52652aeb8a7d531503f4f0d2`
+passed 22 tests after vendoring with network disabled, including an ambiguous
+choice fixture. Its non-root container also passed real Model Host discovery,
+completion, streaming and token-limit checks on `qwen25-coder-7b-q4`. All 36
+isolated Studio workflows passed with the modified client.
 
 ### Browser planner voice view commands
 
@@ -101,7 +104,7 @@ scope is reviewed, not merely until an example passes.
 
 | Requirement | Current evidence | Remaining work |
 | --- | --- | --- |
-| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and by a separate project pinned to commit `3b97f0aaeb9293868b7d04deb6d7aa3c60e1f989`; 21 independent tests passed offline after vendoring. Its non-root Linux probe passed real Model Host discovery, completion, streaming, token-limit handling and a synthetic speech round trip. | Decide independent ownership, versioning and a migration plan for other projects. The current pin is a checkpoint, not a published release. |
+| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and by a separate project pinned to commit `a81f2a155bee2a8f52652aeb8a7d531503f4f0d2`; 22 independent tests passed offline after vendoring. Its non-root Linux probe passed real Model Host discovery, completion, streaming and token-limit handling. A previous pin passed a synthetic speech round trip on a host offering those models; the coding host used for the new pin did not advertise them. | Decide independent ownership, versioning and a migration plan for other projects. The current pin is a checkpoint, not a published release. |
 | OpenAI-compatible and Anthropic protocols | Shared clients cover text, streaming, discovery and error handling; OpenAI-compatible voice is implemented. Contract fixtures cover both protocols and the reasoning request profile. | Live third-party OpenAI, Anthropic, DeepSeek and LM Studio sessions remain unverified; compatibility with each model and provider cannot be inferred from adapter capabilities. |
 | Local coding integration | The isolated 7B Model Host passed real MCP completion and an extend-module workflow through code review and a disposable local Git remote. A later new-module attempt produced a missing function definition; independent behavior checks caught it before delivery. | Investigate reliability on broader coding tasks and actual authenticated network delivery; syntax-only checks do not establish correctness. |
 | Speech and local fallback | Real Model Host speech generation and transcription and checksum-pinned local Whisper have been exercised with synthetic audio; browser and MCP fixtures exist. | Physical microphone permission/capture, audible playback, other languages and recognition quality remain unverified. |
