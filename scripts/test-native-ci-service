@@ -2,11 +2,14 @@
 """Check a disposable native Studio server against a real, empty Aruvici service."""
 import argparse
 import contextlib
+import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
 import secrets
 import socket
+import sqlite3
 import subprocess
 import tempfile
 import time
@@ -18,7 +21,10 @@ parser.add_argument("studio_binary", type=Path)
 parser.add_argument("aruvici_binary", type=Path)
 parser.add_argument("--docker-image", help="Optionally probe the temporary socket from this local image as UID 10001")
 parser.add_argument("--audit-protocol", action="store_true", help="Inspect a disposable target and report protocol support without queueing a build")
+parser.add_argument("--exercise-protocol", action="store_true", help="With --audit-protocol, verify retry and artifact records with worker execution locked")
 args = parser.parse_args()
+if args.exercise_protocol and not args.audit_protocol:
+    parser.error("--exercise-protocol requires --audit-protocol")
 studio = args.studio_binary.resolve(strict=True)
 aruvici = args.aruvici_binary.resolve(strict=True)
 
@@ -54,8 +60,22 @@ try:
         repository.mkdir()
         config = 'state_dir = ' + json.dumps(str(state)) + '\n'
         if args.audit_protocol:
-            config += '[[targets]]\nid = "fixture"\nrepository = ' + json.dumps(str(repository)) + '\nprofile = "native-ios@1"\n'
-        else:
+            profile = "rust-docker@1" if args.exercise_protocol else "native-ios@1"
+            config += '[[targets]]\nid = "fixture"\nrepository = ' + json.dumps(str(repository)) + '\nprofile = ' + json.dumps(profile) + '\n'
+        if args.exercise_protocol:
+            (repository / "Cargo.toml").write_text("[package]\nname='fixture'\nversion='0.1.0'\n")
+            (repository / "Dockerfile").write_text("FROM scratch\n")
+            def git(*arguments):
+                return subprocess.run(["git", *arguments], cwd=repository, check=True, capture_output=True, text=True).stdout.strip()
+            git("init", "-q")
+            git("add", ".")
+            git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture")
+            commit = git("rev-parse", "HEAD")
+            locks = state / "locks"
+            locks.mkdir()
+            release_lock = cleanup.enter_context((locks / "release.lock").open("w"))
+            fcntl.flock(release_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if not args.audit_protocol:
             config += 'targets = []\n'
         platform.write_text(config)
         base_env = {key: value for key, value in os.environ.items() if not key.startswith("ARUVI_")}
@@ -115,7 +135,39 @@ try:
                 raise RuntimeError("Unexpected target binding failure")
             else:
                 print("Target repository metadata and binding are supported.")
-            for action in ("retry_run", "artifact_readiness"):
+            if args.exercise_protocol:
+                cli = [str(aruvici), "ci", "--platform", str(platform)]
+                plan = json.loads(subprocess.run(cli + ["plan", "fixture"], check=True, capture_output=True, text=True).stdout)
+                if plan["issues"]: raise RuntimeError("Disposable target is not buildable")
+                subprocess.run(cli + ["approve", "fixture", "--digest", plan["digest"]], check=True, capture_output=True, text=True)
+                artifact_bytes = b"disposable CI artifact"
+                run_root = state / "ci-runs" / "1"
+                run_root.mkdir(parents=True)
+                artifact_path = run_root / "package.bin"
+                artifact_path.write_bytes(artifact_bytes)
+                with sqlite3.connect(state / "ci.sqlite") as database:
+                    database.execute("INSERT INTO runs(id,target,commit_hash,plan_digest,dedupe_key,context,status) VALUES (1,?,?,?,?,?,?)", ("fixture", commit, plan["digest"], "original", json.dumps({"fixture": True}), "failed"))
+                    database.execute("INSERT INTO artifacts(id,run_id,stage,kind,path,sha256,size) VALUES (1,1,?,?,?,?,?)", ("package", "package", str(artifact_path), hashlib.sha256(artifact_bytes).hexdigest(), len(artifact_bytes)))
+                readiness = call("aruvi_ci", "artifact_readiness", {"id": 1})
+                if readiness.get("sha256") != hashlib.sha256(artifact_bytes).hexdigest() or readiness.get("eligible") is not False:
+                    raise RuntimeError("Unexpected artifact verification")
+                try:
+                    opener.open(address + "/api/mobile/ci/artifacts/1/readiness", timeout=10)
+                    raise RuntimeError("Unauthenticated artifact verification was accepted")
+                except urllib.error.HTTPError as error:
+                    if error.code != 401: raise
+                request = urllib.request.Request(address + "/api/mobile/ci/artifacts/1/readiness", headers={"Authorization": "Bearer " + token})
+                with opener.open(request, timeout=10) as response: browser_readiness = json.load(response)
+                if browser_readiness != readiness: raise RuntimeError("Browser and MCP artifact verification differ")
+                artifact_path.write_bytes(b"tampered")
+                if not mcp_result("aruvi_ci", "artifact_readiness", {"id": 1}).get("isError"):
+                    raise RuntimeError("Tampered artifact was accepted")
+                retry = call("aruvi_ci", "retry_run", {"id": 1})
+                retried = call("aruvi_ci", "get_run", {"id": retry["run_id"]})
+                if retried.get("status") != "queued" or retried.get("commit") != commit or retried.get("context") != {"fixture": True}:
+                    raise RuntimeError("Retry lost its provenance or was executed")
+                print("MCP artifact integrity and guarded retry passed; worker execution remained locked.")
+            for action in (() if args.exercise_protocol else ("retry_run", "artifact_readiness")):
                 result = mcp_result("aruvi_ci", action, {"id": 1})
                 if result.get("isError") and "unsupported method" in json.dumps(result.get("content", [])):
                     print("Protocol gap: " + action + " is unsupported by the service.")

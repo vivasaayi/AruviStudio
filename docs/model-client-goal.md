@@ -26,11 +26,17 @@ change. A disposable source copy passed all 59 native tests, including eight CI
 API tests, plus its doc tests. No pipeline was queued during the Studio probe.
 
 Native Studio and the candidate service passed MCP health, target and run
-listing, browser API health and target binding. The probe supplies nonexistent
-run/artifact IDs for retry and readiness, so its responses only show those calls
-no longer report unsupported; successful end-to-end retry and artifact checks
-remain unverified. The candidate is not committed to or deployed from Aruvici;
-its isolated checkout request remains pending. Docker transport remains open.
+listing, browser API health and target binding. The optional
+`bash scripts/test native-ci-service STUDIO_BINARY ARUVICI_BINARY --audit-protocol --exercise-protocol`
+uses a disposable Git repository, a temporary approval and synthetic failed-run
+and artifact database records. It verified artifact integrity via MCP and the
+authenticated browser API, rejected unauthenticated access and tampered content,
+and queued a retry with the original commit and context through MCP. The test
+holds the temporary worker lock until the service stops, so no build executes.
+This does not establish actual build execution, native UI behavior or promotion
+readiness. The original Aruvici revision still fails the protocol audit. The
+candidate is not committed to or deployed from Aruvici; its isolated checkout
+request remains pending. Docker transport remains open.
 
 ### Disposable native Aruvici connection
 
