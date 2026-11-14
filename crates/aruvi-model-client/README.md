@@ -157,7 +157,10 @@ network, then runs the binary in a read-only, non-root container. It reads the
 host token from its private environment file and passes it only on standard
 input. It validates discovery, ordinary and streamed text, and a token-limit
 error. Add `--json-mode` to also test JSON-object completion when the chosen
-model supports it. The native host token grants whatever authority the host assigned it;
+model supports it. Add `--voice-model MODEL_ID --transcription-model MODEL_ID`
+to generate and transcribe synthetic English speech; both models must be
+advertised by that host. This does not validate physical audio or other languages.
+The native host token grants whatever authority the host assigned it;
 this check does not modify host configuration, register models or prove model
 quality. Use `--environment integration` or `--environment staging` only when
 that deployment has the selected model installed and resources available.

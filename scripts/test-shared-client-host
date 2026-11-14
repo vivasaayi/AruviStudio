@@ -14,7 +14,11 @@ parser.add_argument("host_worktree", type=Path, help="Native Model Host checkout
 parser.add_argument("--environment", choices=("worktree", "integration", "staging"), default="worktree")
 parser.add_argument("--model", required=True, help="Installed coding model ID")
 parser.add_argument("--json-mode", action="store_true", help="Also test JSON-object completion on a compatible model")
+parser.add_argument("--voice-model", help="Installed speech generation model ID")
+parser.add_argument("--transcription-model", help="Installed speech transcription model ID")
 args = parser.parse_args()
+if bool(args.voice_model) != bool(args.transcription_model):
+    parser.error("--voice-model and --transcription-model must be supplied together")
 try:
     host = args.host_worktree.expanduser().resolve(strict=True)
     loader = importlib.machinery.SourceFileLoader("configure_native_host", str(root / "scripts/configure-native-model-host"))
@@ -26,6 +30,8 @@ try:
         subprocess.run(["docker", "build", "--target", "probe-artifact", "--output", f"type=local,dest={directory}", "validation/model-client-consumer"], cwd=root, check=True, stdout=subprocess.DEVNULL)
         binary = str(Path(directory) / "host_probe")
         options = ["--env", "ARUVI_PROBE_JSON_MODE=1"] if args.json_mode else []
+        if args.voice_model:
+            options += ["--env", f"ARUVI_PROBE_VOICE_MODEL={args.voice_model}", "--env", f"ARUVI_PROBE_TRANSCRIPTION_MODEL={args.transcription_model}"]
         result = subprocess.run(["docker", "run", "--rm", "-i", "--read-only", "--cap-drop", "ALL", "--user", "65534:65534", "--security-opt", "no-new-privileges", "--memory", "512m", "--cpus", "1", "--pids-limit", "64", "--mount", f"type=bind,src={binary},dst=/host_probe,readonly", "--env", f"ARUVI_PROBE_BASE_URL=http://host.docker.internal:{port}/v1", "--env", f"ARUVI_PROBE_MODEL={args.model}"] + options + ["rust:1-bookworm@sha256:e6f2cff35d0f309acf8433b4f05878ed77092602c5065cc81801177da0bb3a9c", "/host_probe"], input=token, text=True, capture_output=True, check=True, timeout=240)
         print(result.stdout.strip())
 except (OSError, ValueError, KeyError, TypeError, StopIteration, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:

@@ -21,7 +21,7 @@ scope is reviewed, not merely until an example passes.
 
 | Requirement | Current evidence | Remaining work |
 | --- | --- | --- |
-| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and by a separate project pinned to commit `0ba3aa08b2840adbb327b435042eed86b2f076b9`; 20 independent tests passed offline after vendoring. Its non-root Linux probe passed real Model Host discovery, completion, streaming and token-limit handling. | Decide independent ownership, versioning and a migration plan for other projects. The current pin is a checkpoint, not a published release. |
+| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and by a separate project pinned to commit `0cabaeb392db9c88d1aecea29f1c0296dca9254e`; 20 independent tests passed offline after vendoring. Its non-root Linux probe passed real Model Host discovery, completion, streaming, token-limit handling and a synthetic speech round trip. | Decide independent ownership, versioning and a migration plan for other projects. The current pin is a checkpoint, not a published release. |
 | OpenAI-compatible and Anthropic protocols | Shared clients cover text, streaming, discovery and error handling; OpenAI-compatible voice is implemented. Contract fixtures cover both protocols and the reasoning request profile. | Live third-party OpenAI, Anthropic, DeepSeek and LM Studio sessions remain unverified; compatibility with each model and provider cannot be inferred from adapter capabilities. |
 | Local coding integration | The isolated 7B Model Host passed real MCP completion and an extend-module workflow through code review and a disposable local Git remote. | Revalidate broader coding tasks and actual authenticated network delivery when appropriate; one task is not a reliability guarantee. |
 | Speech and local fallback | Real Model Host speech generation and transcription and checksum-pinned local Whisper have been exercised with synthetic audio; browser and MCP fixtures exist. | Physical microphone permission/capture, audible playback, other languages and recognition quality remain unverified. |
@@ -2298,6 +2298,17 @@ Its non-root, read-only Linux probe then reached the real Model Host and passed
 model discovery, completion, streaming and token-limit handling with
 `qwen25-coder-7b-q4`. This verifies the pinned revision; later client changes
 require a new pin and revalidation. No release was published.
+
+## Independent shared-client voice probe
+
+The separate Git-pinned consumer now exercises synthetic speech generation and
+transcription as optional public `ModelGateway` operations. With the client
+pinned to `0cabaeb392db9c88d1aecea29f1c0296dca9254e`, its 20 offline tests
+passed; a non-root, read-only Linux probe reached the existing Model Host
+integration environment and passed text discovery/completion/streaming and a
+`piper-ljspeech` to `whisper-tiny-metal` round trip. This uses synthetic English
+audio, not a physical microphone or audible playback. The host deployment was
+not reconfigured.
 
 ## Empty completion handling
 

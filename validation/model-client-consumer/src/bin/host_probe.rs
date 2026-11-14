@@ -1,6 +1,6 @@
 //! Real-host check from a separate crate using the pinned public Git dependency.
 //! Read the token from stdin; do not print requests, responses, or credentials.
-use aruvi_model_client::{openai_compatible::OpenAiCompatibleClient, ChatMessage, CompletionRequest, ModelGateway};
+use aruvi_model_client::{openai_compatible::OpenAiCompatibleClient, ChatMessage, CompletionRequest, ModelGateway, SpeechRequest, TranscriptionRequest};
 use std::io::Read;
 
 fn request(model: &str, prompt: &str, max_tokens: i64) -> CompletionRequest {
@@ -32,6 +32,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let json = gateway.run_json_completion(request(&model, "Return a JSON object with type set to final and summary set to ready.", 100)).await?;
         if json.content.trim().is_empty() { return Err("Empty JSON completion".into()); }
         println!("Independent pinned client: JSON-object completion passed.");
+    }
+    match (std::env::var("ARUVI_PROBE_VOICE_MODEL").ok(), std::env::var("ARUVI_PROBE_TRANSCRIPTION_MODEL").ok()) {
+        (Some(voice_model), Some(transcription_model)) => {
+            if !caps.speech || !caps.transcription { return Err("Voice transport capability is unavailable".into()); }
+            if !page.models.iter().any(|entry| entry.id == voice_model) || !page.models.iter().any(|entry| entry.id == transcription_model) {
+                return Err("Requested voice models not advertised".into());
+            }
+            let audio = gateway.generate_speech(SpeechRequest { model: voice_model, input: "The quick brown fox jumps over the lazy dog.".into(), voice: None, speed: None, response_format: "wav".into() }).await?;
+            let transcript = gateway.transcribe(TranscriptionRequest { model: transcription_model, audio, mime_type: "audio/wav".into(), filename: "fixture.wav".into(), language: Some("en".into()) }).await?.to_lowercase();
+            if !transcript.contains("fox") || !transcript.contains("dog") { return Err("Speech fixture transcript did not contain expected words".into()); }
+            println!("Independent pinned client: synthetic speech generation and transcription passed.");
+        }
+        (None, None) => {},
+        _ => return Err("Both voice model IDs are required".into()),
     }
     let short = gateway.run_completion(request(&model, "Write a detailed explanation of recursion with three code examples.", 1)).await;
     match short {
