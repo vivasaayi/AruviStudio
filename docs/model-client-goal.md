@@ -99,10 +99,13 @@ bounds the submitted buffer, labels it as unsaved and truncates the excerpt
 sent to the provider. Conversation history resets when editor content changes.
 The request and response remain subject to the model-call Activity ledger.
 Patch proposals still require a saved file and reject unsaved content at the
-API; asking about a buffer does not write it. Browser and MCP coverage uses a
-simulated provider, so it does not establish live-provider behavior. The final
-isolated remote suite passed all 26 cases; the rebuilt branch was healthy at
-`127.0.0.1:55087` on 2026-11-14.
+API; asking about a buffer does not write it. The isolated remote suite passed
+all 26 cases with a simulated provider. A separate disposable browser fixture
+used the real `qwen25-coder-7b-q4` Model Host to identify a function present
+only in the unsaved buffer, discarded the edit, then reviewed and applied a
+saved-file patch. Real web and MCP saved-file follow-ups and patch previews
+also passed. This is one fixture, not a general coding-quality guarantee. The
+rebuilt branch was healthy at `127.0.0.1:55087` on 2026-11-14.
 
 ## External planner defaults in the browser
 

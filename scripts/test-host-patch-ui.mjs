@@ -18,6 +18,15 @@ try {
   await row.getByRole("button", { name: "Browse workspace" }).click();
   await page.locator("#repositoryTree").getByRole("button", { name: "math.js" }).click();
   await page.getByLabel("Selected file contents").waitFor();
+  await page.getByLabel("Selected file contents").fill("function unsavedAnswerFortyTwo() { return 42; }\n");
+  await page.getByLabel("Copilot question").fill("Name the function defined in this file. Reply with its exact name.");
+  await page.getByRole("button", { name: "Ask about unsaved file" }).click();
+  await page.locator("#status").getByText("Copilot reply ready", { exact: true }).waitFor({ timeout: 120000 });
+  assert.match(await page.locator("#repositoryCopilotResult").textContent(), /unsavedAnswerFortyTwo/i);
+  assert.equal(await page.getByRole("button", { name: "Propose changes" }).isDisabled(), true);
+  await page.getByRole("button", { name: "Discard file edits" }).click();
+  assert.match(await page.getByLabel("Selected file contents").inputValue(), /multiplyBySeven/);
+  console.log("Browser discussed an unsaved file with the real coding model without saving it.");
   await page.getByLabel("Stream Copilot response").check();
   await page.getByLabel("Copilot question").fill("Change the function to multiply by 9 instead of 7. Keep its name. Return a single patch for math.js.");
   await page.getByRole("button", { name: "Propose changes" }).click();
