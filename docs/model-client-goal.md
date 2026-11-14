@@ -3707,6 +3707,23 @@ SQLite `quick_check` returned `ok`; this is not a full data audit. Docker still
 reported approximately 360 MB available, so subsequent builds may fail until
 capacity is increased or more authorized cleanup is performed.
 
+## Dependency revalidation after provider configuration
+
+On 2026-11-14 at branch revision `7329e27`, `npm audit --audit-level=high`
+reported zero vulnerabilities. Cargo audit against the locally cached RustSec
+database at `4ef2df8e806a65e2f1ecc14f56f51249062b23d6` reported one Studio
+lockfile vulnerability (`RUSTSEC-2023-0071` in `rsa` 0.9.10), 13 unmaintained
+warnings and two unsoundness warnings. The local advisory database commit
+matched RustSec's remote `main` at the time of the check. The all-features,
+all-targets dependency tree for this manifest selected no RSA path; this is
+not a binary audit or a guarantee for another manifest or future features.
+The independently pinned consumer lockfile reported no advisories or warnings.
+The JSON scans explicitly skipped yanked-package checks. The SQLx vendor
+provenance check passed, but the audit does not review the locally patched SQLx
+source. These findings and the cross-platform review remain open for release.
+The Mac console still reported locked during this check, so native-window and
+physical microphone acceptance were not run.
+
 ## Transcription provider-only override
 
 When `ARUVI_SPEECH_PROVIDER_ID` names a different nonblank provider from the
