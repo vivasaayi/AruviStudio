@@ -1,6 +1,7 @@
 --- a/src/api.rs
 +++ b/src/api.rs
-@@ -153,0 +154,23 @@
+@@ -153,2 +153,25 @@
+         .is_some_and(|token| console_auth::matches(&format!("Bearer {token}"), bearer));
 +    let inference_valid = host
 +        .config
 +        .inference_token
@@ -24,9 +25,11 @@
 +        }
 +        return next.run(request).await;
 +    }
+     if !signed_in
 --- a/src/main.rs
 +++ b/src/main.rs
-@@ -32,0 +33,13 @@
+@@ -32,2 +32,15 @@
+         .filter(|value| !value.trim().is_empty());
 +    let inference_token = std::env::var("MODEL_HOST_INFERENCE_TOKEN")
 +        .ok()
 +        .filter(|value| !value.trim().is_empty());
@@ -40,32 +43,46 @@
 +    {
 +        bail!("Inference and management tokens must differ");
 +    }
-@@ -65,0 +79 @@
+     if !bind.ip().is_loopback() && token.is_none() {
+@@ -65,2 +78,3 @@
+         token,
 +        inference_token,
+         console_auth: console_auth::ConsoleAuth::from_env()?,
 --- a/src/runtime.rs
 +++ b/src/runtime.rs
-@@ -37,0 +38 @@
+@@ -37,2 +37,3 @@
+     pub token: Option<String>,
 +    pub inference_token: Option<String>,
+     pub console_auth: Option<Arc<crate::console_auth::ConsoleAuth>>,
 --- a/scripts/native_env.py
 +++ b/scripts/native_env.py
-@@ -316 +316 @@
+@@ -315,3 +315,3 @@
+     }
 -    for key in ['HF_TOKEN', 'MODEL_HOST_CONSOLE_USERNAME', 'MODEL_HOST_CONSOLE_PASSWORD', 'MODEL_HOST_CONSOLE_ALLOW_HTTP', 'MODEL_HOST_IDLE_TIMEOUT_SECONDS', 'MODEL_HOST_MAX_LOADED', 'MODEL_HOST_MEMORY_MB', 'MODEL_HOST_MAX_REQUESTS', 'MODEL_HOST_MAX_ARTIFACT_BYTES', 'MODEL_HOST_LOAD_TIMEOUT_SECONDS', 'MODEL_HOST_REQUEST_TIMEOUT_SECONDS', 'MODEL_HOST_PRELOAD', 'LLAMA_ARG_LOG_VERBOSITY']:
 +    for key in ['MODEL_HOST_INFERENCE_TOKEN', 'HF_TOKEN', 'MODEL_HOST_CONSOLE_USERNAME', 'MODEL_HOST_CONSOLE_PASSWORD', 'MODEL_HOST_CONSOLE_ALLOW_HTTP', 'MODEL_HOST_IDLE_TIMEOUT_SECONDS', 'MODEL_HOST_MAX_LOADED', 'MODEL_HOST_MEMORY_MB', 'MODEL_HOST_MAX_REQUESTS', 'MODEL_HOST_MAX_ARTIFACT_BYTES', 'MODEL_HOST_LOAD_TIMEOUT_SECONDS', 'MODEL_HOST_REQUEST_TIMEOUT_SECONDS', 'MODEL_HOST_PRELOAD', 'LLAMA_ARG_LOG_VERBOSITY']:
+         if key in values:
 --- a/deploy/compose.worktree.yaml
 +++ b/deploy/compose.worktree.yaml
-@@ -11,0 +12 @@
+@@ -11,2 +11,3 @@
+       MODEL_HOST_TOKEN: ${POSTGRES_PASSWORD:?Generated per-environment API token}
 +      MODEL_HOST_INFERENCE_TOKEN: ${MODEL_HOST_INFERENCE_TOKEN:-}
+       MODEL_HOST_CONSOLE_USERNAME: ${MODEL_HOST_CONSOLE_USERNAME:-}
 --- a/deploy/compose.staging.yaml
 +++ b/deploy/compose.staging.yaml
-@@ -8,0 +9 @@
+@@ -8,2 +8,3 @@
+       MODEL_HOST_TOKEN: ${POSTGRES_PASSWORD:?Generated per-environment API token}
 +      MODEL_HOST_INFERENCE_TOKEN: ${MODEL_HOST_INFERENCE_TOKEN:-}
+       MODEL_HOST_CONSOLE_USERNAME: ${MODEL_HOST_CONSOLE_USERNAME:-}
 --- a/deploy/compose.production.yaml
 +++ b/deploy/compose.production.yaml
-@@ -8,0 +9 @@
+@@ -8,2 +8,3 @@
+       MODEL_HOST_TOKEN: ${POSTGRES_PASSWORD:?Generated per-environment API token}
 +      MODEL_HOST_INFERENCE_TOKEN: ${MODEL_HOST_INFERENCE_TOKEN:-}
+       MODEL_HOST_CONSOLE_USERNAME: ${MODEL_HOST_CONSOLE_USERNAME:-}
 --- a/README.md
 +++ b/README.md
-@@ -135,0 +136,19 @@
+@@ -135 +135,20 @@
+ Text, transcription, speech, and image inference are implemented and verified on Mac staging and Linux CPU. Production deployment on `squarebrothers_vps`, representative model-quality evaluation, and user acceptance remain pending. A management UI is future work. Trusted SSH host-key confirmation and remote hardware inspection precede production deployment. Follow [GOAL.md](GOAL.md) and [docs/architecture.md](docs/architecture.md) for the remaining work.
 +
 +## Optional inference-only credential
 +
@@ -87,15 +104,19 @@
 +and after an isolated host restart without replacing the provider.
 --- a/tests/fake_worker.py
 +++ b/tests/fake_worker.py
-@@ -91 +91 @@
+@@ -90,3 +90,3 @@
+             response = {'choices': [{'message': {'role': 'assistant', 'content': 'fixture response'}}], 'worker_pid': os.getpid(),
 -                        'credentials_present': any(key in os.environ for key in ['HF_TOKEN', 'MODEL_HOST_TOKEN'])}
 +                        'credentials_present': any(key in os.environ for key in ['HF_TOKEN', 'MODEL_HOST_TOKEN', 'MODEL_HOST_INFERENCE_TOKEN'])}
+             self.wfile.write(json.dumps(response).encode())
 --- a/tests/lifecycle.py
 +++ b/tests/lifecycle.py
-@@ -44 +44 @@
+@@ -43,3 +43,3 @@
+                                 MODEL_HOST_IMAGE_BIN=str(FIXTURE),
 -                                MODEL_HOST_TOKEN='fixture-token', HF_TOKEN='fixture-source-token',
 +                                MODEL_HOST_TOKEN='fixture-token', MODEL_HOST_INFERENCE_TOKEN='fixture-inference-token', HF_TOKEN='fixture-source-token',
-@@ -301,0 +302,81 @@
+                                 MODEL_HOST_MAX_LOADED='1',
+@@ -302,1 +302,82 @@
 +    def test_absent_inference_token_preserves_existing_authentication(self):
 +        self.stop()
 +        self.environment.pop('MODEL_HOST_INFERENCE_TOKEN')
@@ -177,15 +198,18 @@
 +        with scoped('/v1/images/generations', json.dumps({'model':'image','prompt':'fixture','size':'128x128','steps':1}).encode()) as response:
 +            self.assertTrue(base64.b64decode(json.load(response)['data'][0]['b64_json']).startswith(b'\x89PNG'))
 +
+     def test_authentication_and_single_controller_ownership(self):
 --- a/tests/native_adapter.py
 +++ b/tests/native_adapter.py
-@@ -54 +54 @@
+@@ -53,3 +53,3 @@
+             state.mkdir()
 -            (state / 'environment.env').write_text('HF_TOKEN=fixture-source-token\nMODEL_HOST_PRELOAD=text,audio\nMODEL_HOST_LOAD_TIMEOUT_SECONDS=240\n')
 +            (state / 'environment.env').write_text('HF_TOKEN=fixture-source-token\nMODEL_HOST_INFERENCE_TOKEN=fixture-inference-token\nMODEL_HOST_PRELOAD=text,audio\nMODEL_HOST_LOAD_TIMEOUT_SECONDS=240\n')
-@@ -67,2 +67,3 @@
-             document = plistlib.loads(plist.read_bytes())
+             artifact = root / 'artifact'
+@@ -68,2 +68,3 @@
              self.assertEqual(document['EnvironmentVariables']['HF_TOKEN'], 'fixture-source-token')
 +            self.assertEqual(document['EnvironmentVariables']['MODEL_HOST_INFERENCE_TOKEN'], 'fixture-inference-token')
+             self.assertEqual(plist.stat().st_mode & 0o777, 0o600)
 --- /dev/null
 +++ b/tests/studio_inference_scope.py
 @@ -0,0 +1,52 @@

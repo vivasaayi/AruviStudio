@@ -44,8 +44,8 @@ the two values must differ. Without the new credential, existing authorization
 is retained. This controls API access, not inference resource consumption, and
 does not replace TLS on an untrusted network.
 
-The zero-context patch applies to the committed host revision with `git apply
---unidiff-zero`; review the exact base revision before applying it. A disposable snapshot
+The context-bearing patch applies to the committed host revision with `git apply`;
+review the exact base revision before applying it. A disposable snapshot
 passed 17 simulated lifecycle tests, seven Rust tests and six native-adapter
 tests; worker fixtures verified credentials do not enter worker environments.
 The scoped token also exercised streaming, transcription, speech and image
@@ -87,7 +87,8 @@ larger models.
 This remains a **candidate**, not a host commit or deployment. The host's main
 checkout contains unrelated uncommitted changes, including a separate untracked
 integration Compose adapter; those changes were not modified or incorporated.
-The managed isolated checkout request is still pending. Before adopting the
+The managed isolated checkout request timed out at the app tool; no new checkout
+was found in Git's worktree list or chat attachments. Before adopting the
 patch, reconcile it with that work, add the inference token to the integration
 adapter, independently review authorization and validate the intended deployment. The running
 Studio branch still uses the existing management-capable host credential.
@@ -95,14 +96,15 @@ Studio branch still uses the existing management-capable host credential.
 A temporary snapshot combining the candidate with the current uncommitted host
 files exposed a zero-context patch hazard: Git reported a clean application but
 inserted a native-adapter test assertion before the variable it used. The patch
-now includes context around that insertion. Reapplying it to a fresh snapshot
-with the current local changes passed all seven native-adapter tests; the seven
-Rust host tests also passed in the manually reconciled snapshot. On the exact
+was first corrected and later regenerated with context in every hunk. On the exact
 committed base, all 15 patched files still match the previously tested candidate
-byte for byte. The temporary reconciled snapshot also added the integration
-Compose token setting; that addition is not part of the candidate patch because
-the adapter is currently untracked. These checks do not establish that arbitrary
-future local changes are safe to patch; review the full diff before adoption.
+byte for byte and all seven native-adapter tests passed. Against a fresh snapshot
+of the current local changes, the context-bearing patch correctly rejects the
+README hunk; applying the other hunks passed the seven native-adapter tests.
+The README needs manual reconciliation. A previously manually reconciled snapshot
+also passed seven Rust tests and added the integration Compose token setting;
+that setting is not part of the candidate patch because the adapter is currently
+untracked. Review the full diff before adoption.
 
 The manually reconciled snapshot was then built as a native host binary. All 17
 simulated lifecycle tests passed. Disposable native Studio and Docker Studio
