@@ -60,6 +60,25 @@ const server = http.createServer((request, response) => {
       catch { response.statusCode = 400; return response.end(JSON.stringify({ error: "Invalid workflow request" })); }
       response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content } }], usage: { prompt_tokens: 12, completion_tokens: 4 } }));
     });
+  } else if (request.method === "POST" && request.url === "/anthropic/v1/messages") {
+    const chunks = []; request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      let body; try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { response.statusCode = 400; return response.end(); }
+      if (request.headers["x-api-key"] !== "synthetic-anthropic-key" || !request.headers["anthropic-version"] || !body.stream || !body.system || body.messages.some((message) => message.role === "system")) {
+        response.statusCode = 400; return response.end(JSON.stringify({ error: "Invalid Anthropic request" }));
+      }
+      response.setHeader("Content-Type", "text/event-stream");
+      response.write('data: {"type":"message_start","message":{"id":"fixture","usage":{"input_tokens":17}}}\n\n');
+      response.write('data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Claude "}}\n\n');
+      const last = body.messages.at(-1)?.content || "";
+      setTimeout(() => {
+        if (response.destroyed) return;
+        if (last.includes("stream failure")) return response.end('data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"}}\n\n');
+        response.write('data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"fixture"}}\n\n');
+        response.write('data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":3}}\n\n');
+        response.end('data: {"type":"message_stop"}\n\n');
+      }, 500);
+    });
   } else if (request.method === "POST" && request.url === "/v1/audio/transcriptions") {
     const chunks = [];
     request.on("data", (chunk) => chunks.push(chunk));

@@ -46,6 +46,15 @@ provider hosting into the model-host service as part of this work.
 
 ## Browser chat streaming
 
+- A simulated Anthropic Messages endpoint now verifies browser streaming with
+  API-key and request-shape checks, incremental output, token-limit failure and
+  recorded input/output usage. All 22 isolated workflow cases passed; this does
+  not establish behavior against a live Claude account. The current Linux Rust
+  library suite passed 196 tests with two live tests ignored.
+- After a Mac restart, the branch container and the dedicated native Model Host
+  validation worktree were restarted. Studio's configured provider was refreshed
+  to the host's new dynamic port, and the real 7B coding and token-limit MCP
+  checks passed again. The helper's watch mode is still opt-in.
 - Browser chat has an opt-in streaming mode with a Stop control. The authenticated
   server uses the shared provider client and records completed, failed and
   cancelled calls in the existing model-call ledger. Partial replies are visibly

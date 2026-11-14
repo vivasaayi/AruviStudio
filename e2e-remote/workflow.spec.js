@@ -392,6 +392,33 @@ test("browser chat streams, reports errors, and can stop", async ({ page, reques
   }).toEqual(["completed", "failed", "failed"]);
 });
 
+test("browser streams Anthropic text and preserves errors and usage", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const created = await request.post("/api/mobile/providers", { headers, data: { name: "Anthropic streaming fixture", protocol: "anthropic", base_url: process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/anthropic/v1"), api_key: "synthetic-anthropic-key" } });
+  expect(created.ok()).toBeTruthy();
+  const provider = await created.json();
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#providerInput").fill(provider.id);
+  await page.locator("#modelInput").fill("claude-fixture");
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await page.getByLabel("Stream response").check();
+  await page.locator("#chatComposer").fill("stream success");
+  await page.locator("#chatSendButton").click();
+  await expect(page.locator("#chatConversation .assistant").last()).toHaveText("Claude ");
+  await expect(page.locator("#chatConversation .assistant").last()).toHaveText("Claude fixture");
+  await expect(page.locator("#status")).toHaveText("Connected");
+  await page.locator("#chatComposer").fill("stream failure");
+  await page.locator("#chatSendButton").click();
+  await expect(page.locator("#chatConversation")).toContainText("Response incomplete");
+  await expect(page.locator("#status")).toContainText("token limit");
+  const calls = (await (await request.get("/api/mobile/model-calls?limit=100", { headers })).json()).filter((call) => call.provider_id === provider.id);
+  expect(calls.map((call) => call.status).sort()).toEqual(["completed", "failed"]);
+  expect(calls.find((call) => call.status === "completed")).toMatchObject({ token_count_input: 17, token_count_output: 3 });
+});
+
 test("voice records, reviews, and sends a transcribed message", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
