@@ -18,7 +18,7 @@ use serde::Deserialize;
 const SPEECH_PROVIDER_KEY: &str = "speech.transcription_provider_id";
 const SPEECH_MODEL_KEY: &str = "speech.transcription_model_name";
 const SPEECH_LOCALE_KEY: &str = "speech.locale";
-const PLANNER_DEFAULT_KEYS: [&str; 2] = ["planner.default_provider_id", "planner.default_model_name"];
+const PLANNER_DEFAULT_KEYS: [&str; 3] = ["planner.default_provider_id", "planner.default_model_name", "planner.channel_product_id"];
 
 pub(crate) async fn mobile_planner_defaults(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
@@ -29,22 +29,27 @@ pub(crate) async fn mobile_planner_defaults(State(state): State<WebhookState>, h
             Err(error) => return (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
         }
     }
-    Json(serde_json::json!({"provider": values[0], "model": values[1]})).into_response()
+    Json(serde_json::json!({"provider": values[0], "model": values[1], "product": values[2]})).into_response()
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct PlannerDefaultsValues { provider: Option<String>, model: Option<String> }
+pub(crate) struct PlannerDefaultsValues { provider: Option<String>, model: Option<String>, product: Option<String> }
 #[derive(Debug, Deserialize)]
-pub(crate) struct PlannerDefaultsUpdate { expected: PlannerDefaultsValues, provider: String, model: String }
+pub(crate) struct PlannerDefaultsUpdate { expected: PlannerDefaultsValues, provider: String, model: String, product: Option<String> }
 
 pub(crate) async fn mobile_update_planner_defaults(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<PlannerDefaultsUpdate>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
-    if body.provider.len() > 1024 || body.model.len() > 1024 { return (StatusCode::BAD_REQUEST, "Planner defaults are too long").into_response(); }
+    if body.provider.len() > 1024 || body.model.len() > 1024 || body.product.as_ref().is_some_and(|v| v.len() > 1024) { return (StatusCode::BAD_REQUEST, "Planner defaults are too long").into_response(); }
+    if let Some(product) = body.product.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if product_repo::get_product(&state.app_state.db, product).await.is_err() { return (StatusCode::BAD_REQUEST, "Selected channel product does not exist").into_response(); }
+    }
     let mut tx = match state.app_state.db.begin().await { Ok(tx) => tx, Err(error) => return (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response() };
-    for (key, expected, value) in [
+    let mut updates = vec![
         (PLANNER_DEFAULT_KEYS[0], body.expected.provider, body.provider.trim()),
         (PLANNER_DEFAULT_KEYS[1], body.expected.model, body.model.trim()),
-    ] {
+    ];
+    if let Some(product) = body.product.as_deref() { updates.push((PLANNER_DEFAULT_KEYS[2], body.expected.product.clone(), product.trim())); }
+    for (key, expected, value) in updates {
         let result = match expected {
             Some(expected) => sqlx::query("UPDATE settings SET value=?,updated_at=datetime('now') WHERE key=? AND value=?").bind(value).bind(key).bind(expected).execute(&mut *tx).await,
             None => sqlx::query("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO NOTHING").bind(key).bind(value).execute(&mut *tx).await,
@@ -56,7 +61,10 @@ pub(crate) async fn mobile_update_planner_defaults(State(state): State<WebhookSt
         }
     }
     match tx.commit().await {
-        Ok(()) => Json(serde_json::json!({"provider":body.provider.trim(),"model":body.model.trim()})).into_response(),
+        Ok(()) => {
+            let product = match body.product { Some(product) => Some(product.trim().to_owned()), None => body.expected.product };
+            Json(serde_json::json!({"provider":body.provider.trim(),"model":body.model.trim(),"product":product})).into_response()
+        },
         Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
     }
 }

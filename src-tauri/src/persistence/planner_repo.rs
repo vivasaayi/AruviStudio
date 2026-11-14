@@ -30,6 +30,7 @@ pub struct PlannerChannelBindingRecord {
     pub remote_user_id: String,
     pub remote_conversation_id: String,
     pub planner_session_id: String,
+    pub product_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -377,7 +378,7 @@ pub async fn get_channel_binding(
     remote_conversation_id: &str,
 ) -> Result<Option<PlannerChannelBindingRecord>, AppError> {
     sqlx::query_as::<_, PlannerChannelBindingRecord>(
-        "SELECT id, channel, remote_user_id, remote_conversation_id, planner_session_id, created_at, updated_at
+        "SELECT id, channel, remote_user_id, remote_conversation_id, planner_session_id, product_id, created_at, updated_at
          FROM planner_channel_bindings
          WHERE channel = ? AND remote_conversation_id = ?",
     )
@@ -395,19 +396,21 @@ pub async fn create_channel_binding(
     remote_user_id: &str,
     remote_conversation_id: &str,
     planner_session_id: &str,
+    product_id: Option<&str>,
 ) -> Result<PlannerChannelBindingRecord, AppError> {
     sqlx::query_as::<_, PlannerChannelBindingRecord>(
         "INSERT INTO planner_channel_bindings (
-            id, channel, remote_user_id, remote_conversation_id, planner_session_id
+            id, channel, remote_user_id, remote_conversation_id, planner_session_id, product_id
          )
-         VALUES (?, ?, ?, ?, ?)
-         RETURNING id, channel, remote_user_id, remote_conversation_id, planner_session_id, created_at, updated_at",
+         VALUES (?, ?, ?, ?, ?, ?)
+         RETURNING id, channel, remote_user_id, remote_conversation_id, planner_session_id, product_id, created_at, updated_at",
     )
     .bind(id)
     .bind(channel)
     .bind(remote_user_id)
     .bind(remote_conversation_id)
     .bind(planner_session_id)
+    .bind(product_id)
     .fetch_one(pool)
     .await
     .map_err(|error| error.into())

@@ -58,14 +58,17 @@ async fn ensure_channel_session(
     channel: &str,
     remote_user_id: &str,
     remote_conversation_id: &str,
-) -> Result<String, AppError> {
+) -> Result<(String, Option<String>), AppError> {
     if let Some(binding) =
         planner_repo::get_channel_binding(&state.db, channel, remote_conversation_id).await?
     {
-        return Ok(binding.planner_session_id);
+        return Ok((binding.planner_session_id, binding.product_id));
     }
 
     let (provider_id, model_name) = resolve_default_planner_model(state).await?;
+    let product_id = settings_repo::get_setting(&state.db, "planner.channel_product_id").await?
+        .map(|value| value.trim().to_owned()).filter(|value| !value.is_empty());
+    if let Some(id) = product_id.as_deref() { crate::persistence::product_repo::get_product(&state.db, id).await?; }
     let session = create_planner_session(
         state.planner_service.clone(),
         &state.db,
@@ -80,16 +83,17 @@ async fn ensure_channel_session(
         remote_user_id,
         remote_conversation_id,
         &session.session_id,
+        product_id.as_deref(),
     )
     .await?;
-    Ok(session.session_id)
+    Ok((session.session_id, product_id))
 }
 
 pub async fn handle_inbound_message(
     state: &AppState,
     message: ChannelInboundMessage,
 ) -> Result<PlannerTurnResponse, AppError> {
-    let session_id = ensure_channel_session(
+    let (session_id, product_id) = ensure_channel_session(
         state,
         &message.channel,
         &message.remote_user_id,
@@ -102,7 +106,7 @@ pub async fn handle_inbound_message(
         session_id,
         message.content,
         None,
-        None,
+        product_id,
     )
     .await
 }

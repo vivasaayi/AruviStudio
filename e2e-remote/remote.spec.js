@@ -754,14 +754,14 @@ test("external planner defaults save atomically and reject stale MCP edits", asy
   await page.getByLabel("Default planner model name").fill("model-a");
   await page.getByRole("button", { name: "Save planner defaults" }).click();
   await expect(page.locator("#status")).toHaveText("Planner defaults saved");
-  expect(await (await request.get(url, { headers })).json()).toEqual({ provider: "provider-a", model: "model-a" });
+  expect(await (await request.get(url, { headers })).json()).toEqual({ provider: "provider-a", model: "model-a", product: "" });
   const mcp = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}`, Accept: "application/json, text/event-stream" }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_settings", arguments: { action: "set_setting", arguments: { key: "planner.default_model_name", value: "model-external" } } } } });
   expect((await mcp.json()).result.isError).not.toBeTruthy();
   await page.getByLabel("Default planner provider ID").fill("provider-unsaved");
   const conflict = page.waitForResponse((response) => response.url().endsWith(url) && response.request().method() === "POST");
   await page.getByRole("button", { name: "Save planner defaults" }).click();
   expect((await conflict).status()).toBe(409);
-  expect(await (await request.get(url, { headers })).json()).toEqual({ provider: "provider-a", model: "model-external" });
+  expect(await (await request.get(url, { headers })).json()).toEqual({ provider: "provider-a", model: "model-external", product: "" });
   await expect(page.getByLabel("Default planner provider ID")).toHaveValue("provider-unsaved");
   await page.getByRole("button", { name: "Refresh defaults" }).click();
   await expect(page.getByLabel("Default planner model name")).toHaveValue("model-external");
@@ -778,6 +778,49 @@ test("external planner webhook requires configured signature verification", asyn
   expect((await request.post(url, { form, headers: { "X-Twilio-Signature": "invalid" } })).status()).toBe(401);
   const signature = createHmac("sha1", "fixture-secret").update("https://example.test" + url + "Body" + form.Body + "From" + form.From).digest("base64");
   expect((await request.post(url, { form, headers: { "X-Twilio-Signature": signature } })).status()).toBe(200);
+});
+
+test("signed external channel turns use the configured planner model", async ({ page, request }) => {
+  test.skip(!token || !mcpToken || !process.env.ARUVI_TEST_MODEL_URL || process.env.ARUVI_TEST_INSPECT !== "1", "Requires disposable model fixture");
+  async function call(namespace, action, args) {
+    const response = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}`, Accept: "application/json, text/event-stream" }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: namespace, arguments: { action, arguments: args } } } });
+    const result = (await response.json()).result; expect(result.isError).not.toBeTruthy(); return result.structuredContent.result;
+  }
+  const provider = await call("aruvi_models", "create_provider", { name: "Channel planner fixture", base_url: process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1$/, "/channel/v1") });
+  const product = await call("aruvi_catalog", "create_product", { name: "External channel fixture product" });
+  await call("aruvi_models", "create_model_definition", { provider_id: provider.id, name: "channel-fixture-model" });
+  await call("aruvi_settings", "set_setting", { key: "twilio.auth_token", value: "fixture-secret" });
+  await call("aruvi_settings", "set_setting", { key: "twilio.webhook_base_url", value: "https://example.test" });
+  await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+  const loaded = page.waitForResponse((response) => response.url().endsWith("/api/mobile/planner-defaults") && response.request().method() === "GET");
+  await page.getByRole("button", { name: "Routing", exact: true }).click(); await loaded;
+  await page.getByLabel("Default planner provider ID").fill(provider.id);
+  await page.getByLabel("Default planner model name").fill("channel-fixture-model");
+  await page.getByLabel("External channel product").selectOption(product.id);
+  await page.getByRole("button", { name: "Save planner defaults" }).click();
+  await expect(page.locator("#status")).toHaveText("Planner defaults saved");
+  for (const [path, form] of [
+    ["/webhooks/twilio/whatsapp", { Body: "Please help me plan a garden", From: "whatsapp:+15551111111" }],
+    ["/webhooks/twilio/voice/gather", { CallSid: "fixture-call", From: "+15552222222", SpeechResult: "Please help me plan a kitchen" }],
+  ]) {
+    const input = "https://example.test" + path + Object.keys(form).sort().map((key) => key + form[key]).join("");
+    const signature = createHmac("sha1", "fixture-secret").update(input).digest("base64");
+    const response = await request.post(path, { form, headers: { "X-Twilio-Signature": signature } });
+    expect(response.status()).toBe(200);
+    expect(await response.text()).toContain("Channel planner fixture reply");
+  }
+  const otherProduct = await call("aruvi_catalog", "create_product", { name: "Other channel fixture product" });
+  await call("aruvi_settings", "set_setting", { key: "planner.channel_product_id", value: otherProduct.id });
+  const path = "/webhooks/twilio/whatsapp", form = { Body: "Continue the garden plan", From: "whatsapp:+15551111111" };
+  const signature = createHmac("sha1", "fixture-secret").update("https://example.test" + path + "Body" + form.Body + "From" + form.From).digest("base64");
+  expect(await (await request.post(path, { form, headers: { "X-Twilio-Signature": signature } })).text()).toContain("Channel planner fixture reply");
+  const calls = await (await request.get("http://127.0.0.1:19876/channel/requests")).json();
+  expect(calls).toHaveLength(3);
+  expect(calls.every((entry) => entry.model === "channel-fixture-model")).toBe(true);
+  expect(JSON.stringify(calls[0].messages)).toContain("plan a garden");
+  expect(JSON.stringify(calls[1].messages)).toContain("plan a kitchen");
+  expect(JSON.stringify(calls[2].messages)).toContain("External channel fixture product");
+  expect(JSON.stringify(calls[2].messages)).not.toContain("Other channel fixture product");
 });
 
 test("browser configures and selects a model", async ({ page, request }) => {

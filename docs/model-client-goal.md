@@ -98,6 +98,27 @@ audio before this webhook-only change. Native window and physical audio checks
 were unavailable because the console was locked. The rebuilt branch was healthy
 at `127.0.0.1:55083`.
 
+## External channel product scope
+
+An end-to-end signed callback test found that external planner turns previously
+stopped at the product-selection prompt before calling the configured model.
+Routing now offers an explicit default product for new external conversations.
+Migration 053 stores the selected product on the channel binding, so later
+default changes do not redirect existing conversations. Existing unscoped
+bindings remain unscoped; deleting the bound product clears the binding's
+product reference. No product is selected implicitly. The browser, signed
+WhatsApp and signed voice-gather fixture exercised the configured provider,
+model and product with a simulated model, and checked that an existing
+conversation retained its original scope after a default change. Live Twilio
+and live model behavior through these channels remain unverified.
+
+Before applying migration 053 to the branch, a SQLite online backup was saved
+to `/tmp/aruvi-before-053.db` and passed `quick_check`. Afterward the worktree
+database reported migration 53 successful, `quick_check` OK and no foreign-key
+violations. The backup is local and is not a release artifact.
+The final rebuilt branch was healthy at `127.0.0.1:55085`; all 26 isolated
+remote tests passed after the product dropdown was added.
+
 ## Managed local model installation
 
 - Local Whisper providers support transcription, not agent text completion.

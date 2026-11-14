@@ -8,6 +8,7 @@ let streamDisconnects = 0;
 let lastCopilotRequest = null;
 let copilotCalls = 0;
 let repositoryRepairCalls = {};
+let channelRequests = [];
 const workflowOutputs = [
   "requirement analysis complete",
   "planning complete",
@@ -22,6 +23,15 @@ const server = http.createServer((request, response) => {
   if (request.method === "GET" && request.url === "/local-model.bin") {
     response.setHeader("Content-Type", "application/octet-stream");
     response.end("synthetic local model");
+  } else if (request.method === "GET" && request.url === "/channel/requests") {
+    response.end(JSON.stringify(channelRequests));
+  } else if (request.method === "POST" && request.url === "/channel/v1/chat/completions") {
+    const chunks = []; request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8")); channelRequests.push(body);
+      const content = JSON.stringify({ type: "final", assistant_response: "Channel planner fixture reply", needs_confirmation: false, clarification_question: null, actions: [] });
+      response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content }, finish_reason: "stop" }] }));
+    });
   } else if (request.method === "GET" && request.url === "/copilot/last") {
     response.end(JSON.stringify(lastCopilotRequest));
   } else if (request.method === "GET" && request.url === "/copilot/stats") {
