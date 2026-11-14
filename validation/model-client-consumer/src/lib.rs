@@ -5,6 +5,32 @@ mod tests {
     use std::{io::{Read, Write}, net::TcpListener, thread};
 
     #[tokio::test]
+    async fn independent_client_can_request_stream_usage() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut data = Vec::new(); let mut buffer = [0; 4096];
+            let end = loop {
+                let n = socket.read(&mut buffer).unwrap(); assert_ne!(n, 0); data.extend_from_slice(&buffer[..n]);
+                if let Some(i) = data.windows(4).position(|v| v == b"\r\n\r\n") { break i + 4; }
+            };
+            let headers = String::from_utf8_lossy(&data[..end]).to_lowercase();
+            let len: usize = headers.lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().trim().parse().unwrap();
+            while data.len() < end + len { let n = socket.read(&mut buffer).unwrap(); assert_ne!(n, 0); data.extend_from_slice(&buffer[..n]); }
+            let body: serde_json::Value = serde_json::from_slice(&data[end..end+len]).unwrap();
+            assert_eq!(body["stream_options"]["include_usage"], true);
+            let events = "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":1}}\n\ndata: [DONE]\n\n";
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", events.len(), events).unwrap();
+        });
+        let client: Box<dyn ModelGateway> = Box::new(OpenAiCompatibleClient::new(format!("http://{address}"), None).with_stream_usage(true));
+        let request = CompletionRequest { model: "fixture".into(), messages: vec![ChatMessage { role: "user".into(), content: "hello".into() }], temperature: None, max_tokens: Some(10) };
+        let response = client.stream_completion(request, &mut |_| {}).await.unwrap();
+        assert_eq!((response.token_count_input, response.token_count_output), (Some(3), Some(1)));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
     async fn independent_client_rejects_ambiguous_completion_choices() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();

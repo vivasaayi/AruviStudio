@@ -21,7 +21,10 @@ shape; providers may reject the option or omit usage. Studio does not yet expose
 this option in provider settings. All 56 shared-client tests passed in Linux,
 including an HTTP fixture that checks both request shapes and returned usage.
 The Studio Docker build and all 38 isolated workflows passed with the option
-disabled. LM Studio's configured endpoint was unreachable during this check; no live
+disabled. The independent consumer pinned `dd614f4a38a10e49017b09dc71f7140dce3a5452` and passed 23 offline
+tests after vendoring, including a usage-event fixture. The same pin passed
+real Model Host discovery, completion, streaming and token-limit checks with the
+option disabled. LM Studio's configured endpoint was unreachable during this check; no live
 OpenAI or DeepSeek credential was used.
 
 ### GTK and rand advisory investigation
@@ -280,7 +283,7 @@ scope is reviewed, not merely until an example passes.
 
 | Requirement | Current evidence | Remaining work |
 | --- | --- | --- |
-| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and by a separate project pinned to commit `a81f2a155bee2a8f52652aeb8a7d531503f4f0d2`; 22 independent tests passed offline after vendoring. Its non-root Linux probe passed real Model Host discovery, completion, streaming and token-limit handling. A previous pin passed a synthetic speech round trip on a host offering those models; the coding host used for the new pin did not advertise them. | Decide independent ownership, versioning and a migration plan for other projects. The current pin is a checkpoint, not a published release. |
+| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and by a separate project pinned to commit `dd614f4a38a10e49017b09dc71f7140dce3a5452`; 23 independent tests passed offline after vendoring. Its non-root Linux probe passed real Model Host discovery, completion, streaming and token-limit handling. A previous pin passed a synthetic speech round trip on a host offering those models; the coding host used for the new pin did not advertise them. | Decide independent ownership, versioning and a migration plan for other projects. The current pin is a checkpoint, not a published release. |
 | OpenAI-compatible and Anthropic protocols | Shared clients cover text, streaming, discovery and error handling; OpenAI-compatible voice is implemented. Contract fixtures cover both protocols and the reasoning request profile. | Live third-party OpenAI, Anthropic, DeepSeek and LM Studio sessions remain unverified; compatibility with each model and provider cannot be inferred from adapter capabilities. |
 | Local coding integration | The isolated 7B Model Host passed real MCP completion and an extend-module workflow through code review and a disposable local Git remote. A later new-module attempt produced a missing function definition; independent behavior checks caught it before delivery. | Investigate reliability on broader coding tasks and actual authenticated network delivery; syntax-only checks do not establish correctness. |
 | Speech and local fallback | Real Model Host speech generation and transcription and checksum-pinned local Whisper have been exercised with synthetic audio; browser and MCP fixtures exist. | Physical microphone permission/capture, audible playback, other languages and recognition quality remain unverified. |
