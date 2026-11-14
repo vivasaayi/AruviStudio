@@ -362,9 +362,15 @@ impl AgentService {
                 warn!(agent_run_id = %agent_run.id, "Coding tool loop completed with no changed files");
             }
 
+            let summary = final_summary.unwrap_or_default();
+            let summary = if changed_files_list.is_empty() {
+                format!("No files changed. The model reported that no changes were needed; verify this claim.\n{summary}")
+            } else {
+                summary
+            };
             Ok(format!(
                 "{}\nChanged files: {}",
-                final_summary.unwrap_or_default(),
+                summary,
                 if changed_files_list.is_empty() {
                     "none".to_string()
                 } else {

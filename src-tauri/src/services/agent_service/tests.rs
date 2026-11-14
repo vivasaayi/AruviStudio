@@ -295,6 +295,14 @@ async fn coding_stage_creates_tool_trace_artifact() {
     let no_change_agent = service.run_agent_for_stage(&no_change_run.id, "coding").await
         .expect("explicit no-change outcome should complete");
     assert_eq!(no_change_agent.status, crate::domain::agent::AgentRunStatus::Completed);
+    let no_change_artifacts = artifact_repo::list_work_item_artifacts(&pool, &work_item.id).await.unwrap();
+    let no_change_output = no_change_artifacts.iter().find(|artifact|
+        artifact.workflow_run_id.as_deref() == Some(&no_change_run.id) && artifact.artifact_type == "coding_output"
+    ).expect("no-change result should have a review artifact");
+    assert!(no_change_output.summary.starts_with("No files changed. The model reported"));
+    let no_change_content = std::fs::read_to_string(&no_change_output.storage_path).unwrap();
+    assert!(no_change_content.contains("The requested behavior already exists"));
+    assert!(no_change_content.contains("Changed files: none"));
 
     // Disable the selected model after the provider receives the first call,
     // so the next tool-loop call must fail before contacting it again.

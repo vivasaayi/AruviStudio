@@ -3669,3 +3669,13 @@ this particular correction, so improvement in live-model reliability remains
 unverified. The native library suite passed 261 tests with seven ignored; the
 rebuilt worktree services were healthy and all 49 isolated browser/MCP workflow
 tests passed against that image.
+
+The coding output now begins with an explicit no-files-changed notice when the
+agent returns `no_changes_needed`, identifying it as the model's claim to
+verify. The prefix remains visible in the 200-character artifact summary even
+when the model supplies a long or misleading summary. The focused coding-stage
+test verifies the stored artifact and the rebuilt image passed all 49 isolated
+browser/MCP workflow checks; the worktree services were healthy afterward. This
+does not verify the claim or force a manual review when workflow auto-approval
+is enabled. Project-specific functional tests and an appropriate review policy
+remain necessary.
