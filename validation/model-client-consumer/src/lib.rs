@@ -5,6 +5,36 @@ mod tests {
     use std::{io::{Read, Write}, net::TcpListener, thread};
 
     #[tokio::test]
+    async fn configures_openai_completion_fields_from_an_independent_project() {
+        use aruvi_model_client::openai_compatible::{CompletionOptions, TemperatureMode, TokenLimitField};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut bytes = Vec::new(); let mut buffer = [0; 4096];
+            let end = loop {
+                let n = socket.read(&mut buffer).unwrap(); assert_ne!(n, 0);
+                bytes.extend_from_slice(&buffer[..n]);
+                if let Some(index) = bytes.windows(4).position(|v| v == b"\r\n\r\n") { break index + 4; }
+            };
+            let headers = String::from_utf8_lossy(&bytes[..end]).to_ascii_lowercase();
+            let length: usize = headers.lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().trim().parse().unwrap();
+            while bytes.len() < end + length { let n = socket.read(&mut buffer).unwrap(); assert_ne!(n, 0); bytes.extend_from_slice(&buffer[..n]); }
+            let body: serde_json::Value = serde_json::from_slice(&bytes[end..end + length]).unwrap();
+            assert_eq!(body["max_completion_tokens"], 42);
+            assert!(body.get("max_tokens").is_none());
+            assert!(body.get("temperature").is_none());
+            let response = r#"{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}"#;
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).unwrap();
+        });
+        let client: Box<dyn ModelGateway> = Box::new(OpenAiCompatibleClient::new(format!("http://{address}"), None)
+            .with_completion_options(CompletionOptions { token_limit_field: TokenLimitField::MaxCompletionTokens, temperature: TemperatureMode::Omit }));
+        let request = CompletionRequest { model: "fixture".into(), messages: vec![ChatMessage { role: "user".into(), content: "hello".into() }], temperature: Some(0.7), max_tokens: Some(42) };
+        assert_eq!(client.run_completion(request).await.unwrap().content, "ok");
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
     async fn transport_error_omits_sensitive_provider_url() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();

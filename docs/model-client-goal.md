@@ -299,7 +299,13 @@ provider hosting into the model-host service as part of this work.
 
 ## Independent client revalidation
 
-- The independent consumer now pins `bc8bfaa1df483a8eae380c34931c1b8d0966f5b8`
+- The independent consumer pins `0496499073bcd0a6771a485a02b326ab05fcad27`
+  and passed 19 network-disabled vendored tests, including explicit completion
+  request fields. A separate live Model Host probe passed discovery, text,
+  streaming, JSON-object mode and token-limit handling using the default mode.
+  The new OpenAI request mode was tested against a simulated server only.
+
+- At the previous checkpoint the independent consumer pinned `bc8bfaa1df483a8eae380c34931c1b8d0966f5b8`
   and passed 18 vendored, network-disabled tests, including the URL-redaction
   regression. A separate live Model Host check passed discovery, completion,
   streaming, JSON-object mode and token-limit handling with
