@@ -76,6 +76,18 @@ mod tests {
         server.join().unwrap();
     }
 
+    #[tokio::test]
+    async fn independent_client_uses_deepseek_voice_as_a_gateway() {
+        use aruvi_model_client::{deepseek::DeepSeekVoiceClient, ClientError, ModelGateway, SpeechRequest, TranscriptionRequest};
+        let gateway: Box<dyn ModelGateway> = Box::new(DeepSeekVoiceClient::new("http://127.0.0.1:1".into(), "synthetic-key".into()).unwrap());
+        let capabilities = gateway.transport_capabilities();
+        assert!(capabilities.transcription && capabilities.speech);
+        assert!(!capabilities.text_completion && !capabilities.text_streaming && !capabilities.model_discovery);
+        assert!(matches!(gateway.health_check().await, Err(ClientError::UnsupportedOperation(_))));
+        assert!(matches!(gateway.transcribe(TranscriptionRequest { model: "selector".into(), audio: vec![1], filename: "fixture.wav".into(), mime_type: "audio/wav".into(), language: Some("en".into()) }).await, Err(ClientError::InvalidInput(_))));
+        assert!(matches!(gateway.generate_speech(SpeechRequest { model: "selector".into(), input: "hello".into(), voice: None, speed: Some(1.0), response_format: "wav".into() }).await, Err(ClientError::InvalidInput(_))));
+    }
+
     #[test]
     fn rejects_invalid_anthropic_credentials_without_exposing_them() {
         let error = AnthropicClient::new("https://example.invalid".into(), "private-key\ninjected".into()).err().expect("invalid key must fail at construction");

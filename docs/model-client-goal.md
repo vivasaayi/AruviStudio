@@ -292,7 +292,14 @@ sent because these voice endpoints do not accept one. Studio routes its existing
 DeepSeek voice paths through the interface and continues to omit locale for
 automatic language detection. All 57 native shared-client tests and 45 isolated
 Studio workflows passed against fixtures; live DeepSeek voice remains unverified.
-The independent consumer still needs to be repinned and tested for this change.
+The native Studio Rust suite also passed 250 tests with six ignored by default,
+and native ARM64 desktop, server and MCP debug binaries built successfully.
+The independent consumer is pinned to
+`6539f1613a7d1b71fb61d09f42509c419f56f82c`; all 24 consumer tests passed after
+vendoring with build networking disabled, including a trait-object DeepSeek
+voice check. Its non-root, read-only Linux probe passed real Model Host text,
+streaming, token-limit and synthetic Piper/Whisper speech checks. Its lockfile
+audit reported no vulnerabilities or warnings against the database below.
 
 At branch revision `7215aaa`, a fresh npm audit reported zero vulnerabilities.
 Cargo audit against RustSec advisory database commit
@@ -418,7 +425,7 @@ scope is reviewed, not merely until an example passes.
 
 | Requirement | Current evidence | Remaining work |
 | --- | --- | --- |
-| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and by a separate project pinned to commit `dd614f4a38a10e49017b09dc71f7140dce3a5452`; 23 independent tests passed offline after vendoring. Its non-root Linux probe passed real Model Host discovery, completion, streaming, token-limit handling and a synthetic Piper/Whisper speech round trip. | Decide independent ownership, versioning and a migration plan for other projects. The current pin is a checkpoint, not a published release. |
+| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and by a separate project pinned to commit `6539f1613a7d1b71fb61d09f42509c419f56f82c`; 24 independent tests passed offline after vendoring. Its non-root Linux probe passed real Model Host discovery, completion, streaming, token-limit handling and a synthetic Piper/Whisper speech round trip. | Decide independent ownership, versioning and a migration plan for other projects. The current pin is a checkpoint, not a published release. |
 | OpenAI-compatible and Anthropic protocols | Shared clients cover text, streaming, discovery and error handling; OpenAI-compatible voice is implemented. Contract fixtures cover both protocols and the reasoning request profile. | Live third-party OpenAI, Anthropic, DeepSeek and LM Studio sessions remain unverified; compatibility with each model and provider cannot be inferred from adapter capabilities. |
 | Local coding integration | The isolated 7B Model Host passed real MCP completion and an extend-module workflow through code review and a disposable local Git remote. A later new-module attempt produced a missing function definition; independent behavior checks caught it before delivery. | Investigate reliability on broader coding tasks and actual authenticated network delivery; syntax-only checks do not establish correctness. |
 | Speech and local fallback | Real Model Host speech generation and transcription and checksum-pinned local Whisper have been exercised with synthetic audio; browser and MCP fixtures exist. | Physical microphone permission/capture, audible playback, other languages and recognition quality remain unverified. |
