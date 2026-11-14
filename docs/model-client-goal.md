@@ -12,6 +12,22 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Isolated live calculator workflow
+
+On 2026-11-14, the previously ignored live calculator workflow passed one
+iteration through completion against `qwen25-coder-7b-q4` (73.59 seconds). It
+used a disposable database and repository. The test asserts its workflow stages
+and a coding trace; it does not independently prove generated application
+behavior. The test container received no Model Host token and ran on a Docker
+internal network. A separate short-lived proxy received the token through
+standard input, could reach the native host, and accepted only model discovery
+and chat-completion routes. Probes from the test network could not connect to
+the host's model port or an external address or resolve an external DNS name;
+the proxy rejected a management route and a query-bearing route. The proxy and
+network were removed afterward. This is evidence for these probes and Docker's
+isolation on this machine, not a formal security proof or validation of other
+network configurations.
+
 ### Follow-up on ignored Rust cases
 
 Five cases ignored by the broad Linux Rust run passed separately on 2026-11-14:
@@ -23,12 +39,9 @@ read-only, network-isolated containers with dropped capabilities and Chromium's
 own sandbox disabled; they are not evidence of the production sandbox. The
 renderer fixture uses mocked Tauri calls and is not native-window acceptance.
 
-The remaining ignored live calculator workflow was not run in this pass. Its
-model-generated workflow needs a live host token, and the inspected host token
-also grants management access; the test's execution environment has not been
-shown to prevent generated code from accessing that credential or reaching other
-network destinations. Previous disposable real-model workflow evidence remains
-separate and does not prove this ignored test passes.
+The live calculator case was initially deferred over credential and network
+isolation concerns; the subsequent isolated proxy run above exercised one
+iteration without placing the host token in the workflow container.
 
 ### Current broad regression run
 
