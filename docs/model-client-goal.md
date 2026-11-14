@@ -3796,6 +3796,19 @@ workflow passed syntax and independent behavioral checks and delivered to a
 disposable local remote. This is one model sample, not broad reliability or
 proof that the recap caused success. The rebuilt worktree services were healthy.
 
+## Coding step-limit finalization checkpoint
+
+When the coding loop reaches its step limit after edits, its additional
+finalization request now includes the same bounded task recap and asks the model
+to identify unverified or unfinished requirements. A simulated HTTP provider
+checked acceptance and constraint markers in the initial, follow-up and
+forced-finalization requests in a two-step coding run. The native suite passed
+267 tests with seven ignored; all 50 isolated browser/MCP workflow checks passed,
+and the rebuilt worktree was healthy. This is simulated-model coverage. The
+model can still produce an inaccurate summary; if finalization does not produce
+a valid final response, the existing workflow can continue with collected edits,
+which still require suitable tests and review before delivery.
+
 The coding output now begins with an explicit no-files-changed notice when the
 agent returns `no_changes_needed`, identifying it as the model's claim to
 verify. The prefix remains visible in the 200-character artifact summary even

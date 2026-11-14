@@ -313,6 +313,7 @@ impl AgentService {
         &self,
         agent_run: &AgentRun,
         model_def: &ModelDefinition,
+        coding_recap: &str,
         observations: &[String],
         response_token_budget: i64,
         json_object: bool,
@@ -324,6 +325,9 @@ impl AgentService {
             String::from("Return exactly one JSON object with type=final. Do not call tools.\n");
         prompt.push_str("Output format:\n");
         prompt.push_str("{\"type\":\"final\",\"summary\":\"...\",\"result\":\"...\"}\n");
+        prompt.push_str("Describe what the observations support and identify unfinished or unverified requirements; do not claim success without evidence.\n");
+        prompt.push_str("Coding task recap:\n");
+        prompt.push_str(coding_recap);
         prompt.push_str("Recent tool observations:\n");
         for item in observations.iter().rev().take(16).rev() {
             prompt.push_str("- ");

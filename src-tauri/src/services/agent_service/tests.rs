@@ -313,14 +313,15 @@ async fn coding_stage_creates_tool_trace_artifact() {
     assert!(no_change_content.contains("Changed files: none"));
 
     // Exercise the actual follow-up HTTP request, not just the recap helper.
-    // The mock provider reads a repository file on turn one and then finishes.
+    // A two-step limit forces a third, finalization request after an edit.
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let recap_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let recap_address = recap_listener.local_addr().unwrap();
     sqlx::query("UPDATE model_providers SET base_url=? WHERE id=?")
         .bind(format!("http://{recap_address}/v1")).bind(provider_id).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE agent_definitions SET boundaries='{\"max_tool_steps\":2,\"keep_workspace\":false}' WHERE id='coding-agent'").execute(&pool).await.unwrap();
     let recap_provider = tokio::spawn(async move {
-        for step in 1..=2 {
+        for step in 1..=3 {
             let (mut socket, _) = recap_listener.accept().await.unwrap();
             let mut bytes = Vec::new(); let mut buffer = [0_u8; 4096];
             let header_end = loop {
@@ -334,10 +335,13 @@ async fn coding_stage_creates_tool_trace_artifact() {
             let prompt = request["messages"][0]["content"].as_str().unwrap();
             assert!(prompt.contains("ACCEPTANCE_MARKER: provide tested output"));
             assert!(prompt.contains("CONSTRAINT_MARKER: do not modify configuration"));
+            if step == 3 { assert!(prompt.contains("identify unfinished or unverified requirements")); }
             let content = if step == 1 {
-                json!({"type":"tool_call", "tool":"repo.read_file", "arguments":{"path":"README.md"}}).to_string()
+                json!({"type":"tool_call", "tool":"repo.write_file", "arguments":{"path":"forced-final.txt", "content":"fixture content"}}).to_string()
+            } else if step == 2 {
+                json!({"type":"tool_call", "tool":"repo.read_file", "arguments":{"path":"forced-final.txt"}}).to_string()
             } else {
-                json!({"type":"final", "summary":"No change required", "no_changes_needed":true}).to_string()
+                json!({"type":"final", "summary":"Fixture changed; verification remains"}).to_string()
             };
             let body = json!({"choices":[{"message":{"content":content},"finish_reason":"stop"}]}).to_string();
             socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).as_bytes()).await.unwrap();
@@ -346,6 +350,8 @@ async fn coding_stage_creates_tool_trace_artifact() {
     let recap_run = workflow_repo::create_workflow_run(&pool, "test-recap-prompt", &work_item.id).await.unwrap();
     assert_eq!(service.run_agent_for_stage(&recap_run.id, "coding").await.unwrap().status, crate::domain::agent::AgentRunStatus::Completed);
     recap_provider.await.unwrap();
+    assert_eq!(std::fs::read_to_string(repo_dir.join("forced-final.txt")).unwrap(), "fixture content");
+    sqlx::query("UPDATE agent_definitions SET boundaries='{\"max_tool_steps\":15,\"keep_workspace\":false,\"max_file_chars\":4000}' WHERE id='coding-agent'").execute(&pool).await.unwrap();
 
     // Disable the selected model after the provider receives the first call,
     // so the next tool-loop call must fail before contacting it again.

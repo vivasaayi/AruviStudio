@@ -282,6 +282,7 @@ impl AgentService {
                     .try_force_tool_loop_finalization(
                         agent_run,
                         model_def,
+                        coding_recap,
                         &tool_observations,
                         response_token_budget,
                         boundaries.json_object_output.unwrap_or(false),
