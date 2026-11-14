@@ -29,6 +29,8 @@ struct ChatStreamErrorEvent {
     error: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     provider_http_status: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider_transport_kind: Option<aruvi_model_client::TransportErrorKind>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -164,8 +166,9 @@ async fn start_provider_stream<R: tauri::Runtime>(
             error_message: error_message.as_deref(), response_text: Some(&response_text),
         }).await { warn!(error = %record_error, "Failed to record stream telemetry"); }
         let provider_http_status = result.as_ref().and_then(|result| result.as_ref().err()).and_then(|error| error.http_status());
+        let provider_transport_kind = result.as_ref().and_then(|result| result.as_ref().err()).and_then(|error| error.transport_kind());
         match error_message {
-            Some(error) => { let _ = app.emit("chat_stream_error", ChatStreamErrorEvent { stream_id: task_id.clone(), error, provider_http_status }); }
+            Some(error) => { let _ = app.emit("chat_stream_error", ChatStreamErrorEvent { stream_id: task_id.clone(), error, provider_http_status, provider_transport_kind }); }
             None => { let _ = app.emit("chat_stream_done", ChatStreamDoneEvent { stream_id: task_id.clone(), metadata: result.and_then(Result::ok).and_then(|response| response.metadata) }); }
         }
         registry.lock().await.remove(&task_id);
@@ -313,6 +316,30 @@ mod tests {
         assert_eq!(payload["provider_http_status"], 429);
         assert!(!payload.to_string().contains("synthetic-provider-private-body"));
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn desktop_stream_reports_redacted_transport_kind() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let app = make_test_app("desktop_provider_transport").await;
+        let provider = ModelProvider { id: "transport-fixture".into(), name: "Fixture".into(),
+            provider_type: ProviderType::OpenaiCompatible, protocol: "openai_compatible".into(), completion_profile: "standard".into(),
+            base_url: format!("http://{address}/private-provider-path"), auth_secret_ref: None,
+            enabled: true, created_at: "".into(), updated_at: "".into() };
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<Value>();
+        app.listen_any("chat_stream_error", move |event| { let _ = sender.send(serde_json::from_str(event.payload()).unwrap()); });
+        let id = uuid::Uuid::new_v4().to_string();
+        let request = ModelChatCommand { stream_id: Some(id.clone()), provider_id: provider.id.clone(), model: "fixture".into(),
+            messages: vec![ChatMessage { role: "user".into(), content: "Hello".into() }], temperature: None, max_tokens: Some(20),
+            source_kind: None, source_id: None, source_label: None };
+        start_provider_stream(app.handle().clone(), app.state::<AppState>(), provider, request, id.clone()).await.unwrap();
+        let payload = tokio::time::timeout(std::time::Duration::from_secs(10), receiver.recv()).await.unwrap().unwrap();
+        assert_eq!(payload["stream_id"], id);
+        assert_eq!(payload["provider_transport_kind"], "connect");
+        assert!(payload.get("provider_http_status").is_none());
+        assert!(!payload.to_string().contains("private-provider-path"));
     }
 
     #[tokio::test]

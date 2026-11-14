@@ -286,8 +286,12 @@ remain separate checks.
 
 The shared client now exposes structured timeout, connection, request, body
 and other transport categories while retaining its previous error text and URL
-redaction. MCP and browser streaming errors expose the category as optional
-metadata. The new `ClientError` variant requires exhaustive-match consumers to
+redaction. MCP, browser streaming and desktop stream events expose the category
+as optional metadata. Native Tauri event tests and six mocked desktop chat UI
+tests passed; the UI still displays the text rather than using that category.
+Buffered browser errors remain plain text, and MCP file Copilot currently
+repackages its errors without the category. The new `ClientError` variant
+requires exhaustive-match consumers to
 update when they opt into this revision; the category alone does not establish
 retry safety. All 57 native client tests, a native MCP error test and 45 isolated
 Studio workflows passed. The independent consumer pinned to
