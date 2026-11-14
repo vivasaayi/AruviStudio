@@ -20,6 +20,14 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
     let args = tool_action.args();
 
     match tool_action.action.as_str() {
+        "list_model_calls" => action_result(
+            "list_model_calls",
+            model_call_repo::list_model_calls(&state.db, args.optional_i64(&["limit"])?.unwrap_or(200)).await?,
+        ),
+        "get_model_call" => {
+            let id = args.required_string(&["id"], "id")?;
+            action_result("get_model_call", model_call_repo::get_model_call(&state.db, &id).await?)
+        }
         "run_file_copilot" => {
             let body = crate::services::webhook_mobile_chat::MobileFileCopilotRequest {
                 repository_id: args.required_string(&["repository_id", "repositoryId"], "repository_id")?,

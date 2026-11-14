@@ -284,6 +284,14 @@ remain separate checks.
 
 ### Current requirement audit — 2026-11-14
 
+The model-call parity audit found that MCP previously required an already-known
+call ID to read a snapshot. MCP now lists recent calls and retrieves call details
+using the same ledger as the desktop and browser. The isolated workflow suite
+passed all 39 cases, including discovery and comparison of MCP ledger results
+with a browser workflow record and its snapshots. MCP list results remain bounded
+to 500 and do not yet support filtering or pagination. The refreshed worktree
+deployment was healthy and its live MCP list action passed a one-record check.
+
 This table summarizes the current evidence; dated sections below are historical
 and may describe issues that were subsequently fixed. A passing fixture proves
 only the stated scenario. Unchecked checkpoints remain open until their full

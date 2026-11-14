@@ -111,6 +111,13 @@ for (const scenario of ["passed", "failed", "skipped"]) test(`isolated workflow 
     const calls = await (await request.get("/api/mobile/model-calls?limit=100", { headers })).json();
     const snapshotCall = calls.find((item) => item.workflow_run_id === delivery.workflow_run.id && item.agent_id === assignedAgent.id && item.stage === "coding" && item.request_snapshot_path && item.response_snapshot_path);
     expect(snapshotCall).toBeTruthy();
+    const mcpCalls = await mcp("aruvi_models", "list_model_calls", { limit: 100 });
+    expect(mcpCalls.find((item) => item.id === snapshotCall.id)).toEqual(snapshotCall);
+    expect(await mcp("aruvi_models", "get_model_call", { id: snapshotCall.id })).toEqual(snapshotCall);
+    expect(await mcp("aruvi_models", "list_model_calls", { limit: 0 })).toHaveLength(1);
+    const toolList = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` }, data: { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} } });
+    const modelTool = (await toolList.json()).result.tools.find((tool) => tool.name === "aruvi_models");
+    expect(modelTool.inputSchema.properties.action.enum).toEqual(expect.arrayContaining(["list_model_calls", "get_model_call"]));
     const snapshotPath = `/api/mobile/model-calls/${snapshotCall.id}/snapshots/request`;
     expect((await request.get(snapshotPath)).status()).toBe(401);
     expect((await request.get(`/api/mobile/model-calls/${snapshotCall.id}/snapshots/invalid`, { headers })).status()).toBe(400);
