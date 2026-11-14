@@ -83,10 +83,9 @@ provider hosting into the model-host service as part of this work.
   bounds downloads to 8 GiB and one hour, and publishes a nonempty file only
   after the download finishes. Failed downloads are removed; an existing
   nonempty regular file is reused. Download URLs can still access endpoints
-  reachable from the server and follow redirects. Neither downloaded nor
-  pre-existing files are checksum-verified, and existing partial files from
-  older versions cannot be detected reliably. Installations refer to the
-  server's filesystem.
+  reachable from the server and follow redirects. Checksums were not checked at
+  that checkpoint; the later preset checksum change is described below.
+  Installations refer to the server's filesystem.
   Native Rust passed 222 tests with six ignored, including interrupted download
   and MCP path checks. The rebuilt container passed 29 isolated workflow cases,
   including MCP install, rejection and idempotent reuse with a fixture server.
@@ -102,7 +101,19 @@ provider hosting into the model-host service as part of this work.
   repeated installation using a pre-existing synthetic file. Actual preset
   downloads were not exercised in this test; the shared installer separately
   passed success and interrupted-download fixture tests. Browser file upload
-  and checksum verification remain open.
+  remained open at that checkpoint.
+- Desktop and browser presets now pin Hugging Face revision
+  `5359861c739e955e79d9a303bcbc70fb988958b1` and the upstream LFS SHA-256 for
+  each file. The shared installer verifies downloaded and existing preset files,
+  reports mismatches without deleting existing files, and publishes new files
+  only after verification. MCP custom installs may supply `expected_sha256`;
+  custom installs without it and manually registered files are not verified.
+  Native Rust passed 222 tests with six ignored, and five mocked desktop
+  browser tests passed. Two 31-case isolated workflow runs passed: one rejected
+  a corrupt existing file, while the other downloaded the real Tiny English
+  preset and verified reuse. Source metadata was checked against the
+  [upstream model repository](https://huggingface.co/ggerganov/whisper.cpp/tree/5359861c739e955e79d9a303bcbc70fb988958b1).
+  The test covers that preset, not transcription quality or all three downloads.
 
 ## Product Book export data
 

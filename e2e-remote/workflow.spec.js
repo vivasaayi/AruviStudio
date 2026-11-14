@@ -471,6 +471,7 @@ test("provider creation and edits reject unusable or credential-bearing URLs", a
 
 test("browser installs a fixed speech preset and reuses its existing file", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires an isolated server");
+  test.setTimeout(180000);
   const endpoint = "/api/mobile/models/local-install";
   expect((await request.post(endpoint, { data: { preset: "whisper-tiny-en" } })).status()).toBe(401);
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
@@ -480,12 +481,18 @@ test("browser installs a fixed speech preset and reuses its existing file", asyn
   await page.locator("#saveButton").click();
   await page.getByRole("button", { name: "Models", exact: true }).click();
   await page.getByLabel("Managed Whisper preset").selectOption("whisper-tiny-en");
-  const installed = page.waitForResponse((r) => r.url().endsWith(endpoint) && r.request().method() === "POST");
+  const installed = page.waitForResponse((r) => r.url().endsWith(endpoint) && r.request().method() === "POST", { timeout: 150000 });
   await page.getByRole("button", { name: "Install speech preset" }).click();
   const response = await installed;
+  if (process.env.ARUVI_TEST_WHISPER_MODE === "corrupt") {
+    expect(response.status()).toBe(400);
+    expect(await response.text()).toContain("checksum");
+    await expect(page.locator("#status")).toContainText("checksum");
+    return;
+  }
   expect(response.ok()).toBeTruthy();
   const result = await response.json();
-  expect(result.downloaded).toBe(false);
+  expect(result.downloaded).toBe(process.env.ARUVI_TEST_WHISPER_MODE === "download");
   expect(result.provider).not.toHaveProperty("auth_secret_ref");
   await expect(page.locator("#modelList")).toContainText("whisper-tiny.en");
   const repeated = await request.post(endpoint, { headers, data: { preset: "whisper-tiny-en" } });

@@ -119,6 +119,7 @@ export function useModelProviderPageActions({
         modelName: entry.modelName,
         downloadUrl: entry.downloadUrl,
         fileName: entry.fileName,
+        expectedSha256: entry.expectedSha256,
         capabilityTags: ["speech_to_text", "transcription", "audio", "local_runtime"],
         notes: entry.notes,
       }),

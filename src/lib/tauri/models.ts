@@ -108,6 +108,7 @@ export const installManagedLocalModel = (data: {
   modelName: string;
   downloadUrl: string;
   fileName: string;
+  expectedSha256?: string;
   capabilityTags?: string[];
   notes?: string;
   contextWindow?: number;
@@ -118,6 +119,7 @@ export const installManagedLocalModel = (data: {
       model_name: data.modelName,
       download_url: data.downloadUrl,
       file_name: data.fileName,
+      expected_sha256: data.expectedSha256 ?? null,
       capability_tags: data.capabilityTags ? toJsonStringArray(data.capabilityTags) : null,
       notes: data.notes ?? null,
       context_window: data.contextWindow ?? null,

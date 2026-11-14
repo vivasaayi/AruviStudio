@@ -85,6 +85,27 @@ test("desktop discovers and selects paged provider models", async ({ page }) => 
   await expect(page.getByLabel("Model name", { exact: true })).toHaveValue("second-model");
 });
 
+test("desktop speech preset sends its pinned source and checksum", async ({ page }) => {
+  await page.goto("/models");
+  await page.evaluate(() => {
+    const original = window.__ARUVI_E2E__.invoke;
+    window.__installRequest = null;
+    window.__ARUVI_E2E__.invoke = async (command, args) => {
+      if (command === "install_managed_local_model_command") {
+        window.__installRequest = args.request;
+        throw new Error("Synthetic install stopped");
+      }
+      return original(command, args);
+    };
+  });
+  const card = page.getByText("Whisper Tiny English", { exact: true }).locator("..");
+  await card.getByRole("button", { name: "Install & Register" }).click();
+  await expect.poll(() => page.evaluate(() => window.__installRequest)).toMatchObject({
+    expected_sha256: "921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f",
+    download_url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-tiny.en.bin?download=true",
+  });
+});
+
 test("desktop editing sends the selected provider protocol", async ({ page }) => {
   await page.goto("/models");
   await page.evaluate(() => {

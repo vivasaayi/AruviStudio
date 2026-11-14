@@ -803,7 +803,7 @@
                 <p class="empty">Register an existing Whisper model file on the Studio server. In Docker, the path must be inside the container and backed by persistent storage. For centrally hosted models, add the Aruvi Model Host as a provider instead.</p>
                 <form id="localPresetForm" class="stack">
                   <label><span class="label">Managed Whisper preset</span><select id="localPreset"><option value="whisper-tiny-en">Tiny English · 75 MiB</option><option value="whisper-base-en">Base English · 142 MiB</option><option value="whisper-small-en">Small English · 466 MiB</option></select></label>
-                  <p class="empty">Downloads to Studio server storage; this can take several minutes. Existing files are reused. Files are not checksum verified.</p>
+                  <p class="empty">Downloads to Studio server storage; this can take several minutes. New and existing preset files are checked against a pinned SHA-256 checksum.</p>
                   <button id="installLocalPresetButton" type="submit">Install speech preset</button>
                 </form>
                 <form id="localModelForm" class="stack">

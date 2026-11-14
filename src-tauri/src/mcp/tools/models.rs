@@ -253,6 +253,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let notes = args.optional_string(&["notes"])?;
             let registration = install_managed_local_model(state, InstallManagedLocalModelCommand {
                 provider_name, model_name, download_url, file_name, capability_tags, notes,
+                expected_sha256: args.optional_string(&["expected_sha256", "expectedSha256"])?,
                 context_window: args.optional_i64(&["context_window", "contextWindow"])?,
             }).await?;
             action_result("install_managed_local_model", registration)

@@ -1032,15 +1032,15 @@ pub(crate) async fn mobile_register_local_model(State(state): State<WebhookState
 
 pub(crate) async fn mobile_install_local_model(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileInstallLocalModelRequest>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
-    let (provider, model, filename) = match body.preset.as_str() {
-        "whisper-tiny-en" => ("Whisper.cpp Tiny.en (Local)", "whisper-tiny.en", "ggml-tiny.en.bin"),
-        "whisper-base-en" => ("Whisper.cpp Base.en (Local)", "whisper-base.en", "ggml-base.en.bin"),
-        "whisper-small-en" => ("Whisper.cpp Small.en (Local)", "whisper-small.en", "ggml-small.en.bin"),
+    let (provider, model, filename, sha256) = match body.preset.as_str() {
+        "whisper-tiny-en" => ("Whisper.cpp Tiny.en (Local)", "whisper-tiny.en", "ggml-tiny.en.bin", "921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f"),
+        "whisper-base-en" => ("Whisper.cpp Base.en (Local)", "whisper-base.en", "ggml-base.en.bin", "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002"),
+        "whisper-small-en" => ("Whisper.cpp Small.en (Local)", "whisper-small.en", "ggml-small.en.bin", "c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d"),
         _ => return (StatusCode::BAD_REQUEST, "Unknown local model preset").into_response(),
     };
     model_action(&state, "install_managed_local_model", serde_json::json!({
         "provider_name": provider, "model_name": model, "file_name": filename,
-        "download_url": format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{filename}?download=true"),
+        "download_url": format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/{filename}?download=true"), "expected_sha256": sha256,
         "capability_tags": ["speech_to_text"]
     })).await
 }

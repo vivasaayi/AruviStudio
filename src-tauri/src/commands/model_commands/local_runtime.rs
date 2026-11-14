@@ -33,6 +33,8 @@ pub struct InstallManagedLocalModelCommand {
     pub(crate) download_url: String,
     #[serde(alias = "fileName")]
     pub(crate) file_name: String,
+    #[serde(alias = "expectedSha256")]
+    pub(crate) expected_sha256: Option<String>,
     #[serde(alias = "capabilityTags")]
     pub(crate) capability_tags: Option<String>,
     pub(crate) notes: Option<String>,
@@ -170,8 +172,14 @@ pub(crate) async fn install_managed_local_model(
     request: InstallManagedLocalModelCommand,
 ) -> Result<LocalModelRegistrationResult, AppError> {
     use std::path::{Component, Path};
+    use sha2::{Digest, Sha256};
+    use tokio::io::AsyncReadExt;
     const MAX_MODEL_BYTES: u64 = 8 * 1024 * 1024 * 1024;
     let filename = request.file_name.trim();
+    let expected = request.expected_sha256.as_deref().map(str::trim);
+    if expected.is_some_and(|value| value.len() != 64 || !value.bytes().all(|b| b.is_ascii_hexdigit())) {
+        return Err(AppError::Validation("Expected SHA-256 must contain 64 hexadecimal characters".into()));
+    }
     if filename.is_empty() || filename.contains(['/', '\\']) || !matches!(Path::new(filename).components().collect::<Vec<_>>().as_slice(), [Component::Normal(_)]) {
         return Err(AppError::Validation("Model filename must be a single file name".into()));
     }
@@ -194,6 +202,15 @@ pub(crate) async fn install_managed_local_model(
     let mut downloaded = false;
     if let Ok(metadata) = tokio::fs::symlink_metadata(&destination_path).await {
         if !metadata.is_file() || metadata.len() == 0 { return Err(AppError::Validation("Existing model must be a nonempty regular file".into())); }
+        if let Some(expected) = expected {
+            let mut input = tokio::fs::File::open(&destination_path).await?;
+            let mut hasher = Sha256::new();
+            let mut buffer = vec![0u8; 65536];
+            loop { let n = input.read(&mut buffer).await?; if n == 0 { break; } hasher.update(&buffer[..n]); }
+            if !format!("{:x}", hasher.finalize()).eq_ignore_ascii_case(expected) {
+                return Err(AppError::Validation("Existing model checksum does not match; review or remove the file before retrying".into()));
+            }
+        }
     } else {
         let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(3600)).build().map_err(|_| AppError::Provider("Failed to initialize model download".into()))?;
         let response = client.get(url).send()
@@ -211,15 +228,20 @@ pub(crate) async fn install_managed_local_model(
         let mut file = tokio::fs::File::from_std(temporary.reopen()?);
         let mut stream = response.bytes_stream();
         let mut size = 0u64;
+        let mut hasher = Sha256::new();
         while let Some(chunk) = stream.next().await {
             let bytes = chunk.map_err(|error| {
                 AppError::Provider(format!("Failed to read model download stream: {}", error.without_url()))
             })?;
             size = size.checked_add(bytes.len() as u64).ok_or_else(|| AppError::Validation("Model download exceeds size limit".into()))?;
             if size > MAX_MODEL_BYTES { return Err(AppError::Validation("Model download exceeds size limit".into())); }
+            if expected.is_some() { hasher.update(&bytes); }
             file.write_all(&bytes).await?;
         }
         if size == 0 { return Err(AppError::Validation("Model download was empty".into())); }
+        if expected.is_some_and(|value| !format!("{:x}", hasher.finalize()).eq_ignore_ascii_case(value)) {
+            return Err(AppError::Validation("Downloaded model checksum does not match".into()));
+        }
         file.flush().await?;
         file.sync_all().await?;
         drop(file);
@@ -265,7 +287,7 @@ mod tests {
     use std::{io::{Read, Write}, net::TcpListener, thread};
 
     fn request(url: String, filename: &str) -> InstallManagedLocalModelCommand {
-        InstallManagedLocalModelCommand { provider_name: "Test provider".into(), model_name: "fixture".into(), download_url: url, file_name: filename.into(), capability_tags: None, notes: None, context_window: None }
+        InstallManagedLocalModelCommand { provider_name: "Test provider".into(), model_name: "fixture".into(), download_url: url, file_name: filename.into(), expected_sha256: None, capability_tags: None, notes: None, context_window: None }
     }
     fn server(body: &'static [u8], advertised: usize) -> (String, thread::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -288,6 +310,8 @@ mod tests {
             assert!(install_managed_local_model(&state, request("http://127.0.0.1:1".into(), bad)).await.is_err(), "{bad}");
         }
         assert!(!dir.path().join("escaped").exists());
+        let mut malformed = request("http://127.0.0.1:1".into(), "model.bin"); malformed.expected_sha256 = Some("not-a-sha256".into());
+        assert!(install_managed_local_model(&state, malformed).await.unwrap_err().to_string().contains("SHA-256"));
         let (url, first_server) = server(b"partial", 100);
         assert!(install_managed_local_model(&state, request(url, "model.bin")).await.is_err());
         first_server.join().unwrap();
@@ -312,5 +336,23 @@ mod tests {
         }})).await.unwrap();
         mcp_server.join().unwrap();
         assert_eq!(std::fs::read(mcp["result"]["file_path"].as_str().unwrap()).unwrap(), b"mcp model");
+        use sha2::{Digest, Sha256};
+        let valid_hash = format!("{:x}", Sha256::digest(b"verified model"));
+        let (url, valid_server) = server(b"verified model", 14);
+        let mut verified = request(url, "verified.bin"); verified.expected_sha256 = Some(valid_hash.clone());
+        let good = install_managed_local_model(&state, verified).await.unwrap();
+        valid_server.join().unwrap();
+        assert!(good.downloaded);
+        let mut reused = request("http://127.0.0.1:1".into(), "verified.bin"); reused.expected_sha256 = Some(valid_hash.clone());
+        assert!(!install_managed_local_model(&state, reused).await.unwrap().downloaded);
+        std::fs::write(&good.file_path, b"corrupted").unwrap();
+        let mut corrupt = request("http://127.0.0.1:1".into(), "verified.bin"); corrupt.expected_sha256 = Some(valid_hash.clone());
+        assert!(install_managed_local_model(&state, corrupt).await.unwrap_err().to_string().contains("checksum"));
+        assert_eq!(std::fs::read(&good.file_path).unwrap(), b"corrupted");
+        let (url, bad_server) = server(b"wrong payload", 13);
+        let mut wrong = request(url, "wrong.bin"); wrong.expected_sha256 = Some(valid_hash);
+        assert!(install_managed_local_model(&state, wrong).await.unwrap_err().to_string().contains("checksum"));
+        bad_server.join().unwrap();
+        assert!(!model_dir.join("wrong.bin").exists());
     }
 }
