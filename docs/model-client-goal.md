@@ -46,6 +46,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Browser file-aware Copilot
 
+- Patch previews are shared by the authenticated browser API and MCP
+  `preview_repository_patch`: they validate the target and patch without writing
+  and return the existing-file flag, original and resulting hashes, and resulting
+  text. Existing and resulting files are limited to 2 MiB. The preview is not a
+  transaction: external changes may race a later write, and a hash alone cannot
+  distinguish a missing file from an existing empty file. Multi-file proposal
+  generation, review UI and application still need to be implemented.
+- The Linux Rust suite passed 204 tests with two live tests ignored; all 22
+  isolated remote UI cases passed, including matching browser and MCP previews
+  of an existing file and an MCP preview of a new file with no writes. The
+  rebuilt worktree container is healthy on port 55020.
+
 - The shared repository patch parser now validates both hunk ranges and line
   counts, rejects out-of-bounds or overlapping edits, preserves uniform CRLF and
   trailing spaces, and handles explicit no-final-newline markers. The existing

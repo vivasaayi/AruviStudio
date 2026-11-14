@@ -120,12 +120,45 @@ pub fn get_repository_file_sha256(
     Ok(sha256_hex(&bytes))
 }
 
+#[derive(serde::Serialize)]
+pub struct RepositoryPatchPreview {
+    pub exists: bool,
+    pub base_sha256: String,
+    pub result_sha256: String,
+    pub result_content: String,
+}
+
+pub fn preview_repository_patch(
+    repo_root: &str,
+    relative_path: &str,
+    patch: &str,
+    base_sha256: Option<&str>,
+) -> Result<RepositoryPatchPreview, AppError> {
+    let (_, preview) = prepare_repository_patch(repo_root, relative_path, patch, base_sha256)?;
+    Ok(preview)
+}
+
 pub fn apply_repository_patch(
     repo_root: &str,
     relative_path: &str,
     patch: &str,
     base_sha256: Option<&str>,
 ) -> Result<String, AppError> {
+    let (candidate, preview) =
+        prepare_repository_patch(repo_root, relative_path, patch, base_sha256)?;
+    if let Some(parent) = candidate.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(candidate, preview.result_content.as_bytes())?;
+    Ok(preview.result_sha256)
+}
+
+fn prepare_repository_patch(
+    repo_root: &str,
+    relative_path: &str,
+    patch: &str,
+    base_sha256: Option<&str>,
+) -> Result<(std::path::PathBuf, RepositoryPatchPreview), AppError> {
     let root = canonicalize_repo_root(repo_root)?;
     let candidate = resolve_repository_relative_path(&root, relative_path)?;
     let canonical_parent =
@@ -139,7 +172,12 @@ pub fn apply_repository_patch(
         )));
     }
 
-    let original_bytes = if candidate.exists() {
+    let exists = match fs::symlink_metadata(&candidate) {
+        Ok(_) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => return Err(error.into()),
+    };
+    let original_bytes = if exists {
         let canonical_target = fs::canonicalize(&candidate)?;
         if !canonical_target.starts_with(&root) {
             return Err(AppError::Validation(format!(
@@ -147,13 +185,18 @@ pub fn apply_repository_patch(
                 relative_path
             )));
         }
+        if fs::metadata(&canonical_target)?.len() > MAX_FILE_BYTES as u64 {
+            return Err(AppError::Validation(
+                "Patch target exceeds file size limit".to_string(),
+            ));
+        }
         fs::read(canonical_target)?
     } else {
         Vec::new()
     };
 
+    let actual_hash = sha256_hex(&original_bytes);
     if let Some(expected_hash) = base_sha256 {
-        let actual_hash = sha256_hex(&original_bytes);
         if !expected_hash.eq_ignore_ascii_case(&actual_hash) {
             return Err(AppError::Validation(format!(
                 "Patch precondition failed for {} (expected base_sha256={}, actual={})",
@@ -170,11 +213,20 @@ pub fn apply_repository_patch(
     })?;
     let patched = apply_unified_patch_text(&original_text, patch)?;
 
-    if let Some(parent) = candidate.parent() {
-        fs::create_dir_all(parent)?;
+    if patched.len() > MAX_FILE_BYTES {
+        return Err(AppError::Validation(
+            "Patched file exceeds file size limit".to_string(),
+        ));
     }
-    fs::write(&candidate, patched.as_bytes())?;
-    Ok(sha256_hex(patched.as_bytes()))
+    Ok((
+        candidate,
+        RepositoryPatchPreview {
+            exists,
+            base_sha256: actual_hash,
+            result_sha256: sha256_hex(patched.as_bytes()),
+            result_content: patched,
+        },
+    ))
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -191,7 +243,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_repository_patch, get_repository_file_sha256};
+    use super::{apply_repository_patch, get_repository_file_sha256, preview_repository_patch};
     use crate::error::AppError;
     use std::fs;
     use std::path::PathBuf;
@@ -204,6 +256,51 @@ mod tests {
         ));
         fs::create_dir_all(&dir).expect("failed to create temp repo dir");
         dir
+    }
+
+    #[test]
+    fn patch_preview_validates_without_writing() {
+        let root = temp_repo_dir("preview");
+        fs::write(root.join("file.txt"), "alpha\nbeta\n").unwrap();
+        let hash = get_repository_file_sha256(&root.to_string_lossy(), "file.txt").unwrap();
+        let preview = preview_repository_patch(
+            &root.to_string_lossy(),
+            "file.txt",
+            "@@ -1,0 +2,1 @@\n+middle",
+            Some(&hash),
+        )
+        .unwrap();
+        assert!(preview.exists);
+        assert_eq!(preview.base_sha256, hash);
+        assert_eq!(preview.result_content, "alpha\nmiddle\nbeta\n");
+        assert_eq!(
+            fs::read_to_string(root.join("file.txt")).unwrap(),
+            "alpha\nbeta\n"
+        );
+        assert!(preview_repository_patch(
+            &root.to_string_lossy(),
+            "file.txt",
+            "@@ -1 +1 @@\n-alpha\n+changed",
+            Some("wrong")
+        )
+        .is_err());
+        let new = preview_repository_patch(
+            &root.to_string_lossy(),
+            "nested/new.txt",
+            "@@ -0,0 +1 @@\n+new",
+            None,
+        )
+        .unwrap();
+        assert!(!new.exists);
+        assert!(!root.join("nested").exists());
+        assert!(preview_repository_patch(
+            &root.to_string_lossy(),
+            "../outside",
+            "@@ -0,0 +1 @@\n+x",
+            None
+        )
+        .is_err());
+        fs::remove_dir_all(root).ok();
     }
 
     #[test]

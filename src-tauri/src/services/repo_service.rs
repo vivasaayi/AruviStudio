@@ -4,7 +4,8 @@ use std::path::{Component, Path};
 use crate::domain::repository::RepositoryTreeNode;
 use crate::error::AppError;
 pub use crate::services::repo_file_service::{
-    apply_repository_patch, get_repository_file_sha256, read_repository_file, write_repository_file,
+    apply_repository_patch, get_repository_file_sha256, preview_repository_patch, read_repository_file,
+    write_repository_file,
 };
 use crate::services::repo_path_service::canonicalize_repo_root;
 

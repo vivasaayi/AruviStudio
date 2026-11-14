@@ -147,6 +147,17 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             )?;
             action_result("get_repository_file_sha256", json!({ "sha256": sha }))
         }
+        "preview_repository_patch" => {
+            let repository_id = args.required_string(&["repository_id", "repositoryId"], "repository_id")?;
+            let repository = repository_repo::get_repository(&state.db, &repository_id).await?;
+            let preview = repo_service::preview_repository_patch(
+                &repository.local_path,
+                &args.required_string(&["relative_path", "relativePath"], "relative_path")?,
+                &args.required_string(&["patch"], "patch")?,
+                args.optional_string(&["base_sha256", "baseSha256"])?.as_deref(),
+            )?;
+            action_result("preview_repository_patch", preview)
+        }
         "apply_repository_patch" => {
             let repository_id =
                 args.required_string(&["repository_id", "repositoryId"], "repository_id")?;

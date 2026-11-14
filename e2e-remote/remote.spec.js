@@ -305,6 +305,18 @@ test("browser registers and attaches a container workspace", async ({ page, requ
       const patchFile = "patch-safety-fixture.txt";
       await call("aruvi_repositories", "write_repository_file", { repository_id: repositoryId, relative_path: patchFile, content: "alpha\nbeta\n" });
       const patchHash = (await call("aruvi_repositories", "get_repository_file_sha256", { repository_id: repositoryId, relative_path: patchFile })).sha256;
+      const previewArgs = { repository_id: repositoryId, relative_path: patchFile, base_sha256: patchHash, patch: "@@ -1,0 +2,1 @@\n+middle" };
+      const preview = await call("aruvi_repositories", "preview_repository_patch", previewArgs);
+      expect(preview.exists).toBe(true);
+      expect(preview.base_sha256).toBe(patchHash);
+      expect(preview.result_content).toBe("alpha\nmiddle\nbeta\n");
+      const browserPreview = await request.post("/api/mobile/repository-inspect", { headers: { Authorization: `Bearer ${token}` }, data: { action: "preview_repository_patch", ...previewArgs } });
+      expect(browserPreview.status()).toBe(200);
+      expect(await browserPreview.json()).toEqual(preview);
+      expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: patchFile })).content).toBe("alpha\nbeta\n");
+      const newPreview = await call("aruvi_repositories", "preview_repository_patch", { repository_id: repositoryId, relative_path: "preview-only/new.txt", patch: "@@ -0,0 +1 @@\n+new" });
+      expect(newPreview.exists).toBe(false);
+      expect(newPreview.result_content).toBe("new");
       const badPatchResponse = await request.post("/api/mcp", {
         headers: { Authorization: `Bearer ${mcpToken}`, Accept: "application/json, text/event-stream" },
         data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_repositories", arguments: { action: "apply_repository_patch", arguments: { repository_id: repositoryId, relative_path: patchFile, base_sha256: patchHash, patch: "@@ -1,2 +1,1 @@\n-alpha\n+changed" } } } },
