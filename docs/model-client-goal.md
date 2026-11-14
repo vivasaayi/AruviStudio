@@ -147,6 +147,14 @@ Piper audio and transcribed it through real Model Host Whisper. Physical
 microphone input and recognition quality remain unverified. The rebuilt branch
 was healthy at `127.0.0.1:55092` on 2026-11-14.
 
+`bash scripts/test host-speech-defaults` additionally starts a disposable
+Studio fixture, configures its defaults through the browser, generates synthetic
+Piper audio and transcribes it using the real native Model Host Whisper model.
+The browser checked both omitted and explicit per-browser settings, and MCP
+transcribed using the saved defaults. The fixture passed on 2026-11-14 and
+removed its own container and volumes; it did not alter the branch database
+or the Model Host deployment.
+
 ## External planner defaults in the browser
 
 Routing now exposes the server-wide provider ID and model name for external
