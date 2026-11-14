@@ -167,9 +167,9 @@ pub fn resolve_local_runtime_model_path(raw_value: &str) -> Result<PathBuf, AppE
         )));
     }
 
-    if !resolved.exists() {
+    if !resolved.is_file() {
         return Err(AppError::Validation(format!(
-            "Local runtime model file not found: {}",
+            "Local runtime model file not found or not a regular file: {}",
             resolved.display()
         )));
     }

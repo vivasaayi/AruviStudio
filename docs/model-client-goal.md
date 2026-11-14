@@ -53,11 +53,17 @@ provider hosting into the model-host service as part of this work.
   nonempty regular file is reused. Download URLs can still access endpoints
   reachable from the server and follow redirects. Neither downloaded nor
   pre-existing files are checksum-verified, and existing partial files from
-  older versions cannot be detected reliably. Browser installation controls
+  older versions cannot be detected reliably. Browser preset-download controls
   remain open; MCP and desktop installations refer to the server's filesystem.
   Native Rust passed 222 tests with six ignored, including interrupted download
   and MCP path checks. The rebuilt container passed 29 isolated workflow cases,
   including MCP install, rejection and idempotent reuse with a fixture server.
+- Browser model setup now registers an existing server-side Whisper file using
+  the same Rust operation as desktop and MCP. It rejects directories and makes
+  the container path requirement explicit. Native Rust passed 222 tests with
+  six ignored, and 30 isolated workflow cases passed, including browser
+  authentication, registration, invalid path, secret-reference omission and
+  repeat registration. This is not browser file upload or preset installation.
 
 ## Product Book export data
 

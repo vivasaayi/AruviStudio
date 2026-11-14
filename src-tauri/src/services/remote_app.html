@@ -797,6 +797,18 @@
                 <div id="agentBindingList" class="tool-list"></div>
               </div>
             </section>
+            <section class="panel">
+              <div class="panel-header"><div class="panel-title">Register local speech model</div></div>
+              <div class="panel-body stack">
+                <p class="empty">Register an existing Whisper model file on the Studio server. In Docker, the path must be inside the container and backed by persistent storage. For centrally hosted models, add the Aruvi Model Host as a provider instead.</p>
+                <form id="localModelForm" class="stack">
+                  <label><span class="label">Local provider name</span><input id="localProviderName" required /></label>
+                  <label><span class="label">Local model name</span><input id="localModelName" required /></label>
+                  <label><span class="label">Server model path</span><input id="localModelPath" required placeholder="/data/models/whisper.bin" /></label>
+                  <button id="registerLocalModelButton" type="submit">Register local speech model</button>
+                </form>
+              </div>
+            </section>
           </div>
         </section>
 
@@ -1059,6 +1071,11 @@
       discoveredModels: document.getElementById("discoveredModels"),
       createModelButton: document.getElementById("createModelButton"),
       modelList: document.getElementById("modelList"),
+      localModelForm: document.getElementById("localModelForm"),
+      localProviderName: document.getElementById("localProviderName"),
+      localModelName: document.getElementById("localModelName"),
+      localModelPath: document.getElementById("localModelPath"),
+      registerLocalModelButton: document.getElementById("registerLocalModelButton"),
       refreshModelsButton: document.getElementById("refreshModelsButton"),
       agentBindingForm: document.getElementById("agentBindingForm"),
       bindingAgent: document.getElementById("bindingAgent"),
@@ -3891,6 +3908,18 @@
       finally { el.createProviderButton.disabled = false; }
     }
 
+    async function registerLocalModel(event) {
+      event.preventDefault();
+      el.registerLocalModelButton.disabled = true;
+      try {
+        await request("/api/mobile/models/local-register", { method: "POST", body: { provider_name: el.localProviderName.value.trim(), model_name: el.localModelName.value.trim(), model_path: el.localModelPath.value.trim() } });
+        el.localModelForm.reset();
+        await loadModelConfiguration();
+        setStatus("Local speech model registered", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { el.registerLocalModelButton.disabled = false; }
+    }
+
     let discoveryCursor = null;
     let discoveryProvider = "";
     let discoverySequence = 0;
@@ -4303,6 +4332,7 @@
     el.repositoryAttachForm.addEventListener("submit", attachWorkspace);
     el.repositoryProduct.addEventListener("change", loadWorkspaces);
     el.providerForm.addEventListener("submit", createProvider);
+    el.localModelForm.addEventListener("submit", registerLocalModel);
     el.modelForm.addEventListener("submit", createModel);
     el.modelProvider.addEventListener("change", resetModelDiscovery);
     el.discoverModelsButton.addEventListener("click", () => discoverModels(false));

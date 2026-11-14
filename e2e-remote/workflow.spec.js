@@ -469,6 +469,35 @@ test("provider creation and edits reject unusable or credential-bearing URLs", a
   expect(providers.some((item) => item.name === "Rejected URL")).toBeFalsy();
 });
 
+test("browser registers a server local speech model and preserves it on repeat", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires an isolated server");
+  const data = { provider_name: "Browser local fixture", model_name: "fixture-stt", model_path: "/data/models/fixture/existing.bin" };
+  const endpoint = "/api/mobile/models/local-register";
+  expect((await request.post(endpoint, { data })).status()).toBe(401);
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  expect((await request.post(endpoint, { headers, data: { ...data, model_path: "/data/models/fixture" } })).status()).toBe(400);
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Models", exact: true }).click();
+  await page.getByLabel("Local provider name").fill(data.provider_name);
+  await page.getByLabel("Local model name").fill(data.model_name);
+  await page.getByLabel("Server model path").fill(data.model_path);
+  const created = page.waitForResponse((r) => r.url().endsWith(endpoint) && r.request().method() === "POST");
+  await page.getByRole("button", { name: "Register local speech model" }).click();
+  const response = await created;
+  expect(response.ok()).toBeTruthy();
+  const registered = await response.json();
+  expect(registered.provider.provider_type).toBe("local_runtime");
+  expect(registered.provider).not.toHaveProperty("auth_secret_ref");
+  expect(registered.model_definition.capability_tags).toContain("speech_to_text");
+  await expect(page.locator("#providerList")).toContainText(data.provider_name);
+  await expect(page.locator("#modelList")).toContainText(data.model_name);
+  const repeat = await request.post(endpoint, { headers, data });
+  expect(repeat.ok()).toBeTruthy();
+  expect((await repeat.json()).model_definition.id).toBe(registered.model_definition.id);
+});
+
 test("MCP managed local model install confines paths and reuses the completed file", async ({ request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires an isolated server");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };

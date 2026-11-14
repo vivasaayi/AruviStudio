@@ -223,6 +223,13 @@ pub(crate) struct MobileCreateModelRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub(crate) struct MobileRegisterLocalModelRequest {
+    provider_name: String,
+    model_name: String,
+    model_path: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub(crate) struct MobileRegisterRepositoryRequest {
     name: String,
     local_path: String,
@@ -855,6 +862,8 @@ async fn model_action(state: &WebhookState, action: &str, arguments: serde_json:
             let mut value = result["result"].clone();
             if action == "create_provider" {
                 if let Some(fields) = value.as_object_mut() { fields.remove("auth_secret_ref"); }
+            } else if action == "register_local_runtime_model" {
+                if let Some(provider) = value.get_mut("provider").and_then(serde_json::Value::as_object_mut) { provider.remove("auth_secret_ref"); }
             }
             Json(value).into_response()
         },
@@ -1008,6 +1017,14 @@ pub(crate) async fn mobile_create_provider(State(state): State<WebhookState>, he
 pub(crate) async fn mobile_list_models(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     model_action(&state, "list_model_definitions", serde_json::json!({})).await
+}
+
+pub(crate) async fn mobile_register_local_model(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileRegisterLocalModelRequest>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    if body.provider_name.trim().is_empty() || body.model_name.trim().is_empty() || body.model_path.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, "Provider name, model name and server model path are required").into_response();
+    }
+    model_action(&state, "register_local_runtime_model", serde_json::json!({"provider_name":body.provider_name.trim(), "model_name":body.model_name.trim(), "model_path":body.model_path.trim(), "capability_tags":["speech_to_text"]})).await
 }
 
 pub(crate) async fn mobile_create_model(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileCreateModelRequest>) -> impl IntoResponse {
