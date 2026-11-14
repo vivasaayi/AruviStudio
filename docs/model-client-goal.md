@@ -46,6 +46,14 @@ provider hosting into the model-host service as part of this work.
 
 ## Managed local model installation
 
+- Native Model Host setup now only accepts an installed model advertised for
+  text, explicitly restores the standard completion profile, and checks the
+  existing provider's host, port and URL shape before updating it. Fixed setup
+  errors are actionable without echoing credentials. Four helper tests passed;
+  the helper refreshed the real 7B host provider and subsequent MCP coding,
+  token-limit handling and browser streaming checks passed. The helper does not
+  assign agent bindings or start automatically after a host restart.
+
 - Desktop and MCP now share the same managed installer. It rejects paths in
   model filenames, refuses symlink destinations and symlink model directories,
   bounds downloads to 8 GiB and one hour, and publishes a nonempty file only

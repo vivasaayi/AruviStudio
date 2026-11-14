@@ -99,6 +99,10 @@ actually installed there. The current native staging fixture does not contain on
 Use `--name` to choose a different provider name. This setup stores the host's
 bearer token in Studio's secret store; it grants the token's full Model Host
 permissions. The helper neither installs models nor assigns them to agents.
+It requires a model advertised with the `text` task and selects the standard
+OpenAI-compatible completion profile for that Model Host provider. Choose the
+registered model in browser chat or bind it to the desired agents in Models;
+adding a provider does not change existing bindings automatically.
 
 Native worktree ports can change after a restart. Add `--watch` to keep the helper
 running in the foreground; it polls every five seconds, retries outages, and

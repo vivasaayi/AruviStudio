@@ -17,6 +17,10 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parent.parent
 
 
+class SetupError(ValueError):
+    """A fixed, user-facing setup message that contains no provider data."""
+
+
 def mcp(action, arguments):
     payload = json.dumps({"action": action, "arguments": arguments})
     result = subprocess.run([str(ROOT / "scripts/mcp"), "call", "aruvi_models", "-"], cwd=ROOT,
@@ -30,14 +34,14 @@ def read_host(host, environment):
         return json.loads(subprocess.check_output(["bash", "scripts/env", environment, action], cwd=host, env=env, text=True, stderr=subprocess.DEVNULL))
     plan, status = info("plan"), info("status")
     if not status["registered"] or not status.get("endpoint"):
-        raise ValueError("Native Model Host is not running")
+        raise SetupError("Native Model Host is not running")
     endpoint = urlsplit(status["endpoint"]["url"])
     if endpoint.scheme != "http" or endpoint.hostname != "127.0.0.1" or endpoint.port is None or endpoint.path not in ("", "/") or endpoint.query or endpoint.fragment or endpoint.username or endpoint.password:
-        raise ValueError("Expected a running loopback-only native Model Host")
+        raise SetupError("Expected a running loopback-only native Model Host")
     token = next(line.split("=", 1)[1] for line in (Path(plan["state"]) / "environment.env").read_text().splitlines()
                  if line.startswith("MODEL_HOST_TOKEN="))
     if not token:
-        raise ValueError("Native Model Host token is empty")
+        raise SetupError("Native Model Host token is empty")
     return endpoint.port, token
 
 
@@ -46,24 +50,28 @@ def configure(port, token, model, name):
     with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(discovery_request, timeout=20) as response:
         body = response.read(2 * 1024 * 1024 + 1)
         if len(body) > 2 * 1024 * 1024:
-            raise ValueError("Model Host discovery response is too large")
+            raise SetupError("Model Host discovery response is too large")
         available = json.loads(body)
-    if not any(item.get("id") == model for item in available.get("data", [])):
-        raise ValueError("Requested model is not advertised by the selected host")
+    if not any(item.get("id") == model and item.get("task") == "text" for item in available.get("data", [])):
+        raise SetupError("Requested model is not an installed text model on the selected host")
     base_url = f"http://host.docker.internal:{port}/v1"
     matches = [p for p in mcp("list_providers", {}) if p["name"] == name]
     if len(matches) > 1:
-        raise ValueError("More than one provider has the requested name")
+        raise SetupError("More than one provider has the requested name")
     if matches:
         existing = matches[0]
-        if existing["provider_type"] != "openai_compatible" or existing["protocol"] != "openai_compatible" or not existing["base_url"].startswith("http://host.docker.internal:"):
-            raise ValueError("Existing provider is not an owned native-host configuration")
-        provider = mcp("update_provider", {"id": existing["id"], "base_url": base_url, "auth_secret_ref": token})
+        address = urlsplit(existing["base_url"])
+        if (existing["provider_type"] != "openai_compatible" or existing["protocol"] != "openai_compatible"
+                or address.scheme != "http" or address.hostname != "host.docker.internal"
+                or address.port is None or address.username or address.password
+                or address.path.rstrip("/") != "/v1" or address.query or address.fragment):
+            raise SetupError("Existing provider is not an owned native-host configuration")
+        provider = mcp("update_provider", {"id": existing["id"], "base_url": base_url, "auth_secret_ref": token, "completion_profile": "standard"})
     else:
-        provider = mcp("create_provider", {"name": name, "provider_type": "openai_compatible", "base_url": base_url, "auth_secret_ref": token})
+        provider = mcp("create_provider", {"name": name, "provider_type": "openai_compatible", "base_url": base_url, "auth_secret_ref": token, "completion_profile": "standard"})
     page = mcp("discover_provider_models", {"id": provider["id"]})
     if not any(item["id"] == model for item in page["models"]):
-        raise ValueError("Requested model is not advertised from Studio")
+        raise SetupError("Requested model is not advertised from Studio")
     models = [item for item in mcp("list_model_definitions", {}) if item["provider_id"] == provider["id"] and item["name"] == model]
     if not models:
         mcp("create_model_definition", {"provider_id": provider["id"], "name": model, "capability_tags": ["coding", "text"], "notes": "Native Model Host model"})
@@ -94,7 +102,7 @@ def main():
             last_error = None
         except (OSError, ValueError, KeyError, TypeError, StopIteration, subprocess.CalledProcessError) as error:
             # Neither HTTP response content nor subprocess output should reach logs.
-            message = f"Unable to configure native Model Host ({type(error).__name__})"
+            message = f"Unable to configure native Model Host: {error}" if isinstance(error, SetupError) else f"Unable to configure native Model Host ({type(error).__name__})"
             if not args.watch:
                 print(message, file=sys.stderr)
                 return 1

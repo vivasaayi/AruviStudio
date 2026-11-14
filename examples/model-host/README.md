@@ -31,11 +31,15 @@ bash scripts/test host-coding-ui
 ```
 
 The setup helper uses the worktree's private token without printing it, checks
-that the model is installed, and creates or refreshes a named Studio provider
+that the model is installed and advertised for text, and creates or refreshes a named Studio provider
 and model definition. It does not assign the model to agents. Native worktree
 ports are dynamic; rerun the helper after the host restarts. The host's provider
 credential has broad host authority and should be scoped more narrowly when the
 host supports it.
+
+The historical ID `qwen25-coder-15b-q4` in this fixture refers to the **1.5B**
+model, not a 15B model. Use the exact ID from Model Host discovery when
+configuring Studio.
 
 To evaluate the larger model, register and install the 7B JSON, then configure
 Studio with `--model qwen25-coder-7b-q4` and set

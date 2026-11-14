@@ -23,6 +23,11 @@ network when accessing it from an iPad, iPhone, or another computer.
 
 See [Headless AruviStudio deployment](docs/headless-server.md) for Linux VM and service setup.
 
+For local coding models hosted by Aruvi Model Host, see
+[Connecting a native Aruvi Model Host](docs/headless-server.md#connecting-a-native-aruvi-model-host).
+Model Host manages the models; Studio connects as a client and can bind a
+discovered model to its agents.
+
 ## MCP
 
 Aruvi Studio now exposes MCP in two ways:
