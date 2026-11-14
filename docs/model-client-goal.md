@@ -48,12 +48,16 @@ provider hosting into the model-host service as part of this work.
 
 - A disposable real Model Host test now asks `qwen25-coder-7b-q4` for a
   one-line JavaScript change through both the browser API and MCP, previews and
-  applies each proposal through its corresponding API, and checks the result.
+  applies each proposal through its corresponding API, and checks the result. A
+  headless Chrome run also generates, reviews and applies that change in the UI.
+  With `ARUVI_TEST_MULTI_FILE_PROPOSAL=1`, a real model generated an existing-file
+  edit and a new text file, and both were previewed and applied through MCP.
   The first prompt produced an invalid array-shaped patch with incorrect hunk
   counts; an explicit JSON string example and hunk-count guidance fixed this
-  fixture. This validates one simple change with one model, not general model
-  reliability, multi-file output, or a browser-driven real-model run. Repeat via
-  `bash scripts/test host-file-copilot` with the validation host running.
+  fixture. These checks cover simple synthetic changes with one model and do not
+  establish general model reliability. Repeat via `bash scripts/test
+  host-file-copilot` with the validation host running; the browser test requires
+  Playwright and Chrome on the Mac.
 
 - Browser Copilot can request and review multi-file patch proposals, preview each
   patch against the repository, and apply the reviewed patches sequentially.

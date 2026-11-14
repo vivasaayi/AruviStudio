@@ -108,6 +108,32 @@ try:
         if applied != preview["result_content"]: raise ValueError("Applied file did not match preview")
         mcp("aruvi_repositories", "write_repository_file", {"repository_id":repo["id"], "relative_path":"math.js", "content":file["content"]})
         print(f"Real {model} {interface} patch proposal was previewed and applied successfully")
+    browser = subprocess.run(["node", "scripts/test-host-patch-ui.mjs"], cwd=root,
+        input=json.dumps({"address": address, "provider": provider["id"], "model": model}),
+        text=True, capture_output=True, timeout=240)
+    if browser.returncode:
+        raise ValueError("Browser proposal fixture failed: " + browser.stderr[-2000:])
+    applied = mcp("aruvi_repositories", "read_repository_file", {"repository_id":repo["id"], "relative_path":"math.js"})["content"]
+    if "x * 9" not in applied: raise ValueError("Browser proposal did not update the repository")
+    print(browser.stdout.strip())
+    if os.environ.get("ARUVI_TEST_MULTI_FILE_PROPOSAL") == "1":
+        mcp("aruvi_repositories", "write_repository_file", {"repository_id":repo["id"], "relative_path":"math.js", "content":file["content"]})
+        multi_request = dict(payload, patch_mode=True, question="Make two changes: change math.js to multiply by 9 instead of 7, and create notes.txt containing exactly 'multiplies by 9'. Return one patch for each file.")
+        content = mcp("aruvi_models", "run_file_copilot", multi_request).get("content", "").strip()
+        if content.startswith("```"): content = "\n".join(content.splitlines()[1:-1])
+        try: proposal = json.loads(content)
+        except json.JSONDecodeError as error: raise ValueError(f"Multi-file proposal was not JSON: {content[:1000]}") from error
+        patches = proposal.get("patches", [])
+        if proposal.get("type") != "patch_proposal" or len(patches) != 2 or {item.get("path") for item in patches} != {"math.js", "notes.txt"}:
+            raise ValueError(f"Multi-file proposal had unexpected paths: {content[:1000]}")
+        for item in patches:
+            args = {"repository_id":repo["id"], "relative_path":item["path"], "patch":item["patch"]}
+            try: preview = mcp("aruvi_repositories", "preview_repository_patch", args)
+            except ValueError as error: raise ValueError(f"Multi-file preview failed: {content[:1000]} ({error})") from error
+            expected = "x * 9" if item["path"] == "math.js" else "multiplies by 9"
+            if expected not in preview["result_content"]: raise ValueError(f"Multi-file result is incorrect: {content[:1000]}")
+            mcp("aruvi_repositories", "apply_reviewed_repository_patch", dict(args, base_sha256=preview["base_sha256"], expected_exists=preview["exists"]))
+        print(f"Real {model} multi-file proposal was previewed and applied through MCP")
     print(f"Real {model} file-context Copilot follow-ups passed through web and MCP in a disposable fixture")
 except (OSError, KeyError, TypeError, ValueError, subprocess.SubprocessError) as error:
     print(f"File Copilot fixture failed: {type(error).__name__}: {error if not isinstance(error, subprocess.CalledProcessError) else 'fixture command failed'}", file=sys.stderr)
