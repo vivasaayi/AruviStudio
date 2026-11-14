@@ -3638,6 +3638,10 @@ A database failure during that status update, process termination, or task
 cancellation can still leave a running record requiring recovery. A coding-stage
 fixture forces a preparation database error before any model call and an output
 artifact insertion failure after execution; both produce failed runs. The full
-native library suite passed (261 passed, 7 ignored). The running branch image
-does not yet contain this change: Docker reported only 731 MB available, so a
-rebuild was deferred to avoid exhausting space used by other projects.
+native library suite passed (261 passed, 7 ignored). After removing 30 explicitly
+identified, unshared old Studio build cache entries, the branch image was rebuilt
+from commit a53fe35 and deployed to the isolated worktree. Both services were
+healthy, and all 49 isolated browser/MCP workflow checks passed against the new
+image. The worktree port is dynamic; obtain the current address with
+`bash scripts/env worktree status`. These checks use test providers and do not
+replace the outstanding native-window and physical microphone acceptance.
