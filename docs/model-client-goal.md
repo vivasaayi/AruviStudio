@@ -12,6 +12,16 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Current branch real Model Host coding revalidation
+
+At branch revision `bf42f28`, the disposable Studio container ran the
+`extend-module` coding workflow through MCP against the running native
+`qwen25-coder-7b-q4` Model Host with JSON mode enabled. It reached review,
+passed the configured syntax check and independent network-isolated behavioral
+assertions, and delivered to a disposable local Git remote. This is one run;
+earlier failures and variability remain relevant. The host deployment was not
+modified, and live remote Git delivery and other models remain unverified.
+
 ### Browser outbound contact policy
 
 Subsequent routing inspection found that a WhatsApp-to-voice availability
