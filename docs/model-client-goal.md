@@ -2308,7 +2308,10 @@ text and `isError` flag. The upstream response body is not included. The value
 is an upstream status, not an automatic retry recommendation; provider errors
 without an HTTP status omit it. Browser HTTP status behavior and streaming error
 events are unchanged. Targeted Rust tests and all 34 isolated workflow tests
-passed; the MCP provider fixture validates the end-to-end 429 case.
+passed; the MCP provider fixture validates end-to-end 429 cases for buffered
+chat, remote transcription and remote speech generation without returning the
+synthetic provider body. This is simulated-provider coverage, not a live rate
+limit test.
 
 ## Independent shared-client voice probe
 

@@ -814,6 +814,16 @@ test("MCP preserves upstream provider HTTP status without provider body", async 
   expect(result.isError).toBeTruthy();
   expect(result.structuredContent.provider_http_status).toBe(429);
   expect(JSON.stringify(result)).not.toContain("synthetic-provider-private-body");
+  for (const [action, args] of [
+    ["transcribe_audio", { provider_id: provider.id, model_name: "whisper-1", audio_bytes_base64: "AA==", mime_type: "audio/wav" }],
+    ["generate_speech", { provider_id: provider.id, model: "fixture", text: "hello" }],
+  ]) {
+    const speech = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "aruvi_speech", arguments: { action, arguments: args } } } });
+    const speechResult = (await speech.json()).result;
+    expect(speechResult.isError).toBeTruthy();
+    expect(speechResult.structuredContent.provider_http_status).toBe(429);
+    expect(JSON.stringify(speechResult)).not.toContain("synthetic-provider-private-body");
+  }
 });
 
 test("voice records, reviews, and sends a transcribed message", async ({ page, request }) => {
