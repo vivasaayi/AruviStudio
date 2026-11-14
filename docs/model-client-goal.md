@@ -2277,6 +2277,12 @@ fields, rather than silently dropping the bad entries and presenting a partial
 proposal. The frontend build, 115 unit tests and the mocked Copilot browser
 check passed. Native patch application remains unverified.
 
+Desktop review and application now reject path spellings containing dot segments,
+empty segments or backslashes, matching browser proposal validation and preventing
+those spellings from bypassing its open-editor checks. Filesystem aliases such as
+symlinks, hard links and case-insensitive names are not resolved against open editor
+buffers; this remains a data-safety gap. The frontend build and 121 tests passed.
+
 ## Open design questions
 
 - Decide whether to move the Git-pinned client to a separately maintained

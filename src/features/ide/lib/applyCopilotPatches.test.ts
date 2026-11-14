@@ -60,3 +60,15 @@ it("rejects duplicate targets before preview", async () => {
   await expect(reviewCopilotPatches("repo", { raw: "", summary: "", patches: [{ path: "a", patch: "x" }, { path: "a", patch: "y" }] }, preview)).rejects.toThrow("duplicate");
   expect(preview).not.toHaveBeenCalled();
 });
+
+
+it.each(["dir/./file.txt", "dir//file.txt", "dir\\file.txt", "./a.txt", "dir/../a.txt", "/a.txt"])(
+  "rejects an alias or invalid path before preview or application: %s", async (path) => {
+    const preview = vi.fn();
+    await expect(reviewCopilotPatches("repo", { raw: "", summary: "", patches: [{ path, patch: "x" }] }, preview)).rejects.toThrow("invalid");
+    expect(preview).not.toHaveBeenCalled();
+    const apply = vi.fn();
+    await expect(applyCopilotPatches("repo", [{ path, patch: "x", base_sha256: "hash", expected_exists: true }], { apply, read: async () => "" })).rejects.toThrow("invalid path");
+    expect(apply).not.toHaveBeenCalled();
+  },
+);

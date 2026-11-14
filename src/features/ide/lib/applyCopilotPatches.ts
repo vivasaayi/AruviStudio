@@ -6,9 +6,16 @@ type PatchOperations = {
   read: (input: { repositoryId: string; relativePath: string }) => Promise<string>;
 };
 
+// Match the repository tree's slash-separated paths so an alias cannot bypass
+// the open-editor dirty check or cause two patches to target the same path.
+function validPatchPath(path: string): boolean {
+  return path.length > 0 && path.length <= 4096 && !path.startsWith("/") &&
+    !path.includes("\\") && !path.split("/").some((part) => !part || part === "." || part === "..");
+}
+
 export async function reviewCopilotPatches(repositoryId: string, proposal: CopilotPatchProposal, preview: (input: { repositoryId: string; relativePath: string; patch: string; baseSha256?: string }) => Promise<{ exists: boolean; base_sha256: string }>): Promise<ReviewedCopilotPatchProposal> {
   if (!repositoryId) throw new Error("Select a workspace before reviewing a patch proposal.");
-  if (proposal.patches.length > 20 || new Set(proposal.patches.map((patch) => patch.path)).size !== proposal.patches.length) throw new Error("Patch proposal has too many or duplicate paths.");
+  if (proposal.patches.length > 20 || proposal.patches.some((patch) => !validPatchPath(patch.path)) || new Set(proposal.patches.map((patch) => patch.path)).size !== proposal.patches.length) throw new Error("Patch proposal has too many, invalid, or duplicate paths.");
   const patches: ReviewedPatch[] = [];
   for (const patch of proposal.patches) {
     if (patch.patch.length > 200_000 || patch.path.length > 4096) throw new Error("Patch proposal exceeds its size limit.");
@@ -19,6 +26,7 @@ export async function reviewCopilotPatches(repositoryId: string, proposal: Copil
 }
 
 export async function applyCopilotPatches(repositoryId: string, patches: ReviewedPatch[], operations: PatchOperations) {
+  if (patches.some((patch) => !validPatchPath(patch.path))) throw new Error("Patch proposal contains an invalid path.");
   const dirty = (path: string) => useEditorStore.getState().openFiles.find((file) => file.id === `${repositoryId}:${path}`)?.isDirty;
   const existingDirty = patches.find((patch) => dirty(patch.path));
   if (existingDirty) throw new Error(`Save or close unsaved changes in ${existingDirty.path} before applying the proposal.`);
