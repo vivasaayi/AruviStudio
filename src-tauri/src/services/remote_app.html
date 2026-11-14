@@ -732,6 +732,12 @@
 
         <section class="tab-panel" id="tab-voice">
           <section class="panel">
+            <div class="panel-header"><div class="panel-title">Server transcription defaults</div><button class="secondary" id="refreshSpeechDefaults" type="button">Refresh speech defaults</button></div>
+            <div class="panel-body"><p>These settings apply when a client does not choose a transcription provider, model or locale. Browser selections below override them; server environment variables can also override saved defaults.</p>
+              <form id="speechDefaultsForm" class="stack"><label><span class="label">Default transcription provider</span><select id="defaultSpeechProvider"><option value="">No provider selected</option></select></label><label><span class="label">Default transcription model</span><input id="defaultSpeechModel" placeholder="Automatic" /></label><label><span class="label">Default speech locale</span><input id="defaultSpeechLocale" placeholder="Automatic" /></label><button type="submit">Save speech defaults</button></form>
+            </div>
+          </section>
+          <section class="panel">
             <div class="panel-header">
               <div class="panel-title">Voice</div>
               <div class="status" id="voiceSessionStatus">No session</div>
@@ -1337,6 +1343,7 @@
       }
       if (tabId === "voice") {
         void loadVoiceProviders();
+        void loadSpeechDefaults();
       }
       if (tabId === "routing") {
         void loadRouting();
@@ -1501,6 +1508,36 @@
         reader.readAsDataURL(blob);
       });
     }
+
+    let speechDefaults = null, speechDefaultsSequence = 0, speechDefaultsBusy = false;
+    async function loadSpeechDefaults() {
+      if (speechDefaultsBusy) return;
+      const sequence = ++speechDefaultsSequence;
+      try {
+        const [result, providers] = await Promise.all([request("/api/mobile/speech-defaults"), request("/api/mobile/providers")]);
+        if (sequence !== speechDefaultsSequence) return;
+        speechDefaults = result;
+        const select = document.getElementById("defaultSpeechProvider");
+        select.replaceChildren(new Option("No provider selected", ""));
+        for (const provider of providers.filter((item) => item.enabled)) select.add(new Option(provider.name, provider.id));
+        if (result.provider && !providers.some((item) => item.enabled && item.id === result.provider)) select.add(new Option("Unavailable provider (" + result.provider + ")", result.provider));
+        select.value = result.provider ?? "";
+        document.getElementById("defaultSpeechModel").value = result.model ?? "";
+        document.getElementById("defaultSpeechLocale").value = result.locale ?? "";
+      } catch (error) { if (sequence === speechDefaultsSequence) setStatus(error.message || String(error), "error"); }
+    }
+    document.getElementById("refreshSpeechDefaults").addEventListener("click", () => void loadSpeechDefaults());
+    document.getElementById("speechDefaultsForm").addEventListener("submit", async (event) => {
+      event.preventDefault(); if (!speechDefaults || speechDefaultsBusy) return;
+      speechDefaultsBusy = true; ++speechDefaultsSequence;
+      const form = event.currentTarget, refresh = document.getElementById("refreshSpeechDefaults");
+      for (const control of form.elements) control.disabled = true; refresh.disabled = true;
+      try {
+        speechDefaults = await request("/api/mobile/speech-defaults", { method: "POST", body: { expected: speechDefaults, provider: document.getElementById("defaultSpeechProvider").value, model: document.getElementById("defaultSpeechModel").value, locale: document.getElementById("defaultSpeechLocale").value } });
+        setStatus("Speech defaults saved", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { speechDefaultsBusy = false; for (const control of form.elements) control.disabled = false; refresh.disabled = false; }
+    });
 
     let voiceProvidersRequestId = 0;
     async function loadVoiceProviders() {

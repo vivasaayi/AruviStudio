@@ -131,10 +131,21 @@ unset by all three paths. Explicit browser model IDs continue to be forwarded
 as before. A disposable browser recording and MCP transcription test passed
 with a registered synthetic speech model and an empty saved model setting;
 all 31 isolated workflow cases passed. The rebuilt branch was healthy at
-`127.0.0.1:55091` on 2026-11-14. Server-wide speech defaults still lack a web
-settings editor, and physical microphone and provider-specific accuracy remain
-unverified. The native speech-focused run passed five tests and ignored its
-installed-model fixture.
+`127.0.0.1:55091` on 2026-11-14. The native speech-focused run passed five
+tests and ignored its installed-model fixture.
+
+## Web server transcription defaults
+
+The Voice screen can now edit server-wide transcription provider, model and
+locale together. The authenticated endpoint uses optimistic checks in one
+transaction; browser-specific selections and the documented server environment
+variables can override the saved values. A disposable browser/MCP fixture
+verified a concurrent edit rolls back all three fields and that a recording
+with no browser overrides uses the server's registered speech model and locale.
+All 31 isolated workflow tests passed. A separate browser test recorded synthetic
+Piper audio and transcribed it through real Model Host Whisper. Physical
+microphone input and recognition quality remain unverified. The rebuilt branch
+was healthy at `127.0.0.1:55092` on 2026-11-14.
 
 ## External planner defaults in the browser
 

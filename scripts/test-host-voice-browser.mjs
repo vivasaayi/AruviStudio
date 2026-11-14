@@ -38,9 +38,9 @@ try {
   await page.locator("#saveButton").click();
   await page.getByRole("button", { name: "Voice", exact: true }).click();
   await page.locator(`#voiceProvider option[value="${provider.id}"]`).waitFor({ state: "attached" });
-  await page.getByLabel("Transcription provider").selectOption(provider.id);
-  await page.getByLabel("Transcription model").fill("whisper-tiny-metal");
-  await page.getByLabel("Speech locale").fill("en");
+  await page.getByLabel("Transcription provider", { exact: true }).selectOption(provider.id);
+  await page.getByLabel("Transcription model", { exact: true }).fill("whisper-tiny-metal");
+  await page.getByLabel("Speech locale", { exact: true }).fill("en");
   await page.getByRole("button", { name: "Record", exact: true }).click();
   await page.getByRole("button", { name: "Stop", exact: true }).waitFor();
   await page.waitForTimeout(5000);

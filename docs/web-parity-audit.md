@@ -76,7 +76,7 @@ registered and the default LM Studio endpoint was unavailable.
 | Chat and voice | Chat with optional streaming and cancellation; voice with browser-specific transcription provider, model and locale, transcript review and device speech controls | `aruvi_models`, `aruvi_speech` | Partial: physical microphone, device speech playback and broader provider/model validation remain open. |
 | Model calls | Recent calls grouped by session, source filters, selected details and on-demand request/response snapshots in Activity | `aruvi_models` snapshot read | Partial: the view is limited to the latest 300 calls; real-provider validation remains outstanding. |
 | CI | Inspect service, targets, revisions, runs and live logs; manage target assignments; queue, cancel or retry builds; request artifact readiness and record feedback | `aruvi_ci` | Partial: artifact access and host service integration require work and validation. |
-| Settings | Connection token and browser model fields; external planner model and product defaults and workflow auto-start and approval settings on Routing | `aruvi_settings` | Partial: compare remaining settings, database and bridge controls. External channel environment variables can override saved provider/model defaults; live external-channel use remains unverified. |
+| Settings | Connection token and browser model fields; server transcription defaults on Voice; external planner model and product defaults and workflow auto-start and approval settings on Routing | `aruvi_settings` | Partial: compare remaining settings, database and bridge controls. Environment variables can override saved transcription and external-channel defaults; live external-channel use remains unverified. |
 
 ### Planner action inventory
 
