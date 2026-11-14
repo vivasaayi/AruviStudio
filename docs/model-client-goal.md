@@ -2283,11 +2283,13 @@ open editor paths, covering existing symlinks and hard links; dirty aliases bloc
 application and clean aliases are refreshed. For a new target, dirty open buffers
 must be saved or closed first. Identity checks and writes are separate filesystem
 operations, so external concurrent renames or replacements can still race them.
-Only editors for the selected repository are checked; aliases through another
-registered repository remain unprotected. Windows and case-insensitive filesystem
-behavior require native validation.
+Open editor buffers in other registered repositories are included in the identity
+check and refreshed through their owning workspace. Windows and case-insensitive
+filesystem behavior require native validation.
 On 2026-11-14, the native symlink/hard-link test, 123 frontend tests,
 the frontend build and a mocked desktop Copilot browser check passed.
+A cross-workspace follow-up passed the native hard-link identity fixture and all
+124 frontend tests, including dirty-buffer protection and clean alias refresh.
 
 ## Open design questions
 

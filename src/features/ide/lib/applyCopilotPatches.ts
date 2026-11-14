@@ -3,7 +3,7 @@ import type { CopilotPatchProposal, ReviewedCopilotPatchProposal, ReviewedPatch 
 
 type PatchOperations = {
   apply: (input: { repositoryId: string; relativePath: string; patch: string; baseSha256: string; expectedExists: boolean }) => Promise<unknown>;
-  match: (input: { repositoryId: string; relativePath: string; openPaths: string[] }) => Promise<string[]>;
+  match: (input: { repositoryId: string; relativePath: string; openPaths: string[]; openRepositoryId?: string }) => Promise<string[]>;
   read: (input: { repositoryId: string; relativePath: string }) => Promise<string>;
 };
 
@@ -28,37 +28,50 @@ export async function reviewCopilotPatches(repositoryId: string, proposal: Copil
 
 export async function applyCopilotPatches(repositoryId: string, patches: ReviewedPatch[], operations: PatchOperations) {
   if (patches.some((patch) => !validPatchPath(patch.path))) throw new Error("Patch proposal contains an invalid path.");
-  const openFiles = () => useEditorStore.getState().openFiles.filter((file) => file.id === `${repositoryId}:${file.path}`);
+  const openFiles = () => useEditorStore.getState().openFiles;
+  const fileRepository = (file: { id: string; path: string }) => {
+    const suffix = `:${file.path}`;
+    if (!file.id.endsWith(suffix) || file.id.length === suffix.length) throw new Error("Cannot identify an open file's workspace.");
+    return file.id.slice(0, -suffix.length);
+  };
   // Repeat if the user opened or closed files during the asynchronous identity check.
   const matching = async (path: string) => {
     for (let attempt = 0; attempt < 5; attempt++) {
-      const paths = openFiles().map((file) => file.path).sort();
-      const matched = await operations.match({ repositoryId, relativePath: path, openPaths: paths });
-      if (JSON.stringify(paths) === JSON.stringify(openFiles().map((file) => file.path).sort())) return matched;
+      const files = openFiles().map((file) => ({ id: file.id, path: file.path, repo: fileRepository(file) }));
+      const ids = files.map((file) => file.id).sort();
+      const matchedIds: string[] = [];
+      for (const repo of new Set(files.map((file) => file.repo))) {
+        const candidates = files.filter((file) => file.repo === repo);
+        const paths = await operations.match({ repositoryId, relativePath: path, openPaths: candidates.map((file) => file.path), openRepositoryId: repo });
+        matchedIds.push(...candidates.filter((file) => paths.includes(file.path)).map((file) => file.id));
+      }
+      if (JSON.stringify(ids) === JSON.stringify(openFiles().map((file) => file.id).sort())) return matchedIds;
     }
     throw new Error("Open files changed during patch review; try again.");
   };
-  const rejectDirty = (paths: string[], message: string) => {
-    const dirty = openFiles().find((file) => paths.includes(file.path) && file.isDirty);
+  const rejectDirty = (ids: string[], message: string) => {
+    const dirty = openFiles().find((file) => ids.includes(file.id) && file.isDirty);
     if (dirty) throw new Error(`${message} ${dirty.path}`);
   };
   // Check all targets before the first write, then recheck between writes.
   for (const patch of patches) {
-    if (!patch.expected_exists) rejectDirty(openFiles().map((file) => file.path), "Save or close unsaved changes before creating a file:");
+    if (!patch.expected_exists) rejectDirty(openFiles().map((file) => file.id), "Save or close unsaved changes before creating a file:");
     rejectDirty(await matching(patch.path), "Save or close unsaved changes in");
   }
   for (const patch of patches) {
-    if (!patch.expected_exists) rejectDirty(openFiles().map((file) => file.path), "Stopped before creating a file with unsaved edits open. Earlier patches may already be applied:");
+    if (!patch.expected_exists) rejectDirty(openFiles().map((file) => file.id), "Stopped before creating a file with unsaved edits open. Earlier patches may already be applied:");
     rejectDirty(await matching(patch.path), "Stopped before a file with unsaved changes. Earlier patches may already be applied:");
-    if (!patch.expected_exists) rejectDirty(openFiles().map((file) => file.path), "Stopped before creating a file with unsaved edits open. Earlier patches may already be applied:");
+    if (!patch.expected_exists) rejectDirty(openFiles().map((file) => file.id), "Stopped before creating a file with unsaved edits open. Earlier patches may already be applied:");
     await operations.apply({ repositoryId, relativePath: patch.path, patch: patch.patch, baseSha256: patch.base_sha256, expectedExists: patch.expected_exists });
-    const paths = await matching(patch.path);
-    rejectDirty(paths, "Patch applied on disk; edits made during application remain unsaved. Reconcile:");
-    for (const path of paths) {
-      const content = await operations.read({ repositoryId, relativePath: path });
+    const ids = await matching(patch.path);
+    rejectDirty(ids, "Patch applied on disk; edits made during application remain unsaved. Reconcile:");
+    for (const id of ids) {
+      const before = openFiles().find((file) => file.id === id);
+      if (!before) continue;
+      const content = await operations.read({ repositoryId: fileRepository(before), relativePath: before.path });
       const state = useEditorStore.getState();
-      const file = state.openFiles.find((entry) => entry.id === `${repositoryId}:${path}`);
-      if (file?.isDirty) throw new Error(`Patch applied on disk to ${path}; edits made during application remain unsaved in the editor. Reconcile them before saving.`);
+      const file = state.openFiles.find((entry) => entry.id === id);
+      if (file?.isDirty) throw new Error(`Patch applied on disk to ${file.path}; edits made during application remain unsaved in the editor. Reconcile them before saving.`);
       if (file) state.replaceFileContent(file.id, content);
     }
   }

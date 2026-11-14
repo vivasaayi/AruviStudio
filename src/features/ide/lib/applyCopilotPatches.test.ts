@@ -100,3 +100,17 @@ it("does not create a file while another editor buffer has unsaved changes", asy
   await expect(applyCopilotPatches("repo", [{ path: "new.txt", patch: "x", base_sha256: "hash", expected_exists: false }], { apply, read: async () => "", match })).rejects.toThrow("before creating a file");
   expect(apply).not.toHaveBeenCalled();
 });
+
+it("protects and refreshes aliases open through another repository", async () => {
+  useEditorStore.getState().openFile({ id: "other:alias.txt", path: "alias.txt", name: "alias.txt", content: "original", language: "text" });
+  const compare = vi.fn(async ({ openRepositoryId, openPaths }: { openRepositoryId?: string; openPaths: string[] }) => openRepositoryId === "other" ? openPaths : []);
+  const apply = vi.fn(async () => {}), read = vi.fn(async () => "patched disk");
+  const patches = [{ path: "original.txt", patch: "x", base_sha256: "hash", expected_exists: true }];
+  useEditorStore.getState().updateFileContent("other:alias.txt", "unsaved");
+  await expect(applyCopilotPatches("repo", patches, { apply, read, match: compare })).rejects.toThrow("unsaved changes");
+  expect(apply).not.toHaveBeenCalled();
+  useEditorStore.getState().replaceFileContent("other:alias.txt", "original");
+  await applyCopilotPatches("repo", patches, { apply, read, match: compare });
+  expect(read).toHaveBeenCalledWith({ repositoryId: "other", relativePath: "alias.txt" });
+  expect(useEditorStore.getState().openFiles[0]).toMatchObject({ content: "patched disk", isDirty: false });
+});

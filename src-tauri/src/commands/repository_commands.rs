@@ -348,10 +348,14 @@ pub async fn apply_repository_patch(
 
 #[tauri::command]
 pub async fn matching_repository_files(
-    state: State<'_, AppState>, repository_id: String, relative_path: String, open_paths: Vec<String>,
+    state: State<'_, AppState>, repository_id: String, relative_path: String, open_paths: Vec<String>, open_repository_id: Option<String>,
 ) -> Result<Vec<String>, AppError> {
     let repository = repository_repo::get_repository(&state.db, &repository_id).await?;
-    crate::services::repo_file_service::matching_repository_files(&repository.local_path, &relative_path, &open_paths)
+    let open_repository = match open_repository_id {
+        Some(id) if id != repository_id => repository_repo::get_repository(&state.db, &id).await?,
+        _ => repository.clone(),
+    };
+    crate::services::repo_file_service::matching_repository_files(&repository.local_path, &relative_path, &open_repository.local_path, &open_paths)
 }
 
 #[tauri::command]
