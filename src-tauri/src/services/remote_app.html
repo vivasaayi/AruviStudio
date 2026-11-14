@@ -582,6 +582,13 @@
               <div id="repositoryTree" class="tree"></div>
               <label><span class="label">Selected file</span><textarea id="repositoryFileContent" readonly rows="18" aria-label="Selected file contents"></textarea></label>
               <div class="button-row"><button id="saveRepositoryFileButton" type="button" disabled>Save file</button><button id="discardRepositoryFileButton" class="secondary" type="button" disabled>Discard file edits</button></div>
+              <div class="tool-card stack">
+                <strong>Ask Copilot about this file</strong>
+                <div class="empty">Sends the saved file path, up to 12,000 characters of its content, and your question to the provider and model selected in Connection. Requests and responses are recorded in Activity. Review the file and provider first.</div>
+                <label><span class="label">Copilot question</span><textarea id="repositoryCopilotQuestion" maxlength="4000" placeholder="What would you like to know about this file?"></textarea></label>
+                <button id="repositoryCopilotButton" type="button" disabled>Ask about saved file</button>
+                <pre id="repositoryCopilotResult" style="white-space: pre-wrap; overflow-wrap: anywhere" aria-live="polite"></pre>
+              </div>
             </div>
           </section>
         </section>
@@ -2889,13 +2896,16 @@
     let fileRequestId = 0;
     let openedFile = null;
     let fileSaving = false;
+    let copilotBusy = false;
     function fileIsDirty() { return openedFile && el.repositoryFileContent.value !== openedFile.displayBaseline; }
     function updateFileControls() {
       const dirty = !!fileIsDirty();
-      el.saveRepositoryFileButton.disabled = !dirty || fileSaving || !openedFile.editable;
-      el.discardRepositoryFileButton.disabled = !dirty || fileSaving;
+      el.saveRepositoryFileButton.disabled = !dirty || fileSaving || copilotBusy || !openedFile.editable;
+      el.discardRepositoryFileButton.disabled = !dirty || fileSaving || copilotBusy;
+      document.getElementById("repositoryCopilotButton").disabled = !openedFile || dirty || fileSaving || copilotBusy || !openedFile.sha256;
     }
     function canLeaveFile() {
+      if (copilotBusy) { setStatus("Wait for Copilot before opening another file or workspace", "warn"); return false; }
       if (fileSaving || fileIsDirty()) { setStatus("Save or discard file edits before opening another file or workspace", "warn"); return false; }
       return true;
     }
@@ -2907,6 +2917,7 @@
       inspectedRepositoryId = repository.id;
       el.repositoryInspectStatus.textContent = "Loading " + repository.name + "...";
       el.repositoryTree.replaceChildren(); el.repositoryFileContent.value = ""; el.repositoryGitStatus.textContent = "";
+      document.getElementById("repositoryCopilotResult").textContent = "";
       el.repositoryDiff.textContent = ""; el.repositoryDiffButton.disabled = true;
       try {
         const [tree, git] = await Promise.all([
@@ -2959,7 +2970,8 @@
         const withoutCrlf = file.content.replace(/\r\n/g, "");
         const mixed = withoutCrlf.includes("\r") || (file.content.includes("\r\n") && withoutCrlf.includes("\n"));
         openedFile = { repositoryId, path, expected: file.content, displayBaseline: el.repositoryFileContent.value,
-          crlf: file.content.includes("\r\n") && !mixed, editable: !mixed };
+          crlf: file.content.includes("\r\n") && !mixed, editable: !mixed, sha256: file.sha256 };
+        document.getElementById("repositoryCopilotResult").textContent = "";
         el.repositoryFileContent.readOnly = mixed;
         if (mixed) setStatus("This file has mixed line endings and is available for reading only", "warn");
         updateFileControls();
@@ -2974,15 +2986,30 @@
       const content = file.crlf ? el.repositoryFileContent.value.replace(/\n/g, "\r\n") : el.repositoryFileContent.value;
       fileSaving = true; el.repositoryFileContent.readOnly = true; updateFileControls();
       try {
-        await request("/api/mobile/repository-file/save", { method: "POST", body: { repository_id: file.repositoryId,
+        const saved = await request("/api/mobile/repository-file/save", { method: "POST", body: { repository_id: file.repositoryId,
           relative_path: file.path, expected_content: file.expected, content } });
-        if (openedFile === file) { file.expected = content; file.displayBaseline = el.repositoryFileContent.value; setStatus("File saved", "ok"); }
+        if (openedFile === file) { file.expected = content; file.displayBaseline = el.repositoryFileContent.value; file.sha256 = saved.sha256; setStatus("File saved", "ok"); }
       } catch (error) { setStatus(error.message || String(error), "error"); }
       finally { fileSaving = false; if (openedFile === file) el.repositoryFileContent.readOnly = !file.editable; updateFileControls(); }
     }
     function discardRepositoryFileEdits() {
       if (!openedFile || fileSaving) return;
       el.repositoryFileContent.value = openedFile.displayBaseline; updateFileControls();
+    }
+
+    async function askRepositoryCopilot() {
+      if (!openedFile || fileIsDirty() || fileSaving || copilotBusy || !openedFile.sha256) return;
+      const question = document.getElementById("repositoryCopilotQuestion").value.trim();
+      const provider = el.providerInput.value.trim(), model = el.modelInput.value.trim();
+      if (!question || !provider || !model) { setStatus("Select a provider and model in Connection and enter a question", "warn"); return; }
+      const file = openedFile, result = document.getElementById("repositoryCopilotResult");
+      copilotBusy = true; el.repositoryFileContent.readOnly = true; updateFileControls(); result.textContent = "Asking about " + file.path + "…";
+      try {
+        const response = await request("/api/mobile/repository-file/copilot", { method: "POST", body: { repository_id: file.repositoryId,
+          relative_path: file.path, expected_sha256: file.sha256, provider_id: provider, model_name: model, question } });
+        result.textContent = response.content || "(empty response)"; setStatus("Copilot reply ready", "ok");
+      } catch (error) { result.textContent = "Copilot error: " + (error.message || String(error)); setStatus(error.message || String(error), "error"); }
+      finally { copilotBusy = false; if (openedFile === file) el.repositoryFileContent.readOnly = !file.editable; updateFileControls(); }
     }
 
     async function updateWorkspaceAttachment(productId, attachment, action, button) {
@@ -4032,6 +4059,7 @@
     el.refreshWorkspacesButton.addEventListener("click", loadWorkspaces);
     el.repositoryDiffButton.addEventListener("click", loadRepositoryDiff);
     el.repositoryFileContent.addEventListener("input", updateFileControls);
+    document.getElementById("repositoryCopilotButton").addEventListener("click", () => void askRepositoryCopilot());
     el.saveRepositoryFileButton.addEventListener("click", saveRepositoryFile);
     el.discardRepositoryFileButton.addEventListener("click", discardRepositoryFileEdits);
     window.addEventListener("beforeunload", (event) => { if (fileIsDirty()) { event.preventDefault(); event.returnValue = ""; } });

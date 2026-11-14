@@ -5,6 +5,8 @@ let workflowPrompts = [];
 let workflowRequests = [];
 let coordinatorCodingCalls = 0;
 let streamDisconnects = 0;
+let lastCopilotRequest = null;
+let copilotCalls = 0;
 const workflowOutputs = [
   "requirement analysis complete",
   "planning complete",
@@ -16,7 +18,11 @@ const workflowOutputs = [
 
 const server = http.createServer((request, response) => {
   response.setHeader("Content-Type", "application/json");
-  if (request.method === "GET" && request.url === "/stream/stats") {
+  if (request.method === "GET" && request.url === "/copilot/last") {
+    response.end(JSON.stringify(lastCopilotRequest));
+  } else if (request.method === "GET" && request.url === "/copilot/stats") {
+    response.end(JSON.stringify({ calls: copilotCalls }));
+  } else if (request.method === "GET" && request.url === "/stream/stats") {
     response.end(JSON.stringify({ disconnects: streamDisconnects }));
   } else if (request.method === "POST" && request.url === "/workflow/reset") {
     workflowCalls = 0;
@@ -112,6 +118,7 @@ const server = http.createServer((request, response) => {
     const chunks = []; request.on("data", (chunk) => chunks.push(chunk));
     request.on("end", () => {
       let body; try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { response.statusCode = 400; return response.end(); }
+      if (body.messages?.[0]?.content?.startsWith("You are Aruvi Copilot.")) { lastCopilotRequest = body; copilotCalls++; }
       if (!body.stream) return response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "Container provider reply" } }], usage: { prompt_tokens: 12, completion_tokens: 4 } }));
       response.setHeader("Content-Type", "text/event-stream");
       response.on("close", () => { if (!response.writableEnded) streamDisconnects++; });

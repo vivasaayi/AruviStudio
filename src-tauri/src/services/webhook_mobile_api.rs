@@ -669,9 +669,18 @@ pub(crate) async fn mobile_inspect_repository(State(state): State<WebhookState>,
     if !matches!(body.action.as_str(), "list_repository_tree" | "read_repository_file" | "get_git_status" | "get_git_diff") {
         return (StatusCode::BAD_REQUEST, "Unsupported repository inspection action").into_response();
     }
+    let is_read = body.action == "read_repository_file";
     let arguments = serde_json::json!({"repository_id":body.repository_id, "relative_path":body.relative_path, "max_depth":8});
     match crate::mcp::dispatch_tool(&state.app_state, "aruvi_repositories", serde_json::json!({"action":body.action,"arguments":arguments})).await {
-        Ok(value) => Json(value["result"].clone()).into_response(),
+        Ok(value) => {
+            let mut result = value["result"].clone();
+            if is_read {
+                use sha2::{Digest, Sha256};
+                let hash = result.get("content").and_then(serde_json::Value::as_str).map(|content| format!("{:x}", Sha256::digest(content.as_bytes())));
+                if let (Some(hash), Some(fields)) = (hash, result.as_object_mut()) { fields.insert("sha256".into(), hash.into()); }
+            }
+            Json(result).into_response()
+        },
         Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
     }
 }
@@ -701,7 +710,7 @@ pub(crate) async fn mobile_save_repository_file(State(state): State<WebhookState
         return (StatusCode::CONFLICT, "File changed since it was opened. Copy or discard your edits, then reopen the file.").into_response();
     }
     match crate::services::repo_service::write_repository_file(&repository.local_path, &body.relative_path, &body.content) {
-        Ok(()) => Json(serde_json::json!({"ok":true})).into_response(),
+        Ok(()) => { use sha2::{Digest, Sha256}; Json(serde_json::json!({"ok":true,"sha256":format!("{:x}", Sha256::digest(body.content.as_bytes()))})).into_response() },
         Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
     }
 }

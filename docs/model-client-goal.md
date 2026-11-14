@@ -44,6 +44,26 @@ provider hosting into the model-host service as part of this work.
   other projects; leave the branch deployment running. Prepare release evidence,
   without publishing a release or changing other projects' deployments.
 
+## Browser file-aware Copilot
+
+- The workspace browser can ask one non-streaming question about the selected
+  saved file using an explicitly selected provider and model. The server confines
+  the read to the registered repository, checks the saved file's SHA-256 against
+  the opened version, and sends the question, relative path and at most 12,000
+  file characters as untrusted context. Unsaved edits disable the action. The
+  request and response are recorded in Activity; users must review the selected
+  file and provider before sending. Prompt-injection resistance is not guaranteed.
+- The 22 remote UI cases cover authenticated use, a changed-file conflict, path
+  confinement, exclusion of an absolute path, context truncation, and telemetry;
+  the simulated CI case and 23 workflow cases passed. The Linux Rust suite passed
+  198 tests with two live tests ignored. A disposable real Model Host fixture
+  identified a function using `qwen25-coder-7b-q4` through the new API. This is
+  not a general model-quality or live third-party-provider guarantee.
+- This is not full desktop IDE parity: multi-turn file Copilot, streaming in that
+  view, patch proposal review/application and a single combined MCP operation are
+  still open. The separate repository-read and model-completion MCP operations
+  remain available.
+
 ## Browser planner node review
 
 - Desktop and browser now use a shared Rust matcher for plan actions associated

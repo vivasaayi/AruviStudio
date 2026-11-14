@@ -53,6 +53,14 @@ failed and cancelled calls in the existing model-call ledger. If the browser
 cannot consume the bounded event queue fast enough, the stream fails rather than
 silently dropping text. Ordinary non-streaming chat remains available.
 
+In **Workspaces**, open a saved text file and use **Ask Copilot about this file**
+for a single non-streaming question. Select the provider and model in Connection
+first. Studio sends the question, relative path, and up to 12,000 characters of the
+saved file to that provider and records request/response snapshots in Activity.
+Unsaved edits must be saved or discarded, and a changed file is rejected before
+the model call. Repository content is untrusted input and model guidance needs
+review. Desktop multi-turn Copilot and patch proposals are not yet available here.
+
 To stop using a provider key, the browser's **Detach API key** action disables
 that provider's configured credential and legacy fallback keys. MCP clients can
 call `aruvi_models` with action `get_provider_credential_state` and the provider
