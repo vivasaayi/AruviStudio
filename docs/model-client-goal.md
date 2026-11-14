@@ -12,6 +12,28 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Current requirement audit — 2026-11-14
+
+This table summarizes the current evidence; dated sections below are historical
+and may describe issues that were subsequently fixed. A passing fixture proves
+only the stated scenario. Unchecked checkpoints remain open until their full
+scope is reviewed, not merely until an example passes.
+
+| Requirement | Current evidence | Remaining work |
+| --- | --- | --- |
+| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and by a separate Git-pinned project; 20 independent tests passed offline after vendoring. Its non-root Linux probe passed real Model Host discovery, completion, streaming and token-limit handling. | Decide independent ownership, versioning and a migration plan for other projects. The current pin is a checkpoint, not a published release. |
+| OpenAI-compatible and Anthropic protocols | Shared clients cover text, streaming, discovery and error handling; OpenAI-compatible voice is implemented. Contract fixtures cover both protocols and the reasoning request profile. | Live third-party OpenAI, Anthropic, DeepSeek and LM Studio sessions remain unverified; compatibility with each model and provider cannot be inferred from adapter capabilities. |
+| Local coding integration | The isolated 7B Model Host passed real MCP completion and an extend-module workflow through code review and a disposable local Git remote. | Revalidate broader coding tasks and actual authenticated network delivery when appropriate; one task is not a reliability guarantee. |
+| Speech and local fallback | Real Model Host speech generation and transcription and checksum-pinned local Whisper have been exercised with synthetic audio; browser and MCP fixtures exist. | Physical microphone permission/capture, audible playback, other languages and recognition quality remain unverified. |
+| Desktop, browser and MCP parity | Browser and MCP support many model, planner, agent, repository and product workflows; the detailed action inventory is in `web-parity-audit.md`. Recent native Rust, frontend and isolated web suites passed. | Complete action-by-action comparison, especially native IDE/dialogs, runtime management, settings and CI. A locked Mac prevented native window interaction; simulated Tauri tests are not native acceptance. |
+| Data, configuration and credentials | The branch has isolated Docker data and a loopback endpoint; the model-host setup stores its token outside Git. Migration 053 passed backup, integrity and foreign-key checks. | Review token scope, host restart operations, cross-platform behavior and upgrade paths. Existing external-channel bindings remain unscoped until explicitly migrated or replaced. |
+| Security and release evidence | Independent client and npm scans found no advisories; the latest Studio lockfile scan found an RSA advisory and maintenance/soundness warnings. | Review those advisories and the locally patched SQLx dependency; verify target platforms and complete release acceptance. No release or master merge is authorized by this goal. |
+
+The currently running branch app is a worktree deployment. Its port is dynamic;
+use `bash scripts/env worktree status` to identify it rather than relying on a
+historical checkpoint address. Staging, production promotion and release are
+outside this work until separately requested.
+
 - [x] Inspect the model-host API, deployments and installed models, and the
   current AruviStudio provider and speech paths.
 - [x] Decide and implement a genuinely shareable library location and versioning
