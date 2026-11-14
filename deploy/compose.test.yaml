@@ -5,7 +5,7 @@ services:
       ARUVI_MOBILE_API_TOKEN: workflow-mobile-test
       ARUVI_MCP_API_TOKEN: workflow-mcp-test
       ARUVI_LLM_CONFIG_PATH: /data/llm-config.json
-      ARUVI_PDF_SANDBOX: "0"
+      ARUVI_PDF_SOCKET: /pdf-socket/renderer.sock
       ARUVI_CI_SOCKET: /ci/ci.sock
       DBUS_SESSION_BUS_ADDRESS: unix:path=/nonexistent
     tmpfs:
@@ -13,6 +13,25 @@ services:
       - /repositories:mode=1777
     volumes:
       - test_socket:/ci
+      - test_pdf_socket:/pdf-socket
+    restart: "no"
+  pdf:
+    image: ${APP_IMAGE:?Build the worktree image first}
+    entrypoint: ["/usr/local/bin/node", "/usr/local/lib/aruvi-pdf/product-book-pdf-server.cjs"]
+    network_mode: none
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:mode=1777,size=536870912"]
+    pids_limit: 192
+    mem_limit: 1g
+    volumes:
+      - test_pdf_socket:/pdf-socket
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/node", "-e", "const s=require('net').connect('/pdf-socket/renderer.sock');s.on('connect',()=>{s.end();process.exit(0)});s.on('error',()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
     restart: "no"
   browser:
     image: mcr.microsoft.com/playwright:v1.58.2-noble
@@ -32,3 +51,5 @@ services:
 volumes:
   test_socket:
     name: ${TEST_SOCKET_NAME:?Supply a unique worktree-scoped test volume}
+  test_pdf_socket:
+    name: ${TEST_PDF_SOCKET_NAME:?Supply a unique worktree-scoped PDF socket volume}

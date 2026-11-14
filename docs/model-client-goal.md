@@ -46,6 +46,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Product Book export data
 
+- Worktree PDF rendering now runs in a separate network-disabled, read-only,
+  non-root container with no app data, repositories or API tokens; the only
+  shared resource is a private Unix socket. Its own Chromium sandbox remains
+  disabled due to the Mac Docker namespace restriction. The isolated suite
+  verifies the container settings and that a stopped renderer fails closed;
+  staging and production sidecar support remain unverified.
+  Native and Linux suites each passed 212 tests with six ignored, and isolated
+  browser/MCP, workflow and CI suites passed 23, 23 and one case respectively.
+  Two worktree environments were run concurrently with distinct
+  ports, credentials, database volumes and PDF socket volumes. A product created
+  only in the second was absent from the first, and its PDF export succeeded;
+  destroying the second environment left the first healthy.
 - Browser and MCP Product Book exports now include PDF through a bounded
   Chromium worker. The isolated browser suite downloaded PDFs in all three trim
   sizes and invoked MCP PDF export. Captured PDFs had the expected dimensions,

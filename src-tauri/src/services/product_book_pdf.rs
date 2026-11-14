@@ -1,5 +1,6 @@
 use crate::error::AppError;
 use serde_json::Value;
+use futures_util::StreamExt;
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -23,6 +24,9 @@ impl Drop for WorkerGuard {
 pub async fn render_pdf(html: &str, name: &str, trim: &Value) -> Result<Vec<u8>, AppError> {
     if html.len() > MAX_HTML_BYTES {
         return Err(AppError::Validation("Product Book PDF source exceeds the 12 MiB limit".into()));
+    }
+    if let Some(socket) = std::env::var_os("ARUVI_PDF_SOCKET") {
+        return render_pdf_via_socket(&socket, html, name, trim).await;
     }
     let temp = tempfile::Builder::new().prefix("aruvi-book-pdf-").tempdir()?;
     let node = std::env::var_os("ARUVI_PDF_NODE").unwrap_or_else(|| "/usr/local/bin/node".into());
@@ -73,6 +77,39 @@ pub async fn render_pdf(html: &str, name: &str, trim: &Value) -> Result<Vec<u8>,
     result
 }
 
+#[cfg(unix)]
+async fn render_pdf_via_socket(socket: &std::ffi::OsStr, html: &str, name: &str, trim: &Value) -> Result<Vec<u8>, AppError> {
+    let socket_path = std::path::Path::new(socket);
+    if !socket_path.is_absolute() {
+        return Err(AppError::Validation("Product Book PDF socket path must be absolute".into()));
+    }
+    let client = reqwest::Client::builder().no_proxy().unix_socket(socket_path.to_path_buf())
+        .redirect(reqwest::redirect::Policy::none()).timeout(Duration::from_secs(60)).build()
+        .map_err(|_| AppError::Internal("Product Book PDF client unavailable".into()))?;
+    let response = client.post("http://localhost/render")
+        .json(&serde_json::json!({ "html": html, "name": name, "trim": trim })).send().await
+        .map_err(|_| AppError::Validation("Isolated Product Book PDF renderer is unavailable".into()))?;
+    if !response.status().is_success() {
+        return Err(AppError::Validation("Isolated Product Book PDF rendering failed".into()));
+    }
+    let mut stream = response.bytes_stream();
+    let mut bytes = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|_| AppError::Validation("Product Book PDF response failed".into()))?;
+        if bytes.len().saturating_add(chunk.len()) > MAX_PDF_BYTES as usize {
+            return Err(AppError::Validation("Product Book PDF exceeds the 24 MiB limit".into()));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    if !bytes.starts_with(b"%PDF-") { return Err(AppError::Validation("Product Book PDF renderer returned invalid output".into())); }
+    Ok(bytes)
+}
+
+#[cfg(not(unix))]
+async fn render_pdf_via_socket(_socket: &std::ffi::OsStr, _html: &str, _name: &str, _trim: &Value) -> Result<Vec<u8>, AppError> {
+    Err(AppError::Validation("Product Book PDF sockets are unsupported on this platform".into()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -81,6 +118,23 @@ mod tests {
     async fn rejects_oversized_pdf_input_before_starting_worker() {
         let result = render_pdf(&"x".repeat(MAX_HTML_BYTES + 1), "Test", &Value::Null).await;
         assert!(matches!(result, Err(AppError::Validation(_))));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn isolated_renderer_fails_closed_when_socket_is_missing_or_output_invalid() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("renderer.sock");
+        assert!(render_pdf_via_socket(path.as_os_str(), "<html></html>", "Test", &Value::Null).await.is_err());
+        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+        let task = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 4096];
+            let _ = socket.read(&mut request).await.unwrap();
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\noops").await.unwrap();
+        });
+        assert!(render_pdf_via_socket(path.as_os_str(), "<html></html>", "Test", &Value::Null).await.is_err());
+        task.await.unwrap();
     }
 
     #[tokio::test]

@@ -28,10 +28,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates git libssl3 libgtk-3-0 libayatana-appindicator3-1 \
     librsvg2-2 libwebkit2gtk-4.1-0 libgomp1 chromium fonts-liberation && \
     rm -rf /var/lib/apt/lists/* && \
-    useradd --create-home --uid 10001 aruvi && mkdir -p /data /repositories && chown aruvi:aruvi /data /repositories
+    useradd --create-home --uid 10001 aruvi && mkdir -p /data /repositories /pdf-socket && chown aruvi:aruvi /data /repositories /pdf-socket
 COPY --from=build /tmp/aruvi-studio-server /usr/local/bin/aruvi-studio-server
 COPY --from=frontend /usr/local/bin/node /usr/local/bin/node
 COPY --from=frontend /build/node_modules/playwright-core /usr/local/lib/aruvi-pdf/playwright-core
+COPY src-tauri/resources/render-product-book-pdf.cjs src-tauri/resources/product-book-pdf-server.cjs /usr/local/lib/aruvi-pdf/
 USER aruvi
 WORKDIR /data
 ENV ARUVI_APP_DATA_DIR=/data ARUVI_DB_PATH=/data/aruvi-studio.db \

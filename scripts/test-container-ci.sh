@@ -5,7 +5,7 @@ cd "$root"
 source "$root/scripts/test-fixture-env.sh"
 name="${project}-ci-fixture-$$"
 browser="${project}-ci-browser-$$"
-cleanup() { docker rm -f "$browser" "$name" >/dev/null 2>&1 || true; docker volume rm "$TEST_SOCKET_NAME" >/dev/null 2>&1 || true; }
+cleanup() { docker rm -f "$browser" "$name" >/dev/null 2>&1 || true; docker volume rm "$TEST_SOCKET_NAME" "$TEST_PDF_SOCKET_NAME" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 "${fixture_compose[@]}" run --rm -d --name "$name" fixture >/dev/null
 docker exec "$name" sh -c 'mkdir -p /repositories/ci-fixture && git init -q -b main /repositories/ci-fixture && printf "fixture\n" > /repositories/ci-fixture/README.md && git -C /repositories/ci-fixture add README.md && git -C /repositories/ci-fixture -c user.name=Fixture -c user.email=fixture@example.invalid commit -q -m fixture'

@@ -93,15 +93,18 @@ the shared renderer source and do not claim export parity until these steps pass
   tests also verify that scripts and external requests do not execute.
   PDF uses Chromium and Playwright with JavaScript disabled, external requests
   blocked, an empty secret environment and a private temporary directory.
-  The image defaults to Chromium sandboxing, but the worktree and test Compose
-  files explicitly disable it because this Mac's container runtime rejects the
-  required namespace operation. Without Chromium's sandbox the browser shares
-  the app container's OS identity; do not promote this setting as production
-  isolation. A sandbox-capable deployment or separately isolated renderer still
-  needs validation before release.
-  Non-container servers must configure `ARUVI_PDF_NODE`, `ARUVI_PDF_BROWSER`,
-  and `ARUVI_PDF_PLAYWRIGHT_PATH` to their Node, Chromium and Playwright Core
-  locations; `ARUVI_PDF_SANDBOX` defaults to `1` unless explicitly set to `0`.
+  The worktree and isolated test use a separate non-root PDF container with no
+  network, a read-only root filesystem, dropped capabilities, no-new-privileges,
+  memory/PID limits, and only a private Unix socket shared with the app. It has
+  no app database, repositories or API tokens. Chromium's own sandbox remains
+  disabled there because this Mac's container runtime denies its namespace
+  operation; the container is an additional isolation boundary, not a proof of
+  Chromium sandboxing. The app fails closed if the renderer is unavailable.
+  Staging and production adapters have not been updated or validated for this
+  sidecar and must not be treated as release-ready on this evidence.
+  Other servers can use `ARUVI_PDF_SOCKET` for an isolated service, or configure
+  `ARUVI_PDF_NODE`, `ARUVI_PDF_BROWSER`, and `ARUVI_PDF_PLAYWRIGHT_PATH` for a
+  local worker; local `ARUVI_PDF_SANDBOX` defaults to `1`.
   Desktop PDF files still use the older Playwright writer, which relies on a
   source-checkout script and does not yet apply the backend worker's request
   blocking. Unifying native and server-side PDF generation remains open.

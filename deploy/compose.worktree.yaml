@@ -10,18 +10,41 @@ services:
       ARUVI_MOBILE_API_TOKEN: ${ARUVI_MOBILE_API_TOKEN:?Missing environment token}
       ARUVI_MCP_API_TOKEN: ${ARUVI_MCP_API_TOKEN:?Missing environment token}
       ARUVI_LLM_CONFIG_PATH: /data/llm-config.json
-      ARUVI_PDF_SANDBOX: ${ARUVI_PDF_SANDBOX:-0}
+      ARUVI_PDF_SOCKET: /pdf-socket/renderer.sock
       ARUVI_MODEL_CONNECT_TIMEOUT_SECS: ${ARUVI_MODEL_CONNECT_TIMEOUT_SECS-15}
       ARUVI_MODEL_REQUEST_TIMEOUT_SECS: ${ARUVI_MODEL_REQUEST_TIMEOUT_SECS-300}
     volumes:
       - data:/data
       - repositories:/repositories
+      - pdf_socket:/pdf-socket
+    depends_on:
+      pdf:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8787 && printf \"GET /health HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n\" >&3 && read -r line <&3 && [[ $$line == *200* ]]'"]
       interval: 5s
       timeout: 3s
       retries: 20
     restart: "no"
+  pdf:
+    image: ${APP_IMAGE:?Supply the product image}
+    entrypoint: ["/usr/local/bin/node", "/usr/local/lib/aruvi-pdf/product-book-pdf-server.cjs"]
+    network_mode: none
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:mode=1777,size=536870912"]
+    pids_limit: 192
+    mem_limit: 1g
+    volumes:
+      - pdf_socket:/pdf-socket
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/node", "-e", "const s=require('net').connect('/pdf-socket/renderer.sock');s.on('connect',()=>{s.end();process.exit(0)});s.on('error',()=>process.exit(1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: "no"
 volumes:
   data: {}
   repositories: {}
+  pdf_socket: {}

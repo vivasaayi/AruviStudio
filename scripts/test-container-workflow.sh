@@ -6,7 +6,7 @@ cd "$root"
 source "$root/scripts/test-fixture-env.sh"
 name="${project}-workflow-fixture-$$"
 browser="${project}-workflow-browser-$$"
-cleanup() { docker rm -f "$browser" "$name" >/dev/null 2>&1 || true; docker volume rm "$TEST_SOCKET_NAME" >/dev/null 2>&1 || true; }
+cleanup() { docker rm -f "$browser" "$name" >/dev/null 2>&1 || true; docker volume rm "$TEST_SOCKET_NAME" "$TEST_PDF_SOCKET_NAME" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 "${fixture_compose[@]}" run --rm -d --name "$name" fixture >/dev/null

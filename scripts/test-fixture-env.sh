@@ -5,6 +5,7 @@ project=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["project"])' <
 state=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])' <<<"$plan")
 env_file="$state/environment.env"
 export TEST_SOCKET_NAME="${project}_test_socket_$$"
+export TEST_PDF_SOCKET_NAME="${project}_test_pdf_socket_$$"
 if [[ ! -f "$env_file" ]]; then
   printf '%s\n' 'Initialize and build this worktree first: bash scripts/env worktree up' >&2
   exit 1
