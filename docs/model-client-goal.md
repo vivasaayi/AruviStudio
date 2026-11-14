@@ -12,6 +12,24 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Current broad regression run
+
+At branch revision `b448186` with the test-only fixes in this checkpoint, the
+Linux Rust library suite passed 246 tests with six ignored; the frontend build
+and frontend tests passed, and `npm audit --audit-level=high` reported no
+vulnerabilities. The isolated UI command passed its deployed smoke test, 27
+remote tests, one CI fixture test and 38 workflow tests. A separate host Chrome
+run passed 42 mocked desktop browser tests. Those mocks do not validate a native
+window; ignored Rust cases include native fixtures, browser-backed PDF, local
+Whisper and live-model workflow tests.
+
+The initial UI run revealed two stale test assumptions: a tree selector chose a
+new collapse button rather than a node, and Playwright's `setChecked` raced an
+intentional conflict rollback. The tests now target tree nodes and assert the
+conflict/rollback directly. The terminology guard now permits CommonJS
+`module.exports` while still rejecting legacy `module_id`, as checked with a
+disposable fixture. None of these test changes changes application behavior.
+
 ### Native host synchronization timeouts
 
 The optional foreground native-host watcher now bounds host plan/status commands

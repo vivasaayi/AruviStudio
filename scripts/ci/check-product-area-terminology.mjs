@@ -28,6 +28,8 @@ const targetedLegacyTerms = /\b(create_module|module_id|modules?|module|Module|M
 const frontendLegacyWorkItemListTerms = /\b(listWorkItems)\b|["']list_work_items["']/g;
 
 function isAllowedLegacyProductAreaTerm(normalizedPath, content, matchIndex) {
+  // CommonJS export syntax is unrelated to the legacy product hierarchy.
+  if (/^module\.exports\b/.test(content.slice(matchIndex))) return true;
   if (normalizedPath === path.normalize("src-tauri/src/persistence/db/db_tests.rs")) {
     return true;
   }

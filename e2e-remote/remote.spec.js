@@ -98,7 +98,7 @@ test("planner offers draft rename, add and delete controls", async ({ page }) =>
   await expect(page.locator("#plannerProductSelect")).toBeEnabled();
   await page.locator("#composer").fill("Create draft");
   await page.locator("#sendButton").click();
-  await page.locator("#draftTree button").first().click();
+  await page.locator("#draftTree .tree-node").first().click();
   await page.getByLabel("Draft node name").fill("Renamed");
   await page.getByRole("button", { name: "Rename selected" }).click();
   await expect(page.locator("#draftTree")).toContainText("Renamed");
@@ -133,7 +133,7 @@ test("planner shows selected node evidence and honors server-cleared selection",
   await send("Create draft");
   const stale = page.waitForResponse((response) => response.url().endsWith("/planner/suggestions") && response.request().postDataJSON().node.label === "Area");
   await page.locator("#draftTree button").filter({ hasText: "Area" }).click();
-  await page.locator("#draftTree button").first().click();
+  await page.locator("#draftTree .tree-node").first().click();
   await stale;
   await expect(page.locator("#draftNodeDetails")).toContainText("Prompt for Product");
   await expect(page.locator("#draftNodeDetails")).not.toContainText("Prompt for Area");
@@ -168,7 +168,7 @@ test("browser edits a real planner draft through the authenticated API", async (
     await page.locator("#composer").fill("Show the current plan");
     await page.locator("#sendButton").click();
     await expect(page.locator("#draftTree")).toContainText(product.name);
-    await page.locator("#draftTree button").first().click();
+    await page.locator("#draftTree .tree-node").first().click();
     await page.getByLabel("Draft node name").fill("Renamed draft");
     const renameResponse = page.waitForResponse((response) => response.url().endsWith("/draft/rename"));
     await page.getByRole("button", { name: "Rename selected" }).click();
@@ -1652,7 +1652,9 @@ test("browser manages example catalog with conflict protection", async ({ page, 
   const mcp = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}`, Accept: "application/json, text/event-stream" }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_settings", arguments: { action: "set_setting", arguments: { key: "catalog.hide_example_products", value: String(initial.enabled) } } } } });
   expect((await mcp.json()).result.isError).not.toBeTruthy();
   const conflict = page.waitForResponse((response) => response.url().endsWith(url) && response.request().method() === "POST");
-  await toggle.setChecked(initial.enabled);
+  // The app immediately restores the old value on 409, so setChecked's
+  // post-click state assertion races the intentional rollback.
+  await toggle.click();
   expect((await conflict).status()).toBe(409);
   await expect(toggle).toHaveJSProperty("checked", !initial.enabled);
   await page.getByRole("button", { name: "Refresh catalog settings" }).click();
