@@ -51,7 +51,7 @@ impl Default for ClientOptions {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TranscriptionRequest {
     pub model: String,
     pub audio: Vec<u8>,
@@ -60,7 +60,7 @@ pub struct TranscriptionRequest {
     pub language: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SpeechRequest {
     pub model: String,
     pub input: String,
@@ -79,19 +79,46 @@ pub struct CompletionRequest {
     pub max_tokens: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct CompletionResponse {
     pub content: String,
     pub token_count_input: Option<i64>,
     pub token_count_output: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<CompletionMetadata>,
+}
+
+// Debug output is often captured in application logs. Preserve useful sizes and
+// routing metadata without printing user audio, prompts or model responses.
+impl std::fmt::Debug for TranscriptionRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TranscriptionRequest").field("model", &self.model).field("audio_bytes", &self.audio.len())
+            .field("mime_type", &self.mime_type).field("language", &self.language).finish_non_exhaustive()
+    }
+}
+impl std::fmt::Debug for SpeechRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SpeechRequest").field("model", &self.model).field("input_bytes", &self.input.len())
+            .field("voice", &self.voice).field("speed", &self.speed).field("response_format", &self.response_format).finish()
+    }
+}
+impl std::fmt::Debug for ChatMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChatMessage").field("role", &self.role).field("content_bytes", &self.content.len()).finish()
+    }
+}
+impl std::fmt::Debug for CompletionResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompletionResponse").field("content_bytes", &self.content.len())
+            .field("token_count_input", &self.token_count_input).field("token_count_output", &self.token_count_output)
+            .field("metadata", &self.metadata).finish()
+    }
 }
 
 /// Selected provider metadata, using the provider’s native finish reason and usage fields.
@@ -181,6 +208,22 @@ pub trait ModelGateway: Send + Sync {
 #[cfg(test)]
 mod response_compatibility_tests {
     use super::*;
+
+    #[test]
+    fn debug_does_not_print_private_model_payloads() {
+        let message = ChatMessage { role: "user".into(), content: "private prompt".into() };
+        let request = CompletionRequest { model: "fixture".into(), messages: vec![message.clone()], temperature: None, max_tokens: None };
+        let speech = SpeechRequest { model: "fixture".into(), input: "private speech".into(), voice: None, speed: None, response_format: "wav".into() };
+        let audio = TranscriptionRequest { model: "fixture".into(), audio: vec![101, 102, 103], mime_type: "audio/wav".into(), filename: "private-filename.wav".into(), language: None };
+        let response = CompletionResponse { content: "private reply".into(), ..Default::default() };
+        assert!(!format!("{message:?} {request:?}").contains("private prompt"));
+        assert!(!format!("{speech:?}").contains("private speech"));
+        let audio_debug = format!("{audio:?}");
+        assert!(!audio_debug.contains("101, 102, 103"));
+        assert!(!audio_debug.contains("private-filename"));
+        assert!(audio_debug.contains("audio_bytes: 3"));
+        assert!(!format!("{response:?}").contains("private reply"));
+    }
 
     struct LegacyGateway;
 

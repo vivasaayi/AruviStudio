@@ -2299,6 +2299,14 @@ model discovery, completion, streaming and token-limit handling with
 `qwen25-coder-7b-q4`. This verifies the pinned revision; later client changes
 require a new pin and revalidation. No release was published.
 
+## Shared-client debug payloads
+
+Debug formatting for chat messages, speech and transcription requests, and
+completion responses now reports payload sizes without printing their contents.
+Serialization, fields, provider metadata and Studio telemetry are unchanged and
+must still be handled appropriately by consumers. All 51 standalone client
+tests passed, including synthetic redaction checks.
+
 ## Model Host setup in provider UI
 
 The desktop quick start includes an Aruvi Model Host preset with a blank endpoint

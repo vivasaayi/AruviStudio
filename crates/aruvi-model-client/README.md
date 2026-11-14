@@ -4,6 +4,11 @@ This provisional Rust crate contains reusable model transports without depending
 Studio or Tauri. Applications own provider settings, credentials, telemetry and
 workflow policy. The repository's PolyForm Noncommercial license applies.
 
+`Debug` formatting for chat messages, speech requests, transcription audio and
+completion responses omits their content and reports sizes instead. This does
+not redact values obtained through fields, serialization, provider metadata or
+application telemetry; callers remain responsible for handling those values.
+
 It supports paged model discovery, OpenAI-compatible text completions and incremental streams, remote
 multipart transcription and bounded WAV speech generation. It also implements
 Anthropic Messages text completions and streams. Studio selects these protocols
