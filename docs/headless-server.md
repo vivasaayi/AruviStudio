@@ -60,6 +60,11 @@ saved file to that provider and records request/response snapshots in Activity.
 Unsaved edits must be saved or discarded, and a changed file is rejected before
 the model call. Repository content is untrusted input and model guidance needs
 review. Desktop multi-turn Copilot and patch proposals are not yet available here.
+MCP clients can call `aruvi_repositories` action `get_repository_file_sha256`,
+then call `aruvi_models` action `run_file_copilot` with `repository_id`,
+`relative_path`, `expected_sha256`, `provider_id`, `model_name`, and `question`.
+The operation uses the same file confinement, stale-file check, context limit,
+and Activity recording as the browser; it does not modify the file.
 
 To stop using a provider key, the browser's **Detach API key** action disables
 that provider's configured credential and legacy fallback keys. MCP clients can

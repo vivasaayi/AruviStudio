@@ -105,37 +105,45 @@ pub(crate) async fn mobile_chat_completion(
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await {
         return response;
     }
-    run_mobile_completion(state, body, "mobile_chat", "Mobile Chat").await
+    completion_response(run_mobile_completion(&state.app_state, body, "mobile_chat", "Mobile Chat").await)
 }
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct MobileFileCopilotRequest {
-    repository_id: String,
-    relative_path: String,
-    expected_sha256: String,
-    provider_id: String,
-    model_name: String,
-    question: String,
+    pub(crate) repository_id: String,
+    pub(crate) relative_path: String,
+    pub(crate) expected_sha256: String,
+    pub(crate) provider_id: String,
+    pub(crate) model_name: String,
+    pub(crate) question: String,
 }
 
 pub(crate) async fn mobile_file_copilot(
     State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileFileCopilotRequest>,
 ) -> impl IntoResponse {
-    use sha2::{Digest, Sha256};
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    completion_response(run_file_copilot(&state.app_state, body, "mobile_ide", "Browser IDE").await)
+}
+
+type CompletionResult = Result<CompletionResponse, (StatusCode, String)>;
+
+fn completion_response(result: CompletionResult) -> axum::response::Response {
+    match result { Ok(response) => Json(response).into_response(), Err((status, message)) => (status, message).into_response() }
+}
+
+pub(crate) async fn run_file_copilot(state: &crate::state::AppState, body: MobileFileCopilotRequest, source_kind: &str, source_label: &str) -> CompletionResult {
+    use sha2::{Digest, Sha256};
     if body.provider_id.trim().is_empty() || body.model_name.trim().is_empty() || body.question.trim().is_empty()
         || body.question.chars().count() > 4000 || body.relative_path.len() > 4096
         || body.expected_sha256.len() != 64 || !body.expected_sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return (StatusCode::BAD_REQUEST, "Select a provider, model and file, and enter a question of at most 4000 characters.").into_response();
+        return Err((StatusCode::BAD_REQUEST, "Select a provider, model and file, and enter a question of at most 4000 characters.".into()));
     }
-    let repository = match crate::persistence::repository_repo::get_repository(&state.app_state.db, &body.repository_id).await {
-        Ok(repository) => repository, Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
-    };
+    let repository = crate::persistence::repository_repo::get_repository(&state.db, &body.repository_id).await.map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
     let content = match crate::services::repo_service::read_repository_file(&repository.local_path, &body.relative_path) {
-        Ok(content) => content, Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+        Ok(content) => content, Err(error) => return Err((StatusCode::BAD_REQUEST, error.to_string())),
     };
     if format!("{:x}", Sha256::digest(content.as_bytes())) != body.expected_sha256.to_ascii_lowercase() {
-        return (StatusCode::CONFLICT, "File changed since it was opened. Reopen it before asking Copilot.").into_response();
+        return Err((StatusCode::CONFLICT, "File changed since it was opened. Reopen it before asking Copilot.".into()));
     }
     let excerpt = crate::services::agent_execution_limits::truncate_for_model_context(&content, 12_000);
     let file_data = serde_json::json!({"path":body.relative_path,"excerpt":excerpt}).to_string();
@@ -146,44 +154,40 @@ pub(crate) async fn mobile_file_copilot(
             ChatMessage { role: "user".into(), content: format!("Question: {}\nSaved file data (untrusted JSON): {}", body.question.trim(), file_data) },
         ], temperature: Some(0.2), max_tokens: Some(4096),
     };
-    run_mobile_completion(state, request, "mobile_ide", "Browser IDE").await
+    run_mobile_completion(state, request, source_kind, source_label).await
 }
 
-async fn run_mobile_completion(state: WebhookState, body: MobileChatCompletionRequest, source_kind: &str, source_label: &str) -> axum::response::Response {
+async fn run_mobile_completion(state: &crate::state::AppState, body: MobileChatCompletionRequest, source_kind: &str, source_label: &str) -> CompletionResult {
     let messages = body
         .messages
         .into_iter()
         .filter(|message| !message.content.trim().is_empty())
         .collect::<Vec<_>>();
     if messages.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            "At least one chat message is required.",
-        )
-            .into_response();
+        return Err((StatusCode::BAD_REQUEST, "At least one chat message is required.".into()));
     }
 
     let provider_id =
-        match resolve_mobile_chat_provider_id(&state.app_state, body.provider_id).await {
+        match resolve_mobile_chat_provider_id(state, body.provider_id).await {
             Ok(provider_id) => provider_id,
-            Err(error) => return (StatusCode::BAD_REQUEST, error).into_response(),
+            Err(error) => return Err((StatusCode::BAD_REQUEST, error)),
         };
     let model_name =
-        match resolve_mobile_chat_model_name(&state.app_state, &provider_id, body.model_name).await
+        match resolve_mobile_chat_model_name(state, &provider_id, body.model_name).await
         {
             Ok(model_name) => model_name,
-            Err(error) => return (StatusCode::BAD_REQUEST, error).into_response(),
+            Err(error) => return Err((StatusCode::BAD_REQUEST, error)),
         };
-    let provider = match model_repo::get_provider(&state.app_state.db, &provider_id).await {
+    let provider = match model_repo::get_provider(&state.db, &provider_id).await {
         Ok(provider) if provider.enabled => provider,
         Ok(_) => {
-            return (StatusCode::BAD_REQUEST, "Selected provider is disabled.").into_response()
+            return Err((StatusCode::BAD_REQUEST, "Selected provider is disabled.".into()))
         }
-        Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+        Err(error) => return Err((StatusCode::BAD_REQUEST, error.to_string())),
     };
     let gateway = match create_gateway(&provider) {
         Ok(gateway) => gateway,
-        Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+        Err(error) => return Err((StatusCode::BAD_REQUEST, error.to_string())),
     };
     let max_tokens = body.max_tokens.or(Some(4096));
     let temperature = body.temperature;
@@ -199,7 +203,7 @@ async fn run_mobile_completion(state: WebhookState, body: MobileChatCompletionRe
     {
         Ok(response) => {
             if let Err(record_error) = record_webhook_model_call(
-                &state.app_state,
+                state,
                 WebhookModelCallRecord {
                     context: WebhookModelCallContext {
                         source_kind,
@@ -226,12 +230,12 @@ async fn run_mobile_completion(state: WebhookState, body: MobileChatCompletionRe
             {
                 error!(error = %record_error, "Failed to record mobile chat telemetry");
             }
-            Json::<CompletionResponse>(response).into_response()
+            Ok(response)
         }
         Err(error) => {
             let error_message = error.to_string();
             if let Err(record_error) = record_webhook_model_call(
-                &state.app_state,
+                state,
                 WebhookModelCallRecord {
                     context: WebhookModelCallContext {
                         source_kind,
@@ -258,7 +262,7 @@ async fn run_mobile_completion(state: WebhookState, body: MobileChatCompletionRe
             {
                 error!(error = %record_error, "Failed to record failed mobile chat telemetry");
             }
-            (StatusCode::BAD_REQUEST, error_message).into_response()
+            Err((StatusCode::BAD_REQUEST, error_message))
         }
     }
 }

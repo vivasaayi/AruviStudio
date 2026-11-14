@@ -312,6 +312,10 @@ test("browser registers and attaches a container workspace", async ({ page, requ
         expect(JSON.stringify(captured.messages)).not.toContain(process.env.ARUVI_TEST_REPOSITORY_PATH);
         const inspect = await (await request.post("/api/mobile/repository-inspect", { headers: { Authorization: `Bearer ${token}` }, data: { action: "read_repository_file", repository_id: repositoryId, relative_path: "inspection.txt" } })).json();
         const payload = { repository_id: repositoryId, relative_path: "inspection.txt", expected_sha256: inspect.sha256, provider_id: copilotProvider.id, model_name: "browser-test-model", question: "Explain" };
+        expect((await call("aruvi_repositories", "get_repository_file_sha256", { repository_id: repositoryId, relative_path: "inspection.txt" })).sha256).toBe(inspect.sha256);
+        expect((await call("aruvi_models", "run_file_copilot", payload)).content).toBe("Container provider reply");
+        const deniedMcp = await request.post("/api/mcp", { data: { jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "aruvi_models", arguments: { action: "run_file_copilot", arguments: payload } } } });
+        expect(deniedMcp.status()).toBe(401);
         staleCopilotPayload = payload;
         const statsUrl = process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/copilot/stats");
         const callsBeforeInvalid = (await (await request.get(statsUrl)).json()).calls;
@@ -328,13 +332,21 @@ test("browser registers and attaches a container workspace", async ({ page, requ
         expect(bounded).not.toContain("PRIVATE_TRAILING_MARKER");
         const calls = await (await request.get("/api/mobile/model-calls?limit=100", { headers: { Authorization: `Bearer ${token}` } })).json();
         expect(calls.some((item) => item.provider_id === copilotProvider.id && item.source_kind === "mobile_ide" && item.status === "completed")).toBeTruthy();
+        expect(calls.some((item) => item.provider_id === copilotProvider.id && item.source_kind === "mcp_ide" && item.status === "completed")).toBeTruthy();
       }
       await page.getByLabel("Selected file contents").fill("unsaved browser edit\n");
       await expect(page.getByRole("button", { name: "Ask about saved file" })).toBeDisabled();
       await page.locator("#repositoryTree").getByRole("button", { name: "windows.txt" }).click();
       await expect(page.getByLabel("Selected file contents")).toHaveValue("unsaved browser edit\n");
       await call("aruvi_repositories", "write_repository_file", { repository_id: repositoryId, relative_path: "inspection.txt", content: "concurrent edit\n" });
-      if (staleCopilotPayload) expect((await request.post("/api/mobile/repository-file/copilot", { headers: { Authorization: `Bearer ${token}` }, data: staleCopilotPayload })).status()).toBe(409);
+      if (staleCopilotPayload) {
+        const statsUrl = process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/copilot/stats");
+        const before = (await (await request.get(statsUrl)).json()).calls;
+        expect((await request.post("/api/mobile/repository-file/copilot", { headers: { Authorization: `Bearer ${token}` }, data: staleCopilotPayload })).status()).toBe(409);
+        const staleMcp = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` }, data: { jsonrpc: "2.0", id: 10, method: "tools/call", params: { name: "aruvi_models", arguments: { action: "run_file_copilot", arguments: staleCopilotPayload } } } });
+        expect((await staleMcp.json()).result.isError).toBeTruthy();
+        expect((await (await request.get(statsUrl)).json()).calls).toBe(before);
+      }
       const conflict = page.waitForResponse((response) => response.url().endsWith("/api/mobile/repository-file/save"));
       await page.getByRole("button", { name: "Save file", exact: true }).click();
       expect((await conflict).status()).toBe(409);

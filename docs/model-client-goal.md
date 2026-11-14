@@ -59,10 +59,14 @@ provider hosting into the model-host service as part of this work.
   198 tests with two live tests ignored. A disposable real Model Host fixture
   identified a function using `qwen25-coder-7b-q4` through the new API. This is
   not a general model-quality or live third-party-provider guarantee.
-- This is not full desktop IDE parity: multi-turn file Copilot, streaming in that
-  view, patch proposal review/application and a single combined MCP operation are
-  still open. The separate repository-read and model-completion MCP operations
-  remain available.
+- MCP `aruvi_models` action `run_file_copilot` uses the same file and model service
+  with a distinct Activity source. Authenticated browser and MCP tests cover
+  matching hashes, stale-file rejection and telemetry; a disposable real 7B
+  Model Host fixture passed both interfaces. The 22 remote and 23 workflow cases
+  passed, and the Linux Rust suite passed 198 tests with two live tests ignored.
+  This is not full desktop IDE parity:
+  multi-turn file Copilot, streaming in that view, and patch proposal
+  review/application remain open.
 
 ## Browser planner node review
 

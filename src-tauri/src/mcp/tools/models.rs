@@ -19,6 +19,19 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
     let args = tool_action.args();
 
     match tool_action.action.as_str() {
+        "run_file_copilot" => {
+            let body = crate::services::webhook_mobile_chat::MobileFileCopilotRequest {
+                repository_id: args.required_string(&["repository_id", "repositoryId"], "repository_id")?,
+                relative_path: args.required_string(&["relative_path", "relativePath"], "relative_path")?,
+                expected_sha256: args.required_string(&["expected_sha256", "expectedSha256"], "expected_sha256")?,
+                provider_id: args.required_string(&["provider_id", "providerId"], "provider_id")?,
+                model_name: args.required_string(&["model_name", "modelName"], "model_name")?,
+                question: args.required_string(&["question"], "question")?,
+            };
+            let response = crate::services::webhook_mobile_chat::run_file_copilot(state, body, "mcp_ide", "MCP IDE")
+                .await.map_err(|(_, message)| AppError::Validation(message))?;
+            action_result("run_file_copilot", response)
+        }
         "read_model_call_snapshot" => {
             let id = args.required_string(&["id"], "id")?;
             let kind = args.required_string(&["kind"], "kind")?;

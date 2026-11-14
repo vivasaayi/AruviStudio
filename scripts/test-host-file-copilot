@@ -65,10 +65,14 @@ try:
     repo = mcp("aruvi_repositories", "register_repository", {"name":"File fixture", "local_path":"/repositories/copilot-fixture", "default_branch":"main"})
     file = post("/api/mobile/repository-inspect", {"action":"read_repository_file", "repository_id":repo["id"], "relative_path":"math.js"}, "workflow-mobile-test")
     model = os.environ.get("ARUVI_CODING_TEST_MODEL", "qwen25-coder-7b-q4")
-    answer = post("/api/mobile/repository-file/copilot", {"repository_id":repo["id"], "relative_path":"math.js", "expected_sha256":file["sha256"], "provider_id":provider["id"], "model_name":model, "question":"Name the function defined in this file."}, "workflow-mobile-test")
+    payload = {"repository_id":repo["id"], "relative_path":"math.js", "expected_sha256":file["sha256"], "provider_id":provider["id"], "model_name":model, "question":"Name the function defined in this file."}
+    answer = post("/api/mobile/repository-file/copilot", payload, "workflow-mobile-test")
     if "multiplybyseven" not in answer.get("content", "").lower():
         raise ValueError("Model response did not identify the fixture function")
-    print(f"Real {model} file-context Copilot request passed in a disposable fixture")
+    answer = mcp("aruvi_models", "run_file_copilot", payload)
+    if "multiplybyseven" not in answer.get("content", "").lower():
+        raise ValueError("MCP model response did not identify the fixture function")
+    print(f"Real {model} file-context Copilot requests passed through web and MCP in a disposable fixture")
 except (OSError, KeyError, TypeError, ValueError, subprocess.SubprocessError) as error:
     print(f"File Copilot fixture failed: {type(error).__name__}: {error if not isinstance(error, subprocess.CalledProcessError) else 'fixture command failed'}", file=sys.stderr)
     sys.exit(1)
