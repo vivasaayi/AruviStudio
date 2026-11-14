@@ -100,7 +100,7 @@ where
     while let Some(chunk) = response
         .chunk()
         .await
-        .map_err(|error| ClientError::Provider(format!("{provider} stream read failed: {error}")))?
+        .map_err(|error| crate::http::transport_error(&format!("{provider} stream read failed"), error))?
     {
         if parser.push(&chunk, &mut on_event)? {
             return Ok(());

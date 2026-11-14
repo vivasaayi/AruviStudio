@@ -107,7 +107,7 @@ impl AnthropicClient {
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", API_VERSION)
             .json(&body).send().await
-            .map_err(|error| ClientError::Provider(format!("Anthropic stream request failed: {error}")))?;
+            .map_err(|error| crate::http::transport_error("Anthropic stream request failed", error))?;
         if !response.status().is_success() {
             return Err(ClientError::http("Anthropic API error", response.status()));
         }
@@ -128,7 +128,7 @@ impl AnthropicClient {
             return Err(ClientError::Provider("Anthropic response exceeds size limit".into()));
         }
         let mut bytes = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(|error| ClientError::Provider(format!("Anthropic response failed: {error}")))? {
+        while let Some(chunk) = response.chunk().await.map_err(|error| crate::http::transport_error("Anthropic response failed", error))? {
             if chunk.len() > MAX_RESPONSE_BYTES - bytes.len() { return Err(ClientError::Provider("Anthropic response exceeds size limit".into())); }
             bytes.extend_from_slice(&chunk);
         }
@@ -208,7 +208,7 @@ impl ModelGateway for AnthropicClient {
     }
     async fn health_check(&self) -> Result<bool, ClientError> {
         let response = self.client.get(self.endpoint("/models")).header("x-api-key", &self.api_key).header("anthropic-version", API_VERSION).send().await
-            .map_err(|error| ClientError::Provider(format!("Anthropic health check failed: {error}")))?;
+            .map_err(|error| crate::http::transport_error("Anthropic health check failed", error))?;
         Ok(response.status().is_success())
     }
 
@@ -219,7 +219,7 @@ impl ModelGateway for AnthropicClient {
         let mut request = self.client.get(self.endpoint("/models"))
             .header("x-api-key", &self.api_key).header("anthropic-version", API_VERSION);
         if let Some(cursor) = cursor { request = request.query(&[("after_id", cursor)]); }
-        let response = request.send().await.map_err(|error| ClientError::Provider(format!("Anthropic discovery request failed: {error}")))?;
+        let response = request.send().await.map_err(|error| crate::http::transport_error("Anthropic discovery request failed", error))?;
         let body = crate::discovery::read_response(response).await?;
         let models = crate::discovery::parse_models(&body)?;
         let has_more = body.get("has_more").and_then(Value::as_bool)
@@ -236,7 +236,7 @@ impl ModelGateway for AnthropicClient {
     async fn run_completion(&self, request: CompletionRequest) -> Result<CompletionResponse, ClientError> {
         let body = Self::request_body(request)?;
         let response = self.client.post(self.endpoint("/messages")).header("x-api-key", &self.api_key).header("anthropic-version", API_VERSION).json(&body).send().await
-            .map_err(|error| ClientError::Provider(format!("Anthropic request failed: {error}")))?;
+            .map_err(|error| crate::http::transport_error("Anthropic request failed", error))?;
         let json = Self::read_json(response).await?;
         Self::validate_stop_reason(json.get("stop_reason"))?;
         let blocks = json.get("content").and_then(Value::as_array).ok_or_else(|| ClientError::Provider("Anthropic response is missing content".into()))?;

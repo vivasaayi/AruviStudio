@@ -254,6 +254,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Structured provider HTTP errors
 
+- Reqwest transport errors now omit request URLs, protecting proxy paths and
+  discovery cursors from those error messages while retaining the error category.
+  The configured provider URL is still stored and displayed by Studio and may
+  appear in its telemetry; this change does not protect secrets placed there.
+  A regression test first reproduced the leak, then passed for text, streaming,
+  discovery, health and voice operations across both transports. An isolated
+  MCP fixture also verifies error text. The client passed 45 tests, Studio
+  passed 217 native tests with six ignored, and all 26 isolated workflow cases
+  passed. Real `qwen25-coder-7b-q4` coding and token-limit behavior passed via
+  MCP on the rebuilt branch. Live third-party services remain unverified.
+
 - Non-success provider HTTP responses now expose a numeric status via
   `ClientError::Http` and `http_status()` for completion, streaming, discovery,
   transcription and speech. Existing error text is retained; provider error

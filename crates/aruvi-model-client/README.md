@@ -58,6 +58,9 @@ response retains its existing variant, and embedded errors in a successful HTTP
 response have no HTTP status. A status does not by itself imply retry safety.
 OpenAI-compatible and Anthropic requests reject redirects and
 base URLs containing credentials, queries, or fragments.
+Transport errors omit request URLs, including base paths and discovery cursors.
+Applications still own provider configuration and telemetry; they must protect
+any sensitive values they store there.
 
 Speech responses must have a structurally complete RIFF/WAVE container with a
 format chunk and nonempty audio data; common unknown-length streaming headers

@@ -12,7 +12,7 @@ pub(crate) async fn read_response(mut response: reqwest::Response) -> Result<Val
         return Err(ClientError::Provider("Model discovery response exceeds size limit".into()));
     }
     let mut bytes = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(|error| ClientError::Provider(format!("Model discovery response failed: {error}")))? {
+    while let Some(chunk) = response.chunk().await.map_err(|error| crate::http::transport_error("Model discovery response failed", error))? {
         if chunk.len() > MAX_DISCOVERY_BYTES - bytes.len() {
             return Err(ClientError::Provider("Model discovery response exceeds size limit".into()));
         }

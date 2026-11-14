@@ -199,7 +199,7 @@ impl OpenAiCompatibleClient {
         });
         let mut http = self.client()?.post(self.endpoint_url("/chat/completions")?).json(&body);
         if let Some(key) = &self.api_key { http = http.bearer_auth(key); }
-        let response = http.send().await.map_err(|error| ClientError::Provider(format!("Model stream request failed: {error}")))?;
+        let response = http.send().await.map_err(|error| crate::http::transport_error("Model stream request failed", error))?;
         if !response.status().is_success() {
             return Err(ClientError::http("Model stream API error", response.status()));
         }
@@ -244,7 +244,7 @@ impl OpenAiCompatibleClient {
         }
         let mut request = self.client()?.post(self.endpoint_url("/audio/transcriptions")?).multipart(form);
         if let Some(key) = &self.api_key { request = request.bearer_auth(key); }
-        let response = request.send().await.map_err(|error| ClientError::Provider(format!("Speech transcription request failed: {error}")))?;
+        let response = request.send().await.map_err(|error| crate::http::transport_error("Speech transcription request failed", error))?;
         if !response.status().is_success() {
             let status = response.status();
             if status == reqwest::StatusCode::UNSUPPORTED_MEDIA_TYPE {
@@ -272,7 +272,7 @@ impl OpenAiCompatibleClient {
         }
         let mut request = self.client()?.post(self.endpoint_url("/audio/speech")?).json(&input);
         if let Some(key) = &self.api_key { request = request.bearer_auth(key); }
-        let mut response = request.send().await.map_err(|error| ClientError::Provider(format!("Speech request failed: {error}")))?;
+        let mut response = request.send().await.map_err(|error| crate::http::transport_error("Speech request failed", error))?;
         if !response.status().is_success() {
             return Err(ClientError::http("Speech API error", response.status()));
         }
@@ -280,7 +280,7 @@ impl OpenAiCompatibleClient {
             return Err(ClientError::Provider("Speech audio exceeds the size limit".into()));
         }
         let mut audio = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(|error| ClientError::Provider(format!("Speech response failed: {error}")))? {
+        while let Some(chunk) = response.chunk().await.map_err(|error| crate::http::transport_error("Speech response failed", error))? {
             if chunk.len() > MAX_AUDIO_BYTES - audio.len() { return Err(ClientError::Provider("Speech audio exceeds the size limit".into())); }
             audio.extend_from_slice(&chunk);
         }
@@ -318,7 +318,7 @@ impl OpenAiCompatibleClient {
         let resp = req
             .send()
             .await
-            .map_err(|e| ClientError::Provider(format!("Request failed: {e}")))?;
+            .map_err(|e| crate::http::transport_error("Request failed", e))?;
         if !resp.status().is_success() {
             return Err(ClientError::http("API error", resp.status()));
         }
@@ -381,7 +381,7 @@ impl ModelGateway for OpenAiCompatibleClient {
         }
         match req.send().await {
             Ok(resp) => Ok(resp.status().is_success()),
-            Err(e) => Err(ClientError::Provider(format!("Health check failed: {e}"))),
+            Err(e) => Err(crate::http::transport_error("Health check failed", e)),
         }
     }
 
@@ -389,7 +389,7 @@ impl ModelGateway for OpenAiCompatibleClient {
         if cursor.is_some() { return Err(ClientError::InvalidInput("OpenAI-compatible discovery does not support cursors".into())); }
         let mut request = self.client()?.get(self.endpoint_url("/models")?);
         if let Some(key) = &self.api_key { request = request.bearer_auth(key); }
-        let response = request.send().await.map_err(|error| ClientError::Provider(format!("Model discovery request failed: {error}")))?;
+        let response = request.send().await.map_err(|error| crate::http::transport_error("Model discovery request failed", error))?;
         let body = crate::discovery::read_response(response).await?;
         Ok(crate::ModelPage { models: crate::discovery::parse_models(&body)?, next_cursor: None })
     }

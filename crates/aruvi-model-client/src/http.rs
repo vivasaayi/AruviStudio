@@ -2,6 +2,12 @@ use crate::{ClientError, ClientOptions};
 use reqwest::{Client, redirect::Policy};
 use std::time::Duration;
 
+/// Reqwest errors may include request URLs, including provider-specific secret
+/// paths or discovery cursors. Keep the failure category without the URL.
+pub(crate) fn transport_error(label: &str, error: reqwest::Error) -> ClientError {
+    ClientError::Provider(format!("{label}: {}", error.without_url()))
+}
+
 pub(crate) fn build_client(options: ClientOptions) -> Result<Client, ClientError> {
     let max = Duration::from_secs(24 * 60 * 60);
     if options.connect_timeout.is_zero() || options.request_timeout.is_zero()
@@ -19,7 +25,7 @@ pub(crate) async fn read_bounded(mut response: reqwest::Response, limit: usize, 
         return Err(ClientError::Provider(format!("{label} exceeds size limit")));
     }
     let mut bytes = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(|error| ClientError::Provider(format!("{label} read failed: {error}")))? {
+    while let Some(chunk) = response.chunk().await.map_err(|error| transport_error(&format!("{label} read failed"), error))? {
         if chunk.len() > limit - bytes.len() {
             return Err(ClientError::Provider(format!("{label} exceeds size limit")));
         }
@@ -106,6 +112,35 @@ mod tests {
             task.abort();
             assert!(task.await.unwrap_err().is_cancelled());
             assert!(server.join().unwrap(), "server did not observe client disconnect");
+        }
+    }
+
+    #[tokio::test]
+    async fn transport_errors_do_not_expose_provider_path_or_discovery_cursor() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let base = format!("http://{address}/sensitive-proxy-path");
+        let openai = OpenAiCompatibleClient::new(base.clone(), Some("synthetic-key".into()));
+        let anthropic = AnthropicClient::new(base, "synthetic-key".into()).unwrap();
+        let results = vec![
+            openai.run_completion(request()).await.map(|_| ()),
+            openai.stream_completion(request(), |_| {}).await.map(|_| ()),
+            openai.list_models_page(None).await.map(|_| ()),
+            openai.health_check().await.map(|_| ()),
+            openai.transcribe(crate::TranscriptionRequest { model: "fixture".into(), audio: vec![1], mime_type: "audio/wav".into(), filename: "audio.wav".into(), language: None }).await.map(|_| ()),
+            openai.generate_speech(crate::SpeechRequest { model: "fixture".into(), input: "hello".into(), voice: None, speed: None, response_format: "wav".into() }).await.map(|_| ()),
+            anthropic.run_completion(request()).await.map(|_| ()),
+            anthropic.stream_completion(request(), |_| {}).await.map(|_| ()),
+            anthropic.list_models_page(Some("sensitive-cursor")).await.map(|_| ()),
+            anthropic.health_check().await.map(|_| ()),
+        ];
+        for result in results {
+            let error = result.unwrap_err();
+            let message = format!("{error:?} {error}");
+            assert!(!message.contains("sensitive-proxy-path"), "{message}");
+            assert!(!message.contains("sensitive-cursor"), "{message}");
+            assert!(!message.contains("synthetic-key"), "{message}");
         }
     }
 

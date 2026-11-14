@@ -436,6 +436,22 @@ test("MCP repository analysis repairs invalid actions and bounds failed retries"
   expect((await mcp("aruvi_catalog", "list_product_areas", { product_id: product.id })).some((area) => area.name === "Inventory")).toBeTruthy();
 });
 
+test("MCP transport errors omit the provider URL path", async ({ request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires an isolated server");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };
+  async function call(action, arguments_) {
+    const response = await request.post("/api/mcp", { headers, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_models", arguments: { action, arguments: arguments_ } } } });
+    return (await response.json()).result;
+  }
+  const created = await call("create_provider", { name: "Unreachable provider", base_url: "http://127.0.0.1:1/sensitive-proxy-path" });
+  expect(created.isError).toBeFalsy();
+  const provider = created.structuredContent.result;
+  const failed = await call("run_model_chat_completion", { provider_id: provider.id, model: "fixture", messages: [{ role: "user", content: "hello" }] });
+  expect(failed.isError).toBeTruthy();
+  expect(JSON.stringify(failed.content)).toContain("Request failed");
+  expect(JSON.stringify(failed.content)).not.toContain("sensitive-proxy-path");
+});
+
 test("browser chat streams, reports errors, and can stop", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
