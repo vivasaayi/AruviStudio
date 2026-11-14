@@ -918,6 +918,15 @@
             </div>
           </section>
           <section class="panel">
+            <div class="panel-header"><div class="panel-title">Outbound contact policy</div><button class="secondary" id="refreshChannelPolicy" type="button">Refresh policy</button></div>
+            <div class="panel-body"><p>Quiet hours use the server's local time. Enter both times or leave both empty. Equal times disable quiet hours.</p>
+              <form id="channelPolicyForm" class="stack"><label><span class="label">Outbound channel preference</span><select id="channelPreference"><option value="hybrid">Hybrid</option><option value="whatsapp">Prefer WhatsApp</option><option value="voice">Prefer voice</option></select></label>
+                <label><input id="channelEscalate" type="checkbox" /> Escalate ambiguous planning to a call in hybrid mode</label>
+                <label><span class="label">Quiet hours start</span><input id="channelQuietStart" placeholder="21:00" maxlength="5" /></label>
+                <label><span class="label">Quiet hours end</span><input id="channelQuietEnd" placeholder="08:00" maxlength="5" /></label><button type="submit" id="saveChannelPolicy" disabled>Save contact policy</button></form>
+            </div>
+          </section>
+          <section class="panel">
             <div class="panel-header"><div class="panel-title">Workflow automation</div><button class="secondary" id="refreshWorkflowAutomation" type="button">Refresh automation</button></div>
             <div class="panel-body"><p>These settings control when workflows start and whether planning and test review are approved automatically.</p><div id="workflowAutomation" class="stack"></div></div>
           </section>
@@ -1401,6 +1410,7 @@
         void loadCatalogSettings();
         void loadWorkflowAutomation();
         void loadPlannerDefaults();
+        void loadChannelPolicy();
       }
       if (tabId === "agents") {
         void loadAgents();
@@ -3484,6 +3494,37 @@
       } catch (error) { setStatus(error.message || String(error), "error"); }
       finally { el.createWorkspaceButton.disabled = !el.repositoryProduct.value; }
     }
+
+    let channelPolicy = null, channelPolicySequence = 0, channelPolicyBusy = false;
+    async function loadChannelPolicy() {
+      if (channelPolicyBusy) return;
+      const sequence = ++channelPolicySequence;
+      document.getElementById("saveChannelPolicy").disabled = true;
+      try {
+        const result = await request("/api/mobile/channel-policy");
+        if (sequence !== channelPolicySequence) return;
+        channelPolicy = result.raw;
+        const preference = (result.raw[0] || "hybrid").trim().toLowerCase();
+        document.getElementById("channelPreference").value = ["hybrid", "whatsapp", "voice"].includes(preference) ? preference : "hybrid";
+        const escalate = (result.raw[1] || "true").trim().toLowerCase();
+        document.getElementById("channelEscalate").checked = !["false", "0", "no", "off"].includes(escalate);
+        document.getElementById("channelQuietStart").value = result.raw[2] || "";
+        document.getElementById("channelQuietEnd").value = result.raw[3] || "";
+        document.getElementById("saveChannelPolicy").disabled = false;
+      } catch (error) { if (sequence === channelPolicySequence) { channelPolicy = null; setStatus(error.message || String(error), "error"); } }
+    }
+    document.getElementById("refreshChannelPolicy").addEventListener("click", () => void loadChannelPolicy());
+    document.getElementById("channelPolicyForm").addEventListener("submit", async (event) => {
+      event.preventDefault(); if (!channelPolicy || channelPolicyBusy) return;
+      channelPolicyBusy = true; ++channelPolicySequence;
+      const form = event.currentTarget, refresh = document.getElementById("refreshChannelPolicy");
+      for (const control of form.elements) control.disabled = true; refresh.disabled = true;
+      try {
+        const result = await request("/api/mobile/channel-policy", { method: "POST", body: { expected: channelPolicy, preference: document.getElementById("channelPreference").value, escalate: document.getElementById("channelEscalate").checked, start: document.getElementById("channelQuietStart").value, end: document.getElementById("channelQuietEnd").value } });
+        channelPolicy = result.raw; setStatus("Contact policy saved", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { channelPolicyBusy = false; for (const control of form.elements) control.disabled = false; refresh.disabled = false; }
+    });
 
     let plannerDefaults = null, plannerDefaultsSequence = 0, plannerDefaultsBusy = false;
     async function loadPlannerDefaults() {

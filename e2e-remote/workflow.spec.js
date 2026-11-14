@@ -1,6 +1,38 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
+test("browser contact policy is validated and protects concurrent MCP edits", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const mcpHeaders = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };
+  expect((await request.get("/api/mobile/channel-policy")).status()).toBe(401);
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Routing", exact: true }).click();
+  await expect(page.locator("#saveChannelPolicy")).toBeEnabled();
+  await page.locator("#channelPreference").selectOption("voice");
+  await page.locator("#channelEscalate").uncheck();
+  await page.locator("#channelQuietStart").fill("21:00");
+  await page.locator("#channelQuietEnd").fill("08:00");
+  await page.locator("#saveChannelPolicy").click();
+  await expect(page.locator("#status")).toContainText("Contact policy saved");
+  const saved = await (await request.get("/api/mobile/channel-policy", { headers })).json();
+  expect(saved.raw).toEqual(["voice", "false", "21:00", "08:00"]);
+  for (const [start, end] of [["25:00", "08:00"], ["21:00", ""]]) {
+    const invalid = await request.post("/api/mobile/channel-policy", { headers, data: { expected: saved.raw, preference: "voice", escalate: false, start, end } });
+    expect(invalid.status()).toBe(400);
+  }
+  const changed = await request.post("/api/mcp", { headers: mcpHeaders, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_settings", arguments: { action: "set_setting", arguments: { key: "planner.call_quiet_hours_end", value: "09:00" } } } } });
+  expect((await changed.json()).result.isError).not.toBeTruthy();
+  await page.locator("#channelQuietStart").fill("20:00");
+  await page.locator("#saveChannelPolicy").click();
+  await expect(page.locator("#status")).toContainText("Channel policy changed");
+  expect((await (await request.get("/api/mobile/channel-policy", { headers })).json()).raw).toEqual(["voice", "false", "21:00", "09:00"]);
+  await page.locator("#refreshChannelPolicy").click();
+  await expect(page.locator("#channelQuietEnd")).toHaveValue("09:00");
+});
+
 test("existing planner sessions stop when their model binding changes", async ({ request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };

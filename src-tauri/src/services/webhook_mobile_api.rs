@@ -104,6 +104,56 @@ pub(crate) async fn mobile_update_speech_defaults(State(state): State<WebhookSta
 }
 const PLANNER_DEFAULT_KEYS: [&str; 3] = ["planner.default_provider_id", "planner.default_model_name", "planner.channel_product_id"];
 
+const CHANNEL_POLICY_KEYS: [&str; 4] = ["planner.channel_preference", "planner.escalate_to_call_on_ambiguity", "planner.call_quiet_hours_start", "planner.call_quiet_hours_end"];
+
+#[derive(Deserialize)]
+pub(crate) struct ChannelPolicyUpdate {
+    expected: [Option<String>; 4],
+    preference: String,
+    escalate: bool,
+    start: String,
+    end: String,
+}
+
+pub(crate) async fn mobile_channel_policy(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let mut raw = Vec::new();
+    for key in CHANNEL_POLICY_KEYS {
+        match settings_repo::get_setting(&state.app_state.db, key).await {
+            Ok(value) => raw.push(value),
+            Err(error) => return (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+        }
+    }
+    Json(serde_json::json!({"raw":raw})).into_response()
+}
+
+pub(crate) async fn mobile_update_channel_policy(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<ChannelPolicyUpdate>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let start = body.start.trim();
+    let end = body.end.trim();
+    let valid_time = |value: &str| value.is_empty() || (value.len() == 5 && chrono::NaiveTime::parse_from_str(value, "%H:%M").is_ok());
+    if !matches!(body.preference.as_str(), "hybrid" | "whatsapp" | "voice") || !valid_time(start) || !valid_time(end) || start.is_empty() != end.is_empty() {
+        return (StatusCode::BAD_REQUEST, "Choose a channel and enter both quiet hours in HH:MM format, or leave both empty.").into_response();
+    }
+    let values = [body.preference.as_str(), if body.escalate { "true" } else { "false" }, start, end];
+    let mut tx = match state.app_state.db.begin().await { Ok(tx) => tx, Err(error) => return (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response() };
+    for ((key, expected), value) in CHANNEL_POLICY_KEYS.into_iter().zip(body.expected).zip(values) {
+        let result = match expected {
+            Some(expected) => sqlx::query("UPDATE settings SET value=?,updated_at=datetime('now') WHERE key=? AND value=?").bind(value).bind(key).bind(expected).execute(&mut *tx).await,
+            None => sqlx::query("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO NOTHING").bind(key).bind(value).execute(&mut *tx).await,
+        };
+        match result {
+            Ok(result) if result.rows_affected() == 1 => {},
+            Ok(_) => return (StatusCode::CONFLICT, "Channel policy changed. Refresh before saving.").into_response(),
+            Err(error) => return (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+        }
+    }
+    match tx.commit().await {
+        Ok(()) => Json(serde_json::json!({"raw":values})).into_response(),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+    }
+}
+
 pub(crate) async fn mobile_planner_defaults(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     let mut values = Vec::new();

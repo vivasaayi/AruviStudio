@@ -57,7 +57,7 @@ or evidence that a setting affects runtime behavior.
 | --- | --- | --- | --- |
 | Hide examples; seed/repair catalog | Routing controls and authenticated catalog APIs | `aruvi_settings` and catalog actions | Existing isolated browser tests cover catalog settings; confirm native comparison. |
 | Set planner provider and model | Routing defaults form; environment values can override | `aruvi_settings` | Existing browser form uses a revision check; desktop/MCP setting writes are last-write-wins. |
-| Set outbound channel preference, ambiguity escalation and call quiet hours | No corresponding controls found | `aruvi_settings` can update the underlying keys | Implement and test browser controls against `channel_contact_policy`; validate concurrent changes and show that quiet hours use the server's local timezone. |
+| Set outbound channel preference, ambiguity escalation and call quiet hours | Routing contact policy form updates the four server settings atomically | `aruvi_settings` can update the underlying keys | The isolated browser test covers invalid times, authentication and rollback after a concurrent MCP edit; live outbound routing and native comparison remain open. Quiet hours use the server's local timezone. |
 | Send WhatsApp, start a voice call or route planner contact | No corresponding controls found | `aruvi_channels` exposes all three operations | Add an appropriate browser workflow and test with a simulated channel service before any live acceptance. |
 | Configure Twilio and default contact details | No corresponding controls found | Generic `aruvi_settings` operations | Design secret-safe configuration and masked display; avoid returning stored credentials to browser clients. Live Twilio remains unverified. |
 | Set transcription provider/model/locale | Voice server-default controls; browser can also choose per-session values | `aruvi_settings` and `aruvi_speech` | Environment overrides and client/session-specific values need explicit verification. |
@@ -66,10 +66,11 @@ or evidence that a setting affects runtime behavior.
 | Inspect database health and override its path | Routing database panel | `aruvi_settings` database actions | Both server paths and restart/environment precedence need to remain explicit. |
 | Set Docker host and maximum workflow retries | No corresponding controls found | Generic `aruvi_settings` can store values | Repository search found these keys only in the desktop settings form and loader, with no backend readers. Do not present them as working execution controls until behavior is implemented and verified. |
 
-The four outbound policy keys are consumed by `channel_contact_policy.rs`, so
-the missing browser controls affect real server behavior; this is distinct from
-the two execution fields whose stored values currently have no identified
-consumer. Existing MCP access is not evidence of browser parity or live channel
+The four outbound policy keys are consumed by `channel_contact_policy.rs`. The
+browser form writes those keys and validates complete time ranges; it does not
+exercise an actual outbound delivery. This is distinct from the two execution
+fields whose stored values currently have no identified consumer. Existing MCP
+access is not evidence of complete browser parity or live channel
 delivery. The rest of the desktop settings and the full IDE/CI comparison remain
 open.
 

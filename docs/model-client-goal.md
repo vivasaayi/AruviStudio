@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Browser outbound contact policy
+
+The Routing page now edits the channel preference, ambiguity escalation and
+quiet hours consumed by the existing server policy. Writes use a transaction
+and compare the previously read values, including against changes made through
+MCP. The isolated worktree image built and 46 browser/MCP workflows passed,
+including authorization, invalid time ranges and rollback on a concurrent MCP
+edit. Quiet hours use the server's local timezone. No real outbound call or
+WhatsApp message was sent; live channel validation and other parity gaps remain
+open in `web-parity-audit.md`.
+
 ### Optional OpenAI-compatible stream usage
 
 The shared client now offers `with_stream_usage(true)` to request a terminal
