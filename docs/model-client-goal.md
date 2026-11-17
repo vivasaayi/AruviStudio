@@ -3861,3 +3861,66 @@ browser/MCP workflow checks; the worktree services were healthy afterward. This
 does not verify the claim or force a manual review when workflow auto-approval
 is enabled. Project-specific functional tests and an appropriate review policy
 remain necessary.
+
+## Resume checkpoint: 2026-11-17
+
+The feature branch remains `codex/aruvi-web-docker`, based on pushed commit
+`b955797`. The feature worktree was clean before this checkpoint. The separate
+PDF-isolation checkout was left untouched. The branch Docker image rebuilt
+successfully from the pinned sources. Its isolated app and PDF sidecar are
+healthy at `http://127.0.0.1:55029/remote`, with separate project identity
+`aruvi-studio-worktree-0e3d3e51014c` and its existing persistent data volume.
+The legacy Studio Compose app on port 8787 was left running.
+
+Docker's internal filesystem filled during startup. The failed startup did not
+damage the named worktree database; a later isolated startup succeeded after
+reclaiming only BuildKit caches identified as belonging to this Studio build.
+The persistent volume was preserved. Docker filled again during browser/MCP
+validation, and a subsequent text request failed with `No space left on device`
+while SQLite attempted to write. The Docker app continues to report healthy,
+but write-dependent checks against this container are unreliable until space is
+freed. No machine-wide prune, other-project cleanup, or other project's
+deployment change was performed. The product environment launcher rebuilds on
+every worktree `up`; this resumed run started the already-built image directly
+to avoid another cache expansion.
+
+The isolated browser/MCP validation passed: the operational-section browser
+check (1), the complete remote UI suite (29), CI browser/MCP flow (1), and all
+workflow browser/MCP cases (51). The native Rust library suite passed 267 tests
+with seven ignored; the model-client crate passed 62; and the independent
+consumer passed all 28 tests against Git pin
+`12791e9fcd018ea4847ff7a2591535d4de07914e`. The frontend production build,
+server `cargo check`, terminology check and provider-routing tests passed. The
+configured Rust integration wrapper found no tests in `src-tauri/tests`.
+`npm audit --omit=dev --audit-level=high` found zero vulnerabilities.
+
+Live local inference also passed outside Docker. The independent pinned client
+used the native integration Model Host for discovery, text completion,
+streaming, token-limit detection, and synthetic Piper-to-Whisper audio. An
+isolated native Studio server then used the shared client through MCP to
+discover `qwen-05b-comparison`, generate a `sumEven` function, and generate and
+transcribe synthetic speech. The test used a temporary credential file and
+database, which were removed on completion. `scripts/test-native-model-host`
+now accepts `--host-environment` (`worktree`, `integration`, or `staging`) so
+this validation can target the intended running host. The available integration
+host currently advertises `qwen-05b-comparison`, `smol-metal-test`, Piper,
+Whisper and an image model; it did not advertise a dedicated coding model at
+the time of this check.
+
+Fresh full `npm audit --audit-level=high` now reports six high findings through
+`picomatch` 4.0.7, including GHSA-fc5q-39xc-vjpf. GitHub's advisory currently
+marks versions through 4.0.7 affected and lists no patched version
+([advisory](https://github.com/advisories/GHSA-fc5q-39xc-vjpf)). The npm registry
+also currently has no 4.0.8 release. `npm audit fix --dry-run` cannot clear the
+findings without a major Vitest downgrade to 3.1.4; no lockfile change was
+applied. Treat the development-toolchain audit as a release blocker until an
+upstream patch or a reviewed compatible dependency path is available. The
+previous Rust advisory findings, SQLx vendor review, and ignored test cases
+remain as recorded above.
+
+Still open: native Tauri window acceptance and physical microphone/playback;
+live third-party provider calls; broader model quality and project-level coding
+validation; inference-only Model Host credentials (the deployed host still uses
+its management-capable credential and the host checkout has unrelated user
+changes); full Docker-backed real-model revalidation after daemon capacity is
+restored; and release/dependency review. No release was created or deployed.

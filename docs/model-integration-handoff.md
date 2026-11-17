@@ -80,3 +80,21 @@ in [web-parity-audit.md](web-parity-audit.md).
    record its tests and remaining limitations there. Use the repository's
    environment instructions and product-environments skill for worktree,
    full-stack test or deployment changes.
+
+## Resumed checkpoint: 2026-11-17
+
+Work resumed on the feature branch after this handoff was written. See the
+latest evidence in [model-client-goal.md](model-client-goal.md). The isolated
+branch Docker app is healthy at `http://127.0.0.1:55029/remote`; the Docker
+daemon filesystem is full, so database writes and real inference through that
+container can fail. The branch image itself built successfully.
+
+The fresh browser/MCP suites, native Rust suite, standalone client tests and
+real local Model Host checks passed, including native Studio MCP text and
+synthetic speech. The native validation script now selects the host environment
+explicitly. A new high-severity `picomatch` advisory affects the current npm
+development tree and has no published upstream fix as of this checkpoint; the
+production-only npm audit is clean. Native Tauri window and physical audio
+acceptance, cloud-provider calls, inference-only host credentials, daemon
+capacity recovery, and release review are still open. The full objective is
+therefore not complete.

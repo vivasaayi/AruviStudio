@@ -24,6 +24,7 @@ root = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("binary", type=Path, help="Built native aruvi-studio-server binary")
 parser.add_argument("host_worktree", type=Path, help="Running native Model Host worktree")
+parser.add_argument("--host-environment", choices=("worktree", "integration", "staging"), default="worktree", help="Model Host environment used for text inference")
 parser.add_argument("--model", required=True, help="Installed text model ID")
 parser.add_argument("--speech-host", type=Path, help="Optional native Model Host checkout for speech")
 parser.add_argument("--speech-environment", choices=("worktree", "integration", "staging"), default="staging")
@@ -44,7 +45,7 @@ try:
     binary = args.binary.expanduser().resolve(strict=True)
     host = args.host_worktree.expanduser().resolve(strict=True)
     config = importlib.machinery.SourceFileLoader("host_config", str(root / "scripts/configure-native-model-host")).load_module()
-    host_port, host_token = config.read_host(host, "worktree")
+    host_port, host_token = config.read_host(host, args.host_environment)
     speech = config.read_host(args.speech_host.expanduser().resolve(strict=True), args.speech_environment) if args.speech_host else None
     with tempfile.TemporaryDirectory(prefix="aruvi-native-validation-") as temporary, contextlib.ExitStack() as process_cleanup:
         data = Path(temporary)
