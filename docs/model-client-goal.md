@@ -3924,3 +3924,20 @@ validation; inference-only Model Host credentials (the deployed host still uses
 its management-capable credential and the host checkout has unrelated user
 changes); full Docker-backed real-model revalidation after daemon capacity is
 restored; and release/dependency review. No release was created or deployed.
+
+## Follow-up: 2026-11-18
+
+The full `npm audit --audit-level=high` now reports zero vulnerabilities.
+GitHub withdrew GHSA-fc5q-39xc-vjpf on November 18; its advisory links to an
+upstream discussion and does not identify a patched picomatch release. This
+withdrawal and clean audit supersede the prior scan result, but do not establish
+that the reported behavior was fixed. Reassess the advisory and dependency tree
+at release time.
+
+The worktree app is unhealthy and `/health` returns 503 `database unavailable`.
+Docker's internal filesystem reports zero available bytes. Removal was scoped to
+identified unshared Studio build and runtime cache entries; the daemon still
+reports no available space. Persistent volumes were not removed, and database
+integrity has not been rechecked since this latest failure. Restore Docker
+capacity before restarting the app, checking database integrity and repeating
+write-dependent validation. Other services share this daemon.
