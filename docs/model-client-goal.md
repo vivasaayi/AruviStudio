@@ -3941,3 +3941,15 @@ reports no available space. Persistent volumes were not removed, and database
 integrity has not been rechecked since this latest failure. Restore Docker
 capacity before restarting the app, checking database integrity and repeating
 write-dependent validation. Other services share this daemon.
+
+## Recovery check: 2026-11-20
+
+Docker reported 33 GB available and the existing worktree app and PDF service
+were healthy. A read-only SQLite `quick_check` returned `ok` and
+`foreign_key_check` returned no violations. A real Model Host text completion
+and synthetic Piper-to-Whisper round trip passed through the Docker Studio MCP
+endpoint. The browser-origin MCP check passed on the published port and rejected
+missing credentials and tested cross-origin requests. The dedicated coding
+fixture failed at its MCP call with its default model/provider; this check does
+not identify the cause and coding-model validation remains open. These checks
+do not establish native window, physical audio, or live cloud-provider parity.
