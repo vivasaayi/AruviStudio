@@ -30,8 +30,19 @@ after vendoring. A separately built, read-only non-root Linux probe of that pin
 passed real Model Host discovery, completion, streaming and token-limit checks
 against `qwen25-coder-7b-q4` and `qwen-05b-comparison`, plus a synthetic
 `piper-ljspeech` to `whisper-tiny-metal` round trip. Studio's native library
-suite passed 287 tests with seven ignored. Browser and container validation are
-recorded below when complete; no live Anthropic credentials were configured.
+suite passed 287 tests with seven ignored. The Linux ARM64 release binary from
+source commit `dc711d0`, packaged on the previous worktree image rather than
+built from the Dockerfile, passed 38 remote browser tests, PDF isolation and
+outage checks, and 51 workflow tests; the workflow fixture confirmed the browser
+reports the malformed Anthropic stream. Image
+`sha256:356698a34954bc1963f37ac0fe24ecbd70ae56f47a928cd744bfc56cee5373c5`
+was deployed to the isolated worktree after confirming no active CLI, import or
+workflow jobs and taking a consistent database backup that passed `quick_check`.
+The previous image remains tagged `aruvi-studio-worktree-backup:pre-initial-stream`.
+Both services were healthy after restart; a real Model Host coding completion,
+token-limit error and browser-origin MCP check passed. The loopback port is
+dynamic. No live Anthropic credentials were configured, and this is not staging
+acceptance or a clean Dockerfile build.
 
 ### Current real Model Host revalidation
 
