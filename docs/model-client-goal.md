@@ -5752,3 +5752,11 @@ space after an initial derived build unpacked the base layers, one unused older
 rollback image was removed from Docker after verifying its preserved OCI
 archive and manifest; the current previous image is retained. Integration,
 staging and complete desktop parity remain unverified.
+
+The isolated workflow suite now also covers team capacity through MCP and the
+authenticated browser API. With capacity one, it starts the first work item,
+checks that a second start reports capacity without creating a workflow run,
+raises capacity through MCP and starts the second item. All 53 workflow tests
+passed against the deployed branch image with the simulated model provider.
+This validates those interface flows; it does not establish automatic retries,
+live third-party providers or staging acceptance.

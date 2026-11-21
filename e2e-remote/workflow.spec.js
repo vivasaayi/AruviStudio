@@ -1967,6 +1967,58 @@ test("browser edits and resets stage routing without overwriting concurrent chan
   expect((await mcp("list_workflow_stage_policies", {})).some((item) => item.stage_name === "coding")).toBe(false);
 });
 
+test("MCP workflow start respects team capacity without leaving a phantom run", async ({ request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  test.setTimeout(180000);
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const mcpHeaders = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };
+  async function post(path, data) {
+    const response = await request.post(path, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return response.json();
+  }
+  async function call(name, action, args) {
+    const response = await request.post("/api/mcp", { headers: mcpHeaders,
+      data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: { action, arguments: args } } } });
+    return (await response.json()).result;
+  }
+  async function mcp(name, action, args) {
+    const result = await call(name, action, args);
+    expect(result.isError, JSON.stringify(result)).not.toBeTruthy();
+    return result.structuredContent.result;
+  }
+  await request.post("http://127.0.0.1:19876/workflow/reset");
+  const provider = await post("/api/mobile/providers", { name: "Capacity provider", base_url: process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/workflow/v1") });
+  const model = await post("/api/mobile/models", { provider_id: provider.id, name: "browser-test-model" });
+  const agents = await (await request.get("/api/mobile/agents", { headers })).json();
+  for (const agent of agents.filter((a) => a.enabled && a.employment_status === "active"))
+    await post("/api/mobile/agent-model-bindings", { agent_id: agent.id, model_id: model.id });
+  await mcp("aruvi_settings", "set_setting", { key: "workflow.auto_start_after_work_item_approval", value: "false" });
+  await mcp("aruvi_settings", "set_setting", { key: "workflow.auto_approve_plan", value: "false" });
+  const product = await post("/api/mobile/products", { name: "Team capacity fixture" });
+  const repository = await post("/api/mobile/repositories", { name: "Capacity fixture repository", local_path: process.env.ARUVI_TEST_REPOSITORY_PATH });
+  await post("/api/mobile/repository-attachments", { product_id: product.id, repository_id: repository.id });
+  const team = await post("/api/mobile/teams", { name: "Capacity fixture team", department: "", description: "", enabled: true, max_concurrent_workflows: 1 });
+  await post("/api/mobile/team-assignments", { team_id: team.id, product_id: product.id, scope_type: "product", scope_id: product.id });
+  const first = await mcp("aruvi_work_items", "create_work_item", { product_id: product.id, title: "First capacity work", work_item_type: "task" });
+  const second = await mcp("aruvi_work_items", "create_work_item", { product_id: product.id, title: "Second capacity work", work_item_type: "task" });
+  for (const item of [first, second]) await mcp("aruvi_checkpoints", "approve_work_item", { work_item_id: item.id });
+  const started = await mcp("aruvi_workflows", "start_work_item_workflow", { work_item_id: first.id });
+  const firstDelivery = await (await request.get(`/api/mobile/work-items/${first.id}/delivery`, { headers })).json();
+  expect(firstDelivery.workflow_run.id).toBe(started.workflow_run_id);
+  expect(firstDelivery.workflow_run.assigned_team_id).toBe(team.id);
+  const rejected = await call("aruvi_workflows", "start_work_item_workflow", { work_item_id: second.id });
+  expect(rejected.isError).toBeTruthy();
+  expect(JSON.stringify(rejected.content)).toContain("at capacity");
+  const blockedDelivery = await (await request.get(`/api/mobile/work-items/${second.id}/delivery`, { headers })).json();
+  expect(blockedDelivery.workflow_run).toBeNull();
+  await mcp("aruvi_agents", "update_agent_team", { id: team.id, max_concurrent_workflows: 2 });
+  const retried = await mcp("aruvi_workflows", "start_work_item_workflow", { work_item_id: second.id });
+  const secondDelivery = await (await request.get(`/api/mobile/work-items/${second.id}/delivery`, { headers })).json();
+  expect(secondDelivery.workflow_run.id).toBe(retried.workflow_run_id);
+  expect(secondDelivery.workflow_run.assigned_team_id).toBe(team.id);
+});
+
 test("workflow replaces a disabled coordinator before the next review", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
   test.setTimeout(180000);
