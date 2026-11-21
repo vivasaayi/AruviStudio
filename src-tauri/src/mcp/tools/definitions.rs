@@ -138,6 +138,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "advance_workflow",
                 "retry_git_delivery",
                 "list_agent_runs_for_workflow",
+                "list_agent_model_calls_for_workflow",
                 "mark_workflow_run_failed",
                 "restart_workflow_run",
             ],

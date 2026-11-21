@@ -2080,6 +2080,15 @@ test("workflow replaces a disabled coordinator before the next review", async ({
   await expect(page.locator("#deliveryStatus")).toHaveText("pending plan approval", { timeout: 60000 });
   const before = await (await request.get(`/api/mobile/work-items/${work.id}/delivery`, { headers })).json();
   const initialRuns = await mcp("aruvi_workflows", "list_agent_runs_for_workflow", { workflow_run_id: before.workflow_run.id });
+  expect((await request.get(`/api/mobile/workflows/${before.workflow_run.id}/model-calls`)).status()).toBe(401);
+  const calls = await mcp("aruvi_workflows", "list_agent_model_calls_for_workflow", { workflow_run_id: before.workflow_run.id });
+  expect(calls.length).toBeGreaterThan(0);
+  expect(calls.every((call) => call.workflow_run_id === before.workflow_run.id)).toBe(true);
+  expect(await mcp("aruvi_workflows", "list_agent_model_calls_for_workflow", { workflow_run_id: "nonexistent-workflow" })).toEqual([]);
+  const browserCalls = await (await request.get(`/api/mobile/workflows/${before.workflow_run.id}/model-calls`, { headers })).json();
+  expect(browserCalls.map((call) => call.id)).toEqual(calls.map((call) => call.id));
+  await page.getByRole("button", { name: "Show workflow model calls" }).click();
+  await expect(page.locator("#deliveryDetails")).toContainText(calls[0].model_name);
   expect(initialRuns.filter((run) => run.stage === "coordinator_review").length).toBeGreaterThanOrEqual(2);
   expect(initialRuns.filter((run) => run.stage === "coordinator_review").every((run) => run.agent_id === first.id)).toBe(true);
   await mcp("aruvi_agents", "update_agent_definition", { id: first.id, enabled: false });

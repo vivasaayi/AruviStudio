@@ -1,6 +1,6 @@
 use crate::domain::workflow::UserAction;
 use crate::error::AppError;
-use crate::persistence::{agent_repo, workflow_repo};
+use crate::persistence::{agent_repo, model_call_repo, workflow_repo};
 use crate::state::AppState;
 use serde_json::{json, Value};
 
@@ -94,6 +94,10 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 "list_agent_runs_for_workflow",
                 agent_repo::list_agent_runs_for_workflow(&state.db, &workflow_run_id).await?,
             )
+        }
+        "list_agent_model_calls_for_workflow" => {
+            let workflow_run_id = args.required_string(&["workflow_run_id", "workflowRunId"], "workflow_run_id")?;
+            action_result("list_agent_model_calls_for_workflow", model_call_repo::list_model_calls_for_workflow(&state.db, &workflow_run_id).await?)
         }
         "mark_workflow_run_failed" => {
             let workflow_run_id =

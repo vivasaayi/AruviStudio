@@ -1919,6 +1919,14 @@ pub(crate) async fn mobile_list_model_calls(
     }
 }
 
+pub(crate) async fn mobile_workflow_model_calls(State(state): State<WebhookState>, headers: HeaderMap, Path(workflow_run_id): Path<String>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match model_call_repo::list_model_calls_for_workflow(&state.app_state.db, &workflow_run_id).await {
+        Ok(calls) => Json(calls).into_response(),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+    }
+}
+
 pub(crate) async fn mobile_model_call_snapshot(State(state): State<WebhookState>, headers: HeaderMap, Path((id, kind)): Path<(String, String)>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     match crate::commands::model_commands::read_snapshot_for_state(&state.app_state, &id, &kind, Some(1024 * 1024)).await {

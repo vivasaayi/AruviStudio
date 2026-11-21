@@ -6476,3 +6476,15 @@ while two MCP clients advance the same workflow against a local bare Git remote.
 The candidate waited and produced one delivery commit and a completed workflow;
 the preceding image failed the fixture by bypassing the held lock. This proves the
 tested cross-process scenario, not exactly-once delivery after a process crash.
+
+### Workflow model-call parity (in validation)
+
+The selected work item's latest workflow can now display its recorded model
+calls in the browser. MCP exposes the same desktop query through
+`aruvi_workflows` / `list_agent_model_calls_for_workflow` with a
+`workflow_run_id` argument; the browser uses an authenticated workflow-specific
+endpoint. The added isolated workflow test checks authorization, workflow
+filtering, MCP/HTTP agreement, and the browser display. Its execution and branch
+image deployment are still pending. This adds call summaries; it is not proof
+of complete desktop workflow-review parity. The query currently returns all
+calls in the workflow, as does the desktop query, without pagination.

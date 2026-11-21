@@ -3629,6 +3629,19 @@
         if (workflow.current_stage === "pending_test_review") {
           appendDetailCard("Test review", "Review the generated changes and the test result against the acceptance criteria. A passing command covers only the checks it runs; syntax checks alone do not verify behavior.");
         }
+        const card = document.createElement("div"), button = document.createElement("button"), output = document.createElement("pre");
+        card.className = "tool-card"; button.type = "button"; button.className = "secondary"; button.textContent = "Show workflow model calls";
+        output.style.whiteSpace = "pre-wrap"; output.style.overflowWrap = "anywhere";
+        button.addEventListener("click", async () => {
+          button.disabled = true; output.textContent = "Loading model calls…";
+          try {
+            const calls = await request("/api/mobile/workflows/" + encodeURIComponent(workflow.id) + "/model-calls");
+            if (state.selectedWorkItemId !== workItem.id || state.delivery?.workflow_run?.id !== workflow.id || !card.isConnected) return;
+            output.textContent = calls.length ? calls.map((call) => [call.stage, call.source_label, call.model_name, call.status, "call #" + call.call_index, call.error_message].filter(Boolean).join(" · ")).join("\n") : "No model calls recorded for this workflow.";
+          } catch (error) { if (card.isConnected) output.textContent = error.message || String(error); }
+          finally { button.disabled = false; }
+        });
+        card.append(button, output); el.deliveryDetails.appendChild(card);
       } else {
         appendDetailCard("Workflow", "Not started");
       }
