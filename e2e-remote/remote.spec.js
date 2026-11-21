@@ -198,6 +198,7 @@ test("browser and MCP edit workspaces with stale snapshot protection", async ({p
   const uri=`/api/mobile/repositories/${encodeURIComponent(repository.id)}/update`;
   const fields={name:"Browser draft",local_path:repository.local_path,remote_url:repository.remote_url,default_branch:repository.default_branch};
   expect((await request.post(uri,{data:{expected:repository,fields}})).status()).toBe(401);
+  expect((await request.post(uri,{headers,data:{expected:repository,fields:{...fields,local_path:"/etc"}}})).status()).toBe(400);
   await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
   await page.getByRole("button",{name:"Workspaces",exact:true}).click();
   let card=page.locator("#repositoryList .tool-card").filter({hasText:repository.local_path});

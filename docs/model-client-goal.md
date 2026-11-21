@@ -37,7 +37,8 @@ test and existing native editor, Copilot and root-guard fixtures passed. The
 native server and frontend build passed, as did all 128 frontend tests and 327
 Rust library tests (seven ignored) at `a797d7d`. The later changed-path Git
 validation passed the focused Rust and native browser/MCP tests, including
-non-Git and bare repositories; its full hosted checks remain pending. The clean
+non-Git and bare repositories; the Linux browser case also checks rejection of a
+non-Git path. Its full hosted checks remain pending. The clean
 ARM64 image and both hosted test runs passed for `a797d7d`, but its isolated Linux browser suite found an
 ambiguous workspace-name label in an existing registration test: 44 passed,
 one skipped and one failed. The initial replacement label still contained the
