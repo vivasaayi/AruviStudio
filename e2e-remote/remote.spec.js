@@ -1292,6 +1292,7 @@ test("browser edits workflow automation with conflict protection", async ({ page
   expect(initial).toHaveLength(3);
   await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
   await page.getByRole("button", { name: "Routing", exact: true }).click();
+  await expect(page.locator("#workflowAutomation")).toContainText("syntax checks alone do not verify behavior");
   const toggle = page.getByLabel("Auto-approve planning", { exact: true });
   await expect(toggle).toBeChecked();
   await toggle.uncheck();
