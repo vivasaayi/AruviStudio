@@ -26,7 +26,9 @@ The fixture was then extended with an optional persistent headless Chrome
 session. It passed save and clear through Routing, checked the active path after
 each server restart, and showed the environment-precedence message. Each
 restart used a new loopback port, so the fixture re-entered its synthetic token
-for that origin. Existing-database migration and staging remain unverified.
+for that origin. A later run reused one dynamically chosen loopback port across
+all restarts and passed the same checks after browser reloads without re-entering
+the saved token. Existing-database migration and staging remain unverified.
 
 ### Isolated build filesystem cleanup finding
 

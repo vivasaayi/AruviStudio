@@ -8,15 +8,23 @@ const page = await browser.newPage();
 page.setDefaultTimeout(15000);
 page.on("dialog", dialog => void dialog.accept());
 const input = createInterface({input:process.stdin, crlfDelay:Infinity});
+let origin = null;
 try {
   for await (const line of input) {
     try {
       const command = JSON.parse(line);
       if (command.action === "close") { process.stdout.write('{"ok":true}\n'); break; }
       if (command.action === "open") {
-        await page.goto(command.base + "/remote");
-        await page.locator("#tokenInput").fill(token);
-        await page.locator("#saveButton").click();
+        if (origin === null) {
+          origin = command.base;
+          await page.goto(origin + "/remote");
+          await page.locator("#tokenInput").fill(token);
+          await page.locator("#saveButton").click();
+        } else {
+          if (command.base !== origin) throw new Error("Browser origin changed during restart");
+          await page.reload();
+          await expect(page.locator("#tokenInput")).toHaveValue(token);
+        }
         await page.getByRole("button", {name:"Routing", exact:true}).click();
         await expect(page.locator("#databaseStatus")).toContainText("Active: " + command.active);
         await expect(page.locator("#databaseStatus")).toContainText(command.environment ? "environment controls" : "saved override applies after restart");

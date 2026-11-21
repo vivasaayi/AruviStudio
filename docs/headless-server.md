@@ -335,8 +335,9 @@ uses a disposable native server and temporary databases to check override,
 restart persistence, clearing, environment precedence and authentication. It
 does not change the running worktree database or validate staging migrations. Add
 `--browser-executable /path/to/chrome` to keep a headless browser open across
-restarts and exercise the Routing controls. Each restart uses a new loopback
-port, so the fixture re-enters its synthetic token for the new browser origin.
+restarts and exercise the Routing controls. Restarts reuse one dynamically
+chosen loopback port, and the browser checks its saved synthetic token after
+reload without entering it again.
 
 For low-storage hosts, `bash scripts/test remote-host-fixture`,
 `bash scripts/test workflow-host-fixture`, and `bash scripts/test ci-host-fixture` run the isolated application and PDF

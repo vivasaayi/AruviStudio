@@ -42,12 +42,12 @@ with tempfile.TemporaryDirectory(prefix="aruvi-database-override-", dir="/privat
     default_db = data_dir / "aruvi_studio.db"
     override_db = root / "override" / "studio.db"
     forced_db = root / "forced" / "studio.db"
+    with socket.socket() as reserve:
+        reserve.bind(("127.0.0.1", 0))
+        port = reserve.getsockname()[1]
 
     def start(forced=None):
         global process
-        with socket.socket() as reserve:
-            reserve.bind(("127.0.0.1", 0))
-            port = reserve.getsockname()[1]
         env = {key: value for key, value in os.environ.items() if not key.startswith("ARUVI_")}
         env.update(ARUVI_APP_DATA_DIR=str(data_dir), ARUVI_LLM_CONFIG_PATH=str(root / "llm.json"),
                    ARUVI_WEBHOOK_HOST="127.0.0.1", ARUVI_WEBHOOK_PORT=str(port),
