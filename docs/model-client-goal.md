@@ -5696,6 +5696,10 @@ documented revision and lockfile. A temporary Git fixture verifies matching,
 modified, added and removed source files. The current checkout matches the
 independent consumer pin. The check requires that Git revision locally; it
 does not replace the separate offline consumer build or live provider checks.
+The normal GitHub test workflow now runs this guard. A shallow-clone fixture
+verified that a missing pinned commit is reported and that fetching the exact
+revision allows the checks to pass. The hosted workflow itself still needs a
+completed run after this change.
 
 ## Hosted ARM64 candidate and Docker capacity
 

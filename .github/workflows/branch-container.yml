@@ -16,7 +16,7 @@ on:
       - src-tauri/**
       - crates/**
       - vendor/**
-      - docs/**
+      - docs/mcp-resources/**
       - LICENSE
       - NOTICE
   workflow_dispatch:

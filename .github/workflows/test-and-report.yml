@@ -24,6 +24,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify shared model client pin
+        run: |
+          set -euo pipefail
+          revision=$(python3 -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("validation/model-client-consumer/Cargo.toml").read_text())["dependencies"]["aruvi-model-client"]["rev"])')
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+          if ! git cat-file -e "${revision}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$revision"
+          fi
+          bash scripts/test shared-client-pin
+
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
