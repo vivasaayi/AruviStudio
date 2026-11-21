@@ -26,6 +26,8 @@ groups recorded model calls by their stage or associated agent run; the native
 fixture verified the selected workflow's call and excluded the other workflow's
 call. Linux validation is pending. This map does not yet reproduce the desktop SVG
 connections, stage status colors or focused-node layout.
+A 390-pixel-wide native browser fixture also confirmed that the Coding map
+control fits the viewport; it is not a comprehensive mobile layout audit.
 
 ### Workflow stage review
 
