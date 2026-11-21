@@ -341,6 +341,22 @@ chosen loopback port, and the browser checks its saved synthetic token after
 reload without entering it again. The browser test also delays settings reads
 and saves to check that unsaved path edits survive their responses.
 
+Database override settings affect the next server restart, and `ARUVI_DB_PATH`
+takes precedence. Browser writes compare the last loaded override and offer an
+explicit discard-and-reload action after a conflict. MCP clients can use
+`aruvi_settings` `get_database_path_override`, then include an `expected`
+object such as `{"path": null}` or `{"path": "/data/old.db"}` in
+`set_database_path_override` or `clear_database_path_override`. A mismatch
+returns an MCP error and leaves the setting unchanged. Omitting `expected`
+retains legacy last-write-wins behavior. The comparison is value-based and
+does not detect an intervening change that restores the same value; direct
+file writers and old binaries do not participate in the Unix advisory lock.
+Saving does not verify that the new database is valid.
+
+`bash scripts/test database-override-multiprocess` starts two disposable Linux
+containers sharing a uniquely named test volume and checks concurrent guarded
+updates. Set `ARUVI_TEST_APP_IMAGE` to use a locally built candidate image.
+
 For low-storage hosts, `bash scripts/test remote-host-fixture`,
 `bash scripts/test workflow-host-fixture`, and `bash scripts/test ci-host-fixture` run the isolated application and PDF
 fixtures in Docker while using the host's installed Node dependencies and Chrome

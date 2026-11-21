@@ -14,6 +14,7 @@ case "${1:-}" in
   host-mcp-origin) node scripts/test-host-mcp-origin.mjs ;;
   tls-mcp-proxy) node scripts/test-tls-mcp-proxy.mjs ;;
   environment-acceptance) shift; python3 scripts/test-environment-acceptance "$@" ;;
+  database-override-multiprocess) python3 scripts/test-database-override-multiprocess.py ;;
   remote-host-fixture) bash scripts/test-host-browser-fixture.sh remote ;;
   workflow-host-fixture) bash scripts/test-host-browser-fixture.sh workflow ;;
   ci-host-fixture) bash scripts/test-host-browser-fixture.sh ci ;;
@@ -74,5 +75,5 @@ PY
       bash scripts/test-container-ci.sh
       bash scripts/test-container-workflow.sh
     fi ;;
-  *) printf '%s\n' 'Usage: scripts/test unit|integration|headless-shutdown|ui|integration-ui|staging|environment-acceptance|remote-host-fixture|workflow-host-fixture|ci-host-fixture|host-layout|model-routing|sqlx-patch|native-model-host-sync|host-planner-scope|host-mcp-origin|tls-mcp-proxy|host-speech|host-speech-cycle|host-speech-defaults|speech-env-routing|local-whisper-preset|host-voice-browser|host-planner|planner-multiprocess|planner-env-routing|host-coding|native-model-host|native-ci-service|native-database-override|ci-shared-worktree|worktree-no-build|host-coding-ui|host-file-copilot|host-coding-workflow|shared-client-package|shared-client-consumer|host-shared-client|scoped-real-host' >&2; exit 2 ;;
+  *) printf '%s\n' 'Usage: scripts/test unit|integration|headless-shutdown|ui|integration-ui|staging|environment-acceptance|database-override-multiprocess|remote-host-fixture|workflow-host-fixture|ci-host-fixture|host-layout|model-routing|sqlx-patch|native-model-host-sync|host-planner-scope|host-mcp-origin|tls-mcp-proxy|host-speech|host-speech-cycle|host-speech-defaults|speech-env-routing|local-whisper-preset|host-voice-browser|host-planner|planner-multiprocess|planner-env-routing|host-coding|native-model-host|native-ci-service|native-database-override|ci-shared-worktree|worktree-no-build|host-coding-ui|host-file-copilot|host-coding-workflow|shared-client-package|shared-client-consumer|host-shared-client|scoped-real-host' >&2; exit 2 ;;
 esac

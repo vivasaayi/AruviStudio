@@ -5626,3 +5626,17 @@ preservation and reload, then migration, override and clear across restarts and
 environment precedence. The native Rust library suite passed 303 tests with
 seven ignored. This does not establish Windows cross-process locking,
 all historical migrations, or staging acceptance.
+
+The clean Linux ARM64 image from commit
+`029a5619d89ce60489e75430d6682835553cd13e` has manifest
+`sha256:5de7577d779ae1f8d8fa560fdd039332755da3904d6c0acad1f218d4ede7fe06`.
+A disposable two-container test sharing one data volume reproduced lost
+updates on the prior image and verified ten concurrent guarded update pairs on
+the candidate, each with one success and one conflict. The isolated browser
+workflow suite passed 52 tests, including a browser draft conflicting with a
+legacy MCP update. After refreshing the worktree deployment, product/MCP,
+mobile authorization, PDF and restart-persistence acceptance passed, as did
+41 remote UI tests, PDF isolation/outage, the simulated CI fixture, browser
+MCP-origin checks and a real local 7B MCP coding request. The old image and a
+checked pre-deployment database backup are retained. These are branch checks,
+not validation of the stable integration or VPS staging environments.
