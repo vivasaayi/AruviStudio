@@ -29,6 +29,13 @@ The Linux candidate was built with host-backed storage and packaged on the
 previous worktree image; it passed 34 isolated browser tests, the PDF outage
 check and 51 workflow tests. This is not a clean Dockerfile build or staging
 acceptance.
+After source commit `9b11ceb`, image
+`sha256:b7b6bb7dcbd72fb8e32b40b5c873f0c5e1be04720c4e4912fa0baec365068501`
+was deployed to the isolated worktree. The previous image is retained as
+`aruvi-studio-worktree-backup:pre-cli-recovery`; a consistent database backup
+passed `quick_check` after confirming no active workflow, CLI run or import.
+The app and PDF sidecar became healthy, authenticated MCP catalog access
+passed, and the new lock file was present. The loopback port is dynamic.
 
 ### External CLI browser and MCP migration
 
