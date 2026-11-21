@@ -20,6 +20,19 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
     let args = tool_action.args();
 
     match tool_action.action.as_str() {
+        "run_general_copilot" => {
+            let body = crate::services::webhook_mobile_chat::MobileChatCompletionRequest {
+                provider_id: Some(args.required_string(&["provider_id", "providerId"], "provider_id")?),
+                model_name: Some(args.required_string(&["model_name", "modelName"], "model_name")?),
+                messages: args.required_deserialize(&["messages"], "messages")?,
+                temperature: args.optional_f64(&["temperature"])?,
+                max_tokens: args.optional_i64(&["max_tokens", "maxTokens"])?,
+                patch_mode: args.bool_or_default(&["patch_mode", "patchMode"], false)?,
+            };
+            let response = crate::services::webhook_mobile_chat::run_general_copilot(state, body)
+                .await.map_err(crate::services::webhook_mobile_chat::CompletionFailure::into_app_error)?;
+            action_result("run_general_copilot", response)
+        }
         "list_model_calls" => {
             let source = args.optional_string(&["source_kind", "sourceKind"])?;
             let before_created_at = args.optional_string(&["before_created_at", "beforeCreatedAt"])?;

@@ -35,7 +35,11 @@ multi-file proposal is still sequential and may stop after partial success.
 The native Model Host fixture with `--browser` also exercised general Copilot
 without a file using the real `qwen25-coder-7b-q4` host, after an MCP coding
 completion; it checked that the browser received a nonempty answer, not its
-correctness. This does not establish native-window, live cloud-provider,
+correctness. MCP now also exposes `aruvi_models/run_general_copilot`, including
+the server's patch-format instruction and IDE activity recording. A simulated
+Anthropic test checked the instruction and telemetry; the native fixture also
+received a nonempty response through this action from the real 7B host. This
+does not establish native-window, live cloud-provider,
 container deployment or complete IDE parity.
 
 ### Shared artifact reading

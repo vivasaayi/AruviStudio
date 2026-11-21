@@ -264,6 +264,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "install_managed_local_model",
                 "run_model_chat_completion",
                 "run_file_copilot",
+                "run_general_copilot",
                 "list_model_calls",
                 "get_model_call",
                 "read_model_call_snapshot",

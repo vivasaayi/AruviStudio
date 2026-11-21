@@ -96,6 +96,10 @@ try:
             "messages":[{"role":"system", "content":"Return only the requested JavaScript function, without explanation or markdown."}, {"role":"user", "content":"Write function sumEven(numbers) that returns the sum of even integers."}], "temperature":0.1, "max_tokens":512})
         if "sumEven" not in result.get("content", ""): raise CheckError("Native model response did not contain the requested function")
         print("Native Studio MCP discovered the host model and returned coding output.")
+        general = call("run_general_copilot", {"provider_id":provider["id"], "model_name":args.model,
+            "messages":[{"role":"user", "content":"Briefly explain what a Rust ownership rule does."}], "temperature":0.1, "max_tokens":256})
+        if not general.get("content", "").strip(): raise CheckError("Native MCP general Copilot returned an empty response")
+        print("Native MCP general Copilot received a Model Host reply.")
         if args.browser:
             browser_env = dict(os.environ, ARUVI_FIXTURE_URL=address, ARUVI_FIXTURE_TOKEN=token,
                                ARUVI_FIXTURE_PROVIDER=provider["id"], ARUVI_FIXTURE_MODEL=args.model)

@@ -88,6 +88,14 @@ reuse it for the intended file and provider.
 The operation uses the same file confinement, stale-file check, context limit,
 and Activity recording as the browser; it does not modify the file.
 
+For a general Copilot request without a file, MCP clients may call
+`aruvi_models` action `run_general_copilot` with `provider_id`, `model_name`
+and a `messages` array of role/content objects. Optional `temperature`,
+`max_tokens`, and `patch_mode` control generation. Patch mode adds the same
+server-side proposal instruction used by the browser; clients must preview and
+explicitly apply proposed changes using the guarded repository actions. The
+response is buffered, and callers own and bound their conversation history.
+
 To stop using a provider key, the browser's **Detach API key** action disables
 that provider's configured credential and legacy fallback keys. MCP clients can
 call `aruvi_models` with action `get_provider_credential_state` and the provider

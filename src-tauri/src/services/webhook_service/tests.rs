@@ -924,6 +924,9 @@ async fn anthropic_protocol_routes_mcp_and_remote_chat() {
         assert!(headers.get("authorization").is_none());
         assert_eq!(body["model"], "claude-test");
         assert_eq!(body["messages"][0]["role"], "user");
+        if body["messages"][0]["content"] == "hello patch" {
+            assert!(body["system"].to_string().contains("patch_proposal"));
+        }
         let stop_reason = if body["messages"][0]["content"] == "truncated" { "max_tokens" } else { "end_turn" };
         Json(json!({"content":[{"type":"text","text":"Claude fixture response"}],"stop_reason":stop_reason,"usage":{"input_tokens":4,"output_tokens":3}}))
     }
@@ -960,6 +963,12 @@ async fn anthropic_protocol_routes_mcp_and_remote_chat() {
     }})).await.unwrap();
     assert_eq!(mcp["result"]["content"], "Claude fixture response");
     assert_eq!(mcp["result"]["token_count_input"], 4);
+    let copilot = dispatch_tool(&state, "aruvi_models", json!({"action":"run_general_copilot","arguments":{
+        "provider_id":id,"model_name":"claude-test","messages":[{"role":"user","content":"hello patch"}],"patch_mode":true
+    }})).await.unwrap();
+    assert_eq!(copilot["result"]["content"], "Claude fixture response");
+    let calls: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM model_calls WHERE source_kind = 'mcp_ide'").fetch_one(&state.db).await.unwrap();
+    assert!(calls > 0);
     let truncated = dispatch_tool(&state, "aruvi_models", json!({"action":"run_model_chat_completion","arguments":{
         "provider_id":id,"model":"claude-test","messages":[{"role":"user","content":"truncated"}]
     }})).await.unwrap_err();

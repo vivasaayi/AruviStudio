@@ -107,13 +107,18 @@ async fn stream_mobile_completion(state: WebhookState, body: MobileChatCompletio
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct MobileChatCompletionRequest {
-    provider_id: Option<String>,
-    model_name: Option<String>,
-    messages: Vec<ChatMessage>,
-    temperature: Option<f64>,
-    max_tokens: Option<i64>,
+    pub(crate) provider_id: Option<String>,
+    pub(crate) model_name: Option<String>,
+    pub(crate) messages: Vec<ChatMessage>,
+    pub(crate) temperature: Option<f64>,
+    pub(crate) max_tokens: Option<i64>,
     #[serde(default)]
-    patch_mode: bool,
+    pub(crate) patch_mode: bool,
+}
+
+pub(crate) async fn run_general_copilot(state: &crate::state::AppState, mut body: MobileChatCompletionRequest) -> CompletionResult {
+    prepare_ide_completion(&mut body);
+    run_mobile_completion(state, body, "mcp_ide", "MCP IDE").await
 }
 
 fn prepare_ide_completion(body: &mut MobileChatCompletionRequest) {
