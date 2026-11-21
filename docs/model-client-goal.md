@@ -146,6 +146,14 @@ unverified.
 
 ### Current independent client, voice and dependency revalidation
 
+The current worktree provider inventory contains the two Model Host entries and
+the seeded LM Studio entry, with no configured OpenAI, Anthropic or DeepSeek
+provider. The LM Studio connectivity check failed from the container using its
+saved endpoint; this does not establish whether LM Studio is running on the Mac.
+A separate TCP probe found that Mac loopback port 1234 was not accepting
+connections at the time. Live LM Studio and third-party provider behavior
+remain unverified.
+
 After the Copilot branch deployment, the running container again completed a
 real Model Host `piper-ljspeech` to `whisper-tiny-metal` round trip through MCP.
 Headless Chrome also recorded synthetic Piper audio and sent it through the
