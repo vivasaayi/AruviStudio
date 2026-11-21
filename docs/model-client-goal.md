@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Browser reference management
+
+The browser reference view now creates and deletes references at product, area,
+capability and feature scopes. Creation checks product ownership and node kind in
+the insert; deletion requires the displayed reference snapshot and rechecks
+product ownership. A disposable browser/MCP fixture passed capability-scoped
+creation and deletion, authentication, wrong-product and stale-delete rejection.
+It also retained the earlier safe-link and pagination checks. The running branch
+image does not yet include this change. Generic MCP and desktop reference actions
+retain their existing behavior.
+
 ### Browser product reference viewing
 
 The browser product overview and hierarchy now expose on-demand, authenticated

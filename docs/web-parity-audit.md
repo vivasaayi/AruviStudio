@@ -80,8 +80,10 @@ text safely and links only credential-free HTTP(S) URLs. A disposable browser
 and MCP fixture covered product and capability scopes, a wrong product and
 wrong kind, unauthorized access, unsafe URLs and 52-item pagination. Pagination
 uses an offset and does not provide a stable snapshot if references change while
-paging. Reference creation and deletion remain MCP/desktop command operations;
-the desktop overview itself displays references.
+paging. The browser can also create and delete references at those scopes;
+creation verifies product ownership in the insert, and deletion compares the
+full displayed reference and scope. An isolated browser/MCP fixture verified
+create, delete, unauthorized and cross-product requests and stale deletion.
 
 #### Product details
 

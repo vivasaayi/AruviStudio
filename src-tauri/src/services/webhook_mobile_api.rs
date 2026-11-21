@@ -1947,6 +1947,35 @@ pub(crate) async fn mobile_list_scoped_references(State(state): State<WebhookSta
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileReferenceCreate { scope_type: String, scope_id: String, title: String, reference_kind: String, uri: String, content: String }
+
+pub(crate) async fn mobile_create_scoped_reference(State(state): State<WebhookState>, headers: HeaderMap, Path(product_id): Path<String>, Json(body): Json<MobileReferenceCreate>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    if body.title.trim().is_empty() || body.title.len() > 200 || body.uri.len() > 4096 || body.content.len() > 65536 || !matches!(body.scope_type.as_str(), "product" | "product_area" | "capability" | "feature") || !matches!(body.reference_kind.as_str(), "note" | "external_doc" | "architecture" | "customer_evidence" | "regulatory" | "design_packet" | "standard" | "other") {
+        return (StatusCode::BAD_REQUEST, "Invalid reference fields").into_response();
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    let result = sqlx::query_as::<_, crate::domain::product::ProductReference>("INSERT INTO \"references\" (id,scope_type,scope_id,title,reference_kind,uri,content) SELECT ?,?,?,?,?,?,? WHERE (?='product' AND ?=? AND EXISTS(SELECT 1 FROM products WHERE id=?)) OR (?='product_area' AND EXISTS(SELECT 1 FROM product_areas WHERE id=? AND product_id=?)) OR (? IN ('capability','feature') AND EXISTS(SELECT 1 FROM capabilities c JOIN product_areas a ON a.id=c.product_area_id WHERE c.id=? AND a.product_id=? AND c.node_kind=?)) RETURNING id,scope_type,scope_id,title,reference_kind,uri,content,created_at,updated_at")
+        .bind(&id).bind(&body.scope_type).bind(&body.scope_id).bind(body.title.trim()).bind(&body.reference_kind).bind(&body.uri).bind(&body.content)
+        .bind(&body.scope_type).bind(&body.scope_id).bind(&product_id).bind(&product_id)
+        .bind(&body.scope_type).bind(&body.scope_id).bind(&product_id)
+        .bind(&body.scope_type).bind(&body.scope_id).bind(&product_id).bind(&body.scope_type)
+        .fetch_optional(&state.app_state.db).await;
+    match result { Ok(Some(reference)) => (StatusCode::CREATED, Json(reference)).into_response(), Ok(None) => (StatusCode::NOT_FOUND, "Reference scope not found for this product").into_response(), Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response() }
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileReferenceDelete { expected: crate::domain::product::ProductReference }
+
+pub(crate) async fn mobile_delete_scoped_reference(State(state): State<WebhookState>, headers: HeaderMap, Path(product_id): Path<String>, Json(body): Json<MobileReferenceDelete>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let r = &body.expected;
+    let result = sqlx::query("DELETE FROM \"references\" AS r WHERE id=? AND scope_type=? AND scope_id=? AND title=? AND reference_kind=? AND uri=? AND content=? AND created_at=? AND updated_at=? AND ((scope_type='product' AND scope_id=? AND EXISTS(SELECT 1 FROM products p WHERE p.id=r.scope_id)) OR (scope_type='product_area' AND EXISTS(SELECT 1 FROM product_areas a WHERE a.id=r.scope_id AND a.product_id=?)) OR (scope_type IN ('capability','feature') AND EXISTS(SELECT 1 FROM capabilities c JOIN product_areas a ON a.id=c.product_area_id WHERE c.id=r.scope_id AND a.product_id=? AND c.node_kind=r.scope_type)))")
+        .bind(&r.id).bind(&r.scope_type).bind(&r.scope_id).bind(&r.title).bind(&r.reference_kind).bind(&r.uri).bind(&r.content).bind(&r.created_at).bind(&r.updated_at).bind(&product_id).bind(&product_id).bind(&product_id).execute(&state.app_state.db).await;
+    match result { Ok(result) if result.rows_affected() == 1 => Json(serde_json::json!({"ok":true})).into_response(), Ok(_) => (StatusCode::CONFLICT, "Reference changed, was removed, or is outside this product. Refresh before deleting.").into_response(), Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response() }
+}
+
 pub(crate) async fn mobile_get_product_tree(
     State(state): State<WebhookState>,
     headers: HeaderMap,

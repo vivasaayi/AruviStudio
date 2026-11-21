@@ -2388,6 +2388,9 @@ test("browser displays product-scoped references on demand", async ({page,reques
     expect((await request.get(url)).status()).toBe(401);
     expect((await request.get(`/api/mobile/products/${other.id}/references?scope_type=capability&scope_id=${cap.id}`,{headers:{Authorization:`Bearer ${token}`}})).status()).toBe(404);
     expect((await request.get(`/api/mobile/products/${product.id}/references?scope_type=feature&scope_id=${cap.id}`,{headers:{Authorization:`Bearer ${token}`}})).status()).toBe(404);
+    const create = {scope_type:'capability',scope_id:cap.id,title:'Cross scope',reference_kind:'note',uri:'',content:''};
+    expect((await request.post(`/api/mobile/products/${product.id}/references`,{data:create})).status()).toBe(401);
+    expect((await request.post(`/api/mobile/products/${other.id}/references`,{headers:{Authorization:`Bearer ${token}`},data:create})).status()).toBe(404);
     await page.goto('/remote'); await page.locator('#tokenInput').fill(token); await page.locator('#saveButton').click();
     await page.getByRole('button',{name:'Products',exact:true}).click();
     await page.locator('#productList').getByRole('button',{name:new RegExp(product.name)}).click();
@@ -2406,5 +2409,20 @@ test("browser displays product-scoped references on demand", async ({page,reques
     await nodeRefs.locator(':scope > summary').click(); await nodeRefs.getByRole('button',{name:'Load references'}).click();
     await expect(nodeRefs).toContainText('Scoped capability content');
     await expect(nodeRefs.locator('a')).toHaveAttribute('href','https://example.com/guide');
+    await nodeRefs.getByLabel('Reference title').fill('Browser-created reference');
+    await nodeRefs.getByLabel('Reference kind').selectOption('architecture');
+    await nodeRefs.getByLabel('Reference content').fill('Created from the browser');
+    const responsePromise = page.waitForResponse(response => response.url().endsWith('/references') && response.request().method() === 'POST');
+    await nodeRefs.getByRole('button',{name:'Add reference'}).click();
+    const createdResponse = await responsePromise; expect(createdResponse.status()).toBe(201);
+    const created = await createdResponse.json();
+    await expect(nodeRefs).toContainText('Browser-created reference');
+    const deleteUrl = `/api/mobile/products/${product.id}/references/delete`;
+    expect((await request.post(deleteUrl,{data:{expected:created}})).status()).toBe(401);
+    expect((await request.post(`/api/mobile/products/${other.id}/references/delete`,{headers:{Authorization:`Bearer ${token}`},data:{expected:created}})).status()).toBe(409);
+    expect((await request.post(deleteUrl,{headers:{Authorization:`Bearer ${token}`},data:{expected:{...created,content:'stale'}}})).status()).toBe(409);
+    page.once('dialog', dialog => dialog.accept());
+    await nodeRefs.locator('.tool-card').filter({hasText:'Browser-created reference'}).getByRole('button',{name:'Delete reference'}).click();
+    await expect(nodeRefs).not.toContainText('Browser-created reference');
   } finally { await call('archive_product',{id:product.id}); await call('archive_product',{id:other.id}); }
 });

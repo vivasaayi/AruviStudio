@@ -2777,7 +2777,21 @@
       const title = document.createElement("summary"); title.textContent = "References"; section.appendChild(title);
       const list = document.createElement("div"); list.className = "stack"; section.appendChild(list);
       const more = document.createElement("button"); more.type = "button"; more.className = "secondary"; more.textContent = "Load references"; section.appendChild(more);
-      let offset = 0, loading = false;
+      let offset = 0, loading = false, mutating = false;
+      const form = document.createElement("form"); form.className = "stack";
+      function field(label, input) { const wrapper = document.createElement("label"); const text = document.createElement("span"); text.className = "label"; text.textContent = label; wrapper.append(text, input); form.appendChild(wrapper); }
+      const name = document.createElement("input"); name.required = true; name.maxLength = 200; field("Reference title", name);
+      const kind = document.createElement("select"); for (const value of ["note","external_doc","architecture","customer_evidence","regulatory","design_packet","standard","other"]) kind.add(new Option(value.replaceAll("_", " "), value)); field("Reference kind", kind);
+      const uri = document.createElement("input"); uri.maxLength = 4096; field("Reference URL or path (optional)", uri);
+      const content = document.createElement("textarea"); content.maxLength = 65536; field("Reference content", content);
+      const submit = document.createElement("button"); submit.type = "submit"; submit.textContent = "Add reference"; form.appendChild(submit); section.appendChild(form);
+      async function reload() { list.replaceChildren(); offset = 0; more.hidden = false; await load(); }
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault(); if (loading || mutating) return; mutating = true; submit.disabled = true; more.disabled = true;
+        try { await request(`/api/mobile/products/${encodeURIComponent(productId)}/references`, {method:"POST", body:{scope_type:scopeType,scope_id:scopeId,title:name.value.trim(),reference_kind:kind.value,uri:uri.value,content:content.value}}); form.reset(); await reload(); setStatus("Reference added", "ok"); }
+        catch (error) { setStatus(error.message || String(error), "error"); }
+        finally { mutating = false; submit.disabled = false; more.disabled = false; }
+      });
       async function load() {
         if (loading) return; loading = true; more.disabled = true;
         try {
@@ -2792,6 +2806,14 @@
               let link; try { const parsed = new URL(reference.uri); if (["http:", "https:"].includes(parsed.protocol) && !parsed.username && !parsed.password) { link = document.createElement("a"); link.href = parsed.href; link.target = "_blank"; link.rel = "noopener noreferrer"; } } catch {}
               const uri = link || document.createElement("span"); uri.textContent = reference.uri; card.appendChild(uri);
             }
+            const remove = document.createElement("button"); remove.type = "button"; remove.className = "secondary"; remove.textContent = "Delete reference";
+            remove.addEventListener("click", async () => {
+              if (loading || mutating || !confirm(`Delete reference “${reference.title}”?`)) return;
+              mutating = true; remove.disabled = true; more.disabled = true;
+              try { await request(`/api/mobile/products/${encodeURIComponent(productId)}/references/delete`, {method:"POST", body:{expected:reference}}); await reload(); setStatus("Reference deleted", "ok"); }
+              catch (error) { setStatus(error.message || String(error), "error"); remove.disabled = false; }
+              finally { mutating = false; more.disabled = false; }
+            }); card.appendChild(remove);
             list.appendChild(card);
           }
           offset += page.items.length; more.hidden = !page.has_more; more.textContent = "Load more references";
