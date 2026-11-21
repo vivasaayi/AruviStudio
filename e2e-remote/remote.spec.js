@@ -1307,6 +1307,49 @@ test("signed external channel turns use the configured planner model", async ({ 
   expect(JSON.stringify(calls[2].messages)).not.toContain("Other channel fixture product");
 });
 
+test("Docker Desktop host address is an explicit provider draft", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
+  const headers = { Authorization: `Bearer ${token}` };
+  const name = `Docker host fixture ${Date.now()}`;
+  const created = await request.post("/api/mobile/providers", { headers, data: { name, base_url: "http://localhost:1234/v1" } });
+  expect(created.ok(), await created.text()).toBeTruthy();
+  const provider = await created.json();
+  try {
+    await page.goto("/remote");
+    await page.locator("#tokenInput").fill(token);
+    await page.locator("#saveButton").click();
+    await page.getByRole("button", { name: "Models", exact: true }).click();
+    const input = page.getByLabel("API base URL", { exact: true });
+    await input.fill("http://127.0.0.1:4321/v1");
+    await page.locator("#providerDockerHost").click();
+    await expect(input).toHaveValue("http://host.docker.internal:4321/v1");
+    await input.fill("http://[::1]:9876/custom/v1");
+    await page.locator("#providerDockerHost").click();
+    await expect(input).toHaveValue("http://host.docker.internal:9876/custom/v1");
+    await input.fill("http://localhost:1234/v1?secret=synthetic");
+    await page.locator("#providerDockerHost").click();
+    await expect(input).toHaveValue("http://localhost:1234/v1?secret=synthetic");
+    await expect(page.locator("#status")).toContainText("without credentials, query or fragment");
+    await input.fill("https://remote.example/v1");
+    await page.locator("#providerDockerHost").click();
+    await expect(input).toHaveValue("https://remote.example/v1");
+    await expect(page.locator("#status")).toContainText("loopback");
+    const card = page.locator("#providerList .tool-card").filter({ hasText: name });
+    await card.getByText("Manage provider", { exact: true }).click();
+    await card.getByRole("button", { name: "Use Docker Desktop host address" }).click();
+    await expect(card.getByLabel("Edit provider URL " + name)).toHaveValue("http://host.docker.internal:1234/v1");
+    let providers = await (await request.get("/api/mobile/providers", { headers })).json();
+    expect(providers.find(item => item.id === provider.id).base_url).toBe("http://localhost:1234/v1");
+    await card.getByRole("button", { name: "Save provider" }).click();
+    await expect(page.locator("#status")).toHaveText("Provider saved");
+    providers = await (await request.get("/api/mobile/providers", { headers })).json();
+    expect(providers.find(item => item.id === provider.id).base_url).toBe("http://host.docker.internal:1234/v1");
+  } finally {
+    const response = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_models", arguments: { action: "delete_provider", arguments: { id: provider.id } } } } });
+    expect((await response.json()).result.isError).not.toBeTruthy();
+  }
+});
+
 test("browser configures and selects a model", async ({ page, request }) => {
   test.skip(!token || !mcpToken, "Set mobile and MCP tokens for a running remote server");
   const name = `Provider test ${Date.now()}`;

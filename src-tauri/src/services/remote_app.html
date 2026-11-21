@@ -879,11 +879,12 @@
             <section class="panel">
               <div class="panel-header"><div class="panel-title">Add model provider</div><button class="secondary" id="refreshModelsButton" type="button">Refresh</button></div>
               <div class="panel-body stack">
-                <p class="empty">For Aruvi Model Host, enter its running OpenAI-compatible endpoint and API token. The address must be reachable from the Studio server.</p>
+                <p class="empty">The address must be reachable from the Studio server. In Docker Desktop, localhost refers to the container; for LM Studio or another service on the Mac, use the Docker Desktop host address and the service's actual port. For Aruvi Model Host, enter its running endpoint and API token.</p>
                 <form id="providerForm" class="stack">
                   <label><span class="label">Provider name</span><input id="providerName" required /></label>
                   <label><span class="label">Protocol</span><select id="providerProtocol"><option value="openai_compatible">OpenAI compatible</option><option value="openai_reasoning">OpenAI reasoning models (no temperature)</option><option value="anthropic">Anthropic Messages</option></select></label>
                   <label><span class="label">API base URL</span><input id="providerUrl" type="url" required placeholder="https://example.com/v1" /></label>
+                  <button type="button" class="secondary" id="providerDockerHost">Use Docker Desktop host address</button>
                   <label><span class="label">API key (optional)</span><input id="providerKey" type="password" autocomplete="off" /></label>
                   <button type="submit" id="createProviderButton">Add provider</button>
                 </form>
@@ -5117,13 +5118,15 @@
           const form = document.createElement("form"); form.className = "stack";
           const nameInput = document.createElement("input"); nameInput.value = provider.name; nameInput.required = true; nameInput.setAttribute("aria-label", "Edit provider name " + provider.name);
           const urlInput = document.createElement("input"); urlInput.type = provider.provider_type === "local_runtime" ? "text" : "url"; urlInput.value = provider.base_url; urlInput.required = true; urlInput.setAttribute("aria-label", (provider.provider_type === "local_runtime" ? "Edit server model path " : "Edit provider URL ") + provider.name);
+          const dockerHost = document.createElement("button"); dockerHost.type = "button"; dockerHost.className = "secondary"; dockerHost.textContent = "Use Docker Desktop host address"; dockerHost.hidden = provider.provider_type === "local_runtime";
+          dockerHost.addEventListener("click", () => useDockerDesktopHost(urlInput));
           const protocolSelect = document.createElement("select"); protocolSelect.setAttribute("aria-label", "Edit provider protocol " + provider.name);
           [["openai_compatible", "OpenAI compatible"], ["openai_reasoning", "OpenAI reasoning models (no temperature)"], ["anthropic", "Anthropic Messages"]].forEach(([value, label]) => { const option = document.createElement("option"); option.value = value; option.textContent = label; protocolSelect.appendChild(option); });
           protocolSelect.value = provider.protocol !== "anthropic" && provider.completion_profile === "openai_reasoning" ? "openai_reasoning" : (provider.protocol || "openai_compatible"); protocolSelect.disabled = provider.provider_type === "local_runtime";
           const enabledLabel = document.createElement("label"); const enabled = document.createElement("input"); enabled.type = "checkbox"; enabled.checked = provider.enabled; enabledLabel.append(enabled, document.createTextNode(" Provider enabled"));
           const save = document.createElement("button"); save.type = "submit"; save.textContent = "Save provider";
           const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger"; remove.textContent = "Delete provider";
-          form.append(nameInput, urlInput, protocolSelect, enabledLabel, save, remove); edit.append(editSummary, form);
+          form.append(nameInput, urlInput, dockerHost, protocolSelect, enabledLabel, save, remove); edit.append(editSummary, form);
           form.addEventListener("submit", async (event) => {
             event.preventDefault(); save.disabled = true;
             try {
@@ -5306,6 +5309,20 @@
     }
     el.bindingAgent.addEventListener("change", () => { agentReadinessRequestId++; document.getElementById("agentModelReadiness").textContent = "Discovery does not test inference or model quality."; });
     document.getElementById("checkAgentModelButton").addEventListener("click", () => void checkAgentModel());
+
+    function useDockerDesktopHost(input) {
+      try {
+        const url = new URL(input.value.trim());
+        if (!(["http:", "https:"].includes(url.protocol)) || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || url.username || url.password || url.search || url.hash) {
+          throw new Error("Enter a loopback HTTP(S) URL without credentials, query or fragment first.");
+        }
+        url.hostname = "host.docker.internal";
+        input.value = url.toString();
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        setStatus("Docker Desktop host address filled; save the provider to apply it.", "ok");
+      } catch (error) { setStatus(error.message || "Enter a valid loopback URL first.", "error"); }
+    }
+    document.getElementById("providerDockerHost").addEventListener("click", () => useDockerDesktopHost(el.providerUrl));
 
     async function createProvider(event) {
       event.preventDefault();

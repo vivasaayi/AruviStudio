@@ -5640,3 +5640,20 @@ mobile authorization, PDF and restart-persistence acceptance passed, as did
 MCP-origin checks and a real local 7B MCP coding request. The old image and a
 checked pre-deployment database backup are retained. These are branch checks,
 not validation of the stable integration or VPS staging environments.
+
+## Docker Desktop host-local model connection
+
+The seeded LM Studio provider in the current branch uses `localhost:1234`,
+which refers to the Studio container in Docker. No LM Studio server was
+listening on the Mac during this check. The browser Models form now offers an
+explicit Docker Desktop host conversion for loopback HTTP(S) URLs; it preserves
+the port and path, rejects credentials, queries and fragments, and only changes
+the form until the user saves. Existing provider settings are not silently
+rewritten. A native browser fixture checked new and existing provider forms,
+IPv4/IPv6, invalid inputs and explicit save.
+
+A disposable Docker Studio fixture created two synthetic providers against a
+Mac-loopback OpenAI-compatible test service: container loopback discovery
+failed as expected, while `host.docker.internal` supported model discovery and
+MCP completion. This validates the Docker Desktop networking path, not a live
+LM Studio server, HTTPS certificate, other operating systems or model quality.

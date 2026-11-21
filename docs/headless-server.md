@@ -51,6 +51,16 @@ for a service listening on the Mac, `host.docker.internal` can be used in place 
 volume's `llm-config.json`, with owner-only file permissions on Unix. Verify the
 provider URL before entering a real key.
 
+For Docker Desktop on the Mac, **Use Docker Desktop host address** converts a
+loopback URL in the provider form to `host.docker.internal` while preserving
+its port and path. It only fills the form; save the provider to apply it. This
+hostname is Docker Desktop-specific, and the model service must be reachable
+from the container. HTTPS still requires a certificate valid for the chosen
+hostname. Existing saved provider URLs are not rewritten automatically.
+`bash scripts/test docker-host-model` checks model discovery and MCP completion
+through the host alias using a disposable loopback fixture; it does not test an
+installed LM Studio server. Set `ARUVI_TEST_APP_IMAGE` to test a local candidate.
+
 In **Chat**, select **Stream response** to show text as it arrives and use
 **Stop** to cancel the request. Partial output is marked incomplete when a
 stream fails or is stopped, and is not added to the conversation history.
