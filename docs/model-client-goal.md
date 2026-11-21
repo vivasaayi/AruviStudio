@@ -3246,6 +3246,20 @@ verified by deterministic tests only.
 
 ## Browser planner node review
 
+- The clean hosted ARM64 build and both hosted test runs for runtime revision
+  `4afc0ee6ed97904446c69602118aea0b909d40d6` passed. Its archive checksum and
+  revision matched. The extracted server binary was layered onto the previous
+  unchanged worktree runtime, producing derived image
+  `sha256:f8326af7a230b73d81de96d8779cae7694a13b2490ac160a8d0205edbca8f972`,
+  not the complete hosted image. Disposable Linux tests passed 43 browser cases
+  (one skipped), including HTTP/MCP scope matching, 53 workflow cases and the
+  PDF outage check. After a checked SQLite backup, the worktree deployment
+  passed product, authorization, PDF and persistence acceptance across restart,
+  MCP-origin checks, a deployed scoped-match request and real 7B coding and
+  general-Copilot MCP requests. The prior image was retained. To make space,
+  two superseded downloaded archives (`1e5d3e5` and `c889053`) were removed;
+  their candidate images and the current rollback image remain. This does not
+  establish staging or physical desktop acceptance.
 - The shared recent-action matcher can now use selected-node ancestors supplied
   by desktop, browser or MCP to reject explicit product/area conflicts, and
   checks a known parent capability when matching newly created child nodes.
@@ -3263,8 +3277,8 @@ verified by deterministic tests only.
   after building the native server). The native Rust library suite passed 325 tests
   with seven ignored before the final scope-comparison normalization; focused
   matcher and HTTP/MCP tests passed again afterward. The frontend build and
-  128 frontend tests passed. Linux container deployment and physical desktop
-  acceptance remain open for this change.
+  128 frontend tests passed. The later Linux deployment is recorded above;
+  physical desktop acceptance remains open.
 - Desktop and browser now use a shared Rust matcher for plan actions associated
   with the selected node, also exposed as MCP `match_planner_actions`. The
   browser shows the latest plan held by the current page; this is not durable
