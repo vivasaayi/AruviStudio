@@ -222,6 +222,10 @@ retry and integrity operations and has passed the native protocol fixture; it
 is not deployed. A disposable minimal Rust/OCI build has also passed through
 native Studio MCP, with result reads via the browser API. Real product builds,
 native browser interaction, and Docker-to-host transport remain open.
+An opt-in, token-authenticated host-loopback relay now lets a Docker Studio
+fixture read status from a real disposable Aruvici service on Mac Docker Desktop.
+The relay is plaintext on the trusted local host connection and is not deployed;
+repository path identity and actual container-initiated builds remain open.
 
 | Desktop action | Dependency or constraint for web parity |
 | --- | --- |

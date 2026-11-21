@@ -12,6 +12,7 @@ use sqlx::FromRow;
 use std::{
     fs,
     io::{BufReader, Read, Write},
+    net::{TcpStream, ToSocketAddrs},
     os::unix::net::UnixStream,
     path::{Path, PathBuf},
     process::Command,
@@ -33,6 +34,10 @@ fn socket_path() -> Result<PathBuf, String> {
 }
 
 pub(crate) fn request(value: Value) -> Result<Value, String> {
+    if let Some(address) = std::env::var("ARUVI_CI_RELAY_URL").ok().filter(|value| !value.trim().is_empty()) {
+        let token = std::env::var("ARUVI_CI_RELAY_TOKEN").map_err(|_| "CI relay token is not configured".to_string())?;
+        return request_relay(&address, &token, value);
+    }
     let socket = socket_path()?;
     request_at(&socket, value)
 }
@@ -48,7 +53,31 @@ fn request_at(socket: &Path, value: Value) -> Result<Value, String> {
         .set_read_timeout(Some(Duration::from_secs(10)))
         .map_err(|e| e.to_string())?;
     stream.set_write_timeout(Some(Duration::from_secs(10))).map_err(|e| e.to_string())?;
-    serde_json::to_writer(&mut stream, &value).map_err(|e| e.to_string())?;
+    exchange(&mut stream, value)
+}
+
+fn request_relay(address: &str, token: &str, value: Value) -> Result<Value, String> {
+    let url = reqwest::Url::parse(address).map_err(|_| "Invalid CI relay URL")?;
+    let host = url.host_str().ok_or("Invalid CI relay URL")?;
+    if url.scheme() != "http" || !matches!(host, "localhost" | "127.0.0.1" | "[::1]" | "host.docker.internal")
+        || url.port().is_none() || !url.username().is_empty() || url.password().is_some()
+        || url.path() != "/" || url.query().is_some() || url.fragment().is_some() {
+        return Err("CI relay URL must be a local HTTP address with an explicit port".into());
+    }
+    if token.len() < 32 || token.len() > 1024 || token.bytes().any(|b| b.is_ascii_control()) {
+        return Err("Invalid CI relay token".into());
+    }
+    let mut addresses = (host.trim_matches(['[', ']']), url.port().unwrap()).to_socket_addrs()
+        .map_err(|_| "CI relay address is unavailable")?;
+    let mut stream = addresses.find_map(|addr| TcpStream::connect_timeout(&addr, Duration::from_secs(3)).ok())
+        .ok_or("CI relay is offline")?;
+    stream.set_read_timeout(Some(Duration::from_secs(10))).map_err(|_| "CI relay timeout setup failed")?;
+    stream.set_write_timeout(Some(Duration::from_secs(10))).map_err(|_| "CI relay timeout setup failed")?;
+    exchange(&mut stream, json!({"token":token,"request":value}))
+}
+
+fn exchange(stream: &mut (impl Read + Write), value: Value) -> Result<Value, String> {
+    serde_json::to_writer(&mut *stream, &value).map_err(|e| e.to_string())?;
     stream.write_all(b"\n").map_err(|e| e.to_string())?;
     let mut response = String::new();
     BufReader::new(stream)
@@ -93,6 +122,27 @@ mod socket_tests {
         assert_eq!(request_at(&socket, json!({"method":"health"})).unwrap_err(), "synthetic failure");
         server.join().unwrap();
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn relay_sends_authenticated_envelope_and_rejects_unsafe_configuration() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(stream.try_clone().unwrap()).read_line(&mut line).unwrap();
+            let envelope: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(envelope["token"], "x".repeat(32));
+            assert_eq!(envelope["request"]["method"], "health");
+            stream.write_all(b"{\"ok\":true,\"result\":{\"status\":\"online\"}}\n").unwrap();
+        });
+        assert_eq!(request_relay(&format!("http://{address}"), &"x".repeat(32), json!({"method":"health"})).unwrap()["status"], "online");
+        server.join().unwrap();
+        for url in ["http://evil.example:1234", "https://localhost:1234", "http://localhost:1234/path", "http://user@localhost:1234", "http://localhost:1234/?secret=x"] {
+            assert!(request_relay(url, &"x".repeat(32), json!({"method":"health"})).is_err());
+        }
+        assert!(request_relay("http://127.0.0.1:1234", "short", json!({"method":"health"})).is_err());
     }
 }
 

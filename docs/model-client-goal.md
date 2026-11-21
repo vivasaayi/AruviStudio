@@ -427,6 +427,17 @@ was loaded or deployed. The fixture can be repeated with
 when gitleaks, the Rust toolchain and Docker Buildx are available on PATH.
 The Docker-to-host CI transport and shared-workspace identity remain open.
 
+An opt-in local CI relay now forwards a bounded allowlist of requests from a
+token-authenticated TCP connection on host loopback to the private Aruvici Unix
+socket. Studio accepts an explicitly configured local relay and does not fall
+back to its socket if relay configuration fails. A disposable real Aruvici and
+Docker Studio fixture passed MCP and authenticated browser API status reads;
+incorrect credentials and a disallowed deploy method were rejected. The existing
+simulated Unix-socket CI test and focused Rust socket tests passed. This is a
+plaintext trusted-host transport, not TLS or an access boundary against Docker
+administrators. It is not installed or deployed. Matching host/container
+repository identities and an actual container-initiated build remain open.
+
 ### Disposable native Aruvici connection
 
 Studio revision `f90987b` and Aruvici revision `5851f2594bbbd83193e259a566004088ac28c52e`

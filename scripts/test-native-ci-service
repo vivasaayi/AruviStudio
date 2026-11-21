@@ -23,6 +23,7 @@ parser.add_argument("--docker-image", help="Optionally probe the temporary socke
 parser.add_argument("--audit-protocol", action="store_true", help="Inspect a disposable target and report protocol support without queueing a build")
 parser.add_argument("--exercise-protocol", action="store_true", help="With --audit-protocol, verify retry and artifact records with worker execution locked")
 parser.add_argument("--execute-build", action="store_true", help="With --audit-protocol, execute a disposable Rust/OCI build")
+parser.add_argument("--relay-image", help="Test an authenticated Docker-to-host relay with this Studio image")
 args = parser.parse_args()
 if (args.exercise_protocol or args.execute_build) and not args.audit_protocol:
     parser.error("--exercise-protocol and --execute-build require --audit-protocol")
@@ -132,6 +133,47 @@ try:
         with opener.open(request, timeout=10) as response: mobile = json.load(response)
         if mobile.get("status") != "online" or mobile.get("protocol") != 1: raise RuntimeError("Unexpected browser CI health response")
         print("Disposable native Studio and Aruvici: MCP health, targets, runs and browser API health passed.")
+        if args.relay_image:
+            relay_token = secrets.token_urlsafe(32)
+            relay_env = dict(base_env, ARUVI_CI_RELAY_TOKEN=relay_token)
+            relay = subprocess.Popen(["python3", str(Path(__file__).resolve().parent / "ci-relay"), "--socket", str(ci_socket)], env=relay_env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+            cleanup.callback(stop, relay)
+            line = relay.stdout.readline().strip()
+            prefix = "CI relay listening on 127.0.0.1:"
+            if not line.startswith(prefix) or not line[len(prefix):].isdigit(): raise RuntimeError("Disposable CI relay did not start")
+            relay_port = int(line[len(prefix):])
+            def relay_request(credential, method):
+                with socket.create_connection(("127.0.0.1", relay_port), timeout=5) as client:
+                    client.sendall(json.dumps({"token": credential, "request": {"method": method}}).encode() + b"\n")
+                    return json.loads(client.makefile("rb").readline())
+            if relay_request("incorrect-token-" + "x" * 32, "health").get("ok") is not False:
+                raise RuntimeError("CI relay accepted an incorrect token")
+            if relay_request(relay_token, "deploy").get("ok") is not False:
+                raise RuntimeError("CI relay accepted a disallowed operation")
+            image_token = secrets.token_urlsafe(32)
+            output = subprocess.run(["docker", "run", "--rm", "-d", "--tmpfs", "/data:mode=1777", "--tmpfs", "/repositories:mode=1777", "-p", "127.0.0.1::8787", "-e", "ARUVI_MOBILE_API_TOKEN=" + image_token, "-e", "ARUVI_MCP_API_TOKEN=" + image_token, "-e", "ARUVI_CI_RELAY_URL=http://host.docker.internal:" + str(relay_port), "-e", "ARUVI_CI_RELAY_TOKEN=" + relay_token, args.relay_image], capture_output=True, text=True, check=True)
+            container_id = output.stdout.strip()
+            cleanup.callback(lambda: subprocess.run(["docker", "stop", container_id], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            container_address = subprocess.check_output(["docker", "port", container_id, "8787/tcp"], text=True).strip().splitlines()[0]
+            if not container_address.startswith("127.0.0.1:"): raise RuntimeError("Relay fixture is not loopback-only")
+            container_base = "http://" + container_address
+            def container_health():
+                with opener.open(container_base + "/health", timeout=2) as response: return response.status == 200
+            wait_for(container_health, [ci, relay])
+            body = {"jsonrpc":"2.0", "id":1, "method":"tools/call", "params":{"name":"aruvi_ci", "arguments":{"action":"get_status", "arguments":{}}}}
+            req = urllib.request.Request(container_base + "/api/mcp", data=json.dumps(body).encode(), headers={"Authorization":"Bearer " + image_token, "Content-Type":"application/json"})
+            with opener.open(req, timeout=20) as response: relay_result = json.load(response)["result"]
+            if relay_result.get("isError") or relay_result["structuredContent"]["result"].get("status") != "online":
+                raise RuntimeError("Container could not reach real CI service through relay")
+            try:
+                opener.open(container_base + "/api/mobile/ci/status", timeout=10)
+                raise RuntimeError("Unauthenticated browser CI status was accepted")
+            except urllib.error.HTTPError as error:
+                if error.code != 401: raise
+            req = urllib.request.Request(container_base + "/api/mobile/ci/status", headers={"Authorization":"Bearer " + image_token})
+            with opener.open(req, timeout=10) as response: relay_mobile = json.load(response)
+            if relay_mobile.get("status") != "online": raise RuntimeError("Browser API could not reach CI through relay")
+            print("Docker Studio reached the real CI service through the authenticated loopback relay; invalid token and deploy were rejected.")
         if args.audit_protocol:
             product = call("aruvi_catalog", "create_product", {"name": "CI protocol fixture"})
             repo = call("aruvi_repositories", "register_repository", {"name": "CI fixture", "local_path": str(repository)})

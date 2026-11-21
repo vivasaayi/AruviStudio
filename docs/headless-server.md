@@ -206,6 +206,27 @@ artifacts, reveal them in Finder, or configure or launch Aruvici.
 Run `scripts/test-container-ci.sh` after starting the worktree to test the
 browser and MCP read paths against a disposable simulated Unix-socket service.
 
+For an explicitly trusted Mac Docker Desktop setup, `scripts/ci-relay --socket
+/absolute/path/to/ci.sock` starts an opt-in relay bound only to host IPv4
+loopback and prints its selected port. Set a fresh random
+`ARUVI_CI_RELAY_TOKEN` in the relay's environment, then put the same token and
+`ARUVI_CI_RELAY_URL=http://host.docker.internal:PORT` in the worktree's private
+environment file and restart the stack. Use a fixed `--port` if desired. Studio
+accepts relay URLs only for localhost, loopback or `host.docker.internal` with
+an explicit port; when configured it fails closed instead of falling back to the
+Unix socket. Clear the URL to use the socket again.
+
+The relay carries its token and CI requests in plaintext over the local Docker
+host connection; it is not suitable for an untrusted network or multi-user host.
+Docker administrators and processes with access to the container environment can
+read its token. A holder can invoke the allowed CI operations, including queueing
+approved builds and potentially triggering configured Preview behavior. Use a
+dedicated token and trusted CI service, protect the private environment file, and
+stop the relay when it is not needed. This transport has been tested for status
+reads against a disposable Aruvici service; it is not installed automatically.
+Host and container repository paths still need a trusted shared mapping before
+target binding and build dispatch can be considered working.
+
 In **Work**, configure the workflow test command as a JSON array of executable and
 arguments, such as `["npm", "test"]`. The executable and its dependencies must be
 installed in the server container. Select a product and choose its own command, disable
