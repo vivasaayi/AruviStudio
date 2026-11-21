@@ -5677,6 +5677,8 @@ creating the assigned run. This prevents a capacity rejection from leaving a
 phantom active run and prevents concurrent starts from taking the same final
 slot. A SQLite fixture covered contention, rejected-run absence, slot reuse and
 duplicate work-item rejection; the native Rust library suite passed 304 tests
-with seven ignored. Capacity on subsequent assignment of an unassigned run,
-automatic stage retries and execution isolation remain open. This change has
+with seven ignored. A subsequent change also checks capacity atomically when
+an active run is assigned or moved to a team; a focused contention fixture
+checks slot reuse. The native library suite passed 305 tests with seven ignored
+after this change. Automatic stage retries and execution isolation remain open. This change has
 not yet been deployed to the running worktree image or tested in staging.

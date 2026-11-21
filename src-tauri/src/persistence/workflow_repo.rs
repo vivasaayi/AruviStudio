@@ -154,12 +154,18 @@ pub async fn set_workflow_assignment(
     assigned_team_id: Option<&str>,
     coordinator_agent_id: Option<&str>,
 ) -> Result<(), AppError> {
-    sqlx::query("UPDATE workflow_runs SET assigned_team_id=?, coordinator_agent_id=?, updated_at=datetime('now') WHERE id=?")
+    let result = sqlx::query("UPDATE workflow_runs SET assigned_team_id=?, coordinator_agent_id=?, updated_at=datetime('now') WHERE id=? AND (status<>'running' OR current_stage IN ('done','failed','cancelled') OR ? IS NULL OR assigned_team_id=? OR EXISTS (SELECT 1 FROM agent_teams t WHERE t.id=? AND t.enabled=1 AND (SELECT COUNT(*) FROM workflow_runs r WHERE r.assigned_team_id=t.id AND r.status='running' AND r.current_stage NOT IN ('done','failed','cancelled')) < t.max_concurrent_workflows))")
         .bind(assigned_team_id)
         .bind(coordinator_agent_id)
         .bind(id)
+        .bind(assigned_team_id)
+        .bind(assigned_team_id)
+        .bind(assigned_team_id)
         .execute(pool)
         .await?;
+    if result.rows_affected() != 1 {
+        return Err(AppError::Validation("Workflow assignment failed: run not found or the team is unavailable or at capacity".into()));
+    }
     Ok(())
 }
 

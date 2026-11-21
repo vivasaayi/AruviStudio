@@ -344,9 +344,11 @@ SQLite insert that creates and assigns the run. A full or disabled team, an
 active external CLI run, or an already active workflow prevents the insert;
 concurrent starts cannot both reserve the final slot. A repository fixture
 checks concurrent contention, absence of a rejected run, slot reuse and
-duplicate work-item rejection. This does not enforce team capacity when an
-unassigned existing run is assigned later, nor does it implement automatic
-workflow-stage retries or command isolation.
+duplicate work-item rejection. Assignment of an existing active run also
+checks capacity atomically, including concurrent assignments; retaining the
+same team and releasing a slot remain possible. The fixture verifies both
+contention and slot reuse. This does not implement automatic workflow-stage
+retries or command isolation.
 
 ### Planner action inventory
 

@@ -114,6 +114,29 @@ async fn assigned_start_reserves_capacity_atomically_without_phantom_runs() {
 }
 
 #[tokio::test]
+async fn assigning_active_runs_reserves_team_capacity_atomically() {
+    let pool = create_test_pool("reassignment_capacity").await;
+    create_test_work_item(&pool, "reassign-product-a", "reassign-item-a").await;
+    create_test_work_item(&pool, "reassign-product-b", "reassign-item-b").await;
+    sqlx::query("INSERT INTO agent_teams (id,name,max_concurrent_workflows) VALUES ('reassign-team','Capacity',1)")
+        .execute(&pool).await.unwrap();
+    create_workflow_run(&pool, "reassign-run-a", "reassign-item-a").await.unwrap();
+    create_workflow_run(&pool, "reassign-run-b", "reassign-item-b").await.unwrap();
+    let (a, b) = tokio::join!(
+        set_workflow_assignment(&pool, "reassign-run-a", Some("reassign-team"), None),
+        set_workflow_assignment(&pool, "reassign-run-b", Some("reassign-team"), None)
+    );
+    assert_ne!(a.is_ok(), b.is_ok());
+    let (winner, loser) = if a.is_ok() { ("reassign-run-a", "reassign-run-b") } else { ("reassign-run-b", "reassign-run-a") };
+    assert!(get_workflow_run(&pool, loser).await.unwrap().assigned_team_id.is_none());
+    set_workflow_assignment(&pool, winner, Some("reassign-team"), None).await.unwrap();
+    set_workflow_assignment(&pool, winner, None, None).await.unwrap();
+    set_workflow_assignment(&pool, loser, Some("reassign-team"), None).await.unwrap();
+    assert!(set_workflow_assignment(&pool, winner, Some("reassign-team"), None).await.is_err());
+    assert!(set_workflow_assignment(&pool, "missing-run", None, None).await.is_err());
+}
+
+#[tokio::test]
 async fn create_and_update_workflow_run_persists_lifecycle_assignment_and_pending_stage() {
     let pool = create_test_pool("workflow_lifecycle").await;
     create_test_work_item(&pool, "product-workflow-lifecycle", "work-item-lifecycle").await;
