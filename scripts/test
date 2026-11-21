@@ -29,9 +29,10 @@ case "${1:-}" in
   shared-client-consumer) python3 scripts/check-model-client-pin.py && docker build --no-cache --target test --output=type=cacheonly validation/model-client-consumer ;;
   host-shared-client) shift; python3 scripts/test-shared-client-host "$@" ;;
   scoped-real-host) shift; python3 scripts/test-scoped-real-host "$@" ;;
-  ui|staging)
+  ui|integration-ui|staging)
     profile=worktree
     [[ $1 == staging ]] && profile=staging
+    [[ $1 == integration-ui ]] && profile=integration
     plan=$(bash scripts/env "$profile" plan)
     project=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["project"])' <<<"$plan")
     state=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])' <<<"$plan")
@@ -48,5 +49,5 @@ case "${1:-}" in
       bash scripts/test-container-ci.sh
       bash scripts/test-container-workflow.sh
     fi ;;
-  *) printf '%s\n' 'Usage: scripts/test unit|integration|ui|staging|host-layout|model-routing|sqlx-patch|native-model-host-sync|host-planner-scope|host-mcp-origin|host-speech|host-speech-cycle|host-speech-defaults|speech-env-routing|local-whisper-preset|host-voice-browser|host-planner|planner-multiprocess|planner-env-routing|host-coding|native-model-host|native-ci-service|host-coding-ui|host-file-copilot|host-coding-workflow|shared-client-consumer|host-shared-client|scoped-real-host' >&2; exit 2 ;;
+  *) printf '%s\n' 'Usage: scripts/test unit|integration|ui|integration-ui|staging|host-layout|model-routing|sqlx-patch|native-model-host-sync|host-planner-scope|host-mcp-origin|host-speech|host-speech-cycle|host-speech-defaults|speech-env-routing|local-whisper-preset|host-voice-browser|host-planner|planner-multiprocess|planner-env-routing|host-coding|native-model-host|native-ci-service|host-coding-ui|host-file-copilot|host-coding-workflow|shared-client-consumer|host-shared-client|scoped-real-host' >&2; exit 2 ;;
 esac

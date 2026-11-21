@@ -3976,6 +3976,26 @@ fixture product remained present and another API PDF export succeeded. The
 fixture and its volumes were removed. This checks the adapter locally; it is
 not an acceptance test of the VPS staging host or its data.
 
+## Mac integration adapter
+
+The repository now has a separate integration Compose adapter with persistent
+app data and an isolated PDF renderer. It binds loopback port 20280 on the Mac;
+the organization registry reserves that port for this product's integration,
+while the staging reservation applies on the VPS. Integration and staging use
+separate project identities and generated credentials. The new
+`scripts/test integration-ui` runs the existing section-navigation smoke test
+against an already deployed integration stack; `scripts/test integration`
+continues to mean Rust integration tests.
+
+A disposable Compose project using the integration adapter and worktree image
+started both services healthy, created a product and exported a PDF through the
+authenticated API, then retained the product and generated another PDF after
+both services restarted. Temporary credentials were distinct across integration
+and staging and stored with mode 0600. This does not establish a merged revision,
+real integration deployment, tailnet access or second-device acceptance. The
+organization registry reservation lives in the separate `.org` checkout and
+must be made available wherever that shared checkout is installed.
+
 ## Coding host recovery
 
 The coding-validation Model Host worktree was no longer registered with

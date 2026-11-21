@@ -8,7 +8,7 @@ import secrets
 import sys
 
 profile, action = sys.argv[1:]
-if profile not in {"worktree", "staging", "production"}:
+if profile not in {"worktree", "integration", "staging", "production"}:
     raise SystemExit("invalid environment")
 root = Path(__file__).resolve().parent.parent
 suffix = "-" + hashlib.sha256(str(root).encode()).hexdigest()[:12] if profile == "worktree" else ""

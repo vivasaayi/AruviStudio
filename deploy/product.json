@@ -4,6 +4,8 @@
   "app_service": "app",
   "app_port": 8787,
   "database_service": null,
+  "integration_port": 20280,
+  "integration_bind": "127.0.0.1",
   "staging_port": 20280,
   "production_port": 30280,
   "staging_bind": "127.0.0.1",
