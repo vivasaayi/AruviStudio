@@ -26,7 +26,26 @@ simulated Copilot streaming and patch flows. A separate disposable native
 server test also passed the same browser flow with the optional Monaco editor,
 including downloads, unsaved tabs, guarded saves and line endings. The test
 refocuses the editor before invoking its save shortcut after a download. Linux
-image and branch-deployment validation for this change remain pending.
+image and branch-deployment validation for this change subsequently passed as
+follows.
+
+The clean hosted ARM64 build of `b704d5b2f7f53e6026db7f709945eb3ef00027db`
+and both hosted test runs passed; the later `d67c01e` commit changes only tests,
+the test entry point and this checkpoint, and its two hosted test runs passed.
+The hosted image archive passed its checksum and source-revision checks. Its
+server binary (`sha256:95e5fe962748d8829a84f5ced8ce67c77e6fe483f799dd453aba7c8c78cdbff6`)
+was overlaid onto the existing worktree runtime, producing derived image
+`sha256:fe656b9d4cfd2aea46f3ab491539aa80758326180ccc1edcf6af90c161d0b806`;
+this is not the complete clean hosted image. The candidate passed 43 Linux
+browser tests (one intentionally skipped), PDF isolation and outage checks,
+and 53 workflow tests. After a checked SQLite backup and preserving the prior
+image, the branch app and PDF services were deployed with the derived image.
+Product, MCP/mobile authorization, PDF and persistence checks passed across a
+restart, as did browser MCP-origin checks and real 7B general Copilot and coding
+requests. The previous image is tagged `aruvi-studio-worktree-backup:pre-b704d5b`
+and the checked database backup is in `/private/tmp/aruvi-browser-b704d5b`.
+Docker VM free space was approximately 759 MiB after tests. Staging and native
+window acceptance remain outstanding.
 
 ### Browser IDE Copilot without a file
 
