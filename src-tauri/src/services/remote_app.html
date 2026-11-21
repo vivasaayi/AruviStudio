@@ -697,6 +697,15 @@
               </section>
 
               <section class="panel">
+                <div class="panel-header"><div class="panel-title">External coding CLI</div></div>
+                <div class="panel-body stack">
+                  <p class="empty">Runs on the server against the selected work item's workspace. The operator must enable and configure the CLI. Commands can modify workspace files.</p>
+                  <label><span class="label">CLI provider</span><select id="externalCliProvider"><option value="codex">Codex CLI</option><option value="claude">Claude Code</option><option value="cursor">Cursor Agent</option><option value="copilot">GitHub Copilot</option></select></label>
+                  <div class="button-row"><button id="externalCliRun" type="button">Run CLI</button><button id="externalCliRefresh" class="secondary" type="button">Refresh runs</button></div>
+                  <div id="externalCliRuns" class="tool-list"></div><pre id="externalCliEvents" style="white-space:pre-wrap;overflow-wrap:anywhere" aria-live="polite"></pre>
+                </div>
+              </section>
+              <section class="panel">
                 <div class="panel-header">
                   <div class="panel-title">Delivery</div>
                   <div class="status" id="deliveryStatus">Select a task</div>
@@ -1364,6 +1373,7 @@
       el.status.className = "status" + (kind ? " " + kind : "");
     }
 
+    let externalCliBusy = false;
     function setBusy(nextBusy) {
       state.busy = nextBusy;
       [
@@ -1413,6 +1423,8 @@
       el.startWorkButton.disabled = nextBusy || !state.selectedWorkItemId;
       document.getElementById("deleteWorkButton").disabled = nextBusy || !state.selectedWorkItemId || !state.delivery;
       document.getElementById("editWorkWorkspaceButton").disabled = nextBusy || !state.selectedWorkItemId || !state.delivery;
+      document.getElementById("externalCliRun").disabled = nextBusy || externalCliBusy || !state.selectedWorkItemId || !state.delivery;
+      document.getElementById("externalCliRefresh").disabled = nextBusy || !state.selectedWorkItemId || !state.delivery;
       el.refreshDeliveryButton.disabled = nextBusy || !state.selectedWorkItemId;
       el.retryGitDeliveryButton.disabled = nextBusy || !state.delivery || !state.delivery.retryable_git_delivery;
       Array.from(el.workflowActions.querySelectorAll("button")).forEach((button) => {
@@ -2910,7 +2922,44 @@
       state.delivery = null;
       renderWorkItems();
       renderDelivery();
+      document.getElementById("externalCliRuns").textContent = "";
+      document.getElementById("externalCliEvents").textContent = "";
       await loadDelivery();
+    }
+
+    async function refreshExternalCliRuns() {
+      const id = state.selectedWorkItemId;
+      if (!id) { setStatus("Select a work item first", "error"); return; }
+      try {
+        const runs = await request("/api/mobile/work-items/" + encodeURIComponent(id) + "/external-cli");
+        if (id !== state.selectedWorkItemId) return;
+        const list = document.getElementById("externalCliRuns"); list.textContent = "";
+        if (!runs.length) { list.textContent = "No external CLI runs yet."; return; }
+        for (const run of runs) {
+          const button = document.createElement("button"); button.type = "button"; button.className = "secondary";
+          button.textContent = `${run.label} · ${run.status} · ${run.started_at}`;
+          button.addEventListener("click", async () => {
+            try {
+              const events = await request("/api/mobile/work-items/" + encodeURIComponent(id) + "/external-cli/" + encodeURIComponent(run.id) + "/events");
+              if (id === state.selectedWorkItemId) document.getElementById("externalCliEvents").textContent = events.map((event) => `[${event.stream}] ${event.message}`).join("\n");
+            } catch (error) { setStatus(error.message || String(error), "error"); }
+          });
+          list.appendChild(button);
+        }
+      } catch (error) { if (id === state.selectedWorkItemId) setStatus(error.message || String(error), "error"); }
+    }
+
+    async function runExternalCli() {
+      const id = state.selectedWorkItemId;
+      if (!id) { setStatus("Select a work item first", "error"); return; }
+      const provider = document.getElementById("externalCliProvider").value;
+      if (!window.confirm("Run this CLI on the server? It can change files in the work item's workspace.")) return;
+      externalCliBusy = true; setBusy(state.busy);
+      try {
+        await request("/api/mobile/work-items/" + encodeURIComponent(id) + "/external-cli", {method:"POST", body:{provider}});
+        if (id === state.selectedWorkItemId) { await refreshExternalCliRuns(); setStatus("External CLI started", "ok"); }
+      } catch (error) { if (id === state.selectedWorkItemId) setStatus(error.message || String(error), "error"); }
+      finally { externalCliBusy = false; setBusy(state.busy); }
     }
 
     async function deleteSelectedWorkItem() {
@@ -5216,6 +5265,8 @@
     el.copyLinkButton.addEventListener("click", copySetupLink);
     el.healthButton.addEventListener("click", checkHealth);
     el.sendButton.addEventListener("click", () => submitPrompt("planner"));
+    document.getElementById("externalCliRun").addEventListener("click", runExternalCli);
+    document.getElementById("externalCliRefresh").addEventListener("click", refreshExternalCliRuns);
     el.chatSendButton.addEventListener("click", () => submitPrompt("chat"));
     el.voiceProvider.addEventListener("change", () => localStorage.setItem(storageKeys.voiceProvider, el.voiceProvider.value));
     el.voiceModel.addEventListener("input", () => localStorage.setItem(storageKeys.voiceModel, el.voiceModel.value));
@@ -5290,6 +5341,8 @@
       state.selectedProductId = el.workProductSelect.value;
       localStorage.setItem(storageKeys.selectedProduct, state.selectedProductId);
       state.selectedWorkItemId = "";
+      document.getElementById("externalCliRuns").textContent = "";
+      document.getElementById("externalCliEvents").textContent = "";
       localStorage.removeItem(storageKeys.selectedWorkItem);
       void loadWorkItems();
     });

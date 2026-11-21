@@ -288,6 +288,20 @@ async fn remote_test_command_configuration_is_authenticated_and_validated() {
 }
 
 #[tokio::test]
+async fn external_cli_remote_routes_require_authentication() {
+    let app: tauri::App<MockRuntime> = make_test_app("remote_external_cli_auth").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "external-cli-token").await.unwrap();
+    let router = build_webhook_router(state);
+    let path = "/api/mobile/work-items/missing/external-cli";
+    assert_eq!(send_json(&router, Method::GET, path, None, None).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router, Method::POST, path, None, Some(json!({"provider":"codex"}))).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router, Method::GET, "/api/mobile/work-items/missing/external-cli/run/events", None, None).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router, Method::GET, path, Some("external-cli-token"), None).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(send_json(&router, Method::GET, "/api/mobile/work-items/missing/external-cli/run/events", Some("external-cli-token"), None).await.0, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn remote_delete_work_item_protects_stale_and_active_workflows() {
     let app: tauri::App<MockRuntime> = make_test_app("remote_delete_work_item").await;
     let state = app.state::<AppState>().inner().clone();

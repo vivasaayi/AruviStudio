@@ -11,6 +11,22 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
     let args = tool_action.args();
 
     match tool_action.action.as_str() {
+        "run_external_cli" => {
+            let id = args.required_string(&["work_item_id", "workItemId"], "work_item_id")?;
+            let provider = args.required_string(&["provider"], "provider")?;
+            action_result("run_external_cli", crate::services::external_cli_service::run_remote_external_cli_for_work_item(&state.db, &state.artifact_base_path, &id, &provider).await?)
+        }
+        "list_external_cli_runs" => {
+            let id = args.required_string(&["work_item_id", "workItemId"], "work_item_id")?;
+            work_item_repo::get_work_item(&state.db, &id).await?;
+            action_result("list_external_cli_runs", crate::persistence::external_cli_repo::list_recent_external_cli_runs_for_work_item(&state.db, &id).await?)
+        }
+        "list_external_cli_events" => {
+            let id = args.required_string(&["run_id", "runId"], "run_id")?;
+            crate::persistence::external_cli_repo::get_external_cli_run(&state.db, &id).await?;
+            let limit = args.optional_i64(&["limit"])?.unwrap_or(500);
+            action_result("list_external_cli_events", crate::persistence::external_cli_repo::list_external_cli_run_events(&state.db, &id, limit).await?)
+        }
         action @ ("create_work_item" | "create_story" | "create_task") => {
             let parent_work_item_id = if action == "create_task" {
                 Some(args.required_string(

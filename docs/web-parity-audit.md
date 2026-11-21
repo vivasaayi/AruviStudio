@@ -148,7 +148,7 @@ registered and the default LM Studio endpoint was unavailable.
 | --- | --- | --- | --- |
 | Portfolio, product overview, products | Create products, product areas, capabilities and features; edit and delete hierarchy nodes; list, summary and on-demand hierarchy tree; download Product Book Docs HTML, Book HTML, EPUB and PDF | `aruvi_catalog`, `aruvi_work_items` | Partial: browser, MCP and desktop PDF export share the guarded renderer; native packaging, image, reader and deployment limitations are tracked in [Product Book migration](product-book-migration.md). |
 | Work items and delivery | Create work with problem, outcome, acceptance criteria, constraints, type, priority, complexity and hierarchy placement; edit the desktop form's task details and status, approve/start, configure a test command, inspect test results, delivery and gates | `aruvi_work_items`, `aruvi_workflows`, `aruvi_checkpoints` | Partial: navigation and workflow actions need comparison; changing status does not run a workflow, and test commands execute inside the server container. |
-| Work item external CLI | No browser control or MCP action found for the desktop External CLI tab | None found | **Missing:** desktop launches Codex, Claude, Cursor or Copilot against the resolved workspace, then shows run history, events and captured output. The shared backend exists, but the current container image does not install those CLIs. The launcher inherits the server process environment and starts a command with write access to the workspace; it is not suitable for direct remote exposure without an explicit execution and credential design. |
+| Work item external CLI | Browser can launch an explicitly enabled server CLI and inspect recent runs and events | `aruvi_work_items` launch, list runs and list events | Partial: a disposable native server and headless browser exercised a fake CLI, MCP history, environment isolation, output truncation and active-run guards. The container image does not install the CLIs; actual provider installation, authentication and live execution remain unverified. The CLI runs as the server user and is not sandboxed. |
 | Planner | Sessions, turns, draft editing, repository analysis, confirmation and clear | `aruvi_planner` | Partial: native interaction, physical voice and other desktop behaviors need comparison. |
 | Repositories and IDE | Create, register and attach workspaces for products or areas; browse, filter and edit text files in separate in-memory tabs, inspect Git status and diff, ask Copilot about saved or unsaved content, configure generation and file-context settings, review multi-file patch proposals, and change defaults or detach for products and product areas | `aruvi_repositories`, `aruvi_models` | Partial: desktop, browser and MCP workspace creation reject existing paths and preserve prior attachments; browser file Copilot supports streaming, while MCP remains buffered and patch proposals require saved content. Isolated browser checks cover separate unsaved tabs and protection of patch targets; tabs do not survive reload. A streamed proposal passed in the browser with a real local model and a two-file proposal passed through MCP. Native dialogs and other IDE behavior require comparison and implementation. |
 | Agents and teams | Manage agent definitions, team profiles, rosters, product/area/capability scope assignments, skill definitions and links, and workflow-stage routing; inspect and replace individual agent model bindings from Models | `aruvi_agents`, `aruvi_agent_work` | Partial: prompt-template application remains unimplemented. A desktop bulk-binding operation was not found in the current agent commands. |
@@ -185,15 +185,16 @@ direct child; the browser also rejects stale details. Related records follow the
 database's deletion rules, direct children are detached, and files are retained.
 
 The external CLI action was identified in a later source comparison of the
-desktop Work tab and is not covered by the earlier action inventory. Completing
-this migration requires an explicit operator-controlled runtime configuration,
-CLI availability and credential handling, a bounded process environment and
-execution policy, authenticated launch and run/event reads in both browser and
-MCP, and disposable end-to-end tests for success, failure, authorization,
-workspace selection and persistence. Desktop currently spawns the CLI with the
-server process environment; recording this gap does not make the existing
-desktop behavior sandboxed or change it. A read-only check of the running
-worktree app found `codex`, `claude`, `cursor-agent` and `copilot` unavailable.
+desktop Work tab. Remote launches now require an operator opt-in and dedicated
+CLI home and receive a cleared, minimal environment. A disposable native
+server test used a fake CLI through the browser and MCP, confirmed server
+secrets were not inherited, checked bounded output, workspace override and
+active-run guards, and verified missing-executable failure and history after a
+restart. Desktop continues to inherit its own process environment. A read-only
+check of the previous running worktree app found `codex`, `claude`,
+`cursor-agent` and `copilot` unavailable. Real CLI provisioning, provider
+authentication, other failure and restart scenarios, and container deployment remain
+open; see the [server guide](headless-server.md) for the execution limits.
 
 The browser can now edit and disable an existing local Whisper provider. Its
 file path is treated as a server path instead of an HTTP URL; a newly selected

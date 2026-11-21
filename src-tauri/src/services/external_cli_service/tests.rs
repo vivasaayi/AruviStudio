@@ -156,3 +156,26 @@ async fn appends_external_cli_session_log_file() {
 
     let _ = tokio::fs::remove_file(path).await;
 }
+#[test]
+fn remote_cli_requires_explicit_opt_in_and_existing_absolute_home() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().as_os_str().to_owned();
+    assert!(super::remote_cli_home(None, Some(path.clone())).is_err());
+    assert!(super::remote_cli_home(Some("true".into()), Some(path.clone())).is_err());
+    assert!(super::remote_cli_home(Some("1".into()), None).is_err());
+    assert!(super::remote_cli_home(Some("1".into()), Some("relative".into())).is_err());
+    assert_eq!(super::remote_cli_home(Some("1".into()), Some(path)).unwrap(), home.path());
+}
+
+#[tokio::test]
+async fn remote_cli_command_does_not_inherit_server_environment() {
+    let home = tempfile::tempdir().unwrap();
+    let mut command = tokio::process::Command::new("/usr/bin/env");
+    super::configure_remote_cli_command(&mut command, home.path());
+    let output = command.output().await.unwrap();
+    assert!(output.status.success());
+    let output = String::from_utf8(output.stdout).unwrap();
+    let names: std::collections::HashSet<_> = output.lines().map(|line| line.split_once('=').unwrap().0).collect();
+    assert_eq!(names, ["HOME", "PATH", "TMPDIR"].into_iter().collect());
+    assert!(output.lines().any(|line| line == format!("HOME={}", home.path().display())));
+}

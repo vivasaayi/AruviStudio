@@ -35,7 +35,7 @@ pub(crate) struct DeleteBaseline {
 
 /// Delete a work item only when it and its direct children have no active workflow.
 pub(crate) async fn delete_work_item(state: &AppState, id: &str, expected: Option<&DeleteBaseline>) -> Result<(), AppError> {
-    let result = sqlx::query("DELETE FROM work_items WHERE id=? AND NOT EXISTS (SELECT 1 FROM workflow_runs r JOIN work_items w ON w.id=r.work_item_id WHERE (w.id=? OR w.parent_work_item_id=?) AND r.status IN ('running','paused') AND r.current_stage NOT IN ('done','failed','cancelled')) AND (?=0 OR (title=? AND description=? AND problem_statement=? AND acceptance_criteria=? AND constraints=? AND status=? AND updated_at=? AND priority=? AND complexity=? AND work_item_type=? AND product_id IS ? AND product_area_id IS ? AND capability_id IS ? AND source_node_id IS ? AND source_node_type IS ? AND parent_work_item_id IS ? AND repo_override_id IS ? AND active_repo_id IS ? AND branch_name IS ? AND sort_order=?))")
+    let result = sqlx::query("DELETE FROM work_items WHERE id=? AND NOT EXISTS (SELECT 1 FROM workflow_runs r JOIN work_items w ON w.id=r.work_item_id WHERE (w.id=? OR w.parent_work_item_id=?) AND r.status IN ('running','paused') AND r.current_stage NOT IN ('done','failed','cancelled')) AND NOT EXISTS (SELECT 1 FROM external_cli_runs c JOIN work_items w ON w.id=c.work_item_id WHERE (w.id=work_items.id OR w.parent_work_item_id=work_items.id) AND c.status='running') AND (?=0 OR (title=? AND description=? AND problem_statement=? AND acceptance_criteria=? AND constraints=? AND status=? AND updated_at=? AND priority=? AND complexity=? AND work_item_type=? AND product_id IS ? AND product_area_id IS ? AND capability_id IS ? AND source_node_id IS ? AND source_node_type IS ? AND parent_work_item_id IS ? AND repo_override_id IS ? AND active_repo_id IS ? AND branch_name IS ? AND sort_order=?))")
         .bind(id).bind(id).bind(id).bind(expected.is_some())
         .bind(expected.map(|v| v.title.as_str())).bind(expected.map(|v| v.description.as_str()))
         .bind(expected.map(|v| v.problem_statement.as_str())).bind(expected.map(|v| v.acceptance_criteria.as_str()))
@@ -45,7 +45,7 @@ pub(crate) async fn delete_work_item(state: &AppState, id: &str, expected: Optio
         .bind(expected.and_then(|v| v.capability_id.as_deref())).bind(expected.and_then(|v| v.source_node_id.as_deref())).bind(expected.and_then(|v| v.source_node_type.as_deref())).bind(expected.and_then(|v| v.parent_work_item_id.as_deref()))
         .bind(expected.and_then(|v| v.repo_override_id.as_deref())).bind(expected.and_then(|v| v.active_repo_id.as_deref())).bind(expected.and_then(|v| v.branch_name.as_deref())).bind(expected.map(|v| v.sort_order))
         .execute(&state.db).await?;
-    if result.rows_affected() != 1 { return Err(AppError::Validation("Work item changed, was removed, or it or a child has an active workflow; refresh and review".into())); }
+    if result.rows_affected() != 1 { return Err(AppError::Validation("Work item changed, was removed, or it or a child has an active workflow or CLI run; refresh and review".into())); }
     Ok(())
 }
 
@@ -62,13 +62,13 @@ pub(crate) async fn assign_workspace(
     if branch_name.is_some_and(|branch| !git2::Reference::is_valid_name(&format!("refs/heads/{branch}"))) {
         return Err(AppError::Validation("Invalid workspace branch name".into()));
     }
-    let result = sqlx::query("UPDATE work_items SET repo_override_id=?,active_repo_id=?,branch_name=?,updated_at=datetime('now') WHERE id=? AND (? IS NULL OR EXISTS (SELECT 1 FROM repositories WHERE id=?)) AND NOT EXISTS (SELECT 1 FROM workflow_runs WHERE work_item_id=? AND status IN ('running','paused') AND current_stage NOT IN ('done','failed','cancelled')) AND (?=0 OR (repo_override_id IS ? AND active_repo_id IS ? AND branch_name IS ?))")
+    let result = sqlx::query("UPDATE work_items SET repo_override_id=?,active_repo_id=?,branch_name=?,updated_at=datetime('now') WHERE id=? AND (? IS NULL OR EXISTS (SELECT 1 FROM repositories WHERE id=?)) AND NOT EXISTS (SELECT 1 FROM workflow_runs WHERE work_item_id=? AND status IN ('running','paused') AND current_stage NOT IN ('done','failed','cancelled')) AND NOT EXISTS (SELECT 1 FROM external_cli_runs c WHERE c.work_item_id=work_items.id AND c.status='running') AND (?=0 OR (repo_override_id IS ? AND active_repo_id IS ? AND branch_name IS ?))")
         .bind(repository_id).bind(repository_id).bind(branch_name).bind(id).bind(repository_id).bind(repository_id).bind(id)
         .bind(expected.is_some()).bind(expected.and_then(|value| value.repo_override_id.as_deref()))
         .bind(expected.and_then(|value| value.active_repo_id.as_deref())).bind(expected.and_then(|value| value.branch_name.as_deref()))
         .execute(&state.db).await?;
     if result.rows_affected() != 1 {
-        return Err(AppError::Validation("Work item or workspace changed, is unavailable, or has an active workflow; refresh and review".into()));
+        return Err(AppError::Validation("Work item or workspace changed, is unavailable, or has an active workflow or CLI run; refresh and review".into()));
     }
     work_item_repo::get_work_item(&state.db, id).await
 }

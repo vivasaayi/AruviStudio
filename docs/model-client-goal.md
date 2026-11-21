@@ -12,6 +12,26 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### External CLI browser and MCP migration
+
+The work item External CLI tab now has opt-in browser and MCP operations using
+the shared Rust launcher. Remote execution requires an operator-supplied CLI
+home and does not inherit server environment variables. Output and run history
+are bounded, and same-item active runs block conflicting launches, workspace
+changes, deletion and new workflows. This is not a sandbox or coordination
+between different items that share a workspace. The image still has no actual
+CLI executables or provider credentials; see `headless-server.md`.
+
+A disposable fake-CLI fixture passed through native and Linux container browser
+and MCP paths, including scope override, disabled mode, authentication,
+output limits, failure and restart persistence. The final native library suite
+passed 278 tests with seven ignored. The frontend suite passed 128 tests, and
+the frontend build and terminology check passed. A host-backed Linux ARM64 release
+binary was packaged on top of the previously built worktree image; that
+candidate passed 34 remote browser tests, the PDF outage check and 51 workflow
+tests. This is not a clean Dockerfile rebuild, real CLI-provider acceptance or
+staging validation. The shared Docker disk remained near capacity.
+
 ### Integration adapter scoped-token preparation
 
 The existing untracked Model Host `deploy/compose.integration.yaml` now passes

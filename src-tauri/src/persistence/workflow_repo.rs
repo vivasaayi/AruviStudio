@@ -7,9 +7,10 @@ pub async fn create_workflow_run(
     id: &str,
     work_item_id: &str,
 ) -> Result<WorkflowRun, AppError> {
-    sqlx::query_as::<_, WorkflowRun>("INSERT INTO workflow_runs (id,work_item_id,workflow_version,status,current_stage,retry_count,max_retries,started_at,updated_at) VALUES (?,?,?,'running','draft',?,?,datetime('now'),datetime('now')) RETURNING id,work_item_id,workflow_version,status,current_stage,assigned_team_id,coordinator_agent_id,pending_stage_name,retry_count,max_retries,error_message,started_at,ended_at,updated_at")
-        .bind(id).bind(work_item_id).bind("v1").bind(0).bind(3)
-        .fetch_one(pool).await.map_err(|e| e.into())
+    sqlx::query_as::<_, WorkflowRun>("INSERT INTO workflow_runs (id,work_item_id,workflow_version,status,current_stage,retry_count,max_retries,started_at,updated_at) SELECT ?,?,?,'running','draft',?,?,datetime('now'),datetime('now') WHERE NOT EXISTS (SELECT 1 FROM external_cli_runs WHERE work_item_id=? AND status='running') RETURNING id,work_item_id,workflow_version,status,current_stage,assigned_team_id,coordinator_agent_id,pending_stage_name,retry_count,max_retries,error_message,started_at,ended_at,updated_at")
+        .bind(id).bind(work_item_id).bind("v1").bind(0).bind(3).bind(work_item_id)
+        .fetch_optional(pool).await?
+        .ok_or_else(|| AppError::Validation("An external CLI run is active for this work item".into()))
 }
 
 pub async fn get_workflow_run(pool: &SqlitePool, id: &str) -> Result<WorkflowRun, AppError> {

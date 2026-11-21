@@ -34,16 +34,61 @@ pub async fn run_external_cli_for_work_item(
     work_item_id: &str,
     provider: &str,
 ) -> Result<ExternalCliRun, AppError> {
+    run_external_cli(pool, artifact_base_path, work_item_id, provider, None).await
+}
+
+/// Remote launches are explicitly enabled by the server operator and use a
+/// separate CLI home. This is not a filesystem or process sandbox.
+pub async fn run_remote_external_cli_for_work_item(
+    pool: &SqlitePool,
+    artifact_base_path: &Path,
+    work_item_id: &str,
+    provider: &str,
+) -> Result<ExternalCliRun, AppError> {
+    let home = remote_cli_home(
+        std::env::var_os("ARUVI_EXTERNAL_CLI_ENABLED"),
+        std::env::var_os("ARUVI_EXTERNAL_CLI_HOME"),
+    )?;
+    run_external_cli(pool, artifact_base_path, work_item_id, provider, Some(home)).await
+}
+
+fn remote_cli_home(enabled: Option<std::ffi::OsString>, home: Option<std::ffi::OsString>) -> Result<PathBuf, AppError> {
+    if enabled.as_deref() != Some(std::ffi::OsStr::new("1")) {
+        return Err(AppError::Validation("Remote external CLI execution is not enabled".into()));
+    }
+    let home = home.map(PathBuf::from).filter(|path| path.is_absolute() && path.is_dir())
+        .ok_or_else(|| AppError::Validation("Remote external CLI home must be an existing absolute directory".into()))?;
+    Ok(home)
+}
+
+fn configure_remote_cli_command(command: &mut Command, home: &Path) {
+    command.env_clear().env("HOME", home)
+        .env("PATH", std::env::var_os("PATH").unwrap_or_else(|| "/usr/bin:/bin".into()))
+        .env("TMPDIR", "/tmp");
+}
+
+async fn run_external_cli(
+    pool: &SqlitePool,
+    artifact_base_path: &Path,
+    work_item_id: &str,
+    provider: &str,
+    remote_home: Option<PathBuf>,
+) -> Result<ExternalCliRun, AppError> {
     let provider = ExternalCliProvider::parse(provider)?;
     let work_item = work_item_repo::get_work_item(pool, work_item_id).await?;
-    let repository = ensure_repository_ready_for_external_cli(pool, &work_item).await?;
+    let repository = ensure_repository_ready_for_external_cli(pool, &work_item, remote_home.is_none()).await?;
     let workspace_snapshot = capture_workspace_snapshot(Path::new(&repository.local_path)).await;
     let task_packet =
         build_external_cli_task_packet(provider, &work_item, &repository, workspace_snapshot);
     let prompt = build_external_cli_prompt(&task_packet)?;
     let run_id = Uuid::new_v4().to_string();
     let run_dir = artifact_base_path.join("external_cli_runs").join(&run_id);
-    tokio::fs::create_dir_all(&run_dir).await?;
+    if remote_home.is_some() {
+        tokio::fs::create_dir_all(artifact_base_path.join("external_cli_runs")).await?;
+        tokio::fs::create_dir(&run_dir).await?;
+    } else {
+        tokio::fs::create_dir_all(&run_dir).await?;
+    }
     let session_log_path = run_dir.join("session.log").to_string_lossy().to_string();
     let (command, args) = provider.command_spec(&prompt, &repository.local_path);
     let invocation = ExternalCliInvocation {
@@ -53,10 +98,17 @@ pub async fn run_external_cli_for_work_item(
         command: command.to_string(),
         args,
         prompt,
-        cwd: repository.local_path,
+        cwd: repository.local_path.clone(),
         session_log_path,
     };
-    let run = external_cli_repo::create_external_cli_run(pool, &run_id, &invocation).await?;
+    let run = if remote_home.is_some() {
+        match external_cli_repo::create_remote_external_cli_run(pool, &run_id, &invocation, &repository.id).await {
+            Ok(run) => run,
+            Err(error) => { let _ = tokio::fs::remove_dir(&run_dir).await; return Err(error); }
+        }
+    } else {
+        external_cli_repo::create_external_cli_run(pool, &run_id, &invocation).await?
+    };
 
     let execution_pool = pool.clone();
     let execution_artifact_base_path = artifact_base_path.to_path_buf();
@@ -70,6 +122,7 @@ pub async fn run_external_cli_for_work_item(
             execution_run_id,
             invocation,
             task_packet,
+            remote_home,
         )
         .await
         {
@@ -101,6 +154,7 @@ async fn execute_external_cli_run(
     run_id: String,
     invocation: ExternalCliInvocation,
     task_packet: ExternalCliTaskPacket,
+    remote_home: Option<PathBuf>,
 ) -> Result<(), AppError> {
     let started_at = Utc::now().to_rfc3339();
     let started = Instant::now();
@@ -137,13 +191,22 @@ async fn execute_external_cli_run(
     )
     .await?;
 
-    let mut child = match Command::new(&invocation.command)
-        .args(&invocation.args)
+    let mut command = Command::new(&invocation.command);
+    command.args(&invocation.args)
         .current_dir(&invocation.cwd)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
+        .stderr(Stdio::piped());
+    let remote = remote_home.is_some();
+    if let Some(home) = remote_home {
+        configure_remote_cli_command(&mut command, &home);
+        command.kill_on_drop(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.as_std_mut().process_group(0);
+        }
+    }
+    let mut child = match command.spawn() {
         Ok(child) => {
             append_external_cli_event(
                 &pool,
@@ -192,6 +255,8 @@ async fn execute_external_cli_run(
         }
     };
 
+    #[cfg(unix)]
+    let process_group = if remote { child.id() } else { None };
     let stdout = Arc::new(Mutex::new(String::new()));
     let stderr = Arc::new(Mutex::new(String::new()));
     let stdout_task = child.stdout.take().map(|reader| {
@@ -204,6 +269,7 @@ async fn execute_external_cli_run(
                 stream: "stdout",
                 capture: stdout.clone(),
                 sequence: sequence.clone(),
+                bounded: remote,
             },
             reader,
         )
@@ -218,6 +284,7 @@ async fn execute_external_cli_run(
                 stream: "stderr",
                 capture: stderr.clone(),
                 sequence: sequence.clone(),
+                bounded: remote,
             },
             reader,
         )
@@ -275,6 +342,8 @@ async fn execute_external_cli_run(
                 ("failed".to_string(), None, Some(error_message))
             }
             Err(_) => {
+                #[cfg(unix)]
+                if let Some(id) = process_group { unsafe { libc::kill(-(id as i32), libc::SIGKILL); } }
                 let _ = child.kill().await;
                 let error_message = format!(
                     "{} timed out after {} seconds",
@@ -294,6 +363,8 @@ async fn execute_external_cli_run(
             }
         };
 
+    #[cfg(unix)]
+    if let Some(id) = process_group { unsafe { libc::kill(-(id as i32), libc::SIGKILL); } }
     join_output_reader(
         &pool,
         &run_id,
@@ -301,6 +372,7 @@ async fn execute_external_cli_run(
         &invocation.session_log_path,
         stdout_task,
         &sequence,
+        remote,
     )
     .await?;
     join_output_reader(
@@ -310,6 +382,7 @@ async fn execute_external_cli_run(
         &invocation.session_log_path,
         stderr_task,
         &sequence,
+        remote,
     )
     .await?;
 
@@ -363,6 +436,7 @@ async fn execute_external_cli_run(
 async fn ensure_repository_ready_for_external_cli(
     pool: &SqlitePool,
     work_item: &WorkItem,
+    update_active: bool,
 ) -> Result<Repository, AppError> {
     let repository = repository_repo::resolve_repository_for_work_item(pool, &work_item.id)
         .await?
@@ -387,7 +461,7 @@ async fn ensure_repository_ready_for_external_cli(
         )));
     }
 
-    if work_item.active_repo_id.as_deref() != Some(repository.id.as_str()) {
+    if update_active && work_item.active_repo_id.as_deref() != Some(repository.id.as_str()) {
         sqlx::query(
             "UPDATE work_items SET active_repo_id=?, updated_at=datetime('now') WHERE id=?",
         )

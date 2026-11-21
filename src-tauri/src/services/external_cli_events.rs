@@ -8,7 +8,7 @@ use std::sync::{
     atomic::{AtomicI64, Ordering},
     Arc,
 };
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
@@ -23,6 +23,7 @@ pub(crate) struct ExternalCliOutputReaderContext {
     pub(crate) stream: &'static str,
     pub(crate) capture: Arc<Mutex<String>>,
     pub(crate) sequence: Arc<AtomicI64>,
+    pub(crate) bounded: bool,
 }
 
 pub(crate) fn spawn_output_reader<R>(
@@ -33,6 +34,33 @@ where
     R: AsyncRead + Unpin + Send + 'static,
 {
     tokio::spawn(async move {
+        if context.bounded {
+            const LIMIT: usize = 1024 * 1024;
+            let mut reader = reader;
+            let mut bytes = [0u8; 4096];
+            let mut kept = 0usize;
+            let mut events = 0usize;
+            let mut truncated = false;
+            loop {
+                let count = reader.read(&mut bytes).await?;
+                if count == 0 { break; }
+                let take = if events >= 256 { 0 } else { count.min(LIMIT.saturating_sub(kept)) };
+                if take > 0 {
+                    let chunk = String::from_utf8_lossy(&bytes[..take]).into_owned();
+                    context.capture.lock().await.push_str(&chunk);
+                    append_external_cli_event(&context.pool, &context.run_id, &context.work_item_id, &context.session_log_path, context.stream, chunk, &context.sequence).await?;
+                    kept += take;
+                    events += 1;
+                }
+                if take < count && !truncated {
+                    truncated = true;
+                    let message = "[output truncated]".to_string();
+                    context.capture.lock().await.push_str(&message);
+                    append_external_cli_event(&context.pool, &context.run_id, &context.work_item_id, &context.session_log_path, context.stream, message, &context.sequence).await?;
+                }
+            }
+            return Ok(());
+        }
         let mut reader = BufReader::new(reader);
         let mut buffer = Vec::new();
         loop {
@@ -69,11 +97,22 @@ pub(crate) async fn join_output_reader(
     session_log_path: &str,
     task: Option<JoinHandle<Result<(), AppError>>>,
     sequence: &Arc<AtomicI64>,
+    bounded: bool,
 ) -> Result<(), AppError> {
-    let Some(task) = task else {
+    let Some(mut task) = task else {
         return Ok(());
     };
-    match task.await {
+    let result = if bounded {
+        match tokio::time::timeout(std::time::Duration::from_secs(2), &mut task).await {
+            Ok(result) => result,
+            Err(_) => {
+                task.abort();
+                append_external_cli_event(pool, run_id, work_item_id, session_log_path, "error", "Output stream remained open after process exit".into(), sequence).await?;
+                return Ok(());
+            }
+        }
+    } else { task.await };
+    match result {
         Ok(Ok(())) => Ok(()),
         Ok(Err(error)) => {
             append_external_cli_event(

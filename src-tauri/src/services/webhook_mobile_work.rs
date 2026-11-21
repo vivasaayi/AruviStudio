@@ -104,6 +104,41 @@ fn bad_request(error: impl ToString) -> axum::response::Response {
     (StatusCode::BAD_REQUEST, error.to_string()).into_response()
 }
 
+#[derive(Deserialize)]
+pub(crate) struct MobileExternalCliRequest { provider: String }
+
+pub(crate) async fn mobile_external_cli_runs(
+    State(state): State<WebhookState>, headers: HeaderMap, Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    if let Err(error) = work_item_repo::get_work_item(&state.app_state.db, &id).await { return bad_request(error); }
+    match crate::persistence::external_cli_repo::list_recent_external_cli_runs_for_work_item(&state.app_state.db, &id).await {
+        Ok(runs) => Json(runs).into_response(), Err(error) => bad_request(error),
+    }
+}
+
+pub(crate) async fn mobile_run_external_cli(
+    State(state): State<WebhookState>, headers: HeaderMap, Path(id): Path<String>, Json(body): Json<MobileExternalCliRequest>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match crate::services::external_cli_service::run_remote_external_cli_for_work_item(&state.app_state.db, &state.app_state.artifact_base_path, &id, &body.provider).await {
+        Ok(run) => Json(run).into_response(), Err(error) => bad_request(error),
+    }
+}
+
+pub(crate) async fn mobile_external_cli_events(
+    State(state): State<WebhookState>, headers: HeaderMap, Path((work_id, run_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let run = match crate::persistence::external_cli_repo::get_external_cli_run(&state.app_state.db, &run_id).await {
+        Ok(run) if run.work_item_id == work_id => run,
+        _ => return (StatusCode::NOT_FOUND, "External CLI run not found").into_response(),
+    };
+    match crate::persistence::external_cli_repo::list_external_cli_run_events(&state.app_state.db, &run.id, 500).await {
+        Ok(events) => Json(events).into_response(), Err(error) => bad_request(error),
+    }
+}
+
 fn workflow_start_error(
     error: AppError,
     workflow_run: Option<WorkflowRun>,

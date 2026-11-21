@@ -586,3 +586,36 @@ returns an explicit unsupported error. No automatic fallback is attempted.
 Invalid JSON, invalid types, and unknown field names stop execution instead of
 silently dropping all limits. Review existing agent definitions after upgrading. Prompt template
 references are currently stored as metadata; the execution prompt builder does not apply them.
+
+# External coding CLIs
+
+The Work view and `aruvi_work_items` MCP actions can launch a configured
+external CLI against a work item's resolved server workspace. Remote execution
+is disabled by default. An operator who chooses to enable it must supply
+`ARUVI_EXTERNAL_CLI_ENABLED=1`, set `ARUVI_EXTERNAL_CLI_HOME` to an existing
+absolute directory, and provide the selected executable on the server's PATH.
+The standard container image does not include these CLIs or their credentials;
+an operator must provision them and a dedicated CLI home outside the image.
+
+Remote child processes receive only PATH, the configured HOME and TMPDIR in
+their environment. Provider authentication must be configured in that dedicated
+home. The CLI runs as the server user with access to the server filesystem and
+network, including the selected writable workspace: this is not a sandbox.
+Only enable it for trusted users and workspaces. Each remote stream retains at
+most 1 MiB and 256 chunks, and history returns the latest 100 runs. Browser
+controls require confirmation and the normal mobile API token; MCP uses its
+normal token. The actions are `run_external_cli`, `list_external_cli_runs` and
+`list_external_cli_events` on `aruvi_work_items`.
+Refresh the browser run list and select a run to reload its latest events.
+For a disposable native-server and browser check with a fake CLI, build the
+debug server and run `node scripts/test-native-external-cli.mjs` from the
+repository. Setting `ARUVI_CLI_TEST_IMAGE` runs the same fixture against that
+container image; the test creates and removes its own data and fake executable.
+
+An active CLI run prevents deleting or changing the work item's workspace and
+prevents another remote CLI run or new workflow for that item. This does not
+coordinate different work items that share a workspace, independent filesystem
+writers, or subprocesses that escape the process group. Operator configuration
+and the installed provider's own security and approval behavior remain relevant.
+The atomic run claim duplicates the work-item workspace resolution order; changes
+to that resolver must update the claim as well.
