@@ -36,7 +36,11 @@ pub(super) struct AgentModelOutput {
 #[cfg(test)]
 static TEST_MODEL_OUTPUTS: OnceLock<StdMutex<HashMap<String, VecDeque<String>>>> = OnceLock::new();
 #[cfg(test)]
-const TEST_ANY_WORKFLOW_KEY: &str = "__any_workflow__";
+fn test_pool_key(db: &SqlitePool) -> String {
+    // Pool clones share these options; unrelated test pools do not. Keep the
+    // wildcard queue local to a fixture instead of stealing another test's calls.
+    format!("__pool__:{:p}", Arc::as_ptr(&db.connect_options()))
+}
 
 mod execution_context;
 mod model_execution;
@@ -63,8 +67,8 @@ impl AgentService {
     }
 
     #[cfg(test)]
-    pub(crate) fn set_test_model_outputs_for_any_workflow(outputs: Vec<String>) {
-        Self::set_test_model_outputs_for_workflow(TEST_ANY_WORKFLOW_KEY, outputs);
+    pub(crate) fn set_test_model_outputs_for_any_workflow(db: &SqlitePool, outputs: Vec<String>) {
+        Self::set_test_model_outputs_for_workflow(&test_pool_key(db), outputs);
     }
 
     pub fn new(

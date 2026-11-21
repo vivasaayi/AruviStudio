@@ -115,7 +115,11 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let artifact_id =
                 args.required_string(&["artifact_id", "artifactId"], "artifact_id")?;
             let artifact = artifact_repo::get_artifact(&state.db, &artifact_id).await?;
-            let content = tokio::fs::read_to_string(&artifact.storage_path).await?;
+            let content = crate::services::artifact_service::read_text(
+                &state.artifact_base_path,
+                std::path::Path::new(&artifact.storage_path),
+                crate::services::artifact_service::TEXT_LIMIT,
+            ).await?;
             action_result(
                 "read_artifact_content",
                 json!({

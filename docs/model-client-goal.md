@@ -12,6 +12,24 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Shared artifact reading
+
+Desktop, MCP and browser artifact text reads now share a confined reader with a
+2 MiB UTF-8 limit; browser test results keep their smaller 256 KiB limit and
+work-item/type checks. This closes a difference where desktop and MCP followed
+stored paths outside the configured artifact directory. Unix opens walk from an
+artifact-directory descriptor and reject symlink components, including a
+parent swapped after path resolution; non-Unix retains a canonicalize/open
+race. Hard links and in-place content changes are not prevented. Existing
+records outside the current directory, files above the limit and non-text files
+now require separate recovery instead of desktop/MCP reading them directly.
+
+An existing parallel Rust test failure was traced to a wildcard model-response
+queue shared between unrelated test databases. Test-only wildcard responses are
+now scoped to their SQLite pool; the previously interfering tests passed
+together and a focused pool-isolation test passed. This changes no production
+model routing.
+
 ### Current independent client, voice and dependency revalidation
 
 On 2026-11-21, the independent consumer's manifest, lockfile and source-pin

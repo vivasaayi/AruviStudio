@@ -18,6 +18,25 @@ fn make_temp_dir(name: &str) -> PathBuf {
 }
 
 #[tokio::test]
+async fn wildcard_test_model_responses_are_scoped_to_the_pool() {
+    let first_dir = make_temp_dir("mock_scope_a");
+    let second_dir = make_temp_dir("mock_scope_b");
+    let first = db_service::create_pool(&format!("sqlite:{}", first_dir.join("db").display())).await.unwrap();
+    let second = db_service::create_pool(&format!("sqlite:{}", second_dir.join("db").display())).await.unwrap();
+    let first_key = super::test_pool_key(&first);
+    let second_key = super::test_pool_key(&second);
+    assert_eq!(first_key, super::test_pool_key(&first.clone()));
+    assert_ne!(first_key, second_key);
+    AgentService::set_test_model_outputs_for_any_workflow(&first, vec!["first-only".into()]);
+    {
+        let queues = super::TEST_MODEL_OUTPUTS.get().unwrap().lock().unwrap();
+        assert_eq!(queues.get(&first_key).unwrap().front().unwrap(), "first-only");
+        assert!(!queues.contains_key(&second_key));
+    }
+    AgentService::set_test_model_outputs_for_any_workflow(&first, Vec::new());
+}
+
+#[tokio::test]
 async fn agent_model_calls_revalidate_selected_model_and_provider() {
     use crate::domain::agent::{AgentRun, AgentRunStatus};
     let temp = tempfile::tempdir().unwrap();

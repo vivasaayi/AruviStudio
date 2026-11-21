@@ -9,7 +9,6 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use serde::Deserialize;
 use serde_json::json;
-use tokio::io::AsyncReadExt;
 
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct MobileWorkItemListQuery {
@@ -493,19 +492,12 @@ pub(crate) async fn mobile_get_workflow_test_result(
         Ok(value) if value.work_item_id == work_item_id && value.artifact_type == "workflow_test_result" => value,
         _ => return (StatusCode::NOT_FOUND, "Test result not found").into_response(),
     };
-    let base = match tokio::fs::canonicalize(&state.app_state.artifact_base_path).await {
-        Ok(value) => value, Err(error) => return bad_request(error),
-    };
-    let path = match tokio::fs::canonicalize(&artifact.storage_path).await {
-        Ok(value) if value.starts_with(&base) => value,
-        _ => return (StatusCode::NOT_FOUND, "Test result not found").into_response(),
-    };
-    match tokio::fs::metadata(&path).await {
-        Ok(metadata) if metadata.is_file() && metadata.len() <= 256 * 1024 => (),
-        _ => return bad_request("Test result is unavailable or too large"),
-    }
-    match tokio::fs::read_to_string(path).await {
+    match crate::services::artifact_service::read_text(
+        &state.app_state.artifact_base_path, std::path::Path::new(&artifact.storage_path),
+        crate::services::artifact_service::TEST_RESULT_LIMIT,
+    ).await {
         Ok(content) => Json(json!({"content":content})).into_response(),
+        Err(AppError::NotFound(_)) => (StatusCode::NOT_FOUND, "Test result not found").into_response(),
         Err(error) => bad_request(error),
     }
 }
@@ -519,28 +511,13 @@ pub(crate) async fn mobile_get_work_item_artifact(
         Ok(value) if value.work_item_id == work_item_id => value,
         _ => return (StatusCode::NOT_FOUND, "Artifact not found").into_response(),
     };
-    let base = match tokio::fs::canonicalize(&state.app_state.artifact_base_path).await {
-        Ok(value) => value, Err(_) => return (StatusCode::NOT_FOUND, "Artifact not found").into_response(),
-    };
-    let path = match tokio::fs::canonicalize(&artifact.storage_path).await {
-        Ok(value) if value.starts_with(&base) => value,
-        _ => return (StatusCode::NOT_FOUND, "Artifact not found").into_response(),
-    };
-    const LIMIT: u64 = 2 * 1024 * 1024;
-    let file = match tokio::fs::File::open(path).await {
-        Ok(value) => value, Err(_) => return (StatusCode::NOT_FOUND, "Artifact not found").into_response(),
-    };
-    match file.metadata().await {
-        Ok(metadata) if metadata.is_file() && metadata.len() <= LIMIT => (),
-        _ => return bad_request("Artifact is unavailable or exceeds the 2 MiB text limit"),
-    }
-    let mut bytes = Vec::new();
-    if file.take(LIMIT + 1).read_to_end(&mut bytes).await.is_err() || bytes.len() as u64 > LIMIT {
-        return bad_request("Artifact is unavailable or exceeds the 2 MiB text limit");
-    }
-    match String::from_utf8(bytes) {
+    match crate::services::artifact_service::read_text(
+        &state.app_state.artifact_base_path, std::path::Path::new(&artifact.storage_path),
+        crate::services::artifact_service::TEXT_LIMIT,
+    ).await {
         Ok(content) => Json(json!({"content":content})).into_response(),
-        Err(_) => bad_request("Artifact is not UTF-8 text"),
+        Err(AppError::NotFound(_)) => (StatusCode::NOT_FOUND, "Artifact not found").into_response(),
+        Err(error) => bad_request(error),
     }
 }
 
