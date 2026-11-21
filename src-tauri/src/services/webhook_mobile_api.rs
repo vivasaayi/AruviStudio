@@ -1342,6 +1342,9 @@ pub(crate) async fn mobile_portfolio_action(State(state): State<WebhookState>, h
     if body.action == "update_strategy_node" && !body.arguments.get("expected").is_some_and(serde_json::Value::is_object) {
         return (StatusCode::BAD_REQUEST, "Expected strategy snapshot is required").into_response();
     }
+    if body.action == "delete_strategy_node" && !(body.arguments.get("expected_nodes").is_some_and(serde_json::Value::is_array) && body.arguments.get("expected_links").is_some_and(serde_json::Value::is_array)) {
+        return (StatusCode::BAD_REQUEST, "Expected strategy subtree and links are required").into_response();
+    }
     match crate::mcp::dispatch_tool(&state.app_state, "aruvi_catalog", serde_json::json!({"action":body.action,"arguments":body.arguments})).await {
         Ok(result) => Json(result["result"].clone()).into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),

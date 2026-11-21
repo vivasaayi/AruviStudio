@@ -42,7 +42,7 @@ impl std::fmt::Display for StrategyNodeKind {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, sqlx::FromRow)]
 pub struct StrategyNode {
     pub id: String,
     pub parent_node_id: Option<String>,
@@ -55,7 +55,7 @@ pub struct StrategyNode {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, sqlx::FromRow)]
 pub struct ProductStrategyLink {
     pub id: String,
     pub product_id: String,

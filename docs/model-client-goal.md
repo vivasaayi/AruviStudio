@@ -12,6 +12,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Strategy subtree deletion guard
+
+Browser strategy deletion now confirms the number of loaded descendant nodes
+and linked products. The server requires that subtree and link snapshot, then
+compares it and deletes in one immediate SQLite write transaction. A browser
+fixture exercised a concurrent descendant addition, rejected the stale delete,
+then refreshed and successfully deleted the confirmed subtree. A backend
+regression covers both new descendants and new links. Legacy desktop and MCP
+callers can still delete without snapshots; guarded MCP calls are optional.
+Browser product-link operations remain last-write-wins. The running branch
+container does not yet include this change.
+
 ### Portfolio branch deployment
 
 Source commit `765a128` was compiled as an optimized Linux ARM64 server in a
@@ -42,8 +54,9 @@ write transaction, and browser strategy edits submit their displayed node as an
 expected snapshot. The native backend regression and a disposable browser/MCP
 fixture verified that a stale browser edit is rejected without losing the draft,
 and that refresh permits a new edit. Desktop and MCP callers that omit the optional expected snapshot remain
-last-write-wins, as do browser deletion and product-link operations; this is not
-complete concurrency protection. The subsequent portfolio branch deployment is recorded above.
+last-write-wins, as do browser product-link operations; browser subtree deletion
+was subsequently guarded as recorded above. This is not complete concurrency
+protection. The subsequent portfolio branch deployment is recorded above.
 
 ### Browser portfolio management
 

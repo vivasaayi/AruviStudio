@@ -2267,7 +2267,13 @@ test("browser manages portfolio strategy and product dependencies", async ({ pag
     await expect(page.locator('#dependencyList')).not.toContainText(b.name);
     page.once('dialog', dialog => dialog.accept()); await page.getByRole('button',{name:'Unlink',exact:true}).click();
     await expect(page.locator('#strategyLinks')).not.toContainText(a.name);
+    await call('create_strategy_node',{parent_node_id:node.id,node_kind:'domain',name:`Concurrent child ${suffix}`});
     page.once('dialog', dialog => dialog.accept()); await page.getByRole('button',{name:'Delete strategy'}).click();
+    await expect(page.locator('#status')).toContainText('refresh before deleting');
+    await expect(page.locator('#strategyList')).toContainText(node.name);
+    await page.getByRole('button',{name:'Refresh portfolio'}).click();
+    await expect(page.locator('#strategyList')).toContainText(`Concurrent child ${suffix}`);
+    page.once('dialog', dialog => dialog.accept()); await page.locator('#strategyList .tool-card').filter({has:page.getByText(`${node.name} · strategic_product_area · root`, {exact:true})}).getByRole('button',{name:'Delete strategy'}).click();
     await expect(page.locator('#strategyList')).not.toContainText(node.name); node = null;
   } finally {
     if (node) await call('delete_strategy_node',{id:node.id});

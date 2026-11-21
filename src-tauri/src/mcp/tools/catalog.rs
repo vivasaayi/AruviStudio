@@ -37,7 +37,14 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             action_result("update_strategy_node", strategy_repo::update_strategy_node_guarded(&state.db, &id, next_parent, kind.as_deref(), name.as_deref(), description.as_deref(), owner.as_deref(), expected.as_ref()).await?)
         }
         "delete_strategy_node" => {
-            strategy_repo::delete_strategy_node(&state.db, &args.required_string(&["id"], "id")?).await?;
+            let id = args.required_string(&["id"], "id")?;
+            let nodes: Option<Vec<crate::domain::strategy::StrategyNode>> = args.optional_deserialize(&["expected_nodes"], "expected_nodes")?;
+            let links: Option<Vec<crate::domain::strategy::ProductStrategyLink>> = args.optional_deserialize(&["expected_links"], "expected_links")?;
+            match (nodes, links) {
+                (Some(nodes), Some(links)) => strategy_repo::delete_strategy_node_guarded(&state.db, &id, &nodes, &links).await?,
+                (None, None) => strategy_repo::delete_strategy_node(&state.db, &id).await?,
+                _ => return Err(AppError::Validation("Both expected nodes and links are required".into())),
+            }
             Ok(action_ok("delete_strategy_node"))
         }
         "list_product_strategy_links" => action_result("list_product_strategy_links", strategy_repo::list_product_strategy_links(&state.db).await?),

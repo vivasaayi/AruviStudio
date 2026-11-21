@@ -229,6 +229,23 @@ pub async fn delete_strategy_node(pool: &SqlitePool, id: &str) -> Result<(), App
     Ok(())
 }
 
+/// Delete only the subtree and links that the caller confirmed, under one write lock.
+pub async fn delete_strategy_node_guarded(pool: &SqlitePool, id: &str, expected_nodes: &[StrategyNode], expected_links: &[ProductStrategyLink]) -> Result<(), AppError> {
+    let mut transaction = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let nodes = sqlx::query(&format!("WITH RECURSIVE subtree(id) AS (SELECT id FROM strategy_nodes WHERE id=? UNION SELECT s.id FROM strategy_nodes s JOIN subtree t ON s.parent_node_id=t.id) SELECT {STRATEGY_NODE_COLUMNS} FROM strategy_nodes WHERE id IN (SELECT id FROM subtree) ORDER BY id"))
+        .bind(id).fetch_all(&mut *transaction).await?.into_iter().map(row_to_strategy_node).collect::<Result<Vec<_>, _>>()?;
+    let links: Vec<_> = sqlx::query(&format!("WITH RECURSIVE subtree(id) AS (SELECT id FROM strategy_nodes WHERE id=? UNION SELECT s.id FROM strategy_nodes s JOIN subtree t ON s.parent_node_id=t.id) SELECT {PRODUCT_STRATEGY_LINK_COLUMNS} FROM product_strategy_links WHERE strategy_node_id IN (SELECT id FROM subtree) ORDER BY id"))
+        .bind(id).fetch_all(&mut *transaction).await?.into_iter().map(row_to_product_strategy_link).collect();
+    let mut expected_nodes = expected_nodes.to_vec(); expected_nodes.sort_by(|a,b| a.id.cmp(&b.id));
+    let mut expected_links = expected_links.to_vec(); expected_links.sort_by(|a,b| a.id.cmp(&b.id));
+    if nodes.is_empty() || nodes != expected_nodes || links != expected_links {
+        return Err(AppError::Validation("Strategy subtree or links changed; refresh before deleting.".into()));
+    }
+    sqlx::query("DELETE FROM strategy_nodes WHERE id=?").bind(id).execute(&mut *transaction).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
 pub async fn list_product_strategy_links(
     pool: &SqlitePool,
 ) -> Result<Vec<ProductStrategyLink>, AppError> {
