@@ -5788,6 +5788,18 @@ does not establish live cloud-provider compatibility or staging acceptance.
 
 ## Real-model existing-module workflow revalidation
 
+On the deployed `6d23c1d`-based branch image, a new disposable run used
+`qwen25-coder-7b-q4`, JSON-object coding mode, a work-item workspace override,
+and a 4,096-token non-coding budget. The real workflow reached plan approval
+and test review; the model received the duplicate-definition guidance and its
+generated edit passed the workflow syntax check. Independent assertions ran
+the generated code in a network-disabled, read-only, non-root container and
+checked both existing `sumEven` behavior and the new `clamp` cases, including
+the invalid range. A task-specific duplicate-declaration check also passed.
+The product default workspace remained untouched, and after review the
+disposable Git remote contained the verified file. This single successful run
+does not resolve the failures or establish general model reliability.
+
 Against the refreshed branch image and real `qwen25-coder-7b-q4`, a disposable
 existing-module workflow used an alternate work-item workspace and a 4,096-token
 budget for non-coding agents. Its syntax test passed, but independent review
