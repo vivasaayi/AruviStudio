@@ -58,7 +58,10 @@ assets from its own filesystem; separately run native servers require explicit
 asset configuration and packaged-native delivery is unverified.
 An isolated browser test also sends an unsaved Monaco buffer to a simulated
 Copilot provider and confirms through MCP that the saved file is unchanged.
-This particular editor-to-Copilot path has not been tested with a live model.
+A disposable Studio fixture additionally used the real local
+`qwen25-coder-7b-q4` model to discuss an unsaved Monaco buffer, confirmed the
+saved file was unchanged, then reviewed and applied a model-proposed patch.
+That is one successful scenario, not a general model reliability guarantee.
 Browser Copilot can now select an enabled registered model independently of the
 Connection model, or explicitly use the Connection model. The choice lasts for
 the page session; refresh retrieves current models and retains an unavailable

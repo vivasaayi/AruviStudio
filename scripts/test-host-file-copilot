@@ -110,7 +110,7 @@ try:
         mcp("aruvi_repositories", "write_repository_file", {"repository_id":repo["id"], "relative_path":"math.js", "content":file["content"]})
         print(f"Real {model} {interface} patch proposal was previewed and applied successfully")
     browser = subprocess.run(["node", "scripts/test-host-patch-ui.mjs"], cwd=root,
-        input=json.dumps({"address": address, "provider": provider["id"], "model": model}),
+        input=json.dumps({"address": address, "provider": provider["id"], "model": model, "repository": repo["id"]}),
         text=True, capture_output=True, timeout=240)
     if browser.returncode:
         raise ValueError("Browser proposal fixture failed: " + browser.stderr[-2000:])
