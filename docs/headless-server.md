@@ -272,6 +272,10 @@ server binds to localhost. An invalid entry never grants access, but still
 disables tokenless MCP. Restart after changing this environment value. This
 configuration has been tested with synthetic proxy headers, not with the VPS
 ingress; verify the actual proxy and authorized browser during staging acceptance.
+On macOS, `bash scripts/test tls-mcp-proxy` exercises the built worktree image
+through a disposable local HTTPS proxy and headless Chrome, including missing-token
+and untrusted-host rejection. It uses a temporary self-signed certificate, so it
+does not validate certificate trust, the VPS proxy, or staging configuration.
 
 ### Calling the worktree MCP server
 

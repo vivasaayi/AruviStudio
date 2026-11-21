@@ -4185,6 +4185,18 @@ implicit fallback. All 29 remote tests and the PDF outage check passed; the
 rebuilt branch app and PDF sidecar restarted healthy. This is not live cloud
 provider validation or complete desktop IDE parity.
 
+## Browser MCP through a disposable TLS proxy
+
+`bash scripts/test tls-mcp-proxy` started a separate worktree fixture and a
+local HTTPS proxy preserving Host. Headless Chrome loaded the browser app and
+successfully sent an authenticated same-origin MCP ping through the proxy. A
+missing token returned 401, and a different hostname returned 403 even with the
+token. The test uses a self-signed temporary certificate and disables browser
+certificate verification; it does not validate trust or the actual VPS ingress.
+The current npm audit reported zero vulnerabilities. LM Studio was not listening
+on localhost:1234, and OpenAI, Anthropic and DeepSeek API keys were not present
+in the current shell; this does not rule out credentials in other secret stores.
+
 ## Explicit MCP browser origins for staging
 
 The server accepts optional comma-separated exact external MCP origins from
