@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Race workflow gate decisions across disposable Studio containers."""
 import concurrent.futures
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -125,6 +126,69 @@ try:
             if run["status"] != "cancelled" or run["current_stage"] != "cancelled" or len(history) != 1 or history[0]["to_stage"] != "cancelled":
                 raise RuntimeError("Workflow state and transition history were inconsistent")
         print("Two Studio containers committed exactly one gate decision and history entry in five races.")
+
+        # Use a local bare remote and hold the actual per-run advisory lock to
+        # prove that both servers wait before touching Git, not just SQLite.
+        primary = containers[0]
+        work, remote, run_id = "/data/delivery-work", "/data/delivery-origin.git", "delivery-race"
+        docker("exec", primary, "git", "init", "--bare", remote)
+        docker("exec", primary, "git", "init", "-b", "main", work)
+        docker("exec", primary, "git", "-C", work, "config", "user.name", "Fixture")
+        docker("exec", primary, "git", "-C", work, "config", "user.email", "fixture@example.invalid")
+        docker("exec", primary, "git", "-C", work, "remote", "add", "origin", remote)
+        docker("exec", primary, "sh", "-c", "printf 'base\\n' > /data/delivery-work/base.txt")
+        docker("exec", primary, "git", "-C", work, "add", "base.txt")
+        docker("exec", primary, "git", "-C", work, "commit", "-m", "fixture base")
+        base = docker("exec", primary, "git", "-C", work, "rev-parse", "HEAD")
+        docker("exec", primary, "sh", "-c", "printf 'workflow output\\n' > /data/delivery-work/generated.txt")
+        digest = hashlib.sha256(b"workflow output\n").hexdigest()
+        manifest = json.dumps({"repository_id":"delivery-repo", "base_head":base,
+                               "files":{"generated.txt":digest}, "commit":None})
+        seed_delivery = """import sqlite3,sys
+c=sqlite3.connect('/data/studio.db')
+c.execute(\"INSERT INTO repositories(id,name,local_path,default_branch) VALUES('delivery-repo','Fixture',?,'main')\",(sys.argv[1],))
+c.execute(\"UPDATE work_items SET active_repo_id='delivery-repo',branch_name='main' WHERE id=?\",(sys.argv[2],))
+c.execute(\"INSERT INTO workflow_runs(id,work_item_id,workflow_version,status,current_stage) VALUES (?,?,'v1','running','push_preparation')\",(sys.argv[3],sys.argv[2]))
+c.execute('INSERT INTO settings(key,value) VALUES(?,?)',('workflow.delivery_manifest.'+sys.argv[3],sys.argv[4]))
+c.commit()
+"""
+        docker("run", "--rm", "--pull", "never", "--user", "10001:10001", "-v", f"{volume}:/data", "--entrypoint", "python3", "python:3.12-slim", "-c", seed_delivery, work, item["id"], run_id, manifest)
+        lock_delivery = """import fcntl,hashlib,pathlib,sys,time
+p=pathlib.Path('/data'); d=p/'.studio.db.workflow-delivery-locks'; d.mkdir(mode=0o700,exist_ok=True)
+f=(d/hashlib.sha256(sys.argv[1].encode()).hexdigest()).open('a+'); fcntl.flock(f,fcntl.LOCK_EX)
+(p/'delivery.ready').touch(); deadline=time.monotonic()+20
+while not (p/'delivery.release').exists():
+ if time.monotonic()>deadline: raise RuntimeError('lock timeout')
+ time.sleep(.01)
+"""
+        helper = f'{plan["project"]}-delivery-lock-{suffix}'
+        docker("run", "-d", "--name", helper, "--pull", "never", "--user", "10001:10001", "-v", f"{volume}:/data", "--entrypoint", "python3", "python:3.12-slim", "-c", lock_delivery, run_id)
+        containers.append(helper)
+        deadline = time.monotonic() + 15
+        while subprocess.run(["docker", "exec", helper, "test", "-f", "/data/delivery.ready"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
+            if time.monotonic() >= deadline: raise RuntimeError("Delivery lock helper did not start")
+            time.sleep(.05)
+        barrier = threading.Barrier(3)
+        def advance(base_url):
+            barrier.wait(timeout=10)
+            return call(base_url, "aruvi_workflows", "advance_workflow", {"workflow_run_id":run_id})
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(advance, base_url) for base_url in endpoints]
+            barrier.wait(timeout=10)
+            time.sleep(.5)
+            if any(future.done() for future in futures): raise RuntimeError("Delivery bypassed the held cross-process lock")
+            docker("exec", helper, "touch", "/data/delivery.release")
+            responses = [future.result(timeout=20) for future in futures]
+        if docker("wait", helper) != "0": raise RuntimeError("Delivery lock helper failed")
+        if any(response.get("isError") for response in responses): raise RuntimeError("Concurrent delivery failed")
+        run = result(endpoints[0], "aruvi_workflows", "get_workflow_run", {"workflow_run_id":run_id})
+        history = result(endpoints[1], "aruvi_workflows", "get_workflow_history", {"workflow_run_id":run_id})
+        head = docker("exec", primary, "git", "--git-dir", remote, "rev-parse", "refs/heads/main")
+        parent = docker("exec", primary, "git", "--git-dir", remote, "rev-parse", "refs/heads/main^")
+        content = docker("exec", primary, "git", "--git-dir", remote, "show", "refs/heads/main:generated.txt")
+        if run["status"] != "completed" or run["current_stage"] != "done" or len(history) != 2 or parent != base or content != "workflow output" or head == base:
+            raise RuntimeError("Concurrent delivery did not produce one completed commit")
+        print("Two Studio containers serialized Git delivery and produced one completed commit.")
 finally:
     for name in reversed(containers):
         subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

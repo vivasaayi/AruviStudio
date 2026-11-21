@@ -5929,3 +5929,9 @@ The branch endpoint after acceptance was `127.0.0.1:55253`; its port can change
 when restarted or recreated. A SQLite backup passed `quick_check`, and the prior image is
 retained for rollback. Mac integration, staging, real external services and full
 desktop parity remain unverified.
+
+The two-container fixture was subsequently extended to hold the delivery lock
+while two MCP clients advance the same workflow against a local bare Git remote.
+The candidate waited and produced one delivery commit and a completed workflow;
+the preceding image failed the fixture by bypassing the held lock. This proves the
+tested cross-process scenario, not exactly-once delivery after a process crash.

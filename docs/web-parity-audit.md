@@ -350,14 +350,20 @@ same team and releasing a slot remain possible. The fixture verifies both
 contention and slot reuse. This does not implement automatic workflow-stage
 retries or command isolation.
 
-Main workflow transitions and failure recording now commit lifecycle, stage
-and history together and reject a stale or non-running source. The separate
-advance path uses the same database operation and marks `done` as completed.
-Database atomicity does not include agent writes, coordinator pending-stage
-updates or Git pushes; in particular advance can push before its database
-transition. A macOS subprocess fixture and a two-container Linux MCP fixture
-each raced competing decisions five times with one winner and one history entry
-each time; the Linux fixture reproduced two successes on the prior image.
+Main workflow transitions and failure recording commit lifecycle, stage and
+history together and reject stale sources. Manual advancement records the Git
+stage before delivery and completes only after a successful push. Cooperating
+processes on Unix with a shared file-backed database serialize Git delivery per
+run; in-memory and non-Unix databases have only in-process coordination. A stale
+failure cannot mark a later stage failed. The native tests exercised concurrent
+advances against a local Git remote and the cross-process delivery lock; the
+deployed candidate also passed five two-container decision races and a forced
+two-container MCP Git-delivery race against a local bare remote. The prior image
+failed the new delivery test by bypassing its held lock. Database
+atomicity does not include Git or other external effects: a crash after a push
+can lead to retrying the same recorded commit. Agent writes and coordinator
+pending-stage updates remain outside that transaction. See the current checkpoint
+in [model-client-goal.md](model-client-goal.md) for validation and limitations.
 
 ### Planner action inventory
 
