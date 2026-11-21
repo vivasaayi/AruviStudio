@@ -4062,6 +4062,14 @@ completion and token-limit handling against `qwen25-coder-7b-q4`. The probe
 uses the currently configured management-capable host credentials; scoped live
 deployment and physical audio remain open.
 
+Studio's DeepSeek voice gateway now also uses the shared factory; its existing
+provider validation, secret lookup, speech selectors, and request mapping are
+retained. Twelve native speech tests passed with one local Whisper fixture
+ignored. The rebuilt worktree image passed all 51 isolated workflow tests,
+including simulated DeepSeek speech and transcription through browser, API,
+and MCP. Both app and PDF service were healthy at port 55091. This does not
+validate the live DeepSeek service.
+
 ## Coding final-response guidance
 
 A real 7B extend-module workflow removed the existing exports and put corrected

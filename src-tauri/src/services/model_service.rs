@@ -106,14 +106,14 @@ fn configured_model_client_options() -> Result<ClientOptions, AppError> {
     model_client_options(connect.as_deref(), request.as_deref())
 }
 
-pub(crate) fn create_deepseek_voice_client(provider: &ModelProvider) -> Result<aruvi_model_client::deepseek::DeepSeekVoiceClient, AppError> {
+pub(crate) fn create_deepseek_voice_client(provider: &ModelProvider) -> Result<Box<dyn SharedModelGateway>, AppError> {
     if !provider.enabled { return Err(AppError::Validation("Selected provider is disabled".into())); }
     if provider.provider_type.as_str() != "openai_compatible" || provider.protocol != "openai_compatible" {
         return Err(AppError::Validation("DeepSeek voice requires an OpenAI-compatible provider".into()));
     }
     let key = secrets::resolve_provider_secret(provider)?
         .ok_or_else(|| AppError::Validation("A DeepSeek API key is required".into()))?;
-    aruvi_model_client::deepseek::DeepSeekVoiceClient::with_options(provider.base_url.clone(), key, configured_model_client_options()?)
+    aruvi_model_client::create_gateway(GatewayConfig::DeepSeekVoice { base_url: provider.base_url.clone(), api_key: key, options: configured_model_client_options()? })
         .map_err(|error| AppError::Validation(error.to_string()))
 }
 
