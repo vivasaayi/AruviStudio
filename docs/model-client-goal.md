@@ -30,6 +30,30 @@ now scoped to their SQLite pool; the previously interfering tests passed
 together and a focused pool-isolation test passed. This changes no production
 model routing.
 
+The final macOS library suite passed 321 tests with seven ignored; both hosted
+test runs and the clean Linux ARM64 build of
+`d72db2e198ad06374859dd960cf097ed5c6a2769` passed. The image archive checksum
+and source revision were verified. Its extracted server binary (SHA-256
+`3c619237a4190fe52ebe12152b3901d2b988b0e050ba1fa11ec29384bce047f9`)
+was layered over the unchanged previous branch runtime, yielding derived image
+`sha256:db5a852f728518337d9d56043fa6a6c58e43748047fa15f3f7d0db13fad1ee42`;
+this is not the complete hosted image. The candidate passed 53 browser/workflow
+scenarios and the two-container transition and Git-delivery races. A disposable
+Linux fixture checked valid, outside-directory, symlink and oversized artifact
+reads through browser and MCP; the preceding image failed that fixture by
+allowing the outside-directory MCP read. The fixture is available as
+`bash scripts/test container-artifact-boundaries` and can select a candidate via
+`ARUVI_TEST_APP_IMAGE`.
+
+After deployment, product, MCP/mobile authorization, PDF and persistence
+acceptance passed across restart, as did browser MCP-origin and real 7B MCP
+coding checks. A checked SQLite backup and the prior image are retained. A
+read-only compatibility count found no artifact records in this worktree
+database, so it does not establish compatibility with historical user data.
+The branch endpoint after acceptance was `127.0.0.1:55273`, subject to change
+on restart. Staging, non-Unix race behavior and complete desktop parity remain
+unverified.
+
 ### Current independent client, voice and dependency revalidation
 
 On 2026-11-21, the independent consumer's manifest, lockfile and source-pin
