@@ -3953,3 +3953,18 @@ missing credentials and tested cross-origin requests. The dedicated coding
 fixture failed at its MCP call with its default model/provider; this check does
 not identify the cause and coding-model validation remains open. These checks
 do not establish native window, physical audio, or live cloud-provider parity.
+
+## Staging adapter checkpoint
+
+The staging Compose adapter now starts the same network-isolated PDF sidecar
+as the worktree and connects the app to its Unix socket. A disposable local
+Compose project using the worktree image reached healthy status for both
+services; the app connected to the socket, and the renderer reported no network
+and a read-only root filesystem. This did not test a complete export or a VPS
+deployment. The fixture and its disposable volumes were removed.
+
+On 2026-11-20, `origin/main` was `1edb9dd` and did not contain the feature
+branch. The organization promotion process calls for a merged default-branch
+revision and Mac integration acceptance before VPS staging. No staging
+deployment has been made. The integration adapter, target platform, ingress,
+real Model Host connectivity and persistent staging acceptance still need review.
