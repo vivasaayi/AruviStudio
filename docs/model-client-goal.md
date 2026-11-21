@@ -14,14 +14,22 @@ provider hosting into the model-host service as part of this work.
 
 ### Agent repository-context symlink check
 
+On Unix, context-file reads now use descriptor-relative `openat` with
+`O_NOFOLLOW` for each component, reject hard-linked or non-regular files, and
+bound reads even if a file grows. Candidate manifest entries are checked through
+the same path. Two native tests passed for external symlinks and hard links and
+for directory/file replacement before opening. Directory enumeration itself is
+still path-based, and concurrent mutation can affect which files are seen; this
+is not a filesystem sandbox. The non-Unix fallback retains canonical-path checks
+and has not been validated against replacement races.
+
 Automatic agent repository-context collection previously followed symlinked
 files and directories, potentially including content outside the workspace in
 a model prompt. It now skips symlink entries and checks canonical paths before
 directory traversal and snippet reads. A native test confirmed that ordinary
 external file and directory symlinks are excluded while an in-workspace source
-file remains visible. These path checks do not prevent concurrent filesystem
-replacement races or hard-link access and are not a sandbox. The running branch
-Docker image does not yet contain this change.
+file remains visible. The later descriptor-based Unix changes are described
+above. The running branch Docker image does not yet contain these changes.
 
 The running worktree's authenticated MCP repository list contained zero
 registered repositories when checked; this does not inspect other environments

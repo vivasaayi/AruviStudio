@@ -1,6 +1,40 @@
 use crate::error::AppError;
 use crate::services::agent_execution_limits::{self, AgentExecutionBoundaries};
-use std::path::Path;
+use std::{fs::File, io::Read, path::Path};
+
+#[cfg(unix)]
+fn open_context_file(root: &Option<File>, _canonical_root: &Path, relative: &Path) -> std::io::Result<File> {
+    use std::os::{fd::{AsRawFd, FromRawFd}, unix::{ffi::OsStrExt, fs::MetadataExt}};
+    use std::path::Component;
+    let components: Vec<_> = relative.components().collect();
+    let mut directory = root.as_ref().ok_or(std::io::ErrorKind::InvalidInput)?.try_clone()?;
+    for (index, component) in components.iter().enumerate() {
+        let Component::Normal(name) = component else { return Err(std::io::ErrorKind::InvalidInput.into()); };
+        let name = std::ffi::CString::new(name.as_bytes()).map_err(|_| std::io::ErrorKind::InvalidInput)?;
+        let last = index + 1 == components.len();
+        let flags = libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | if last { libc::O_NONBLOCK } else { libc::O_DIRECTORY };
+        // SAFETY: directory and name remain valid during openat; the returned fd is owned once.
+        let fd = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), flags) };
+        if fd < 0 { return Err(std::io::Error::last_os_error()); }
+        let opened = unsafe { File::from_raw_fd(fd) };
+        if last {
+            let metadata = opened.metadata()?;
+            if !metadata.is_file() || metadata.nlink() != 1 { return Err(std::io::ErrorKind::PermissionDenied.into()); }
+            return Ok(opened);
+        }
+        directory = opened;
+    }
+    Err(std::io::ErrorKind::InvalidInput.into())
+}
+
+#[cfg(not(unix))]
+fn open_context_file(_root: &Option<File>, canonical_root: &Path, relative: &Path) -> std::io::Result<File> {
+    let path = canonical_root.join(relative);
+    if !std::fs::symlink_metadata(&path)?.file_type().is_file() || !std::fs::canonicalize(&path)?.starts_with(canonical_root) {
+        return Err(std::io::ErrorKind::PermissionDenied.into());
+    }
+    File::open(path)
+}
 
 pub(crate) fn build_repository_context(
     repo_path: &str,
@@ -12,6 +46,10 @@ pub(crate) fn build_repository_context(
         return Ok(String::new());
     }
     let canonical_root = std::fs::canonicalize(repo_root)?;
+    #[cfg(unix)]
+    let root_handle = Some(File::open(&canonical_root)?);
+    #[cfg(not(unix))]
+    let root_handle: Option<File> = None;
 
     let max_repo_files_scanned = boundaries
         .max_repo_files_scanned
@@ -60,6 +98,9 @@ pub(crate) fn build_repository_context(
             if !agent_execution_limits::is_text_source_file(&rel) {
                 continue;
             }
+            if open_context_file(&root_handle, &canonical_root, Path::new(&rel)).is_err() {
+                continue;
+            }
             files.push(rel);
         }
         if scanned >= max_repo_files_scanned {
@@ -94,21 +135,13 @@ pub(crate) fn build_repository_context(
         if snippets_added >= max_files || used_chars >= snippet_budget {
             break;
         }
-        let file_path = repo_root.join(rel);
-        let metadata = match std::fs::symlink_metadata(&file_path) {
-            Ok(meta) => meta,
+        let file = match open_context_file(&root_handle, &canonical_root, Path::new(rel)) {
+            Ok(file) => file,
             Err(_) => continue,
         };
-        if !metadata.file_type().is_file() || metadata.len() > 300_000 {
-            continue;
-        }
-        if !std::fs::canonicalize(&file_path).is_ok_and(|path| path.starts_with(&canonical_root)) {
-            continue;
-        }
-        let content = match std::fs::read_to_string(&file_path) {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
+        let mut bytes = Vec::new();
+        if file.take(300_001).read_to_end(&mut bytes).is_err() || bytes.len() > 300_000 { continue; }
+        let content = match String::from_utf8(bytes) { Ok(value) => value, Err(_) => continue };
         if content.trim().is_empty() {
             continue;
         }
@@ -149,10 +182,28 @@ mod tests {
         std::fs::write(outside.join("private.rs"), "EXTERNAL_PRIVATE_MARKER\n").unwrap();
         std::os::unix::fs::symlink(outside.join("private.rs"), repo.join("linked.rs")).unwrap();
         std::os::unix::fs::symlink(&outside, repo.join("linked-dir")).unwrap();
+        std::fs::hard_link(outside.join("private.rs"), repo.join("hardlinked.rs")).unwrap();
         let context = build_repository_context(repo.to_str().unwrap(), &AgentExecutionBoundaries::default(), 12000).unwrap();
         assert!(context.contains("main.rs"));
         assert!(!context.contains("linked.rs"));
         assert!(!context.contains("linked-dir"));
+        assert!(!context.contains("hardlinked.rs"));
         assert!(!context.contains("EXTERNAL_PRIVATE_MARKER"));
+    }
+
+    #[test]
+    fn descriptor_read_rejects_replaced_directory_and_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path().join("repo");
+        let outside = temp.path().join("outside");
+        std::fs::create_dir_all(repo.join("source")).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        std::fs::write(outside.join("secret.rs"), "secret").unwrap();
+        let root = Some(File::open(&repo).unwrap());
+        std::fs::remove_dir(repo.join("source")).unwrap();
+        std::os::unix::fs::symlink(&outside, repo.join("source")).unwrap();
+        assert!(open_context_file(&root, &repo, Path::new("source/secret.rs")).is_err());
+        std::os::unix::fs::symlink(outside.join("secret.rs"), repo.join("secret.rs")).unwrap();
+        assert!(open_context_file(&root, &repo, Path::new("secret.rs")).is_err());
     }
 }
