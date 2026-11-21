@@ -160,6 +160,10 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
             "Manage agents, teams, skills, model bindings, and workflow stage routing policies.",
             &[
                 "list_agent_definitions",
+                "list_prompt_templates",
+                "create_prompt_template",
+                "update_prompt_template",
+                "delete_prompt_template",
                 "list_agent_model_bindings",
                 "inspect_agent_model",
                 "set_primary_agent_model_binding",

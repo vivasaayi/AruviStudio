@@ -30,6 +30,7 @@ pub mod model_call_repo;
 pub mod model_repo;
 pub mod observability_repo;
 pub mod planner_repo;
+pub mod prompt_template_repo;
 pub mod product_area_repo;
 pub mod product_book_repo;
 pub mod product_capability_read_repo;

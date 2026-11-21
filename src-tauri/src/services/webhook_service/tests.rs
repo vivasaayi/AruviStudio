@@ -288,6 +288,38 @@ async fn remote_test_command_configuration_is_authenticated_and_validated() {
 }
 
 #[tokio::test]
+async fn prompt_templates_support_guarded_management_and_legacy_references() {
+    let app: tauri::App<MockRuntime> = make_test_app("prompt_template_management").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "template-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let path = "/api/mobile/prompt-templates";
+    let fields = json!({"name":"Team coding","role":"coding","template_text":"Use clear commit messages."});
+    assert_eq!(send_json(&router, Method::POST, path, None, Some(fields.clone())).await.0, StatusCode::UNAUTHORIZED);
+    let (status, body) = send_json(&router, Method::POST, path, Some("template-token"), Some(fields.clone())).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let item = parse_json(&body); let id = item["id"].as_str().unwrap();
+    let reference = format!("template:{id}");
+    assert_eq!(crate::persistence::prompt_template_repo::resolve(&state.db, "coding_v1", "coding").await.unwrap(), None);
+    assert_eq!(crate::persistence::prompt_template_repo::resolve(&state.db, &reference, "coding").await.unwrap().as_deref(), Some("Use clear commit messages."));
+    assert!(crate::persistence::prompt_template_repo::resolve(&state.db, &reference, "planning").await.is_err());
+    assert!(crate::persistence::prompt_template_repo::resolve(&state.db, "template:missing", "coding").await.is_err());
+    let changed = json!({"name":"Revised","role":"*","template_text":"Review changes."});
+    let edit = json!({"id":id,"expected_version":1,"fields":changed});
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/prompt-templates/update", Some("template-token"), Some(edit.clone())).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(send_json(&router, Method::POST, "/api/mobile/prompt-templates/update", Some("template-token"), Some(edit)).await.0, StatusCode::CONFLICT);
+    assert!(crate::mcp::dispatch_tool(&state, "aruvi_agents", json!({"action":"update_prompt_template","arguments":{"id":id,"expected_version":1,"name":"Stale","role":"*","template_text":"Stale"}})).await.is_err());
+    let result = crate::mcp::dispatch_tool(&state, "aruvi_agents", json!({"action":"list_prompt_templates","arguments":{}})).await.unwrap();
+    assert_eq!(result["result"].as_array().unwrap().len(), 1);
+    sqlx::query("UPDATE agent_definitions SET prompt_template_ref=? WHERE id='coding-agent'").bind(&reference).execute(&state.db).await.unwrap();
+    let delete = json!({"id":id,"expected_version":2});
+    assert_eq!(send_json(&router, Method::POST, "/api/mobile/prompt-templates/delete", Some("template-token"), Some(delete.clone())).await.0, StatusCode::CONFLICT);
+    sqlx::query("UPDATE agent_definitions SET prompt_template_ref='coding_v1' WHERE id='coding-agent'").execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, "/api/mobile/prompt-templates/delete", Some("template-token"), Some(delete)).await.0, StatusCode::OK);
+}
+
+#[tokio::test]
 async fn work_order_moves_are_atomic_scoped_and_available_to_mcp() {
     let app: tauri::App<MockRuntime> = make_test_app("work_order_moves").await;
     let state = app.state::<AppState>().inner().clone();

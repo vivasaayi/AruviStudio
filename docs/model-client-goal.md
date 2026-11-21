@@ -12,6 +12,19 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Agent prompt templates
+
+The existing template table was unused, and the branch database's nine seeded
+agent references had no matching templates. Browser and MCP now manage versioned
+templates, while shared agent execution applies only explicit `template:<id>`
+references; older references retain their previous inactive behavior. A template
+matches the agent role or `*`, and missing or mismatched templates fail a stage
+instead of silently changing its behavior. Instructions are limited to 1,000
+characters and retained during subsequent coding turns. Tool permissions and
+execution boundaries remain independently enforced. An assigned template cannot
+be deleted; concurrent template edits require the current version. Native and
+container validation is recorded here when complete.
+
 ### Browser work-item ordering
 
 The browser can drag or use move buttons to reorder an unfiltered product
@@ -4361,12 +4374,11 @@ the guidance caused success or prevent inaccurate model claims. Project-level
 behavioral tests and review remain necessary. The rebuilt worktree app and PDF
 renderer were healthy on port 55085.
 
-## Agent template reference clarification
+## Earlier agent template reference clarification
 
 Desktop and browser agent editors now state that the prompt-template reference
 is stored metadata and is not applied during execution. Seeded references have
-no corresponding template resolution path. Implementing template behavior and
-defining compatibility for existing references remain open. The frontend build
+no corresponding template resolution path at that checkpoint. The frontend build
 passed and the rebuilt worktree app and PDF sidecar were healthy at the newly
 assigned port `55079`; the UI text itself was not separately browser-tested.
 

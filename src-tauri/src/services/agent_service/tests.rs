@@ -101,6 +101,9 @@ async fn coding_stage_creates_tool_trace_artifact() {
         .execute(&pool)
         .await
         .expect("failed to update coding agent boundaries");
+    let template = crate::persistence::prompt_template_repo::create(&pool, "Coding fixture", "coding", "TEMPLATE_MARKER: document the change").await.unwrap();
+    sqlx::query("UPDATE agent_definitions SET prompt_template_ref=? WHERE id='coding-agent'")
+        .bind(format!("template:{}", template.id)).execute(&pool).await.unwrap();
 
     let product = product_repo::create_product(
         &pool,
@@ -256,6 +259,7 @@ async fn coding_stage_creates_tool_trace_artifact() {
     assert!(prompt_content.contains("PROBLEM_MARKER: preserve existing behavior"));
     assert!(prompt_content.contains("ACCEPTANCE_MARKER: provide tested output"));
     assert!(prompt_content.contains("CONSTRAINT_MARKER: do not modify configuration"));
+    assert!(prompt_content.contains("TEMPLATE_MARKER: document the change"));
     let trace_artifact = artifacts
         .iter()
         .find(|artifact| artifact.artifact_type == "coding_tool_trace")
@@ -335,6 +339,7 @@ async fn coding_stage_creates_tool_trace_artifact() {
             let prompt = request["messages"][0]["content"].as_str().unwrap();
             assert!(prompt.contains("ACCEPTANCE_MARKER: provide tested output"));
             assert!(prompt.contains("CONSTRAINT_MARKER: do not modify configuration"));
+            assert!(prompt.contains("TEMPLATE_MARKER: document the change"));
             if step == 3 { assert!(prompt.contains("identify unfinished or unverified requirements")); }
             let content = if step == 1 {
                 json!({"type":"tool_call", "tool":"repo.write_file", "arguments":{"path":"forced-final.txt", "content":"fixture content"}}).to_string()

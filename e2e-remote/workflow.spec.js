@@ -1789,7 +1789,7 @@ test("browser manages agent definitions and detects conflicts", async ({ page, r
   await page.locator("#saveButton").click();
   await page.getByRole("button", { name: "Agents", exact: true }).click();
   await expect(page.getByText("An empty allowed-tools list uses the default repository tools", { exact: false })).toBeVisible();
-  await expect(page.getByText("Prompt template references are stored but are not currently applied", { exact: false })).toBeVisible();
+  await expect(page.getByText("Older references remain inactive metadata", { exact: false }).first()).toBeVisible();
   const createForm = page.locator("#createAgentEditor");
   await createForm.getByLabel("Agent name", { exact: true }).fill(fields.name);
   await createForm.getByLabel("Agent role", { exact: true }).fill(fields.role);

@@ -138,7 +138,7 @@ impl AgentService {
         let preparation = async {
             self.store_manager_handoff(&work_item, &workflow_run, stage_name, &execution_context)
                 .await?;
-            let context = self
+            let mut context = self
                 .build_agent_context(
                     &work_item,
                     &workflow_run,
@@ -148,6 +148,11 @@ impl AgentService {
                     context_budget_chars,
                 )
                 .await?;
+            if let Some(template) = crate::persistence::prompt_template_repo::resolve(
+                &self.db, &execution_context.stage_agent.prompt_template_ref, &execution_context.stage_agent.role,
+            ).await? {
+                context.insert("prompt_template_instructions".into(), template);
+            }
             let prompt = agent_prompt::build_agent_prompt(
                 &execution_context.stage_agent,
                 &context,

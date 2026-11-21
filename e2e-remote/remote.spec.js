@@ -127,6 +127,38 @@ test("browser approves and rejects work with stale decision protection", async (
   }
 });
 
+test("browser manages versioned agent templates and detects MCP edits", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
+  const mcp = async (action, args) => {
+    const response = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`},data:{jsonrpc:"2.0",id:1,method:"tools/call",params:{name:"aruvi_agents",arguments:{action,arguments:args}}}});
+    const result = (await response.json()).result; expect(result.isError,JSON.stringify(result)).not.toBeTruthy(); return result.structuredContent.result;
+  };
+  await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+  await page.getByRole("button",{name:"Agents",exact:true}).click();
+  const create = page.locator("#createPromptTemplate");
+  await create.getByLabel("Template name").fill("Browser template fixture");
+  await create.getByLabel("Template instructions").fill("Explain decisions clearly.");
+  const response = page.waitForResponse((r)=>r.url().endsWith("/api/mobile/prompt-templates") && r.request().method()==="POST");
+  await create.getByRole("button",{name:"Create template"}).click();
+  const template = await (await response).json();
+  await expect(page.locator("#status")).toHaveText("Template created");
+  let card = page.locator("#promptTemplateList details").filter({hasText:"Browser template fixture"});
+  await card.locator("summary").click();
+  await card.getByRole("button",{name:"Use for new agent"}).click();
+  await expect(page.locator("#createAgentEditor").getByLabel("Prompt template reference")).toHaveValue(`template:${template.id}`);
+  await card.getByLabel("Template instructions Browser template fixture").fill("Unsaved draft");
+  await mcp("update_prompt_template", {id:template.id,expected_version:1,name:template.name,role:"*",template_text:"Changed through MCP"});
+  await card.getByRole("button",{name:"Save template"}).click();
+  await expect(page.locator("#status")).toContainText("changed");
+  await expect(card.getByLabel("Template instructions Browser template fixture")).toHaveValue("Unsaved draft");
+  await page.getByRole("button",{name:"Refresh templates"}).click();
+  card = page.locator("#promptTemplateList details").filter({hasText:"Browser template fixture"});
+  await card.locator("summary").click();
+  await expect(card.getByLabel("Template instructions Browser template fixture")).toHaveValue("Changed through MCP");
+  page.once("dialog",dialog=>dialog.accept()); await card.getByRole("button",{name:"Delete template"}).click();
+  await expect(page.locator("#status")).toHaveText("Template deleted");
+});
+
 test("browser reorders work with drag and keyboard buttons while detecting stale order", async ({ page, request }) => {
   test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
   const headers = {Authorization:`Bearer ${token}`};

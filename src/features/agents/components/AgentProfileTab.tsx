@@ -129,7 +129,7 @@ export function AgentProfileTab({
           <div style={styles.field}>
             <label style={styles.label}>Prompt Template Ref</label>
             <input style={styles.input} value={agentDraft.promptTemplateRef} onChange={(e) => onAgentDraftChange((draft) => ({ ...draft, promptTemplateRef: e.target.value }))} />
-            <small>Saved as metadata; agent execution does not apply this template.</small>
+            <small>Use template:&lt;id&gt; from the web app’s Agent prompt templates. Older references remain inactive metadata.</small>
           </div>
           <div style={styles.field}>
             <label style={styles.label}>Employment Status</label>

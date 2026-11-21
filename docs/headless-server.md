@@ -584,8 +584,18 @@ responses are JSON objects, but the coding loop still validates the action
 schema and permissions. Providers can reject the option; Anthropic currently
 returns an explicit unsupported error. No automatic fallback is attempted.
 Invalid JSON, invalid types, and unknown field names stop execution instead of
-silently dropping all limits. Review existing agent definitions after upgrading. Prompt template
-references are currently stored as metadata; the execution prompt builder does not apply them.
+silently dropping all limits. Review existing agent definitions after upgrading.
+
+The Agents view and `aruvi_agents` MCP actions can manage prompt templates.
+To apply one, set an agent's prompt-template reference to `template:<id>` as
+displayed by the editor. A template has a role (`*` or the exact agent role)
+and up to 1,000 characters of additional instructions. The shared execution
+service loads it when a stage starts and includes it in subsequent coding
+turns. Missing templates and role mismatches fail that run; older references
+without the `template:` prefix remain inactive metadata for compatibility.
+Template changes use version checks; a referenced template cannot be deleted.
+Instructions are sent to the configured model and do not grant tool permissions
+or bypass execution boundaries. Editing a template affects future stage runs.
 
 # External coding CLIs
 

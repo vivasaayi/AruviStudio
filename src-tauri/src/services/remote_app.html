@@ -890,10 +890,13 @@
         <section class="tab-panel" id="tab-agents">
           <div class="split">
             <section class="panel"><div class="panel-header"><div class="panel-title">Create agent</div><button class="secondary" id="refreshAgentsButton" type="button">Refresh</button></div>
-              <div class="panel-body"><p class="empty">An empty allowed-tools list uses the default repository tools, including writing. To restrict access, list exact tool names: repo.list_tree, repo.read_file, repo.search, repo.write_file, repo.replace_range or repo.apply_patch. Supported legacy aliases also work; unrecognized names grant no tools. Agent model bindings are managed under Models; team and skill links are managed under Teams and Skills. Prompt template references are stored but are not currently applied to agent prompts.</p><div id="createAgentEditor"></div></div>
+              <div class="panel-body"><p class="empty">An empty allowed-tools list uses the default repository tools, including writing. To restrict access, list exact tool names: repo.list_tree, repo.read_file, repo.search, repo.write_file, repo.replace_range or repo.apply_patch. Supported legacy aliases also work; unrecognized names grant no tools. Agent model bindings are managed under Models; team and skill links are managed under Teams and Skills.</p><div id="createAgentEditor"></div></div>
             </section>
             <section class="panel"><div class="panel-header"><div class="panel-title">Agent definitions</div></div><div class="panel-body"><div class="stack" id="agentList"></div></div></section>
           </div>
+          <section class="panel"><div class="panel-header"><div class="panel-title">Agent prompt templates</div><button class="secondary" id="refreshPromptTemplates" type="button">Refresh templates</button></div>
+            <div class="panel-body stack"><p class="empty">Templates provide additional agent instructions; they do not change tool permissions. Use role * for any agent, or match an agent role exactly. Copy the template reference into the agent form.</p><div id="createPromptTemplate"></div><div id="promptTemplateList" class="stack"></div></div>
+          </section>
         </section>
 
         <section class="tab-panel" id="tab-teams">
@@ -1496,6 +1499,7 @@
       }
       if (tabId === "agents") {
         void loadAgents();
+        void loadPromptTemplates();
       }
       if (tabId === "skills") {
         void loadSkills();
@@ -4320,6 +4324,62 @@
       } catch (error) { if (requestId === routingRequestId) setStatus(error.message || String(error), "error"); }
     }
 
+    function makePromptTemplateForm(template) {
+      const creating = !template, suffix = creating ? "" : " " + template.name;
+      const form = document.createElement("form"); form.className = "stack";
+      const addField = (label, value, multiline, max) => {
+        const wrapper = document.createElement("label"), caption = document.createElement("span"); caption.className = "label"; caption.textContent = label;
+        const input = document.createElement(multiline ? "textarea" : "input"); input.value = value; input.required = true; input.maxLength = max; input.setAttribute("aria-label", label + suffix);
+        wrapper.append(caption, input); form.appendChild(wrapper); return input;
+      };
+      const name = addField("Template name", template?.name || "", false, 200);
+      const role = addField("Template role", template?.role || "*", false, 100);
+      const instructions = addField("Template instructions", template?.template_text || "", true, 1000);
+      if (template) {
+        const reference = document.createElement("code"); reference.textContent = "template:" + template.id; form.appendChild(reference);
+        const use = document.createElement("button"); use.type = "button"; use.className = "secondary"; use.textContent = "Use for new agent";
+        use.addEventListener("click", () => { el.createAgentEditor.querySelector('[aria-label="Prompt template reference"]').value = reference.textContent; setStatus("Template selected for new agent", "ok"); }); form.appendChild(use);
+      }
+      const save = document.createElement("button"); save.type = "submit"; save.textContent = creating ? "Create template" : "Save template"; form.appendChild(save);
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault(); save.disabled = true;
+        const fields = {name:name.value, role:role.value, template_text:instructions.value};
+        try {
+          await request(creating ? "/api/mobile/prompt-templates" : "/api/mobile/prompt-templates/update", {method:"POST", body:creating ? fields : {id:template.id, expected_version:template.version, fields}});
+          if (creating) { form.reset(); role.value = "*"; }
+          await loadPromptTemplates(); setStatus(creating ? "Template created" : "Template saved", "ok");
+        } catch (error) { setStatus(error.message || String(error), "error"); }
+        finally { save.disabled = false; }
+      });
+      if (template) {
+        const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger"; remove.textContent = "Delete template";
+        remove.addEventListener("click", async () => {
+          if (!window.confirm("Delete template " + template.name + "? Assigned templates cannot be deleted.")) return;
+          remove.disabled = true;
+          try { await request("/api/mobile/prompt-templates/delete", {method:"POST", body:{id:template.id, expected_version:template.version}}); await loadPromptTemplates(); setStatus("Template deleted", "ok"); }
+          catch (error) { setStatus(error.message || String(error), "error"); }
+          finally { remove.disabled = false; }
+        });
+        form.appendChild(remove);
+      }
+      return form;
+    }
+    let promptTemplateRequestId = 0;
+    async function loadPromptTemplates() {
+      const requestId = ++promptTemplateRequestId;
+      try {
+        const items = await request("/api/mobile/prompt-templates");
+        if (requestId !== promptTemplateRequestId) return;
+        const list = document.getElementById("promptTemplateList"); list.replaceChildren();
+        if (!items.length) list.textContent = "No prompt templates configured.";
+        items.forEach((template) => {
+          const details = document.createElement("details"), summary = document.createElement("summary");
+          details.className = "tool-card"; summary.textContent = template.name + " · " + template.role + " · version " + template.version;
+          details.append(summary, makePromptTemplateForm(template)); list.appendChild(details);
+        });
+      } catch (error) { if (requestId === promptTemplateRequestId) setStatus(error.message || String(error), "error"); }
+    }
+
     function agentFields(agent) {
       return { name: agent.name, role: agent.role, description: agent.description, prompt_template_ref: agent.prompt_template_ref,
         allowed_tools: agent.allowed_tools, skill_tags: agent.skill_tags, boundaries: agent.boundaries, enabled: agent.enabled, employment_status: agent.employment_status };
@@ -4340,7 +4400,7 @@
       const description = field("Agent description", source.description, true);
       const prompt = field("Prompt template reference", source.prompt_template_ref, false);
       const promptHint = document.createElement("div"); promptHint.className = "empty";
-      promptHint.textContent = "Saved as metadata; agent execution does not apply this template.";
+      promptHint.textContent = "Use template:<id> from Agent prompt templates. Older references remain inactive metadata.";
       form.appendChild(promptHint);
       const tools = field("Allowed tools (JSON array)", JSON.stringify(source.allowed_tools, null, 2), true);
       const tags = field("Skill tags (JSON array)", JSON.stringify(source.skill_tags, null, 2), true);
@@ -5405,6 +5465,8 @@
     document.getElementById("refreshWorkflowAutomation").addEventListener("click", () => void loadWorkflowAutomation());
     el.createAgentEditor.appendChild(makeAgentForm(null));
     el.refreshAgentsButton.addEventListener("click", loadAgents);
+    document.getElementById("createPromptTemplate").appendChild(makePromptTemplateForm(null));
+    document.getElementById("refreshPromptTemplates").addEventListener("click", loadPromptTemplates);
     el.refreshSkillsButton.addEventListener("click", loadSkills);
     el.createSkillForm.addEventListener("submit", createSkill);
     el.refreshTeamsButton.addEventListener("click", loadTeams);
