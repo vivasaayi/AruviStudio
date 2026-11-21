@@ -1214,6 +1214,7 @@
     };
 
     let voiceConversationSession = null;
+    let manualVoiceSession = null;
 
     const el = {
       status: document.getElementById("status"),
@@ -1558,6 +1559,7 @@
 
     function switchTab(tabId) {
       if (tabId !== "voice" && voiceConversationSession) stopVoiceConversation();
+      if (tabId !== "voice") cancelManualVoiceRecording();
       state.activeTab = tabId;
       localStorage.setItem(storageKeys.activeTab, tabId);
       el.tabs.forEach((button) => button.classList.toggle("active", button.dataset.tab === tabId));
@@ -1852,11 +1854,35 @@
       return (response.transcript || "").trim();
     }
 
-    async function startVoiceRecording() {
+    function cancelManualVoiceRecording() {
+      const session = manualVoiceSession;
+      if (!session || session.complete) return;
+      manualVoiceSession = null;
+      session.cancelled = true;
+      session.cancel();
+      session.abort.abort();
+      const recording = state.voiceRecording;
+      state.voiceRecording = null;
+      if (recording) {
+        recording.processor.disconnect(); recording.source.disconnect();
+        recording.stream.getTracks().forEach((track) => track.stop());
+        void recording.audioContext.close().catch(() => undefined);
+      }
+      state.voiceTogglePending = false;
+      el.voiceRecordButton.textContent = "Record";
+      setBusy(false);
+      setVoiceMeta("Recording discarded.");
+    }
+
+    async function startVoiceRecording(session) {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error("Microphone capture is not available in this WebView.");
       }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const pendingStream = navigator.mediaDevices.getUserMedia({ audio: true });
+      pendingStream.then((lateStream) => { if (session.cancelled) lateStream.getTracks().forEach((track) => track.stop()); }, () => {});
+      const stream = await Promise.race([pendingStream, session.cancelledPromise.then(() => null)]);
+      if (!stream) return;
+      if (session.cancelled) { stream.getTracks().forEach((track) => track.stop()); return; }
       let audioContext;
       try {
         const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
@@ -1883,7 +1909,7 @@
           event.outputBuffer.getChannelData(0).fill(0);
           if (sampleCount >= maxSamples && !stopping && !state.busy) {
             stopping = true;
-            queueMicrotask(() => { if (state.voiceRecording) void toggleVoiceRecording(); });
+            queueMicrotask(() => { if (manualVoiceSession === session && state.voiceRecording) void toggleVoiceRecording(); });
           }
         };
         source.connect(processor);
@@ -1899,7 +1925,7 @@
       }
     }
 
-    async function stopVoiceRecording() {
+    async function stopVoiceRecording(session) {
       const recording = state.voiceRecording;
       if (!recording) {
         return;
@@ -1910,9 +1936,12 @@
       recording.source.disconnect();
       recording.stream.getTracks().forEach((track) => track.stop());
       await recording.audioContext.close().catch(() => undefined);
+      if (session.cancelled) return;
       const wav = encodeWav(flattenFloat32(recording.chunks), recording.sampleRate);
       setVoiceMeta("Transcribing...");
-      const transcript = await transcribeVoiceBlob(wav);
+      const transcript = await transcribeVoiceBlob(wav, session.abort.signal);
+      if (session.cancelled) return;
+      session.complete = true;
       if (!transcript) {
         setVoiceMeta("No speech detected.");
         return;
@@ -1924,22 +1953,34 @@
 
     async function toggleVoiceRecording() {
       if (state.voiceTogglePending) return;
+      let session = manualVoiceSession;
+      if (!session) {
+        session = { cancelled: false, complete: false, abort: new AbortController() };
+        session.cancelledPromise = new Promise((resolve) => { session.cancel = resolve; });
+        manualVoiceSession = session;
+      }
       state.voiceTogglePending = true;
       setBusy(true);
       try {
         if (state.voiceRecording) {
-          await stopVoiceRecording();
+          await stopVoiceRecording(session);
         } else {
-          await startVoiceRecording();
+          await startVoiceRecording(session);
         }
       } catch (error) {
-        state.voiceRecording = null;
-        el.voiceRecordButton.textContent = "Record";
-        setVoiceMeta(error.message || String(error));
-        setStatus(error.message || String(error), "error");
+        if (!session.cancelled) {
+          state.voiceRecording = null;
+          el.voiceRecordButton.textContent = "Record";
+          setVoiceMeta(error.message || String(error));
+          setStatus(error.message || String(error), "error");
+          session.complete = true;
+        }
       } finally {
-        state.voiceTogglePending = false;
-        setBusy(false);
+        if (manualVoiceSession === session) {
+          if (session.complete) manualVoiceSession = null;
+          state.voiceTogglePending = false;
+          setBusy(false);
+        }
       }
     }
 
@@ -6300,6 +6341,7 @@
     el.voiceRecordButton.addEventListener("click", () => toggleVoiceRecording());
     document.getElementById("voiceSessionButton").addEventListener("click", () => { if (voiceConversationSession) stopVoiceConversation(); else void startVoiceConversation(); });
     window.addEventListener("pagehide", stopVoiceConversation);
+    window.addEventListener("pagehide", cancelManualVoiceRecording);
     el.voiceSendButton.addEventListener("click", () => submitPrompt("voice"));
     el.generateSpeechButton.addEventListener("click", () => void generateSpeech());
     el.voiceSpeakToggle.addEventListener("click", () => {

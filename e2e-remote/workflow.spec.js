@@ -2570,3 +2570,30 @@ test("browser continuous voice conversation uses Studio transcription and chat",
   await expect(page.getByRole("button", { name: "Start voice conversation" })).toBeEnabled();
   expect(await page.evaluate(() => window.fixtureVoiceStops)).toBe(2);
 });
+
+test("browser navigation discards manual voice capture", async ({ page }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable Studio server");
+  await page.addInitScript(() => {
+    window.fixtureManualStops = 0;
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() { window.fixtureManualStops++; } }] }) } });
+    window.AudioContext = class {
+      constructor() { this.sampleRate = 16000; this.destination = {}; }
+      createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+      createScriptProcessor() { return { connect() {}, disconnect() {} }; }
+      async close() {}
+    };
+  });
+  let transcriptions = 0;
+  page.on("request", (request) => { if (request.url().endsWith("/api/mobile/speech/transcribe")) transcriptions++; });
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await page.locator("#voiceRecordButton").click();
+  await expect(page.locator("#voiceRecordButton")).toHaveText("Stop");
+  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.fixtureManualStops)).toBe(1);
+  expect(transcriptions).toBe(0);
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await expect(page.locator("#voiceMeta")).toHaveText("Recording discarded.");
+});

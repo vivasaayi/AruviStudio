@@ -12,6 +12,22 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Manual browser microphone cleanup
+
+Leaving the Voice tab or hiding the page now discards an unfinished manual
+recording and stops its microphone. A pending microphone permission request can
+finish after navigation; its returned stream is closed and cannot affect a new
+recording. Pending transcription is aborted on navigation and its result is not
+submitted. Once a transcript has already been submitted to chat or the planner,
+this change does not cancel the model request. The existing manual review and
+automatic-submit behavior remain available. Fourteen isolated browser cases
+passed across manual and continuous sessions, including navigation, delayed
+permission, restart, transcription cancellation and page hiding. The frontend
+build and 128 frontend tests passed. A rebuilt native Studio server with a
+simulated provider passed the existing manual review/submission and continuous
+voice browser flows, as well as a navigation-and-discard check. Physical microphone and browser/device behavior remain
+unverified. The deployed branch image predates this checkpoint.
+
 ### Continuous browser voice conversation
 
 The browser Voice screen now offers a continuous voice-chat session alongside

@@ -8,6 +8,10 @@ planner concurrency fixture. These are specific scenarios, not proof of full par
 Physical desktop interaction and audio devices, live third-party providers, and a
 real Aruvici connection remain unverified.
 
+Manual browser recording now discards unfinished audio on navigation or page
+hide and closes a late microphone permission result; a disposable native-server
+browser fixture verified the navigation case. Hardware capture remains unverified.
+
 **Earlier revalidation:** Docker capacity was increased and the worktree database
 passed a read-only SQLite `quick_check`. The current worktree image built and started
 successfully. The Rust library suite passed 145 tests with one live-provider test

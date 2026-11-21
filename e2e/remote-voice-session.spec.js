@@ -159,3 +159,61 @@ test("conversation completes multiple turns without manual recording", async ({ 
   await page.getByRole("button", { name: "End voice conversation" }).click();
   await expect(page.getByRole("button", { name: "Start voice conversation" })).toBeEnabled();
 });
+
+test("leaving Voice discards a manual recording and closes the microphone", async ({ page }) => {
+  const { calls } = await setup(page);
+  await page.locator("#voiceRecordButton").click();
+  await expect(page.locator("#voiceRecordButton")).toHaveText("Stop");
+  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.fixtureStops)).toBe(1);
+  expect(calls.some((path) => path.endsWith("/speech/transcribe"))).toBe(false);
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await expect(page.locator("#voiceRecordButton")).toHaveText("Record");
+});
+
+test("leaving during a manual microphone permission request closes its late stream", async ({ page }) => {
+  const { calls } = await setup(page, { pendingMic: true });
+  await page.locator("#voiceRecordButton").click();
+  await expect.poll(() => page.evaluate(() => window.fixtureMicCalls)).toBe(1);
+  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await page.evaluate(() => window.fixtureReleaseMic());
+  await expect.poll(() => page.evaluate(() => window.fixtureStops)).toBe(1);
+  expect(calls.some((path) => path.endsWith("/speech/transcribe"))).toBe(false);
+});
+
+test("leaving during manual transcription discards a late result", async ({ page }) => {
+  const { calls, releaseTranscription } = await setup(page, { pendingTranscription: true });
+  await page.getByLabel("Review transcript before sending").uncheck();
+  await page.locator("#voiceRecordButton").click();
+  await expect(page.locator("#voiceRecordButton")).toHaveText("Stop");
+  await page.locator("#voiceRecordButton").click();
+  await expect.poll(() => calls.some((path) => path.endsWith("/speech/transcribe"))).toBe(true);
+  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  releaseTranscription();
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await expect(page.locator("#voiceMeta")).toHaveText("Recording discarded.");
+  expect(calls.some((path) => path.endsWith("/chat/completions"))).toBe(false);
+});
+
+test("a late manual microphone grant cannot disrupt a new recording", async ({ page }) => {
+  await setup(page, { pendingMic: true });
+  await page.locator("#voiceRecordButton").click();
+  await expect.poll(() => page.evaluate(() => window.fixtureMicCalls)).toBe(1);
+  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await page.locator("#voiceRecordButton").click();
+  await expect(page.locator("#voiceRecordButton")).toHaveText("Stop");
+  await page.evaluate(() => window.fixtureReleaseMic());
+  await expect.poll(() => page.evaluate(() => window.fixtureStops)).toBe(1);
+  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.fixtureStops)).toBe(2);
+});
+
+test("page hide closes a manual microphone capture", async ({ page }) => {
+  const { calls } = await setup(page);
+  await page.locator("#voiceRecordButton").click();
+  await expect(page.locator("#voiceRecordButton")).toHaveText("Stop");
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pagehide")));
+  await expect.poll(() => page.evaluate(() => window.fixtureStops)).toBe(1);
+  expect(calls.some((path) => path.endsWith("/speech/transcribe"))).toBe(false);
+});
