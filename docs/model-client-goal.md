@@ -19,8 +19,14 @@ now checks the authenticated database settings API across restarts. It verified
 that an override takes effect only after restart, each temporary database keeps
 its own products, clearing the override returns to the original database, and
 `ARUVI_DB_PATH` takes precedence. Fresh databases reported applied migrations;
-unauthenticated access was rejected. This does not test a browser session over
-restart, migration of an existing database, or staging.
+unauthenticated access was rejected. That initial run did not test a browser
+session over restart, migration of an existing database, or staging.
+
+The fixture was then extended with an optional persistent headless Chrome
+session. It passed save and clear through Routing, checked the active path after
+each server restart, and showed the environment-precedence message. Each
+restart used a new loopback port, so the fixture re-entered its synthetic token
+for that origin. Existing-database migration and staging remain unverified.
 
 ### Isolated build filesystem cleanup finding
 
