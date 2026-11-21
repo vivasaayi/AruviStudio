@@ -4306,3 +4306,24 @@ a fixture active when cleanup used the old port; that specific fixture was then
 archived through the current endpoint. The final script waits for both service
 health checks and rediscovers the endpoint for cleanup. Real integration and
 VPS staging, external ingress and model inference remain unvalidated by it.
+
+## VPS AMD64 branch-image fixture
+
+On the VPS, rootless Docker built the committed branch revision
+`e45d63855f3213b79dee6f5a25fdb563f90c056e` for Linux AMD64 from a temporary
+`git archive` source, with per-build-container resource limits of 6 GiB and two
+CPU equivalents. The local image ID was
+`sha256:443b6c861f892f520dedaf0cd33d11bf975bdea69976c8dac05cf3181060169e`.
+A uniquely named disposable Compose project using the staging adapter started
+the app and network-isolated PDF service on a dynamic loopback port. It created
+a product and area via authenticated MCP, rejected unauthenticated mobile reads,
+checked product reads and PDF output, restarted both services, and verified the
+product and PDF again. The fixture's containers, network, volumes, temporary
+source and image tag were removed. Build cache was not pruned. The existing
+native staging and production services remained active.
+
+This was a branch compatibility fixture, not a deployment or acceptance of the
+stable staging environment. The image was removed and cannot be promoted. A
+merged default-branch revision must still pass Mac integration, then a
+target-compatible artifact from that revision needs real VPS staging, ingress,
+browser, model-host and persistence acceptance.
