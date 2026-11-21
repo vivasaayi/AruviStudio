@@ -124,6 +124,15 @@ pub fn bulk_import_schema() -> Value {
                 "productId": "optional existing product id when the file does not define product"
             }
         },
+        "inlineSubmitTool": {
+            "name": "aruvi_catalog",
+            "action": "submit_inline_bulk_import",
+            "arguments": {
+                "content": "UTF-8 JSON or CSV text, at most 1048576 bytes",
+                "format": "json or csv",
+                "productId": "optional existing product id"
+            }
+        },
         "statusTool": {
             "name": "catalog.bulk_import.get_status",
             "arguments": {

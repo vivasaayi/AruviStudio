@@ -1941,6 +1941,39 @@ pub(crate) async fn mobile_export_product_book(
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileBulkImportRequest {
+    content: String,
+    format: String,
+    product_id: Option<String>,
+}
+
+pub(crate) async fn mobile_submit_bulk_import(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileBulkImportRequest>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match crate::services::bulk_import_service::submit_inline_bulk_import(state.app_state, body.content, body.format, body.product_id).await {
+        Ok(job) => (StatusCode::ACCEPTED, Json(job)).into_response(),
+        Err(crate::error::AppError::Validation(message)) => (StatusCode::BAD_REQUEST, message).into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Unable to submit import").into_response(),
+    }
+}
+
+pub(crate) async fn mobile_bulk_import_jobs(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match crate::services::bulk_import_service::list_bulk_import_jobs(&state.app_state.db, Some(20)).await {
+        Ok(jobs) => Json(jobs).into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Unable to list imports").into_response(),
+    }
+}
+
+pub(crate) async fn mobile_bulk_import_status(State(state): State<WebhookState>, headers: HeaderMap, Path(job_id): Path<String>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match crate::services::bulk_import_service::get_bulk_import_status(&state.app_state.db, &job_id).await {
+        Ok(job) => Json(job).into_response(),
+        Err(crate::error::AppError::NotFound(_)) => (StatusCode::NOT_FOUND, "Import not found").into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Unable to load import").into_response(),
+    }
+}
+
 pub(crate) async fn mobile_create_product(
     State(state): State<WebhookState>,
     headers: HeaderMap,

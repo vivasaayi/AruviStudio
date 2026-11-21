@@ -51,6 +51,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "delete_reference",
                 "get_bulk_import_schema",
                 "submit_bulk_import",
+                "submit_inline_bulk_import",
                 "get_bulk_import_status",
                 "list_bulk_import_jobs",
             ],

@@ -9,6 +9,7 @@ pub use crate::services::webhook_bridge::{
     resolve_mcp_bridge_status, resolve_mobile_bridge_status, McpBridgeStatus, MobileBridgeStatus,
 };
 use crate::services::webhook_mobile_api::{
+    mobile_submit_bulk_import, mobile_bulk_import_jobs, mobile_bulk_import_status,
     mobile_export_product_book, mobile_export_planner_review_packet, mobile_validate_planner_draft, mobile_planner_suggestions, mobile_planner_match_actions, mobile_analyze_planner_repository, mobile_clear_planner_turn, mobile_confirm_planner_turn, mobile_create_planner_session, mobile_create_product, mobile_edit_planner_draft,
     mobile_list_scoped_references, mobile_create_scoped_reference, mobile_delete_scoped_reference, mobile_get_model_call, mobile_get_product_tree, mobile_get_product_tree_summary, mobile_list_product_areas, mobile_create_hierarchy_node, mobile_update_hierarchy_node, mobile_delete_hierarchy_node, mobile_reset_product_plan,
     mobile_update_product, mobile_healthcheck, mobile_list_model_calls, mobile_model_call_snapshot, mobile_list_products, mobile_submit_planner_turn,
@@ -445,6 +446,8 @@ pub(crate) fn build_webhook_router(app_state: AppState) -> Router {
             "/api/mobile/model-calls/:call_id",
             get(mobile_get_model_call),
         )
+        .route("/api/mobile/bulk-import", get(mobile_bulk_import_jobs).post(mobile_submit_bulk_import).layer(axum::extract::DefaultBodyLimit::max(7 * 1024 * 1024)))
+        .route("/api/mobile/bulk-import/:job_id", get(mobile_bulk_import_status))
         .route("/api/mobile/products", get(mobile_list_products).post(mobile_create_product))
         .route(
             "/api/mobile/work-items",

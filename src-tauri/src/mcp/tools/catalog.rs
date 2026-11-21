@@ -503,6 +503,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
         }
         action @ ("get_bulk_import_schema"
         | "submit_bulk_import"
+        | "submit_inline_bulk_import"
         | "get_bulk_import_status"
         | "list_bulk_import_jobs") => catalog_bulk_import::handle(state, action, &args).await,
         other => Err(AppError::Validation(format!(

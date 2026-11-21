@@ -340,6 +340,15 @@ malicious or non-cooperating writer. Hard links, changes to file contents while 
 concurrent changes to the artifact directory itself are not eliminated by
 these checks. This is not a claim of complete artifact-format parity.
 
+### Catalog bulk import
+
+Browser Products and MCP can submit up to 1 MiB of inline UTF-8 JSON or CSV to
+the existing asynchronous importer, while desktop and MCP retain their
+server-file path option. The browser shows recent job status and errors. Import
+updates records with matching IDs and commits in batches; an error can leave
+prior batches applied. Native browser and MCP fixtures passed; Linux container
+and physical desktop comparison remain open.
+
 ### Settings action inventory
 
 | Desktop action | Browser and MCP assessment |

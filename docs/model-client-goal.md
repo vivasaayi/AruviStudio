@@ -12,6 +12,26 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Remote catalog bulk import
+
+The browser Products screen and `aruvi_catalog.submit_inline_bulk_import` can
+submit UTF-8 JSON or CSV without a server-side file path. Requests carry at
+most 1 MiB of content; the backend records the source as `<inline>` and uses
+the existing asynchronous import jobs. Existing path-based imports continue to
+work. Import is an upsert: matching IDs can change existing records, and a
+failure after a committed batch can leave earlier batches applied. The browser
+asks for confirmation and displays job errors; it does not provide an atomic
+preview or rollback. The authenticated browser endpoint and MCP share the
+same parser and persistence implementation.
+
+A disposable native server and headless Chrome fixture verified JSON and CSV
+submissions, persisted products, the legacy path import, malformed input,
+size limits, unauthorized access and error status; it also ran the remote
+Playwright import test against the native server. The Rust bulk-import tests,
+server build and frontend build passed; the full Rust library suite passed 325
+tests with seven ignored, and all 128 frontend tests passed. Linux container and
+deployed-branch validation remain pending.
+
 ### Browser workspace file copies and Copilot tabs
 
 The browser workspace can download the open UTF-8 file copy, including unsaved

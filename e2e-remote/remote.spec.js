@@ -190,6 +190,29 @@ test("optional code editor preserves tabs and uses guarded saves", async ({page,
   expect(external).toEqual([]);
 });
 
+test("browser and MCP import JSON and CSV from remote clients", async ({page, request}) => {
+  test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
+  const headers = {Authorization:`Bearer ${token}`};
+  const rpcHeaders = {Authorization:`Bearer ${mcpToken}`};
+  expect((await request.get("/api/mobile/bulk-import")).status()).toBe(401);
+  expect((await request.post("/api/mobile/bulk-import", {headers, data:{format:"json",content:"x".repeat(1048577)}})).status()).toBe(400);
+  await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+  await page.getByRole("button", {name:"Products",exact:true}).click();
+  await page.getByText("Import JSON or CSV", {exact:true}).click();
+  const content = JSON.stringify({product:{id:"remote-import-product",name:"Remote import"},productAreas:[{id:"remote-import-area",name:"Remote area"}]});
+  await page.locator("#bulkImportFile").setInputFiles({name:"import.json",mimeType:"application/json",buffer:Buffer.from(content)});
+  page.once("dialog", dialog => dialog.accept());
+  const submitted = page.waitForResponse(response => response.url().endsWith("/api/mobile/bulk-import") && response.request().method()==="POST");
+  await page.getByRole("button", {name:"Start import"}).click(); const response = await submitted;
+  expect(response.status()).toBe(202); const job = await response.json(); expect(job.sourcePath).toBe("<inline>");
+  await expect.poll(async () => (await (await request.get(`/api/mobile/bulk-import/${encodeURIComponent(job.id)}`, {headers})).json()).job.status).toBe("completed");
+  const mcp = await request.post("/api/mcp", {headers:rpcHeaders,data:{jsonrpc:"2.0",id:45,method:"tools/call",params:{name:"aruvi_catalog",arguments:{action:"submit_inline_bulk_import",arguments:{format:"csv",content:"record_type,id,name\nproduct,remote-csv-product,Remote CSV\n"}}}}});
+  const result=(await mcp.json()).result; expect(result.isError).not.toBeTruthy();
+  await expect.poll(async () => (await (await request.get(`/api/mobile/bulk-import/${encodeURIComponent(result.structuredContent.result.id)}`, {headers})).json()).job.status).toBe("completed");
+  const products=await request.get("/api/mobile/products",{headers}); const names=(await products.json()).map(item => item.name);
+  expect(names).toContain("Remote import"); expect(names).toContain("Remote CSV");
+});
+
 test("browser approves and rejects work with stale decision protection", async ({ page, request }) => {
   test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
   const headers = {Authorization:`Bearer ${token}`};

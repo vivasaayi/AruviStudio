@@ -29,6 +29,15 @@ pub(super) async fn handle(
             .await?;
             action_result("submit_bulk_import", job)
         }
+        "submit_inline_bulk_import" => action_result(
+            "submit_inline_bulk_import",
+            bulk_import_service::submit_inline_bulk_import(
+                (*state).clone(),
+                args.required_string(&["content"], "content")?,
+                args.required_string(&["format"], "format")?,
+                args.optional_string(&["product_id", "productId"])?,
+            ).await?,
+        ),
         "get_bulk_import_status" => {
             let job_id = args.required_string(&["job_id", "jobId"], "job_id")?;
             action_result(

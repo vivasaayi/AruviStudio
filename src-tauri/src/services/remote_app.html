@@ -521,6 +521,18 @@
                   <label><span class="label">Description</span><textarea id="newProductDescription"></textarea></label>
                   <button id="createProductButton" type="submit">Create product</button>
                 </form>
+                <details class="tool-card stack">
+                  <summary>Import JSON or CSV</summary>
+                  <p class="empty">Import can create records or update records with matching IDs. A failed import may leave earlier batches applied. Files must be UTF-8 and at most 1 MiB.</p>
+                  <form id="bulkImportForm" class="stack">
+                    <label><span class="label">Import file</span><input id="bulkImportFile" type="file" accept=".json,.csv,application/json,text/csv" required /></label>
+                    <label><span class="label">Format</span><select id="bulkImportFormat"><option value="json">JSON</option><option value="csv">CSV</option></select></label>
+                    <label><span class="label">Existing product ID (optional)</span><input id="bulkImportProduct" maxlength="200" /></label>
+                    <button type="submit" id="bulkImportSubmit">Start import</button>
+                  </form>
+                  <button type="button" class="secondary" id="bulkImportRefresh">Refresh imports</button>
+                  <div id="bulkImportJobs" class="stack" aria-live="polite"></div>
+                </details>
                 <div class="product-list" id="productList"></div>
               </div>
             </section>
@@ -2720,6 +2732,41 @@
       event.preventDefault(); const form = event.currentTarget.elements;
       await portfolioChange("create_product_dependency", {product_id:form.product.value, depends_on_product_id:form.target.value, capability_id:form.capability.value || null, depends_on_capability_id:form.target_capability.value || null, dependency_kind:form.kind.value, status:form.status.value, description:form.description.value.trim()});
     });
+
+    async function refreshBulkImports() {
+      const target = document.getElementById("bulkImportJobs");
+      try {
+        const jobs = await request("/api/mobile/bulk-import");
+        target.replaceChildren();
+        if (!jobs.length) { target.textContent = "No imports yet."; return; }
+        for (const job of jobs) {
+          const row = document.createElement("div"), button = document.createElement("button"), detail = document.createElement("div");
+          row.className = "tool-card stack";
+          button.type = "button"; button.className = "secondary"; button.textContent = `${job.importFormat.toUpperCase()} — ${job.status} (${job.processedRecords}/${job.totalRecords})`;
+          detail.className = "empty";
+          button.addEventListener("click", async () => {
+            try { const result = await request("/api/mobile/bulk-import/" + encodeURIComponent(job.id));
+              detail.textContent = [result.job.errorMessage, ...result.errors.map((error) => error.message)].filter(Boolean).join("; ") || "No import errors.";
+            } catch (error) { detail.textContent = error.message || String(error); }
+          });
+          row.append(button, detail); target.appendChild(row);
+        }
+      } catch (error) { target.textContent = error.message || String(error); }
+    }
+    async function submitBulkImport(event) {
+      event.preventDefault();
+      const file = document.getElementById("bulkImportFile").files[0], button = document.getElementById("bulkImportSubmit");
+      if (!file || file.size === 0 || file.size > 1048576) { setStatus("Choose a nonempty file of at most 1 MiB", "error"); return; }
+      if (!confirm("Import this file? Records with matching IDs may be updated.")) return;
+      button.disabled = true;
+      try {
+        const content = new TextDecoder("utf-8", {fatal:true}).decode(await file.arrayBuffer());
+        const product = document.getElementById("bulkImportProduct").value.trim();
+        await request("/api/mobile/bulk-import", {method:"POST", body:{content, format:document.getElementById("bulkImportFormat").value, product_id:product || null}});
+        setStatus("Import submitted", "ok"); await refreshBulkImports();
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { button.disabled = false; }
+    }
 
     async function loadProducts() {
       try {
@@ -6003,6 +6050,8 @@
     el.clearButton.addEventListener("click", clearDraft);
     el.newSessionButton.addEventListener("click", newSession);
     el.refreshProductsButton.addEventListener("click", loadProducts);
+    document.getElementById("bulkImportForm").addEventListener("submit", (event) => void submitBulkImport(event));
+    document.getElementById("bulkImportRefresh").addEventListener("click", () => void refreshBulkImports());
     el.createProductForm.addEventListener("submit", createProduct);
     el.createAreaForm.addEventListener("submit", createProductArea);
     el.resetPlanForm.addEventListener("submit", resetProductPlan);
