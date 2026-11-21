@@ -16,6 +16,7 @@ export type PlannerSpeechModelSelection = {
   providerId: string;
   modelName?: string;
   source: "settings" | "planner" | "auto" | "fallback";
+  useServerDefaults?: boolean;
 };
 
 export function buildPlannerModelPickerOptions(
@@ -47,7 +48,7 @@ export function resolvePlannerSpeechModelSelection({
 }): PlannerSpeechModelSelection | null {
   if (speechProviderSetting || speechModelSetting) {
     if (speechProviderSetting && speechModelSetting) {
-      return { providerId: speechProviderSetting, modelName: speechModelSetting, source: "settings" };
+      return { providerId: speechProviderSetting, modelName: speechModelSetting, source: "settings", useServerDefaults: true };
     }
     if (speechProviderSetting) {
       const providerSpeechModel = preferredTranscriptionModel(models, speechProviderSetting);
@@ -55,6 +56,7 @@ export function resolvePlannerSpeechModelSelection({
         providerId: speechProviderSetting,
         modelName: providerSpeechModel?.name || undefined,
         source: "settings",
+        useServerDefaults: true,
       };
     }
     const namedSpeechModel = models.find((model) => model.enabled && model.name === speechModelSetting);

@@ -13,7 +13,6 @@ type PlannerVoiceCaptureInput = {
   voiceEnabled: boolean;
   reviewVoiceBeforeSend: boolean;
   getSpeechModelSelection: () => PlannerSpeechModelSelection | null;
-  speechLocaleSetting: string;
   isPlannerBusy: () => boolean;
   onSubmitVoiceTranscript: (transcript: string) => Promise<void>;
 };
@@ -22,7 +21,6 @@ export function usePlannerVoiceCapture({
   voiceEnabled,
   reviewVoiceBeforeSend,
   getSpeechModelSelection,
-  speechLocaleSetting,
   isPlannerBusy,
   onSubmitVoiceTranscript,
 }: PlannerVoiceCaptureInput) {
@@ -41,15 +39,12 @@ export function usePlannerVoiceCapture({
   const transcribeAudioMutation = useMutation<string, Error, { audioBytesBase64: string; mimeType: string }>({
     mutationFn: async ({ audioBytesBase64, mimeType }) => {
       const speechModelSelection = getSpeechModelSelection();
-      if (!speechModelSelection) {
-        throw new Error("Configure a speech transcription provider or model before using voice input.");
-      }
       const response = await transcribeAudio({
-        providerId: speechModelSelection.providerId,
-        modelName: speechModelSelection.modelName,
+        fallbackProviderId: speechModelSelection?.useServerDefaults ? undefined : speechModelSelection?.providerId,
+        fallbackModelName: speechModelSelection?.useServerDefaults ? undefined : speechModelSelection?.modelName,
         audioBytesBase64,
         mimeType,
-        locale: speechLocaleSetting || "en-US",
+        fallbackLocale: "en-US",
       });
       return response.transcript;
     },

@@ -19,6 +19,13 @@ for (const screen of ["chat", "planner"]) {
           createScriptProcessor() { return { connect() { originalTimeout(() => this.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array([0.5, -0.5]) } }), 20); }, disconnect() {} }; }
         };
       });
+      if (screen === "planner" && stopMode === "manual") {
+        await page.addInitScript(() => {
+          window.__ARUVI_E2E__.invoke("set_setting", { key: "speech.transcription_provider_id", value: "saved-provider" });
+          window.__ARUVI_E2E__.invoke("set_setting", { key: "speech.transcription_model_name", value: "saved-model" });
+          window.__ARUVI_E2E__.invoke("set_setting", { key: "speech.locale", value: "fr-FR" });
+        });
+      }
       await page.goto(screen === "chat" ? "/chat" : "/");
       if (screen === "planner") await page.getByLabel("Planner product").selectOption("example-product-calculator");
       const start = screen === "chat" ? page.getByTestId("chat-mic-toggle") : page.getByRole("button", { name: "Start Voice Input" });
@@ -34,6 +41,11 @@ for (const screen of ["chat", "planner"]) {
         const args = await page.evaluate(() => window.__ARUVI_E2E__.getInvokeCalls("transcribe_audio_command")[0].args);
         expect(args.modelName).toBeNull();
         expect(args.model_name).toBeNull();
+        expect(args.providerId).toBeNull();
+        expect(args.fallbackProviderId).toBe(stopMode === "manual" ? null : "provider-deepseek-hosted");
+        expect(args.fallbackModelName).toBeNull();
+        expect(args.locale).toBeNull();
+        expect(args.fallbackLocale).toBe("en-US");
       }
       await page.waitForTimeout(400);
       expect(await page.evaluate(() => window.__ARUVI_E2E__.getInvokeCalls("transcribe_audio_command").length)).toBe(1);

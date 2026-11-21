@@ -140,6 +140,9 @@ export const transcribeAudio = (data: {
   audioBytesBase64: string;
   mimeType: string;
   locale?: string;
+  fallbackLocale?: string;
+  fallbackProviderId?: string;
+  fallbackModelName?: string;
 }) =>
   invoke<SpeechToTextResponse>("transcribe_audio_command", {
     providerId: data.providerId ?? null,
@@ -151,6 +154,12 @@ export const transcribeAudio = (data: {
     mimeType: data.mimeType,
     mime_type: data.mimeType,
     locale: data.locale ?? null,
+    fallbackLocale: data.fallbackLocale ?? null,
+    fallback_locale: data.fallbackLocale ?? null,
+    fallbackProviderId: data.fallbackProviderId ?? null,
+    fallback_provider_id: data.fallbackProviderId ?? null,
+    fallbackModelName: data.fallbackModelName ?? null,
+    fallback_model_name: data.fallbackModelName ?? null,
   });
 
 export const speakTextNatively = (data: {

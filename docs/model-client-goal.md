@@ -12,6 +12,24 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Desktop Planner transcription precedence (in validation)
+
+Planner previously sent saved speech settings and a default `en-US` as explicit
+request fields, which could mask the server's environment overrides. It now
+lets Rust resolve configured provider, model and locale first; inferred Planner
+provider/model values and the prior `en-US` locale are supplied only as
+fallbacks. A fallback model is used only with its corresponding provider.
+Explicit Tauri arguments retain highest precedence; an explicitly blank locale
+environment setting still suppresses the saved value. A configured provider
+also works when the frontend cannot infer any speech selection. The focused
+Rust tests and mocked desktop voice tests pass for environment precedence and
+fallback selection. A Tauri mock-IPC test also confirmed both legacy payloads
+without the new fallback fields and the new camel-case fallback fields reach
+the command, and the environment fixture covered both stale Planner fallbacks
+and no frontend selection. Linux validation
+and branch deployment are pending.
+This does not validate a native desktop window or real OpenAI access.
+
 ### OpenAI transcription default migration
 
 OpenAI's documented file-transcription path now recommends `gpt-transcribe` and

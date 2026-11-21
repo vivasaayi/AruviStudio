@@ -41,7 +41,6 @@ export function usePlannerPageVoiceCapture({
     voiceEnabled,
     reviewVoiceBeforeSend,
     getSpeechModelSelection: () => speechModelSelectionRef.current,
-    speechLocaleSetting,
     isPlannerBusy: () => plannerBusyRef.current,
     onSubmitVoiceTranscript: (transcript) => submitVoiceTranscriptRef.current(transcript),
   });
