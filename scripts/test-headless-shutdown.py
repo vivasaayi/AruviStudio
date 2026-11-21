@@ -48,9 +48,9 @@ with tempfile.TemporaryDirectory(prefix="aruvi-shutdown-") as directory:
         process = start()
         with urllib.request.urlopen(urllib.request.Request(base + "/api/mobile/products", headers=headers), timeout=5) as response: products = json.load(response)
         if not any(item["id"] == product["id"] for item in products): raise RuntimeError("Product did not persist after SIGTERM")
-        process.send_signal(signal.SIGTERM)
-        if process.wait(timeout=5) != 0: raise RuntimeError("Restarted server did not shut down cleanly")
-        print("Headless SIGTERM exits cleanly; database and product survive restart.")
+        process.send_signal(signal.SIGINT)
+        if process.wait(timeout=5) != 0: raise RuntimeError("SIGINT did not produce a clean server exit")
+        print("Headless SIGTERM and SIGINT exit cleanly; database and product survive restart.")
     finally:
         if process is not None and process.poll() is None:
             process.kill(); process.wait(timeout=5)
