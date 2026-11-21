@@ -77,11 +77,14 @@ relay token and a disallowed deploy request. This exercises the relay path, but
 not a deployed container-to-host relay or a full large transfer through it.
 
 The separate Aruvici protocol branch now has draft PR
-[#1](https://github.com/vivasaayi/aruvici/pull/1). At `2b871e2`, it also
+[#1](https://github.com/vivasaayi/aruvici/pull/1). At `33e5a08`, it also
 requires chunk paths to belong to the artifact's owning run. Its
 `cargo test --test ci_api` passed all eleven tests on the Mac, including a
 cross-run artifact rejection, guarded reads and retry policy. This is a
 reviewable dependency, not a merged or deployed service.
+The real foreground-service test also verified a complete 512 KiB base64
+response over the Unix socket; `cargo test --test ci_api --test ci_service`
+passed all 12 tests.
 
 The original buffered browser CI artifact download uses authenticated chunk
 requests, verifies length and SHA-256 before saving, requires HTTPS or localhost,
