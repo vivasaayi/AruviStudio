@@ -12,6 +12,16 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Current host package and frontend checks
+
+At branch revision `2409402`, the desktop frontend `npm run build` passed and
+`npm run test:frontend` passed 128 tests. The independently packaged Rust model client passed all 65
+tests offline using its generated package lockfile. An initial direct
+`cargo test --locked` on the library source could not run because that library
+does not maintain its own lockfile; the package test supplies one. These checks
+do not validate live third-party providers, the native desktop window, the
+currently deployed older Docker image or staging.
+
 ### Branch build capacity check
 
 The running worktree app and PDF renderer were healthy, but the Docker shared
