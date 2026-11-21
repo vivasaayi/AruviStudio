@@ -5510,3 +5510,17 @@ exercised on Linux. The previous branch image and a checked database backup are
 retained. An older image was removed from Docker after verifying its retained
 OCI archive, and only old rebuildable Studio compiler outputs were deleted to
 make build space. Staging and complete desktop parity remain open.
+
+## OpenAI-compatible stream finish ordering
+
+A regression fixture reproduced an OpenAI-compatible SSE stream accepting a
+second choice after `finish_reason: stop`, including a later text delta or a
+duplicate finish. The shared client now rejects either sequence for streamed
+and buffered SSE, while allowing usage-only events followed by `[DONE]` and
+still accepting compatible providers that omit a finish reason. Earlier
+streaming callbacks may already have received text before a later error. All
+66 standalone client tests passed, and the changed client streamed a real
+`qwen25-coder-7b-q4` response from the local Model Host. This single host/model
+sample does not validate other compatible services or live cloud providers.
+The standalone package was built and its 66 tests passed after extraction;
+Studio's native Rust suite passed 296 tests with seven ignored.

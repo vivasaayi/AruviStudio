@@ -52,6 +52,11 @@ SSE choices are checked for non-text or malformed content in both `delta` and
 When an SSE choice supplies a full message, it is emitted once if no deltas
 preceded it; otherwise it must match the accumulated deltas and is not appended
 again. Conflicting full messages or later text deltas fail the request.
+After an OpenAI-compatible SSE choice reports `finish_reason: stop`, any later
+choice event fails the request; usage-only events and the terminal marker remain
+valid. A streaming callback may already have received earlier deltas when a
+later protocol error is reported, so callers must treat the final result as the
+completion outcome.
 See the [Anthropic Messages reference](https://platform.claude.com/docs/en/api/messages/create)
 for provider content-block types.
 For Anthropic, a supplied stop reason indicating token truncation, a paused turn,
