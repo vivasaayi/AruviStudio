@@ -1,4 +1,4 @@
-use crate::persistence::{agent_repo, model_call_repo, model_repo, product_repo, repository_repo, settings_repo};
+use crate::persistence::{agent_repo, model_call_repo, model_repo, product_repo, repository_repo, settings_repo, workflow_repo};
 use crate::services::planner_service::{
     analyze_repository_for_planner, clear_planner_pending, confirm_planner_plan, create_planner_session, submit_planner_turn,
     submit_planner_voice_turn, update_planner_session,
@@ -1931,6 +1931,14 @@ pub(crate) async fn mobile_workflow_agent_runs(State(state): State<WebhookState>
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     match agent_repo::list_agent_runs_for_workflow(&state.app_state.db, &workflow_run_id).await {
         Ok(runs) => Json(runs).into_response(),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+    }
+}
+
+pub(crate) async fn mobile_workflow_history(State(state): State<WebhookState>, headers: HeaderMap, Path(workflow_run_id): Path<String>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match workflow_repo::get_workflow_history(&state.app_state.db, &workflow_run_id).await {
+        Ok(history) => Json(history).into_response(),
         Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
     }
 }

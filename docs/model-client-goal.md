@@ -12,6 +12,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Workflow stage review (in validation)
+
+The browser can request transition history and agent runs for the selected
+workflow, select a recorded stage, and view that stage's transitions, runs and
+associated work-item artifacts. The history endpoint uses the same repository
+query as desktop and MCP and requires the mobile token. A disposable native
+fixture verified authentication, MCP/HTTP agreement, workflow isolation,
+stage selection, and reading an associated artifact. Linux checks and branch
+deployment are pending. This is a recorded-stage view, not yet a replacement
+for the desktop's explanatory split/merge diagram. The history query, like the
+desktop query, is unpaginated.
+
 ### Workflow usage and agent-run visibility
 
 The workflow-call browser control also retrieves the selected workflow's agent
@@ -34,8 +46,8 @@ was `127.0.0.1:55288` at this checkpoint. This does not add the desktop's full w
 or stage-by-stage artifact review. The desktop diagram contains structural
 split/merge nodes as well as actual runtime stages; its selected-stage panel
 associates runs and artifacts and shows recent transition history. MCP already
-provides `get_workflow_history`, but the browser has no workflow-history route
-or corresponding stage selection. A follow-up must distinguish structural nodes
+provides `get_workflow_history`; the newer stage-review checkpoint above adds
+browser history and stage selection. A follow-up must distinguish structural nodes
 from recorded runtime events and keep the selected workflow's runs, transitions
 and artifacts scoped together rather than presenting the diagram as proof of
 execution.

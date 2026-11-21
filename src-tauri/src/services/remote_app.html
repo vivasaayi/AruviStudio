@@ -3649,6 +3649,39 @@
           finally { button.disabled = false; }
         });
         card.append(button, output); el.deliveryDetails.appendChild(card);
+        const historyCard = document.createElement("div"), historyButton = document.createElement("button"), stageSelect = document.createElement("select"), stageDetails = document.createElement("div");
+        historyCard.className = "tool-card"; historyButton.type = "button"; historyButton.className = "secondary"; historyButton.textContent = "Review workflow stages";
+        stageSelect.setAttribute("aria-label", "Workflow stage"); stageSelect.hidden = true; stageDetails.className = "stack";
+        historyButton.addEventListener("click", async () => {
+          historyButton.disabled = true; stageDetails.textContent = "Loading workflow history…";
+          try {
+            const path = "/api/mobile/workflows/" + encodeURIComponent(workflow.id);
+            const [history, runs] = await Promise.all([request(path + "/history"), request(path + "/agent-runs")]);
+            if (state.selectedWorkItemId !== workItem.id || state.delivery?.workflow_run?.id !== workflow.id || !historyCard.isConnected) return;
+            const stages = [...new Set([workflow.current_stage, ...history.flatMap((entry) => [entry.from_stage, entry.to_stage]), ...runs.map((run) => run.stage)].filter(Boolean))];
+            stageSelect.replaceChildren();
+            for (const stage of stages) { const option = document.createElement("option"); option.value = stage; option.textContent = stage.replaceAll("_", " "); stageSelect.appendChild(option); }
+            stageSelect.hidden = !stages.length;
+            const renderStage = () => {
+              stageDetails.replaceChildren(); const stage = stageSelect.value;
+              const text = document.createElement("pre"); text.style.whiteSpace = "pre-wrap"; text.style.overflowWrap = "anywhere";
+              const stageRuns = runs.filter((run) => run.stage === stage);
+              const transitions = history.filter((entry) => entry.from_stage === stage || entry.to_stage === stage);
+              text.textContent = [...stageRuns.map((run) => `Agent ${run.agent_id} · ${run.status}${run.error_message ? " · " + run.error_message : ""}`), ...transitions.map((entry) => `${entry.from_stage} → ${entry.to_stage} · ${entry.trigger} · ${entry.transitioned_at}${entry.notes ? " · " + entry.notes : ""}`)].join("\n") || "No runs or transitions recorded for this stage.";
+              stageDetails.appendChild(text);
+              const ids = new Set(stageRuns.map((run) => run.id));
+              const artifacts = (delivery.artifacts || []).filter((artifact) => artifact.workflow_run_id === workflow.id && (ids.has(artifact.agent_run_id) || artifact.artifact_type.startsWith(stage + "_") || (stage === "coding" && ["coding_tool_trace", "coding_applied_files"].includes(artifact.artifact_type))));
+              for (const artifact of artifacts) {
+                const artifactButton = document.createElement("button"), artifactOutput = document.createElement("pre"); artifactButton.type = "button"; artifactButton.className = "secondary"; artifactButton.textContent = "Show stage artifact: " + (artifact.summary || artifact.artifact_type); artifactOutput.style.whiteSpace = "pre-wrap"; artifactOutput.style.overflowWrap = "anywhere";
+                artifactButton.addEventListener("click", async () => { artifactButton.disabled = true; try { const result = await request("/api/mobile/work-items/" + encodeURIComponent(workItem.id) + "/artifacts/" + encodeURIComponent(artifact.id)); if (artifactOutput.isConnected) artifactOutput.textContent = result.content; } catch (error) { if (artifactOutput.isConnected) artifactOutput.textContent = error.message || String(error); } finally { artifactButton.disabled = false; } });
+                stageDetails.append(artifactButton, artifactOutput);
+              }
+            };
+            stageSelect.onchange = renderStage; renderStage();
+          } catch (error) { if (historyCard.isConnected) stageDetails.textContent = error.message || String(error); }
+          finally { historyButton.disabled = false; }
+        });
+        historyCard.append(historyButton, stageSelect, stageDetails); el.deliveryDetails.appendChild(historyCard);
       } else {
         appendDetailCard("Workflow", "Not started");
       }

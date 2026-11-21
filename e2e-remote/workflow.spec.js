@@ -2080,6 +2080,14 @@ test("workflow replaces a disabled coordinator before the next review", async ({
   await expect(page.locator("#deliveryStatus")).toHaveText("pending plan approval", { timeout: 60000 });
   const before = await (await request.get(`/api/mobile/work-items/${work.id}/delivery`, { headers })).json();
   const initialRuns = await mcp("aruvi_workflows", "list_agent_runs_for_workflow", { workflow_run_id: before.workflow_run.id });
+  expect((await request.get(`/api/mobile/workflows/${before.workflow_run.id}/history`)).status()).toBe(401);
+  const history = await mcp("aruvi_workflows", "get_workflow_history", { workflow_run_id: before.workflow_run.id });
+  const browserHistory = await (await request.get(`/api/mobile/workflows/${before.workflow_run.id}/history`, { headers })).json();
+  expect(browserHistory.map((entry) => entry.id)).toEqual(history.map((entry) => entry.id));
+  expect(history.length).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Review workflow stages" }).click();
+  await page.getByLabel("Workflow stage").selectOption(history[0].to_stage);
+  await expect(page.locator("#deliveryDetails")).toContainText(`${history[0].from_stage} → ${history[0].to_stage}`);
   expect((await request.get(`/api/mobile/workflows/${before.workflow_run.id}/agent-runs`)).status()).toBe(401);
   const browserRuns = await (await request.get(`/api/mobile/workflows/${before.workflow_run.id}/agent-runs`, { headers })).json();
   expect(browserRuns.map((run) => run.id)).toEqual(initialRuns.map((run) => run.id));
