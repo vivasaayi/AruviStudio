@@ -22,8 +22,11 @@ it does not reveal the server folder or support binary and oversized files. A
 fix also preserves the general Copilot transcript when closing an active tab
 while other file tabs remain open. A disposable native server and headless
 Chrome test verified these cases, the unchanged disk contents, and existing
-simulated Copilot streaming and patch flows. Linux image and branch-deployment
-validation for this change remain pending.
+simulated Copilot streaming and patch flows. A separate disposable native
+server test also passed the same browser flow with the optional Monaco editor,
+including downloads, unsaved tabs, guarded saves and line endings. The test
+refocuses the editor before invoking its save shortcut after a download. Linux
+image and branch-deployment validation for this change remain pending.
 
 ### Browser IDE Copilot without a file
 

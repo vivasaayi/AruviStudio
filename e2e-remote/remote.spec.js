@@ -98,7 +98,7 @@ test("optional code editor preserves tabs and uses guarded saves", async ({page,
   expect((await request.get("/assets/monaco/.git/config")).status()).toBe(404);
   expect((await request.get("/assets/monaco/editor/editor.main.json")).status()).toBe(404);
   const headers = {Authorization:`Bearer ${token}`};
-  const registered = await request.post("/api/mobile/repositories", {headers, data:{name:"Code editor fixture",local_path:"/repositories/code-editor-fixture"}});
+  const registered = await request.post("/api/mobile/repositories", {headers, data:{name:"Code editor fixture",local_path:process.env.ARUVI_TEST_CODE_EDITOR_PATH || "/repositories/code-editor-fixture"}});
   expect(registered.ok(), await registered.text()).toBeTruthy();
   const repository = await registered.json();
   let failLoader = true;
@@ -183,7 +183,7 @@ test("optional code editor preserves tabs and uses guarded saves", async ({page,
   await expect.poll(() => page.evaluate(() => codeEditor.getOption(monaco.editor.EditorOption.readOnly))).toBe(false);
   await input.focus(); await page.keyboard.press("ControlOrMeta+A"); await page.keyboard.insertText("alpha\nbeta\n");
   expect(await downloadOpenCopy()).toEqual({ name:"windows.js", content:"alpha\r\nbeta\r\n" });
-  await page.keyboard.press("ControlOrMeta+S");
+  await input.focus(); await page.keyboard.press("ControlOrMeta+S");
   await expect(page.locator("#status")).toHaveText("File saved");
   const windows = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`},data:{jsonrpc:"2.0",id:3,method:"tools/call",params:{name:"aruvi_repositories",arguments:{action:"read_repository_file",arguments:{repository_id:repository.id,relative_path:"windows.js"}}}}});
   expect((await windows.json()).result.structuredContent.result.content).toBe("alpha\r\nbeta\r\n");
