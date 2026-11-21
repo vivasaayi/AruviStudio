@@ -321,6 +321,17 @@ worktree app; it does not replace the interactive or isolated workflow tests. Se
 `bash scripts/test host-planner-scope` exercises the working-tree planner product
 selector against simulated responses; it does not validate the server or provider.
 
+For low-storage hosts, `bash scripts/test remote-host-fixture` and
+`bash scripts/test workflow-host-fixture` run the isolated application and PDF
+fixtures in Docker while using the host's installed Node dependencies and Chrome
+for Playwright. Set `ARUVI_CHROME_PATH` to the Chrome executable if needed. The
+fixtures use a dynamic loopback application port and require loopback port 19876
+for their mock provider; they fail if it is occupied. Their disposable data,
+containers and volumes are removed on exit. They use the worktree image, or the
+image selected by `ARUVI_TEST_APP_IMAGE`; ensure it matches the source being
+tested. The workflow fixture uses synthetic input, not a downloaded speech
+model or live provider, and the remote fixture does not save book captures.
+
 For the mocked desktop Playwright suite, a locally installed Chrome can be selected
 with `ARUVI_PLAYWRIGHT_EXECUTABLE_PATH`; `ARUVI_PLAYWRIGHT_PORT` chooses the Vite
 port, and `ARUVI_PLAYWRIGHT_REUSE_SERVER=0` prevents attaching to an existing server.

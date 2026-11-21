@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Repeatable host-browser fixtures
+
+The disposable remote and workflow fixtures now have supported host-browser
+entrypoints that share their setup and post-checks with the container tests.
+Against the branch image described below, host Chrome passed 41 remote tests,
+the PDF outage check, and 51 workflow tests with repository post-checks. The PDF
+container's isolation settings were also verified. A port-conflict check failed
+cleanly without displacing the existing listener and removed its fixture
+resources. These tests use a mock provider; they do not establish a clean image
+build, staging acceptance or complete desktop feature parity.
+
 ### Reference-management branch deployment
 
 Source revision `cdca020` was compiled as an optimized Linux ARM64 server in a
