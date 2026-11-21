@@ -1360,18 +1360,35 @@ pub(crate) struct ModelDeleteRequest { id: String, expected_name: String }
 pub(crate) async fn mobile_update_provider(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<ProviderEditRequest>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     let f = &body.fields; let e = &body.expected;
-    let url = reqwest::Url::parse(f.base_url.trim());
-    if f.name.trim().is_empty() || !url.as_ref().is_ok_and(|u| matches!(u.scheme(), "http" | "https") && u.host_str().is_some() && u.username().is_empty() && u.password().is_none() && u.query().is_none() && u.fragment().is_none()) {
-        return (StatusCode::BAD_REQUEST, "A name and valid HTTP(S) base URL are required").into_response();
-    }
+    if f.name.trim().is_empty() { return (StatusCode::BAD_REQUEST, "A provider name is required").into_response(); }
+    let provider_type: String = match sqlx::query_scalar("SELECT provider_type FROM model_providers WHERE id=?")
+        .bind(&body.id).fetch_optional(&state.app_state.db).await {
+        Ok(Some(value)) => value,
+        Ok(None) => return (StatusCode::CONFLICT, "Provider changed or was removed. Refresh and review your edits.").into_response(),
+        Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    };
+    let base_url = if provider_type == "local_runtime" {
+        if f.base_url == e.base_url { e.base_url.clone() } else {
+            match crate::services::speech_service::resolve_local_runtime_model_path(&f.base_url) {
+                Ok(path) => path.display().to_string(),
+                Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+            }
+        }
+    } else {
+        let url = reqwest::Url::parse(f.base_url.trim());
+        if provider_type != "openai_compatible" || !url.as_ref().is_ok_and(|u| matches!(u.scheme(), "http" | "https") && u.host_str().is_some() && u.username().is_empty() && u.password().is_none() && u.query().is_none() && u.fragment().is_none()) {
+            return (StatusCode::BAD_REQUEST, "A valid HTTP(S) base URL is required").into_response();
+        }
+        f.base_url.trim().to_string()
+    };
     if f.protocol.as_deref().is_some_and(|p| !matches!(p, "openai_compatible" | "anthropic")) {
         return (StatusCode::BAD_REQUEST, "Unsupported provider protocol").into_response();
     }
     if f.completion_profile.as_deref().is_some_and(|p| !matches!(p, "standard" | "openai_reasoning")) {
         return (StatusCode::BAD_REQUEST, "Unsupported provider completion profile").into_response();
     }
-    let result = sqlx::query("UPDATE model_providers SET name=?,base_url=?,enabled=?,protocol=COALESCE(?,protocol),completion_profile=COALESCE(?,completion_profile),updated_at=datetime('now') WHERE id=? AND name=? AND base_url=? AND enabled=? AND protocol=COALESCE(?,protocol) AND completion_profile=COALESCE(?,completion_profile) AND (provider_type='openai_compatible' OR COALESCE(?,protocol)='openai_compatible') AND (COALESCE(?,completion_profile)='standard' OR (provider_type='openai_compatible' AND COALESCE(?,protocol)='openai_compatible'))")
-        .bind(f.name.trim()).bind(f.base_url.trim()).bind(f.enabled).bind(&f.protocol).bind(&f.completion_profile).bind(&body.id).bind(&e.name).bind(&e.base_url).bind(e.enabled).bind(&e.protocol).bind(&e.completion_profile).bind(&f.protocol).bind(&f.completion_profile).bind(&f.protocol).execute(&state.app_state.db).await;
+    let result = sqlx::query("UPDATE model_providers SET name=?,base_url=?,enabled=?,protocol=COALESCE(?,protocol),completion_profile=COALESCE(?,completion_profile),updated_at=datetime('now') WHERE id=? AND provider_type=? AND name=? AND base_url=? AND enabled=? AND protocol=COALESCE(?,protocol) AND completion_profile=COALESCE(?,completion_profile) AND (provider_type='openai_compatible' OR COALESCE(?,protocol)='openai_compatible') AND (COALESCE(?,completion_profile)='standard' OR (provider_type='openai_compatible' AND COALESCE(?,protocol)='openai_compatible'))")
+        .bind(f.name.trim()).bind(base_url).bind(f.enabled).bind(&f.protocol).bind(&f.completion_profile).bind(&body.id).bind(provider_type).bind(&e.name).bind(&e.base_url).bind(e.enabled).bind(&e.protocol).bind(&e.completion_profile).bind(&f.protocol).bind(&f.completion_profile).bind(&f.protocol).execute(&state.app_state.db).await;
     match result { Ok(result) if result.rows_affected() == 1 => Json(serde_json::json!({"ok":true})).into_response(),
         Ok(_) => (StatusCode::CONFLICT, "Provider changed or was removed. Refresh and review your edits.").into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response() }

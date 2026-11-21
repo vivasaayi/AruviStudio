@@ -4407,7 +4407,7 @@
           const edit = document.createElement("details"); const editSummary = document.createElement("summary"); editSummary.textContent = "Manage provider";
           const form = document.createElement("form"); form.className = "stack";
           const nameInput = document.createElement("input"); nameInput.value = provider.name; nameInput.required = true; nameInput.setAttribute("aria-label", "Edit provider name " + provider.name);
-          const urlInput = document.createElement("input"); urlInput.type = "url"; urlInput.value = provider.base_url; urlInput.required = true; urlInput.setAttribute("aria-label", "Edit provider URL " + provider.name);
+          const urlInput = document.createElement("input"); urlInput.type = provider.provider_type === "local_runtime" ? "text" : "url"; urlInput.value = provider.base_url; urlInput.required = true; urlInput.setAttribute("aria-label", (provider.provider_type === "local_runtime" ? "Edit server model path " : "Edit provider URL ") + provider.name);
           const protocolSelect = document.createElement("select"); protocolSelect.setAttribute("aria-label", "Edit provider protocol " + provider.name);
           [["openai_compatible", "OpenAI compatible"], ["openai_reasoning", "OpenAI reasoning models (no temperature)"], ["anthropic", "Anthropic Messages"]].forEach(([value, label]) => { const option = document.createElement("option"); option.value = value; option.textContent = label; protocolSelect.appendChild(option); });
           protocolSelect.value = provider.protocol !== "anthropic" && provider.completion_profile === "openai_reasoning" ? "openai_reasoning" : (provider.protocol || "openai_compatible"); protocolSelect.disabled = provider.provider_type === "local_runtime";

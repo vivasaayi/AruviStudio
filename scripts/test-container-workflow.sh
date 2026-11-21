@@ -14,7 +14,7 @@ docker exec "$name" sh -c 'for fixture in workflow-test workflow-test-passed wor
 docker exec "$name" sh -c 'mkdir -p /repositories/occupied-workspace && printf "existing readme\n" > /repositories/occupied-workspace/README.md && printf "existing ignore\n" > /repositories/occupied-workspace/.gitignore && ln -s occupied-workspace /repositories/alias-workspace'
 docker exec "$name" sh -c 'git init -q --bare /repositories/mcp-origin.git && git init -q -b main /repositories/mcp-fixture && git -C /repositories/mcp-fixture config user.name "Aruvi Test" && git -C /repositories/mcp-fixture config user.email "aruvi-test@example.invalid" && printf "MCP fixture\n" > /repositories/mcp-fixture/README.md && git -C /repositories/mcp-fixture add README.md && git -C /repositories/mcp-fixture commit -q -m initial && git -C /repositories/mcp-fixture remote add origin /repositories/mcp-origin.git && git -C /repositories/mcp-fixture push -q origin main'
 docker exec "$name" sh -c 'umask 077; printf "%s" "{\"refs\":{\"synthetic-external-reference-with-hyphens\":\"synthetic-legacy-key-12345\"}}" > /data/llm-config.json'
-docker exec "$name" sh -c 'mkdir -p /data/models/fixture && printf "synthetic model" > /data/models/fixture/existing.bin'
+docker exec "$name" sh -c 'mkdir -p /data/models/fixture && printf "synthetic model" > /data/models/fixture/existing.bin && printf "alternative model" > /data/models/fixture/alternative.bin'
 docker exec "$name" sh -c 'mkdir -p /data/models/whisper-cpp-tiny-en-local'
 if [[ "${ARUVI_TEST_WHISPER_DOWNLOAD:-}" == 1 ]]; then
   whisper_test_mode=download

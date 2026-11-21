@@ -957,6 +957,28 @@ test("browser registers a server local speech model and preserves it on repeat",
   const repeat = await request.post(endpoint, { headers, data });
   expect(repeat.ok()).toBeTruthy();
   expect((await repeat.json()).model_definition.id).toBe(registered.model_definition.id);
+  let localCard = page.locator("#providerList .tool-card").filter({ hasText: data.provider_name });
+  await localCard.getByText("Manage provider", { exact: true }).click();
+  await expect(localCard.getByLabel(`Edit server model path ${data.provider_name}`)).toHaveValue(data.model_path);
+  await localCard.getByLabel("Provider enabled").uncheck();
+  await localCard.getByRole("button", { name: "Save provider" }).click();
+  await expect(page.locator("#status")).toHaveText("Provider saved");
+  localCard = page.locator("#providerList .tool-card").filter({ hasText: data.provider_name });
+  await expect(localCard).toContainText("disabled");
+  const providers = await (await request.get("/api/mobile/providers", { headers })).json();
+  const local = providers.find((provider) => provider.id === registered.provider.id);
+  const localExpected = { name: local.name, base_url: local.base_url, enabled: local.enabled, protocol: local.protocol, completion_profile: local.completion_profile };
+  const invalid = await request.post("/api/mobile/providers/update", { headers, data: { id: local.id, expected: localExpected, fields: { ...localExpected, base_url: "/data/models/fixture/missing.bin" } } });
+  expect(invalid.status()).toBe(400);
+  await localCard.getByText("Manage provider", { exact: true }).click();
+  await localCard.getByLabel(`Edit server model path ${data.provider_name}`).fill("/data/models/fixture/alternative.bin");
+  await localCard.getByLabel("Provider enabled").check();
+  await localCard.getByRole("button", { name: "Save provider" }).click();
+  await expect(page.locator("#status")).toHaveText("Provider saved");
+  const updatedLocal = (await (await request.get("/api/mobile/providers", { headers })).json()).find((provider) => provider.id === local.id);
+  expect(updatedLocal.base_url).toBe("/data/models/fixture/alternative.bin");
+  const stale = await request.post("/api/mobile/providers/update", { headers, data: { id: local.id, expected: localExpected, fields: { ...localExpected, name: "stale local edit" } } });
+  expect(stale.status()).toBe(409);
   await expect(page.locator("#bindingModel").locator(`option[value="${registered.model_definition.id}"]`)).toHaveCount(0);
   async function agents(action, arguments_) {
     const response = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` },

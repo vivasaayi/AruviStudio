@@ -4239,6 +4239,20 @@ MCP file readback; the PDF outage check also passed. The rebuilt worktree app
 and PDF sidecar restarted healthy. This does not establish complete IDE parity:
 the browser uses a plain text area and native dialogs remain unavailable.
 
+## Local speech provider editing
+
+The browser could register a local Whisper provider but could not subsequently
+edit or disable it because both the form and mobile API required an HTTP URL.
+The form now accepts a server file path for local providers. The backend checks
+a changed path against an existing regular file and preserves the optimistic
+concurrency check, including the provider type. An unchanged missing file does
+not prevent disabling a provider. The rebuilt image passed 51 isolated workflow
+tests, including local provider disable/re-enable, valid and invalid replacement
+paths, stale edits and existing hosted-provider URL validation. These fixtures
+do not validate the replacement model's contents or physical audio. The native
+Rust library suite passed 273 tests with seven ignored, and the branch app and
+PDF renderer restarted healthy.
+
 ## Independent browser Copilot model
 
 Browser workspace Copilot can choose an enabled registered provider/model
