@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Product strategy link conflict protection
+
+Browser link and unlink actions submit the product's displayed link set. The
+server requires it and compares it inside an immediate SQLite write transaction
+before changing any link or primary assignment. Legacy desktop and MCP calls may
+omit the optional snapshot and remain last-write-wins. Backend tests cover stale
+link and unlink requests and verify the primary link is preserved. A disposable
+browser/MCP fixture passed stale primary-assignment and unlink conflicts, followed
+by successful refresh and retry. The running
+branch deployment does not yet contain these changes.
+
 ### Strategy subtree deletion guard
 
 Browser strategy deletion now confirms the number of loaded descendant nodes
@@ -21,8 +32,8 @@ fixture exercised a concurrent descendant addition, rejected the stale delete,
 then refreshed and successfully deleted the confirmed subtree. A backend
 regression covers both new descendants and new links. Legacy desktop and MCP
 callers can still delete without snapshots; guarded MCP calls are optional.
-Browser product-link operations remain last-write-wins. The running branch
-container does not yet include this change.
+Browser product-link operations were subsequently guarded as described above.
+The running branch container does not yet include these changes.
 
 ### Portfolio branch deployment
 
@@ -54,8 +65,8 @@ write transaction, and browser strategy edits submit their displayed node as an
 expected snapshot. The native backend regression and a disposable browser/MCP
 fixture verified that a stale browser edit is rejected without losing the draft,
 and that refresh permits a new edit. Desktop and MCP callers that omit the optional expected snapshot remain
-last-write-wins, as do browser product-link operations; browser subtree deletion
-was subsequently guarded as recorded above. This is not complete concurrency
+last-write-wins; browser subtree deletion and product-link operations were
+subsequently guarded as recorded above. This is not complete concurrency
 protection. The subsequent portfolio branch deployment is recorded above.
 
 ### Browser portfolio management

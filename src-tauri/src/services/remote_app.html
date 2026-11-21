@@ -2480,6 +2480,7 @@
     }
 
     const portfolioElement = (id) => document.getElementById(id);
+    let portfolioLinks = [];
     async function portfolioAction(action, args = {}) {
       return request("/api/mobile/portfolio", { method: "POST", body: { action, arguments: args } });
     }
@@ -2500,6 +2501,7 @@
     async function loadPortfolio() {
       try {
         const [nodes, links, dependencies] = await Promise.all([portfolioAction("list_strategy_nodes"), portfolioAction("list_product_strategy_links"), portfolioAction("list_product_dependencies")]);
+        portfolioLinks = links;
         const names = new Map(state.products.map((p) => [p.id, p.name]));
         const nodeNames = new Map(nodes.map((n) => [n.id, n.name]));
         portfolioSelect(portfolioElement("strategyParent"), nodes, "No parent (root)");
@@ -2533,7 +2535,7 @@
         for (const link of links) {
           const card = document.createElement("div"); card.className = "tool-card";
           const text = document.createElement("span"); text.textContent = (names.get(link.product_id) || link.product_id) + " → " + (nodeNames.get(link.strategy_node_id) || link.strategy_node_id) + (link.is_primary ? " · primary" : ""); card.appendChild(text);
-          card.appendChild(portfolioButton("Unlink", async () => { if (confirm("Unlink this product and strategy?")) await portfolioChange("unlink_product_from_strategy", {product_id:link.product_id, strategy_node_id:link.strategy_node_id}); })); linkList.appendChild(card);
+          card.appendChild(portfolioButton("Unlink", async () => { if (confirm("Unlink this product and strategy?")) await portfolioChange("unlink_product_from_strategy", {product_id:link.product_id, strategy_node_id:link.strategy_node_id, expected_links:links.filter((item) => item.product_id === link.product_id)}); })); linkList.appendChild(card);
         }
         const dependencyList = portfolioElement("dependencyList"); dependencyList.replaceChildren();
         for (const item of dependencies) {
@@ -2551,7 +2553,7 @@
     });
     portfolioElement("strategyLink").addEventListener("submit", async (event) => {
       event.preventDefault(); const form = event.currentTarget.elements;
-      await portfolioChange("link_product_to_strategy", {product_id:form.product.value, strategy_node_id:form.node.value, is_primary:form.primary.checked});
+      await portfolioChange("link_product_to_strategy", {product_id:form.product.value, strategy_node_id:form.node.value, is_primary:form.primary.checked, expected_links:portfolioLinks.filter((item) => item.product_id === form.product.value)});
     });
     portfolioElement("dependencyCreate").addEventListener("submit", async (event) => {
       event.preventDefault(); const form = event.currentTarget.elements;

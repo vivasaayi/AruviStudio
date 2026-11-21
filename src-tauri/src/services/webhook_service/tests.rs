@@ -939,6 +939,13 @@ async fn mcp_portfolio_strategy_and_dependency_lifecycle() {
     assert!(dispatch_tool(&state, "aruvi_catalog", json!({"action":"link_product_to_strategy","arguments":{"product_id":a["id"],"strategy_node_id":"missing","is_primary":true}})).await.is_err());
     let links = call(&state, "list_product_strategy_links", json!({})).await;
     assert!(links.as_array().unwrap().iter().any(|link| link["product_id"] == a["id"] && link["is_primary"] == true));
+    let stale_link = dispatch_tool(&state, "aruvi_catalog", json!({"action":"link_product_to_strategy","arguments":{"product_id":a["id"],"strategy_node_id":child["id"],"is_primary":true,"expected_links":[]}})).await.unwrap_err();
+    assert!(stale_link.to_string().contains("refresh"));
+    let stale_unlink = dispatch_tool(&state, "aruvi_catalog", json!({"action":"unlink_product_from_strategy","arguments":{"product_id":a["id"],"strategy_node_id":root["id"],"expected_links":[]}})).await.unwrap_err();
+    assert!(stale_unlink.to_string().contains("refresh"));
+    let after_stale = call(&state, "list_product_strategy_links", json!({})).await;
+    assert_eq!(links, after_stale);
+
     let current_nodes = call(&state, "list_strategy_nodes", json!({})).await;
     let subtree: Vec<Value> = current_nodes.as_array().unwrap().iter().filter(|node| node["id"] == root["id"] || node["id"] == child["id"]).cloned().collect();
     let subtree_links: Vec<Value> = links.as_array().unwrap().iter().filter(|link| link["strategy_node_id"] == root["id"]).cloned().collect();
@@ -973,6 +980,8 @@ async fn mcp_portfolio_strategy_and_dependency_lifecycle() {
     let (status, _) = send_json(&router, Method::POST, "/api/mobile/portfolio", None, Some(json!({"action":"list_strategy_nodes", "arguments":{}}))).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     let (status, _) = send_json(&router, Method::POST, "/api/mobile/portfolio", Some("portfolio-api-token"), Some(json!({"action":"update_strategy_node", "arguments":{"id":"missing", "name":"unsafe"}}))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/portfolio", Some("portfolio-api-token"), Some(json!({"action":"link_product_to_strategy", "arguments":{"product_id":"missing", "strategy_node_id":"missing"}}))).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     let (status, _) = send_json(&router, Method::POST, "/api/mobile/portfolio", Some("portfolio-api-token"), Some(json!({"action":"delete_strategy_node", "arguments":{"id":"missing"}}))).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);

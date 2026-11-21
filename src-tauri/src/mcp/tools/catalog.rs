@@ -53,12 +53,14 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let product = args.required_string(&["product_id", "productId"], "product_id")?;
             let node = args.required_string(&["strategy_node_id", "strategyNodeId"], "strategy_node_id")?;
             let primary = args.bool_or_default(&["is_primary", "isPrimary"], false)?;
-            action_result("link_product_to_strategy", strategy_repo::link_product_to_strategy(&state.db, &id, &product, &node, primary).await?)
+            let expected: Option<Vec<crate::domain::strategy::ProductStrategyLink>> = args.optional_deserialize(&["expected_links"], "expected_links")?;
+            action_result("link_product_to_strategy", strategy_repo::link_product_to_strategy_guarded(&state.db, &id, &product, &node, primary, expected.as_deref()).await?)
         }
         "unlink_product_from_strategy" => {
             let product = args.required_string(&["product_id", "productId"], "product_id")?;
             let node = args.required_string(&["strategy_node_id", "strategyNodeId"], "strategy_node_id")?;
-            strategy_repo::unlink_product_from_strategy(&state.db, &product, &node).await?;
+            let expected: Option<Vec<crate::domain::strategy::ProductStrategyLink>> = args.optional_deserialize(&["expected_links"], "expected_links")?;
+            strategy_repo::unlink_product_from_strategy_guarded(&state.db, &product, &node, expected.as_deref()).await?;
             Ok(action_ok("unlink_product_from_strategy"))
         }
         "list_product_dependencies" => action_result("list_product_dependencies", strategy_repo::list_product_dependencies(&state.db).await?),

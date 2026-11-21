@@ -87,7 +87,7 @@ writes reject capabilities that belong to the wrong side's product. Strategy edi
 reject cycles and incompatible existing children. Browser strategy edits require the displayed node snapshot and reject stale
 changes. Strategy creation and updates validate under SQLite write transactions;
 legacy desktop/MCP updates that omit a snapshot remain last-write-wins, and
-browser strategy deletion compares the confirmed subtree and its links under a write lock; link operations do not yet use snapshot conflict checks.
+browser strategy deletion compares the confirmed subtree and its links under a write lock. Browser link and unlink operations compare the product's complete link set under the same lock, including changes to the primary link. Legacy desktop/MCP link actions can still omit the optional snapshot.
 Native-window acceptance and broader comparison remain open. This is not complete portfolio parity.
 
 #### Settings and outbound contact comparison — 2026-11-14

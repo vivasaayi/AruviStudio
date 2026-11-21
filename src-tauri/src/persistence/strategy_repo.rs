@@ -257,6 +257,16 @@ pub async fn list_product_strategy_links(
     Ok(rows.into_iter().map(row_to_product_strategy_link).collect())
 }
 
+async fn validate_product_links(conn: &mut SqliteConnection, product_id: &str, expected: Option<&[ProductStrategyLink]>) -> Result<(), AppError> {
+    if let Some(expected) = expected {
+        let current: Vec<_> = sqlx::query(&format!("SELECT {PRODUCT_STRATEGY_LINK_COLUMNS} FROM product_strategy_links WHERE product_id=? ORDER BY id"))
+            .bind(product_id).fetch_all(&mut *conn).await?.into_iter().map(row_to_product_strategy_link).collect();
+        let mut expected = expected.to_vec(); expected.sort_by(|a,b| a.id.cmp(&b.id));
+        if current != expected { return Err(AppError::Validation("Product strategy links changed; refresh before saving.".into())); }
+    }
+    Ok(())
+}
+
 pub async fn link_product_to_strategy(
     pool: &SqlitePool,
     id: &str,
@@ -264,7 +274,14 @@ pub async fn link_product_to_strategy(
     strategy_node_id: &str,
     is_primary: bool,
 ) -> Result<ProductStrategyLink, AppError> {
-    let mut transaction = pool.begin().await?;
+    link_product_to_strategy_guarded(pool, id, product_id, strategy_node_id, is_primary, None).await
+}
+
+pub async fn link_product_to_strategy_guarded(
+    pool: &SqlitePool, id: &str, product_id: &str, strategy_node_id: &str, is_primary: bool, expected: Option<&[ProductStrategyLink]>,
+) -> Result<ProductStrategyLink, AppError> {
+    let mut transaction = pool.begin_with("BEGIN IMMEDIATE").await?;
+    validate_product_links(&mut transaction, product_id, expected).await?;
     if is_primary {
         sqlx::query("UPDATE product_strategy_links SET is_primary = 0 WHERE product_id = ?")
             .bind(product_id)
@@ -302,11 +319,15 @@ pub async fn unlink_product_from_strategy(
     product_id: &str,
     strategy_node_id: &str,
 ) -> Result<(), AppError> {
+    unlink_product_from_strategy_guarded(pool, product_id, strategy_node_id, None).await
+}
+
+pub async fn unlink_product_from_strategy_guarded(pool: &SqlitePool, product_id: &str, strategy_node_id: &str, expected: Option<&[ProductStrategyLink]>) -> Result<(), AppError> {
+    let mut transaction = pool.begin_with("BEGIN IMMEDIATE").await?;
+    validate_product_links(&mut transaction, product_id, expected).await?;
     sqlx::query("DELETE FROM product_strategy_links WHERE product_id = ? AND strategy_node_id = ?")
-        .bind(product_id)
-        .bind(strategy_node_id)
-        .execute(pool)
-        .await?;
+        .bind(product_id).bind(strategy_node_id).execute(&mut *transaction).await?;
+    transaction.commit().await?;
     Ok(())
 }
 
