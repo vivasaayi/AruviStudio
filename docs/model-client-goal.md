@@ -12,6 +12,16 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Model Host scoped-token branch revalidation
+
+At Model Host branch `codex/scoped-inference-integration` revision `1302b93`,
+`cargo test --locked --offline --lib --bin aruvi-model-host --test lifecycle`
+passed ten Rust unit tests and 18 simulated lifecycle cases on macOS, including
+scoped-token denial of protected routes and simulated streaming/media. Draft
+[#12](https://github.com/vivasaayi/aruvi-model-host/pull/12) now records this
+result. No deployed host was changed, and this does not replace a merged build
+and integration acceptance.
+
 ### Hosted terminology guard correction
 
 Hosted run `44891200558` at `9dde6f4` failed its terminology guard because the
