@@ -4272,6 +4272,15 @@ artifact and compared it with MCP. All 51 isolated workflow tests passed using
 the rebuilt image. Independent filesystem writers can race path checks, and
 desktop/MCP artifact readers still have separate behavior.
 
+## Browser work list pagination
+
+The Work list no longer silently stops at the first 100 work items. It uses
+the existing mobile pagination metadata, retains loaded rows after a page
+failure and permits retry, resets on refresh, and ignores delayed pages after
+changing product. A browser fixture exercised 101 real work items, a failed
+page, retry and an in-flight product switch. Offset pagination is not a snapshot;
+changes to earlier rows can move or skip items until the list is refreshed.
+
 ## Independent browser Copilot model
 
 Browser workspace Copilot can choose an enabled registered provider/model

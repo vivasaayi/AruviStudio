@@ -6,6 +6,66 @@ import { createHmac } from "node:crypto";
 const token = process.env.ARUVI_MOBILE_API_TOKEN;
 const mcpToken = process.env.ARUVI_MCP_API_TOKEN;
 
+test("work list loads later pages and can retry a failed page", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
+  test.setTimeout(60000);
+  const headers = { Authorization: `Bearer ${token}` };
+  const productResponse = await request.post("/api/mobile/products", { headers, data: { name: "Paged work fixture" } });
+  expect(productResponse.ok()).toBeTruthy();
+  const product = await productResponse.json();
+  const other = await (await request.post("/api/mobile/products", { headers, data: { name: "Other paged product" } })).json();
+  expect((await request.post("/api/mobile/work-items", { headers, data: { product_id: other.id, title: "Other product item" } })).ok()).toBeTruthy();
+  for (let i = 0; i < 101; i++) {
+    const created = await request.post("/api/mobile/work-items", { headers, data: { product_id: product.id, title: `Paged item ${String(i).padStart(3, "0")}` } });
+    expect(created.ok(), await created.text()).toBeTruthy();
+  }
+  const first = await (await request.get(`/api/mobile/work-items?product_id=${product.id}&limit=100`, { headers })).json();
+  const second = await (await request.get(`/api/mobile/work-items?product_id=${product.id}&limit=100&offset=100`, { headers })).json();
+  expect(first.items).toHaveLength(100); expect(first.has_more).toBe(true);
+  expect(second.items).toHaveLength(1); expect(second.has_more).toBe(false);
+  let failPage = true, holdPage = false, releasePage, pageArrived;
+  const heldPage = new Promise((resolve) => { pageArrived = resolve; });
+  await page.route("**/api/mobile/work-items?*", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("product_id") === product.id && url.searchParams.get("offset") === "100" && failPage) {
+      failPage = false; return route.fulfill({ status: 503, body: "Temporary page failure" });
+    }
+    if (url.searchParams.get("product_id") === product.id && url.searchParams.get("offset") === "100" && holdPage) {
+      await new Promise((resolve) => { releasePage = resolve; pageArrived(); });
+    }
+    return route.continue();
+  });
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(token);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Work", exact: true }).click();
+  await page.locator("#workProductSelect").selectOption(product.id);
+  await expect(page.locator("#workList .work-card")).toHaveCount(100);
+  const more = page.getByRole("button", { name: "Load more work items" });
+  await expect(more).toBeVisible();
+  await more.click();
+  await expect(page.locator("#status")).toContainText("Temporary page failure");
+  await expect(page.locator("#workList .work-card")).toHaveCount(100);
+  await more.click();
+  await expect(page.locator("#workList .work-card")).toHaveCount(101);
+  await expect(page.locator("#workList")).toContainText(second.items[0].title);
+  await expect(more).toBeHidden();
+  await page.locator("#refreshWorkButton").click();
+  await expect(page.locator("#workList .work-card")).toHaveCount(100);
+  await expect(more).toBeVisible();
+  holdPage = true;
+  await more.click();
+  await heldPage;
+  const delayedResponse = page.waitForResponse((response) => response.url().includes(`product_id=${product.id}`) && response.url().includes("offset=100"));
+  try {
+    await page.locator("#workProductSelect").selectOption(other.id);
+    await expect(page.locator("#workList")).toContainText("Other product item");
+  } finally { releasePage(); }
+  await delayedResponse;
+  await expect(page.locator("#workList .work-card")).toHaveCount(1);
+  await expect(page.locator("#workList")).not.toContainText(second.items[0].title);
+});
+
 test("remote UI connects and opens each operational section", async ({ page }) => {
   test.skip(!token, "Set ARUVI_MOBILE_API_TOKEN for a running remote server");
   const errors = [];

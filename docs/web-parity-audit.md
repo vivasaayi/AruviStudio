@@ -148,6 +148,14 @@ registered and the default LM Studio endpoint was unavailable.
 | CI | Inspect service, targets, revisions, runs and live logs; manage target assignments; queue, cancel or retry builds; request artifact readiness and record feedback | `aruvi_ci` | Partial: artifact access and host service integration require work and validation. |
 | Settings | Connection token and browser model fields; server transcription defaults on Voice; external planner model and product defaults and workflow auto-start and approval settings on Routing | `aruvi_settings` | Partial: compare remaining settings, database and bridge controls. Environment variables can override saved transcription and external-channel defaults; live external-channel use remains unverified. |
 
+The browser Work list loads 100 items at a time and offers a load-more action
+when more are available. A failed later-page request leaves the current items
+in place for retry; refreshing starts over, and a late response from a previous
+product is ignored. An isolated browser test used 101 actual work items,
+including a failed page and a delayed response after a product switch. Paging
+uses offsets rather than a snapshot: concurrent inserts, deletions or reorders
+can move items between pages, so refresh when the list changes.
+
 The browser can now edit and disable an existing local Whisper provider. Its
 file path is treated as a server path instead of an HTTP URL; a newly selected
 path must resolve to an existing regular file, while an unchanged missing path

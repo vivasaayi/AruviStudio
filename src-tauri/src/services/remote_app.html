@@ -687,6 +687,8 @@
                 </div>
                 <div class="panel-body">
                   <div class="work-list" id="workList"></div>
+                  <button class="secondary" id="loadMoreWorkButton" type="button" hidden>Load more work items</button>
+                  <div class="empty" id="workPageStatus" aria-live="polite"></div>
                 </div>
               </section>
 
@@ -2733,24 +2735,37 @@
       renderWorkProductOptions();
     }
 
+    let workPageRequestId = 0, workNextOffset = 0, workHasMore = false;
+    function renderWorkPageStatus() {
+      document.getElementById("loadMoreWorkButton").hidden = !workHasMore;
+      document.getElementById("workPageStatus").textContent = state.workItems.length ? `${state.workItems.length} work item(s) loaded${workHasMore ? " · more available" : ""}. Refresh to see changes to earlier pages.` : "";
+    }
     async function loadWorkItems() {
+      const requestId = ++workPageRequestId;
+      workNextOffset = 0; workHasMore = false; renderWorkPageStatus();
       try {
         setBusy(true);
         setStatus("Loading work...", "warn");
         await ensureWorkProducts();
+        if (requestId !== workPageRequestId) return;
         void loadWorkflowTestConfig();
         if (!state.selectedProductId) {
           state.workItems = [];
           state.delivery = null;
+          renderWorkPageStatus();
           renderWorkItems();
           renderDelivery();
           setStatus("Create a product first", "warn");
           return;
         }
+        const productId = state.selectedProductId;
         const response = await request(
-          "/api/mobile/work-items?product_id=" + encodeURIComponent(state.selectedProductId) + "&limit=100"
+          "/api/mobile/work-items?product_id=" + encodeURIComponent(productId) + "&limit=100"
         );
+        if (requestId !== workPageRequestId || productId !== state.selectedProductId) return;
         state.workItems = response.items || [];
+        workNextOffset = state.workItems.length; workHasMore = !!response.has_more;
+        renderWorkPageStatus();
         if (!state.workItems.some((item) => item.id === state.selectedWorkItemId)) {
           state.selectedWorkItemId = state.workItems[0] ? state.workItems[0].id : "";
           if (state.selectedWorkItemId) {
@@ -2768,12 +2783,28 @@
         }
         setStatus("Connected", "ok");
       } catch (error) {
-        setStatus(error.message || String(error), "error");
-        renderWorkItems(error.message || String(error));
+        if (requestId === workPageRequestId) { setStatus(error.message || String(error), "error"); renderWorkItems(error.message || String(error)); }
       } finally {
-        setBusy(false);
+        if (requestId === workPageRequestId) setBusy(false);
       }
     }
+
+    async function loadMoreWorkItems() {
+      if (!workHasMore || !state.selectedProductId) return;
+      const requestId = workPageRequestId, productId = state.selectedProductId, offset = workNextOffset;
+      const button = document.getElementById("loadMoreWorkButton");
+      button.disabled = true;
+      try {
+        const response = await request("/api/mobile/work-items?product_id=" + encodeURIComponent(productId) + "&limit=100&offset=" + offset);
+        if (requestId !== workPageRequestId || productId !== state.selectedProductId) return;
+        const items = response.items || [], seen = new Set(state.workItems.map((item) => item.id));
+        state.workItems.push(...items.filter((item) => !seen.has(item.id)));
+        workNextOffset += items.length; workHasMore = !!response.has_more && items.length > 0;
+        renderWorkItems(); renderWorkPageStatus(); setStatus("Connected", "ok");
+      } catch (error) { if (requestId === workPageRequestId) setStatus(error.message || String(error), "error"); }
+      finally { button.disabled = false; }
+    }
+    document.getElementById("loadMoreWorkButton").addEventListener("click", () => void loadMoreWorkItems());
 
     let workflowTestRequest = 0;
     function updateWorkflowTestControls() {
