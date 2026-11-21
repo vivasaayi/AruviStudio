@@ -12,6 +12,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Browser backlog batch decisions
+
+The Work view now filters by status and supports selecting up to 100 loaded
+items for approval or rejection. The browser and MCP use one transactional
+service that checks every full snapshot, product scope and active execution;
+a conflict rolls back the entire batch. Automatic starts are requested after
+commit according to the saved policy. A native browser fixture exercised the
+filter, stale conflict, rollback and successful decisions. The Rust library
+suite passed 285 tests with seven ignored; 128 frontend tests, the frontend
+build and terminology check passed. Container validation and deployment are
+tracked separately below when complete. Drag ordering remains open.
+
 ### Browser work-item decisions
 
 The browser Work view now supports individual approval and rejection as well
@@ -28,7 +40,7 @@ stale rejection and rejection after refresh. The native Rust suite passed 284
 tests with seven ignored; 128 frontend tests, the frontend build and terminology
 check passed. A host-backed Linux ARM64 release binary packaged onto the prior
 worktree image passed 35 remote browser tests, the PDF outage check and 51
-workflow tests. Bulk decisions, status filtering and drag ordering remain open;
+workflow tests. At that checkpoint, bulk decisions, status filtering and drag ordering remained open;
 this is not a clean Dockerfile build or staging acceptance.
 After source commit `c76ead8`, image
 `sha256:fa1d7a23f1b314b5ac563fd53d02316d898f1a2603d2b3317e68702dac8bbc40`

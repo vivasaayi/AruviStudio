@@ -127,6 +127,48 @@ test("browser approves and rejects work with stale decision protection", async (
   }
 });
 
+test("browser filters work and applies atomic batch decisions", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
+  const headers = {Authorization:`Bearer ${token}`};
+  const post = async (path, data) => { const response = await request.post(path,{headers,data}); expect(response.ok(),await response.text()).toBeTruthy(); return response.json(); };
+  const call = async (name, action, args) => {
+    const response = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`},data:{jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:{action,arguments:args}}}});
+    const body=await response.json(); expect(body.result.isError,JSON.stringify(body.result)).not.toBeTruthy(); return body.result.structuredContent.result;
+  };
+  await call("aruvi_settings","set_setting",{key:"workflow.auto_start_after_work_item_approval",value:"false"});
+  try {
+    const product=await post("/api/mobile/products",{name:"Batch fixture"});
+    const a=await post("/api/mobile/work-items",{product_id:product.id,title:"Batch A"});
+    const b=await post("/api/mobile/work-items",{product_id:product.id,title:"Batch B"});
+    const c=await post("/api/mobile/work-items",{product_id:product.id,title:"Batch C"});
+    await call("aruvi_work_items","update_work_item",{id:c.id,status:"approved"});
+    await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+    await page.getByRole("button",{name:"Work",exact:true}).click(); await page.locator("#workProductSelect").selectOption(product.id);
+    await page.locator("#workStatusFilter").selectOption("draft");
+    await expect(page.locator("#workList .work-card")).toHaveCount(2);
+    await expect(page.locator("#workList")).not.toContainText("Batch C");
+    await page.getByLabel("Select Batch A",{exact:true}).check(); await page.getByLabel("Select Batch B",{exact:true}).check();
+    await call("aruvi_work_items","update_work_item",{id:b.id,description:"Concurrent change"});
+    page.once("dialog",dialog=>dialog.accept()); await page.getByRole("button",{name:"Approve selected"}).click();
+    await expect(page.locator("#status")).toContainText("changed");
+    expect((await (await request.get(`/api/mobile/work-items/${a.id}`,{headers})).json()).status).toBe("draft");
+    await page.locator("#refreshWorkButton").click();
+    await page.getByLabel("Select Batch A",{exact:true}).check(); await page.getByLabel("Select Batch B",{exact:true}).check();
+    page.once("dialog",dialog=>dialog.accept()); await page.getByRole("button",{name:"Approve selected"}).click();
+    await expect(page.locator("#status")).toHaveText("2 work item(s) approved");
+    await expect(page.locator("#workList .work-card")).toHaveCount(0);
+    await page.locator("#workStatusFilter").selectOption("approved");
+    await expect(page.locator("#workList .work-card")).toHaveCount(3);
+    await page.getByLabel("Select Batch A",{exact:true}).check(); await page.getByLabel("Select Batch B",{exact:true}).check();
+    page.once("dialog",dialog=>dialog.accept("Revise scope")); await page.getByRole("button",{name:"Reject selected"}).click();
+    await expect(page.locator("#status")).toHaveText("2 work item(s) rejected");
+    expect((await (await request.get(`/api/mobile/work-items/${a.id}`,{headers})).json()).status).toBe("draft");
+    expect((await (await request.get(`/api/mobile/work-items/${b.id}`,{headers})).json()).status).toBe("draft");
+  } finally {
+    await call("aruvi_settings","set_setting",{key:"workflow.auto_start_after_work_item_approval",value:"true"});
+  }
+});
+
 test("browser deletes a work item only after confirmation and stale checks", async ({ page, request }) => {
   test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
   const headers = { Authorization:`Bearer ${token}` };

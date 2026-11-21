@@ -142,6 +142,8 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
             &[
                 "approve_work_item",
                 "reject_work_item",
+                "approve_work_items",
+                "reject_work_items",
                 "approve_work_item_plan",
                 "reject_work_item_plan",
                 "approve_work_item_test_review",

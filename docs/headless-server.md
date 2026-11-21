@@ -640,3 +640,12 @@ displayed work-item snapshot and reject stale changes or active workflow/CLI
 execution. Refresh the item and review it again after a conflict. The approval
 record and status update are committed together across browser, desktop and
 MCP task-decision paths.
+
+The Work view can filter by status and select up to 100 loaded items from one
+product for a batch decision. A batch requires every selected snapshot to be
+current and free of active workflow or CLI execution; all decisions and
+approval records commit together or none do. Refresh and review after a
+conflict. MCP exposes the same operation through `approve_work_items` and
+`reject_work_items` on `aruvi_checkpoints`. Automatic workflow starts are
+requested after commit when the saved policy enables them; the decision
+response does not guarantee that every workflow starts successfully.

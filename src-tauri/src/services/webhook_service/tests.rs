@@ -288,6 +288,46 @@ async fn remote_test_command_configuration_is_authenticated_and_validated() {
 }
 
 #[tokio::test]
+async fn batch_task_decisions_are_atomic_scoped_and_available_to_mcp() {
+    let app: tauri::App<MockRuntime> = make_test_app("batch_task_decisions").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "batch-token").await.unwrap();
+    settings_repo::set_setting(&state.db, "workflow.auto_start_after_work_item_approval", "false").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let (_, body) = send_json(&router, Method::POST, "/api/mobile/products", Some("batch-token"), Some(json!({"name":"Batch product"}))).await;
+    let product = parse_json(&body);
+    let mut items = Vec::new();
+    for title in ["First", "Second"] {
+        let (_, body) = send_json(&router, Method::POST, "/api/mobile/work-items", Some("batch-token"), Some(json!({"product_id":product["id"],"title":title}))).await;
+        items.push(parse_json(&body));
+    }
+    let first = items[0]["id"].as_str().unwrap(); let second = items[1]["id"].as_str().unwrap();
+    let selected = json!([{"id":first,"expected":items[0]},{"id":second,"expected":items[1]}]);
+    let payload = json!({"product_id":product["id"],"action":"approve","notes":"Reviewed","items":selected});
+    let path = "/api/mobile/work-items/batch-decision";
+    assert_eq!(send_json(&router, Method::POST, path, None, Some(payload.clone())).await.0, StatusCode::UNAUTHORIZED);
+    sqlx::query("UPDATE work_items SET description='concurrent' WHERE id=?").bind(second).execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, path, Some("batch-token"), Some(payload.clone())).await.0, StatusCode::CONFLICT);
+    assert_eq!(crate::persistence::work_item_repo::get_work_item(&state.db,first).await.unwrap().status.to_string(), "draft");
+    assert!(crate::persistence::approval_repo::list_approvals(&state.db,first).await.unwrap().is_empty());
+    sqlx::query("UPDATE work_items SET description=? WHERE id=?").bind(items[1]["description"].as_str().unwrap()).bind(second).execute(&state.db).await.unwrap();
+    let duplicate = json!({"product_id":product["id"],"action":"approve","notes":"Reviewed","items":[{"id":first,"expected":items[0]},{"id":first,"expected":items[0]}]});
+    assert_eq!(send_json(&router, Method::POST, path, Some("batch-token"), Some(duplicate)).await.0, StatusCode::CONFLICT);
+    let wrong_product = json!({"product_id":"different","action":"approve","notes":"Reviewed","items":selected});
+    assert_eq!(send_json(&router, Method::POST, path, Some("batch-token"), Some(wrong_product)).await.0, StatusCode::CONFLICT);
+    let (status, body) = send_json(&router, Method::POST, path, Some("batch-token"), Some(payload)).await;
+    assert_eq!(status, StatusCode::OK, "{body}"); assert_eq!(parse_json(&body)["approvals"].as_array().unwrap().len(), 2);
+    let current_a = serde_json::to_value(crate::persistence::work_item_repo::get_work_item(&state.db,first).await.unwrap()).unwrap();
+    let current_b = serde_json::to_value(crate::persistence::work_item_repo::get_work_item(&state.db,second).await.unwrap()).unwrap();
+    let result = crate::mcp::dispatch_tool(&state, "aruvi_checkpoints", json!({"action":"reject_work_items","arguments":{"product_id":product["id"],"notes":"Revise","items":[{"id":first,"expected":current_a},{"id":second,"expected":current_b}]}})).await.unwrap();
+    assert_eq!(result["result"]["approvals"].as_array().unwrap().len(), 2);
+    for id in [first, second] {
+        assert_eq!(crate::persistence::work_item_repo::get_work_item(&state.db,id).await.unwrap().status.to_string(), "draft");
+        assert_eq!(crate::persistence::approval_repo::list_approvals(&state.db,id).await.unwrap().len(), 2);
+    }
+}
+
+#[tokio::test]
 async fn task_decisions_are_authenticated_atomic_and_conflict_checked() {
     let app: tauri::App<MockRuntime> = make_test_app("task_decision_atomic").await;
     let state = app.state::<AppState>().inner().clone();

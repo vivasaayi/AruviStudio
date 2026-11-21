@@ -17,6 +17,16 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
     let args = tool_action.args();
 
     match tool_action.action.as_str() {
+        action @ ("approve_work_items" | "reject_work_items") => {
+            let approved = action == "approve_work_items";
+            let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
+            let items: Vec<crate::services::approval_service::BatchDecisionItem> = args.required_deserialize(&["items"], "items")?;
+            let notes = args.optional_string(&["notes"])?.unwrap_or_default();
+            let auto_start = if approved { settings_repo::get_bool_setting(&state.db, AUTO_START_AFTER_WORK_ITEM_APPROVAL_KEY, true).await? } else { false };
+            let approvals = crate::services::approval_service::record_batch_task_decisions(&state.db, &product_id, approved, &notes, &items).await?;
+            if auto_start { crate::services::approval_service::schedule_batch_workflows(state, items.into_iter().map(|item| item.id).collect()); }
+            action_result(action, json!({"approvals":approvals,"auto_start_requested":auto_start}))
+        }
         "approve_work_item" => {
             let work_item_id =
                 args.required_string(&["work_item_id", "workItemId"], "work_item_id")?;

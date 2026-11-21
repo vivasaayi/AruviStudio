@@ -690,6 +690,9 @@
                   <button class="secondary" id="refreshWorkButton" type="button">Refresh</button>
                 </div>
                 <div class="panel-body">
+                  <label><span class="label">Work status</span><select id="workStatusFilter"><option value="">All statuses</option><option value="draft">Draft</option><option value="ready_for_review">Ready for review</option><option value="approved">Approved</option><option value="in_planning">In planning</option><option value="in_progress">In progress</option><option value="in_validation">In validation</option><option value="waiting_human_review">Waiting human review</option><option value="done">Done</option><option value="blocked">Blocked</option><option value="failed">Failed</option><option value="cancelled">Cancelled</option></select></label>
+                  <div class="button-row"><button class="secondary" id="approveSelectedWork" type="button" disabled>Approve selected</button><button class="danger" id="rejectSelectedWork" type="button" disabled>Reject selected</button></div>
+                  <div id="workSelectionStatus" class="empty" aria-live="polite">Select up to 100 loaded items for a batch decision.</div>
                   <div class="work-list" id="workList"></div>
                   <button class="secondary" id="loadMoreWorkButton" type="button" hidden>Load more work items</button>
                   <div class="empty" id="workPageStatus" aria-live="polite"></div>
@@ -1432,6 +1435,9 @@
       document.getElementById("externalCliRefresh").disabled = nextBusy || !state.selectedWorkItemId || !state.delivery;
       el.refreshDeliveryButton.disabled = nextBusy || !state.selectedWorkItemId;
       el.retryGitDeliveryButton.disabled = nextBusy || !state.delivery || !state.delivery.retryable_git_delivery;
+      document.getElementById("workStatusFilter").disabled = nextBusy;
+      el.workList.querySelectorAll("input[data-work-selection]").forEach((input) => { input.disabled = nextBusy; });
+      updateWorkSelectionControls();
       Array.from(el.workflowActions.querySelectorAll("button")).forEach((button) => {
         button.disabled = nextBusy || !state.delivery || !state.delivery.workflow_run;
       });
@@ -2769,12 +2775,25 @@
     }
 
     let workPageRequestId = 0, workNextOffset = 0, workHasMore = false;
+    const selectedWorkItems = new Map();
+    function updateWorkSelectionControls() {
+      const count = selectedWorkItems.size;
+      document.getElementById("approveSelectedWork").disabled = state.busy || !count;
+      document.getElementById("rejectSelectedWork").disabled = state.busy || !count;
+      document.getElementById("workSelectionStatus").textContent = count ? `${count} selected · up to 100 per batch` : "Select up to 100 loaded items for a batch decision.";
+    }
+    function workStatusQuery() {
+      const status = document.getElementById("workStatusFilter").value;
+      return status ? "&status=" + encodeURIComponent(status) : "";
+    }
     function renderWorkPageStatus() {
       document.getElementById("loadMoreWorkButton").hidden = !workHasMore;
       document.getElementById("workPageStatus").textContent = state.workItems.length ? `${state.workItems.length} work item(s) loaded${workHasMore ? " · more available" : ""}. Refresh to see changes to earlier pages.` : "";
     }
     async function loadWorkItems() {
       const requestId = ++workPageRequestId;
+      selectedWorkItems.clear(); updateWorkSelectionControls();
+      el.workList.querySelectorAll("input[data-work-selection]").forEach((input) => { input.checked = false; });
       workNextOffset = 0; workHasMore = false; renderWorkPageStatus();
       try {
         setBusy(true);
@@ -2793,7 +2812,7 @@
         }
         const productId = state.selectedProductId;
         const response = await request(
-          "/api/mobile/work-items?product_id=" + encodeURIComponent(productId) + "&limit=100"
+          "/api/mobile/work-items?product_id=" + encodeURIComponent(productId) + "&limit=100" + workStatusQuery()
         );
         if (requestId !== workPageRequestId || productId !== state.selectedProductId) return;
         state.workItems = response.items || [];
@@ -2829,7 +2848,7 @@
       const button = document.getElementById("loadMoreWorkButton");
       button.disabled = true;
       try {
-        const response = await request("/api/mobile/work-items?product_id=" + encodeURIComponent(productId) + "&limit=100&offset=" + offset);
+        const response = await request("/api/mobile/work-items?product_id=" + encodeURIComponent(productId) + "&limit=100&offset=" + offset + workStatusQuery());
         if (requestId !== workPageRequestId || productId !== state.selectedProductId) return;
         const items = response.items || [], seen = new Set(state.workItems.map((item) => item.id));
         state.workItems.push(...items.filter((item) => !seen.has(item.id)));
@@ -2898,11 +2917,19 @@
       if (!state.workItems.length) {
         const empty = document.createElement("div");
         empty.className = "empty";
-        empty.textContent = "No work items for this product.";
+        empty.textContent = document.getElementById("workStatusFilter").value ? "No work items match this status." : "No work items for this product.";
         el.workList.appendChild(empty);
         return;
       }
       state.workItems.forEach((item) => {
+        const row = document.createElement("div"); row.style.display = "grid"; row.style.gridTemplateColumns = "auto minmax(0, 1fr)"; row.style.gap = "8px"; row.style.alignItems = "center";
+        const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.style.width = "auto"; checkbox.dataset.workSelection = ""; checkbox.disabled = state.busy;
+        checkbox.setAttribute("aria-label", "Select " + item.title); checkbox.checked = selectedWorkItems.has(item.id);
+        checkbox.addEventListener("change", () => {
+          if (checkbox.checked && selectedWorkItems.size >= 100) { checkbox.checked = false; setStatus("Select at most 100 items per batch", "error"); return; }
+          if (checkbox.checked) selectedWorkItems.set(item.id, structuredClone(item)); else selectedWorkItems.delete(item.id);
+          updateWorkSelectionControls();
+        });
         const card = document.createElement("button");
         card.type = "button";
         card.className = "work-card" + (item.id === state.selectedWorkItemId ? " selected" : "");
@@ -2915,8 +2942,27 @@
         summary.textContent = String(item.status || "draft").replaceAll("_", " ") + " · " + String(item.work_item_type || "task").replaceAll("_", " ");
         card.appendChild(title);
         card.appendChild(summary);
-        el.workList.appendChild(card);
+        row.append(checkbox, card); el.workList.appendChild(row);
       });
+    }
+
+    async function decideSelectedWork(action) {
+      const productId = state.selectedProductId, items = Array.from(selectedWorkItems, ([id, expected]) => ({id, expected}));
+      if (!productId || !items.length || state.busy) return;
+      let notes = "Approved from remote backlog";
+      if (action === "reject") {
+        notes = window.prompt(`Reason for rejecting ${items.length} selected work item(s):`);
+        if (notes === null) return;
+        if (!notes.trim()) { setStatus("A rejection reason is required", "error"); return; }
+      } else if (!window.confirm(`Approve ${items.length} selected work item(s)? The configured automatic-start policy may start workflows.`)) return;
+      try {
+        setBusy(true);
+        const result = await request("/api/mobile/work-items/batch-decision", {method:"POST", body:{product_id:productId, action, notes, items}});
+        if (productId !== state.selectedProductId) return;
+        await loadWorkItems();
+        setStatus(action === "reject" ? `${items.length} work item(s) rejected` : (result.auto_start_requested ? `${items.length} approved; workflow starts requested` : `${items.length} work item(s) approved`), "ok");
+      } catch (error) { if (productId === state.selectedProductId) setStatus(error.message || String(error), "error"); }
+      finally { setBusy(false); }
     }
 
     async function selectWorkItem(workItemId) {
@@ -5371,6 +5417,9 @@
       localStorage.removeItem(storageKeys.selectedWorkItem);
       void loadWorkItems();
     });
+    document.getElementById("workStatusFilter").addEventListener("change", () => void loadWorkItems());
+    document.getElementById("approveSelectedWork").addEventListener("click", () => void decideSelectedWork("approve"));
+    document.getElementById("rejectSelectedWork").addEventListener("click", () => void decideSelectedWork("reject"));
     el.createWorkButton.addEventListener("click", createWorkItem);
     el.editWorkButton.addEventListener("click", editWorkItem);
     el.editWorkForm.addEventListener("submit", saveWorkItemEdit);

@@ -101,6 +101,33 @@ pub(crate) struct MobileTaskDecision {
     expected: crate::services::work_item_service::WorkItemBaseline,
 }
 
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileBatchTaskDecision {
+    product_id: String,
+    action: String,
+    notes: String,
+    items: Vec<crate::services::approval_service::BatchDecisionItem>,
+}
+
+pub(crate) async fn mobile_batch_task_decision(
+    State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileBatchTaskDecision>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let approved = match body.action.as_str() { "approve" => true, "reject" => false, _ => return (StatusCode::BAD_REQUEST, "Invalid decision").into_response() };
+    let auto_start = if approved {
+        match crate::persistence::settings_repo::get_bool_setting(&state.app_state.db, "workflow.auto_start_after_work_item_approval", true).await {
+            Ok(value) => value, Err(error) => return bad_request(error),
+        }
+    } else { false };
+    let approvals = match crate::services::approval_service::record_batch_task_decisions(&state.app_state.db, &body.product_id, approved, &body.notes, &body.items).await {
+        Ok(value) => value,
+        Err(AppError::Validation(message)) => return (StatusCode::CONFLICT, message).into_response(),
+        Err(error) => return bad_request(error),
+    };
+    if auto_start { crate::services::approval_service::schedule_batch_workflows(&state.app_state, body.items.into_iter().map(|item| item.id).collect()); }
+    Json(json!({"approvals":approvals,"auto_start_requested":auto_start})).into_response()
+}
+
 pub(crate) async fn mobile_task_decision(
     State(state): State<WebhookState>, headers: HeaderMap, Path(id): Path<String>, Json(body): Json<MobileTaskDecision>,
 ) -> impl IntoResponse {
