@@ -3256,7 +3256,11 @@ verified by deterministic tests only.
   and conflicting product, area and parent names, normalized scope comparisons
   and legacy calls; authenticated HTTP and MCP return the same result. A
   simulated browser fixture and six mocked desktop planner tests verify the
-  clients send ancestor scope. The native Rust library suite passed 325 tests
+  clients send ancestor scope. A disposable native server and headless browser
+  selected two identically named nodes in different product areas, verified
+  each displayed its own scoped action plus an ambiguous unscoped action, and
+  checked the same result through MCP (`bash scripts/test native-planner-matches`
+  after building the native server). The native Rust library suite passed 325 tests
   with seven ignored before the final scope-comparison normalization; focused
   matcher and HTTP/MCP tests passed again afterward. The frontend build and
   128 frontend tests passed. Linux container deployment and physical desktop
