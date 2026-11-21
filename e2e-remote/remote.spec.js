@@ -15,6 +15,10 @@ test("remote UI connects and opens each operational section", async ({ page }) =
   await page.locator("#saveButton").click();
   await page.locator("#healthButton").click();
   await expect(page.locator("#status")).toHaveText("Connected");
+  await page.getByRole("button", { name: "Activity", exact: true }).click();
+  await expect(page.locator("#bridgeConfiguration")).toContainText(`${new URL(page.url()).origin}/api/mcp`);
+  await expect(page.locator("#bridgeConfiguration")).toContainText("Configured server bind:");
+  await expect(page.locator("#bridgeConfiguration")).not.toContainText(token);
 
   for (const name of ["Products", "Workspaces", "Work", "Chat", "Voice", "Models", "Agents", "Teams", "Skills", "Routing", "CI", "Activity", "Planner"]) {
     await page.getByRole("button", { name, exact: true }).click();

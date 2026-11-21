@@ -214,6 +214,23 @@ pub(crate) struct DatabaseOverrideUpdate {
     path: serde_json::Value,
 }
 
+pub(crate) async fn mobile_bridge_status(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match crate::services::webhook_service::resolve_mcp_bridge_status(&state.app_state).await {
+        Ok(status) => Json(serde_json::json!({
+            "configured_bind_host": status.bind_host,
+            "configured_bind_port": status.bind_port,
+            "host_source": status.host_source,
+            "port_source": status.port_source,
+            "mcp_token_configured": status.token_configured,
+            "mcp_requests_allowed": status.requests_allowed,
+            "mcp_auth_mode": status.auth_mode,
+            "bind_changes_require_restart": status.bind_changes_require_restart,
+        })).into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Bridge configuration unavailable").into_response(),
+    }
+}
+
 pub(crate) async fn mobile_database_settings(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     let db = &state.app_state;

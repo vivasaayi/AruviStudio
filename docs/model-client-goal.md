@@ -4032,6 +4032,22 @@ The CI change was merged into the feature branch without conflicts at
 worktree app remained healthy. This is not a merge of the feature branch into
 main, a CI result, or staging acceptance.
 
+## Browser bridge configuration status
+
+The browser Activity view now displays an authenticated, read-only bridge
+configuration summary and derives the MCP URL from the browser's current
+origin, rather than presenting the container's internal bind as an external
+address. The summary identifies configured bind values and their sources,
+whether an MCP token is configured, and whether configuration permits requests;
+it does not return credentials. These bind values are configuration and can
+differ from the active listener until restart. A native API test checked mobile
+authentication and credential redaction. The deployed-branch navigation smoke,
+29 remote UI tests, one simulated CI test and 51 workflow tests passed; the
+browser smoke checked the actual published origin and token omission. The
+worktree app and PDF renderer were healthy at port 55093. Browser editing of
+bridge configuration, reverse-proxy deployment and native-window acceptance
+remain open.
+
 ## Coding host recovery
 
 The coding-validation Model Host worktree was no longer registered with

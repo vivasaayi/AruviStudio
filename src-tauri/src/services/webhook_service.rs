@@ -20,7 +20,7 @@ use crate::services::webhook_mobile_api::{
     mobile_list_team_assignments, mobile_add_team_assignment, mobile_remove_team_assignment,
     mobile_list_skills, mobile_create_skill, mobile_update_skill, mobile_delete_skill,
     mobile_list_skill_links, mobile_add_skill_link, mobile_remove_skill_link,
-    mobile_catalog_settings, mobile_update_catalog_settings, mobile_seed_example_products, mobile_database_settings, mobile_update_database_override,
+    mobile_catalog_settings, mobile_update_catalog_settings, mobile_seed_example_products, mobile_database_settings, mobile_update_database_override, mobile_bridge_status,
     mobile_list_routing_policies, mobile_save_routing_policy, mobile_delete_routing_policy, mobile_workflow_automation, mobile_update_workflow_automation, mobile_planner_defaults, mobile_update_planner_defaults, mobile_speech_defaults, mobile_update_speech_defaults, mobile_channel_policy, mobile_update_channel_policy, mobile_route_planner_contact, mobile_direct_contact, mobile_contact_defaults, mobile_update_contact_defaults, mobile_twilio_settings, mobile_update_twilio_settings,
     mobile_get_workflow_test_config, mobile_set_workflow_test_config, mobile_ci_read, mobile_ci_run, mobile_ci_log, mobile_ci_run_action, mobile_ci_bindings, mobile_ci_binding_action, mobile_ci_revisions, mobile_ci_artifact_readiness, mobile_ci_feedback_list, mobile_ci_feedback_create,
     mobile_submit_planner_voice_turn, mobile_transcribe_audio, mobile_generate_speech, mobile_update_planner_session,
@@ -315,6 +315,7 @@ pub(crate) fn build_webhook_router(app_state: AppState) -> Router {
                 .delete(mcp_http_delete),
         )
         .route("/api/mobile/health", get(mobile_healthcheck))
+        .route("/api/mobile/bridge-status", get(mobile_bridge_status))
         .route("/api/mobile/ci/:kind", get(mobile_ci_read))
         .route("/api/mobile/ci/bindings", get(mobile_ci_bindings))
         .route("/api/mobile/ci/bindings/:action", post(mobile_ci_binding_action))

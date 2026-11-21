@@ -141,6 +141,24 @@ async fn health_reports_database_availability() {
 }
 
 #[tokio::test]
+async fn bridge_status_requires_mobile_auth_and_does_not_return_credentials() {
+    let app: tauri::App<MockRuntime> = make_test_app("remote_bridge_status").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "mobile-fixture-secret").await.unwrap();
+    settings_repo::set_setting(&state.db, "mcp.api_token", "mcp-fixture-secret").await.unwrap();
+    let router = build_webhook_router(state);
+    assert_eq!(send_json(&router, Method::GET, "/api/mobile/bridge-status", None, None).await.0, StatusCode::UNAUTHORIZED);
+    let (status, body) = send_json(&router, Method::GET, "/api/mobile/bridge-status", Some("mobile-fixture-secret"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let value = parse_json(&body);
+    assert_eq!(value["mcp_token_configured"], true);
+    assert!(value["configured_bind_port"].is_number());
+    assert!(!body.contains("mcp-fixture-secret"));
+    assert!(!body.contains("mobile-fixture-secret"));
+    assert!(value.get("endpoint_url").is_none());
+}
+
+#[tokio::test]
 async fn remote_product_creation_requires_authentication_and_a_name() {
     let app: tauri::App<MockRuntime> = make_test_app("remote_product_create").await;
     let state = app.state::<AppState>().inner().clone();

@@ -1006,6 +1006,7 @@
                   <div class="metric-label" id="bridgeUrl">Not checked</div>
                 </div>
                 <div class="tool-list" id="healthDetails"></div>
+                <div class="empty" id="bridgeConfiguration">Check connection to load bridge configuration.</div>
               </div>
             </section>
 
@@ -1285,6 +1286,7 @@
       bridgeState: document.getElementById("bridgeState"),
       bridgeUrl: document.getElementById("bridgeUrl"),
       healthDetails: document.getElementById("healthDetails"),
+      bridgeConfiguration: document.getElementById("bridgeConfiguration"),
       mcpToolList: document.getElementById("mcpToolList")
     };
 
@@ -2150,10 +2152,17 @@
         el.bridgeState.className = "metric-value ok";
         el.bridgeUrl.textContent = normalizeBaseUrl();
         renderHealthDetails(health);
+        try {
+          const bridge = await request("/api/mobile/bridge-status");
+          el.bridgeConfiguration.textContent = `MCP endpoint for this connection: ${normalizeBaseUrl()}/api/mcp. MCP token configured: ${bridge.mcp_token_configured ? "yes" : "no"}; requests allowed by configuration: ${bridge.mcp_requests_allowed ? "yes" : "no"} (${bridge.mcp_auth_mode}). Configured server bind: ${bridge.configured_bind_host}:${bridge.configured_bind_port} (host: ${bridge.host_source}, port: ${bridge.port_source}). Bind changes require a restart. The configured bind is server-side and may differ from this browser address.`;
+        } catch (error) {
+          el.bridgeConfiguration.textContent = "Bridge configuration unavailable: " + (error.message || String(error));
+        }
       } catch (error) {
         setStatus(error.message || String(error), "error");
         el.bridgeState.textContent = "Offline";
         el.bridgeState.className = "metric-value error";
+        el.bridgeConfiguration.textContent = "Bridge configuration unavailable.";
         renderHealthDetails({ error: error.message || String(error) });
       } finally {
         setBusy(false);
