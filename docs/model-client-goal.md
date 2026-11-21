@@ -36,9 +36,11 @@ native server and frontend build passed, as did all 128 frontend tests and 327
 Rust library tests (seven ignored). The clean ARM64 image and both hosted test
 runs passed for `a797d7d`, but its isolated Linux browser suite found an
 ambiguous workspace-name label in an existing registration test: 44 passed,
-one skipped and one failed. The edit field now has a distinct accessible label;
-updated native workspace and editor browser fixtures passed, including a check
-that the registration label is unique. A new Linux image and full container
+one skipped and one failed. The initial replacement label still contained the
+registration label as a substring, which the existing Playwright selector
+matches. The edit field now uses a non-overlapping label; updated native
+workspace and editor browser fixtures passed, including a check using the same
+non-exact registration selector. A new Linux image and full container
 validation are required before deployment. Physical desktop acceptance remains
 pending.
 

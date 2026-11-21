@@ -3965,7 +3965,7 @@
           const details = document.createElement("details"), summary = document.createElement("summary"), form = document.createElement("form");
           summary.textContent = "Edit workspace"; form.className = "stack";
           const fields = {};
-          for (const [key, title] of [["name", "Edit workspace name"], ["local_path", "Server path"], ["remote_url", "Remote URL"], ["default_branch", "Default branch"]]) {
+          for (const [key, title] of [["name", "Edit display name"], ["local_path", "Server path"], ["remote_url", "Remote URL"], ["default_branch", "Default branch"]]) {
             const label = document.createElement("label"), caption = document.createElement("span"), input = document.createElement("input");
             caption.className = "label"; caption.textContent = title; input.value = repository[key] || "";
             input.required = key !== "remote_url"; input.setAttribute("aria-label", title); label.append(caption, input); form.appendChild(label); fields[key] = input;

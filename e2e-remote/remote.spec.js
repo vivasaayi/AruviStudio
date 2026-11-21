@@ -201,14 +201,14 @@ test("browser and MCP edit workspaces with stale snapshot protection", async ({p
   await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
   await page.getByRole("button",{name:"Workspaces",exact:true}).click();
   let card=page.locator("#repositoryList .tool-card").filter({hasText:repository.local_path});
-  await card.getByText("Edit workspace",{exact:true}).click(); await card.getByLabel("Edit workspace name").fill("Browser draft");
+  await card.getByText("Edit workspace",{exact:true}).click(); await card.getByLabel("Edit display name").fill("Browser draft");
   const rpc=await request.post("/api/mcp",{headers:mcpHeaders,data:{jsonrpc:"2.0",id:50,method:"tools/call",params:{name:"aruvi_repositories",arguments:{action:"update_repository",arguments:{id:repository.id,name:"Concurrent workspace edit",local_path:repository.local_path,remote_url:repository.remote_url,default_branch:repository.default_branch,expected:repository}}}}});
   expect((await rpc.json()).result.isError).not.toBeTruthy();
   const conflict=page.waitForResponse(response=>response.url().endsWith("/update") && response.request().method()==="POST");
   await card.getByRole("button",{name:"Save workspace"}).click(); expect((await conflict).status()).toBe(409);
-  await expect(card.getByLabel("Edit workspace name")).toHaveValue("Browser draft");
+  await expect(card.getByLabel("Edit display name")).toHaveValue("Browser draft");
   await page.locator("#refreshWorkspacesButton").click(); card=page.locator("#repositoryList .tool-card").filter({hasText:repository.local_path});
-  await card.getByText("Edit workspace",{exact:true}).click(); await card.getByLabel("Edit workspace name").fill("Browser updated workspace");
+  await card.getByText("Edit workspace",{exact:true}).click(); await card.getByLabel("Edit display name").fill("Browser updated workspace");
   const saved=page.waitForResponse(response=>response.url().endsWith("/update") && response.request().method()==="POST");
   await card.getByRole("button",{name:"Save workspace"}).click(); expect((await saved).status()).toBe(200);
   const rows=await (await request.get("/api/mobile/repositories",{headers})).json();
