@@ -24,12 +24,26 @@ chat operation is unchanged. Native boundary tests and authenticated HTTP/MCP
 tests covered the validator. A disposable native browser fixture passed its
 simulated-provider chat and patch flows, and both browser and MCP general
 Copilot received a nonempty reply from the real 7B Model Host. The native Rust
-library suite passed 323 tests with seven ignored. Container
-deployment and native-window acceptance of this change remain pending.
+library suite passed 323 tests with seven ignored. Native-window acceptance
+remains pending.
 The native fixture also sent invalid token limits, temperatures, roles and
 oversized messages through buffered HTTP, streaming HTTP and MCP, and verified
-that none reached its simulated provider. Equivalent container browser-suite
-coverage has been added and awaits the current ARM64 candidate image.
+that none reached its simulated provider. Equivalent Linux container tests and
+checks against the deployed worktree rejected the same invalid cases through all
+three interfaces.
+
+For runtime revision `c88773fda2de69a1726b15065c72dbb0fa68d25e`, both hosted
+test runs and the clean Linux ARM64 image build passed. The image archive's
+checksum and revision matched; its server binary was layered onto the previous
+unchanged worktree runtime, producing derived image
+`sha256:b9ff10932cebc416558b497ce6e9fb9fbb9b31241ad45e54eb8e1d2f0c88f8a9`,
+not the complete hosted image. Its disposable Linux browser suite passed 43
+tests (one skipped), the workflow suite passed 53, and the PDF outage check
+passed. The branch deployment passed product, mobile/MCP authorization, PDF
+and persistence acceptance across restart, MCP-origin checks and real 7B
+coding and general-Copilot requests. A checked database backup and prior image
+were retained before deployment. This is not staging or physical desktop
+acceptance.
 
 The clean hosted ARM64 build and both hosted test runs for
 `6d23c1d3e4acc8e068af8dddf0fd5bd54ebea9a6` passed. Its downloaded image archive
