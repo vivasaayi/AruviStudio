@@ -735,10 +735,13 @@
                   </div></form>
                   <div class="button-row">
                     <button id="approveWorkButton" type="button">Approve &amp; Start</button>
+                    <button class="secondary" id="approveDecisionButton" type="button">Approve</button>
+                    <button class="danger" id="rejectDecisionButton" type="button">Reject</button>
                     <button class="secondary" id="startWorkButton" type="button">Start / Retry</button>
                     <button class="secondary" id="refreshDeliveryButton" type="button">Refresh</button>
                     <button class="secondary" id="retryGitDeliveryButton" type="button" hidden>Retry Git delivery</button>
                   </div>
+                  <div class="empty">Approve follows the configured automatic-start policy. Reject returns the work item to draft.</div>
                   <div class="button-row" id="workflowActions">
                     <button class="secondary" data-workflow-action="approve" type="button">Approve Gate</button>
                     <button class="danger" data-workflow-action="reject" type="button">Reject Gate</button>
@@ -1420,6 +1423,8 @@
       el.clearButton.disabled = nextBusy || !state.sessionId;
       el.editWorkButton.disabled = nextBusy || !state.delivery || state.delivery.work_item.id !== state.selectedWorkItemId;
       el.approveWorkButton.disabled = nextBusy || !state.selectedWorkItemId;
+      document.getElementById("approveDecisionButton").disabled = nextBusy || !state.selectedWorkItemId || !state.delivery;
+      document.getElementById("rejectDecisionButton").disabled = nextBusy || !state.selectedWorkItemId || !state.delivery;
       el.startWorkButton.disabled = nextBusy || !state.selectedWorkItemId;
       document.getElementById("deleteWorkButton").disabled = nextBusy || !state.selectedWorkItemId || !state.delivery;
       document.getElementById("editWorkWorkspaceButton").disabled = nextBusy || !state.selectedWorkItemId || !state.delivery;
@@ -3263,6 +3268,26 @@
         setBusy(false);
       }
       await loadWorkItems();
+    }
+
+    async function decideWorkItem(action) {
+      const item = state.delivery?.work_item;
+      if (!item || item.id !== state.selectedWorkItemId || state.busy) return;
+      let notes = "Approved from remote Studio";
+      if (action === "reject") {
+        notes = window.prompt("Reason for rejecting this work item:");
+        if (notes === null) return;
+        if (!notes.trim()) { setStatus("A rejection reason is required", "error"); return; }
+      } else if (!window.confirm("Approve this work item? The configured automatic-start policy may start its workflow.")) return;
+      const expected = item;
+      try {
+        setBusy(true);
+        const result = await request("/api/mobile/work-items/" + encodeURIComponent(item.id) + "/decision", {method:"POST", body:{action, notes, expected}});
+        if (item.id !== state.selectedWorkItemId) return;
+        await loadWorkItems();
+        setStatus(action === "reject" ? "Work item rejected" : (result.auto_start_requested ? "Approved; workflow start requested" : "Work item approved"), "ok");
+      } catch (error) { if (item.id === state.selectedWorkItemId) setStatus(error.message || String(error), "error"); }
+      finally { setBusy(false); }
     }
 
     async function approveAndStartWork() {
@@ -5354,6 +5379,8 @@
     el.workflowTestMode.addEventListener("change", updateWorkflowTestControls);
     el.refreshWorkButton.addEventListener("click", loadWorkItems);
     el.approveWorkButton.addEventListener("click", approveAndStartWork);
+    document.getElementById("approveDecisionButton").addEventListener("click", () => void decideWorkItem("approve"));
+    document.getElementById("rejectDecisionButton").addEventListener("click", () => void decideWorkItem("reject"));
     el.startWorkButton.addEventListener("click", startWork);
     el.refreshDeliveryButton.addEventListener("click", () => loadDelivery());
     el.retryGitDeliveryButton.addEventListener("click", retryGitDelivery);

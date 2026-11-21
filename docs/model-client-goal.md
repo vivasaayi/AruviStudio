@@ -12,6 +12,25 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Browser work-item decisions
+
+The browser Work view now supports individual approval and rejection as well
+as the existing explicit approve-and-start action. Approval follows the saved
+automatic-start policy; rejection requires a reason and returns the item to
+draft. Browser decisions compare the full displayed work-item snapshot and
+reject active workflow or CLI conflicts. The desktop, MCP and browser task
+decision paths now update status and insert the approval record atomically.
+Desktop and MCP retain their existing automatic-start behavior.
+
+An injected database failure verified rollback through mobile API and MCP paths;
+the native browser and isolated container browser fixtures exercised approval,
+stale rejection and rejection after refresh. The native Rust suite passed 284
+tests with seven ignored; 128 frontend tests, the frontend build and terminology
+check passed. A host-backed Linux ARM64 release binary packaged onto the prior
+worktree image passed 35 remote browser tests, the PDF outage check and 51
+workflow tests. Bulk decisions, status filtering and drag ordering remain open;
+this is not a clean Dockerfile build or staging acceptance.
+
 ### Multi-process startup recovery
 
 Starting a second Studio process against the same SQLite database previously

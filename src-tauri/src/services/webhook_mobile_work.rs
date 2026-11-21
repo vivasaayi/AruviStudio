@@ -76,7 +76,7 @@ pub(crate) async fn mobile_assign_work_item_workspace(
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct MobileDeleteWorkItem { expected: crate::services::work_item_service::DeleteBaseline }
+pub(crate) struct MobileDeleteWorkItem { expected: crate::services::work_item_service::WorkItemBaseline }
 
 pub(crate) async fn mobile_delete_work_item(
     State(state): State<WebhookState>, headers: HeaderMap, Path(id): Path<String>, Json(body): Json<MobileDeleteWorkItem>,
@@ -92,6 +92,40 @@ pub(crate) async fn mobile_delete_work_item(
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct MobileWorkItemActionRequest {
     notes: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileTaskDecision {
+    action: String,
+    notes: String,
+    expected: crate::services::work_item_service::WorkItemBaseline,
+}
+
+pub(crate) async fn mobile_task_decision(
+    State(state): State<WebhookState>, headers: HeaderMap, Path(id): Path<String>, Json(body): Json<MobileTaskDecision>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let approved = match body.action.as_str() { "approve" => true, "reject" => false, _ => return (StatusCode::BAD_REQUEST, "Invalid decision").into_response() };
+    if body.notes.len() > 4000 || (!approved && body.notes.trim().is_empty()) { return (StatusCode::BAD_REQUEST, "A rejection reason is required and notes must be at most 4000 bytes").into_response(); }
+    let auto_start = if approved {
+        match crate::persistence::settings_repo::get_bool_setting(&state.app_state.db, "workflow.auto_start_after_work_item_approval", true).await {
+            Ok(value) => value, Err(error) => return bad_request(error),
+        }
+    } else { false };
+    let approval = match crate::services::approval_service::record_task_decision(&state.app_state.db, &id, approved, &body.notes, Some(&body.expected)).await {
+        Ok(value) => value,
+        Err(AppError::Validation(message)) => return (StatusCode::CONFLICT, message).into_response(),
+        Err(error) => return bad_request(error),
+    };
+    if auto_start {
+        let service = state.app_state.workflow_service.clone();
+        tokio::spawn(async move {
+            if let Err(error) = service.lock().await.start_work_item_workflow(&id).await {
+                tracing::error!(work_item_id=%id, error=%error, "auto-start after browser approval failed");
+            }
+        });
+    }
+    Json(json!({"approval":approval,"auto_start_requested":auto_start})).into_response()
 }
 
 #[derive(Debug, Deserialize)]
@@ -335,36 +369,10 @@ pub(crate) async fn mobile_approve_work_item(
         Err(error) => return bad_request(error),
     };
     if work_item.status != WorkItemStatus::Approved {
-        let approval_id = uuid::Uuid::new_v4().to_string();
-        if let Err(error) = approval_repo::create_approval(
-            &state.app_state.db,
-            &approval_id,
-            &work_item_id,
-            None,
-            "task_approval",
-            "approved",
-            body.notes
-                .as_deref()
-                .unwrap_or("Approved from remote Studio"),
-        )
-        .await
-        {
-            return bad_request(error);
-        }
-        if let Err(error) = work_item_repo::update_work_item(
-            &state.app_state.db,
-            work_item_repo::UpdateWorkItemPatch {
-                id: &work_item_id,
-                status: Some("approved"),
-                title: None,
-                description: None,
-                problem_statement: None,
-                acceptance_criteria: None,
-                constraints: None,
-            },
-        )
-        .await
-        {
+        if let Err(error) = crate::services::approval_service::record_task_decision(
+            &state.app_state.db, &work_item_id, true,
+            body.notes.as_deref().unwrap_or("Approved from remote Studio"), None,
+        ).await {
             return bad_request(error);
         }
     }

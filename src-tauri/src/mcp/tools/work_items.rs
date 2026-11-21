@@ -205,7 +205,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
         }
         "delete_work_item" => {
             let id = args.required_string(&["id"], "id")?;
-            let expected = args.optional_deserialize::<crate::services::work_item_service::DeleteBaseline>(&["expected"], "expected")?;
+            let expected = args.optional_deserialize::<crate::services::work_item_service::WorkItemBaseline>(&["expected"], "expected")?;
             crate::services::work_item_service::delete_work_item(state, &id, expected.as_ref()).await?;
             Ok(action_ok("delete_work_item"))
         }

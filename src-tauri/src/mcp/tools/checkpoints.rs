@@ -1,6 +1,6 @@
 use crate::error::AppError;
 use crate::persistence::{
-    approval_repo, artifact_repo, finding_repo, observability_repo, settings_repo, work_item_repo,
+    approval_repo, artifact_repo, finding_repo, observability_repo, settings_repo,
 };
 use crate::state::AppState;
 use serde_json::{json, Value};
@@ -20,29 +20,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
         "approve_work_item" => {
             let work_item_id =
                 args.required_string(&["work_item_id", "workItemId"], "work_item_id")?;
-            let approval = approval_repo::create_approval(
-                &state.db,
-                &uuid::Uuid::new_v4().to_string(),
-                &work_item_id,
-                None,
-                "task_approval",
-                "approved",
-                &args.optional_string(&["notes"])?.unwrap_or_default(),
-            )
-            .await?;
-            work_item_repo::update_work_item(
-                &state.db,
-                work_item_repo::UpdateWorkItemPatch {
-                    id: &work_item_id,
-                    status: Some("approved"),
-                    title: None,
-                    description: None,
-                    problem_statement: None,
-                    acceptance_criteria: None,
-                    constraints: None,
-                },
-            )
-            .await?;
+            let approval = crate::services::approval_service::record_task_decision(&state.db, &work_item_id, true, &args.optional_string(&["notes"])?.unwrap_or_default(), None).await?;
 
             let auto_start = settings_repo::get_bool_setting(
                 &state.db,
@@ -65,29 +43,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
         "reject_work_item" => {
             let work_item_id =
                 args.required_string(&["work_item_id", "workItemId"], "work_item_id")?;
-            let approval = approval_repo::create_approval(
-                &state.db,
-                &uuid::Uuid::new_v4().to_string(),
-                &work_item_id,
-                None,
-                "task_approval",
-                "rejected",
-                &args.required_string(&["notes"], "notes")?,
-            )
-            .await?;
-            work_item_repo::update_work_item(
-                &state.db,
-                work_item_repo::UpdateWorkItemPatch {
-                    id: &work_item_id,
-                    status: Some("draft"),
-                    title: None,
-                    description: None,
-                    problem_statement: None,
-                    acceptance_criteria: None,
-                    constraints: None,
-                },
-            )
-            .await?;
+            let approval = crate::services::approval_service::record_task_decision(&state.db, &work_item_id, false, &args.required_string(&["notes"], "notes")?, None).await?;
             action_result("reject_work_item", approval)
         }
         "approve_work_item_plan" => action_result(

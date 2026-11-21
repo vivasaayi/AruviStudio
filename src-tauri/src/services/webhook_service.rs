@@ -34,6 +34,7 @@ use crate::services::webhook_mobile_work::{
     mobile_get_work_item_delivery, mobile_handle_workflow_action, mobile_retry_git_delivery, mobile_list_work_items,
     mobile_start_workflow, mobile_get_workflow_test_result, mobile_get_work_item_artifact, mobile_assign_work_item_workspace, mobile_delete_work_item,
     mobile_external_cli_runs, mobile_run_external_cli, mobile_external_cli_events,
+    mobile_task_decision,
 };
 use crate::services::webhook_remote_app::REMOTE_APP_HTML;
 use crate::services::webhook_twilio::{
@@ -440,6 +441,7 @@ pub(crate) fn build_webhook_router(app_state: AppState) -> Router {
         .route("/api/mobile/work-items/:work_item_id/artifacts/:artifact_id", get(mobile_get_work_item_artifact))
         .route("/api/mobile/work-items/:work_item_id/workspace", post(mobile_assign_work_item_workspace))
         .route("/api/mobile/work-items/:work_item_id/delete", post(mobile_delete_work_item))
+        .route("/api/mobile/work-items/:work_item_id/decision", post(mobile_task_decision))
         .route("/api/mobile/work-items/:work_item_id/external-cli", get(mobile_external_cli_runs).post(mobile_run_external_cli))
         .route("/api/mobile/work-items/:work_item_id/external-cli/:run_id/events", get(mobile_external_cli_events))
         .route(

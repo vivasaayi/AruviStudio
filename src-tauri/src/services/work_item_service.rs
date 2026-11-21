@@ -10,7 +10,7 @@ pub(crate) struct WorkspaceBaseline {
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct DeleteBaseline {
+pub(crate) struct WorkItemBaseline {
     pub title: String,
     pub description: String,
     pub problem_statement: String,
@@ -34,7 +34,7 @@ pub(crate) struct DeleteBaseline {
 }
 
 /// Delete a work item only when it and its direct children have no active workflow.
-pub(crate) async fn delete_work_item(state: &AppState, id: &str, expected: Option<&DeleteBaseline>) -> Result<(), AppError> {
+pub(crate) async fn delete_work_item(state: &AppState, id: &str, expected: Option<&WorkItemBaseline>) -> Result<(), AppError> {
     let result = sqlx::query("DELETE FROM work_items WHERE id=? AND NOT EXISTS (SELECT 1 FROM workflow_runs r JOIN work_items w ON w.id=r.work_item_id WHERE (w.id=? OR w.parent_work_item_id=?) AND r.status IN ('running','paused') AND r.current_stage NOT IN ('done','failed','cancelled')) AND NOT EXISTS (SELECT 1 FROM external_cli_runs c JOIN work_items w ON w.id=c.work_item_id WHERE (w.id=work_items.id OR w.parent_work_item_id=work_items.id) AND c.status='running') AND (?=0 OR (title=? AND description=? AND problem_statement=? AND acceptance_criteria=? AND constraints=? AND status=? AND updated_at=? AND priority=? AND complexity=? AND work_item_type=? AND product_id IS ? AND product_area_id IS ? AND capability_id IS ? AND source_node_id IS ? AND source_node_type IS ? AND parent_work_item_id IS ? AND repo_override_id IS ? AND active_repo_id IS ? AND branch_name IS ? AND sort_order=?))")
         .bind(id).bind(id).bind(id).bind(expected.is_some())
         .bind(expected.map(|v| v.title.as_str())).bind(expected.map(|v| v.description.as_str()))

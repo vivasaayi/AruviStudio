@@ -288,6 +288,46 @@ async fn remote_test_command_configuration_is_authenticated_and_validated() {
 }
 
 #[tokio::test]
+async fn task_decisions_are_authenticated_atomic_and_conflict_checked() {
+    let app: tauri::App<MockRuntime> = make_test_app("task_decision_atomic").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "decision-token").await.unwrap();
+    settings_repo::set_setting(&state.db, "workflow.auto_start_after_work_item_approval", "false").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let (_, body) = send_json(&router, Method::POST, "/api/mobile/products", Some("decision-token"), Some(json!({"name":"Decision product"}))).await;
+    let product = parse_json(&body);
+    let (_, body) = send_json(&router, Method::POST, "/api/mobile/work-items", Some("decision-token"), Some(json!({"product_id":product["id"],"title":"Decision task"}))).await;
+    let item = parse_json(&body); let id = item["id"].as_str().unwrap();
+    let uri = format!("/api/mobile/work-items/{id}/decision");
+    let decision = json!({"action":"approve","notes":"Reviewed","expected":item});
+    assert_eq!(send_json(&router, Method::POST, &uri, None, Some(decision.clone())).await.0, StatusCode::UNAUTHORIZED);
+    sqlx::query("CREATE TRIGGER fixture_approval_failure BEFORE INSERT ON approvals BEGIN SELECT RAISE(ABORT, 'fixture'); END").execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("decision-token"), Some(decision.clone())).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(crate::persistence::work_item_repo::get_work_item(&state.db,id).await.unwrap().status.to_string(), "draft");
+    assert!(crate::persistence::approval_repo::list_approvals(&state.db,id).await.unwrap().is_empty());
+    sqlx::query("DROP TRIGGER fixture_approval_failure").execute(&state.db).await.unwrap();
+    let (status, body) = send_json(&router, Method::POST, &uri, Some("decision-token"), Some(decision.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{body}"); assert_eq!(parse_json(&body)["auto_start_requested"], false);
+    sqlx::query("CREATE TRIGGER fixture_mcp_approval_failure BEFORE INSERT ON approvals BEGIN SELECT RAISE(ABORT, 'fixture'); END").execute(&state.db).await.unwrap();
+    assert!(crate::mcp::dispatch_tool(&state, "aruvi_checkpoints", json!({"action":"reject_work_item","arguments":{"work_item_id":id,"notes":"fixture"}})).await.is_err());
+    assert_eq!(crate::persistence::work_item_repo::get_work_item(&state.db,id).await.unwrap().status.to_string(), "approved");
+    sqlx::query("DROP TRIGGER fixture_mcp_approval_failure").execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("decision-token"), Some(decision)).await.0, StatusCode::CONFLICT);
+    let current = serde_json::to_value(crate::persistence::work_item_repo::get_work_item(&state.db,id).await.unwrap()).unwrap();
+    let priority = current["priority"].as_str().unwrap().to_string();
+    let rejection = json!({"action":"reject","notes":"Revise the scope","expected":current});
+    sqlx::query("UPDATE work_items SET priority='high' WHERE id=?").bind(id).execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("decision-token"), Some(rejection.clone())).await.0, StatusCode::CONFLICT);
+    sqlx::query("UPDATE work_items SET priority=? WHERE id=?").bind(priority).bind(id).execute(&state.db).await.unwrap();
+    workflow_repo::create_workflow_run(&state.db,"decision-active",id).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("decision-token"), Some(rejection.clone())).await.0, StatusCode::CONFLICT);
+    sqlx::query("UPDATE workflow_runs SET status='failed',current_stage='failed' WHERE id='decision-active'").execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("decision-token"), Some(rejection)).await.0, StatusCode::OK);
+    assert_eq!(crate::persistence::work_item_repo::get_work_item(&state.db,id).await.unwrap().status.to_string(), "draft");
+    assert_eq!(crate::persistence::approval_repo::list_approvals(&state.db,id).await.unwrap().len(), 2);
+}
+
+#[tokio::test]
 async fn external_cli_recovery_is_atomic_on_database_failure() {
     let app: tauri::App<MockRuntime> = make_test_app("external_cli_recovery_atomic").await;
     let state = app.state::<AppState>().inner().clone();

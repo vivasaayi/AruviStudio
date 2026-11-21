@@ -629,3 +629,14 @@ Older versions, non-Unix processes, independent database or lock-file changes,
 and filesystems that do not honor advisory locks are outside this coordination. Recovery does
 not guarantee that subprocesses surviving an ungraceful server termination
 have stopped; inspect the workspace and processes before retrying.
+
+# Work item decisions
+
+The Work view offers individual approval and rejection. Approval follows the
+`workflow.auto_start_after_work_item_approval` setting; the separate
+“Approve & Start” button explicitly requests a workflow start. Rejection requires
+a reason and returns the item to draft. Browser decisions compare the full
+displayed work-item snapshot and reject stale changes or active workflow/CLI
+execution. Refresh the item and review it again after a conflict. The approval
+record and status update are committed together across browser, desktop and
+MCP task-decision paths.
