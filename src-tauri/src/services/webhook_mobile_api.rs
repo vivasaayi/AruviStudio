@@ -580,6 +580,20 @@ pub(crate) async fn mobile_ci_artifact_readiness(State(state): State<WebhookStat
     ci_request(serde_json::json!({"method":"promotion_readiness","id":id})).await
 }
 
+#[derive(Deserialize)]
+pub(crate) struct CiArtifactQuery { offset: Option<u64> }
+
+pub(crate) async fn mobile_ci_artifact_data(State(state): State<WebhookState>, headers: HeaderMap, Path((id, action)): Path<(i64, String)>, Query(query): Query<CiArtifactQuery>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    if id <= 0 { return (StatusCode::BAD_REQUEST, "Invalid artifact ID").into_response(); }
+    let payload = match action.as_str() {
+        "metadata" => serde_json::json!({"method":"artifact","id":id}),
+        "chunk" => serde_json::json!({"method":"artifact_chunk","id":id,"offset":query.offset.unwrap_or(0)}),
+        _ => return (StatusCode::NOT_FOUND, "Unknown artifact action").into_response(),
+    };
+    ci_request(payload).await
+}
+
 pub(crate) async fn mobile_ci_binding_action(State(state): State<WebhookState>, headers: HeaderMap, Path(action): Path<String>, Json(arguments): Json<serde_json::Value>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     let action = match action.as_str() { "save" => "save_binding", "delete" => "delete_binding", "queue" => "queue_build", _ => return (StatusCode::NOT_FOUND, "Unknown CI action").into_response() };

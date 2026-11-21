@@ -22,7 +22,7 @@ use crate::services::webhook_mobile_api::{
     mobile_list_skill_links, mobile_add_skill_link, mobile_remove_skill_link,
     mobile_portfolio_action, mobile_catalog_settings, mobile_update_catalog_settings, mobile_seed_example_products, mobile_database_settings, mobile_update_database_override, mobile_bridge_status,
     mobile_list_routing_policies, mobile_save_routing_policy, mobile_delete_routing_policy, mobile_workflow_automation, mobile_update_workflow_automation, mobile_planner_defaults, mobile_update_planner_defaults, mobile_speech_defaults, mobile_update_speech_defaults, mobile_channel_policy, mobile_update_channel_policy, mobile_route_planner_contact, mobile_direct_contact, mobile_contact_defaults, mobile_update_contact_defaults, mobile_twilio_settings, mobile_update_twilio_settings,
-    mobile_get_workflow_test_config, mobile_set_workflow_test_config, mobile_ci_read, mobile_ci_run, mobile_ci_log, mobile_ci_run_action, mobile_ci_bindings, mobile_ci_binding_action, mobile_ci_revisions, mobile_ci_artifact_readiness, mobile_ci_feedback_list, mobile_ci_feedback_create,
+    mobile_get_workflow_test_config, mobile_set_workflow_test_config, mobile_ci_read, mobile_ci_run, mobile_ci_log, mobile_ci_run_action, mobile_ci_bindings, mobile_ci_binding_action, mobile_ci_revisions, mobile_ci_artifact_readiness, mobile_ci_artifact_data, mobile_ci_feedback_list, mobile_ci_feedback_create,
     mobile_submit_planner_voice_turn, mobile_transcribe_audio, mobile_generate_speech, mobile_update_planner_session,
 };
 use crate::services::webhook_mobile_chat::{mobile_chat_completion, mobile_chat_stream, mobile_file_copilot, mobile_file_copilot_stream};
@@ -360,6 +360,7 @@ pub(crate) fn build_webhook_router(app_state: AppState) -> Router {
         .route("/api/mobile/ci/bindings/:action", post(mobile_ci_binding_action))
         .route("/api/mobile/ci/repositories/:id/:kind", get(mobile_ci_revisions))
         .route("/api/mobile/ci/artifacts/:id/readiness", get(mobile_ci_artifact_readiness))
+        .route("/api/mobile/ci/artifacts/:id/data/:action", get(mobile_ci_artifact_data))
         .route("/api/mobile/ci/runs/:id", get(mobile_ci_run))
         .route("/api/mobile/ci/runs/:id/logs", get(mobile_ci_log))
         .route("/api/mobile/ci/runs/:id/feedback", get(mobile_ci_feedback_list).post(mobile_ci_feedback_create))

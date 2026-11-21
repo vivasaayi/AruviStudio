@@ -5505,7 +5505,35 @@
             catch (error) { result.textContent = "Artifact verification unavailable: " + error.message; }
             finally { button.disabled = false; }
           });
-          details.append(button, result);
+          const download = document.createElement("button");
+          download.type = "button"; download.className = "secondary"; download.textContent = `Download artifact #${artifact.id}`;
+          download.addEventListener("click", async () => {
+            download.disabled = true;
+            try {
+              if (!globalThis.crypto?.subtle) throw new Error("Artifact verification requires HTTPS or localhost");
+              const base = `/api/mobile/ci/artifacts/${encodeURIComponent(artifact.id)}/data/`;
+              const meta = await request(base + "metadata");
+              const size = meta.size, expected = meta.sha256;
+              if (!Number.isSafeInteger(size) || size < 0 || size > 256 * 1024 * 1024 || typeof expected !== "string" || !/^[a-f0-9]{64}$/.test(expected)) throw new Error("Invalid artifact metadata or artifact exceeds the 256 MiB browser limit");
+              const bytes = new Uint8Array(size);
+              let offset = 0;
+              do {
+                const part = await request(base + "chunk?offset=" + offset);
+                if (part.offset !== offset || part.sha256 !== expected || !Array.isArray(part.bytes) || part.bytes.length > 65536 || part.bytes.some(byte => !Number.isInteger(byte) || byte < 0 || byte > 255) || offset + part.bytes.length > size || part.next_offset !== offset + part.bytes.length || typeof part.eof !== "boolean" || (!part.eof && !part.bytes.length)) throw new Error("Invalid artifact chunk");
+                bytes.set(part.bytes, offset); offset = part.next_offset;
+                if (part.eof !== (offset === size)) throw new Error("Artifact size changed during download");
+              } while (offset < size);
+              const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), byte => byte.toString(16).padStart(2, "0")).join("");
+              if (hash !== expected) throw new Error("Artifact digest mismatch");
+              const url = URL.createObjectURL(new Blob([bytes], {type:"application/octet-stream"}));
+              const filename = typeof meta.path === "string" ? meta.path.split(/[\\/]/).pop().replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 180) : "";
+              const link = document.createElement("a"); link.href = url; link.download = filename && filename !== "." && filename !== ".." ? filename : `ci-artifact-${artifact.id}`; link.click();
+              setTimeout(() => URL.revokeObjectURL(url), 60000);
+              result.textContent = `Verified ${size} bytes · SHA-256 ${hash}`;
+            } catch (error) { result.textContent = "Artifact download failed: " + (error.message || String(error)); }
+            finally { download.disabled = false; }
+          });
+          details.append(button, download, result);
         }
         const action = ["queued", "running"].includes(run.status) ? "cancel" : ["failed", "blocked", "cancelled", "interrupted"].includes(run.status) ? "retry" : null;
         if (action) {

@@ -26,6 +26,7 @@ parser.add_argument("--execute-build", action="store_true", help="With --audit-p
 parser.add_argument("--relay-image", help="Test an authenticated Docker-to-host relay with this Studio image")
 parser.add_argument("--browser", action="store_true", help="Inspect the completed build in a real headless browser (requires --execute-build)")
 parser.add_argument("--browser-executable", help="Optional Chromium executable for the browser check")
+parser.add_argument("--artifact-browser", help="Chromium executable for the disposable multi-chunk artifact browser check")
 args = parser.parse_args()
 if (args.exercise_protocol or args.execute_build) and not args.audit_protocol:
     parser.error("--exercise-protocol and --execute-build require --audit-protocol")
@@ -35,6 +36,8 @@ if args.browser and not args.execute_build:
     parser.error("--browser requires --execute-build")
 if args.browser_executable and not args.browser:
     parser.error("--browser-executable requires --browser")
+if args.artifact_browser and not args.exercise_protocol:
+    parser.error("--artifact-browser requires --exercise-protocol")
 studio = args.studio_binary.resolve(strict=True)
 aruvici = args.aruvici_binary.resolve(strict=True)
 
@@ -234,6 +237,14 @@ try:
                     raise RuntimeError("Artifact transfer did not match its metadata")
                 if not mcp_result("aruvi_ci", "artifact_chunk", {"id": 1, "offset": -1}).get("isError"):
                     raise RuntimeError("Negative artifact offset was accepted")
+                if args.artifact_browser:
+                    try:
+                        opener.open(address + "/api/mobile/ci/artifacts/1/data/chunk?offset=0", timeout=10)
+                        raise RuntimeError("Unauthenticated artifact bytes were accepted")
+                    except urllib.error.HTTPError as error:
+                        if error.code != 401: raise
+                    browser_env = dict(os.environ, ARUVI_REMOTE_URL=address, ARUVI_MOBILE_API_TOKEN=token, ARUVI_CHROME_PATH=args.artifact_browser, ARUVI_TEST_CI_DIGEST=metadata["sha256"], ARUVI_TEST_CI_PATH=str(artifact_path))
+                    subprocess.run(["node", "scripts/test-native-ci-artifact-browser.mjs"], env=browser_env, check=True)
                 try:
                     opener.open(address + "/api/mobile/ci/artifacts/1/readiness", timeout=10)
                     raise RuntimeError("Unauthenticated artifact verification was accepted")

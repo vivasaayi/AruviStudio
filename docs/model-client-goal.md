@@ -14,16 +14,22 @@ provider hosting into the model-host service as part of this work.
 
 ### CI artifact parity investigation
 
+Browser CI artifact downloads now use authenticated chunk requests, verify
+length and SHA-256 before saving, require HTTPS or localhost, and buffer at most
+256 MiB. A native Studio and real Aruvici protocol-branch fixture passed a Chrome
+download of a 76,800-byte file, rejected modified bytes and denied an
+unauthenticated chunk request. Larger files, the deployed service and staging
+remain unverified; the limit does not provide parity for larger build artifacts.
+
 MCP now exposes artifact metadata and bounded chunk reads. A freshly built
 native Studio server and the Aruvici protocol-branch binary passed a disposable
 76,800-byte multi-chunk transfer with byte, length, offset and SHA-256 checks;
-the fixture also rejected a negative offset. The browser download and deployed
-service validation remain open. The native build emitted existing warnings.
+the fixture also rejected a negative offset. Deployed service validation remains
+open. The native build emitted existing warnings.
 
 The desktop can reveal a verified CI artifact, whereas the browser and MCP
 previously exposed readiness but not its bytes. Aruvici supports bounded artifact
-chunks, and the Studio relay allows that operation; browser delivery still needs
-end-to-end size/digest checks. The Studio
+chunks, and the Studio relay allows that operation. The Studio
 `promotion_readiness` protocol extension is in Aruvici branch
 `codex/studio-ci-protocol` at `c2efef3`, not the inspected local `main` checkout;
 that branch had no open PR at this checkpoint. The running service's version

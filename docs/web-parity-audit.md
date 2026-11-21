@@ -74,17 +74,20 @@ provider. Live-provider behavior and full IDE parity remain open.
 #### CI artifact delivery and service dependency
 
 The desktop CI run panel can reveal a verified artifact in Finder. The browser
-currently offers only the readiness check. MCP now exposes `artifact_metadata`
+now downloads artifacts using authenticated bounded chunks and checks the
+complete SHA-256 before offering the file. It requires a secure browser context
+(HTTPS or localhost) and buffers at most 256 MiB. MCP exposes `artifact_metadata`
 and `artifact_chunk` as well as `artifact_readiness`; the metadata may include
 the service's server-side path. The Aruvici checkout's private socket protocol provides
 `artifact` metadata and bounded 65,536-byte `artifact_chunk` reads by numeric
-ID, and Studio's CI relay already permits both methods. Browser download still
-needs implementation and end-to-end validation. The
+ID, and Studio's CI relay already permits both methods. The
 receiver must check offsets, size and SHA-256 across the completed download;
 readiness alone does not protect against a file changing during transfer.
 An isolated native Studio and Aruvici protocol-branch fixture reconstructed a
 76,800-byte binary through MCP in multiple chunks, checked its digest and size,
-and rejected a negative offset. It did not test a deployed CI service.
+and rejected a negative offset. Chrome downloaded the same artifact from the
+native Studio server and rejected a modified file; unauthenticated chunk access
+was rejected. This did not test a deployed CI service or larger artifacts.
 
 The `promotion_readiness` operation used by Studio exists in the separate
 `codex/studio-ci-protocol` Aruvici branch (`c2efef3`) but was not found in the
