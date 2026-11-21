@@ -12,7 +12,7 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### Browser workflow map (in validation)
+### Browser workflow map
 
 The recorded-stage review now includes an explanatory workflow map with the
 desktop's intake, planning, execution, verification and delivery lanes. Its
@@ -20,11 +20,20 @@ stage buttons select the corresponding recorded-stage details, including stages
 with no recorded events; structural split nodes are labeled as explanation,
 not evidence of execution. Multiple planning labels share the `planning`
 runtime stage, as on desktop. The native server build and disposable browser
-fixture passed, including navigation to a stage with no recorded events. Linux
-validation and branch deployment are pending. The selected-stage view also
+fixture passed, including navigation to a stage with no recorded events. The selected-stage view also
 groups recorded model calls by their stage or associated agent run; the native
 fixture verified the selected workflow's call and excluded the other workflow's
-call. Linux validation is pending. This map does not yet reproduce the desktop SVG
+call. Hosted tests and the clean ARM64 build passed for `ba058cd`; the archive
+checksum and revision were verified. Its server binary (SHA-256
+`4e34cae630373a437f3c33809748ab3d376b0d063513df8bf293b5b9d1dbd444`)
+was applied to the prior branch image, producing derived image
+`sha256:d126dd21b740db55f86e7a8c583bbb1c02397612305efa304226f3894c362fb7`;
+this is not the full clean artifact. The candidate passed 53 isolated workflow
+tests, 45 browser tests with one skipped, and PDF outage checks. A checked
+database backup and prior image were retained; product, MCP, mobile and PDF
+acceptance passed after restart, as did published-port origin checks and a real
+`qwen25-coder-7b-q4` MCP coding request. The branch endpoint at this checkpoint
+was `127.0.0.1:55288`. This map does not yet reproduce the desktop SVG
 connections, stage status colors or focused-node layout.
 A 390-pixel-wide native browser fixture also confirmed that the Coding map
 control fits the viewport; it is not a comprehensive mobile layout audit.
