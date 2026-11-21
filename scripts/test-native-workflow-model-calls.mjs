@@ -51,6 +51,8 @@ c.commit()`,db,task.id,join(root,'artifacts','stage.txt')]);
   await page.setViewportSize({width:390,height:844});
   const mobileCoding=page.locator('#deliveryDetails').getByRole('button',{name:'Coding',exact:true});await mobileCoding.scrollIntoViewIfNeeded();
   const rect=await mobileCoding.boundingBox();assert(rect && rect.x>=0 && rect.x+rect.width<=390,'Workflow map button should fit the mobile viewport');
+  const mapButtons=page.getByText('Workflow map:',{exact:false}).locator('..').locator('button');
+  for (const button of await mapButtons.all()) {const bounds=await button.boundingBox();assert(bounds && bounds.x>=0 && bounds.x+bounds.width<=390,'Each workflow map button should fit the mobile viewport');}
   await page.getByRole('button',{name:'Show workflow model calls'}).click();await page.locator('#deliveryDetails pre').filter({hasText:expected}).waitFor();
   const details=await page.locator('#deliveryDetails').innerText();assert(details.includes(expected));assert(!details.includes(unexpected));
   assert(details.includes('Source: per-call telemetry'));assert(details.includes('Input tokens: 12'));assert(details.includes('Output tokens: 7'));

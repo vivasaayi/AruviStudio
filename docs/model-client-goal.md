@@ -21,8 +21,10 @@ one runtime stage and do not establish that individual planning branches ran.
 Map selection is exposed through `aria-pressed` and has a visible focus-style
 outline. The native server build and disposable browser fixture passed for
 current/entered/unrecorded states, mouse and keyboard selection, workflow
-isolation, and a 390-pixel map control. Linux validation and branch deployment
-are pending. The desktop SVG connections and focused-node layout remain open.
+isolation, and all map controls at a 390-pixel viewport. A headless browser
+capture was visually reviewed at that width and map spacing was increased;
+this is not a complete mobile audit. Linux validation and branch deployment are
+pending. The desktop SVG connections and focused-node layout remain open.
 
 ### Browser workflow map
 

@@ -3692,18 +3692,18 @@
               }
             };
             stageSelect.onchange = renderStage;
-            stageMap.replaceChildren();
+            stageMap.replaceChildren(); stageMap.className = "stack";
             const explanation = document.createElement("p"); explanation.className = "empty"; explanation.textContent = "Workflow map: Current marks the workflow's current stage; Entered means history recorded entry, not completion. Not recorded does not prove a step never ran. Split nodes and parallel lanes explain the design. Planning labels share one runtime stage, so their indicators do not prove individual branches ran."; stageMap.appendChild(explanation);
             const enteredStages = new Set(history.map((entry) => entry.to_stage));
             for (const [laneName, nodes] of lanes) {
-              const lane = document.createElement("div"), label = document.createElement("strong"); lane.className = "tool-card"; label.textContent = laneName + ": "; lane.appendChild(label);
+              const lane = document.createElement("div"), label = document.createElement("strong"); lane.className = "tool-card"; lane.style.display = "flex"; lane.style.flexWrap = "wrap"; lane.style.alignItems = "center"; lane.style.gap = "6px"; label.textContent = laneName + ": "; lane.appendChild(label);
               for (const [name, stage] of nodes) {
                 if (!stage) { const split = document.createElement("span"); split.textContent = name + " · "; lane.appendChild(split); continue; }
                 const node = document.createElement("button");
                 const indicator = stage === workflow.current_stage ? "Current" : enteredStages.has(stage) ? "Entered" : "Not recorded";
                 node.type = "button"; node.className = "secondary"; node.dataset.workflowStage = stage;
                 node.setAttribute("aria-label", name); node.setAttribute("aria-description", indicator + " workflow stage");
-                node.textContent = name + " · " + indicator;
+                node.textContent = name + " · " + indicator; node.style.maxWidth = "100%";
                 node.style.borderColor = indicator === "Current" ? "#57b0e5" : indicator === "Entered" ? "#4ec9b0" : "";
                 node.addEventListener("click", () => { stageSelect.value = stage; renderStage(); }); lane.appendChild(node);
               }
