@@ -43,11 +43,17 @@ pub(super) async fn handle(state: &crate::state::AppState, payload: Value) -> Re
         "get_status" => json!({"method":"health"}),
         "list_targets" => json!({"method":"targets"}),
         "list_runs" => json!({"method":"runs"}),
-        "get_run" | "get_logs" | "cancel_run" | "retry_run" | "artifact_readiness" => {
+        "get_run" | "get_logs" | "cancel_run" | "retry_run" | "artifact_readiness" | "artifact_metadata" | "artifact_chunk" => {
             let id = args.optional_i64(&["id"])?.filter(|id| *id > 0).ok_or_else(|| AppError::Validation("A positive run ID is required".into()))?;
             match action.as_str() {
                 "get_run" => json!({"method":"run","id":id}),
                 "artifact_readiness" => json!({"method":"promotion_readiness","id":id}),
+                "artifact_metadata" => json!({"method":"artifact","id":id}),
+                "artifact_chunk" => {
+                    let offset = args.optional_i64(&["offset"])?.unwrap_or(0);
+                    if offset < 0 { return Err(AppError::Validation("Invalid artifact offset".into())); }
+                    json!({"method":"artifact_chunk","id":id,"offset":offset})
+                },
                 "get_logs" => {
                     let stage = args.required_string(&["stage"], "stage")?;
                     let offset = args.optional_i64(&["offset"])?.unwrap_or(0);

@@ -14,10 +14,16 @@ provider hosting into the model-host service as part of this work.
 
 ### CI artifact parity investigation
 
+MCP now exposes artifact metadata and bounded chunk reads. A freshly built
+native Studio server and the Aruvici protocol-branch binary passed a disposable
+76,800-byte multi-chunk transfer with byte, length, offset and SHA-256 checks;
+the fixture also rejected a negative offset. The browser download and deployed
+service validation remain open. The native build emitted existing warnings.
+
 The desktop can reveal a verified CI artifact, whereas the browser and MCP
-currently expose readiness but not its bytes. Aruvici supports bounded artifact
-chunks, and the Studio relay allows that operation; completing delivery needs
-client-accessible chunk handling and end-to-end size/digest checks. The Studio
+previously exposed readiness but not its bytes. Aruvici supports bounded artifact
+chunks, and the Studio relay allows that operation; browser delivery still needs
+end-to-end size/digest checks. The Studio
 `promotion_readiness` protocol extension is in Aruvici branch
 `codex/studio-ci-protocol` at `c2efef3`, not the inspected local `main` checkout;
 that branch had no open PR at this checkpoint. The running service's version

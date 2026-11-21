@@ -209,7 +209,7 @@ try:
                 plan = json.loads(subprocess.run(cli + ["plan", "fixture"], check=True, capture_output=True, text=True).stdout)
                 if plan["issues"]: raise RuntimeError("Disposable target is not buildable")
                 subprocess.run(cli + ["approve", "fixture", "--digest", plan["digest"]], check=True, capture_output=True, text=True)
-                artifact_bytes = b"disposable CI artifact"
+                artifact_bytes = bytes(range(256)) * 300
                 run_root = state / "ci-runs" / "1"
                 run_root.mkdir(parents=True)
                 artifact_path = run_root / "package.bin"
@@ -220,6 +220,20 @@ try:
                 readiness = call("aruvi_ci", "artifact_readiness", {"id": 1})
                 if readiness.get("sha256") != hashlib.sha256(artifact_bytes).hexdigest() or readiness.get("eligible") is not False:
                     raise RuntimeError("Unexpected artifact verification")
+                metadata = call("aruvi_ci", "artifact_metadata", {"id": 1})
+                received = bytearray()
+                while True:
+                    chunk = call("aruvi_ci", "artifact_chunk", {"id": 1, "offset": len(received)})
+                    if chunk.get("offset") != len(received) or chunk.get("sha256") != metadata.get("sha256"):
+                        raise RuntimeError("Inconsistent artifact chunk")
+                    received.extend(chunk["bytes"])
+                    if chunk.get("next_offset") != len(received): raise RuntimeError("Invalid artifact offset")
+                    if chunk.get("eof"): break
+                    if not chunk["bytes"]: raise RuntimeError("Empty non-final artifact chunk")
+                if bytes(received) != artifact_bytes or len(received) != metadata.get("size") or hashlib.sha256(received).hexdigest() != metadata.get("sha256"):
+                    raise RuntimeError("Artifact transfer did not match its metadata")
+                if not mcp_result("aruvi_ci", "artifact_chunk", {"id": 1, "offset": -1}).get("isError"):
+                    raise RuntimeError("Negative artifact offset was accepted")
                 try:
                     opener.open(address + "/api/mobile/ci/artifacts/1/readiness", timeout=10)
                     raise RuntimeError("Unauthenticated artifact verification was accepted")

@@ -15,7 +15,7 @@ pub struct ToolDefinition {
 
 pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
     vec![
-        action_tool("aruvi_ci", "Inspect Aruvici targets, revisions, runs and artifacts, manage target assignments, feedback and builds.", &["get_status", "list_targets", "list_runs", "get_run", "get_logs", "cancel_run", "retry_run", "artifact_readiness", "list_branches", "list_commits", "list_bindings", "save_binding", "delete_binding", "queue_build", "list_feedback", "create_feedback"]),
+        action_tool("aruvi_ci", "Inspect Aruvici targets, revisions, runs and artifacts, manage target assignments, feedback and builds. Artifact chunks are bounded binary byte arrays; verify total size and SHA-256 after downloading.", &["get_status", "list_targets", "list_runs", "get_run", "get_logs", "cancel_run", "retry_run", "artifact_readiness", "artifact_metadata", "artifact_chunk", "list_branches", "list_commits", "list_bindings", "save_binding", "delete_binding", "queue_build", "list_feedback", "create_feedback"]),
         action_tool(
             "aruvi_catalog",
             "Manage products, product areas, capabilities, features, and attached delivery stories/tasks.",
