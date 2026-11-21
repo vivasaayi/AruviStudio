@@ -12,6 +12,21 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Hierarchy conversion audit
+
+The existing shared kind-conversion operation previously validated and wrote
+through separate database operations. Its reads, validation and writes now use
+one immediate SQLite transaction. A native MCP test verifies that an invalid
+kind conversion and an injected update failure preserve the existing child,
+and that a same-kind operation succeeds. Product-related native tests passed
+(32 passed, four ignored). The first proposed reparent test revealed a scope
+constraint rather than reaching its write: canonical product areas accept only
+capabilities and capabilities accept only features. Consequently, converting
+between these kinds in a valid tree is rejected by the parent rule, and the
+child-reparent branch has not been exercised. No browser conversion control
+has been added; deciding whether conversion should move nodes or change the
+canonical model remains open. The running branch image predates this change.
+
 ### Product hierarchy detail parity
 
 The browser capability/feature editor now supports acceptance criteria and

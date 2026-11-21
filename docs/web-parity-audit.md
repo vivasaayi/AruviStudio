@@ -78,8 +78,13 @@ notes in addition to name and description. The browser tree editor now exposes
 those two fields, with product scoping and expected-value checks; older clients
 can still update only name and description without clearing the new fields. A
 disposable browser/MCP test saved both fields, rejected a stale MCP edit and a
-cross-product update, and rejected an update missing its expected value. Node
-kind conversion and other product-management actions still need comparison.
+cross-product update, and rejected an update missing its expected value. Current canonical hierarchy rules allow only a capability under a product area
+and only a feature under a capability, so the existing conversion action cannot
+change a valid node between those kinds without violating its parent rule. The
+shared conversion operation now runs under an immediate transaction, but its
+child-reparent path is unreachable for a valid canonical tree and remains
+unverified; no browser conversion control is offered. Other product-management
+actions still need comparison.
 
 #### Portfolio strategy and dependencies
 

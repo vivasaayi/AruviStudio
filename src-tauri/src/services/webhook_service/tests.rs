@@ -991,3 +991,34 @@ async fn mcp_portfolio_strategy_and_dependency_lifecycle() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert!(parse_json(&body).is_array());
 }
+
+#[tokio::test]
+async fn capability_conversion_rejects_invalid_kind_and_preserves_children() {
+    use crate::mcp::dispatch_tool;
+    let app: tauri::App<MockRuntime> = make_test_app("capability_conversion_atomic").await;
+    let state = app.state::<AppState>().inner().clone();
+    async fn call(state: &AppState, action: &str, arguments: Value) -> Value {
+        dispatch_tool(state, "aruvi_catalog", json!({"action":action,"arguments":arguments})).await.unwrap()["result"].clone()
+    }
+    let product = call(&state, "create_product", json!({"name":"Conversion fixture"})).await;
+    let area = call(&state, "create_product_area", json!({"product_id":product["id"],"name":"Area"})).await;
+    let parent = call(&state, "create_capability", json!({"product_area_id":area["id"],"name":"Parent","node_kind":"capability"})).await;
+    let child = call(&state, "create_capability", json!({"product_area_id":area["id"],"parent_capability_id":parent["id"],"name":"Child","node_kind":"feature"})).await;
+    let invalid = dispatch_tool(&state, "aruvi_catalog", json!({"action":"convert_capability_kind","arguments":{"id":parent["id"],"node_kind":"feature","child_strategy":"reparent_to_parent"}})).await;
+    assert!(invalid.is_err());
+    sqlx::query("CREATE TRIGGER fail_conversion BEFORE UPDATE OF node_kind ON capabilities BEGIN SELECT RAISE(ABORT, 'fixture conversion failure'); END")
+        .execute(&state.db).await.unwrap();
+    let failed = dispatch_tool(&state, "aruvi_catalog", json!({"action":"convert_capability_kind","arguments":{"id":parent["id"],"node_kind":"capability"}})).await;
+    assert!(failed.is_err());
+    let persisted = sqlx::query_as::<_, (Option<String>, i64)>("SELECT parent_capability_id,level FROM capabilities WHERE id=?")
+        .bind(child["id"].as_str().unwrap()).fetch_one(&state.db).await.unwrap();
+    assert_eq!(persisted.0.as_deref(), parent["id"].as_str());
+    assert_eq!(persisted.1, 1);
+    sqlx::query("DROP TRIGGER fail_conversion").execute(&state.db).await.unwrap();
+    let converted = call(&state, "convert_capability_kind", json!({"id":parent["id"],"node_kind":"capability"})).await;
+    assert_eq!(converted["capability"]["node_kind"], "capability");
+    let moved = sqlx::query_as::<_, (Option<String>, i64)>("SELECT parent_capability_id,level FROM capabilities WHERE id=?")
+        .bind(child["id"].as_str().unwrap()).fetch_one(&state.db).await.unwrap();
+    assert_eq!(moved.0.as_deref(), parent["id"].as_str());
+    assert_eq!(moved.1, 1);
+}
