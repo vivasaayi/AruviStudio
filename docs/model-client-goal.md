@@ -64,6 +64,22 @@ occurrences of 01:30 during fall-back and the spring-forward gap. This protects
 the tested existing behavior; Windows and other timezone configurations remain
 to be validated when selecting a maintained replacement.
 
+The macOS Rust library suite on `938391c0f8fb53e623013e25cc430b80a2b76f69`
+passed 319 tests with seven ignored; both hosted test runs and the clean Linux
+ARM64 container build passed. The archive checksum and source revision were
+verified. Its extracted server binary (SHA-256
+`583976fd3da24afae97a1e6e0f73fa73b3f0ce4e95c75893b50674da511ebe76`)
+was layered over the unchanged preceding branch runtime, producing derived
+image `sha256:835a7b810ecb947dc3e2b36fc2298e826fea5e91ad0b24249c952952662c27bd`;
+this is not the complete hosted image. The candidate passed 53 workflow
+scenarios, including browser quiet-hours configuration and enforcement, plus
+the two-container workflow-decision and Git-delivery races. After deployment,
+product, MCP/mobile authorization, PDF and persistence acceptance passed across
+restart, as did browser MCP-origin and real 7B MCP coding checks. A checked
+SQLite backup and the prior image are retained. The branch endpoint after
+acceptance was `127.0.0.1:55261`, subject to change on restart. This does not
+establish staging, complete desktop parity or a replacement for chrono.
+
 ### Database override restart validation
 
 The native fixture now reconstructs a migration-52 database from a freshly
