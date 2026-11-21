@@ -40,7 +40,7 @@ use crate::services::webhook_twilio::{
 };
 use crate::state::AppState;
 use axum::body::Bytes;
-use axum::extract::{Form, Query, State};
+use axum::extract::{Form, Path as AxumPath, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
@@ -89,6 +89,28 @@ async fn healthcheck(State(state): State<WebhookState>) -> impl IntoResponse {
 
 async fn remote_app() -> impl IntoResponse {
     Html(REMOTE_APP_HTML)
+}
+
+async fn monaco_asset(AxumPath(path): AxumPath<String>) -> impl IntoResponse {
+    let missing = || (StatusCode::NOT_FOUND, "Editor asset not found").into_response();
+    if path.is_empty() || path.split('/').any(|part| part.is_empty() || part.starts_with('.') || !part.bytes().all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c))) {
+        return missing();
+    }
+    let mime = match std::path::Path::new(&path).extension().and_then(|v| v.to_str()) {
+        Some("js") => "text/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("ttf") => "font/ttf",
+        _ => return missing(),
+    };
+    let root = match std::env::var_os("ARUVI_MONACO_ASSETS_DIR") { Some(value) => value, None => return missing() };
+    let root = match tokio::fs::canonicalize(root).await { Ok(value) => value, Err(_) => return missing() };
+    let file = match tokio::fs::canonicalize(root.join(path)).await { Ok(value) if value.starts_with(&root) => value, _ => return missing() };
+    match tokio::fs::metadata(&file).await { Ok(meta) if meta.is_file() && meta.len() <= 8 * 1024 * 1024 => (), _ => return missing() }
+    use tokio::io::AsyncReadExt;
+    let file = match tokio::fs::File::open(file).await { Ok(value) => value, Err(_) => return missing() };
+    let mut bytes = Vec::new();
+    if file.take(8 * 1024 * 1024 + 1).read_to_end(&mut bytes).await.is_err() || bytes.len() > 8 * 1024 * 1024 { return missing(); }
+    ([(axum::http::header::CONTENT_TYPE, mime), (axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff"), (axum::http::header::CACHE_CONTROL, "no-cache")], bytes).into_response()
 }
 
 fn json_response(status: StatusCode, payload: Value) -> Response {
@@ -308,6 +330,7 @@ pub(crate) fn build_webhook_router(app_state: AppState) -> Router {
         .route("/health", get(healthcheck))
         .route("/remote", get(remote_app))
         .route("/remote/*path", get(remote_app))
+        .route("/assets/monaco/*path", get(monaco_asset))
         .route(
             "/api/mcp",
             get(mcp_http_get)

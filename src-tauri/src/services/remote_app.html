@@ -597,7 +597,11 @@
               <pre id="repositoryDiff" style="white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto"></pre>
               <label><span class="label">Filter workspace files</span><input id="repositoryTreeFilter" placeholder="Filter by name or path" /></label><button id="refreshRepositoryTree" type="button" class="secondary" disabled>Refresh file tree</button>
               <div id="repositoryTree" class="tree"></div><div id="repositoryTreeEmpty" class="empty" hidden>No matching files.</div>
-              <div id="repositoryFileTabs" class="button-row" aria-label="Open workspace files"></div><label><span class="label">Selected file</span><textarea id="repositoryFileContent" readonly rows="18" aria-label="Selected file contents"></textarea></label>
+              <div id="repositoryFileTabs" class="button-row" aria-label="Open workspace files"></div>
+              <button type="button" class="secondary" id="toggleCodeEditor">Use code editor</button>
+              <div id="codeEditorStatus" class="empty" role="status"></div>
+              <label id="repositoryPlainEditor"><span class="label">Selected file</span><textarea id="repositoryFileContent" readonly rows="18" aria-label="Selected file contents"></textarea></label>
+              <div id="repositoryCodeEditor" hidden aria-label="Code editor" style="height: 420px; border: 1px solid #334155"></div>
               <div class="button-row"><button id="saveRepositoryFileButton" type="button" disabled>Save file</button><button id="discardRepositoryFileButton" class="secondary" type="button" disabled>Discard file edits</button><span class="empty">In the editor, use ⌘/Ctrl+S to save.</span></div>
               <div class="tool-card stack">
                 <strong>Ask Copilot about this file</strong>
@@ -3380,6 +3384,7 @@
     let openedFile = null;
     let openRepositoryFiles = [];
     let fileSaving = false;
+    let fileLoading = false;
     let copilotBusy = false;
     let copilotStreamController = null;
     let reviewedPatch = null;
@@ -3432,7 +3437,7 @@
     }
     function activateRepositoryFile(file) {
       if (fileSaving || copilotBusy) { setStatus("Wait for the current operation before switching files", "warn"); return; }
-      saveActiveBuffer(); fileRequestId++; openedFile = file;
+      saveActiveBuffer(); fileRequestId++; fileLoading = false; openedFile = file;
       el.repositoryFileContent.value = file.working; el.repositoryFileContent.readOnly = !file.editable;
       el.repositoryInspectStatus.textContent = file.path;
       document.getElementById("repositoryCopilotResult").textContent = file.transcript || "";
@@ -3443,7 +3448,7 @@
       if (fileIsDirty(file) && !window.confirm("Discard unsaved changes to " + file.path + "?")) return;
       const active = file === openedFile; openRepositoryFiles = openRepositoryFiles.filter((entry) => entry !== file);
       if (active) {
-        openedFile = null; fileRequestId++;
+        openedFile = null; fileRequestId++; fileLoading = false;
         if (openRepositoryFiles.length) activateRepositoryFile(openRepositoryFiles[openRepositoryFiles.length - 1]);
         else { el.repositoryFileContent.value = ""; el.repositoryFileContent.readOnly = true; document.getElementById("repositoryCopilotResult").textContent = ""; clearPatchReview(); updateFileControls(); }
       }
@@ -3451,14 +3456,70 @@
     }
     function updateFileControls() {
       const dirty = !!fileIsDirty();
-      el.saveRepositoryFileButton.disabled = !dirty || fileSaving || copilotBusy || !openedFile.editable;
-      el.discardRepositoryFileButton.disabled = !dirty || fileSaving || copilotBusy;
-      document.getElementById("repositoryCopilotButton").disabled = !openedFile || fileSaving || copilotBusy || !openedFile.sha256;
+      el.saveRepositoryFileButton.disabled = !dirty || fileSaving || fileLoading || copilotBusy || !openedFile.editable;
+      el.discardRepositoryFileButton.disabled = !dirty || fileSaving || fileLoading || copilotBusy;
+      document.getElementById("repositoryCopilotButton").disabled = !openedFile || fileSaving || fileLoading || copilotBusy || !openedFile.sha256;
       document.getElementById("repositoryCopilotButton").textContent = !document.getElementById("repositoryCopilotIncludeFile").checked ? "Ask Copilot" : dirty ? "Ask about unsaved file" : "Ask about saved file";
-      document.getElementById("repositoryCopilotPatchButton").disabled = !openedFile || dirty || fileSaving || copilotBusy || !openedFile.sha256;
-      document.getElementById("repositoryPatchApply").disabled = !reviewedPatch || !openedFile || dirty || fileSaving || copilotBusy;
+      document.getElementById("repositoryCopilotPatchButton").disabled = !openedFile || dirty || fileSaving || fileLoading || copilotBusy || !openedFile.sha256;
+      document.getElementById("repositoryPatchApply").disabled = !reviewedPatch || !openedFile || dirty || fileSaving || fileLoading || copilotBusy;
       document.getElementById("repositoryCopilotReset").disabled = !openedFile || copilotBusy;
+      syncCodeEditor();
     }
+    let codeEditor = null, codeEditorActive = false, codeEditorLoading = false, syncingCodeEditor = false;
+    const codeEditorModels = new Map();
+    function syncCodeEditor() {
+      if (!codeEditor) return;
+      const keyFor = (file) => file.repositoryId + "\u0000" + file.path;
+      const activeKeys = new Set(openRepositoryFiles.map(keyFor));
+      syncingCodeEditor = true;
+      try {
+        for (const [key, model] of codeEditorModels) if (!activeKeys.has(key)) { model.dispose(); codeEditorModels.delete(key); }
+        let model = null;
+        if (openedFile) {
+          const key = keyFor(openedFile);
+          model = codeEditorModels.get(key);
+          if (!model) {
+            const uri = window.monaco.Uri.from({scheme:"file", path:"/" + openedFile.repositoryId + "/" + openedFile.path});
+            model = window.monaco.editor.createModel(el.repositoryFileContent.value, undefined, uri);
+            codeEditorModels.set(key, model);
+          }
+        }
+        if (codeEditor.getModel() !== model) codeEditor.setModel(model);
+        if (model && model.getValue() !== el.repositoryFileContent.value) model.setValue(el.repositoryFileContent.value);
+        codeEditor.updateOptions({ readOnly: el.repositoryFileContent.readOnly });
+      } finally { syncingCodeEditor = false; }
+    }
+    async function toggleCodeEditor() {
+      const button = document.getElementById("toggleCodeEditor"), status = document.getElementById("codeEditorStatus");
+      if (codeEditorLoading) return;
+      if (codeEditorActive) {
+        codeEditorActive = false; document.getElementById("repositoryCodeEditor").hidden = true;
+        document.getElementById("repositoryPlainEditor").hidden = false; button.textContent = "Use code editor"; status.textContent = ""; return;
+      }
+      codeEditorLoading = true; button.disabled = true; status.textContent = "Loading code editor…";
+      try {
+        if (!codeEditor) {
+          await new Promise((resolve, reject) => {
+            const script = document.createElement("script"); script.src = "/assets/monaco/loader.js";
+            script.onload = resolve; script.onerror = () => reject(new Error("Code editor assets are unavailable on this server")); document.head.appendChild(script);
+          });
+          window.require.config({ paths:{vs:"/assets/monaco"} });
+          await new Promise((resolve, reject) => window.require(["vs/editor/editor.main"], resolve, () => reject(new Error("Could not load code editor assets"))));
+          codeEditor = window.monaco.editor.create(document.getElementById("repositoryCodeEditor"), { model:null, theme:"vs-dark", automaticLayout:true, minimap:{enabled:false}, ariaLabel:"Selected code file" });
+          codeEditor.onDidChangeModelContent(() => {
+            if (syncingCodeEditor || !openedFile || !codeEditor.getModel()) return;
+            el.repositoryFileContent.value = codeEditor.getValue();
+            el.repositoryFileContent.dispatchEvent(new Event("input", {bubbles:true}));
+          });
+          codeEditor.addCommand(window.monaco.KeyMod.CtrlCmd | window.monaco.KeyCode.KeyS, () => void saveRepositoryFile());
+        }
+        codeEditorActive = true; document.getElementById("repositoryPlainEditor").hidden = true;
+        document.getElementById("repositoryCodeEditor").hidden = false; syncCodeEditor(); codeEditor.layout();
+        button.textContent = "Use plain text editor"; status.textContent = "Code editor active";
+      } catch (error) { status.textContent = error.message || String(error); }
+      finally { codeEditorLoading = false; button.disabled = false; }
+    }
+    document.getElementById("toggleCodeEditor").addEventListener("click", () => void toggleCodeEditor());
     function canLeaveFile() {
       if (copilotBusy) { setStatus("Wait for Copilot before opening another file or workspace", "warn"); return false; }
       if (fileSaving || openRepositoryFiles.some((file) => fileIsDirty(file))) { setStatus("Save or discard file edits before opening another workspace", "warn"); return false; }
@@ -3518,7 +3579,7 @@
       openedFile = null; openRepositoryFiles = []; renderFileTabs(); el.repositoryFileContent.readOnly = true; updateFileControls();
       clearPatchReview();
       const requestId = ++inspectRequestId;
-      fileRequestId++;
+      fileRequestId++; fileLoading = false;
       inspectedRepositoryId = repository.id;
       el.repositoryInspectStatus.textContent = "Loading " + repository.name + "...";
       document.getElementById("refreshRepositoryTree").disabled = true;
@@ -3559,6 +3620,8 @@
       if (existing) { activateRepositoryFile(existing); return; }
       if (openRepositoryFiles.length >= 25) { setStatus("Close a file before opening more than 25 files", "warn"); return; }
       const requestId = ++fileRequestId;
+      fileLoading = true; el.repositoryFileContent.readOnly = true; updateFileControls();
+      el.repositoryInspectStatus.textContent = "Opening " + path + "…";
       try {
         const file = await request("/api/mobile/repository-inspect", { method: "POST", body: { action: "read_repository_file", repository_id: repositoryId, relative_path: path } });
         if (requestId !== fileRequestId || repositoryId !== inspectedRepositoryId) return;
@@ -3567,16 +3630,18 @@
         const display = file.content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
         const entry = { repositoryId, path, expected: file.content, displayBaseline: display, working: display,
           crlf: file.content.includes("\r\n") && !mixed, editable: !mixed, sha256: file.sha256, history: [], copilotScope: "", transcript: "" };
-        openRepositoryFiles.push(entry); activateRepositoryFile(entry);
+        fileLoading = false; openRepositoryFiles.push(entry); activateRepositoryFile(entry);
         if (mixed) setStatus("This file has mixed line endings and is available for reading only", "warn");
         updateFileControls();
       } catch (error) {
         if (requestId === fileRequestId) setStatus(error.message || String(error), "error");
+      } finally {
+        if (requestId === fileRequestId) { fileLoading = false; el.repositoryFileContent.readOnly = !openedFile?.editable; el.repositoryInspectStatus.textContent = openedFile?.path || "No file selected"; updateFileControls(); }
       }
     }
 
     async function saveRepositoryFile() {
-      if (!openedFile || !fileIsDirty() || fileSaving || !openedFile.editable) return;
+      if (!openedFile || !fileIsDirty() || fileSaving || fileLoading || !openedFile.editable) return;
       const file = openedFile;
       const content = file.crlf ? el.repositoryFileContent.value.replace(/\n/g, "\r\n") : el.repositoryFileContent.value;
       fileSaving = true; el.repositoryFileContent.readOnly = true; updateFileControls();

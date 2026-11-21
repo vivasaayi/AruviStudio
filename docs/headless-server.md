@@ -246,6 +246,17 @@ build through Docker Studio and the relay passed with this arrangement. Stable
 environment mounts, live CI service deployment and broader product builds have
 not been validated.
 
+In **Workspaces**, select **Use code editor** to enable the locally served Monaco
+editor; **Use plain text editor** switches back without discarding edits. Both use
+the same conflict-checked server save and ⌘/Ctrl+S. Open-file buffers are held in
+the browser and do not survive reload. Files with mixed line endings remain
+read-only. Docker images include the pinned npm dependency and its notices;
+they do not fetch editor code from a CDN. For a separately run native server,
+set `ARUVI_MONACO_ASSETS_DIR` to the absolute `monaco-editor/min/vs` directory
+from the matching `npm ci` installation. If assets are absent, the plain editor
+remains available. Native application packaging of these web assets is not yet
+validated.
+
 In **Work**, a selected item can override its workspace and branch, or return to
 its product/area scope default. The workspace must already be registered on the
 server; it need not be attached to the item's product. Choosing a branch does not

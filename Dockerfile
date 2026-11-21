@@ -32,12 +32,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=build /tmp/aruvi-studio-server /usr/local/bin/aruvi-studio-server
 COPY --from=frontend /usr/local/bin/node /usr/local/bin/node
 COPY --from=frontend /build/node_modules/playwright-core /usr/local/lib/aruvi-pdf/playwright-core
+COPY --from=frontend /build/node_modules/monaco-editor/min/vs /usr/local/share/aruvi-monaco/vs
+COPY --from=frontend /build/node_modules/monaco-editor/LICENSE /usr/local/share/aruvi-monaco/LICENSE
+COPY --from=frontend /build/node_modules/monaco-editor/ThirdPartyNotices.txt /usr/local/share/aruvi-monaco/ThirdPartyNotices.txt
 COPY src-tauri/resources/render-product-book-pdf.cjs src-tauri/resources/product-book-pdf-server.cjs /usr/local/lib/aruvi-pdf/
 USER aruvi
 WORKDIR /data
 ENV ARUVI_APP_DATA_DIR=/data ARUVI_DB_PATH=/data/aruvi-studio.db \
     ARUVI_WEBHOOK_HOST=0.0.0.0 ARUVI_WEBHOOK_PORT=8787 \
     ARUVI_PDF_NODE=/usr/local/bin/node ARUVI_PDF_BROWSER=/usr/bin/chromium \
-    ARUVI_PDF_PLAYWRIGHT_PATH=/usr/local/lib/aruvi-pdf/playwright-core ARUVI_PDF_SANDBOX=1
+    ARUVI_PDF_PLAYWRIGHT_PATH=/usr/local/lib/aruvi-pdf/playwright-core ARUVI_PDF_SANDBOX=1 \
+    ARUVI_MONACO_ASSETS_DIR=/usr/local/share/aruvi-monaco/vs
 EXPOSE 8787
 CMD ["aruvi-studio-server"]

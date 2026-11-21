@@ -6,6 +6,86 @@ import { createHmac } from "node:crypto";
 const token = process.env.ARUVI_MOBILE_API_TOKEN;
 const mcpToken = process.env.ARUVI_MCP_API_TOKEN;
 
+test("optional code editor preserves tabs and uses guarded saves", async ({page, request}) => {
+  test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
+  const loader = await request.get("/assets/monaco/loader.js");
+  expect(loader.ok()).toBeTruthy();
+  expect(loader.headers()["content-type"]).toContain("javascript");
+  expect(loader.headers()["x-content-type-options"]).toBe("nosniff");
+  expect((await request.get("/assets/monaco/.git/config")).status()).toBe(404);
+  expect((await request.get("/assets/monaco/editor/editor.main.json")).status()).toBe(404);
+  const headers = {Authorization:`Bearer ${token}`};
+  const registered = await request.post("/api/mobile/repositories", {headers, data:{name:"Code editor fixture",local_path:"/repositories/code-editor-fixture"}});
+  expect(registered.ok(), await registered.text()).toBeTruthy();
+  const repository = await registered.json();
+  let failLoader = true;
+  const external = [];
+  const origin = new URL(process.env.ARUVI_REMOTE_URL || "http://127.0.0.1:8787").origin;
+  page.on("request", (req) => { if (!req.url().startsWith(origin + "/") && !req.url().startsWith("blob:")) external.push(req.url()); });
+  await page.route("**/assets/monaco/loader.js", (route) => {
+    if (failLoader) { failLoader = false; return route.fulfill({status:404,body:"unavailable"}); }
+    return route.continue();
+  });
+  await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+  await page.getByRole("button", {name:"Workspaces",exact:true}).click();
+  await page.locator("#repositoryList .tool-card").filter({hasText:"Code editor fixture"}).getByRole("button", {name:"Browse workspace"}).click();
+  await page.locator("#repositoryTree").getByRole("button", {name:"first.js",exact:true}).click();
+  await expect(page.getByLabel("Selected file contents")).toHaveValue("const first = 1;\n");
+  await page.getByRole("button", {name:"Use code editor"}).click();
+  await expect(page.locator("#codeEditorStatus")).toContainText("unavailable");
+  await expect(page.getByLabel("Selected file contents")).toBeVisible();
+  await page.getByRole("button", {name:"Use code editor"}).click();
+  await expect(page.locator("#codeEditorStatus")).toHaveText("Code editor active", {timeout:30000});
+  await expect(page.locator("#repositoryCodeEditor .monaco-editor")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => codeEditor.getModel()?.getLanguageId())).toBe("javascript");
+  const input = page.locator("#repositoryCodeEditor textarea.inputarea");
+  await input.focus(); await page.keyboard.press("ControlOrMeta+A"); await page.keyboard.insertText("const first = 42;\n");
+  await expect(page.locator("#repositoryFileTabs")).toContainText("first.js • unsaved");
+  let releaseFile, arrivedFile;
+  const fileHeld = new Promise((resolve) => { arrivedFile = resolve; });
+  await page.route("**/api/mobile/repository-inspect", async (route) => {
+    const body = route.request().postDataJSON();
+    if (body?.action === "read_repository_file" && body.relative_path === "second.js") {
+      await new Promise((resolve) => { releaseFile = resolve; arrivedFile(); });
+    }
+    return route.continue();
+  });
+  await page.locator("#repositoryTree").getByRole("button", {name:"second.js",exact:true}).click();
+  await fileHeld;
+  try {
+    await expect.poll(() => page.evaluate(() => codeEditor.getOption(monaco.editor.EditorOption.readOnly))).toBe(true);
+    await input.focus(); await page.keyboard.insertText("should-not-appear");
+  } finally { releaseFile(); }
+  await expect(page.locator("#repositoryFileTabs").getByRole("button", {name:"second.js",exact:true})).toHaveAttribute("aria-pressed", "true");
+  await input.focus(); await page.keyboard.press("ControlOrMeta+A"); await page.keyboard.insertText("const second = 99;\n");
+  await page.locator("#repositoryFileTabs").getByRole("button", {name:"first.js • unsaved"}).click();
+  await expect(page.locator("#repositoryFileTabs").getByRole("button", {name:"first.js • unsaved"})).toHaveAttribute("aria-pressed", "true");
+  await input.focus(); await page.keyboard.press("ControlOrMeta+Z");
+  await expect.poll(() => page.evaluate(() => codeEditor.getValue())).not.toBe("const first = 42;\n");
+  await page.keyboard.press("ControlOrMeta+Shift+Z");
+  await expect.poll(() => page.evaluate(() => codeEditor.getValue())).toBe("const first = 42;\n");
+  await page.keyboard.press("ControlOrMeta+S");
+  await expect(page.locator("#status")).toHaveText("File saved");
+  const result = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`},data:{jsonrpc:"2.0",id:1,method:"tools/call",params:{name:"aruvi_repositories",arguments:{action:"read_repository_file",arguments:{repository_id:repository.id,relative_path:"first.js"}}}}});
+  expect((await result.json()).result.structuredContent.result.content).toBe("const first = 42;\n");
+  const externalEdit = await request.post("/api/mobile/repository-file/save", {headers,data:{repository_id:repository.id,relative_path:"first.js",expected_content:"const first = 42;\n",content:"const first = 88;\n"}});
+  expect(externalEdit.ok()).toBeTruthy();
+  await input.focus(); await page.keyboard.press("ControlOrMeta+A"); await page.keyboard.insertText("const first = 7;\n");
+  await page.keyboard.press("ControlOrMeta+S");
+  await expect(page.locator("#status")).toContainText("File changed since it was opened");
+  const preserved = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`},data:{jsonrpc:"2.0",id:2,method:"tools/call",params:{name:"aruvi_repositories",arguments:{action:"read_repository_file",arguments:{repository_id:repository.id,relative_path:"first.js"}}}}});
+  expect((await preserved.json()).result.structuredContent.result.content).toBe("const first = 88;\n");
+  await page.getByRole("button", {name:"Discard file edits"}).click();
+  await page.locator("#repositoryFileTabs").getByRole("button", {name:"second.js • unsaved"}).click();
+  await page.getByRole("button", {name:"Use plain text editor"}).click();
+  await expect(page.getByLabel("Selected file contents")).toHaveValue("const second = 99;\n");
+  await page.getByRole("button", {name:"Discard file edits"}).click();
+  await page.locator("#repositoryTree").getByRole("button", {name:"mixed.js",exact:true}).click();
+  await page.getByRole("button", {name:"Use code editor"}).click();
+  await expect.poll(() => page.evaluate(() => codeEditor.getOption(monaco.editor.EditorOption.readOnly))).toBe(true);
+  expect(external).toEqual([]);
+});
+
 test("browser deletes a work item only after confirmation and stale checks", async ({ page, request }) => {
   test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
   const headers = { Authorization:`Bearer ${token}` };

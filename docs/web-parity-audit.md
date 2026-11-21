@@ -50,8 +50,12 @@ not establish that all desktop behavior is available or works in a container.
 The desktop IDE supports ⌘/Ctrl+S. The browser file editor now supports the
 same shortcut while the editor is focused, using its existing conflict-checked
 save operation. A disposable browser fixture saved a file with the shortcut
-and read it back through MCP. The browser editor is still a plain text area,
-not the desktop Monaco editor; syntax assistance and native dialogs remain open.
+and read it back through MCP. The container also offers an opt-in Monaco code
+editor, with the plain text editor as a fallback. Browser checks cover JavaScript
+language detection, per-file edits and undo, guarded saves and read-only files;
+native dialogs and full IDE behavior remain open. The image serves the editor
+assets from its own filesystem; separately run native servers require explicit
+asset configuration and packaged-native delivery is unverified.
 Browser Copilot can now select an enabled registered model independently of the
 Connection model, or explicitly use the Connection model. The choice lasts for
 the page session; refresh retrieves current models and retains an unavailable

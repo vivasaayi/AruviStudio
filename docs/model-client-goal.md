@@ -4236,8 +4236,8 @@ The browser workspace editor now accepts ⌘/Ctrl+S while the editor is focused,
 using the same conflict-checked save as its button. The rebuilt Docker image
 passed all 29 isolated browser tests, including a keyboard save followed by an
 MCP file readback; the PDF outage check also passed. The rebuilt worktree app
-and PDF sidecar restarted healthy. This does not establish complete IDE parity:
-the browser uses a plain text area and native dialogs remain unavailable.
+and PDF sidecar restarted healthy. At that checkpoint the browser used a plain
+text area and native dialogs were unavailable; see the later editor checkpoint.
 
 ## Local speech provider editing
 
@@ -4271,6 +4271,28 @@ oversized and non-text files; a browser workflow opened a generated coding
 artifact and compared it with MCP. All 51 isolated workflow tests passed using
 the rebuilt image. Independent filesystem writers can race path checks, and
 desktop/MCP artifact readers still have separate behavior.
+
+## Browser code editor
+
+The Docker image includes the pinned Monaco distribution and serves its assets
+locally. The Workspaces view can switch between Monaco and the existing plain
+editor without discarding open buffers; server-side conflict checks and mixed
+line-ending restrictions remain in force. A browser fixture covered unavailable
+asset fallback, JavaScript language detection, edits and undo across tabs, a
+delayed file open, ⌘/Ctrl+S, concurrent-write rejection and a read-only mixed
+line-ending file. Requests in the fixture stayed on the Studio origin. Native
+servers require an explicit asset-directory configuration; native application
+packaging, other languages, mobile devices and full desktop IDE behavior remain
+unvalidated. Per-file buffers still do not survive a page reload.
+
+The rebuilt image passed 34 isolated remote-browser tests and 51 workflow
+tests; the native Rust library suite passed 275 tests with seven ignored. A
+subsequent worktree restart hit a SQLite disk I/O error because Docker's VM
+filesystem was full. One identified AruviStudio Cargo build-cache entry was
+removed, the existing database passed read-only `quick_check`, and the same
+image restarted healthy without rebuilding. Authenticated MCP catalog reading
+and local editor-asset delivery then passed. Docker VM capacity remained tight
+at approximately 1.7 GiB free; future builds and writes need available space.
 
 ## Browser work list pagination
 
