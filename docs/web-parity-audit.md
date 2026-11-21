@@ -355,9 +355,9 @@ and history together and reject a stale or non-running source. The separate
 advance path uses the same database operation and marks `done` as completed.
 Database atomicity does not include agent writes, coordinator pending-stage
 updates or Git pushes; in particular advance can push before its database
-transition. A macOS subprocess fixture raced two transitions against one
-temporary database five times with one winner and one history entry each time;
-container end-to-end validation of this change remains pending.
+transition. A macOS subprocess fixture and a two-container Linux MCP fixture
+each raced competing decisions five times with one winner and one history entry
+each time; the Linux fixture reproduced two successes on the prior image.
 
 ### Planner action inventory
 

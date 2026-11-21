@@ -5783,20 +5783,38 @@ push atomic with SQLite. The advance path can perform a Git push before its
 database transition and concurrent external delivery remains a separate risk.
 Against a disposable native server and simulated provider, a browser/MCP
 capacity workflow and a browser approval flow that changed coordinators and
-reached test review both passed. The change still needs a rebuilt branch image
-and container end-to-end validation.
+reached test review both passed. Subsequent container validation and branch
+deployment are recorded below.
 
 A macOS subprocess fixture subsequently started two independent processes
 against one temporary SQLite database and raced the same transition. Across
 five runs exactly one process succeeded, the other received a conflict and one
 history entry was recorded. This checks one transition on the local filesystem;
-Linux container behavior and external side effects remain separate checks.
+the later hosted Linux test run also passed. External side effects remain
+separate checks.
 
 The new `workflow-transition-multiprocess` fixture starts two disposable
 Linux Studio containers against one temporary volume, holds a SQLite write lock
 while both request the same gate rejection, and checks the resulting state and
 history. Against the previously deployed image it reproduced two successful
-decisions. The atomic-transition candidate still needs to pass this fixture.
+decisions. The atomic-transition candidate passed five races with one success,
+one rejected decision and one history entry per race.
+
+The hosted clean Linux ARM64 build of
+`68e46c9a059f6c99da26dd608367cafb6b32fa96` passed; its archive checksum and
+source revision were verified. The extracted server binary (SHA-256
+`c57411451542129709a081443362d7bcc2166d631d83c622b2703d17b87c5375`) was
+installed over the preceding branch runtime, producing derived image
+`sha256:6d5e6e0059ac96fad429b4a5d8f757cf51ba0ac181fe319dbab329b7059d527c`.
+This is not the complete hosted image. In addition to the two-container race,
+the candidate passed 53 workflow tests, 43 general browser tests, the dedicated
+bridge-token browser fixture, PDF isolation/outage and the Docker host-model
+fixture. After deployment, product, MCP/mobile authorization, PDF and
+persistence acceptance passed after restart, as did browser MCP-origin and real
+local 7B MCP coding checks. The verified archive, build records, checked
+pre-deployment database backup and previous image are retained. Docker VM free
+space remained about 2.0 GiB. Git pushes and other external effects are still
+outside the SQLite transaction; integration and staging are unverified.
 
 ## Browser bridge bind settings
 
