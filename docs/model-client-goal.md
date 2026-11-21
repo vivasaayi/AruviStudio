@@ -23,8 +23,18 @@ limited to 1,000 loaded rows at a time. Backend tests exercise authorization,
 cross-product and stale conflicts, rollback, MCP, and a page-boundary move;
 a native browser fixture exercises drag, buttons, filter restriction and stale
 conflict. A separate in-memory SQLite check reordered 50,000 synthetic rows in
-approximately 0.07 seconds on this Mac. Container validation and deployment
-are pending.
+approximately 0.07 seconds on this Mac. The native Rust suite passed 286 tests
+with seven ignored; 128 frontend tests, the frontend build and terminology check
+passed. A Linux ARM64 release binary from source commit `3726819`, packaged on
+the prior worktree image rather than built from the Dockerfile, passed 37 remote
+browser tests, PDF isolation and outage checks, and 51 workflow tests. Image
+`sha256:ca9973e87e7711f0518b67df33f95f54679e7b7c8195246bb8a6349efae2d35f`
+was deployed to the isolated worktree after confirming no active CLI, import or
+workflow jobs and taking a consistent database backup that passed `quick_check`.
+The prior image is tagged `aruvi-studio-worktree-backup:pre-work-order`. Both
+services were healthy after restart; browser controls, MCP move discovery and an
+authenticated catalog call passed. The loopback port is dynamic. This is not
+staging acceptance or a clean Dockerfile build.
 
 ### Browser backlog batch decisions
 
