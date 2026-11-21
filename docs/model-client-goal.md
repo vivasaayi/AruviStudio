@@ -21,8 +21,17 @@ a conflict rolls back the entire batch. Automatic starts are requested after
 commit according to the saved policy. A native browser fixture exercised the
 filter, stale conflict, rollback and successful decisions. The Rust library
 suite passed 285 tests with seven ignored; 128 frontend tests, the frontend
-build and terminology check passed. Container validation and deployment are
-tracked separately below when complete. Drag ordering remains open.
+build and terminology check passed. The Linux ARM64 release binary from source
+commit `81a49ad`, packaged on the previous worktree image rather than built
+from the Dockerfile, passed 36 remote browser tests, PDF isolation and outage
+checks, and 51 workflow tests. Image
+`sha256:a5e98d3b33ad8fe6c40c062600e413de2e61f7a5c54205bc113deb3d0d9c272a`
+is deployed to the isolated worktree. Before restart there were no active CLI,
+import or workflow jobs, and a consistent database backup passed `quick_check`.
+The previous image remains tagged `aruvi-studio-worktree-backup:pre-batch-decisions`.
+After restart both services were healthy; browser controls and an authenticated
+MCP catalog call passed. The loopback port is dynamic. Drag ordering, a clean
+Dockerfile build and staging acceptance remain open.
 
 ### Browser work-item decisions
 
