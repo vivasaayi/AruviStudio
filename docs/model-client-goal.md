@@ -12,6 +12,23 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Isolated build filesystem cleanup finding
+
+After the `e07ea27` host-backed Linux build, the loop device and build
+container were gone, but macOS `lsof` still showed Docker Desktop's shared
+Virtualization process holding the deleted 12 GiB sparse image open. Host free
+space fell by roughly 3 GiB during that build and had not recovered when
+checked; the exact allocated space held by the open descriptor was not measured.
+The shared VM was not restarted because it also runs other projects.
+
+A separate 64 MiB disposable ext4 probe wrote data, unmounted cleanly, then
+truncated its backing file to zero inside the guest before unlinking it. The Mac
+reported zero size and allocated blocks and no loop device remained. Future
+isolated builds should truncate their owned backing image only after successful
+unmount and confirmed loop release, before removing the host file. This probe
+does not recover the already-deleted image or establish enough capacity for a
+clean current Dockerfile build.
+
 ### Host-browser CI fixture
 
 `bash scripts/test ci-host-fixture` runs the disposable Docker application and
