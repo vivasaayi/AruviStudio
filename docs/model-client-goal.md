@@ -4262,5 +4262,14 @@ JSON, rather than serializing the full value and checking afterward. Unit tests
 covered exact byte limits, escaped multibyte content and rejection. The rebuilt
 image passed 30 isolated browser tests, including browser and MCP Product Book
 exports, and the PDF outage check; the worktree services restarted healthy. The
-database snapshot is still loaded without a size bound before serialization,
-and vector allocation overhead is not an exact 64 MiB process-memory limit.
+database snapshot was still loaded without a size bound at that checkpoint.
+
+The snapshot now performs a product-scoped preflight in the same SQLite read
+transaction, before loading the tree, work items and reference candidates. It
+rejects more than 64 MiB of raw column values or 100,000 candidate rows without
+truncation. It counts all table columns and candidate references, so it can reject
+data that would be smaller after filtering; neither this check nor the JSON limit
+is a strict process-memory cap. Focused tests covered byte and row limits,
+product isolation and snapshot consistency; the existing 2,102-item export
+passed. The rebuilt image passed all 30 isolated browser tests and the PDF outage
+check. The direct work-item list query remains uncapped outside this snapshot.

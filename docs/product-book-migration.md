@@ -30,7 +30,11 @@ limitations and validation items below are not complete.
   reachable references and all work items. One SQLite read transaction prevents
   concurrent changes from mixing versions. Desktop exports and the authenticated
   MCP catalog action use it. Database tests exercise concurrent writes, reference
-  scope and more than 2,000 work items; the snapshot is still unbounded in size.
+  scope and more than 2,000 work items. A preflight in the same transaction
+  rejects snapshots over 64 MiB of raw database values or 100,000 candidate rows
+  before loading them; it does not truncate them. It includes all table columns
+  and some reference candidates that may later be filtered out, so it can reject
+  a snapshot whose final renderer input would be smaller.
 - [x] Move EPUB archive packaging into a reusable Rust service and use it for
   desktop export. This no longer invokes the system `zip` utility or writes a
   temporary source tree; archive tests inspect the first uncompressed mimetype,
@@ -58,8 +62,8 @@ limitations and validation items below are not complete.
   Bundled output is checked against source in the frontend test suite. The
   runtime limits input to 64 MiB, JavaScript heap to 256 MiB, execution to 30
   seconds, and simultaneous snapshots/renders to two. Serialization now stops
-  at the input limit; the source snapshot is still loaded without a size bound
-  before serialization.
+  at the input limit. The source snapshot also has the conservative raw-data and
+  row limits described above; neither limit is a strict process-memory cap.
   Desktop HTML, EPUB and PDF exports call this same backend renderer and retain
   their native file writers. Browser and MCP HTML/EPUB/PDF exports use it as well;
   image-resource packaging and broad visual comparison remain open.
