@@ -95,6 +95,12 @@ and a `messages` array of role/content objects. Optional `temperature`,
 server-side proposal instruction used by the browser; clients must preview and
 explicitly apply proposed changes using the guarded repository actions. The
 response is buffered, and callers own and bound their conversation history.
+The shared general-Copilot validator accepts at most 100 messages and 256,000
+Unicode characters, requires a nonempty user message, permits system/user/
+assistant roles, and limits temperature to 0–2 and `max_tokens` to 1–32,768.
+The browser's own conversation limits are smaller. These bounds also apply to
+the browser's buffered and streaming general-Copilot endpoints; the general
+model-chat action remains a separate API.
 
 To stop using a provider key, the browser's **Detach API key** action disables
 that provider's configured credential and legacy fallback keys. MCP clients can

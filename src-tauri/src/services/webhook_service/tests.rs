@@ -1001,6 +1001,12 @@ async fn anthropic_protocol_routes_mcp_and_remote_chat() {
     let (status, body) = send_json(&router, Method::POST, "/api/mobile/ide/copilot", Some("anthropic-test-token"), Some(general)).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(parse_json(&body)["content"], "Claude fixture response");
+    let invalid = json!({"provider_id":id,"model_name":"claude-test","messages":[{"role":"user","content":"hello"}],"max_tokens":32769});
+    for path in ["/api/mobile/ide/copilot", "/api/mobile/ide/copilot/stream"] {
+        let (status, _) = send_json(&router, Method::POST, path, Some("anthropic-test-token"), Some(invalid.clone())).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+    assert!(dispatch_tool(&state, "aruvi_models", json!({"action":"run_general_copilot","arguments": invalid})).await.is_err());
     let ide_calls: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM model_calls WHERE source_kind = 'mobile_ide'").fetch_one(&state.db).await.unwrap();
     assert!(ide_calls > 0);
     let (status, body) = send_json(&router, Method::POST, "/api/mobile/chat/completions", Some("anthropic-test-token"), Some(json!({

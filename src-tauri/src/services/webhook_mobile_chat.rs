@@ -30,6 +30,7 @@ pub(crate) async fn mobile_ide_chat_stream(
     State(state): State<WebhookState>, headers: HeaderMap, Json(mut body): Json<MobileChatCompletionRequest>,
 ) -> axum::response::Response {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    if let Err(message) = validate_general_copilot(&body) { return (StatusCode::BAD_REQUEST, message).into_response(); }
     prepare_ide_completion(&mut body);
     stream_mobile_completion(state, body, "mobile_ide", "Browser IDE").await
 }
@@ -117,8 +118,56 @@ pub(crate) struct MobileChatCompletionRequest {
 }
 
 pub(crate) async fn run_general_copilot(state: &crate::state::AppState, mut body: MobileChatCompletionRequest) -> CompletionResult {
+    validate_general_copilot(&body).map_err(|message| CompletionFailure::Local(StatusCode::BAD_REQUEST, message.to_string()))?;
     prepare_ide_completion(&mut body);
     run_mobile_completion(state, body, "mcp_ide", "MCP IDE").await
+}
+
+fn validate_general_copilot(body: &MobileChatCompletionRequest) -> Result<(), &'static str> {
+    const MAX_MESSAGES: usize = 100;
+    const MAX_CHARS: usize = 256_000;
+    if body.messages.is_empty() || body.messages.len() > MAX_MESSAGES
+        || !body.messages.iter().any(|message| message.role == "user" && !message.content.trim().is_empty())
+        || body.messages.iter().any(|message| !matches!(message.role.as_str(), "system" | "user" | "assistant"))
+        || body.messages.iter().map(|message| message.content.chars().count()).sum::<usize>() > MAX_CHARS
+        || body.temperature.is_some_and(|value| !value.is_finite() || !(0.0..=2.0).contains(&value))
+        || body.max_tokens.is_some_and(|value| !(1..=32_768).contains(&value)) {
+        return Err("General Copilot requires a user message, at most 100 system/user/assistant messages and 256000 characters, temperature 0–2, and max_tokens 1–32768.");
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod general_copilot_validation_tests {
+    use super::*;
+
+    fn request() -> MobileChatCompletionRequest {
+        MobileChatCompletionRequest { provider_id: None, model_name: None,
+            messages: vec![ChatMessage { role: "user".into(), content: "hello".into() }],
+            temperature: Some(0.2), max_tokens: Some(4096), patch_mode: false }
+    }
+
+    #[test]
+    fn bounds_message_count_characters_roles_and_generation_settings() {
+        let mut body = request();
+        body.messages[0].content = "🦀".repeat(256_000);
+        assert!(validate_general_copilot(&body).is_ok());
+        body.messages[0].content.push('x');
+        assert!(validate_general_copilot(&body).is_err());
+        body = request();
+        body.messages = (0..100).map(|_| ChatMessage { role: "user".into(), content: "x".into() }).collect();
+        assert!(validate_general_copilot(&body).is_ok());
+        body.messages.push(ChatMessage { role: "assistant".into(), content: "x".into() });
+        assert!(validate_general_copilot(&body).is_err());
+        body = request(); body.messages[0].role = "tool".into();
+        assert!(validate_general_copilot(&body).is_err());
+        body = request(); body.messages[0].content = "  ".into();
+        assert!(validate_general_copilot(&body).is_err());
+        body = request(); body.temperature = Some(f64::NAN);
+        assert!(validate_general_copilot(&body).is_err());
+        body = request(); body.max_tokens = Some(32_769);
+        assert!(validate_general_copilot(&body).is_err());
+    }
 }
 
 fn prepare_ide_completion(body: &mut MobileChatCompletionRequest) {
@@ -142,6 +191,7 @@ pub(crate) async fn mobile_ide_chat_completion(
     State(state): State<WebhookState>, headers: HeaderMap, Json(mut body): Json<MobileChatCompletionRequest>,
 ) -> axum::response::Response {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    if let Err(message) = validate_general_copilot(&body) { return (StatusCode::BAD_REQUEST, message).into_response(); }
     prepare_ide_completion(&mut body);
     completion_response(run_mobile_completion(&state.app_state, body, "mobile_ide", "Browser IDE").await)
 }

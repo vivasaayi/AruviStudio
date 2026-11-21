@@ -14,6 +14,19 @@ provider hosting into the model-host service as part of this work.
 
 ### Browser IDE Copilot without a file
 
+The general Copilot HTTP (buffered and streaming) and MCP actions now share
+server-side request limits: at most 100 messages and 256,000 Unicode
+characters, a nonblank user message, supported chat roles, temperature 0–2 and
+`max_tokens` 1–32,768. The browser already applies smaller history limits.
+Direct general-Copilot requests outside these limits, which were previously
+accepted, now fail before contacting the provider; the separate general model
+chat operation is unchanged. Native boundary tests and authenticated HTTP/MCP
+tests covered the validator. A disposable native browser fixture passed its
+simulated-provider chat and patch flows, and both browser and MCP general
+Copilot received a nonempty reply from the real 7B Model Host. The native Rust
+library suite passed 323 tests with seven ignored. Container
+deployment and native-window acceptance of this change remain pending.
+
 The clean hosted ARM64 build and both hosted test runs for
 `6d23c1d3e4acc8e068af8dddf0fd5bd54ebea9a6` passed. Its downloaded image archive
 passed its checksum and revision checks. The extracted server binary was layered
