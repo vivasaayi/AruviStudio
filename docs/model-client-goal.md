@@ -12,6 +12,20 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Current real-model workflow revalidation
+
+On the deployed branch image derived from runtime `a850602`, a disposable
+existing-module workflow used the real `qwen25-coder-7b-q4` Model Host model,
+JSON-object coding mode, an alternate work-item workspace, and a 4,096-token
+non-coding budget. Headless Chrome approved both the plan and test-review gates.
+The generated edit passed the workflow syntax test, independent behavioral and
+duplicate-declaration checks, and was delivered to a disposable Git remote.
+The product's default workspace was untouched. The coding trace confirmed the
+duplicate-definition guidance reached the model; it also recorded a rejected
+repeat replacement before the model completed. This is one successful sample,
+not a guarantee of model quality, physical desktop behavior or staging readiness.
+The fixture containers and volumes were removed; the branch remained healthy.
+
 ### Historical image archive and Docker headroom
 
 To restore working space without removing the current branch image, immediate
