@@ -16,6 +16,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("host", nargs="?", type=Path, default=root.parent / "aruvi-model-host-studio-validation")
 parser.add_argument("--scenario", choices=("new-module", "extend-module"), default="new-module")
 parser.add_argument("--json-mode", action="store_true", help="Opt the disposable coding agent into JSON-object output")
+parser.add_argument("--prompt-template", action="store_true", help="Assign and verify a managed coding prompt template in the disposable fixture")
 parser.add_argument("--verify-gate-rejects-invalid", action="store_true", help="Prove an invalid JavaScript fixture fails the workflow test gate")
 parser.add_argument("--verify-behavior-rejection", action="store_true", help="Prove the independent behavioral review blocks delivery of invalid exports")
 parser.add_argument("--verify-duplicate-rejection", action="store_true", help="Prove a behaviorally correct duplicate declaration is rejected before delivery")
@@ -128,6 +129,10 @@ try:
         boundaries = dict(coding["boundaries"])
         boundaries["json_object_output"] = True
         call("aruvi_agents", "update_agent_definition", {"id": coding["id"], "boundaries": boundaries})
+    template_instruction = "Prefer small, clear functions and preserve all requested exports."
+    if args.prompt_template:
+        template = call("aruvi_agents", "create_prompt_template", {"name": "Real coding fixture", "role": "coding", "template_text": template_instruction})
+        call("aruvi_agents", "update_agent_definition", {"id": "coding-agent", "prompt_template_ref": "template:" + template["id"]})
     test_file = "/tmp/aruvi-invalid-syntax.js" if args.verify_gate_rejects_invalid else "src/math.js"
     for key, value in [("workflow.auto_start_after_work_item_approval", "false"), ("workflow.auto_approve_plan", "false"), ("workflow.auto_approve_test_review", "false"), ("workflow.test_argv", json.dumps(["/tmp/aruvi-fixture-node", "--check", test_file]))]:
         call("aruvi_settings", "set_setting", {"key": key, "value": value})
@@ -160,10 +165,21 @@ try:
             if artifact.get("artifact_type") == "coding_tool_trace":
                 trace = call("aruvi_checkpoints", "read_artifact_content", {"artifact_id": artifact["id"]})
                 print("Coding trace:", trace["content"][:5000], flush=True)
+    def verify_prompt_template():
+        if not args.prompt_template: return
+        artifacts = call("aruvi_checkpoints", "list_work_item_artifacts", {"work_item_id": item["id"]})
+        prompts = [artifact for artifact in artifacts if artifact.get("artifact_type") == "coding_prompt" and artifact.get("workflow_run_id") == run_id]
+        if len(prompts) != 1: raise ValueError("Expected one coding prompt artifact")
+        prompt = call("aruvi_checkpoints", "read_artifact_content", {"artifact_id": prompts[0]["id"]})
+        if template_instruction not in prompt["content"]: raise ValueError("Coding prompt did not contain the configured template")
+        print("Configured prompt template reached the real coding workflow", flush=True)
     try:
         call("aruvi_workflows", "handle_workflow_user_action", {"workflow_run_id": run_id, "action": "approve"})
     except ValueError as failure:
         print_coding_trace()
+        if args.prompt_template:
+            try: verify_prompt_template()
+            except ValueError as error: print("Prompt template could not be verified:", error, flush=True)
         if args.verify_gate_rejects_invalid:
             artifacts = call("aruvi_checkpoints", "list_work_item_artifacts", {"work_item_id": item["id"]})
             matches = [artifact for artifact in artifacts if artifact.get("artifact_type") == "workflow_test_result" and artifact.get("workflow_run_id") == run_id]
@@ -171,8 +187,9 @@ try:
             report = json.loads(call("aruvi_checkpoints", "read_artifact_content", {"artifact_id": matches[0]["id"]})["content"])
             if report.get("status") != "failed" or report.get("exit_code") in (None, 0): raise ValueError("Invalid syntax was not rejected by the workflow test gate") from failure
             if "aruvi-invalid-syntax.js" not in report.get("stderr", ""): raise ValueError("Workflow test failed for an unexpected reason") from failure
-            remote_has_file = subprocess.run(["docker", "exec", container, "git", "--git-dir=/repositories/coding-origin.git", "cat-file", "-e", "main:src/math.js"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if remote_has_file.returncode == 0: raise ValueError("Failed test was delivered to the remote") from failure
+            remote = subprocess.run(["docker", "exec", container, "git", "--git-dir=/repositories/coding-origin.git", "show", "main:src/math.js"], text=True, capture_output=True)
+            unchanged = (remote.returncode == 0 and remote.stdout == original) if args.scenario == "extend-module" else remote.returncode != 0
+            if not unchanged: raise ValueError("Failed test changed the disposable remote") from failure
             print("Workflow test gate rejected invalid syntax and did not deliver", flush=True)
             sys.exit(0)
         try:
@@ -195,12 +212,17 @@ try:
                     print("Model call:", json.dumps({key: entry.get(key) for key in ("stage", "source_label", "status", "max_tokens", "token_count_input", "token_count_output")}), flush=True)
         except (OSError, ValueError, TypeError):
             print("Model call diagnostics unavailable", flush=True)
+        remote = subprocess.run(["docker", "exec", container, "git", "--git-dir=/repositories/coding-origin.git", "show", "main:src/math.js"], text=True, capture_output=True)
+        unchanged = (remote.returncode == 0 and remote.stdout == original) if args.scenario == "extend-module" else remote.returncode != 0
+        if not unchanged: raise ValueError("Failed coding workflow changed the disposable remote") from failure
+        print("Failed workflow did not change the disposable Git remote", flush=True)
         raise
     run = call("aruvi_workflows", "get_workflow_run", {"workflow_run_id": run_id})
     print("Stage after coding:", run["current_stage"], flush=True)
     if run["current_stage"] != "pending_test_review": raise ValueError("Workflow did not reach test review")
     print_coding_trace()
     artifacts = call("aruvi_checkpoints", "list_work_item_artifacts", {"work_item_id": item["id"]})
+    verify_prompt_template()
     test_artifacts = [artifact for artifact in artifacts if artifact.get("artifact_type") == "workflow_test_result" and artifact.get("workflow_run_id") == run_id]
     if len(test_artifacts) != 1: raise ValueError("Expected one workflow test result artifact")
     test_result = json.loads(call("aruvi_checkpoints", "read_artifact_content", {"artifact_id": test_artifacts[0]["id"]})["content"])

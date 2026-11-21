@@ -12,6 +12,32 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Current real Model Host revalidation
+
+On the branch deployment at source commit `67ecacd`, the real
+`qwen25-coder-7b-q4` model returned an MCP coding completion that passed
+independent JavaScript assertions; a one-token request produced the expected
+truncation error. Authenticated browser streaming chat also returned real model
+output, and the published-port MCP origin fixture rejected missing credentials
+and the tested cross-origin requests. A synthetic `piper-ljspeech` to
+`whisper-tiny-metal` round trip passed through Studio MCP.
+
+The disposable real-model `extend-module` workflow now supports assigning a
+managed coding prompt template and verifying its prompt artifact. The first
+attempt reached coding but generated JavaScript rejected by the configured
+syntax gate; the workflow stopped before its delivery approval. The first
+version of the fixture did not independently check the remote on that error
+path. The fixture was extended to check the prompt and remote on failure. A
+second attempt verified the template in the coding prompt, passed the syntax
+gate and independent behavioral assertions, and delivered the verified file to
+the disposable local Git remote. A deliberate invalid-syntax control initially
+failed its own remote check because it incorrectly expected the pre-existing
+file to be absent. After fixing the fixture to compare the original file, a
+repeat verified the template, confirmed the test gate rejected the invalid file,
+and confirmed the disposable remote remained unchanged. The fixture containers
+and their volumes were removed. These attempts are examples, not evidence of broad model reliability,
+live third-party providers, physical audio, or native-window acceptance.
+
 ### Agent prompt templates
 
 The existing template table was unused, and the branch database's nine seeded
