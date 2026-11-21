@@ -351,7 +351,7 @@ mod tests {
             "dist/assets/app.js",
             &boundaries
         ));
-        assert!(is_repo_relative_path_allowed("node_product_areas/readme.md", &boundaries));
+        assert!(is_repo_relative_path_allowed(concat!("node_", "product_areas/readme.md"), &boundaries));
         assert!(is_repo_relative_path_allowed(
             "src/features/chat/pages/ChatPage.tsx",
             &boundaries

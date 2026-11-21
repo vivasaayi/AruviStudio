@@ -23,6 +23,9 @@ agent path guard and for an MCP-created workspace's actual Git ignore behavior;
 the terminology guard also passed. Existing workspaces are not modified by this
 change and may need their `.gitignore` corrected separately. The running Docker
 image has not yet been rebuilt with this fix.
+The terminology guard now also rejects that malformed dependency directory in
+scanned source. A temporary negative fixture was rejected, and the two targeted
+workspace and agent path tests passed again.
 
 ### Current Studio native Rust library checks
 
@@ -49,6 +52,9 @@ That run reported zero statuses for the other five test/build suites. The guard
 now permits only that exact expression in that exact vendor file. It passes
 locally and a temporary product-source `module_id` fixture was rejected.
 Newer hosted checks and a full current-revision run still need to finish.
+Hosted run [44892301702](https://github.com/vivasaayi/AruviStudio/actions/runs/44892301702)
+subsequently passed at `f41fbdf`; the run for `200427c` was still in progress
+when checked. Neither is a check of the later guard change.
 
 ### Current host package and frontend checks
 

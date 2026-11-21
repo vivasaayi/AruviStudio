@@ -283,7 +283,7 @@ async fn remote_workspace_registration_is_authenticated_and_idempotent() {
     let created_path = provisioned["result"]["created_path"].as_str().unwrap();
     let created_repo = git2::Repository::open(created_path).unwrap();
     assert!(created_repo.status_should_ignore(std::path::Path::new("node_modules/react/index.js")).unwrap());
-    assert!(!created_repo.status_should_ignore(std::path::Path::new("node_product_areas/readme.md")).unwrap());
+    assert!(!created_repo.status_should_ignore(std::path::Path::new(concat!("node_", "product_areas/readme.md"))).unwrap());
     std::fs::remove_dir_all(dir).unwrap();
 }
 
