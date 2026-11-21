@@ -349,7 +349,12 @@ current frontend callers. Browser and MCP have registration and attachment
 operations but do not expose this update command or an equivalent action. This
 is an IPC/API parity gap, not evidence that a desktop editing screen currently
 uses it. Porting it requires the same path and duplicate checks, safe handling
-of concurrent changes and preserving the branch-update behavior.
+of concurrent changes and preserving the branch-update behavior. In particular,
+open browser buffers and reviewed patches currently identify a workspace by ID;
+changing the registered path can redirect a later save or patch to a different
+folder if the file also matches its content guard. A safe port needs to bind
+those operations to the workspace path/version and account for concurrent
+updates, including across server processes.
 
 ### Catalog bulk import
 
