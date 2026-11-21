@@ -4273,3 +4273,14 @@ is a strict process-memory cap. Focused tests covered byte and row limits,
 product isolation and snapshot consistency; the existing 2,102-item export
 passed. The rebuilt image passed all 30 isolated browser tests and the PDF outage
 check. The direct work-item list query remains uncapped outside this snapshot.
+
+## Compose-network browser smoke
+
+The staging and integration browser smoke tests no longer rely on Docker host
+networking or Docker Desktop's host alias. They check the published loopback
+health endpoint from the host and run the browser on the Compose default network
+against the app service. This also avoids assuming rootless Docker shares the
+host's network namespace. On the Mac, the worktree smoke, 30 remote browser tests,
+simulated CI test and 51 workflow tests passed. The browser portion does not
+exercise published-port or external-ingress navigation, and the rootless VPS
+deployment remains untested. This supersedes the earlier host-network approach.

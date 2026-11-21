@@ -39,16 +39,16 @@ case "${1:-}" in
     state=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])' <<<"$plan")
     port=$(docker compose --project-name "$project" --project-directory "$root" --env-file "$state/environment.env" -f "deploy/compose.$profile.yaml" port app 8787)
     port=${port##*:}
-    # On Linux, the app is bound to host loopback, which a bridge-networked
-    # container cannot reach through host.docker.internal or the host gateway.
-    # Docker Desktop runs its daemon in a VM, so use its host alias there.
-    docker_network=()
-    browser_host=host.docker.internal
-    if [[ $(uname -s) == Linux ]]; then
-      docker_network=(--network host)
-      browser_host=127.0.0.1
-    fi
-    docker run --rm ${docker_network[@]+"${docker_network[@]}"} --env-file "$state/environment.env" -e "ARUVI_REMOTE_URL=http://$browser_host:$port" \
+    # Rootless Docker's host network may be isolated from host loopback. Check
+    # publication from the host, then use the actual Compose network for the
+    # browser. This does not test external ingress or browser-origin MCP.
+    python3 - "$port" <<'PY'
+import sys, urllib.request
+with urllib.request.urlopen('http://127.0.0.1:' + sys.argv[1] + '/health', timeout=10) as response:
+    if response.status != 200:
+        raise SystemExit('Published app health check failed')
+PY
+    docker run --rm --network "${project}_default" --env-file "$state/environment.env" -e "ARUVI_REMOTE_URL=http://app:8787" \
       -v "$root:/project:ro" -w /tmp/app mcr.microsoft.com/playwright:v1.58.2-noble sh -c '
         cp /project/package.json /project/package-lock.json /project/playwright.remote.config.js ./ &&
         cp -R /project/e2e-remote ./ && npm ci --silent &&
