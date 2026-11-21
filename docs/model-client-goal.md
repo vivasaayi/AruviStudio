@@ -23,7 +23,15 @@ Nested initial-message errors also fail without exposing provider details.
 The native Claude API stream begins with an empty content list, as shown in the
 [Anthropic streaming reference](https://platform.claude.com/docs/en/build-with-claude/streaming).
 Some nonstandard proxies may now need to send content as block events instead.
-Additional consumer and container validation is recorded below when complete.
+The standalone shared-client suite passed 65 tests. The independent Git consumer
+was updated to `dc711d0c7e5e869133544de17a811d6afdb560d3` and passed 30 native
+tests and the same 30 tests as a non-root Linux user with networking disabled
+after vendoring. A separately built, read-only non-root Linux probe of that pin
+passed real Model Host discovery, completion, streaming and token-limit checks
+against `qwen25-coder-7b-q4` and `qwen-05b-comparison`, plus a synthetic
+`piper-ljspeech` to `whisper-tiny-metal` round trip. Studio's native library
+suite passed 287 tests with seven ignored. Browser and container validation are
+recorded below when complete; no live Anthropic credentials were configured.
 
 ### Current real Model Host revalidation
 

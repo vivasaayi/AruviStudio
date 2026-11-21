@@ -207,6 +207,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rejects_anthropic_initial_content_instead_of_losing_it() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0; 4096]; let _ = socket.read(&mut request).unwrap();
+            let body = "data: {\"type\":\"message_start\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"fixture\"}]}}\n\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}\n\ndata: {\"type\":\"message_stop\"}\n\n";
+            let _ = write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
+        });
+        let client: Box<dyn ModelGateway> = Box::new(AnthropicClient::new(format!("http://{address}"), "synthetic-key".into()).unwrap());
+        let request = CompletionRequest { model:"fixture".into(), messages:vec![ChatMessage {role:"user".into(),content:"hello".into()}], temperature:None, max_tokens:Some(10) };
+        let mut partial = String::new();
+        let error = client.stream_completion(request, &mut |delta| partial.push_str(delta)).await.unwrap_err();
+        assert!(partial.is_empty());
+        assert!(error.to_string().contains("initial message contains unsupported content"));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
     async fn rejects_unclosed_anthropic_indexed_block_after_partial_text() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
