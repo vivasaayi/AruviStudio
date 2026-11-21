@@ -3968,3 +3968,20 @@ branch. The organization promotion process calls for a merged default-branch
 revision and Mac integration acceptance before VPS staging. No staging
 deployment has been made. The integration adapter, target platform, ingress,
 real Model Host connectivity and persistent staging acceptance still need review.
+
+## Coding host recovery
+
+The coding-validation Model Host worktree was no longer registered with
+launchd; its endpoint file contained an old port. Its existing verified native
+artifact was restarted on a new loopback port, and
+`scripts/configure-native-model-host` refreshed the existing Studio provider
+and discovered `qwen25-coder-7b-q4`. On 2026-11-20 the running Docker Studio
+passed the real MCP coding fixture using that model: generated JavaScript passed
+three independent assertions in a network-isolated container, and a one-token
+request returned the expected truncation error. Authenticated browser streaming
+chat also returned coding-model output. This addresses the earlier failed
+fixture for this model and prompt; it does not establish general model quality.
+The test explicitly set `ARUVI_CODING_TEST_MODEL=qwen25-coder-7b-q4`; the
+fixture's default remains the separate 15B model. The validation host still
+uses a management-capable token, and its dynamically assigned port can change
+after a restart.
