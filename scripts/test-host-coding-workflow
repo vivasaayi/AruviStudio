@@ -19,6 +19,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("host", nargs="?", type=Path, default=root.parent / "aruvi-model-host-studio-validation")
 parser.add_argument("--scenario", choices=("new-module", "extend-module"), default="new-module")
 parser.add_argument("--json-mode", action="store_true", help="Opt the disposable coding agent into JSON-object output")
+parser.add_argument("--browser-approvals", action="store_true", help="Approve the plan and test gates through a headless browser")
 parser.add_argument("--prompt-template", action="store_true", help="Assign and verify a managed coding prompt template in the disposable fixture")
 parser.add_argument("--expect-edit-guidance", action="store_true", help="Verify coding model request snapshots include the duplicate-definition guidance")
 parser.add_argument("--verify-gate-rejects-invalid", action="store_true", help="Prove an invalid JavaScript fixture fails the workflow test gate")
@@ -164,6 +165,16 @@ try:
     run = call("aruvi_workflows", "get_workflow_run", {"workflow_run_id": run_id})
     print("Stage after planning:", run["current_stage"], flush=True)
     if run["current_stage"] != "pending_plan_approval": raise ValueError("Workflow did not reach plan approval")
+    def approve_gate(stage):
+        if not args.browser_approvals:
+            return call("aruvi_workflows", "handle_workflow_user_action", {"workflow_run_id": run_id, "action": "approve"})
+        browser_env = dict(os.environ, ARUVI_FIXTURE_URL=f"http://{address}", ARUVI_FIXTURE_TOKEN="workflow-mobile-test",
+                           ARUVI_FIXTURE_PRODUCT=product["id"], ARUVI_FIXTURE_TITLE=title, ARUVI_FIXTURE_GATE=stage)
+        try:
+            subprocess.run(["node", str(root / "scripts/test-host-coding-workflow-browser.mjs")],
+                           cwd=root, env=browser_env, check=True, timeout=300)
+        except subprocess.SubprocessError as error:
+            raise ValueError("Browser workflow approval failed") from error
     def print_coding_trace():
         artifacts = call("aruvi_checkpoints", "list_work_item_artifacts", {"work_item_id": item["id"]})
         for artifact in artifacts:
@@ -189,7 +200,7 @@ try:
                 return
         raise ValueError("Coding model request did not contain the expected edit guidance")
     try:
-        call("aruvi_workflows", "handle_workflow_user_action", {"workflow_run_id": run_id, "action": "approve"})
+        approve_gate("plan")
     except ValueError as failure:
         print_coding_trace()
         if args.expect_edit_guidance:
@@ -290,7 +301,7 @@ try:
             sys.exit(0)
         raise ValueError("Workflow-generated code contains duplicate fixture function declarations")
     if args.verify_duplicate_rejection: raise ValueError("Expected duplicate declarations to fail review")
-    call("aruvi_workflows", "handle_workflow_user_action", {"workflow_run_id": run_id, "action": "approve"})
+    approve_gate("test")
     run = call("aruvi_workflows", "get_workflow_run", {"workflow_run_id": run_id})
     if run["current_stage"] != "done": raise ValueError("Workflow did not finish")
     delivered = command(["docker", "exec", container, "git", "--git-dir=/repositories/coding-origin.git", "show", "main:src/math.js"])

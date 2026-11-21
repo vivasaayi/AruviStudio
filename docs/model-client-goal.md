@@ -5800,6 +5800,16 @@ The product default workspace remained untouched, and after review the
 disposable Git remote contained the verified file. This single successful run
 does not resolve the failures or establish general model reliability.
 
+A second run with the same setup used headless Chrome for both the plan and
+test-review approvals (`--browser-approvals`). The browser observed each gate
+and completed the action against the isolated container. Independent syntax,
+behavioral and duplicate-declaration checks passed before the browser approved
+delivery; MCP then confirmed the workflow was done and the disposable Git
+remote contained the reviewed file. An initial browser attempt failed before
+approval because its test selector matched several controls; it confirmed that
+the remote was unchanged. These runs are samples with a 7B model, not a claim
+of general model or physical desktop reliability.
+
 Against the refreshed branch image and real `qwen25-coder-7b-q4`, a disposable
 existing-module workflow used an alternate work-item workspace and a 4,096-token
 budget for non-coding agents. Its syntax test passed, but independent review
