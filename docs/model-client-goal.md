@@ -12,6 +12,16 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Concurrent partial product updates
+
+Shared product updates now write only explicitly supplied fields in a single
+SQL statement, avoiding the previous read-then-rewrite race between partial
+MCP, desktop or planner updates. A native MCP test queued two different-field
+updates behind a SQLite write lock and verified that both values survived; the
+product-focused suite passed 33 tests with four ignored. Conflicting updates
+to the same field remain last-write-wins outside the snapshot-checked browser
+editor. The running branch image has not yet been rebuilt with this change.
+
 ### Browser product detail editing
 
 Browser Products now edits the desktop product detail fields through an
@@ -19,8 +29,8 @@ authenticated, snapshot-checked update transaction. A disposable browser/MCP
 fixture verified all fields, a concurrent update and preserved browser draft,
 refresh and retry, unauthorized access, identity and status tampering, and an
 empty name. The browser uses comma-separated goals and tags. Existing desktop
-and generic MCP update paths remain last-write-wins; this is not a general
-concurrent-write guarantee. The native server built, but the running Docker
+and generic MCP updates remain last-write-wins for the same field; partial updates
+were subsequently hardened as recorded above. The native server built, but the running Docker
 branch has not yet been rebuilt with this change.
 
 ### Hierarchy conversion audit

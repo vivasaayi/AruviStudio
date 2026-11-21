@@ -1022,3 +1022,25 @@ async fn capability_conversion_rejects_invalid_kind_and_preserves_children() {
     assert_eq!(moved.0.as_deref(), parent["id"].as_str());
     assert_eq!(moved.1, 1);
 }
+
+#[tokio::test]
+async fn concurrent_partial_product_updates_preserve_other_fields() {
+    use crate::mcp::dispatch_tool;
+    let app: tauri::App<MockRuntime> = make_test_app("product_partial_concurrency").await;
+    let state = app.state::<AppState>().inner().clone();
+    let product = dispatch_tool(&state, "aruvi_catalog", json!({"action":"create_product","arguments":{"name":"Concurrent product"}})).await.unwrap();
+    let id = product["result"]["id"].as_str().unwrap().to_string();
+    // Hold the writer lock so both tasks are queued concurrently; in WAL mode
+    // old read-then-write updates could both read the same pre-update row.
+    let lock = state.db.begin_with("BEGIN IMMEDIATE").await.unwrap();
+    let first_state = state.clone(); let first_id = id.clone();
+    let first = tokio::spawn(async move { dispatch_tool(&first_state,"aruvi_catalog",json!({"action":"update_product","arguments":{"id":first_id,"vision":"New vision"}})).await });
+    let second_state = state.clone(); let second_id = id.clone();
+    let second = tokio::spawn(async move { dispatch_tool(&second_state,"aruvi_catalog",json!({"action":"update_product","arguments":{"id":second_id,"description":"New description"}})).await });
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    lock.commit().await.unwrap();
+    first.await.unwrap().unwrap(); second.await.unwrap().unwrap();
+    let final_product = dispatch_tool(&state,"aruvi_catalog",json!({"action":"get_product","arguments":{"id":id}})).await.unwrap();
+    assert_eq!(final_product["result"]["vision"], "New vision");
+    assert_eq!(final_product["result"]["description"], "New description");
+}

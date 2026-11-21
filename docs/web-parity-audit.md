@@ -80,7 +80,9 @@ under an immediate SQLite transaction, rejecting stale edits and preserving the
 browser draft. A disposable browser/MCP test covers a concurrent edit, refresh
 and retry, all fields, authentication, identity and validation. Existing desktop
 and generic MCP product updates do not use the browser snapshot guard and remain
-last-write-wins; their read/write sequence is not serialized as a unit. The
+last-write-wins for the same field. Their partial updates now change only supplied
+fields in a single SQL statement, so concurrent changes to different fields are
+not overwritten by an earlier read. The
 browser uses comma-separated goals and tags, matching the desktop form. Other
 product actions still need comparison.
 

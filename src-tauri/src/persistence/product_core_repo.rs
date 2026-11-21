@@ -123,31 +123,17 @@ pub async fn update_product(pool: &SqlitePool, patch: UpdateProductPatch<'_>) ->
 
 pub(crate) async fn update_product_in_conn(conn: &mut SqliteConnection, patch: UpdateProductPatch<'_>) -> Result<Product, AppError> {
     debug!(product_id = %patch.id, "persist update_product");
-    let existing = get_product_in_conn(conn, patch.id).await?;
-    let name = patch.name.unwrap_or(&existing.name);
-    let description = patch.description.unwrap_or(&existing.description);
-    let vision = patch.vision.unwrap_or(&existing.vision);
-    let existing_goals = serde_json::to_string(&existing.goals).unwrap_or_default();
-    let existing_tags = serde_json::to_string(&existing.tags).unwrap_or_default();
-    let goals_str = patch.goals.unwrap_or(&existing_goals);
-    let tags_str = patch.tags.unwrap_or(&existing_tags);
-    let existing_lifecycle = existing.lifecycle.to_string();
-    let existing_health = existing.health.to_string();
-    let existing_investment_status = existing.investment_status.to_string();
-    sqlx::query(
-        "UPDATE products
-         SET name=?, description=?, vision=?, goals=?, tags=?, lifecycle=?, health=?, owner_label=?, investment_status=?, roadmap=?, evidence=?, updated_at=datetime('now')
-         WHERE id=?"
+    let result = sqlx::query(
+        "UPDATE products SET name=COALESCE(?,name), description=COALESCE(?,description),
+         vision=COALESCE(?,vision), goals=COALESCE(?,goals), tags=COALESCE(?,tags),
+         lifecycle=COALESCE(?,lifecycle), health=COALESCE(?,health), owner_label=COALESCE(?,owner_label),
+         investment_status=COALESCE(?,investment_status), roadmap=COALESCE(?,roadmap),
+         evidence=COALESCE(?,evidence), updated_at=datetime('now') WHERE id=?"
     )
-        .bind(name).bind(description).bind(vision).bind(goals_str).bind(tags_str)
-        .bind(patch.lifecycle.unwrap_or(&existing_lifecycle))
-        .bind(patch.health.unwrap_or(&existing_health))
-        .bind(patch.owner_label.unwrap_or(&existing.owner_label))
-        .bind(patch.investment_status.unwrap_or(&existing_investment_status))
-        .bind(patch.roadmap.unwrap_or(&existing.roadmap))
-        .bind(patch.evidence.unwrap_or(&existing.evidence))
-        .bind(patch.id)
-        .execute(&mut *conn).await?;
+        .bind(patch.name).bind(patch.description).bind(patch.vision).bind(patch.goals).bind(patch.tags)
+        .bind(patch.lifecycle).bind(patch.health).bind(patch.owner_label).bind(patch.investment_status)
+        .bind(patch.roadmap).bind(patch.evidence).bind(patch.id).execute(&mut *conn).await?;
+    if result.rows_affected() == 0 { return Err(AppError::NotFound(format!("Product {} not found", patch.id))); }
     get_product_in_conn(conn, patch.id).await
 }
 
