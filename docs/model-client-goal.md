@@ -12,7 +12,7 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### Desktop Planner transcription precedence (in validation)
+### Desktop Planner transcription precedence
 
 Planner previously sent saved speech settings and a default `en-US` as explicit
 request fields, which could mask the server's environment overrides. It now
@@ -26,9 +26,22 @@ Rust tests and mocked desktop voice tests pass for environment precedence and
 fallback selection. A Tauri mock-IPC test also confirmed both legacy payloads
 without the new fallback fields and the new camel-case fallback fields reach
 the command, and the environment fixture covered both stale Planner fallbacks
-and no frontend selection. Linux validation
-and branch deployment are pending.
-This does not validate a native desktop window or real OpenAI access.
+and no frontend selection. The frontend suite passed 128 tests and its build,
+four mocked desktop voice tests passed, and the full Rust suite passed 333
+tests with seven ignored. Both hosted test runs and the clean ARM64 build passed
+at `ef2e5c9`; the archive checksum and source revision were verified. Its server
+binary (SHA-256
+`eed30fc1f98fc8152c0c91d67e2bfd99cd405b8996b14c065c4522e1ea3e5e3e`)
+was layered onto the prior runtime, creating derived image
+`sha256:d8e6621f7263fc025eb5967c44eea93d834199f129e45a674956b54ee180cd66`,
+not the full clean artifact. The candidate passed 54 isolated workflow tests,
+45 remote browser tests with one skipped and PDF outage checks. A checked
+database backup and prior image were retained; product, MCP, mobile and PDF
+checks passed after restart, as did published-port origin and real local 7B MCP
+coding checks. A separate disposable fixture saved server speech defaults and
+used them through the browser and MCP for real synthetic Model Host transcription.
+The branch endpoint was `127.0.0.1:55288`. This does not validate a native
+desktop window, physical audio devices or live OpenAI access.
 
 ### OpenAI transcription default migration
 
