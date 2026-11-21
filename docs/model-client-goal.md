@@ -5782,3 +5782,10 @@ settings do not themselves change the currently bound listener. The native Rust
 library suite passed 306 tests with seven ignored, and the frontend build and
 terminology check passed. The change still requires a rebuilt branch image and
 deployment acceptance.
+
+`bash scripts/test native-bridge-bind <server-binary>` additionally starts a
+disposable native server with temporary credentials and storage. It verified
+unauthorized reads are rejected, the saved host and port persist across
+restarts, environment overrides take precedence, and the server listens on the
+saved port after the overrides are removed. This does not validate container
+port publication or a remote network client.
