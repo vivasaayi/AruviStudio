@@ -32,7 +32,7 @@ browser renders content as text and links only HTTP(S) URLs without credentials.
 A disposable browser/MCP test covered product and capability references,
 unauthorized and cross-product/wrong-kind requests, unsafe URL rendering and
 52-item pagination. Offset paging can shift if records change between requests;
-creation and deletion remain outside this browser view. The native server built,
+creation and deletion were subsequently added as recorded above. The native server built,
 but the running Docker branch does not yet include the new view.
 
 ### Product editor branch deployment
