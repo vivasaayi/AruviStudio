@@ -5571,3 +5571,20 @@ test checks both the read-enabled and write-only configurations. This guidance
 does not enforce correctness or replace project-specific behavioral tests and
 review; its effect on real-model reliability requires further samples. The
 native Rust library suite passed 296 tests with seven ignored.
+
+On the candidate image with that guidance, a third real-model attempt showed
+the guidance in the recorded coding request, but produced invalid JavaScript.
+The syntax gate stopped the workflow and the disposable remote remained
+unchanged. Its trace showed a successful multi-line replacement followed by a
+different replacement using the original line number without a fresh read.
+
+The coding tool loop now guards against this sequence when file reads are
+permitted: after a successful write, patch or range replacement, another range
+replacement on that path requires a complete, untruncated read covering the
+current target lines. Reads of other files, truncated reads and unrelated line
+ranges do not satisfy the check. Write-only agents retain their previous
+distinct-edit behavior because they cannot perform the required read. This is
+an in-process safeguard for cooperating tool calls, not protection from external
+writers, model errors after a read, or every possible stale edit. A coding-stage
+fixture exercises rejection of a changed replacement after an earlier write;
+the native Rust library suite passed 298 tests with seven ignored.

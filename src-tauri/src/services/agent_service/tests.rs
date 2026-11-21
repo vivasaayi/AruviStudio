@@ -93,7 +93,7 @@ async fn coding_stage_creates_tool_trace_artifact() {
     .expect("failed to bind coding agent to test model");
     sqlx::query(
             "UPDATE agent_definitions
-             SET boundaries='{\"max_tool_steps\":15,\"keep_workspace\":false,\"max_file_chars\":4000}',
+             SET boundaries='{\"max_tool_steps\":19,\"keep_workspace\":false,\"max_file_chars\":4000}',
                  enabled=1,
                  employment_status='active'
              WHERE id='coding-agent'",
@@ -210,9 +210,12 @@ async fn coding_stage_creates_tool_trace_artifact() {
                 }
             })
             .to_string(),
+            json!({"type":"tool_call", "tool":"repo.read_file", "arguments":{"path":"hello.txt"}}).to_string(),
             json!({"type":"tool_call", "tool":"repo.replace_range", "arguments":{"path":"hello.txt","start_line":1,"end_line":1,"content":"hello from tool loop\nsecond line\n"}}).to_string(),
+            json!({"type":"tool_call", "tool":"repo.replace_range", "arguments":{"path":"hello.txt","start_line":1,"end_line":1,"content":"stale different edit"}}).to_string(),
             json!({"type":"tool_call", "tool":"repo.replace_range", "arguments":{"path":"hello.txt","start_line":1,"end_line":1,"content":"hello from tool loop\nsecond line"}}).to_string(),
             json!({"type":"tool_call", "tool":"repo.write_file", "arguments":{"path":"adjacent.js","content":format!("{adjacent_line}\nold\n")}}).to_string(),
+            json!({"type":"tool_call", "tool":"repo.read_file", "arguments":{"path":"adjacent.js"}}).to_string(),
             json!({"type":"tool_call", "tool":"repo.replace_range", "arguments":{"path":"adjacent.js","start_line":2,"end_line":2,"content":format!("{adjacent_line}\nnew\n")}}).to_string(),
             json!({"type":"tool_call", "tool":"repo.replace_range", "arguments":{"path":"adjacent.js","start_line":2,"end_line":2,"content":format!("{adjacent_line}\nnew\n"),"allow_adjacent_duplicate":true}}).to_string(),
             json!({"type":"repo.write_file", "path":"flat-must-not-exist.txt", "content":"not executed"}).to_string(),
@@ -281,6 +284,7 @@ async fn coding_stage_creates_tool_trace_artifact() {
     assert!(trace_content.contains("MODEL_CANDIDATE_MARKER"));
     assert!(trace_content.contains("No files were changed"));
     assert!(trace_content.contains("replacement already succeeded"));
+    assert!(trace_content.contains("earlier line numbers may have shifted"));
     assert!(trace_content.contains("Replacement repeats unchanged neighboring line"));
     assert_eq!(std::fs::read_to_string(repo_dir.join("adjacent.js")).unwrap(), format!("{adjacent_line}\n{adjacent_line}\nnew\n"));
     assert!(trace_content.contains("repo.write_file creates parent directories"));

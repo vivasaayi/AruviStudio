@@ -138,7 +138,7 @@ pub(super) fn build_coding_tool_prompt(
     prompt.push_str("\nWhen modifying an existing module, preserve its required existing exports and add any new exports in the actual file. Edit existing definitions in place; do not add a duplicate definition merely to preserve it.");
     prompt.push_str("\nIf no files need to change, return type=final with no_changes_needed=true and explain why in summary. Otherwise write the files with a tool before finishing.");
     if allowed_tools.contains("repo.read_file") {
-        prompt.push_str("\nAfter a successful write, inspect the resulting file for unintended duplicate definitions and missing exports before finishing. Do not repeat an edit that already succeeded; finish when the requested implementation is complete.");
+        prompt.push_str("\nAfter an edit, line numbers may shift. Before another range edit to that file, read the current target lines. Inspect the resulting file for unintended duplicate definitions and missing exports before finishing. Do not repeat an edit that already succeeded; finish when the requested implementation is complete.");
     } else {
         prompt.push_str("\nDo not repeat an edit that already succeeded; finish when the requested implementation is complete.");
     }
@@ -466,11 +466,11 @@ mod configured_tool_tests {
         assert!(changed.contains("If the requested implementation is complete"));
         assert!(no_changes.contains("Allowed tools: repo.apply_patch, repo.list_tree, repo.read_file, repo.replace_range, repo.search, repo.write_file"));
         assert!(changed.contains("do not add a duplicate definition"));
-        assert!(changed.contains("inspect the resulting file for unintended duplicate definitions and missing exports"));
+        assert!(changed.contains("Inspect the resulting file for unintended duplicate definitions and missing exports"));
         let write_only = resolve_allowed_tools(&["repo.write_file".to_string()]);
         let restricted = build_coding_tool_prompt("task", "", &write_only, &[], 2, 8, true);
         assert!(restricted.contains("do not add a duplicate definition"));
-        assert!(!restricted.contains("inspect the resulting file"));
+        assert!(!restricted.contains("Inspect the resulting file"));
     }
 
     #[test]
