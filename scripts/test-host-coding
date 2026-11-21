@@ -21,6 +21,14 @@ try:
     providers = [provider for provider in call("list_providers", {}) if provider["name"] == name]
     if len(providers) != 1:
         raise ValueError("Expected one configured coding validation provider")
+    general = call("run_general_copilot", {
+        "provider_id": providers[0]["id"], "model_name": model,
+        "messages": [{"role": "user", "content": "Briefly explain what a Rust ownership rule does."}],
+        "temperature": 0.1, "max_tokens": 256,
+    })
+    if not general.get("content", "").strip():
+        raise ValueError("General Copilot returned an empty model response")
+    print("General Copilot returned a real model reply through Studio MCP")
     response = call("run_model_chat_completion", {
         "provider_id": providers[0]["id"], "model": model,
         "messages": [

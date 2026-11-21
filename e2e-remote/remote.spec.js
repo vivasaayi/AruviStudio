@@ -1176,6 +1176,34 @@ test("browser registers and attaches a container workspace", async ({ page, requ
         const calls = await (await request.get("/api/mobile/model-calls?limit=100", { headers: { Authorization: `Bearer ${token}` } })).json();
         expect(calls.some((item) => item.provider_id === copilotProvider.id && item.source_kind === "mobile_ide" && item.status === "completed")).toBeTruthy();
         expect(calls.some((item) => item.provider_id === copilotProvider.id && item.source_kind === "mcp_ide" && item.status === "completed")).toBeTruthy();
+        const generalProposal = JSON.parse((await call("aruvi_models", "run_general_copilot", { provider_id: copilotProvider.id, model_name: "browser-test-model", messages: [{ role: "user", content: "Propose fixture changes" }], patch_mode: true })).content);
+        expect(generalProposal.patches).toHaveLength(2);
+
+        // Return to a workspace without an open file and exercise the same
+        // reviewed patch flow, including a concurrent edit after preview.
+        while (await page.locator('#repositoryFileTabs button[aria-label^="Close "]').count()) {
+          await page.locator('#repositoryFileTabs button[aria-label^="Close "]').first().click();
+        }
+        await call("aruvi_repositories", "write_repository_file", { repository_id: repositoryId, relative_path: patchFile, content: "alpha\nmiddle\nbeta\n" });
+        await call("aruvi_repositories", "write_repository_file", { repository_id: repositoryId, relative_path: "proposal-created.txt", content: "" });
+        await page.getByLabel("Copilot question").fill("Propose fixture changes without a file");
+        await page.getByRole("button", { name: "Propose changes" }).click();
+        await expect(page.locator("#repositoryPatchReview")).toContainText("Two fixture changes");
+        await call("aruvi_repositories", "write_repository_file", { repository_id: repositoryId, relative_path: patchFile, content: "concurrent no-file edit\n" });
+        await page.getByRole("button", { name: "Apply reviewed changes" }).click();
+        await expect(page.locator("#status")).toContainText("Applied 0 of 2 patches; stopped");
+        expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: patchFile })).content).toBe("concurrent no-file edit\n");
+        await call("aruvi_repositories", "write_repository_file", { repository_id: repositoryId, relative_path: patchFile, content: "alpha\nmiddle\nbeta\n" });
+        await page.getByLabel("Stream Copilot response").check();
+        await page.getByLabel("Copilot question").fill("Propose fixture changes again without a file");
+        await page.getByRole("button", { name: "Propose changes" }).click();
+        await expect(page.locator("#repositoryPatchReview")).toContainText("Two fixture changes");
+        await page.getByRole("button", { name: "Apply reviewed changes" }).click();
+        await expect(page.locator("#status")).toHaveText("Applied 2 reviewed patch(es)");
+        await page.getByLabel("Stream Copilot response").uncheck();
+        expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: patchFile })).content).toBe("alpha\nreviewed\nbeta\n");
+        await page.locator("#repositoryTree").getByRole("button", { name: "inspection.txt", exact: true }).click();
+        await expect(page.getByLabel("Selected file contents")).toHaveValue("saved from browser\n");
       }
       await page.getByLabel("Selected file contents").fill("unsaved browser edit\n");
       await expect(page.getByRole("button", { name: "Ask about unsaved file" })).toBeEnabled();

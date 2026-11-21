@@ -14,6 +14,21 @@ provider hosting into the model-host service as part of this work.
 
 ### Browser IDE Copilot without a file
 
+The clean hosted ARM64 build and both hosted test runs for
+`6d23c1d3e4acc8e068af8dddf0fd5bd54ebea9a6` passed. Its downloaded image archive
+passed its checksum and revision checks. The extracted server binary was layered
+over the unchanged previous worktree runtime, producing derived image
+`sha256:f9e9b4217734878d242aafbaf8f796416ea5710fa0b8c954cbae5e873c4d6d9f`;
+this is not the complete hosted image. In disposable Linux containers the
+browser suite passed 43 tests (one skipped), including general MCP Copilot and
+no-file patch review, concurrent-change rejection and streaming; 53 workflow
+tests, PDF outage isolation and artifact confinement/paging also passed. After
+a checked SQLite backup, the candidate was deployed to the worktree. Product,
+MCP, mobile authorization, PDF and persistence acceptance passed across restart,
+as did browser MCP-origin checks and real 7B coding and general-Copilot MCP
+requests. The prior worktree image was retained for rollback. These checks do
+not establish staging or physical desktop parity.
+
 The desktop IDE can chat with Copilot without selecting a file. The browser now
 also offers a separate general conversation, including streaming and reset, and
 restores it when the last open file is closed. General requests send the prompt,
