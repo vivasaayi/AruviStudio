@@ -76,7 +76,8 @@ provider. Live-provider behavior and full IDE parity remain open.
 The desktop Portfolio includes a strategy hierarchy, product-to-strategy links
 and product dependencies. Browser Products now provides strategy node creation,
 editing and deletion, product linking and unlinking, and dependency creation and
-deletion. Optional capability references currently require server-side IDs. The `aruvi_catalog` MCP namespace now exposes list, create, update and
+deletion. Optional capability references are selected by product and hierarchy name;
+the dependency list can still display IDs for those references. The `aruvi_catalog` MCP namespace now exposes list, create, update and
 delete actions for strategy nodes; list/link/unlink for product-strategy links;
 and list/create/delete for product dependencies. These use the existing desktop
 repository and its hierarchy and dependency validation. Primary-link replacement

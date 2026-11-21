@@ -12,6 +12,16 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Portfolio dependency capability selection
+
+The browser dependency form now loads named capability choices for each
+selected product instead of requiring pasted IDs. A request generation check
+discards late responses when the product changes, and failed loads disable
+submission until retried. A disposable browser/MCP fixture verified both scoped
+choices, late-response isolation, failure and retry, and the resulting
+capability IDs. Existing dependency rows may still show IDs. This UI change has
+not yet been rebuilt into the running branch container.
+
 ### Portfolio guard branch deployment
 
 Source revision `4f26c4b` was compiled as an optimized Linux ARM64 server
@@ -117,8 +127,7 @@ hierarchy edits. A disposable browser fixture exercised strategy creation,
 product linking, dependency creation and confirmed deletion via the browser,
 with dependency reads checked through MCP. Editing and reparenting use the
 existing last-write-wins backend; users should refresh before editing, and
-concurrent hierarchy writes are not serialized. Capability references are entered
-as IDs rather than selected by name. The subsequent portfolio branch deployment is
+concurrent hierarchy writes are not serialized. Capability selection was subsequently improved as recorded above. The subsequent portfolio branch deployment is
 recorded above.
 
 ### Portfolio strategy MCP gap

@@ -577,12 +577,13 @@
               <form id="dependencyCreate" class="stack">
                 <label><span class="label">Dependent product</span><select name="product" id="dependencyProduct" required></select></label>
                 <label><span class="label">Depends on product</span><select name="target" id="dependencyTarget" required></select></label>
-                <label><span class="label">Dependent capability ID (optional)</span><input name="capability" /></label>
-                <label><span class="label">Target capability ID (optional)</span><input name="target_capability" /></label>
+                <label><span class="label">Dependent capability (optional)</span><select name="capability" id="dependencyCapability" disabled><option value="">Select a product first</option></select></label>
+                <label><span class="label">Target capability (optional)</span><select name="target_capability" id="dependencyTargetCapability" disabled><option value="">Select a product first</option></select></label>
+                <div id="dependencyCapabilityStatus" class="empty" aria-live="polite"></div>
                 <label><span class="label">Dependency kind</span><select name="kind"><option>platform</option><option>capability</option><option>data</option><option>integration</option><option>operational</option><option>other</option></select></label>
                 <label><span class="label">Dependency status</span><select name="status"><option>active</option><option>planned</option><option>blocked</option><option>retired</option></select></label>
                 <label><span class="label">Dependency description</span><textarea name="description"></textarea></label>
-                <button type="submit">Add dependency</button>
+                <button type="submit" id="dependencyAdd">Add dependency</button>
               </form>
               <div id="dependencyList" class="tool-list"></div>
             </div>
@@ -2481,6 +2482,30 @@
 
     const portfolioElement = (id) => document.getElementById(id);
     let portfolioLinks = [];
+    const dependencyScopeState = { source: {generation: 0, loading: false, error: false}, target: {generation: 0, loading: false, error: false} };
+    function updateDependencyReadiness() {
+      const scopes = Object.values(dependencyScopeState);
+      portfolioElement("dependencyAdd").disabled = scopes.some((scope) => scope.loading || scope.error);
+      portfolioElement("dependencyCapabilityStatus").textContent = scopes.some((scope) => scope.loading) ? "Loading capability choices…" : scopes.some((scope) => scope.error) ? "Could not load capability choices. Reselect the product to retry." : "";
+    }
+    async function loadDependencyCapabilities(side) {
+      const scope = dependencyScopeState[side];
+      const product = portfolioElement(side === "source" ? "dependencyProduct" : "dependencyTarget");
+      const select = portfolioElement(side === "source" ? "dependencyCapability" : "dependencyTargetCapability");
+      const productId = product.value, generation = ++scope.generation;
+      select.replaceChildren(new Option(productId ? "All capabilities" : "Select a product first", ""));
+      select.disabled = true; scope.error = false; scope.loading = !!productId; updateDependencyReadiness();
+      if (!productId) return;
+      try {
+        const tree = await request(`/api/mobile/products/${encodeURIComponent(productId)}/tree`);
+        if (generation !== scope.generation || product.value !== productId) return;
+        const add = (entries, prefix) => { for (const entry of entries) { const item = entry.capability; select.add(new Option(prefix + item.name, item.id)); add(entry.children || [], prefix + " › "); } };
+        for (const area of tree.product_areas || []) add(area.features || [], area.product_area.name + " › ");
+        select.disabled = false;
+      } catch (error) { if (generation === scope.generation) scope.error = true; }
+      finally { if (generation === scope.generation) { scope.loading = false; updateDependencyReadiness(); } }
+    }
+    for (const [id, side] of [["dependencyProduct", "source"], ["dependencyTarget", "target"]]) portfolioElement(id).addEventListener("change", () => void loadDependencyCapabilities(side));
     async function portfolioAction(action, args = {}) {
       return request("/api/mobile/portfolio", { method: "POST", body: { action, arguments: args } });
     }
@@ -2507,6 +2532,7 @@
         portfolioSelect(portfolioElement("strategyParent"), nodes, "No parent (root)");
         portfolioSelect(portfolioElement("strategyNode"), nodes, "Select strategy");
         for (const id of ["strategyProduct", "dependencyProduct", "dependencyTarget"]) portfolioSelect(portfolioElement(id), state.products, "Select product");
+        await Promise.all([loadDependencyCapabilities("source"), loadDependencyCapabilities("target")]);
         const list = portfolioElement("strategyList"); list.replaceChildren();
         for (const node of nodes) {
           const card = document.createElement("div"); card.className = "tool-card";
@@ -2557,7 +2583,7 @@
     });
     portfolioElement("dependencyCreate").addEventListener("submit", async (event) => {
       event.preventDefault(); const form = event.currentTarget.elements;
-      await portfolioChange("create_product_dependency", {product_id:form.product.value, depends_on_product_id:form.target.value, capability_id:form.capability.value.trim() || null, depends_on_capability_id:form.target_capability.value.trim() || null, dependency_kind:form.kind.value, status:form.status.value, description:form.description.value.trim()});
+      await portfolioChange("create_product_dependency", {product_id:form.product.value, depends_on_product_id:form.target.value, capability_id:form.capability.value || null, depends_on_capability_id:form.target_capability.value || null, dependency_kind:form.kind.value, status:form.status.value, description:form.description.value.trim()});
     });
 
     async function loadProducts() {

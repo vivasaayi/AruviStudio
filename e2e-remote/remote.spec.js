@@ -2232,6 +2232,10 @@ test("browser manages portfolio strategy and product dependencies", async ({ pag
   const suffix = Date.now();
   const a = await call('create_product', {name:`Portfolio A ${suffix}`});
   const b = await call('create_product', {name:`Portfolio B ${suffix}`});
+  const areaA = await call('create_product_area', {product_id:a.id, name:'Alpha area'});
+  const areaB = await call('create_product_area', {product_id:b.id, name:'Beta area'});
+  const capA = await call('create_capability', {product_area_id:areaA.id, name:'Alpha capability'});
+  const capB = await call('create_capability', {product_area_id:areaB.id, name:'Beta capability'});
   let node;
   try {
     await page.goto('/remote'); await page.locator('#tokenInput').fill(token); await page.locator('#saveButton').click();
@@ -2264,10 +2268,35 @@ test("browser manages portfolio strategy and product dependencies", async ({ pag
     await expect(page.locator('#strategyLinks')).toContainText(a.name);
     await page.getByRole('button',{name:'Link product'}).click();
     await expect(page.locator('#strategyLinks')).toContainText('primary');
+    let releaseOld, markStarted;
+    const oldStarted = new Promise(resolve => { markStarted = resolve; });
+    const oldGate = new Promise(resolve => { releaseOld = resolve; });
+    await page.route('**/api/mobile/products/*/tree', async route => {
+      if (route.request().url().includes(`/products/${a.id}/`)) { markStarted(); await oldGate; }
+      await route.continue();
+    });
+    await page.getByLabel('Dependent product').selectOption(a.id); await oldStarted;
+    await page.getByLabel('Dependent product').selectOption(b.id);
+    await expect(page.getByLabel('Dependent capability (optional)')).toContainText('Beta area › Beta capability');
+    const oldResponse = page.waitForResponse(response => response.url().includes(`/products/${a.id}/tree`));
+    releaseOld();
+    await (await oldResponse).finished();
+    await page.unroute('**/api/mobile/products/*/tree');
+    await expect(page.getByLabel('Dependent capability (optional)')).not.toContainText('Alpha area › Alpha capability');
+    await page.route('**/api/mobile/products/*/tree', route => route.fulfill({status:503, body:'fixture outage'}));
+    await page.getByLabel('Dependent product').selectOption(a.id);
+    await expect(page.locator('#dependencyCapabilityStatus')).toContainText('Could not load');
+    await expect(page.getByRole('button',{name:'Add dependency'})).toBeDisabled();
+    await page.unroute('**/api/mobile/products/*/tree');
+    await page.getByLabel('Dependent product').selectOption(b.id);
     await page.getByLabel('Dependent product').selectOption(a.id); await page.getByLabel('Depends on product').selectOption(b.id);
+    await expect(page.getByLabel('Dependent capability (optional)')).toContainText('Alpha area › Alpha capability');
+    await expect(page.getByLabel('Target capability (optional)')).toContainText('Beta area › Beta capability');
+    await page.getByLabel('Dependent capability (optional)').selectOption(capA.id);
+    await page.getByLabel('Target capability (optional)').selectOption(capB.id);
     await page.getByLabel('Dependency kind').selectOption('data'); await page.getByRole('button',{name:'Add dependency'}).click();
     await expect(page.locator('#dependencyList')).toContainText(b.name);
-    expect((await call('list_product_dependencies',{})).some(d => d.product_id === a.id && d.depends_on_product_id === b.id && d.dependency_kind === 'data')).toBe(true);
+    expect((await call('list_product_dependencies',{})).some(d => d.product_id === a.id && d.depends_on_product_id === b.id && d.capability_id === capA.id && d.depends_on_capability_id === capB.id && d.dependency_kind === 'data')).toBe(true);
     page.once('dialog', dialog => dialog.accept()); await page.getByRole('button',{name:'Delete dependency'}).click();
     await expect(page.locator('#dependencyList')).not.toContainText(b.name);
     await call('link_product_to_strategy',{product_id:a.id,strategy_node_id:node.id,is_primary:false});
