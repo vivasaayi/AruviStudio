@@ -12,6 +12,13 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Current Studio native Rust library checks
+
+At Studio branch revision `1c16562`, `cargo test --locked --lib` passed on the
+Mac: 291 tests passed and seven were ignored. Ignored cases include tests
+requiring configured browser or live model infrastructure. This exercises the
+current native library, not the older running Docker image or staging.
+
 ### Model Host scoped-token branch revalidation
 
 At Model Host branch `codex/scoped-inference-integration` revision `1302b93`,
