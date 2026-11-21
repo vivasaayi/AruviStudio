@@ -12,6 +12,16 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Product hierarchy detail parity
+
+The browser capability/feature editor now supports acceptance criteria and
+technical notes, which were present on the desktop editor. The authenticated
+server checks expected values and product ownership; legacy name/description
+requests retain their previous behavior. The native server built and a
+disposable browser/MCP test passed field editing, stale and cross-product
+rejection, and missing-expected-value rejection. Other hierarchy actions remain
+to be compared, and the running branch image does not yet include this change.
+
 ### Real Model Host new-module workflow revalidation
 
 The running worktree image from `4f26c4b` completed the `new-module` coding

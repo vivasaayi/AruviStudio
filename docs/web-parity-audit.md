@@ -71,6 +71,16 @@ provider. Live-provider behavior and full IDE parity remain open.
 
 ### Audit findings before merge
 
+#### Product hierarchy details
+
+The desktop capability/feature editor exposes acceptance criteria and technical
+notes in addition to name and description. The browser tree editor now exposes
+those two fields, with product scoping and expected-value checks; older clients
+can still update only name and description without clearing the new fields. A
+disposable browser/MCP test saved both fields, rejected a stale MCP edit and a
+cross-product update, and rejected an update missing its expected value. Node
+kind conversion and other product-management actions still need comparison.
+
 #### Portfolio strategy and dependencies
 
 The desktop Portfolio includes a strategy hierarchy, product-to-strategy links

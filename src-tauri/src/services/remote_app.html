@@ -2783,13 +2783,25 @@
           const descriptionInput = document.createElement("textarea"); descriptionInput.value = item.description || "";
           descriptionInput.setAttribute("aria-label", "Edit description for " + item.name);
           const save = document.createElement("button"); save.type = "submit"; save.textContent = "Save details"; save.className = "secondary";
-          editForm.append(nameInput, descriptionInput, save); editSection.append(editTitle, editForm); details.appendChild(editSection);
+          editForm.append(nameInput, descriptionInput);
+          let acceptanceInput, technicalInput;
+          if (item.node_kind !== "product_area") {
+            acceptanceInput = document.createElement("textarea"); acceptanceInput.value = item.acceptance_criteria || "";
+            acceptanceInput.setAttribute("aria-label", "Edit acceptance criteria for " + item.name);
+            technicalInput = document.createElement("textarea"); technicalInput.value = item.technical_notes || "";
+            technicalInput.setAttribute("aria-label", "Edit technical notes for " + item.name);
+            const acceptanceLabel = document.createElement("label"); acceptanceLabel.textContent = "Acceptance criteria"; acceptanceLabel.appendChild(acceptanceInput);
+            const technicalLabel = document.createElement("label"); technicalLabel.textContent = "Technical notes"; technicalLabel.appendChild(technicalInput);
+            editForm.append(acceptanceLabel, technicalLabel);
+          }
+          editForm.append(save); editSection.append(editTitle, editForm); details.appendChild(editSection);
           editForm.addEventListener("submit", async (event) => {
             event.preventDefault(); save.disabled = true;
             try {
               await request("/api/mobile/products/" + encodeURIComponent(productId) + "/hierarchy/update", { method: "POST", body: {
                 node_type: item.node_kind === "product_area" ? "product_area" : "capability", id: item.id,
-                expected_name: item.name, expected_description: item.description || "", name: nameInput.value, description: descriptionInput.value
+                expected_name: item.name, expected_description: item.description || "", name: nameInput.value, description: descriptionInput.value,
+                ...(acceptanceInput ? {expected_acceptance_criteria:item.acceptance_criteria || "", acceptance_criteria:acceptanceInput.value, expected_technical_notes:item.technical_notes || "", technical_notes:technicalInput.value} : {})
               }});
               if (state.selectedProductId === productId) {
                 await loadProductSummary(productId);

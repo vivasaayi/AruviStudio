@@ -1861,17 +1861,28 @@ pub(crate) struct MobileUpdateHierarchyNode {
     expected_description: String,
     name: String,
     description: String,
+    expected_acceptance_criteria: Option<String>,
+    acceptance_criteria: Option<String>,
+    expected_technical_notes: Option<String>,
+    technical_notes: Option<String>,
 }
 
 pub(crate) async fn mobile_update_hierarchy_node(State(state): State<WebhookState>, headers: HeaderMap, Path(product_id): Path<String>, Json(body): Json<MobileUpdateHierarchyNode>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     if body.name.trim().is_empty() || body.name.len() > 200 { return (StatusCode::BAD_REQUEST, "Name must contain 1 to 200 characters").into_response(); }
-    let sql = match body.node_type.as_str() {
-        "product_area" => "UPDATE product_areas SET name=?,description=?,updated_at=datetime('now') WHERE id=? AND product_id=? AND name=? AND description=?",
-        "capability" => "UPDATE capabilities SET name=?,description=?,updated_at=datetime('now') WHERE id=? AND product_area_id IN (SELECT id FROM product_areas WHERE product_id=?) AND name=? AND description=?",
-        _ => return (StatusCode::BAD_REQUEST, "Unsupported hierarchy node type").into_response(),
+    if body.expected_acceptance_criteria.is_some() != body.acceptance_criteria.is_some() || body.expected_technical_notes.is_some() != body.technical_notes.is_some() {
+        return (StatusCode::BAD_REQUEST, "Expected values are required for capability details").into_response();
+    }
+    let result = match body.node_type.as_str() {
+        "product_area" if body.acceptance_criteria.is_none() && body.technical_notes.is_none() =>
+            sqlx::query("UPDATE product_areas SET name=?,description=?,updated_at=datetime('now') WHERE id=? AND product_id=? AND name=? AND description=?")
+                .bind(body.name.trim()).bind(&body.description).bind(&body.id).bind(&product_id).bind(&body.expected_name).bind(&body.expected_description).execute(&state.app_state.db).await,
+        "capability" =>
+            sqlx::query("UPDATE capabilities SET name=?,description=?,acceptance_criteria=COALESCE(?,acceptance_criteria),technical_notes=COALESCE(?,technical_notes),updated_at=datetime('now') WHERE id=? AND product_area_id IN (SELECT id FROM product_areas WHERE product_id=?) AND name=? AND description=? AND (? IS NULL OR acceptance_criteria=?) AND (? IS NULL OR technical_notes=?)")
+                .bind(body.name.trim()).bind(&body.description).bind(&body.acceptance_criteria).bind(&body.technical_notes).bind(&body.id).bind(&product_id).bind(&body.expected_name).bind(&body.expected_description).bind(&body.expected_acceptance_criteria).bind(&body.expected_acceptance_criteria).bind(&body.expected_technical_notes).bind(&body.expected_technical_notes).execute(&state.app_state.db).await,
+        _ => return (StatusCode::BAD_REQUEST, "Unsupported hierarchy node type or details").into_response(),
     };
-    match sqlx::query(sql).bind(body.name.trim()).bind(&body.description).bind(&body.id).bind(&product_id).bind(&body.expected_name).bind(&body.expected_description).execute(&state.app_state.db).await {
+    match result {
         Ok(result) if result.rows_affected() == 1 => Json(serde_json::json!({"ok":true})).into_response(),
         Ok(_) => (StatusCode::CONFLICT, "Node changed, was removed, or belongs to another product. Refresh and review your edits.").into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
