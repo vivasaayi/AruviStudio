@@ -388,6 +388,19 @@ for (const scenario of ["passed", "failed", "skipped"]) test(`isolated workflow 
   }
   const delivery = await (await request.get(`/api/mobile/work-items/${workItem.id}/delivery`, { headers })).json();
   expect(delivery.artifacts.some((artifact) => artifact.artifact_type === "coding_applied_files")).toBeTruthy();
+  if (scenario === "passed") {
+    const artifact = delivery.artifacts.find((entry) => entry.artifact_type === "coding_applied_files");
+    const artifactPath = `/api/mobile/work-items/${workItem.id}/artifacts/${artifact.id}`;
+    expect((await request.get(artifactPath)).status()).toBe(401);
+    expect((await request.get(`/api/mobile/work-items/other/artifacts/${artifact.id}`, { headers })).status()).toBe(404);
+    const response = await request.get(artifactPath, { headers });
+    expect(response.ok()).toBeTruthy();
+    const content = (await response.json()).content;
+    expect(content).toContain("src/generated.txt");
+    expect((await mcp("aruvi_checkpoints", "read_artifact_content", { artifact_id: artifact.id })).content).toBe(content);
+    await page.getByRole("button", { name: "Show artifact " + (artifact.summary || artifact.artifact_type), exact: true }).click();
+    await expect(page.locator("#deliveryDetails")).toContainText("src/generated.txt");
+  }
   const testResult = delivery.artifacts.find((artifact) => artifact.artifact_type === "workflow_test_result");
   expect(testResult.summary).toBe(scenario === "passed" ? "Configured test command passed" : scenario === "failed" ? "Configured test command failed" : "Tests were not run; manual test review is required");
   await page.getByRole("button", { name: "Show test result" }).click();

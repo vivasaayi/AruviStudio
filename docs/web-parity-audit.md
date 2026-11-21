@@ -156,6 +156,16 @@ checks that the provider type has not changed. The isolated workflow fixture
 exercises disable/re-enable, a valid replacement file, a missing file and a
 stale edit. This does not validate model contents or physical audio.
 
+The Work view now opens workflow text artifacts as well as test results. Its
+authenticated endpoint checks that the artifact belongs to the selected work
+item, resolves it under the server artifact directory, and limits the read to
+2 MiB of UTF-8 text. An isolated workflow compared a generated coding artifact
+through browser and MCP; a Rust test covered authentication, incorrect work
+items, outside paths, a symlink escape, invalid text and oversized files. The
+filesystem checks do not eliminate races with independent filesystem writers.
+The existing MCP and desktop readers retain their separate behavior and limits;
+this is not a claim of complete artifact-format parity.
+
 ### Settings action inventory
 
 | Desktop action | Browser and MCP assessment |

@@ -2930,6 +2930,20 @@
         });
         card.append(title, button, output); el.deliveryDetails.appendChild(card);
       });
+      artifacts.filter((artifact) => artifact.artifact_type !== "workflow_test_result").forEach((artifact) => {
+        const card = document.createElement("div"), title = document.createElement("div"), button = document.createElement("button"), output = document.createElement("pre");
+        card.className = "tool-card"; title.textContent = (artifact.summary || artifact.artifact_type) + " · " + artifact.artifact_type;
+        button.type = "button"; button.className = "secondary"; button.textContent = "Show artifact";
+        button.setAttribute("aria-label", "Show artifact " + (artifact.summary || artifact.artifact_type));
+        output.style.whiteSpace = "pre-wrap"; output.style.overflowWrap = "anywhere";
+        button.addEventListener("click", async () => {
+          button.disabled = true;
+          try { const result = await request("/api/mobile/work-items/" + encodeURIComponent(workItem.id) + "/artifacts/" + encodeURIComponent(artifact.id)); output.textContent = result.content; }
+          catch (error) { output.textContent = error.message || String(error); }
+          finally { button.disabled = false; }
+        });
+        card.append(title, button, output); el.deliveryDetails.appendChild(card);
+      });
       setBusy(state.busy);
     }
 

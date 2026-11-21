@@ -9,6 +9,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use serde::Deserialize;
 use serde_json::json;
+use tokio::io::AsyncReadExt;
 
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct MobileWorkItemListQuery {
@@ -385,6 +386,40 @@ pub(crate) async fn mobile_get_workflow_test_result(
     match tokio::fs::read_to_string(path).await {
         Ok(content) => Json(json!({"content":content})).into_response(),
         Err(error) => bad_request(error),
+    }
+}
+
+pub(crate) async fn mobile_get_work_item_artifact(
+    State(state): State<WebhookState>, headers: HeaderMap,
+    Path((work_item_id, artifact_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let artifact = match artifact_repo::get_artifact(&state.app_state.db, &artifact_id).await {
+        Ok(value) if value.work_item_id == work_item_id => value,
+        _ => return (StatusCode::NOT_FOUND, "Artifact not found").into_response(),
+    };
+    let base = match tokio::fs::canonicalize(&state.app_state.artifact_base_path).await {
+        Ok(value) => value, Err(_) => return (StatusCode::NOT_FOUND, "Artifact not found").into_response(),
+    };
+    let path = match tokio::fs::canonicalize(&artifact.storage_path).await {
+        Ok(value) if value.starts_with(&base) => value,
+        _ => return (StatusCode::NOT_FOUND, "Artifact not found").into_response(),
+    };
+    const LIMIT: u64 = 2 * 1024 * 1024;
+    let file = match tokio::fs::File::open(path).await {
+        Ok(value) => value, Err(_) => return (StatusCode::NOT_FOUND, "Artifact not found").into_response(),
+    };
+    match file.metadata().await {
+        Ok(metadata) if metadata.is_file() && metadata.len() <= LIMIT => (),
+        _ => return bad_request("Artifact is unavailable or exceeds the 2 MiB text limit"),
+    }
+    let mut bytes = Vec::new();
+    if file.take(LIMIT + 1).read_to_end(&mut bytes).await.is_err() || bytes.len() as u64 > LIMIT {
+        return bad_request("Artifact is unavailable or exceeds the 2 MiB text limit");
+    }
+    match String::from_utf8(bytes) {
+        Ok(content) => Json(json!({"content":content})).into_response(),
+        Err(_) => bad_request("Artifact is not UTF-8 text"),
     }
 }
 

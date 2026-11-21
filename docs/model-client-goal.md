@@ -4261,6 +4261,17 @@ screen, mobile API and MCP. All 51 isolated workflow tests passed in that run.
 This checks synthetic English audio rather than physical capture or general
 recognition quality.
 
+## Browser workflow artifacts
+
+The Work view can open generated workflow artifacts as bounded UTF-8 text. The
+mobile endpoint requires authentication and matching work-item ownership, and
+resolves paths within the artifact directory. Its 2 MiB limit is enforced while
+reading. The Rust fixture covered invalid scope, outside paths and symlinks,
+oversized and non-text files; a browser workflow opened a generated coding
+artifact and compared it with MCP. All 51 isolated workflow tests passed using
+the rebuilt image. Independent filesystem writers can race path checks, and
+desktop/MCP artifact readers still have separate behavior.
+
 ## Independent browser Copilot model
 
 Browser workspace Copilot can choose an enabled registered provider/model

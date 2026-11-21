@@ -309,11 +309,29 @@ async fn remote_test_result_is_scoped_and_confined_to_artifacts() {
     let (status, body) = send_json(&router, Method::GET, &uri, Some("result-token"), None).await;
     assert_eq!(status, StatusCode::OK);
     assert!(parse_json(&body)["content"].as_str().unwrap().contains("passed"));
+    let artifact_uri = format!("/api/mobile/work-items/{}/artifacts/{}", item["id"].as_str().unwrap(), artifact.id);
+    assert_eq!(send_json(&router, Method::GET, &artifact_uri, None, None).await.0, StatusCode::UNAUTHORIZED);
+    let (status, body) = send_json(&router, Method::GET, &artifact_uri, Some("result-token"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(parse_json(&body)["content"].as_str().unwrap().contains("passed"));
+    assert_eq!(send_json(&router, Method::GET, "/api/mobile/work-items/other/artifacts/test-result", Some("result-token"), None).await.0, StatusCode::NOT_FOUND);
+    tokio::fs::write(&path, vec![b'x'; 2 * 1024 * 1024 + 1]).await.unwrap();
+    assert_eq!(send_json(&router, Method::GET, &artifact_uri, Some("result-token"), None).await.0, StatusCode::BAD_REQUEST);
+    tokio::fs::write(&path, [0xff]).await.unwrap();
+    assert_eq!(send_json(&router, Method::GET, &artifact_uri, Some("result-token"), None).await.0, StatusCode::BAD_REQUEST);
+    #[cfg(unix)]
+    {
+        let link = state.artifact_base_path.join("outside-link");
+        std::os::unix::fs::symlink("/etc/passwd", &link).unwrap();
+        sqlx::query("UPDATE artifacts SET storage_path=? WHERE id=?").bind(link.to_str().unwrap()).bind(&artifact.id).execute(&state.db).await.unwrap();
+        assert_eq!(send_json(&router, Method::GET, &artifact_uri, Some("result-token"), None).await.0, StatusCode::NOT_FOUND);
+    }
     let (status, _) = send_json(&router, Method::GET, "/api/mobile/work-items/other/test-results/test-result", Some("result-token"), None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     sqlx::query("UPDATE artifacts SET storage_path=? WHERE id=?").bind("/etc/passwd").bind(&artifact.id).execute(&state.db).await.unwrap();
     let (status, _) = send_json(&router, Method::GET, &uri, Some("result-token"), None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(send_json(&router, Method::GET, &artifact_uri, Some("result-token"), None).await.0, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
