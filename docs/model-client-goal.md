@@ -4013,6 +4013,20 @@ fixture's default remains the separate 15B model. The validation host still
 uses a management-capable token, and its dynamically assigned port can change
 after a restart.
 
+## Coding final-response guidance
+
+A real 7B extend-module workflow removed the existing exports and put corrected
+code only in its final response. Its syntax gate passed, but independent
+behavioral checks rejected it before delivery. The coding tool prompt now
+states that final-response content is a report, not a file edit, and asks the
+model to preserve and update module exports in the actual file. The focused
+prompt test passed. After rebuilding Studio, one repeat of the same real-model
+workflow passed syntax, independent behavioral checks and delivery to a
+disposable local Git remote. This is one follow-up sample; it does not prove
+the guidance caused success or prevent inaccurate model claims. Project-level
+behavioral tests and review remain necessary. The rebuilt worktree app and PDF
+renderer were healthy on port 55085.
+
 ## Agent template reference clarification
 
 Desktop and browser agent editors now state that the prompt-template reference
