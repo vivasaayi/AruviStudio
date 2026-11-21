@@ -36,8 +36,23 @@ transcription failure, navigation and stopping while speaking. The frontend buil
 128 frontend tests, and Rust library suite (333 passed, seven ignored) passed; the
 full Rust run preceded the final browser-only cancellation adjustment. The new button
 was visually inspected at mobile width without horizontal overflow. Neither fixture
-uses physical audio or a live external provider. The branch image predates this
-checkpoint until a clean image is built, validated and deployed.
+uses physical audio or a live external provider.
+
+Both hosted test runs and a clean ARM64 build passed for `cecec05`. The archive
+checksum and source revision were verified; its server binary (SHA-256
+`ed53dea6b22dca4ed778b38f586e55fd9cdb7dbbece45f3e381878769f6fd8cd`)
+was layered onto the prior branch runtime to produce derived image
+`sha256:6b6e4c09b31ac364926b232a48084c6d5fd82ba4b9b3a87130abb8b752c8330f`,
+not the full clean artifact. This candidate passed 55 isolated workflow tests,
+including continuous browser voice through a simulated provider, 45 browser
+tests with one skipped, and the PDF outage check. A checked database backup and
+the previous image were retained. Product, MCP, mobile and PDF checks passed
+across restart, as did published-port origin checks, real 7B MCP coding, real
+MCP speech and manual browser transcription. The deployed continuous browser
+session also sent synthetic Piper audio through real Model Host Whisper to the
+local 7B coding model; the recognized greeting and a nonempty reply were checked.
+The branch endpoint was `127.0.0.1:55288`. Audio was synthetic and no physical
+microphone or speaker was verified.
 
 ### Desktop Voice Chat transcription configuration
 
@@ -60,8 +75,8 @@ browser tests and four existing capture tests. The full Rust library suite passe
 Tauri IPC payloads and environment precedence.
 These tests do not validate a native desktop window, microphone, speaker or a
 live third-party account. Both hosted test runs and the clean ARM64 image build
-passed for `6ebe923`. The running branch image predates this checkpoint until its
-deployment is independently verified.
+passed for `6ebe923`; the later browser voice checkpoint records deployment of
+a subsequent revision that includes it.
 
 ### Desktop Planner transcription precedence
 

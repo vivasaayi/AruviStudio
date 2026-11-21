@@ -14,9 +14,10 @@ const token = line.slice("ARUVI_MOBILE_API_TOKEN=".length);
 const port = execFileSync("docker", ["compose", "--project-name", plan.project, "--project-directory", process.cwd(), "--env-file", env, "-f", "deploy/compose.worktree.yaml", "port", "app", "8787"], { encoding: "utf8" }).trim();
 const providers = JSON.parse(execFileSync("scripts/mcp", ["call", "aruvi_models", '{"action":"list_providers","arguments":{}}'], { encoding: "utf8" })).result;
 const plannerMode = process.argv.includes("--planner");
+const continuousMode = process.argv.includes("--continuous");
 const provider = providers.find((item) => item.name === "Aruvi Model Host (Native Staging)");
 if (!provider) throw new Error("Native Model Host provider is not configured");
-const args = { action: "generate_speech", arguments: { provider_id: provider.id, model: "piper-ljspeech", text: plannerMode ? "Show draft." : "The quick brown fox jumps over the lazy dog." } };
+const args = { action: "generate_speech", arguments: { provider_id: provider.id, model: "piper-ljspeech", text: plannerMode ? "Show draft." : continuousMode ? "Say hello in one sentence." : "The quick brown fox jumps over the lazy dog." } };
 const audio = JSON.parse(execFileSync("scripts/mcp", ["call", "aruvi_speech", "-"], { input: JSON.stringify(args), encoding: "utf8", maxBuffer: 24 * 1024 * 1024, timeout: 120000 })).result;
 assert.equal(audio.mime_type, "audio/wav");
 const directory = mkdtempSync(join(tmpdir(), "aruvi-fake-microphone-"));
@@ -24,7 +25,7 @@ let browser;
 try {
   const path = join(directory, "fixture.wav");
   let wav = Buffer.from(audio.audio_bytes_base64, "base64");
-  if (plannerMode) {
+  if (plannerMode || continuousMode) {
     // Chrome loops fake microphone files. Pad this short command with silence
     // so the five-second recording contains the command only once.
     wav = execFileSync("python3", ["-c", `import io, sys, wave
@@ -51,7 +52,7 @@ sys.stdout.buffer.write(out.getvalue())`], { input: wav, maxBuffer: 4 * 1024 * 1
   });
   await page.goto(`http://${port}/remote`);
   await page.locator("#tokenInput").fill(token);
-  if (plannerMode) {
+  if (plannerMode || continuousMode) {
     const coding = providers.find((item) => item.name === "Aruvi Model Host (Studio Coding Validation)");
     if (!coding) throw new Error("Coding validation provider is not configured");
     await page.locator("#providerInput").fill(coding.id);
@@ -69,6 +70,21 @@ sys.stdout.buffer.write(out.getvalue())`], { input: wav, maxBuffer: 4 * 1024 * 1
   await page.getByLabel("Transcription provider", { exact: true }).selectOption(provider.id);
   await page.getByLabel("Transcription model", { exact: true }).fill("whisper-tiny-metal");
   await page.getByLabel("Speech locale", { exact: true }).fill("en");
+  if (continuousMode) {
+    await page.getByRole("button", { name: "Speak On" }).click();
+    const chat = page.waitForResponse((response) => response.url().endsWith("/api/mobile/chat/completions"), { timeout: 120000 });
+    await page.getByRole("button", { name: "Start voice conversation" }).click();
+    const response = await chat;
+    assert.equal(response.status(), 200, await response.text());
+    const body = await response.json();
+    assert.ok(body.content?.trim(), "Expected a real coding-model response");
+    const transcript = response.request().postDataJSON().messages.findLast((message) => message.role === "user")?.content || "";
+    assert.match(transcript.toLowerCase(), /\bhello\b/, "Expected the synthetic greeting in the recognized user turn");
+    await page.getByRole("button", { name: "End voice conversation" }).click();
+    await page.getByRole("button", { name: "Start voice conversation" }).waitFor({ state: "visible" });
+    assert.ok(capturedRate >= 8000 && capturedRate <= 192000, "Browser sent an unsupported WAV sample rate");
+    console.log(`Continuous browser voice sent synthetic Piper audio at ${capturedRate} Hz through real Whisper and a real local coding model.`);
+  } else {
   await page.getByRole("button", { name: "Record", exact: true }).click();
   await page.getByRole("button", { name: "Stop", exact: true }).waitFor();
   await page.waitForTimeout(5000);
@@ -91,6 +107,7 @@ sys.stdout.buffer.write(out.getvalue())`], { input: wav, maxBuffer: 4 * 1024 * 1
   }
   assert.ok(capturedRate >= 8000 && capturedRate <= 192000, "Browser sent an unsupported WAV sample rate");
   console.log(`Browser recorded synthetic Piper audio at ${capturedRate} Hz and transcribed it with real Model Host Whisper${plannerMode ? "; a reviewed and corrected transcript reached the planner voice endpoint" : ""}.`);
+  }
 } finally {
   if (browser) await browser.close();
   rmSync(directory, { recursive: true, force: true });
