@@ -1,3 +1,5 @@
+diff --git a/src/ci_api.rs b/src/ci_api.rs
+index 1aa06cf..0d9960c 100644
 --- a/src/ci_api.rs
 +++ b/src/ci_api.rs
 @@ -2,6 +2,7 @@
@@ -8,7 +10,7 @@
  use std::{
      fs,
      io::{BufRead, BufReader, Read, Seek, SeekFrom, Write},
-@@ -26,7 +27,11 @@
+@@ -26,7 +27,11 @@ pub fn dispatch(config: &PlatformConfig, request: Value) -> Result<Value> {
          "targets" => config
              .targets
              .iter()
@@ -21,7 +23,7 @@
              .collect::<Result<Vec<_>>>()
              .map(Value::Array),
          "plan" => Ok(serde_json::to_value(config.target(target()?)?.plan()?)?),
-@@ -36,11 +41,53 @@
+@@ -36,11 +41,52 @@ pub fn dispatch(config: &PlatformConfig, request: Value) -> Result<Value> {
          "enqueue" => Ok(
              json!({"run_id":ci::enqueue(config,target()?,request["commit"].as_str().context("missing commit")?,request["key"].as_str().context("missing idempotency key")?,request.get("context").cloned().unwrap_or(Value::Null))?}),
          ),
@@ -56,8 +58,7 @@
 +            if !path.starts_with(&root) || path == root {
 +                bail!("artifact outside owning run storage");
 +            }
-+            let mut file = fs::File::open(path)?;
-+            if !file.metadata()?.is_file() { bail!("artifact is not a regular file"); }
++            let mut file = safety::open_regular_no_symlinks(path)?;
 +            let mut digest = Sha256::new();
 +            let mut size = 0_u64;
 +            let mut buffer = [0_u8; 65536];
@@ -75,9 +76,85 @@
          "artifact_chunk" => {
              let info = store.artifact_info(id()?)?;
              let path = Path::new(info["path"].as_str().context("artifact path missing")?);
+@@ -48,7 +94,7 @@ pub fn dispatch(config: &PlatformConfig, request: Value) -> Result<Value> {
+             if !path.starts_with(config.state_dir.join("ci-runs")) {
+                 bail!("artifact outside run storage");
+             }
+-            let mut file = fs::File::open(path)?;
++            let mut file = safety::open_regular_no_symlinks(path)?;
+             let offset = request["offset"].as_u64().unwrap_or(0);
+             file.seek(SeekFrom::Start(offset))?;
+             let mut bytes = vec![0; 65536];
+diff --git a/src/safety.rs b/src/safety.rs
+index e9af49d..99aeaad 100644
+--- a/src/safety.rs
++++ b/src/safety.rs
+@@ -1,7 +1,13 @@
+ use anyhow::{bail, Context, Result};
+ use std::{
+     fs::{self, File, OpenOptions},
+-    os::{fd::AsRawFd, unix::fs::OpenOptionsExt},
++    os::{
++        fd::{AsRawFd, FromRawFd},
++        unix::{
++            ffi::OsStrExt,
++            fs::{MetadataExt, OpenOptionsExt},
++        },
++    },
+     path::{Component, Path},
+     time::{SystemTime, UNIX_EPOCH},
+ };
+@@ -59,6 +65,45 @@ pub fn no_symlinks(path: &Path) -> Result<()> {
+     Ok(())
+ }
+
++/// Open each path component relative to an already opened directory. This
++/// prevents a component being replaced by a symlink between inspection and use.
++pub fn open_regular_no_symlinks(path: &Path) -> Result<File> {
++    absolute(path)?;
++    let parts: Vec<_> = path.components().skip(1).collect();
++    let mut directory = File::open("/")?;
++    for (index, part) in parts.iter().enumerate() {
++        let Component::Normal(name) = part else {
++            bail!("unsafe artifact path");
++        };
++        let name = std::ffi::CString::new(name.as_bytes()).context("invalid artifact path")?;
++        let last = index + 1 == parts.len();
++        let flags = libc::O_RDONLY
++            | libc::O_CLOEXEC
++            | libc::O_NOFOLLOW
++            | if last {
++                libc::O_NONBLOCK
++            } else {
++                libc::O_DIRECTORY
++            };
++        // SAFETY: directory and name stay live during openat; a successful fd
++        // is immediately transferred to File exactly once.
++        let fd = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), flags) };
++        if fd < 0 {
++            return Err(std::io::Error::last_os_error()).context("open artifact without symlinks");
++        }
++        let opened = unsafe { File::from_raw_fd(fd) };
++        if last {
++            let metadata = opened.metadata()?;
++            if !metadata.is_file() || metadata.nlink() != 1 {
++                bail!("artifact must be a regular file without hard links");
++            }
++            return Ok(opened);
++        }
++        directory = opened;
++    }
++    bail!("artifact path has no file")
++}
++
+ pub fn overlaps(a: &Path, b: &Path) -> bool {
+     a.starts_with(b) || b.starts_with(a) || {
+         let a = a.to_string_lossy().to_lowercase();
+diff --git a/tests/ci_api.rs b/tests/ci_api.rs
+index 14e7e5a..cf16250 100644
 --- a/tests/ci_api.rs
 +++ b/tests/ci_api.rs
-@@ -154,3 +154,183 @@
+@@ -154,3 +154,199 @@ fn logs_are_bounded_and_cancellation_is_durable() {
          Value::Array(vec![])
      );
  }
@@ -260,4 +337,20 @@
 +        json!({"method":"promotion_readiness","id":wrong_id})
 +    )
 +    .is_err());
++}
++
++#[test]
++fn artifact_reads_reject_hard_links_to_other_files() {
++    let (temp, config, store, run) = config();
++    let root = config.state_dir.join("ci-runs").join(run.to_string());
++    std::fs::create_dir_all(&root).unwrap();
++    let path = root.join("package.bin");
++    std::fs::write(&path, b"fixture").unwrap();
++    let id = store.artifact(run, "package", "package", &path).unwrap();
++    let other = temp.path().join("outside-hard-link");
++    std::fs::hard_link(&path, other).unwrap();
++    for method in ["artifact_chunk", "promotion_readiness"] {
++        let result = dispatch(&config, json!({"method": method, "id": id}));
++        assert!(result.is_err(), "{method} accepted a hard-linked artifact");
++    }
 +}

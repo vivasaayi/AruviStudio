@@ -217,6 +217,9 @@ loopback TCP reachability probe from the Docker image succeeded, but network
 reachability alone does not fix the protocol or shared-repository identity
 requirements. A complete bridge must authenticate requests, reconcile trusted
 shared paths, and resolve the API mismatch before enabling build dispatch.
+An isolated candidate branch in Aruvici now implements the missing metadata,
+retry and integrity operations and has passed the native protocol fixture; it
+is not deployed, and actual builds and Docker-to-host transport remain open.
 
 | Desktop action | Dependency or constraint for web parity |
 | --- | --- |

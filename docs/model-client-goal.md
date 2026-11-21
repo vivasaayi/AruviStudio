@@ -400,6 +400,18 @@ readiness. The original Aruvici revision still fails the protocol audit. The
 candidate is not committed to or deployed from Aruvici; its isolated checkout
 request remains pending. Docker transport remains open.
 
+The candidate has since been applied in the isolated Aruvici worktree
+`/Users/rajanthegoat/work/aruvici-studio-ci-protocol` and pushed as branch
+`codex/studio-ci-protocol`, commit `c2efef3`. Artifact readiness and chunk
+reads open path components relative to directory descriptors with no-follow
+flags and reject hard-linked regular files, reducing the earlier symlink
+check/open race. The candidate passed 60 Rust tests, formatting and clippy;
+the disposable native Studio fixture again passed health, target binding,
+artifact integrity and guarded retry with worker execution locked. Promotion
+eligibility remains false. The running Aruvici service was not changed; an
+actual build, container-to-host transport, shared workspace identity and review
+remain open. The patch in `docs/integration` reflects this branch.
+
 ### Disposable native Aruvici connection
 
 Studio revision `f90987b` and Aruvici revision `5851f2594bbbd83193e259a566004088ac28c52e`
