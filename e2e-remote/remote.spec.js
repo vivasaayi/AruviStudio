@@ -1128,6 +1128,19 @@ test("mobile and MCP APIs require their configured tokens", async ({ request }) 
   expect(mcp.status()).toBe(401);
 });
 
+test("configured reverse-proxy origin requires matching host and MCP token", async ({ request }) => {
+  test.skip(!mcpToken || process.env.ARUVI_TEST_INSPECT !== "1", "Requires disposable origin fixture");
+  const body = { jsonrpc: "2.0", id: 1, method: "ping" };
+  const send = (host, origin, tokenValue) => request.post("/api/mcp", {
+    headers: { Host: host, Origin: origin, ...(tokenValue ? { Authorization: `Bearer ${tokenValue}` } : {}) }, data: body,
+  });
+  expect((await send("studio.example", "https://studio.example", mcpToken)).status()).toBe(200);
+  expect((await send("studio.example", "https://studio.example", null)).status()).toBe(401);
+  expect((await send("studio.example", "http://studio.example", mcpToken)).status()).toBe(403);
+  expect((await send("other.example", "https://studio.example", mcpToken)).status()).toBe(403);
+  expect((await send("other.example", "https://other.example", mcpToken)).status()).toBe(403);
+});
+
 test("activity displays model calls and their details", async ({ page }) => {
   test.skip(!token, "Set ARUVI_MOBILE_API_TOKEN for a running remote server");
   const call = { id: "test-call", source_kind: "mobile_planner", source_id: "planner-1", session_id: "shared", source_label: "Planner test", call_index: 1, model_name: "example-model", status: "failed", created_at: "2026-01-01", provider_name: "Example", token_count_input: 42, error_message: "<script>bad</script>", request_snapshot_path: "/fixture/request.json" };

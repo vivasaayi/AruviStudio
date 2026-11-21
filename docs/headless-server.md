@@ -259,6 +259,20 @@ This smoke test does not replace authenticated workflow, persistence, or artifac
 identity checks required for staging acceptance.
 The original `compose.yaml` and its existing volumes remain a separate local deployment.
 
+For a same-origin browser accessing MCP through a reverse proxy, set
+`ARUVI_MCP_ALLOWED_ORIGINS` in the environment's private `environment.env` to
+the exact externally visible origin, for example `https://studio.example`.
+Separate multiple origins with commas; do not include paths, trailing slashes,
+wildcards, credentials or default ports. The proxy must preserve the external
+`Host` header, provide TLS, and restrict access according to the deployment's
+policy. Studio does not trust forwarded-host headers. The Origin and Host must
+match and the origin must be an allowed local/LAN origin or an exact configured
+entry. A configured external-origin list requires an MCP token even when the
+server binds to localhost. An invalid entry never grants access, but still
+disables tokenless MCP. Restart after changing this environment value. This
+configuration has been tested with synthetic proxy headers, not with the VPS
+ingress; verify the actual proxy and authorized browser during staging acceptance.
+
 ### Calling the worktree MCP server
 
 After `bash scripts/env worktree up`, use `scripts/mcp` from this checkout. It finds

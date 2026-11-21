@@ -4184,3 +4184,16 @@ remains unchanged, and disabling/re-enabling the model is handled without an
 implicit fallback. All 29 remote tests and the PDF outage check passed; the
 rebuilt branch app and PDF sidecar restarted healthy. This is not live cloud
 provider validation or complete desktop IDE parity.
+
+## Explicit MCP browser origins for staging
+
+The server accepts optional comma-separated exact external MCP origins from
+`ARUVI_MCP_ALLOWED_ORIGINS`, still requiring Origin to match Host and rejecting
+forwarded-host headers. Any nonblank list requires an MCP token even for a
+localhost-bound server. The four environment adapters pass the setting through.
+Two native Rust origin tests passed; rust-objcopy reported a missing libLLVM
+debug-stripping warning. An isolated container rejected tokenless localhost MCP
+with an external origin configured. The rebuilt image passed 30 browser tests,
+including proxy-header authorization, mismatched host and origin rejection,
+and the PDF outage check. The worktree app and PDF sidecar restarted healthy.
+Actual TLS ingress and VPS staging acceptance remain untested.

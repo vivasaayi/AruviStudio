@@ -25,6 +25,10 @@ published port and verified that missing credentials, another port, and a null
 origin are rejected. The same test verifies that an untrusted host and duplicate
 Origin headers are rejected. Reverse-proxy deployments and public hostnames require separate
 configuration and validation; forwarded host headers are not trusted by this check.
+Explicit `ARUVI_MCP_ALLOWED_ORIGINS` entries now support exact public origins
+when a proxy preserves Host, and require an MCP token even on localhost. A
+disposable fixture tested matching and rejected proxy headers; the actual VPS
+proxy remains unvalidated. See [the deployment guide](headless-server.md).
 
 On the dedicated `codex/aruvi-web-docker` branch, the worktree image rebuilt and the
 deployed smoke, 17 remote UI, simulated CI and 17 isolated workflow tests passed.

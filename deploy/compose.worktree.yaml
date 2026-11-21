@@ -9,6 +9,7 @@ services:
     environment:
       ARUVI_MOBILE_API_TOKEN: ${ARUVI_MOBILE_API_TOKEN:?Missing environment token}
       ARUVI_MCP_API_TOKEN: ${ARUVI_MCP_API_TOKEN:?Missing environment token}
+      ARUVI_MCP_ALLOWED_ORIGINS: ${ARUVI_MCP_ALLOWED_ORIGINS-}
       ARUVI_LLM_CONFIG_PATH: /data/llm-config.json
       ARUVI_PDF_SOCKET: /pdf-socket/renderer.sock
       ARUVI_MODEL_CONNECT_TIMEOUT_SECS: ${ARUVI_MODEL_CONNECT_TIMEOUT_SECS-15}
