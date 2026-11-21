@@ -5720,4 +5720,31 @@ persistence acceptance, browser MCP origin checks, and a real local 7B MCP
 coding request passed on the restored image. A checked database backup from
 before the attempted deployment is retained. The candidate is not deployed;
 its worktree deployment still requires sufficient Docker filesystem headroom
-and acceptance. This does not establish staging or full desktop parity.
+and acceptance. A separate derived image was subsequently deployed as described
+below. This does not establish staging or full desktop parity.
+
+## Branch deployment using the hosted server binary
+
+The server binary was extracted from the verified hosted image archive and
+installed over the previous branch runtime image. Its SHA-256 is
+`ed157a11c317c8bbe208c1684d82d482d671fa6a74007e2830f84fb58ad42a82`;
+the derived image's Docker Desktop manifest ID is
+`sha256:089db6c1f6a4fba2f0ad2bea5419a616cc069da365420dfe6b4700bd4260fb09`.
+Its source revision is `b2e429737275b1f3f74d75608980aa0a4516aed0`.
+Between the previous image's source revision `7e53964` and that revision,
+runtime code changes were limited to workflow service and repository files;
+the Dockerfile, frontend, dependency manifests, lockfile, resources and
+shared client source were unchanged. The derived image is not the clean hosted
+image: it retains the previous image's runtime layers. Its Dockerfile, logs,
+hosted archive and checked pre-deployment database backup are retained in the
+worktree artifacts.
+
+The derived image passed 52 isolated workflow and 42 browser tests, PDF
+isolation and outage checks, and the Docker host-model fixture. After branch
+deployment, product creation, MCP/mobile authorization, PDF and persistence
+passed after restart; browser MCP origin checks and a real local 7B MCP coding
+request also passed. Docker VM free space remained about 2.5 GiB. To recover
+space after an initial derived build unpacked the base layers, one unused older
+rollback image was removed from Docker after verifying its preserved OCI
+archive and manifest; the current previous image is retained. Integration,
+staging and complete desktop parity remain unverified.
