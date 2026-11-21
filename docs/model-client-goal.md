@@ -5925,7 +5925,7 @@ test, PDF isolation/outage checks, and Docker-to-host model discovery and MCP
 completion against a fixture. After deployment, product, MCP/mobile authorization,
 PDF and persistence acceptance passed across a restart; the published-port
 browser MCP-origin checks and a real local 7B MCP coding request also passed.
-The branch endpoint after deployment was `127.0.0.1:55252`; its port can change
-when recreated. A SQLite backup passed `quick_check`, and the prior image is
+The branch endpoint after acceptance was `127.0.0.1:55253`; its port can change
+when restarted or recreated. A SQLite backup passed `quick_check`, and the prior image is
 retained for rollback. Mac integration, staging, real external services and full
 desktop parity remain unverified.
