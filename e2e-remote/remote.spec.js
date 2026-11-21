@@ -612,6 +612,8 @@ test("browser edits a real planner draft through the authenticated API", async (
   const created = await request.post("/api/mobile/products", { headers, data: { name: `Planner fixture ${Date.now()}` } });
   expect(created.status()).toBe(201);
   const product = await created.json();
+  const matchRequests = [];
+  page.on("request", (req) => { if (req.url().endsWith("/api/mobile/planner/match-actions") && req.method() === "POST") matchRequests.push(req.postDataJSON()); });
   try {
     await page.goto("/remote");
     await page.locator("#tokenInput").fill(token);
@@ -643,12 +645,22 @@ test("browser edits a real planner draft through the authenticated API", async (
     await page.getByRole("button", { name: suggested[0], exact: true }).click();
     await expect(page.locator("#composer")).toHaveValue(suggested[0]);
     await expect(page.locator("#draftNodeDetails")).toContainText("create_product_area");
+    await expect.poll(() => matchRequests.find((entry) => entry.node?.label === "Draft area")?.node?.ancestors).toEqual([{ label: "Renamed draft", node_type: "product" }]);
     const matchPayload = { ...suggestionPayload, actions: [{ type: "create_product_area", name: "Draft area" }, { type: "create_product_area", name: "Other" }] };
     expect((await request.post("/api/mobile/planner/match-actions", { data: matchPayload })).status()).toBe(401);
     const matched = await (await request.post("/api/mobile/planner/match-actions", { headers, data: matchPayload })).json();
     expect(matched).toEqual([matchPayload.actions[0]]);
     const mcpMatch = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` }, data: { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "aruvi_planner", arguments: { action: "match_planner_actions", arguments: matchPayload } } } });
     expect((await mcpMatch.json()).result.structuredContent.result).toEqual(matched);
+    const scopedPayload = { node: { label: "Inventory", node_type: "capability", ancestors: [{ label: "Store", node_type: "product" }, { label: "Warehouse", node_type: "product_area" }] }, actions: [
+      { type: "update_capability", target: { productName: "Store", productAreaName: "Warehouse", capabilityName: "Inventory" } },
+      { type: "update_capability", target: { productName: "Store", productAreaName: "Sales", capabilityName: "Inventory" } },
+      { type: "update_capability", target: { capabilityName: "Inventory" } },
+    ] };
+    const scoped = await (await request.post("/api/mobile/planner/match-actions", { headers, data: scopedPayload })).json();
+    expect(scoped).toEqual([scopedPayload.actions[0], scopedPayload.actions[2]]);
+    const scopedMcp = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` }, data: { jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "aruvi_planner", arguments: { action: "match_planner_actions", arguments: scopedPayload } } } });
+    expect((await scopedMcp.json()).result.structuredContent.result).toEqual(scoped);
     await page.getByRole("button", { name: "Validate design" }).click();
     await expect(page.locator("#draftValidation")).toContainText("Readiness: 88/100");
     await expect(page.locator("#draftValidation")).toContainText("Draft area is empty");

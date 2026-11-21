@@ -13,6 +13,7 @@ try {
   try {
     const page = await context.newPage();
     const requests = [];
+    const matchRequests = [];
     let productsUnavailable = false;
     let releaseTurn;
     let holdTurn = false;
@@ -22,10 +23,11 @@ try {
     await page.route("**/remote", (route) => route.fulfill({ contentType: "text/html", body: html }));
     await page.route("**/api/mobile/products", (route) => productsUnavailable ? route.fulfill({ status: 503, body: "unavailable" }) : route.fulfill({ json: [{ id: "product-a", name: "Product A" }, { id: "product-b", name: "Product B" }] }));
     await page.route("**/api/mobile/planner/sessions", (route) => route.fulfill({ json: { session_id: "session-1" } }));
+    await page.route("**/api/mobile/planner/match-actions", (route) => { matchRequests.push(route.request().postDataJSON()); return route.fulfill({ json: [] }); });
     await page.route("**/api/mobile/planner/sessions/*/turn", async (route) => {
       requests.push(route.request().postDataJSON());
       if (holdTurn) await new Promise((resolve) => { releaseTurn = resolve; notifyHeldTurn(); });
-      await route.fulfill({ json: { session_id: "session-1", assistant_message: "Ready", draft_tree_nodes: [{ id: "node-1", label: "Draft node" }] } });
+      await route.fulfill({ json: { session_id: "session-1", assistant_message: "Ready", pending_plan: { actions: [{ type: "create_capability", name: "Draft node" }] }, draft_tree_nodes: [{ id: "root", label: "Store", node_type: "product", children: [{ id: "area", label: "Warehouse", node_type: "product_area", children: [{ id: "node-1", label: "Draft node", node_type: "capability", children: [] }] }] }] } });
     });
     await page.goto(`http://${port}/remote`);
     await page.locator("#plannerProductSelect").waitFor({ state: "visible" });
@@ -39,6 +41,9 @@ try {
     assert.equal(requests[0].product_id, "product-b");
     assert.equal(requests[0].selected_draft_node_id, null);
     await page.getByRole("button", { name: "Draft node" }).click();
+    await page.waitForFunction(() => document.querySelector("#draftNodeDetails")?.textContent.includes("No recent plan actions match this node."));
+    const match = matchRequests.find((entry) => entry.node?.label === "Draft node");
+    assert.deepEqual(match?.node.ancestors, [{ label: "Store", node_type: "product" }, { label: "Warehouse", node_type: "product_area" }]);
     holdTurn = true;
     await page.locator("#composer").fill("Wait for this turn");
     turn = page.waitForResponse((response) => response.url().endsWith("/turn"));

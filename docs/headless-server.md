@@ -353,6 +353,11 @@ worktree app; it does not replace the interactive or isolated workflow tests. Se
 `ARUVI_CHROME_PATH` if Chrome is installed elsewhere.
 `bash scripts/test host-planner-scope` exercises the working-tree planner product
 selector against simulated responses; it does not validate the server or provider.
+For `aruvi_planner` action `match_planner_actions`, callers may provide a node's
+`ancestors` as ordered objects with `label` and `node_type`. The matcher uses
+known ancestor names to exclude actions with conflicting scope, while retaining
+ambiguous actions that omit scope. Older callers may omit this field. Names can
+change or repeat, so matches are not stable identifiers or an audit record.
 
 On macOS, `bash scripts/test native-database-override /path/to/aruvi-studio-server`
 uses a disposable native server and temporary databases to check override,

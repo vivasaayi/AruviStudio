@@ -78,6 +78,27 @@ fn parse_json(body: &str) -> Value {
 }
 
 #[tokio::test]
+async fn planner_action_scope_matches_through_http_and_mcp() {
+    let app: tauri::App<MockRuntime> = make_test_app("planner_action_scope").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "scope-test-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let payload = json!({"node":{"label":"Inventory","node_type":"capability","ancestors":[{"label":"Store","node_type":"product"},{"label":"Warehouse","node_type":"product_area"}]},"actions":[
+        {"type":"update_capability","target":{"productName":"Store","productAreaName":"Warehouse","capabilityName":"Inventory"}},
+        {"type":"update_capability","target":{"productName":"Store","productAreaName":"Sales","capabilityName":"Inventory"}},
+        {"type":"update_capability","target":{"capabilityName":"Inventory"}}
+    ]});
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/planner/match-actions", None, Some(payload.clone())).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, body) = send_json(&router, Method::POST, "/api/mobile/planner/match-actions", Some("scope-test-token"), Some(payload.clone())).await;
+    assert_eq!(status, StatusCode::OK);
+    let expected = json!([payload["actions"][0], payload["actions"][2]]);
+    assert_eq!(parse_json(&body), expected);
+    let result = crate::mcp::dispatch_tool(&state, "aruvi_planner", json!({"action":"match_planner_actions","arguments":payload})).await.unwrap();
+    assert_eq!(result["result"], expected);
+}
+
+#[tokio::test]
 async fn remote_planner_draft_edits_are_authenticated_and_persisted() {
     use crate::services::planner_service::{apply_actions_to_draft, create_planner_session, persist_draft_state};
     use crate::services::planner_action_parser::normalize_planner_action;

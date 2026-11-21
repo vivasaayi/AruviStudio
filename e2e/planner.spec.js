@@ -132,8 +132,11 @@ test("planner uses suggested prompts from the shared native command", async ({ p
     const original = bridge.invoke;
     bridge.invoke = (command, args) => {
       if (command === "planner_suggested_prompts_command") return [`Shared suggestion for ${args.node?.label}`];
-      if (command === "planner_relevant_actions_command") return args.node?.label === "Input Experience"
-        ? [{ type: "update_product_area", target: { productAreaName: "Input Experience" }, fields: { description: "shared action" } }] : [];
+      if (command === "planner_relevant_actions_command") {
+        if (args.node?.label === "Input Experience") window.fixturePlannerAncestors = args.node.ancestors;
+        return args.node?.label === "Input Experience"
+          ? [{ type: "update_product_area", target: { productAreaName: "Input Experience" }, fields: { description: "shared action" } }] : [];
+      }
       return original(command, args);
     };
   });
@@ -145,6 +148,7 @@ test("planner uses suggested prompts from the shared native command", async ({ p
   await page.getByRole("button", { name: "Shared suggestion for Input Experience" }).click();
   await expect(page.getByTestId("planner-input")).toHaveValue("Shared suggestion for Input Experience");
   await expect(page.getByText("Update product area Input Experience")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.fixturePlannerAncestors)).toEqual([{ label: "Calculator", node_type: "product" }]);
 });
 
 test("planner reports microphone setup errors and releases the audio track", async ({ page }) => {

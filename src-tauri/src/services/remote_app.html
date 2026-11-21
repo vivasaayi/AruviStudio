@@ -1969,7 +1969,7 @@
         if (!state.latestPlannerActions.length) recent.textContent = "No recent plan actions in this page session.";
         else {
           recent.textContent = "Loading recent plan actions…";
-          void request("/api/mobile/planner/match-actions", { method: "POST", body: { node: { label: node.label || "Untitled", node_type: node.node_type || null, meta: node.meta || null }, actions: state.latestPlannerActions } }).then((actions) => {
+          void request("/api/mobile/planner/match-actions", { method: "POST", body: { node: { label: node.label || "Untitled", node_type: node.node_type || null, meta: node.meta || null, ancestors: selectedPath.slice(0, -1).map((entry) => ({ label: entry.label || "Untitled", node_type: entry.node_type || null })) }, actions: state.latestPlannerActions } }).then((actions) => {
             if (requestId !== suggestionRequestId) return;
             if (!Array.isArray(actions)) throw new Error("Invalid action list");
             recent.replaceChildren();

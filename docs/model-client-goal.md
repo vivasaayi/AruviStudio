@@ -3246,6 +3246,21 @@ verified by deterministic tests only.
 
 ## Browser planner node review
 
+- The shared recent-action matcher can now use selected-node ancestors supplied
+  by desktop, browser or MCP to reject explicit product/area conflicts, and
+  checks a known parent capability when matching newly created child nodes.
+  Callers that omit ancestors retain the earlier name-only behavior. Missing
+  scope is still ambiguous; renamed ancestors can hide older matches, and
+  equal names within the same scope may still match. This remains a page-session
+  aid, not durable identity or an audit log. A Rust matcher test covers matching
+  and conflicting product, area and parent names, normalized scope comparisons
+  and legacy calls; authenticated HTTP and MCP return the same result. A
+  simulated browser fixture and six mocked desktop planner tests verify the
+  clients send ancestor scope. The native Rust library suite passed 325 tests
+  with seven ignored before the final scope-comparison normalization; focused
+  matcher and HTTP/MCP tests passed again afterward. The frontend build and
+  128 frontend tests passed. Linux container deployment and physical desktop
+  acceptance remain open for this change.
 - Desktop and browser now use a shared Rust matcher for plan actions associated
   with the selected node, also exposed as MCP `match_planner_actions`. The
   browser shows the latest plan held by the current page; this is not durable

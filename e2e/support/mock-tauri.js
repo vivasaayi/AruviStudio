@@ -758,6 +758,7 @@
         id: node.id,
         label: node.label,
         meta: node.meta,
+        node_type: node.type,
         children: node.children.map(visit).filter(Boolean),
       };
     }

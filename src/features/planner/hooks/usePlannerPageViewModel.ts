@@ -119,6 +119,10 @@ export function usePlannerPageViewModel({
     () => findTreeNodePath(draftTreeNodes, selectedDraftNodeId),
     [draftTreeNodes, selectedDraftNodeId],
   );
+  const selectedDraftAncestors = useMemo(
+    () => selectedDraftNodePath.slice(0, -1).map(({ label, node_type }) => ({ label, node_type })),
+    [selectedDraftNodePath],
+  );
   const expandedDraftNodeIdSet = useMemo(
     () => new Set(expandedDraftNodeIds),
     [expandedDraftNodeIds],
@@ -152,8 +156,8 @@ export function usePlannerPageViewModel({
   // native bridge is unavailable; the shared Rust result is authoritative.
   const draftValidation = serverDraftValidation ?? localDraftValidation;
   const { data: matchedActions } = useQuery({
-    queryKey: ["plannerRelevantActions", latestDraftPlan?.actions, selectedDraftNode?.label, selectedDraftNode?.node_type, selectedDraftNode?.meta],
-    queryFn: () => plannerRelevantActions(latestDraftPlan?.actions ?? [], selectedDraftNode ? { label: selectedDraftNode.label, node_type: selectedDraftNode.node_type, meta: selectedDraftNode.meta } : null),
+    queryKey: ["plannerRelevantActions", latestDraftPlan?.actions, selectedDraftNode?.id, selectedDraftNode?.label, selectedDraftNode?.node_type, selectedDraftNode?.meta, selectedDraftAncestors],
+    queryFn: () => plannerRelevantActions(latestDraftPlan?.actions ?? [], selectedDraftNode ? { label: selectedDraftNode.label, node_type: selectedDraftNode.node_type, meta: selectedDraftNode.meta, ancestors: selectedDraftAncestors } : null),
     staleTime: Infinity,
     retry: false,
   });
