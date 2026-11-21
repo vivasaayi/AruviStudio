@@ -4053,7 +4053,14 @@ consumer now pins `4152e1cad1836190190ebd033ff1672fd42dbe13` and its multipart
 transcription fixture constructs the gateway through the new public factory.
 All 28 independent tests passed on macOS and in a Linux Docker build whose test
 step had networking disabled after vendoring. The live-host probes in this
-checkpoint used Studio, not the updated independently pinned consumer.
+checkpoint initially used Studio. The independent consumer's host probe now
+also constructs its gateway through the factory. Running as a non-root user in
+a read-only Linux container, it passed real `qwen-05b-comparison` discovery,
+completion, streaming and token-limit handling plus synthetic Piper-to-Whisper
+speech. A separate probe passed discovery, completion, streaming, JSON-object
+completion and token-limit handling against `qwen25-coder-7b-q4`. The probe
+uses the currently configured management-capable host credentials; scoped live
+deployment and physical audio remain open.
 
 ## Coding final-response guidance
 
