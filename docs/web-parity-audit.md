@@ -163,6 +163,10 @@ default workspace; the model was simulated. The operation selects a registered
 server workspace without checking out a branch, and rejects changes during a
 running or paused workflow. Browser edits and optional MCP baselines reject
 stale assignments; desktop and MCP calls without a baseline remain last-write-wins.
+A separate real 7B Model Host workflow also wrote, independently checked and
+delivered a generated file from an override workspace while leaving the product
+default untouched, after earlier truncated-response failures. See the model
+client goal checkpoint for the model budget and scope of that evidence.
 
 The browser can now edit and disable an existing local Whisper provider. Its
 file path is treated as a server path instead of an HTTP URL; a newly selected

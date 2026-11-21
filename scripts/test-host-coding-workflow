@@ -20,9 +20,13 @@ parser.add_argument("--verify-gate-rejects-invalid", action="store_true", help="
 parser.add_argument("--verify-behavior-rejection", action="store_true", help="Prove the independent behavioral review blocks delivery of invalid exports")
 parser.add_argument("--verify-duplicate-rejection", action="store_true", help="Prove a behaviorally correct duplicate declaration is rejected before delivery")
 parser.add_argument("--other-stage-model", help="Use another installed model for non-coding agents in this disposable fixture")
+parser.add_argument("--workspace-override", action="store_true", help="Run against a work-item workspace distinct from the product default")
+parser.add_argument("--non-coding-max-tokens", type=int, help="Set the response budget for non-coding agents in the disposable fixture")
 args = parser.parse_args()
 if args.verify_duplicate_rejection and (args.scenario != "extend-module" or args.verify_behavior_rejection or args.verify_gate_rejects_invalid):
     parser.error("--verify-duplicate-rejection requires extend-module without other rejection flags")
+if args.non_coding_max_tokens is not None and not 256 <= args.non_coding_max_tokens <= 16384:
+    parser.error("--non-coding-max-tokens must be between 256 and 16384")
 host = args.host.expanduser().resolve()
 container = None
 volume = None
@@ -79,6 +83,8 @@ try:
     if args.verify_gate_rejects_invalid:
         subprocess.run(["docker", "exec", "-i", container, "sh", "-c", "cat > /tmp/aruvi-invalid-syntax.js"], input="function broken( {\n", text=True, check=True)
     command(["docker", "exec", container, "sh", "-c", 'mkdir -p /repositories/coding-fixture && git init -q -b main /repositories/coding-fixture && git -C /repositories/coding-fixture config user.name "Fixture" && git -C /repositories/coding-fixture config user.email "fixture@example.invalid" && printf "# Fixture\\n" > /repositories/coding-fixture/README.md && git -C /repositories/coding-fixture add README.md && git -C /repositories/coding-fixture commit -q -m initial && git init -q --bare /repositories/coding-origin.git && git -C /repositories/coding-fixture remote add origin /repositories/coding-origin.git && git -C /repositories/coding-fixture push -q -u origin main'])
+    if args.workspace_override:
+        command(["docker", "exec", container, "sh", "-c", 'mkdir -p /repositories/coding-default && git init -q -b main /repositories/coding-default && printf "default fixture\\n" > /repositories/coding-default/README.md'])
     if args.scenario == "extend-module":
         original = "function sumEven(numbers) { return numbers.filter(n => n % 2 === 0).reduce((a, b) => a + b, 0); }\nmodule.exports = { sumEven };\n"
         subprocess.run(["docker", "exec", "-i", container, "sh", "-c", "mkdir -p /repositories/coding-fixture/src && cat > /repositories/coding-fixture/src/math.js"], input=original, text=True, check=True)
@@ -112,6 +118,10 @@ try:
         if agent["enabled"]:
             selected = model if agent["id"] == "coding-agent" else other
             call("aruvi_agents", "set_primary_agent_model_binding", {"agent_id": agent["id"], "model_id": selected["id"]})
+            if args.non_coding_max_tokens is not None and agent["id"] != "coding-agent":
+                boundaries = dict(agent["boundaries"])
+                boundaries["max_tokens"] = args.non_coding_max_tokens
+                call("aruvi_agents", "update_agent_definition", {"id": agent["id"], "boundaries": boundaries})
     if args.json_mode:
         coding = next((agent for agent in agents if agent["id"] == "coding-agent" and agent["enabled"]), None)
         if not coding: raise ValueError("Disposable coding agent is unavailable")
@@ -123,7 +133,10 @@ try:
         call("aruvi_settings", "set_setting", {"key": key, "value": value})
     product = call("aruvi_catalog", "create_product", {"name": "Disposable real coding evaluation"})
     repo = call("aruvi_repositories", "register_repository", {"name": "Coding fixture", "local_path": "/repositories/coding-fixture", "default_branch": "main"})
-    call("aruvi_repositories", "attach_repository", {"scope_type": "product", "scope_id": product["id"], "repository_id": repo["id"], "is_default": True})
+    default_repo = repo
+    if args.workspace_override:
+        default_repo = call("aruvi_repositories", "register_repository", {"name": "Default fixture", "local_path": "/repositories/coding-default", "default_branch": "main"})
+    call("aruvi_repositories", "attach_repository", {"scope_type": "product", "scope_id": product["id"], "repository_id": default_repo["id"], "is_default": True})
     if args.scenario == "extend-module":
         title = "Extend existing math module"
         description = ("Edit the existing src/math.js. Preserve sumEven and add clamp(value, min, max). "
@@ -133,6 +146,9 @@ try:
         title = "Add sumEven"
         description = "Create src/math.js containing function sumEven(numbers) that returns the sum of even integers, and export it as module.exports = { sumEven }. Return 0 for an empty array."
     item = call("aruvi_work_items", "create_work_item", {"product_id": product["id"], "title": title, "description": description, "work_item_type": "task"})
+    if args.workspace_override:
+        assigned = call("aruvi_work_items", "assign_work_item_workspace", {"id": item["id"], "repository_id": repo["id"], "branch_name": "main"})
+        if assigned.get("repo_override_id") != repo["id"]: raise ValueError("Work item workspace assignment failed")
     call("aruvi_checkpoints", "approve_work_item", {"work_item_id": item["id"]})
     run_id = call("aruvi_workflows", "start_work_item_workflow", {"work_item_id": item["id"]})["workflow_run_id"]
     run = call("aruvi_workflows", "get_workflow_run", {"workflow_run_id": run_id})
@@ -192,6 +208,10 @@ try:
         raise ValueError("Workflow syntax check did not pass")
     print("Workflow syntax check passed", flush=True)
     file = call("aruvi_repositories", "read_repository_file", {"repository_id": repo["id"], "relative_path": "src/math.js"})
+    if args.workspace_override:
+        untouched = subprocess.run(["docker", "exec", container, "test", "!", "-e", "/repositories/coding-default/src/math.js"])
+        if untouched.returncode: raise ValueError("Product default workspace was modified")
+        print("Work item override received the generated file; product default workspace was untouched", flush=True)
     code = file["content"]
     assertions = "\nconst assert = require('node:assert/strict'); const f = module.exports.sumEven; assert.equal(f([1,2,3,4,-2]),4); assert.equal(f([]),0);\n"
     if args.scenario == "extend-module":

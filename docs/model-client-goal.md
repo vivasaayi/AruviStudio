@@ -4295,6 +4295,20 @@ from the product default, wrote its generated file there and left the default
 workspace unchanged. Actual network Git delivery and non-cooperating database
 writers remain outside this validation.
 
+A real-model override fixture subsequently used `qwen25-coder-7b-q4` and a
+disposable product default distinct from the assigned work-item workspace. Two
+initial attempts stopped on truncated provider responses: one used the 7B model
+throughout and the other used 15B for non-coding stages. A third used 7B with a
+4,096-token non-coding-agent response budget and completed both approval gates,
+syntax validation, independent network-isolated behavioral assertions, and
+delivery of the verified file to a disposable local Git remote. The selected
+override contained the file and the product-default workspace did not. The test
+uses a management-capable credential on a temporary Studio container and synthetic
+work; it is one successful sample, not a guarantee of model quality, delivery to
+an authenticated network remote, or a deployed inference-only credential.
+`scripts/test host-coding-workflow --workspace-override` enables this scenario;
+`--non-coding-max-tokens` changes only disposable agent settings.
+
 ## Independent browser Copilot model
 
 Browser workspace Copilot can choose an enabled registered provider/model
