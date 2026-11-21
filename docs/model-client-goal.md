@@ -5657,3 +5657,15 @@ Mac-loopback OpenAI-compatible test service: container loopback discovery
 failed as expected, while `host.docker.internal` supported model discovery and
 MCP completion. This validates the Docker Desktop networking path, not a live
 LM Studio server, HTTPS certificate, other operating systems or model quality.
+
+The clean Linux ARM64 image built from commit
+`7e53964a07ca39a0944b92c8271af3ddcb11de48` has manifest
+`sha256:e6fd74e9591abe565a3d78b7f25f72425f9a4d2ed59cbb209930b4320a22aff3`.
+The disposable Docker host fixture passed against this image, as did all 42
+remote browser tests and the PDF outage check. After refreshing the worktree
+deployment, product, MCP and mobile authorization, PDF and restart persistence
+acceptance passed. Published-port browser MCP origin checks and a real local
+`qwen25-coder-7b-q4` coding request and token-limit error also passed. A
+checked pre-deployment database backup and the previous image are retained.
+These checks do not establish live LM Studio compatibility, full desktop parity,
+or integration and staging acceptance.
