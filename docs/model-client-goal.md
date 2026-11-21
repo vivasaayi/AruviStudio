@@ -26,6 +26,11 @@ These do not establish physical microphone or speaker behavior. An attempted
 combined probe against the separate coding-validation host reported that the
 voice models were not advertised there; the integration host advertises the
 models used for the successful combined probe.
+The Mac's console again reported a locked screen, so native-window acceptance
+could not be repeated. The consumer build temporarily reduced the shared Docker
+VM's available space below 1 GiB; its four identified build-cache records were
+removed by ID, restoring approximately 1.9 GiB without changing the running
+Studio containers or volumes.
 
 `npm audit` reported no vulnerabilities, and `bash scripts/test sqlx-patch`
 verified the vendored patch's pinned-source provenance. Cargo-audit 0.23.0 against
