@@ -2369,3 +2369,42 @@ test("browser edits product details and preserves a conflicting draft", async ({
     expect(await call('get_product',{id:product.id})).toMatchObject({name:'Updated product',description:'Description',vision:'Vision',goals:['First','Second'],tags:['alpha','beta'],lifecycle:'active',health:'watch',owner_label:'Owner',investment_status:'invest',roadmap:'Roadmap',evidence:'Evidence'});
   } finally { await call('archive_product',{id:product.id}); }
 });
+
+test("browser displays product-scoped references on demand", async ({page,request}) => {
+  test.skip(!token || !mcpToken, "Requires disposable authenticated fixture");
+  async function call(action,args) {
+    const response = await request.post('/api/mcp',{headers:{Authorization:`Bearer ${mcpToken}`},data:{jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'aruvi_catalog',arguments:{action,arguments:args}}}});
+    const data = await response.json(); expect(data.result?.isError).not.toBeTruthy(); return data.result.structuredContent.result;
+  }
+  const product = await call('create_product',{name:`Reference product ${Date.now()}`});
+  const other = await call('create_product',{name:`Other references ${Date.now()}`});
+  try {
+    const area = await call('create_product_area',{product_id:product.id,name:'Reference area'});
+    const cap = await call('create_capability',{product_area_id:area.id,name:'Reference capability'});
+    await call('create_reference',{scope_type:'product',scope_id:product.id,title:'Product ref',content:'Product reference content',uri:'javascript:alert(1)'});
+    for (let index=0; index<51; index++) await call('create_reference',{scope_type:'product',scope_id:product.id,title:`Paged reference ${index}`});
+    await call('create_reference',{scope_type:'capability',scope_id:cap.id,title:'Capability ref',content:'Scoped capability content',uri:'https://example.com/guide'});
+    const url = `/api/mobile/products/${product.id}/references?scope_type=capability&scope_id=${cap.id}`;
+    expect((await request.get(url)).status()).toBe(401);
+    expect((await request.get(`/api/mobile/products/${other.id}/references?scope_type=capability&scope_id=${cap.id}`,{headers:{Authorization:`Bearer ${token}`}})).status()).toBe(404);
+    expect((await request.get(`/api/mobile/products/${product.id}/references?scope_type=feature&scope_id=${cap.id}`,{headers:{Authorization:`Bearer ${token}`}})).status()).toBe(404);
+    await page.goto('/remote'); await page.locator('#tokenInput').fill(token); await page.locator('#saveButton').click();
+    await page.getByRole('button',{name:'Products',exact:true}).click();
+    await page.locator('#productList').getByRole('button',{name:new RegExp(product.name)}).click();
+    const productRefs = page.locator('#productReferences details'); await productRefs.locator('summary').click();
+    await productRefs.getByRole('button',{name:'Load references'}).click();
+    await expect(productRefs.locator('.tool-card')).toHaveCount(50);
+    await productRefs.getByRole('button',{name:'Load more references'}).click();
+    await expect(productRefs.locator('.tool-card')).toHaveCount(52);
+    await expect(productRefs).toContainText('Product reference content');
+    await expect(productRefs.locator('a')).toHaveCount(0);
+    await page.getByRole('button',{name:'Load product tree'}).click();
+    await page.locator('#productTree summary').filter({hasText:'Reference area'}).click();
+    const node = page.locator('#productTree details').filter({has:page.locator(':scope > summary').filter({hasText:'Reference capability'})}).last();
+    await node.locator(':scope > summary').click();
+    const nodeRefs = node.locator(':scope > details').filter({has:page.getByText('References',{exact:true})});
+    await nodeRefs.locator(':scope > summary').click(); await nodeRefs.getByRole('button',{name:'Load references'}).click();
+    await expect(nodeRefs).toContainText('Scoped capability content');
+    await expect(nodeRefs.locator('a')).toHaveAttribute('href','https://example.com/guide');
+  } finally { await call('archive_product',{id:product.id}); await call('archive_product',{id:other.id}); }
+});

@@ -71,6 +71,18 @@ provider. Live-provider behavior and full IDE parity remain open.
 
 ### Audit findings before merge
 
+#### Product references
+
+The browser can load references on demand for a product, area, capability or
+feature. The authenticated endpoint validates the scope against the selected
+product and the node kind, and pages 50 items at a time. The browser renders
+text safely and links only credential-free HTTP(S) URLs. A disposable browser
+and MCP fixture covered product and capability scopes, a wrong product and
+wrong kind, unauthorized access, unsafe URLs and 52-item pagination. Pagination
+uses an offset and does not provide a stable snapshot if references change while
+paging. Reference creation and deletion remain MCP/desktop command operations;
+the desktop overview itself displays references.
+
 #### Product details
 
 Browser Products now edits the desktop product fields: name, description,

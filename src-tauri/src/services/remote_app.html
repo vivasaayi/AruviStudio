@@ -532,6 +532,7 @@
               </div>
               <div class="panel-body stack">
                 <div class="metrics" id="productMetrics"></div>
+                <div id="productReferences"></div>
                 <details id="productEditSection"><summary>Edit product</summary>
                   <form id="productEditForm" class="stack">
                     <label><span class="label">Edit product name</span><input name="name" required maxlength="200" /></label>
@@ -2771,6 +2772,36 @@
       return metric;
     }
 
+    function referenceSection(productId, scopeType, scopeId) {
+      const section = document.createElement("details");
+      const title = document.createElement("summary"); title.textContent = "References"; section.appendChild(title);
+      const list = document.createElement("div"); list.className = "stack"; section.appendChild(list);
+      const more = document.createElement("button"); more.type = "button"; more.className = "secondary"; more.textContent = "Load references"; section.appendChild(more);
+      let offset = 0, loading = false;
+      async function load() {
+        if (loading) return; loading = true; more.disabled = true;
+        try {
+          const query = new URLSearchParams({scope_type:scopeType, scope_id:scopeId, offset:String(offset)});
+          const page = await request(`/api/mobile/products/${encodeURIComponent(productId)}/references?${query}`);
+          for (const reference of page.items) {
+            const card = document.createElement("div"); card.className = "tool-card";
+            const heading = document.createElement("div"); heading.className = "tool-title"; heading.textContent = reference.title; card.appendChild(heading);
+            const kind = document.createElement("div"); kind.className = "tool-meta"; kind.textContent = reference.reference_kind; card.appendChild(kind);
+            if (reference.content) { const content = document.createElement("p"); content.textContent = reference.content; card.appendChild(content); }
+            if (reference.uri) {
+              let link; try { const parsed = new URL(reference.uri); if (["http:", "https:"].includes(parsed.protocol) && !parsed.username && !parsed.password) { link = document.createElement("a"); link.href = parsed.href; link.target = "_blank"; link.rel = "noopener noreferrer"; } } catch {}
+              const uri = link || document.createElement("span"); uri.textContent = reference.uri; card.appendChild(uri);
+            }
+            list.appendChild(card);
+          }
+          offset += page.items.length; more.hidden = !page.has_more; more.textContent = "Load more references";
+          if (!offset) list.textContent = "No references for this scope.";
+        } catch (error) { more.textContent = "Retry loading references"; setStatus(error.message || String(error), "error"); }
+        finally { loading = false; more.disabled = false; }
+      }
+      more.addEventListener("click", load); return section;
+    }
+
     function renderProductSummary() {
       el.productMetrics.innerHTML = "";
       el.productTree.innerHTML = "";
@@ -2781,6 +2812,8 @@
         return;
       }
       const product = state.products.find((entry) => entry.id === state.selectedProductId);
+      const references = document.getElementById("productReferences"); references.replaceChildren();
+      if (product) references.appendChild(referenceSection(product.id, "product", product.id));
       el.createAreaButton.disabled = !product;
       el.resetPlanButton.disabled = !product;
       el.productStatus.textContent = product ? product.name : "Loaded";
@@ -2820,6 +2853,7 @@
             details.appendChild(description);
           }
           children.forEach((child) => addNode(details, child.capability, child.children || [], areaId));
+          details.appendChild(referenceSection(productId, item.node_kind, item.id));
           const editSection = document.createElement("details");
           const editTitle = document.createElement("summary"); editTitle.textContent = "Edit details";
           const editForm = document.createElement("form"); editForm.className = "stack";

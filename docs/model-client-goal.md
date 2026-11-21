@@ -12,6 +12,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Browser product reference viewing
+
+The browser product overview and hierarchy now expose on-demand, authenticated
+reference lists for product, product-area, capability and feature scopes. The
+server verifies product ownership and node kind, and returns pages of 50. The
+browser renders content as text and links only HTTP(S) URLs without credentials.
+A disposable browser/MCP test covered product and capability references,
+unauthorized and cross-product/wrong-kind requests, unsafe URL rendering and
+52-item pagination. Offset paging can shift if records change between requests;
+creation and deletion remain outside this browser view. The native server built,
+but the running Docker branch does not yet include the new view.
+
 ### Product editor branch deployment
 
 Source revision `49fba35` was compiled as an optimized Linux ARM64 server in

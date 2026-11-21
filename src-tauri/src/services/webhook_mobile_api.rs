@@ -1924,6 +1924,29 @@ pub(crate) async fn mobile_reset_product_plan(State(state): State<WebhookState>,
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileReferenceQuery { scope_type: String, scope_id: String, offset: Option<i64> }
+
+pub(crate) async fn mobile_list_scoped_references(State(state): State<WebhookState>, headers: HeaderMap, Path(product_id): Path<String>, Query(query): Query<MobileReferenceQuery>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let offset = query.offset.unwrap_or(0);
+    if offset < 0 || offset > 100_000 || !matches!(query.scope_type.as_str(), "product" | "product_area" | "capability" | "feature") {
+        return (StatusCode::BAD_REQUEST, "Invalid reference scope or offset").into_response();
+    }
+    let belongs = match query.scope_type.as_str() {
+        "product" => sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM products WHERE id=? AND id=?)").bind(&query.scope_id).bind(&product_id).fetch_one(&state.app_state.db).await,
+        "product_area" => sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM product_areas WHERE id=? AND product_id=?)").bind(&query.scope_id).bind(&product_id).fetch_one(&state.app_state.db).await,
+        _ => sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM capabilities c JOIN product_areas a ON a.id=c.product_area_id WHERE c.id=? AND a.product_id=? AND c.node_kind=?)").bind(&query.scope_id).bind(&product_id).bind(&query.scope_type).fetch_one(&state.app_state.db).await,
+    };
+    if !matches!(belongs, Ok(true)) { return (StatusCode::NOT_FOUND, "Reference scope not found for this product").into_response(); }
+    let result = sqlx::query_as::<_, crate::domain::product::ProductReference>("SELECT id,scope_type,scope_id,title,reference_kind,uri,content,created_at,updated_at FROM \"references\" r WHERE scope_type=? AND scope_id=? AND ((scope_type='product' AND scope_id=? AND EXISTS(SELECT 1 FROM products p WHERE p.id=r.scope_id)) OR (scope_type='product_area' AND EXISTS(SELECT 1 FROM product_areas a WHERE a.id=r.scope_id AND a.product_id=?)) OR (scope_type IN ('capability','feature') AND EXISTS(SELECT 1 FROM capabilities c JOIN product_areas a ON a.id=c.product_area_id WHERE c.id=r.scope_id AND a.product_id=? AND c.node_kind=r.scope_type))) ORDER BY updated_at DESC,id DESC LIMIT 51 OFFSET ?")
+        .bind(&query.scope_type).bind(&query.scope_id).bind(&product_id).bind(&product_id).bind(&product_id).bind(offset).fetch_all(&state.app_state.db).await;
+    match result {
+        Ok(mut items) => { let has_more = items.len() > 50; items.truncate(50); Json(serde_json::json!({"items":items,"has_more":has_more})).into_response() },
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
+}
+
 pub(crate) async fn mobile_get_product_tree(
     State(state): State<WebhookState>,
     headers: HeaderMap,
