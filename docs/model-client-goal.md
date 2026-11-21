@@ -12,6 +12,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Integration adapter scoped-token preparation
+
+The existing untracked Model Host `deploy/compose.integration.yaml` now passes
+the optional `MODEL_HOST_INFERENCE_TOKEN` into the app, matching the candidate
+worktree, staging and production adapters. A temporary Compose configuration
+check confirmed that a supplied inference token and the management token are
+passed separately, and that an omitted inference token defaults to empty. This
+is a configuration check only: the integration adapter and other host checkout
+changes remain uncommitted, and the scoped-token host branch has not been merged
+or deployed. No running service was changed. Reconcile and review the host
+changes together before building and testing the merged integration environment.
+
 ### Studio inference-credential opt-in
 
 `scripts/configure-native-model-host --credential-scope inference` now reads
