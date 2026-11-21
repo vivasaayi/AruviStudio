@@ -5760,3 +5760,10 @@ raises capacity through MCP and starts the second item. All 53 workflow tests
 passed against the deployed branch image with the simulated model provider.
 This validates those interface flows; it does not establish automatic retries,
 live third-party providers or staging acceptance.
+
+The two-server Linux planner fixture now also primes one server with a staged
+design, clears it through the other, and verifies the stale server's subsequent
+confirmation does not apply the cleared product area. It passed three repeated
+runs on the running branch image along with its existing concurrent-edit and duplicate-confirmation
+checks. This is one ordered clear/confirm scenario for cooperating processes;
+it does not cover every concurrent interleaving or non-cooperating writer.

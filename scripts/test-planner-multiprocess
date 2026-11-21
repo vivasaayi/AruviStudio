@@ -95,7 +95,28 @@ try:
     areas = call(first, "aruvi_catalog", "list_product_areas", {"product_id": product["id"]})
     if sorted(area["name"] for area in areas) != ["Alpha area", "Beta area"]:
         raise ValueError("Concurrent edits were lost or applied more than once")
-    print("Two Studio processes preserved concurrent planner edits and applied them once.")
+    # Prime a second process with a staged design, then clear it elsewhere.
+    # A stale confirm must not apply the cleared draft.
+    cleared_product = call(first, "aruvi_catalog", "create_product", {"name": "Cleared planner fixture"})
+    cleared_session = call(first, "aruvi_planner", "create_planner_session", {})["session_id"]
+    proposal = call(first, "aruvi_planner", "submit_planner_turn", {
+        "session_id": cleared_session, "product_id": cleared_product["id"], "user_input": "Please help plan this product."
+    })
+    roots = proposal.get("draft_tree_nodes") or []
+    if len(roots) != 1:
+        raise ValueError("Expected a draft to clear")
+    call(first, "aruvi_planner", "add_planner_draft_child", {
+        "session_id": cleared_session, "parent_node_id": roots[0]["id"], "child_type": "product_area", "name": "Must not apply",
+    })
+    call(second, "aruvi_planner", "validate_planner_draft", {"session_id": cleared_session})
+    cleared = call(first, "aruvi_planner", "clear_planner_pending", {"session_id": cleared_session})
+    if cleared.get("has_draft_plan") or cleared.get("has_pending_plan"):
+        raise ValueError("Clear did not remove the staged design")
+    call(second, "aruvi_planner", "confirm_planner_plan", {"session_id": cleared_session})
+    areas = call(first, "aruvi_catalog", "list_product_areas", {"product_id": cleared_product["id"]})
+    if areas:
+        raise ValueError("A stale confirmation applied a cleared design")
+    print("Two Studio processes preserved concurrent edits, applied once, and did not apply a cleared draft.")
 except (OSError, KeyError, ValueError, StopIteration, subprocess.SubprocessError) as error:
     print(f"Planner multi-process fixture failed: {type(error).__name__}: {error}", file=sys.stderr)
     sys.exit(1)
