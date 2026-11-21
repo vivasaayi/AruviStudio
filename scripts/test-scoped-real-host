@@ -128,6 +128,9 @@ try:
         limit = 200 if args.coding else 64
         result = mcp('run_model_chat_completion', {'provider_id':provider['id'], 'model':'scoped-real-model', 'messages':prompt, 'max_tokens':limit, 'temperature':0})
         if expected.lower() not in result['content'].lower(): raise ValueError('Real model did not answer the fixture prompt')
+        phase = 'Studio general Copilot MCP'
+        general = mcp('run_general_copilot', {'provider_id':provider['id'], 'model_name':'scoped-real-model', 'messages':prompt, 'max_tokens':limit, 'temperature':0})
+        if expected.lower() not in general['content'].lower(): raise ValueError('General Copilot did not answer the fixture prompt')
         if args.coding:
             phase = 'generated code validation'
             code = result['content']

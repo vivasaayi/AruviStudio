@@ -1148,6 +1148,16 @@ not establish real CLI-provider integration or stable staging acceptance.
 
 ### Integration adapter scoped-token preparation
 
+The scoped-integration worktree's existing native candidate binary was tested
+again with the current `c88773f`-based Studio worktree image and a temporary
+copy of the real `qwen-05b-comparison` model. A fresh inference-only token was
+denied Model Host management, while discovery, Studio MCP completion and
+general Copilot, browser API streaming and headless browser general Copilot
+streaming passed. The fixture now exercises both general-Copilot paths as well
+as chat. Its temporary host, model state and Studio container were removed;
+neither deployed service was changed. This is one small model and does not
+establish production readiness or deployed scoped-credential support.
+
 The existing untracked Model Host `deploy/compose.integration.yaml` now passes
 the optional `MODEL_HOST_INFERENCE_TOKEN` into the app, matching the candidate
 worktree, staging and production adapters. A temporary Compose configuration
