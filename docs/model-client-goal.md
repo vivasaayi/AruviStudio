@@ -19,15 +19,21 @@ also offers a separate general conversation, including streaming and reset, and
 restores it when the last open file is closed. General requests send the prompt,
 instructions and bounded history rather than a repository path or file content.
 They use authenticated browser IDE endpoints and are recorded as IDE calls.
-File conversations and their guarded patch review remain separate; unlike the
-desktop, the browser still requires a saved open file to propose a patch.
+With a workspace selected, the browser can also propose a patch without an
+open file. The server supplies the patch format instruction; review previews
+each file and guarded application checks the previewed base. File conversations
+remain separate, and an open file must be saved before proposing a patch.
 
 A disposable native server and headless browser exercised both completion modes,
 authentication, conversation history and switching into and out of a file using
 a simulated provider (`bash scripts/test native-general-copilot`, after building
 the native server). A mock-browser fixture and an Anthropic protocol fixture
-also covered the new paths. This does not establish native-window, live-provider,
-container deployment or complete IDE parity.
+also covered the new paths. The fixture additionally exercised buffered and
+streamed proposals without an open file, rejection after a file changed between
+review and application, and the existing open-file path. Application of a
+multi-file proposal is still sequential and may stop after partial success.
+This does not establish native-window, live-provider, container deployment or
+complete IDE parity.
 
 ### Shared artifact reading
 

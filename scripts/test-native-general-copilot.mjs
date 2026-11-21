@@ -1,6 +1,6 @@
 // Disposable native server and simulated model; no existing Studio data is used.
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
@@ -15,7 +15,11 @@ const mock = http.createServer((req, res) => {
   let data = ''; req.on('data', chunk => data += chunk);
   req.on('end', () => {
     const body = JSON.parse(data); captured.push(body);
-    if (body.stream) { res.writeHead(200, {'content-type':'text/event-stream'}); res.end('data: {"choices":[{"delta":{"content":"streamed answer"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'); }
+    if (body.messages.some(m => m.role === 'system' && m.content.includes("type 'patch_proposal'"))) {
+      const content = JSON.stringify({type:'patch_proposal',summary:'Update fixture',patches:[{path:'fixture.txt',description:'Change content',patch:'@@ -1,1 +1,1 @@\n-fixture content\n+updated content'}]});
+      if (body.stream) { res.writeHead(200, {'content-type':'text/event-stream'}); res.end('data: '+JSON.stringify({choices:[{delta:{content},finish_reason:'stop'}]})+'\n\ndata: [DONE]\n\n'); }
+      else { res.writeHead(200, {'content-type':'application/json'}); res.end(JSON.stringify({choices:[{message:{role:'assistant',content},finish_reason:'stop'}]})); }
+    } else if (body.stream) { res.writeHead(200, {'content-type':'text/event-stream'}); res.end('data: {"choices":[{"delta":{"content":"streamed answer"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'); }
     else { res.writeHead(200, {'content-type':'application/json'}); res.end(JSON.stringify({choices:[{message:{role:'assistant',content:'model answer'},finish_reason:'stop'}]})); }
   });
 });
@@ -47,6 +51,32 @@ try {
   await page.getByRole('button',{name:'Close fixture.txt'}).waitFor(); assert.equal(await page.locator('#repositoryCopilotResult').textContent(),'');
   await page.getByRole('button',{name:'Close fixture.txt'}).click();
   assert((await page.locator('#repositoryCopilotResult').textContent()).includes('streamed answer'));
+  await page.locator('#repositoryCopilotStream').uncheck();
+  await page.locator('#repositoryCopilotQuestion').fill('Update fixture content');
+  await page.locator('#repositoryCopilotPatchButton').click();
+  await page.locator('#repositoryPatchApply:not([disabled])').waitFor();
+  await writeFile(join(repo,'fixture.txt'),'changed after review\n');
+  await page.locator('#repositoryPatchApply').click();
+  await page.getByText(/Applied 0 of 1 patches; stopped/).waitFor();
+  assert.equal(await readFile(join(repo,'fixture.txt'),'utf8'),'changed after review\n');
+  await writeFile(join(repo,'fixture.txt'),'fixture content\n');
+  await page.locator('#repositoryCopilotStream').check();
+  await page.locator('#repositoryCopilotQuestion').fill('Update fixture content');
+  await page.locator('#repositoryCopilotPatchButton').click();
+  await page.locator('#repositoryPatchApply:not([disabled])').waitFor();
+  await page.locator('#repositoryPatchApply').click();
+  await page.getByText('Applied 1 reviewed patch(es)',{exact:true}).waitFor();
+  assert.equal(await readFile(join(repo,'fixture.txt'),'utf8'),'updated content\n');
+  await page.locator('#repositoryCopilotStream').uncheck();
+  await writeFile(join(repo,'fixture.txt'),'fixture content\n');
+  await page.locator('#repositoryTree').getByRole('button',{name:'fixture.txt'}).click();
+  await page.getByRole('button',{name:'Close fixture.txt'}).waitFor();
+  await page.locator('#repositoryCopilotQuestion').fill('Update the open file');
+  await page.locator('#repositoryCopilotPatchButton').click();
+  await page.locator('#repositoryPatchApply:not([disabled])').waitFor();
+  await page.locator('#repositoryPatchApply').click();
+  await page.getByText('Applied 1 reviewed patch(es)',{exact:true}).waitFor();
+  assert.equal(await readFile(join(repo,'fixture.txt'),'utf8'),'updated content\n');
   const noAuth = await fetch(base+'/api/mobile/ide/copilot',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:'x'}]})}); assert.equal(noAuth.status,401);
   console.log('Native browser and authenticated general Copilot endpoints passed with simulated model, including streaming and history.');
 } finally { await browser?.close(); if (server && server.exitCode === null && server.signalCode === null) { server.kill(); await new Promise(r => server.once('exit',r)); } mock.close(); await rm(root,{recursive:true,force:true}); }

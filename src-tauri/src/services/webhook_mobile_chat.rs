@@ -27,9 +27,10 @@ pub(crate) async fn mobile_chat_stream(
 }
 
 pub(crate) async fn mobile_ide_chat_stream(
-    State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileChatCompletionRequest>,
+    State(state): State<WebhookState>, headers: HeaderMap, Json(mut body): Json<MobileChatCompletionRequest>,
 ) -> axum::response::Response {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    prepare_ide_completion(&mut body);
     stream_mobile_completion(state, body, "mobile_ide", "Browser IDE").await
 }
 
@@ -111,6 +112,14 @@ pub(crate) struct MobileChatCompletionRequest {
     messages: Vec<ChatMessage>,
     temperature: Option<f64>,
     max_tokens: Option<i64>,
+    #[serde(default)]
+    patch_mode: bool,
+}
+
+fn prepare_ide_completion(body: &mut MobileChatCompletionRequest) {
+    if body.patch_mode {
+        body.messages.insert(0, ChatMessage { role: "system".into(), content: "Return only a JSON object with type 'patch_proposal', a summary string, and a nonempty patches array. Each item must have a repository-relative path, a description, and a patch string containing unified diff hunks. Do not include prose or markdown outside JSON. You have not been given file contents; do not invent unseen content.".into() });
+    }
 }
 
 pub(crate) async fn mobile_chat_completion(
@@ -125,9 +134,10 @@ pub(crate) async fn mobile_chat_completion(
 }
 
 pub(crate) async fn mobile_ide_chat_completion(
-    State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileChatCompletionRequest>,
+    State(state): State<WebhookState>, headers: HeaderMap, Json(mut body): Json<MobileChatCompletionRequest>,
 ) -> axum::response::Response {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    prepare_ide_completion(&mut body);
     completion_response(run_mobile_completion(&state.app_state, body, "mobile_ide", "Browser IDE").await)
 }
 
@@ -270,6 +280,7 @@ async fn build_file_copilot_request(state: &crate::state::AppState, body: Mobile
     let request = MobileChatCompletionRequest {
         provider_id: Some(body.provider_id), model_name: Some(body.model_name),
         messages, temperature: Some(body.temperature.unwrap_or(0.2)), max_tokens: Some(body.max_tokens.unwrap_or(4096)),
+        patch_mode: false,
     };
     Ok(request)
 }

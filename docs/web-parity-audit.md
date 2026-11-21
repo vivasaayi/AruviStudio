@@ -50,8 +50,10 @@ not establish that all desktop behavior is available or works in a container.
 The desktop IDE can use Copilot without an open file; the browser now supports a
 separate general conversation as well. A disposable native-server/browser fixture
 verified buffered and streamed simulated-provider replies and switching between
-general and file conversations. Browser patch proposals still require a saved,
-open file, while the desktop can request a proposal without an active file.
+general and file conversations. With a workspace selected, both can request a
+patch without an open file. The browser fixture also checks streamed and buffered
+proposals, stale review rejection, and application with an open file; the
+provider is simulated and multi-file application can partially succeed.
 
 The desktop IDE supports ⌘/Ctrl+S. The browser file editor now supports the
 same shortcut while the editor is focused, using its existing conflict-checked
