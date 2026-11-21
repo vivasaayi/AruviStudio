@@ -14,6 +14,19 @@ provider hosting into the model-host service as part of this work.
 
 ### Database override restart validation
 
+The native fixture now reconstructs a migration-52 database from a freshly
+created database, adds a legacy channel binding, backs it up, and starts the
+server to apply migration 53. The product and binding survived; integrity and
+foreign-key checks passed. This is one reconstructed migration scenario, not a
+test of all historical user databases or staging.
+
+The expanded browser test exposed a race in which a delayed database-settings
+response erased a path draft. Routing now tracks edits and ignores stale reads,
+preserving a draft made before or during refresh and while a save is completing.
+The test reproduced the original failure against the older binary and passed
+with the native fix, including stable-origin restart and migration checks. The
+running branch Docker image has not yet been rebuilt with this UI change.
+
 The disposable native server fixture `scripts/test native-database-override`
 now checks the authenticated database settings API across restarts. It verified
 that an override takes effect only after restart, each temporary database keeps

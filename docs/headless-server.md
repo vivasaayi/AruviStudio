@@ -332,12 +332,14 @@ selector against simulated responses; it does not validate the server or provide
 
 On macOS, `bash scripts/test native-database-override /path/to/aruvi-studio-server`
 uses a disposable native server and temporary databases to check override,
-restart persistence, clearing, environment precedence and authentication. It
+restart persistence, clearing, environment precedence, authentication and an
+upgrade from a reconstructed migration-52 database with existing data. It
 does not change the running worktree database or validate staging migrations. Add
 `--browser-executable /path/to/chrome` to keep a headless browser open across
 restarts and exercise the Routing controls. Restarts reuse one dynamically
 chosen loopback port, and the browser checks its saved synthetic token after
-reload without entering it again.
+reload without entering it again. The browser test also delays settings reads
+and saves to check that unsaved path edits survive their responses.
 
 For low-storage hosts, `bash scripts/test remote-host-fixture`,
 `bash scripts/test workflow-host-fixture`, and `bash scripts/test ci-host-fixture` run the isolated application and PDF

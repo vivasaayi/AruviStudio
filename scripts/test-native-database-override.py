@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Check database override and environment precedence in disposable native servers."""
 import argparse
+from contextlib import closing
 import json
 import os
 from pathlib import Path
 import secrets
 import socket
+import sqlite3
 import subprocess
 import tempfile
 import time
@@ -117,6 +119,36 @@ with tempfile.TemporaryDirectory(prefix="aruvi-database-override-", dir="/privat
         settings(base, default_db, None, False)
         browser_open(base, default_db)
         call(base, "/api/mobile/products", "POST", {"name": "Default database fixture"})
+        stop()
+
+        # Reconstruct the immediately preceding schema in this disposable file.
+        # Migration 53 adds only this nullable column; all earlier SQLx migration
+        # records are retained exactly as created by the current server.
+        with closing(sqlite3.connect(default_db)) as database:
+            assert database.execute("SELECT MAX(version) FROM _sqlx_migrations").fetchone()[0] == 53
+            database.execute("PRAGMA foreign_keys = ON")
+            database.execute("ALTER TABLE planner_channel_bindings DROP COLUMN product_id")
+            database.execute("DELETE FROM _sqlx_migrations WHERE version = 53")
+            database.execute("INSERT INTO planner_sessions(id) VALUES (?)", ("legacy-session",))
+            database.execute("INSERT INTO planner_channel_bindings(id,channel,remote_user_id,remote_conversation_id,planner_session_id) VALUES (?,?,?,?,?)", ("legacy-binding", "twilio_whatsapp", "user", "conversation", "legacy-session"))
+            database.commit()
+            assert not database.execute("PRAGMA foreign_key_check").fetchall()
+            with closing(sqlite3.connect(root / "before-migration.db")) as backup:
+                database.backup(backup)
+                assert backup.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+
+        base = start()
+        settings(base, default_db, None, False)
+        browser_open(base, default_db)
+        assert "Default database fixture" in names(base)
+        with closing(sqlite3.connect(f"file:{default_db}?mode=ro", uri=True)) as database:
+            assert database.execute("SELECT MAX(version) FROM _sqlx_migrations").fetchone()[0] == 53
+            assert database.execute("SELECT planner_session_id, product_id FROM planner_channel_bindings WHERE id = ?", ("legacy-binding",)).fetchone() == ("legacy-session", None)
+            assert database.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+            assert not database.execute("PRAGMA foreign_key_check").fetchall()
+        browser_action("verify-draft", path=str(override_db))
+        browser_action("verify-save-draft", path=str(override_db), draft=str(root / "unsaved.db"))
+        browser_action("verify-draft", path=str(root / "unsaved.db"), preexisting=True)
         if browser: browser_action("save", path=str(override_db), active=str(default_db))
         else: call(base, "/api/mobile/database-settings", "POST", {"path": str(override_db)})
         settings(base, default_db, override_db, False)
@@ -155,7 +187,7 @@ with tempfile.TemporaryDirectory(prefix="aruvi-database-override-", dir="/privat
         browser_open(base, override_db, override_db)
         assert "Override database fixture" in names(base)
         stop()
-        print("Database override, restart persistence, clear, environment precedence and authorization passed" + (" with browser checks." if browser else "."))
+        print("Database migration, override, restart persistence, clear, environment precedence and authorization passed" + (" with browser checks." if browser else "."))
     finally:
         try:
             stop()

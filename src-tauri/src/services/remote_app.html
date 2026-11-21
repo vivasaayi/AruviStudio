@@ -4508,24 +4508,37 @@
       return policy ? { id: policy.id, primary_roles: policy.primary_roles, fallback_roles: policy.fallback_roles, coordinator_required: policy.coordinator_required } : null;
     }
     let routingRequestId = 0;
-    async function loadDatabaseSettings() {
+    let databaseSettingsSequence = 0;
+    let databaseEditVersion = 0, databaseSyncedVersion = 0;
+    document.getElementById("databaseOverride").addEventListener("input", () => { databaseEditVersion++; });
+    async function loadDatabaseSettings(savedEditVersion) {
       const status = document.getElementById("databaseStatus");
+      const input = document.getElementById("databaseOverride");
+      const requestEditVersion = databaseEditVersion;
+      const sequence = ++databaseSettingsSequence;
       try {
         const data = await request("/api/mobile/database-settings");
-        document.getElementById("databaseOverride").value = data.override_path || "";
+        if (sequence !== databaseSettingsSequence) return;
+        const expectedVersion = typeof savedEditVersion === "number" ? savedEditVersion : databaseSyncedVersion;
+        if (databaseEditVersion === expectedVersion && requestEditVersion === expectedVersion) {
+          input.value = data.override_path || "";
+          databaseSyncedVersion = databaseEditVersion;
+        }
         const health = data.health;
         document.getElementById("databaseMigrations").textContent = health.migrations.map((item) => `${item.version}: ${item.description} — ${item.success ? "applied" : "failed"} (${item.installed_on})`).join("\n") || "No migrations recorded.";
         status.textContent = `Active: ${data.active_path || "(memory)"}. Migrations: ${health.applied_migrations}; latest: ${health.latest_version ?? "none"}. ${data.environment_path_set ? "The server environment controls the database path." : "The saved override applies after restart."}`;
-      } catch (error) { status.textContent = error.message || String(error); }
+      } catch (error) { if (sequence === databaseSettingsSequence) status.textContent = error.message || String(error); }
     }
 
     async function updateDatabaseOverride(clear) {
-      const path = document.getElementById("databaseOverride").value.trim();
+      const submittedValue = document.getElementById("databaseOverride").value;
+      const submittedVersion = databaseEditVersion;
+      const path = submittedValue.trim();
       if (!clear && !path) { document.getElementById("databaseStatus").textContent = "Enter an absolute server path."; return; }
       if (!confirm(clear ? "Clear the saved database path override? This affects the next restart." : "Save this database path override? It may change the database opened after restart.")) return;
       try {
         await request("/api/mobile/database-settings", { method: "POST", body: { path: clear ? null : path } });
-        await loadDatabaseSettings();
+        await loadDatabaseSettings(submittedVersion);
         setStatus("Database override saved", "ok");
       } catch (error) { document.getElementById("databaseStatus").textContent = error.message || String(error); }
     }
