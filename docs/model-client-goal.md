@@ -42,7 +42,11 @@ and 53 workflow tests. After a checked SQLite backup and preserving the prior
 image, the branch app and PDF services were deployed with the derived image.
 Product, MCP/mobile authorization, PDF and persistence checks passed across a
 restart, as did browser MCP-origin checks and real 7B general Copilot and coding
-requests. The previous image is tagged `aruvi-studio-worktree-backup:pre-b704d5b`
+requests. An authenticated headless browser also streamed a real 7B coding
+answer from this deployment, and both the MCP Piper-to-Whisper round trip and
+the browser synthetic-microphone transcription passed against Model Host. These
+checks do not establish physical microphone or audible speaker behavior.
+The previous image is tagged `aruvi-studio-worktree-backup:pre-b704d5b`
 and the checked database backup is in `/private/tmp/aruvi-browser-b704d5b`.
 Docker VM free space was approximately 759 MiB after tests. Staging and native
 window acceptance remain outstanding.
