@@ -270,6 +270,7 @@ test("browser registers and attaches a container workspace", async ({ page, requ
   const otherProduct = await call("aruvi_catalog", "create_product", { name: `Other ${name}` });
   const otherArea = await call("aruvi_catalog", "create_product_area", { product_id: otherProduct.id, name: "Other area" });
   const copilotProvider = process.env.ARUVI_TEST_MODEL_URL ? await call("aruvi_models", "create_provider", { name: `Copilot ${Date.now()}`, base_url: process.env.ARUVI_TEST_MODEL_URL }) : null;
+  const copilotModel = copilotProvider ? await call("aruvi_models", "create_model_definition", { provider_id: copilotProvider.id, name: "independent-copilot-model" }) : null;
   let repositoryId;
   let secondRepositoryId;
   let staleCopilotPayload;
@@ -491,6 +492,7 @@ test("browser registers and attaches a container workspace", async ({ page, requ
       expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: patchFile })).content).toBe("alpha\nmiddle\nbeta\n");
       if (copilotProvider) {
         await page.getByText("Copilot settings", { exact: true }).click();
+        await page.locator("#repositoryCopilotModel").selectOption(JSON.stringify([copilotProvider.id, "independent-copilot-model"]));
         await page.getByLabel("Include file context").uncheck();
         await page.getByLabel("Copilot temperature").fill("0.5");
         await page.getByLabel("Copilot max tokens").fill("512");
@@ -499,6 +501,17 @@ test("browser registers and attaches a container workspace", async ({ page, requ
         await page.getByRole("button", { name: "Ask Copilot", exact: true }).click();
         await expect(page.locator("#status")).toHaveText("Copilot reply ready");
         const settingsRequest = await (await request.get(process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/copilot/last"))).json();
+        expect(settingsRequest.model).toBe("independent-copilot-model");
+        expect(await page.locator("#modelInput").inputValue()).toBe("browser-test-model");
+        await call("aruvi_models", "update_model_definition", { id: copilotModel.id, enabled: false });
+        await page.getByRole("button", { name: "Refresh Copilot models" }).click();
+        await expect(page.getByRole("option", { name: "Previously selected model is unavailable" })).toHaveAttribute("disabled", "");
+        await page.getByLabel("Copilot question").fill("Must not route to the connection model");
+        await page.getByRole("button", { name: "Ask Copilot", exact: true }).click();
+        await expect(page.locator("#status")).toHaveText("Selected Copilot model is unavailable; choose another model");
+        await call("aruvi_models", "update_model_definition", { id: copilotModel.id, enabled: true });
+        await page.getByRole("button", { name: "Refresh Copilot models" }).click();
+        await expect(page.getByRole("option", { name: new RegExp("independent-copilot-model") })).not.toHaveAttribute("disabled", "");
         expect(settingsRequest.temperature).toBe(0.5);
         expect(settingsRequest.max_tokens).toBe(512);
         expect(JSON.stringify(settingsRequest.messages)).toContain("Use concise explanations.");
@@ -508,6 +521,7 @@ test("browser registers and attaches a container workspace", async ({ page, requ
         await page.getByLabel("Copilot temperature").fill("0.2");
         await page.getByLabel("Copilot max tokens").fill("4096");
         await page.getByLabel("Additional Copilot instructions").fill("");
+        await page.locator("#repositoryCopilotModel").selectOption("");
         await page.getByText("Copilot settings", { exact: true }).click();
         await page.getByLabel("Selected file contents").fill("unsaved working copy\n");
         await expect(page.getByRole("button", { name: "Propose changes" })).toBeDisabled();

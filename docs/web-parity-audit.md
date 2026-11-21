@@ -48,6 +48,12 @@ same shortcut while the editor is focused, using its existing conflict-checked
 save operation. A disposable browser fixture saved a file with the shortcut
 and read it back through MCP. The browser editor is still a plain text area,
 not the desktop Monaco editor; syntax assistance and native dialogs remain open.
+Browser Copilot can now select an enabled registered model independently of the
+Connection model, or explicitly use the Connection model. The choice lasts for
+the page session; refresh retrieves current models and retains an unavailable
+selection without silently falling back. A disposable browser test exercised
+independent routing, disabling and re-enabling a selected model with a simulated
+provider. Live-provider behavior and full IDE parity remain open.
 
 ### Audit findings before merge
 

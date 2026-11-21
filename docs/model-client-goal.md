@@ -4172,3 +4172,15 @@ passed all 29 isolated browser tests, including a keyboard save followed by an
 MCP file readback; the PDF outage check also passed. The rebuilt worktree app
 and PDF sidecar restarted healthy. This does not establish complete IDE parity:
 the browser uses a plain text area and native dialogs remain unavailable.
+
+## Independent browser Copilot model
+
+Browser workspace Copilot can choose an enabled registered provider/model
+without changing the Connection model, or use the Connection selection. The
+choice is page-local. Refreshing the list preserves an unavailable choice and
+blocks sending until the user chooses an available model. The isolated browser
+fixture verified the selected model reaches a simulated provider, Connection
+remains unchanged, and disabling/re-enabling the model is handled without an
+implicit fallback. All 29 remote tests and the PDF outage check passed; the
+rebuilt branch app and PDF sidecar restarted healthy. This is not live cloud
+provider validation or complete desktop IDE parity.

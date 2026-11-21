@@ -603,6 +603,8 @@
                 <strong>Ask Copilot about this file</strong>
                 <div class="empty">Sends the file path, up to 12,000 characters of the current editor content, your question and recent conversation to the selected provider. Unsaved edits are included. Requests and responses are recorded in Activity. Conversation resets when the file content or provider changes. Save before proposing changes.</div>
                 <details><summary>Copilot settings</summary><div class="stack">
+                  <label><span class="label">Copilot model</span><select id="repositoryCopilotModel"><option value="">Use Connection model</option></select></label>
+                  <button id="refreshRepositoryCopilotModels" type="button" class="secondary">Refresh Copilot models</button>
                   <label><input id="repositoryCopilotIncludeFile" type="checkbox" checked> Include file context</label>
                   <label><span class="label">File context budget (characters)</span><input id="repositoryCopilotContextBudget" type="number" min="1" max="12000" step="1" value="12000" /></label>
                   <label><span class="label">Copilot temperature</span><input id="repositoryCopilotTemperature" type="number" min="0" max="2" step="0.1" value="0.2" /></label>
@@ -1424,6 +1426,7 @@
       }
       if (tabId === "workspaces") {
         void loadWorkspaces();
+        void loadRepositoryCopilotModels();
       }
       if (tabId === "activity") {
         void loadModelCalls();
@@ -3249,6 +3252,31 @@
     let copilotBusy = false;
     let copilotStreamController = null;
     let reviewedPatch = null;
+    let copilotModelRequestId = 0;
+    async function loadRepositoryCopilotModels() {
+      const select = document.getElementById("repositoryCopilotModel");
+      const button = document.getElementById("refreshRepositoryCopilotModels");
+      const requestId = ++copilotModelRequestId;
+      button.disabled = true;
+      try {
+        const [providers, models] = await Promise.all([request("/api/mobile/providers"), request("/api/mobile/models")]);
+        if (requestId !== copilotModelRequestId) return;
+        const previous = select.value;
+        select.replaceChildren(new Option("Use Connection model", ""));
+        for (const model of models) {
+          const provider = providers.find((entry) => entry.id === model.provider_id);
+          if (!model.enabled || !provider?.enabled) continue;
+          select.add(new Option(provider.name + " · " + model.name, JSON.stringify([provider.id, model.name])));
+        }
+        if (previous && !Array.from(select.options).some((option) => option.value === previous)) {
+          const unavailable = new Option("Previously selected model is unavailable", previous);
+          unavailable.disabled = true; select.add(unavailable);
+        }
+        select.value = previous;
+      } catch (error) { if (requestId === copilotModelRequestId) setStatus(error.message || String(error), "error"); }
+      finally { if (requestId === copilotModelRequestId) button.disabled = false; }
+    }
+    document.getElementById("refreshRepositoryCopilotModels").addEventListener("click", () => void loadRepositoryCopilotModels());
     function clearPatchReview() {
       reviewedPatch = null;
       const review = document.getElementById("repositoryPatchReview"), apply = document.getElementById("repositoryPatchApply");
@@ -3472,8 +3500,10 @@
     async function askRepositoryCopilot(patchMode = false) {
       if (!openedFile || (patchMode && fileIsDirty()) || fileSaving || copilotBusy || !openedFile.sha256) return;
       const question = document.getElementById("repositoryCopilotQuestion").value.trim();
-      const provider = el.providerInput.value.trim(), model = el.modelInput.value.trim();
-      if (!question || !provider || !model) { setStatus("Select a provider and model in Connection and enter a question", "warn"); return; }
+      const selectedModel = document.getElementById("repositoryCopilotModel");
+      if (selectedModel.selectedOptions[0]?.disabled) { setStatus("Selected Copilot model is unavailable; choose another model", "warn"); return; }
+      const [provider, model] = selectedModel.value ? JSON.parse(selectedModel.value) : [el.providerInput.value.trim(), el.modelInput.value.trim()];
+      if (!question || !provider || !model) { setStatus("Select a Copilot or Connection model and enter a question", "warn"); return; }
       const file = openedFile, result = document.getElementById("repositoryCopilotResult");
       clearPatchReview();
       const includeFile = document.getElementById("repositoryCopilotIncludeFile").checked;
