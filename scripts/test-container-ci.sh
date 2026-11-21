@@ -9,5 +9,5 @@ cleanup() { docker rm -f "$browser" "$name" >/dev/null 2>&1 || true; docker volu
 trap cleanup EXIT
 "${fixture_compose[@]}" run --rm -d --name "$name" fixture >/dev/null
 source "$root/scripts/test-ci-fixture-setup.sh"
-"${fixture_compose[@]}" run --rm -d --name "$browser" -e "ARUVI_REMOTE_URL=http://${name}:8787" browser sh -c 'node /project/e2e-remote/mock-ci.mjs' >/dev/null
-docker exec "$browser" sh -c 'cp /project/package.json /project/package-lock.json /project/playwright.remote.config.js ./ && cp -R /project/e2e-remote ./ && npm ci --silent && npx playwright test -c playwright.remote.config.js ci.spec.js'
+"${fixture_compose[@]}" run --rm -d --name "$browser" -e "ARUVI_REMOTE_URL=http://127.0.0.1:18787" -e "ARUVI_CI_FIXTURE_HOST=$name" browser sh -c 'node /project/e2e-remote/mock-ci.mjs' >/dev/null
+docker exec "$browser" sh -c 'node /project/e2e-remote/ci-loopback-proxy.mjs & proxy=$!; trap "kill $proxy 2>/dev/null || true" EXIT; cp /project/package.json /project/package-lock.json /project/playwright.remote.config.js ./ && cp -R /project/e2e-remote ./ && npm ci --silent && npx playwright test -c playwright.remote.config.js ci.spec.js'

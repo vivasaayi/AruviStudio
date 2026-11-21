@@ -5414,3 +5414,36 @@ normal telemetry; no service configuration or deployment was changed.
 
 This validates one real HTTPS path with a small text fixture, not a coding model,
 physical browser, scoped deployed host token or stable Studio staging deployment.
+
+## Clean branch image and CI browser origin
+
+On 2026-11-21, an isolated BuildKit worker built the Dockerfile without cache
+from committed revision `0fa6849922474837c95bfb0afc7fe308c107b32a` for
+Linux ARM64. Its OCI manifest was
+`sha256:e5e79ed0c14ae6f0f024a6e05c251a605f563fd1a30131b6bb1fd5a5293c3726`.
+The private artifact and build log are retained under this worktree's environment
+artifacts. The temporary filesystem was unmounted and truncated in the VM;
+the previous branch image and a checked SQLite backup were retained for rollback.
+Only unshared, reclaimable AruviStudio BuildKit records were removed to recover
+capacity before this build; other products and persistent volumes were preserved.
+
+The branch app and network-isolated PDF service started healthy using the clean
+image. Product and work-item creation via MCP, mobile authorization, PDF export,
+restart and persistence passed. Forty-one remote browser tests, PDF isolation
+and outage checks, 51 workflow tests, and the simulated CI artifact test passed.
+The published-port browser MCP test accepted an authenticated same-origin ping
+and rejected missing credentials and cross-origin requests. Both hosted checks
+for this revision passed. These are branch tests, not staging acceptance.
+
+The initial combined UI test failed at CI artifact download because the
+container browser used a non-local HTTP origin, where Chromium disables Web
+Crypto. The CI fixture now forwards a loopback browser origin to the isolated
+app and explicitly checks that the origin is secure; no application security
+policy was relaxed. The corrected container CI test and the host-Chrome CI
+fixture both passed. The original combined invocation did not finish; its
+remaining workflow suite was run separately and passed.
+
+The clean image predates the test-fixture and documentation changes in this
+checkpoint, which do not change the runtime image. Complete desktop parity,
+real-provider and device checks, Mac integration on a merged default revision,
+and persistent VPS staging with ingress and Model Host acceptance remain open.

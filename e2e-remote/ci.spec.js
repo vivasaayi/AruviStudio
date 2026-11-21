@@ -30,6 +30,7 @@ test("browser and MCP inspect a configured CI socket", async ({ page, request })
     })});
   });
   await page.goto("/remote");
+  expect(await page.evaluate(() => window.isSecureContext)).toBe(true);
   await page.locator("#tokenInput").fill(token);
   await page.locator("#saveButton").click();
   await page.getByRole("button", { name: "CI", exact: true }).click();
