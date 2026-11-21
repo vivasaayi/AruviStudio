@@ -12,6 +12,28 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Browser workspace root guard
+
+Browser file saves and reviewed patch applications now carry the workspace
+path captured when it was opened. Before writing, the server checks that path
+under a SQLite write lock, coordinating with database updates from other
+processes using the same database. A stale browser buffer or reviewed patch is
+rejected if the workspace path changed, even when the destination file has the
+same contents. Reads and patch previews also check the expected path, but their
+check and filesystem operation are separate; this is not a complete snapshot
+or protection against external filesystem changes. Older API callers can omit
+the path and retain their former behavior. Other MCP file-writing actions and
+desktop buffers are not covered by this browser guard.
+
+A disposable native browser test used a separate process holding a SQLite write
+lock to change the registered path while a save waited; it verified conflict,
+unchanged files, rejection of a stale reviewed patch, a valid current-root
+patch, and a legacy save. A Rust endpoint test and native editor and general
+Copilot regression fixtures passed. The server build and full Rust library suite
+passed (326 tests, seven ignored). Linux container and branch-deployment checks
+remain pending, and workspace editing has not yet been exposed through the
+browser or MCP.
+
 ### Remote catalog bulk import
 
 The browser Products screen and `aruvi_catalog.submit_inline_bulk_import` can

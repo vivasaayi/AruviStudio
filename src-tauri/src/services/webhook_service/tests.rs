@@ -309,6 +309,31 @@ async fn remote_workspace_registration_is_authenticated_and_idempotent() {
 }
 
 #[tokio::test]
+async fn workspace_write_guards_reject_a_changed_repository_root() {
+    use sha2::{Digest, Sha256};
+    let app: tauri::App<MockRuntime> = make_test_app("workspace_root_guard").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "workspace-root-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let first = tempfile::tempdir().unwrap(); let second = tempfile::tempdir().unwrap();
+    for directory in [first.path(), second.path()] { std::fs::write(directory.join("file.txt"), "same content\n").unwrap(); }
+    let first_root = first.path().canonicalize().unwrap().to_string_lossy().into_owned();
+    let second_root = second.path().canonicalize().unwrap().to_string_lossy().into_owned();
+    crate::persistence::repository_repo::create_repository(&state.db, "root-guard", "Fixture", &first_root, "", "main").await.unwrap();
+    sqlx::query("UPDATE repositories SET local_path=? WHERE id=?").bind(&second_root).bind("root-guard").execute(&state.db).await.unwrap();
+    let save = json!({"repository_id":"root-guard", "relative_path":"file.txt", "expected_root":first_root, "expected_content":"same content\n", "content":"wrong destination\n"});
+    assert_eq!(send_json(&router, Method::POST, "/api/mobile/repository-file/save", Some("workspace-root-token"), Some(save)).await.0, StatusCode::CONFLICT);
+    let sha = format!("{:x}", Sha256::digest(b"same content\n"));
+    let patch = "@@ -1,1 +1,1 @@\n-same content\n+patched content";
+    let mut body = json!({"action":"apply_reviewed_repository_patch", "repository_id":"root-guard", "expected_root":first_root, "relative_path":"file.txt", "base_sha256":sha, "expected_exists":true, "patch":patch});
+    assert_eq!(send_json(&router, Method::POST, "/api/mobile/repository-inspect", Some("workspace-root-token"), Some(body.clone())).await.0, StatusCode::CONFLICT);
+    assert_eq!(std::fs::read_to_string(second.path().join("file.txt")).unwrap(), "same content\n");
+    body["expected_root"] = json!(second_root);
+    assert_eq!(send_json(&router, Method::POST, "/api/mobile/repository-inspect", Some("workspace-root-token"), Some(body)).await.0, StatusCode::OK);
+    assert_eq!(std::fs::read_to_string(second.path().join("file.txt")).unwrap(), "patched content\n");
+}
+
+#[tokio::test]
 async fn remote_bridge_tokens_are_write_only_conflict_aware_and_rotate_auth() {
     let app: tauri::App<MockRuntime> = make_test_app("remote_bridge_tokens").await;
     let state = app.state::<AppState>().inner().clone();

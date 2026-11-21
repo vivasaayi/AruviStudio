@@ -1309,10 +1309,41 @@ pub(crate) struct MobileRepositoryInspectRequest {
     base_sha256: Option<String>,
     expected_exists: Option<bool>,
     open_paths: Option<Vec<String>>,
+    expected_root: Option<String>,
 }
 
 pub(crate) async fn mobile_inspect_repository(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileRepositoryInspectRequest>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    // Bind reviewed writes to the workspace selected by the browser. Holding a
+    // SQLite write lock prevents cooperating processes from changing that path
+    // between the comparison and the filesystem write.
+    if body.action == "apply_reviewed_repository_patch" && body.expected_root.is_some() {
+        let mut tx = match state.app_state.db.begin_with("BEGIN IMMEDIATE").await {
+            Ok(tx) => tx, Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Unable to lock workspace").into_response(),
+        };
+        let root: Option<String> = match sqlx::query_scalar("SELECT local_path FROM repositories WHERE id=?").bind(&body.repository_id).fetch_optional(&mut *tx).await {
+            Ok(root) => root, Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Unable to read workspace").into_response(),
+        };
+        if root.as_deref() != body.expected_root.as_deref() { return (StatusCode::CONFLICT, "Workspace path changed. Reopen the workspace before applying changes.").into_response(); }
+        let (Some(root), Some(path), Some(patch), Some(sha), Some(exists)) = (root, body.relative_path.as_deref(), body.patch.as_deref(), body.base_sha256.as_deref(), body.expected_exists) else {
+            return (StatusCode::BAD_REQUEST, "Reviewed patch fields are required").into_response();
+        };
+        let result = crate::services::repo_service::apply_reviewed_repository_patch(&root, path, patch, sha, exists);
+        return match result {
+            Ok(sha) => match tx.commit().await {
+                Ok(()) => Json(serde_json::json!({"sha256":sha})).into_response(),
+                Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Unable to release workspace lock").into_response(),
+            },
+            Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+        };
+    }
+    if let Some(expected) = body.expected_root.as_deref() {
+        match repository_repo::get_repository(&state.app_state.db, &body.repository_id).await {
+            Ok(repository) if repository.local_path == expected => {},
+            Ok(_) => return (StatusCode::CONFLICT, "Workspace path changed. Reopen the workspace.").into_response(),
+            Err(_) => return (StatusCode::NOT_FOUND, "Workspace not found").into_response(),
+        }
+    }
     if body.action == "matching_repository_files" {
         let repository = match repository_repo::get_repository(&state.app_state.db, &body.repository_id).await {
             Ok(repository) => repository, Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
@@ -1348,6 +1379,7 @@ pub(crate) struct MobileRepositorySaveRequest {
     relative_path: String,
     expected_content: String,
     content: String,
+    expected_root: Option<String>,
 }
 
 pub(crate) async fn mobile_save_repository_file(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileRepositorySaveRequest>) -> impl IntoResponse {
@@ -1357,17 +1389,27 @@ pub(crate) async fn mobile_save_repository_file(State(state): State<WebhookState
     }
     static SAVE_LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
     let _guard = SAVE_LOCK.get_or_init(|| tokio::sync::Mutex::new(())).lock().await;
-    let repository = match repository_repo::get_repository(&state.app_state.db, &body.repository_id).await {
-        Ok(repository) => repository, Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    let mut tx = match state.app_state.db.begin_with("BEGIN IMMEDIATE").await {
+        Ok(tx) => tx, Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Unable to lock workspace").into_response(),
     };
-    let current = match crate::services::repo_service::read_repository_file(&repository.local_path, &body.relative_path) {
+    let root: Option<String> = match sqlx::query_scalar("SELECT local_path FROM repositories WHERE id=?").bind(&body.repository_id).fetch_optional(&mut *tx).await {
+        Ok(root) => root, Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Unable to read workspace").into_response(),
+    };
+    let Some(root) = root else { return (StatusCode::NOT_FOUND, "Workspace not found").into_response(); };
+    if body.expected_root.as_deref().is_some_and(|expected| expected != root) {
+        return (StatusCode::CONFLICT, "Workspace path changed. Reopen the workspace before saving.").into_response();
+    }
+    let current = match crate::services::repo_service::read_repository_file(&root, &body.relative_path) {
         Ok(content) => content, Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
     };
     if current != body.expected_content {
         return (StatusCode::CONFLICT, "File changed since it was opened. Copy or discard your edits, then reopen the file.").into_response();
     }
-    match crate::services::repo_service::write_repository_file(&repository.local_path, &body.relative_path, &body.content) {
-        Ok(()) => { use sha2::{Digest, Sha256}; Json(serde_json::json!({"ok":true,"sha256":format!("{:x}", Sha256::digest(body.content.as_bytes()))})).into_response() },
+    match crate::services::repo_service::write_repository_file(&root, &body.relative_path, &body.content) {
+        Ok(()) => { use sha2::{Digest, Sha256}; match tx.commit().await {
+            Ok(()) => Json(serde_json::json!({"ok":true,"sha256":format!("{:x}", Sha256::digest(body.content.as_bytes()))})).into_response(),
+            Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Unable to release workspace lock").into_response(),
+        } },
         Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
     }
 }

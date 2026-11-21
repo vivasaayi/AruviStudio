@@ -352,9 +352,13 @@ uses it. Porting it requires the same path and duplicate checks, safe handling
 of concurrent changes and preserving the branch-update behavior. In particular,
 open browser buffers and reviewed patches currently identify a workspace by ID;
 changing the registered path can redirect a later save or patch to a different
-folder if the file also matches its content guard. A safe port needs to bind
-those operations to the workspace path/version and account for concurrent
-updates, including across server processes.
+folder if the file also matches its content guard. Browser saves and reviewed
+patch writes now bind to the opened path and hold a SQLite write lock through
+the filesystem write, preventing cooperating database path updates across
+processes from racing that check. A native cross-process fixture passed. Reads
+and previews still have a check/use gap; legacy API calls, other MCP writes,
+desktop buffers and external filesystem changes are not covered. A safe update
+port must address the remaining callers and concurrency limits.
 
 ### Catalog bulk import
 
