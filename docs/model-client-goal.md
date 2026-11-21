@@ -5768,6 +5768,24 @@ runs on the running branch image along with its existing concurrent-edit and dup
 checks. This is one ordered clear/confirm scenario for cooperating processes;
 it does not cover every concurrent interleaving or non-cooperating writer.
 
+## Atomic workflow transitions
+
+The main workflow stage transitions and failure recording now update the
+stage, lifecycle and history in one SQLite transaction, conditioned on the
+observed stage and a running status. A conflicting or finalized run is not
+overwritten. The separate advance path uses the same database operation and
+marks a transition to `done` as completed. Fault-injection tests cover history
+write rollback, concurrent stale transitions, failure recording and terminal
+state protection. The native Rust library suite passed 311 tests with seven
+ignored before the final terminal-guard fixture, which was checked separately.
+This does not make agent side effects, coordinator pending-stage updates or Git
+push atomic with SQLite. The advance path can perform a Git push before its
+database transition and concurrent external delivery remains a separate risk.
+Against a disposable native server and simulated provider, a browser/MCP
+capacity workflow and a browser approval flow that changed coordinators and
+reached test review both passed. The change still needs a rebuilt branch image
+and container end-to-end validation.
+
 ## Browser bridge bind settings
 
 The browser Activity view now loads and edits the saved server bind host and

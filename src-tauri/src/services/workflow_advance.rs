@@ -23,6 +23,9 @@ pub(crate) async fn advance_workflow(
         debug!(workflow_run_id = %workflow_run_id, current_stage = %current_stage.as_str(), "Workflow is in terminal state, cannot advance");
         return Ok(());
     }
+    if workflow_run.status != "running" {
+        return Err(AppError::Validation("Workflow is no longer running; refresh before continuing".into()));
+    }
 
     let Some(next_stage) = engine.next_stage(&current_stage) else {
         debug!(workflow_run_id = %workflow_run_id, current_stage = %current_stage.as_str(), "No next stage available, workflow is complete");
@@ -34,13 +37,15 @@ pub(crate) async fn advance_workflow(
         workflow_git_push::push_workflow_changes(db, &workflow_run).await?;
     }
 
-    workflow_repo::update_workflow_stage(db, workflow_run_id, next_stage.as_str()).await?;
-    workflow_repo::record_stage_transition(
+    let completed = next_stage == WorkflowStage::Done;
+    workflow_repo::commit_workflow_transition(
         db,
-        &uuid::Uuid::new_v4().to_string(),
         workflow_run_id,
         current_stage.as_str(),
         next_stage.as_str(),
+        if completed { "completed" } else { "running" },
+        None,
+        completed,
         "automatic",
         "Workflow advancement",
     )
@@ -172,5 +177,31 @@ mod tests {
             .await
             .expect("history should load");
         assert!(history.is_empty());
+    }
+
+    #[tokio::test]
+    async fn advance_to_done_completes_lifecycle() {
+        let pool = create_test_pool("complete_lifecycle").await;
+        create_test_work_item(&pool, "product-complete", "work-item-complete").await;
+        workflow_repo::create_workflow_run(&pool, "workflow-complete", "work-item-complete").await.unwrap();
+        workflow_repo::update_workflow_stage(&pool, "workflow-complete", "git_push").await.unwrap();
+        advance_workflow(&pool, &WorkflowEngine::new(), "workflow-complete").await.unwrap();
+        let workflow = workflow_repo::get_workflow_run(&pool, "workflow-complete").await.unwrap();
+        assert_eq!(workflow.current_stage, "done");
+        assert_eq!(workflow.status, "completed");
+        assert!(workflow.ended_at.is_some());
+        assert_eq!(workflow_repo::get_workflow_history(&pool, "workflow-complete").await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn advance_rejects_non_running_workflow() {
+        let pool = create_test_pool("non_running").await;
+        create_test_work_item(&pool, "product-stopped", "work-item-stopped").await;
+        workflow_repo::create_workflow_run(&pool, "workflow-stopped", "work-item-stopped").await.unwrap();
+        workflow_repo::update_workflow_lifecycle(&pool, "workflow-stopped", "failed", Some("stopped"), true).await.unwrap();
+        assert!(advance_workflow(&pool, &WorkflowEngine::new(), "workflow-stopped").await.is_err());
+        let workflow = workflow_repo::get_workflow_run(&pool, "workflow-stopped").await.unwrap();
+        assert_eq!((workflow.current_stage.as_str(), workflow.status.as_str()), ("draft", "failed"));
+        assert!(workflow_repo::get_workflow_history(&pool, "workflow-stopped").await.unwrap().is_empty());
     }
 }

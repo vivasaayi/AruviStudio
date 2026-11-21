@@ -137,6 +137,64 @@ async fn assigning_active_runs_reserves_team_capacity_atomically() {
 }
 
 #[tokio::test]
+async fn workflow_transition_is_atomic_and_rejects_stale_writers() {
+    let pool = create_test_pool("atomic_transition").await;
+    create_test_work_item(&pool, "transition-product", "transition-item").await;
+    create_workflow_run(&pool, "transition-run", "transition-item").await.unwrap();
+    sqlx::query("CREATE TRIGGER fail_transition_history BEFORE INSERT ON workflow_stage_history BEGIN SELECT RAISE(ABORT, 'injected history failure'); END")
+        .execute(&pool).await.unwrap();
+    assert!(commit_workflow_transition(&pool, "transition-run", "draft", "planning", "running", None, false, "automatic", "fixture").await.is_err());
+    let unchanged = get_workflow_run(&pool, "transition-run").await.unwrap();
+    assert_eq!((unchanged.current_stage.as_str(), unchanged.status.as_str()), ("draft", "running"));
+    assert!(get_workflow_history(&pool, "transition-run").await.unwrap().is_empty());
+    sqlx::query("DROP TRIGGER fail_transition_history").execute(&pool).await.unwrap();
+    let (first, second) = tokio::join!(
+        commit_workflow_transition(&pool, "transition-run", "draft", "planning", "running", None, false, "automatic", "first"),
+        commit_workflow_transition(&pool, "transition-run", "draft", "cancelled", "cancelled", Some("cancelled"), true, "user_rejection", "second")
+    );
+    assert_ne!(first.is_ok(), second.is_ok());
+    let run = get_workflow_run(&pool, "transition-run").await.unwrap();
+    let history = get_workflow_history(&pool, "transition-run").await.unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].from_stage, "draft");
+    assert_eq!(history[0].to_stage, run.current_stage);
+    if run.current_stage == "cancelled" {
+        assert_eq!(run.status, "cancelled");
+        assert!(run.ended_at.is_some());
+    } else {
+        assert_eq!(run.status, "running");
+        assert!(run.ended_at.is_none());
+    }
+}
+
+#[tokio::test]
+async fn workflow_failure_records_state_and_history_atomically() {
+    use crate::domain::workflow::WorkflowStage;
+    use crate::services::workflow_failure::mark_workflow_failed;
+    let pool = create_test_pool("atomic_failure").await;
+    create_test_work_item(&pool, "failure-product", "failure-item").await;
+    create_workflow_run(&pool, "failure-run", "failure-item").await.unwrap();
+    sqlx::query("CREATE TRIGGER fail_failure_history BEFORE INSERT ON workflow_stage_history BEGIN SELECT RAISE(ABORT, 'injected history failure'); END")
+        .execute(&pool).await.unwrap();
+    let cause = AppError::Validation("fixture failure".into());
+    assert!(mark_workflow_failed(&pool, "failure-run", &WorkflowStage::Draft, &cause).await.is_err());
+    let unchanged = get_workflow_run(&pool, "failure-run").await.unwrap();
+    assert_eq!((unchanged.current_stage.as_str(), unchanged.status.as_str()), ("draft", "running"));
+    assert!(unchanged.error_message.is_none() && unchanged.ended_at.is_none());
+    sqlx::query("DROP TRIGGER fail_failure_history").execute(&pool).await.unwrap();
+    mark_workflow_failed(&pool, "failure-run", &WorkflowStage::Draft, &cause).await.unwrap();
+    mark_workflow_failed(&pool, "failure-run", &WorkflowStage::Draft, &cause).await.unwrap();
+    let failed = get_workflow_run(&pool, "failure-run").await.unwrap();
+    assert_eq!((failed.current_stage.as_str(), failed.status.as_str()), ("failed", "failed"));
+    assert!(failed.error_message.unwrap().contains("fixture failure") && failed.ended_at.is_some());
+    assert_eq!(get_workflow_history(&pool, "failure-run").await.unwrap().len(), 1);
+    create_workflow_run(&pool, "terminal-run", "failure-item").await.unwrap();
+    update_workflow_stage(&pool, "terminal-run", "done").await.unwrap();
+    assert!(mark_workflow_failed(&pool, "terminal-run", &WorkflowStage::Draft, &cause).await.is_err());
+    assert_eq!(get_workflow_run(&pool, "terminal-run").await.unwrap().current_stage, "done");
+}
+
+#[tokio::test]
 async fn create_and_update_workflow_run_persists_lifecycle_assignment_and_pending_stage() {
     let pool = create_test_pool("workflow_lifecycle").await;
     create_test_work_item(&pool, "product-workflow-lifecycle", "work-item-lifecycle").await;

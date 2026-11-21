@@ -123,6 +123,32 @@ pub async fn update_workflow_stage(
     Ok(())
 }
 
+/// Commit the stage, lifecycle and history together, only from the observed stage.
+pub async fn commit_workflow_transition(
+    pool: &SqlitePool,
+    id: &str,
+    from: &str,
+    to: &str,
+    status: &str,
+    error_message: Option<&str>,
+    mark_ended: bool,
+    trigger: &str,
+    notes: &str,
+) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+    let result = sqlx::query("UPDATE workflow_runs SET current_stage=?,status=?,error_message=?,ended_at=CASE WHEN ? THEN datetime('now') ELSE ended_at END,updated_at=datetime('now') WHERE id=? AND current_stage=? AND status='running'")
+        .bind(to).bind(status).bind(error_message).bind(mark_ended).bind(id).bind(from)
+        .execute(&mut *tx).await?;
+    if result.rows_affected() != 1 {
+        return Err(AppError::Validation("Workflow changed or is no longer running; refresh before continuing".into()));
+    }
+    sqlx::query("INSERT INTO workflow_stage_history (id,workflow_run_id,from_stage,to_stage,trigger,notes,transitioned_at) VALUES (?,?,?,?,?,?,datetime('now'))")
+        .bind(uuid::Uuid::new_v4().to_string()).bind(id).bind(from).bind(to).bind(trigger).bind(notes)
+        .execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 pub async fn update_workflow_lifecycle(
     pool: &SqlitePool,
     id: &str,

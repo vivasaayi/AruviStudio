@@ -350,6 +350,13 @@ same team and releasing a slot remain possible. The fixture verifies both
 contention and slot reuse. This does not implement automatic workflow-stage
 retries or command isolation.
 
+Main workflow transitions and failure recording now commit lifecycle, stage
+and history together and reject a stale or non-running source. The separate
+advance path uses the same database operation and marks `done` as completed.
+Database atomicity does not include agent writes, coordinator pending-stage
+updates or Git pushes; in particular advance can push before its database
+transition. Container end-to-end validation of this change remains pending.
+
 ### Planner action inventory
 
 This comparison is based on the desktop planner, the remote HTML/API and MCP
