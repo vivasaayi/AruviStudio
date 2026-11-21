@@ -4292,3 +4292,17 @@ fixture used an already-cached Python-capable image, not Studio or Compose, and
 was removed afterward. The existing native staging and production services
 remained active. This is infrastructure evidence only; the actual rootless Studio
 stack, browser, ingress and persistent staging acceptance remain untested.
+
+## Environment product and restart acceptance
+
+Added `scripts/test environment-acceptance PROFILE [--restart]` for worktree,
+integration and staging. It creates a uniquely tagged product, area and task via
+MCP, checks mobile authentication and product reads, and verifies a PDF export.
+The explicit restart option waits for app and PDF health, rediscovers a dynamic
+published port and repeats reads and export. The fixture product is archived in
+cleanup; its records remain in the environment. Two successful worktree runs
+passed after restart. An earlier run exposed a changing published port and left
+a fixture active when cleanup used the old port; that specific fixture was then
+archived through the current endpoint. The final script waits for both service
+health checks and rediscovers the endpoint for cleanup. Real integration and
+VPS staging, external ingress and model inference remain unvalidated by it.

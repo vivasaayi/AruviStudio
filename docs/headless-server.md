@@ -257,6 +257,15 @@ runs a read-only browser navigation smoke test on the stack's Compose network.
 Run it on the deployment host with its local Docker daemon. Browser navigation
 does not traverse the published port or external ingress, and this smoke test does
 not replace authenticated workflow, persistence, or artifact identity checks.
+`bash scripts/test environment-acceptance <worktree|integration|staging>`
+creates a uniquely named and tagged fixture product, area and task through MCP,
+checks authenticated mobile reads and PDF export, and archives the fixture in
+cleanup. Add `--restart` to restart that environment's app and PDF services and
+repeat the reads and export after both are healthy. This briefly interrupts that
+environment and leaves an archived fixture and its related records in its data;
+the script reports the product ID if cleanup needs attention. It does not test
+external ingress, model inference, or immutable image identity. Run it on the
+deployment host with access to that environment's private credentials.
 The original `compose.yaml` and its existing volumes remain a separate local deployment.
 
 For a same-origin browser accessing MCP through a reverse proxy, set
