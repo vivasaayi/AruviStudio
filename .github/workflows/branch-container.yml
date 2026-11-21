@@ -1,0 +1,58 @@
+name: Branch ARM64 container
+
+on:
+  push:
+    branches: [codex/aruvi-web-docker]
+    paths:
+      - .github/workflows/branch-container.yml
+      - Dockerfile
+      - .dockerignore
+      - package.json
+      - package-lock.json
+      - index.html
+      - 'tsconfig*.json'
+      - vite.config.ts
+      - src/**
+      - src-tauri/**
+      - crates/**
+      - vendor/**
+      - docs/**
+      - LICENSE
+      - NOTICE
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build clean ARM64 image
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          docker build --no-cache --platform linux/arm64 \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --tag "aruvi-branch:$GITHUB_SHA" .
+          docker image inspect "aruvi-branch:$GITHUB_SHA" --format '{{.Id}} {{.Os}}/{{.Architecture}}' > image-identity.txt
+          printf '%s\n' "$GITHUB_SHA" > source-revision.txt
+      - name: Export and checksum image
+        run: |
+          set -euo pipefail
+          docker save "aruvi-branch:$GITHUB_SHA" | gzip -1 > aruvi-branch-arm64.tar.gz
+          sha256sum aruvi-branch-arm64.tar.gz > SHA256SUMS
+      - name: Upload temporary branch image
+        uses: actions/upload-artifact@v4
+        with:
+          name: aruvi-branch-arm64-${{ github.sha }}
+          path: |
+            aruvi-branch-arm64.tar.gz
+            SHA256SUMS
+            source-revision.txt
+            image-identity.txt
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: error
