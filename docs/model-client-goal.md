@@ -12,6 +12,33 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Reference-management branch deployment
+
+Source revision `cdca020` was compiled as an optimized Linux ARM64 server in a
+disposable ext4 filesystem with the existing project Rust image. The binary
+SHA-256 was `6dfd08da1b391c12a69f15f91f3d545ca5b902e6bae5ab97b238c6a8cdca5484`.
+The filesystem unmounted cleanly and was removed. Layering the binary onto the
+preceding branch runtime produced image ID
+`sha256:7bb772361e9946da8ea8a96cb29c9b66256de5947edfe278e986291cbc14ce7f`;
+this derived image is not a clean Dockerfile build or staging artifact.
+
+The usual browser-container fixture filled the nearly full shared Docker store
+and was stopped; its temporary containers and volumes were removed. A subsequent
+fixture used host Chrome and the local Playwright installation with disposable
+containers and a loopback mock provider. After correcting a missing fixture file
+and its host/container networking, all 41 remote tests passed. A similarly
+adapted fixture passed 51 workflow tests and repository post-checks. A separate
+no-network, read-only PDF fixture generated a PDF and failed closed when its
+renderer stopped. These adapted tests are not the unmodified container test
+script; Docker's shared store remained low on space.
+
+With no active workflow, import or CLI run, the SQLite backup passed
+`quick_check`; the previous image is retained as
+`aruvi-studio-worktree-backup:pre-reference-management`. After deployment, image
+identity, authenticated product/MCP and PDF checks, a real local coding-model
+request and browser-origin/authentication checks passed. The backup and build
+log are stored in the private worktree artifact directory.
+
 ### Product-area purpose parity
 
 The browser can now set and edit product-area purpose, matching the desktop
@@ -28,8 +55,7 @@ capability and feature scopes. Creation checks product ownership and node kind i
 the insert; deletion requires the displayed reference snapshot and rechecks
 product ownership. A disposable browser/MCP fixture passed capability-scoped
 creation and deletion, authentication, wrong-product and stale-delete rejection.
-It also retained the earlier safe-link and pagination checks. The running branch
-image does not yet include this change. Generic MCP and desktop reference actions
+It also retained the earlier safe-link and pagination checks. The subsequent reference-management branch deployment is recorded above. Generic MCP and desktop reference actions
 retain their existing behavior.
 
 ### Browser product reference viewing
@@ -42,7 +68,7 @@ A disposable browser/MCP test covered product and capability references,
 unauthorized and cross-product/wrong-kind requests, unsafe URL rendering and
 52-item pagination. Offset paging can shift if records change between requests;
 creation and deletion were subsequently added as recorded above. The native server built,
-but the running Docker branch does not yet include the new view.
+and the subsequent reference-management branch deployment is recorded above.
 
 ### Product editor branch deployment
 
