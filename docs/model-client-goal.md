@@ -38,6 +38,20 @@ desktop IPC test, a desktop-modal browser fixture, and a disposable native
 server/headless browser test exercised paging, including a 2 MiB-plus file and
 a changed-file rejection. Real native-window interaction remains unverified.
 
+For `8abf3ba0145bdb971496d80aa7dce9390f3ceb43`, the native Rust suite passed
+322 tests (seven ignored), the frontend passed 128 tests and its build, and
+both hosted test runs and the clean Linux ARM64 build passed. The hosted image
+archive checksum and source revision were verified; its server binary was
+layered onto the unchanged previous runtime to produce derived image
+`sha256:a5556abfea7279ce7c22ebcedb0862d3eda00a02a70496c88f3d54d99e53b088`.
+The disposable Linux tests reconstructed a text artifact larger than 2 MiB via
+MCP, paged it in a browser, and rejected a same-size edit between pages. The
+workflow and remote browser suites passed (43 browser tests, one skipped), as
+did the PDF outage check. The worktree deployment passed restart acceptance,
+MCP origin and authorization checks, and a local coding-model fixture. A
+checked SQLite backup and the previous image were retained before deployment.
+These results do not establish staging readiness or native-window parity.
+
 An existing parallel Rust test failure was traced to a wildcard model-response
 queue shared between unrelated test databases. Test-only wildcard responses are
 now scoped to their SQLite pool; the previously interfering tests passed
