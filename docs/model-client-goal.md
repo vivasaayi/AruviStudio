@@ -12,6 +12,23 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Portfolio guard branch deployment
+
+Source revision `4f26c4b` was compiled as an optimized Linux ARM64 server
+in a disposable ext4 filesystem using the existing project Rust image. The
+binary SHA-256 was `4165f372c04a74e9664dd583047f6792a04fb6db690de9e6b2d30b964fd036af`.
+The temporary filesystem unmounted cleanly and was removed. The binary was
+layered onto the preceding branch runtime, producing image ID
+`sha256:a778fee372e60097281c59c68b64e530cf318b53e7a20552f326519a9f14bcaf`;
+this is a derived image, not a fresh full Dockerfile build or staging artifact.
+It passed 39 browser tests, including the portfolio guards, PDF isolation and
+outage checks, and 51 workflow tests. With no active workflow, import or CLI
+run, a SQLite backup passed `quick_check`; the previous image is retained as
+`aruvi-studio-worktree-backup:pre-portfolio-guards`. After deployment, image
+identity, authenticated product/MCP and PDF checks, a real local coding model
+request, and browser-origin authentication tests passed. The backup and build
+log are stored in the private worktree artifact directory.
+
 ### Branch validation against current default
 
 At `fbc21a4`, the branch had no commits to incorporate from `origin/main` and
@@ -19,9 +36,8 @@ the PR was reported mergeable but remained a draft with CI still running. Local
 checks passed the terminology guard, 128 frontend unit tests, 289 native Rust
 library tests (seven ignored), and all 46 mocked-Tauri desktop browser tests.
 The browser suite uses simulated desktop commands and is not a native-window
-acceptance test. The running worktree image was built from `765a128`, before
-the later portfolio concurrency guards; it must be rebuilt and retested to
-validate those changes in the container. These results are not staging acceptance.
+acceptance test. The subsequent portfolio-guard deployment and its container validation are
+recorded above. These results are not staging acceptance.
 
 ### Standalone client package validation
 
@@ -42,8 +58,7 @@ before changing any link or primary assignment. Legacy desktop and MCP calls may
 omit the optional snapshot and remain last-write-wins. Backend tests cover stale
 link and unlink requests and verify the primary link is preserved. A disposable
 browser/MCP fixture passed stale primary-assignment and unlink conflicts, followed
-by successful refresh and retry. The running
-branch deployment does not yet contain these changes.
+by successful refresh and retry. The subsequent portfolio-guard deployment is recorded above.
 
 ### Strategy subtree deletion guard
 
