@@ -12,6 +12,21 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Agent repository-context symlink check
+
+Automatic agent repository-context collection previously followed symlinked
+files and directories, potentially including content outside the workspace in
+a model prompt. It now skips symlink entries and checks canonical paths before
+directory traversal and snippet reads. A native test confirmed that ordinary
+external file and directory symlinks are excluded while an in-workspace source
+file remains visible. These path checks do not prevent concurrent filesystem
+replacement races or hard-link access and are not a sandbox. The running branch
+Docker image does not yet contain this change.
+
+The running worktree's authenticated MCP repository list contained zero
+registered repositories when checked; this does not inspect other environments
+or unregistered workspaces.
+
 ### Workspace dependency-directory regression
 
 The hierarchy terminology migration had incorrectly changed the filesystem

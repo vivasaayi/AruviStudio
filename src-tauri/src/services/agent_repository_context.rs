@@ -11,6 +11,7 @@ pub(crate) fn build_repository_context(
     if !repo_root.exists() || !repo_root.is_dir() {
         return Ok(String::new());
     }
+    let canonical_root = std::fs::canonicalize(repo_root)?;
 
     let max_repo_files_scanned = boundaries
         .max_repo_files_scanned
@@ -20,6 +21,9 @@ pub(crate) fn build_repository_context(
     let mut files: Vec<String> = Vec::new();
     let mut scanned = 0usize;
     while let Some(dir) = stack.pop() {
+        if !std::fs::canonicalize(&dir).is_ok_and(|path| path.starts_with(&canonical_root)) {
+            continue;
+        }
         let entries = match std::fs::read_dir(&dir) {
             Ok(read_dir) => read_dir,
             Err(_) => continue,
@@ -27,14 +31,19 @@ pub(crate) fn build_repository_context(
         for entry in entries.flatten() {
             let path = entry.path();
             let file_name = entry.file_name().to_string_lossy().to_string();
-            if path.is_dir() {
+            let file_type = match entry.file_type() {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+            if file_type.is_symlink() { continue; }
+            if file_type.is_dir() {
                 if agent_execution_limits::ignored_repository_dir(file_name.as_str()) {
                     continue;
                 }
                 stack.push(path);
                 continue;
             }
-            if !path.is_file() {
+            if !file_type.is_file() {
                 continue;
             }
             if scanned >= max_repo_files_scanned {
@@ -86,11 +95,14 @@ pub(crate) fn build_repository_context(
             break;
         }
         let file_path = repo_root.join(rel);
-        let metadata = match std::fs::metadata(&file_path) {
+        let metadata = match std::fs::symlink_metadata(&file_path) {
             Ok(meta) => meta,
             Err(_) => continue,
         };
-        if metadata.len() > 300_000 {
+        if !metadata.file_type().is_file() || metadata.len() > 300_000 {
+            continue;
+        }
+        if !std::fs::canonicalize(&file_path).is_ok_and(|path| path.starts_with(&canonical_root)) {
             continue;
         }
         let content = match std::fs::read_to_string(&file_path) {
@@ -120,4 +132,27 @@ pub(crate) fn build_repository_context(
     }
 
     Ok(output)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repository_context_skips_external_symlink_files_and_directories() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path().join("repo");
+        let outside = temp.path().join("outside");
+        std::fs::create_dir(&repo).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        std::fs::write(repo.join("main.rs"), "fn safe() {}\n").unwrap();
+        std::fs::write(outside.join("private.rs"), "EXTERNAL_PRIVATE_MARKER\n").unwrap();
+        std::os::unix::fs::symlink(outside.join("private.rs"), repo.join("linked.rs")).unwrap();
+        std::os::unix::fs::symlink(&outside, repo.join("linked-dir")).unwrap();
+        let context = build_repository_context(repo.to_str().unwrap(), &AgentExecutionBoundaries::default(), 12000).unwrap();
+        assert!(context.contains("main.rs"));
+        assert!(!context.contains("linked.rs"));
+        assert!(!context.contains("linked-dir"));
+        assert!(!context.contains("EXTERNAL_PRIVATE_MARKER"));
+    }
 }
