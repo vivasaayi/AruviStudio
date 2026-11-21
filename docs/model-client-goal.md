@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### CI artifact parity investigation
+
+The desktop can reveal a verified CI artifact, whereas the browser and MCP
+currently expose readiness but not its bytes. Aruvici supports bounded artifact
+chunks, and the Studio relay allows that operation; completing delivery needs
+client-accessible chunk handling and end-to-end size/digest checks. The Studio
+`promotion_readiness` protocol extension is in Aruvici branch
+`codex/studio-ci-protocol` at `c2efef3`, not the inspected local `main` checkout;
+that branch had no open PR at this checkpoint. The running service's version
+and staging compatibility still need verification. See the parity audit.
+
 ### Repeatable host-browser fixtures
 
 The disposable remote and workflow fixtures now have supported host-browser

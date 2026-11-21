@@ -71,6 +71,25 @@ provider. Live-provider behavior and full IDE parity remain open.
 
 ### Audit findings before merge
 
+#### CI artifact delivery and service dependency
+
+The desktop CI run panel can reveal a verified artifact in Finder. The browser
+currently offers only the readiness check; MCP exposes `artifact_readiness`,
+but neither interface can retrieve the artifact bytes. Thus readiness is not
+artifact delivery. The Aruvici checkout's private socket protocol provides
+`artifact` metadata and bounded 65,536-byte `artifact_chunk` reads by numeric
+ID, and Studio's CI relay already permits both methods. A browser download and
+MCP chunk operation still need implementation and end-to-end validation. The
+receiver must check offsets, size and SHA-256 across the completed download;
+readiness alone does not protect against a file changing during transfer.
+
+The `promotion_readiness` operation used by Studio exists in the separate
+`codex/studio-ci-protocol` Aruvici branch (`c2efef3`) but was not found in the
+local Aruvici `main` checkout when checked. That branch had no open pull request
+at this checkpoint. A simulated CI service or the presence of a socket does not
+establish compatibility with the actually deployed Aruvici version. Reconcile
+and validate the service protocol before claiming staging CI parity.
+
 #### Product references
 
 The browser can load references on demand for a product, area, capability or
