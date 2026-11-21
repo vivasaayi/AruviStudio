@@ -1331,6 +1331,20 @@ pub(crate) async fn mobile_detach_repository(State(state): State<WebhookState>, 
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub(crate) struct PortfolioActionRequest { action: String, #[serde(default)] arguments: serde_json::Value }
+
+pub(crate) async fn mobile_portfolio_action(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<PortfolioActionRequest>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    if !matches!(body.action.as_str(), "list_strategy_nodes" | "create_strategy_node" | "update_strategy_node" | "delete_strategy_node" | "list_product_strategy_links" | "link_product_to_strategy" | "unlink_product_from_strategy" | "list_product_dependencies" | "create_product_dependency" | "delete_product_dependency") {
+        return (StatusCode::BAD_REQUEST, "Unsupported portfolio action").into_response();
+    }
+    match crate::mcp::dispatch_tool(&state.app_state, "aruvi_catalog", serde_json::json!({"action":body.action,"arguments":body.arguments})).await {
+        Ok(result) => Json(result["result"].clone()).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
+}
+
 async fn model_action(state: &WebhookState, action: &str, arguments: serde_json::Value) -> axum::response::Response {
     match crate::mcp::dispatch_tool(&state.app_state, "aruvi_models", serde_json::json!({"action": action, "arguments": arguments})).await {
         Ok(result) => {

@@ -554,6 +554,39 @@
               </div>
             </section>
           </div>
+          <details id="portfolioSection" class="panel">
+            <summary>Portfolio strategy and dependencies</summary>
+            <div class="panel-body stack">
+              <p class="empty">Changes apply immediately. Refresh before editing if another user may have changed the portfolio.</p>
+              <button type="button" class="secondary" id="portfolioRefresh">Refresh portfolio</button>
+              <form id="strategyCreate" class="stack">
+                <label><span class="label">Strategy name</span><input name="name" required maxlength="200" /></label>
+                <label><span class="label">Strategy kind</span><select name="kind"><option value="strategic_product_area">Strategic product area</option><option value="domain">Domain</option><option value="sub_domain">Sub-domain</option></select></label>
+                <label><span class="label">Parent strategy</span><select name="parent" id="strategyParent"></select></label>
+                <label><span class="label">Strategy description</span><textarea name="description"></textarea></label>
+                <label><span class="label">Strategy owner</span><input name="owner" /></label>
+                <button type="submit">Add strategy node</button>
+              </form>
+              <div id="strategyList" class="tool-list"></div>
+              <form id="strategyLink" class="stack">
+                <label><span class="label">Product to link</span><select name="product" id="strategyProduct" required></select></label>
+                <label><span class="label">Strategy to link</span><select name="node" id="strategyNode" required></select></label>
+                <label><input type="checkbox" name="primary" /> Primary strategy</label><button type="submit">Link product</button>
+              </form>
+              <div id="strategyLinks" class="tool-list"></div>
+              <form id="dependencyCreate" class="stack">
+                <label><span class="label">Dependent product</span><select name="product" id="dependencyProduct" required></select></label>
+                <label><span class="label">Depends on product</span><select name="target" id="dependencyTarget" required></select></label>
+                <label><span class="label">Dependent capability ID (optional)</span><input name="capability" /></label>
+                <label><span class="label">Target capability ID (optional)</span><input name="target_capability" /></label>
+                <label><span class="label">Dependency kind</span><select name="kind"><option>platform</option><option>capability</option><option>data</option><option>integration</option><option>operational</option><option>other</option></select></label>
+                <label><span class="label">Dependency status</span><select name="status"><option>active</option><option>planned</option><option>blocked</option><option>retired</option></select></label>
+                <label><span class="label">Dependency description</span><textarea name="description"></textarea></label>
+                <button type="submit">Add dependency</button>
+              </form>
+              <div id="dependencyList" class="tool-list"></div>
+            </div>
+          </details>
         </section>
 
         <section class="tab-panel" id="tab-workspaces">
@@ -2445,6 +2478,80 @@
         setStatus("Setup link ready", "ok");
       }
     }
+
+    const portfolioElement = (id) => document.getElementById(id);
+    async function portfolioAction(action, args = {}) {
+      return request("/api/mobile/portfolio", { method: "POST", body: { action, arguments: args } });
+    }
+    function portfolioSelect(select, items, placeholder) {
+      const previous = select.value;
+      select.replaceChildren(new Option(placeholder, ""));
+      for (const item of items) select.add(new Option(item.name, item.id));
+      if (items.some((item) => item.id === previous)) select.value = previous;
+    }
+    function portfolioButton(label, action) {
+      const button = document.createElement("button"); button.type = "button"; button.className = "secondary"; button.textContent = label;
+      button.addEventListener("click", action); return button;
+    }
+    async function portfolioChange(action, args) {
+      try { await portfolioAction(action, args); await loadPortfolio(); setStatus("Portfolio updated", "ok"); }
+      catch (error) { setStatus(error.message || String(error), "error"); }
+    }
+    async function loadPortfolio() {
+      try {
+        const [nodes, links, dependencies] = await Promise.all([portfolioAction("list_strategy_nodes"), portfolioAction("list_product_strategy_links"), portfolioAction("list_product_dependencies")]);
+        const names = new Map(state.products.map((p) => [p.id, p.name]));
+        const nodeNames = new Map(nodes.map((n) => [n.id, n.name]));
+        portfolioSelect(portfolioElement("strategyParent"), nodes, "No parent (root)");
+        portfolioSelect(portfolioElement("strategyNode"), nodes, "Select strategy");
+        for (const id of ["strategyProduct", "dependencyProduct", "dependencyTarget"]) portfolioSelect(portfolioElement(id), state.products, "Select product");
+        const list = portfolioElement("strategyList"); list.replaceChildren();
+        for (const node of nodes) {
+          const card = document.createElement("div"); card.className = "tool-card";
+          const title = document.createElement("div"); title.className = "tool-title"; title.textContent = node.name + " · " + node.node_kind + (node.parent_node_id ? " · parent: " + (nodeNames.get(node.parent_node_id) || node.parent_node_id) : " · root"); card.appendChild(title);
+          const edit = document.createElement("details"); const summary = document.createElement("summary"); summary.textContent = "Edit strategy"; edit.appendChild(summary);
+          const editForm = document.createElement("form"); editForm.className = "stack";
+          function field(label, input) { const wrapper = document.createElement("label"); const caption = document.createElement("span"); caption.className = "label"; caption.textContent = label; wrapper.append(caption, input); editForm.appendChild(wrapper); }
+          const name = document.createElement("input"); name.value = node.name; name.required = true; field("Edit strategy name", name);
+          const kind = document.createElement("select"); for (const value of ["strategic_product_area", "domain", "sub_domain"]) kind.add(new Option(value, value)); kind.value = node.node_kind; field("Edit strategy kind", kind);
+          const parent = document.createElement("select"); portfolioSelect(parent, nodes.filter((item) => item.id !== node.id), "No parent (root)"); parent.value = node.parent_node_id || ""; field("Edit strategy parent", parent);
+          const description = document.createElement("textarea"); description.value = node.description; field("Edit strategy description", description);
+          const owner = document.createElement("input"); owner.value = node.owner_label; field("Edit strategy owner", owner);
+          const save = document.createElement("button"); save.type = "submit"; save.textContent = "Save strategy"; editForm.appendChild(save);
+          editForm.addEventListener("submit", async (event) => { event.preventDefault(); save.disabled = true; try { await portfolioChange("update_strategy_node", {id:node.id, name:name.value.trim(), node_kind:kind.value, parent_node_id:parent.value || null, clear_parent:!parent.value, description:description.value.trim(), owner_label:owner.value.trim()}); } finally { save.disabled = false; } });
+          edit.appendChild(editForm); card.appendChild(edit);
+          card.appendChild(portfolioButton("Delete strategy", async () => {
+            if (confirm("Delete this strategy node and its descendant nodes and links?")) await portfolioChange("delete_strategy_node", {id:node.id});
+          })); list.appendChild(card);
+        }
+        const linkList = portfolioElement("strategyLinks"); linkList.replaceChildren();
+        for (const link of links) {
+          const card = document.createElement("div"); card.className = "tool-card";
+          const text = document.createElement("span"); text.textContent = (names.get(link.product_id) || link.product_id) + " → " + (nodeNames.get(link.strategy_node_id) || link.strategy_node_id) + (link.is_primary ? " · primary" : ""); card.appendChild(text);
+          card.appendChild(portfolioButton("Unlink", async () => { if (confirm("Unlink this product and strategy?")) await portfolioChange("unlink_product_from_strategy", {product_id:link.product_id, strategy_node_id:link.strategy_node_id}); })); linkList.appendChild(card);
+        }
+        const dependencyList = portfolioElement("dependencyList"); dependencyList.replaceChildren();
+        for (const item of dependencies) {
+          const card = document.createElement("div"); card.className = "tool-card";
+          const text = document.createElement("span"); text.textContent = (names.get(item.product_id) || item.product_id) + (item.capability_id ? " / " + item.capability_id : "") + " → " + (names.get(item.depends_on_product_id) || item.depends_on_product_id) + (item.depends_on_capability_id ? " / " + item.depends_on_capability_id : "") + " · " + item.dependency_kind + " · " + item.status + (item.description ? " · " + item.description : ""); card.appendChild(text);
+          card.appendChild(portfolioButton("Delete dependency", async () => { if (confirm("Delete this product dependency?")) await portfolioChange("delete_product_dependency", {id:item.id}); })); dependencyList.appendChild(card);
+        }
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+    }
+    portfolioElement("portfolioSection").addEventListener("toggle", () => { if (portfolioElement("portfolioSection").open) void loadPortfolio(); });
+    portfolioElement("portfolioRefresh").addEventListener("click", loadPortfolio);
+    portfolioElement("strategyCreate").addEventListener("submit", async (event) => {
+      event.preventDefault(); const form = event.currentTarget.elements;
+      await portfolioChange("create_strategy_node", {name:form.name.value.trim(), node_kind:form.kind.value, parent_node_id:form.parent.value || null, description:form.description.value.trim(), owner_label:form.owner.value.trim()});
+    });
+    portfolioElement("strategyLink").addEventListener("submit", async (event) => {
+      event.preventDefault(); const form = event.currentTarget.elements;
+      await portfolioChange("link_product_to_strategy", {product_id:form.product.value, strategy_node_id:form.node.value, is_primary:form.primary.checked});
+    });
+    portfolioElement("dependencyCreate").addEventListener("submit", async (event) => {
+      event.preventDefault(); const form = event.currentTarget.elements;
+      await portfolioChange("create_product_dependency", {product_id:form.product.value, depends_on_product_id:form.target.value, capability_id:form.capability.value.trim() || null, depends_on_capability_id:form.target_capability.value.trim() || null, dependency_kind:form.kind.value, status:form.status.value, description:form.description.value.trim()});
+    });
 
     async function loadProducts() {
       try {

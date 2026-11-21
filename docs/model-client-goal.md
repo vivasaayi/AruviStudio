@@ -12,6 +12,21 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Browser portfolio management
+
+Products now includes browser controls for strategy nodes, product links and
+dependencies through an authenticated endpoint restricted to portfolio actions.
+Dependency capabilities must belong to their respective products; strategy edits
+reject cycles and incompatible child kinds. Tests cover authorized and denied
+API actions, both wrong-product capability sides, valid references and invalid
+hierarchy edits. A disposable browser fixture exercised strategy creation,
+product linking, dependency creation and confirmed deletion via the browser,
+with dependency reads checked through MCP. Editing and reparenting use the
+existing last-write-wins backend; users should refresh before editing, and
+concurrent hierarchy writes are not serialized. Capability references are entered
+as IDs rather than selected by name. The running Docker branch has not yet been
+rebuilt with this feature.
+
 ### Portfolio strategy MCP gap
 
 A source audit found that the desktop Portfolio strategy hierarchy, product

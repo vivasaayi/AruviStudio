@@ -2220,3 +2220,49 @@ test("planner contact asks before sending and displays routed outcomes", async (
   await page.locator("#plannerContactMethod").selectOption("planner");
   await expect(page.locator("#plannerContactChannel")).toBeEnabled();
 });
+
+test("browser manages portfolio strategy and product dependencies", async ({ page, request }) => {
+  test.skip(!token || !mcpToken, "Requires disposable authenticated fixture");
+  async function call(action, args) {
+    const response = await request.post('/api/mcp', {headers:{Authorization:`Bearer ${mcpToken}`}, data:{jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'aruvi_catalog',arguments:{action,arguments:args}}}});
+    const body = await response.json();
+    if (!response.ok() || body.error || body.result?.isError) throw new Error(`MCP ${action} failed`);
+    return body.result.structuredContent.result;
+  }
+  const suffix = Date.now();
+  const a = await call('create_product', {name:`Portfolio A ${suffix}`});
+  const b = await call('create_product', {name:`Portfolio B ${suffix}`});
+  let node;
+  try {
+    await page.goto('/remote'); await page.locator('#tokenInput').fill(token); await page.locator('#saveButton').click();
+    await page.getByRole('button',{name:'Products',exact:true}).click();
+    await expect(page.locator('#productList')).toContainText(a.name);
+    await page.locator('#portfolioSection summary').click();
+    await page.getByLabel('Strategy name').fill(`Strategy ${suffix}`);
+    const creation = page.waitForResponse(r => r.url().endsWith('/api/mobile/portfolio') && r.request().postDataJSON()?.action === 'create_strategy_node');
+    await page.getByRole('button',{name:'Add strategy node'}).click();
+    const response = await creation; expect(response.ok(), await response.text()).toBeTruthy(); node = await response.json();
+    await expect(page.locator('#strategyList')).toContainText(node.name);
+    await page.getByText('Edit strategy', {exact:true}).click();
+    await page.getByLabel('Edit strategy name').fill(`Edited strategy ${suffix}`);
+    await page.getByRole('button',{name:'Save strategy'}).click();
+    await expect(page.locator('#strategyList')).toContainText(`Edited strategy ${suffix}`);
+    node.name = `Edited strategy ${suffix}`;
+    await page.getByLabel('Product to link').selectOption(a.id); await page.getByLabel('Strategy to link').selectOption(node.id);
+    await page.getByLabel('Primary strategy').check(); await page.getByRole('button',{name:'Link product'}).click();
+    await expect(page.locator('#strategyLinks')).toContainText(a.name);
+    await page.getByLabel('Dependent product').selectOption(a.id); await page.getByLabel('Depends on product').selectOption(b.id);
+    await page.getByLabel('Dependency kind').selectOption('data'); await page.getByRole('button',{name:'Add dependency'}).click();
+    await expect(page.locator('#dependencyList')).toContainText(b.name);
+    expect((await call('list_product_dependencies',{})).some(d => d.product_id === a.id && d.depends_on_product_id === b.id && d.dependency_kind === 'data')).toBe(true);
+    page.once('dialog', dialog => dialog.accept()); await page.getByRole('button',{name:'Delete dependency'}).click();
+    await expect(page.locator('#dependencyList')).not.toContainText(b.name);
+    page.once('dialog', dialog => dialog.accept()); await page.getByRole('button',{name:'Unlink',exact:true}).click();
+    await expect(page.locator('#strategyLinks')).not.toContainText(a.name);
+    page.once('dialog', dialog => dialog.accept()); await page.getByRole('button',{name:'Delete strategy'}).click();
+    await expect(page.locator('#strategyList')).not.toContainText(node.name); node = null;
+  } finally {
+    if (node) await call('delete_strategy_node',{id:node.id});
+    await call('archive_product',{id:a.id}); await call('archive_product',{id:b.id});
+  }
+});

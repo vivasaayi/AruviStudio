@@ -74,16 +74,20 @@ provider. Live-provider behavior and full IDE parity remain open.
 #### Portfolio strategy and dependencies
 
 The desktop Portfolio includes a strategy hierarchy, product-to-strategy links
-and product dependencies. The browser currently has no equivalent management
-controls. The `aruvi_catalog` MCP namespace now exposes list, create, update and
+and product dependencies. Browser Products now provides strategy node creation,
+editing and deletion, product linking and unlinking, and dependency creation and
+deletion. Optional capability references currently require server-side IDs. The `aruvi_catalog` MCP namespace now exposes list, create, update and
 delete actions for strategy nodes; list/link/unlink for product-strategy links;
 and list/create/delete for product dependencies. These use the existing desktop
 repository and its hierarchy and dependency validation. Primary-link replacement
 is now transactional so a rejected replacement cannot remove the old primary.
 A disposable database test exercised the MCP dispatch lifecycle and rejected
-invalid hierarchy, self-dependency and an invalid primary replacement. Browser
-controls, concurrent edits, capability-to-product scope validation and real
-native-window acceptance remain open. This is not complete portfolio parity.
+invalid hierarchy, self-dependency and an invalid primary replacement. Dependency
+writes reject capabilities that belong to the wrong side's product. Strategy edits
+reject cycles and incompatible existing children. The browser warns users to
+refresh before editing; concurrent edits are not protected by a revision check,
+and the hierarchy checks are not serialized with concurrent writes. Native-window
+acceptance and broader comparison remain open. This is not complete portfolio parity.
 
 #### Settings and outbound contact comparison — 2026-11-14
 

@@ -172,6 +172,18 @@ pub async fn update_strategy_node(
     };
     let next_parent = parent_node_id.unwrap_or(existing.parent_node_id.as_deref());
     validate_strategy_parent(pool, next_parent, &next_kind).await?;
+    if let Some(parent_id) = next_parent {
+        let cycle: i64 = sqlx::query_scalar("WITH RECURSIVE descendants(id) AS (SELECT id FROM strategy_nodes WHERE id=? UNION SELECT s.id FROM strategy_nodes s JOIN descendants d ON s.parent_node_id=d.id) SELECT EXISTS(SELECT 1 FROM descendants WHERE id=?)")
+            .bind(id).bind(parent_id).fetch_one(pool).await?;
+        if cycle != 0 { return Err(AppError::Validation("A strategy node cannot be moved under itself or its descendants.".into())); }
+    }
+    let child_kinds: Vec<String> = sqlx::query_scalar("SELECT DISTINCT node_kind FROM strategy_nodes WHERE parent_node_id=?")
+        .bind(id).fetch_all(pool).await?;
+    for child in child_kinds {
+        if !next_kind.supports_child_kind(&parse_strategy_node_kind(&child)?) {
+            return Err(AppError::Validation("The selected kind cannot contain the existing child nodes.".into()));
+        }
+    }
 
     sqlx::query(
         "UPDATE strategy_nodes
@@ -300,9 +312,11 @@ pub async fn create_product_dependency(
     }
     let kind = parse_dependency_kind(input.dependency_kind)?;
     let status = parse_dependency_status(input.status)?;
-    sqlx::query(
+    let inserted = sqlx::query(
         "INSERT INTO product_dependencies (id, product_id, capability_id, depends_on_product_id, depends_on_capability_id, dependency_kind, description, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?
+         WHERE (? IS NULL OR EXISTS (SELECT 1 FROM capabilities c JOIN product_areas a ON a.id=c.product_area_id WHERE c.id=? AND a.product_id=?))
+           AND (? IS NULL OR EXISTS (SELECT 1 FROM capabilities c JOIN product_areas a ON a.id=c.product_area_id WHERE c.id=? AND a.product_id=?))",
     )
     .bind(input.id)
     .bind(input.product_id)
@@ -312,8 +326,13 @@ pub async fn create_product_dependency(
     .bind(kind.to_string())
     .bind(input.description)
     .bind(status.to_string())
+    .bind(input.capability_id).bind(input.capability_id).bind(input.product_id)
+    .bind(input.depends_on_capability_id).bind(input.depends_on_capability_id).bind(input.depends_on_product_id)
     .execute(pool)
     .await?;
+    if inserted.rows_affected() != 1 {
+        return Err(AppError::Validation("Dependency capabilities must belong to their respective products.".into()));
+    }
 
     let row = sqlx::query(&format!(
         "SELECT {PRODUCT_DEPENDENCY_COLUMNS} FROM product_dependencies WHERE id = ?"

@@ -928,13 +928,22 @@ async fn mcp_portfolio_strategy_and_dependency_lifecycle() {
     let child = call(&state, "create_strategy_node", json!({"parent_node_id":root["id"],"node_kind":"domain","name":"Domain"})).await;
     let changed = call(&state, "update_strategy_node", json!({"id":child["id"],"name":"Updated domain"})).await;
     assert_eq!(changed["name"], "Updated domain");
+    assert!(dispatch_tool(&state, "aruvi_catalog", json!({"action":"update_strategy_node","arguments":{"id":root["id"],"node_kind":"sub_domain","parent_node_id":child["id"]}})).await.is_err());
+    assert!(dispatch_tool(&state, "aruvi_catalog", json!({"action":"update_strategy_node","arguments":{"id":child["id"],"node_kind":"sub_domain","parent_node_id":child["id"]}})).await.is_err());
     assert!(dispatch_tool(&state, "aruvi_catalog", json!({"action":"create_strategy_node","arguments":{"node_kind":"domain","name":"Invalid root"}})).await.is_err());
     call(&state, "link_product_to_strategy", json!({"product_id":a["id"],"strategy_node_id":root["id"],"is_primary":true})).await;
     // A failed primary replacement must not clear the existing primary link.
     assert!(dispatch_tool(&state, "aruvi_catalog", json!({"action":"link_product_to_strategy","arguments":{"product_id":a["id"],"strategy_node_id":"missing","is_primary":true}})).await.is_err());
     let links = call(&state, "list_product_strategy_links", json!({})).await;
     assert!(links.as_array().unwrap().iter().any(|link| link["product_id"] == a["id"] && link["is_primary"] == true));
-    let dependency = call(&state, "create_product_dependency", json!({"product_id":a["id"],"depends_on_product_id":b["id"],"dependency_kind":"data"})).await;
+    let area_a = call(&state, "create_product_area", json!({"product_id":a["id"],"name":"Area A"})).await;
+    let area_b = call(&state, "create_product_area", json!({"product_id":b["id"],"name":"Area B"})).await;
+    let cap_a = call(&state, "create_capability", json!({"product_area_id":area_a["id"],"name":"Capability A"})).await;
+    let cap_b = call(&state, "create_capability", json!({"product_area_id":area_b["id"],"name":"Capability B"})).await;
+    for (source, target) in [(cap_b["id"].clone(), cap_b["id"].clone()), (cap_a["id"].clone(), cap_a["id"].clone())] {
+        assert!(dispatch_tool(&state, "aruvi_catalog", json!({"action":"create_product_dependency","arguments":{"product_id":a["id"],"depends_on_product_id":b["id"],"capability_id":source,"depends_on_capability_id":target}})).await.is_err());
+    }
+    let dependency = call(&state, "create_product_dependency", json!({"product_id":a["id"],"depends_on_product_id":b["id"],"capability_id":cap_a["id"],"depends_on_capability_id":cap_b["id"],"dependency_kind":"data"})).await;
     assert_eq!(dependency["dependency_kind"], "data");
     assert!(dispatch_tool(&state, "aruvi_catalog", json!({"action":"create_product_dependency","arguments":{"product_id":a["id"],"depends_on_product_id":a["id"]}})).await.is_err());
     let dependencies = call(&state, "list_product_dependencies", json!({})).await;
@@ -944,4 +953,13 @@ async fn mcp_portfolio_strategy_and_dependency_lifecycle() {
     call(&state, "delete_strategy_node", json!({"id":child["id"]})).await;
     call(&state, "delete_strategy_node", json!({"id":root["id"]})).await;
     assert!(!call(&state, "list_strategy_nodes", json!({})).await.as_array().unwrap().iter().any(|node| node["id"] == root["id"]));
+    settings_repo::set_setting(&state.db, "mobile.api_token", "portfolio-api-token").await.unwrap();
+    let router = build_webhook_router(state);
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/portfolio", None, Some(json!({"action":"list_strategy_nodes", "arguments":{}}))).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/portfolio", Some("portfolio-api-token"), Some(json!({"action":"archive_product", "arguments":{"id":a["id"]}}))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, body) = send_json(&router, Method::POST, "/api/mobile/portfolio", Some("portfolio-api-token"), Some(json!({"action":"list_strategy_nodes", "arguments":{}}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(parse_json(&body).is_array());
 }
