@@ -5495,3 +5495,18 @@ the native Rust library suite passed 296 tests with seven ignored. An isolated
 workflow fixture also checks for a surviving child. Processes can
 change group or session, and this is not a sandbox; command execution isolation
 and the unused Docker/retry settings remain open.
+
+The clean Linux ARM64 image built from commit
+`70525aa56780748cf1ce8482441d277d034e8bba` has manifest
+`sha256:33e28ea9b963f0893094358784645216942a301cd82efc8d184b86cc370cde8a`.
+Before deploying it, the isolated Linux workflow fixture passed 52 tests and
+confirmed that a test command's delayed background child did not leave a marker.
+After deployment, the app and PDF service passed product creation, authorization,
+PDF and restart-persistence acceptance; 41 remote UI tests, PDF isolation and
+outage checks, the simulated CI fixture, published-port browser MCP checks, and
+the real local 7B coding-model MCP fixture passed. Timeout and cancellation
+cleanup were tested natively on macOS; those two paths were not independently
+exercised on Linux. The previous branch image and a checked database backup are
+retained. An older image was removed from Docker after verifying its retained
+OCI archive, and only old rebuildable Studio compiler outputs were deleted to
+make build space. Staging and complete desktop parity remain open.
