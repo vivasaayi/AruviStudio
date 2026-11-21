@@ -12,6 +12,15 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Product-area purpose parity
+
+The browser can now set and edit product-area purpose, matching the desktop
+form. Updates compare the previously displayed purpose when supplied; older
+name/description-only requests leave it unchanged. A disposable browser/MCP
+hierarchy test passed creation, a concurrent purpose conflict, refresh and
+successful editing, along with the existing capability detail checks. The
+running branch image does not yet include this change.
+
 ### Browser reference management
 
 The browser reference view now creates and deletes references at product, area,

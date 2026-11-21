@@ -1846,6 +1846,7 @@ test("browser builds a product hierarchy", async ({ page, request }) => {
     await page.locator("#productList").getByRole("button", { name: new RegExp(product.name) }).click();
     await expect(page.locator("#productStatus")).toHaveText(product.name);
     await page.getByLabel("New product area").fill("Browser area");
+    await page.getByLabel("Product area purpose (optional)").fill("Initial purpose");
     await page.getByRole("button", { name: "Add product area" }).click();
     await expect(page.locator("#productTree")).toContainText("product area: Browser area");
     await page.locator("#productTree summary").filter({ hasText: "Browser area" }).click();
@@ -1860,6 +1861,7 @@ test("browser builds a product hierarchy", async ({ page, request }) => {
     const treeResponse = await request.get(`/api/mobile/products/${product.id}/tree`, { headers: { Authorization: `Bearer ${token}` } });
     const tree = await treeResponse.json();
     const area = tree.product_areas.find((entry) => entry.product_area.name === "Browser area");
+    expect(area.product_area.purpose).toBe("Initial purpose");
     expect(area.features[0].capability.name).toBe("Browser capability");
     expect(area.features[0].children[0].capability.name).toBe("Browser feature");
     const update = { node_type: "product_area", id: area.product_area.id, expected_name: "Browser area", expected_description: "", name: "Wrong scope", description: "" };
@@ -1891,14 +1893,25 @@ test("browser builds a product hierarchy", async ({ page, request }) => {
     const areaEdit = areaElement.locator(":scope > details > summary").filter({ hasText: "Edit details" }).locator("..");
     await areaEdit.locator(":scope > summary").click();
     await areaElement.getByLabel("Edit name for Browser area").fill("Unsaved area edit");
-    await catalog("update_product_area", { id: area.product_area.id, description: "Concurrent description" });
+    await areaElement.getByLabel("Edit purpose for Browser area").fill("Unsaved purpose");
+    await catalog("update_product_area", { id: area.product_area.id, purpose: "Concurrent purpose" });
     const conflict = page.waitForResponse((response) => response.url().endsWith("/hierarchy/update") && response.request().method() === "POST");
     await areaEdit.getByRole("button", { name: "Save details" }).click();
     expect((await conflict).status()).toBe(409);
     await expect(areaElement.getByLabel("Edit name for Browser area")).toHaveValue("Unsaved area edit");
     const latest = await (await request.get(`/api/mobile/products/${product.id}/tree`, { headers: { Authorization: `Bearer ${token}` } })).json();
-    expect(latest.product_areas[0].product_area.description).toBe("Concurrent description");
+    expect(latest.product_areas[0].product_area.purpose).toBe("Concurrent purpose");
     expect(latest.product_areas[0].product_area.name).toBe("Browser area");
+    await page.locator('#refreshProductsButton').click();
+    await page.getByRole('button',{name:'Load product tree'}).click();
+    await page.locator('#productTree > details > summary').first().click();
+    const refreshedArea = page.locator('#productTree > details').first();
+    await refreshedArea.locator(':scope > details > summary').filter({hasText:'Edit details'}).click();
+    await refreshedArea.getByLabel('Edit purpose for Browser area').fill('Updated purpose');
+    await refreshedArea.getByRole('button',{name:'Save details'}).click();
+    await expect(page.locator('#status')).toHaveText('Hierarchy details saved');
+    const savedArea = await (await request.get(`/api/mobile/products/${product.id}/tree`, {headers:{Authorization:`Bearer ${token}`}})).json();
+    expect(savedArea.product_areas[0].product_area.purpose).toBe('Updated purpose');
   } finally {
     await catalog("archive_product", { id: product.id });
     await catalog("archive_product", { id: other.id });

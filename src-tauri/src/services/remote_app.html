@@ -556,6 +556,7 @@
                 </div>
                 <form id="createAreaForm" class="stack">
                   <label><span class="label">New product area</span><input id="newAreaName" maxlength="200" required /></label>
+                  <label><span class="label">Product area purpose (optional)</span><input id="newAreaPurpose" /></label>
                   <button id="createAreaButton" type="submit" disabled>Add product area</button>
                 </form>
                 <div class="tree" id="productTree"></div>
@@ -2885,7 +2886,12 @@
           descriptionInput.setAttribute("aria-label", "Edit description for " + item.name);
           const save = document.createElement("button"); save.type = "submit"; save.textContent = "Save details"; save.className = "secondary";
           editForm.append(nameInput, descriptionInput);
-          let acceptanceInput, technicalInput;
+          let acceptanceInput, technicalInput, purposeInput;
+          if (item.node_kind === "product_area") {
+            purposeInput = document.createElement("input"); purposeInput.value = item.purpose || "";
+            purposeInput.setAttribute("aria-label", "Edit purpose for " + item.name);
+            const purposeLabel = document.createElement("label"); purposeLabel.textContent = "Purpose"; purposeLabel.appendChild(purposeInput); editForm.appendChild(purposeLabel);
+          }
           if (item.node_kind !== "product_area") {
             acceptanceInput = document.createElement("textarea"); acceptanceInput.value = item.acceptance_criteria || "";
             acceptanceInput.setAttribute("aria-label", "Edit acceptance criteria for " + item.name);
@@ -2902,7 +2908,8 @@
               await request("/api/mobile/products/" + encodeURIComponent(productId) + "/hierarchy/update", { method: "POST", body: {
                 node_type: item.node_kind === "product_area" ? "product_area" : "capability", id: item.id,
                 expected_name: item.name, expected_description: item.description || "", name: nameInput.value, description: descriptionInput.value,
-                ...(acceptanceInput ? {expected_acceptance_criteria:item.acceptance_criteria || "", acceptance_criteria:acceptanceInput.value, expected_technical_notes:item.technical_notes || "", technical_notes:technicalInput.value} : {})
+                ...(acceptanceInput ? {expected_acceptance_criteria:item.acceptance_criteria || "", acceptance_criteria:acceptanceInput.value, expected_technical_notes:item.technical_notes || "", technical_notes:technicalInput.value} : {}),
+                ...(purposeInput ? {expected_purpose:item.purpose || "", purpose:purposeInput.value} : {})
               }});
               if (state.selectedProductId === productId) {
                 await loadProductSummary(productId);
@@ -2985,12 +2992,12 @@
       finally { if (state.selectedProductId === productId) el.resetPlanButton.disabled = !state.productSummary; }
     }
 
-    async function createHierarchyNode(productId, areaId, parentId, name) {
+    async function createHierarchyNode(productId, areaId, parentId, name, purpose = null) {
       if (!productId || !name.trim()) { setStatus("Enter a name", "error"); return; }
       try {
-        await request("/api/mobile/products/" + encodeURIComponent(productId) + "/hierarchy", { method: "POST", body: { name: name.trim(), product_area_id: areaId, parent_capability_id: parentId } });
+        await request("/api/mobile/products/" + encodeURIComponent(productId) + "/hierarchy", { method: "POST", body: { name: name.trim(), product_area_id: areaId, parent_capability_id: parentId, purpose } });
         if (state.selectedProductId !== productId) return;
-        el.newAreaName.value = "";
+        if (!areaId) { el.newAreaName.value = ""; document.getElementById("newAreaPurpose").value = ""; }
         await loadProductSummary(productId);
         const button = el.productTree.querySelector("button");
         if (button && state.selectedProductId === productId) await loadProductTree(productId, button);
@@ -3001,7 +3008,7 @@
       event.preventDefault();
       const productId = state.selectedProductId;
       el.createAreaButton.disabled = true;
-      try { await createHierarchyNode(productId, null, null, el.newAreaName.value); }
+      try { await createHierarchyNode(productId, null, null, el.newAreaName.value, document.getElementById("newAreaPurpose").value); }
       finally { el.createAreaButton.disabled = !state.selectedProductId; }
     }
 

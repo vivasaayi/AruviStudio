@@ -1837,6 +1837,7 @@ pub(crate) async fn mobile_update_product(State(state): State<WebhookState>, hea
 pub(crate) struct MobileCreateHierarchyNode {
     name: String,
     description: Option<String>,
+    purpose: Option<String>,
     product_area_id: Option<String>,
     parent_capability_id: Option<String>,
 }
@@ -1846,6 +1847,7 @@ pub(crate) async fn mobile_create_hierarchy_node(State(state): State<WebhookStat
     let db = &state.app_state.db;
     if body.name.trim().is_empty() || body.name.len() > 200 { return (StatusCode::BAD_REQUEST, "Name must contain 1 to 200 characters").into_response(); }
     if product_repo::get_product(db, &product_id).await.is_err() { return (StatusCode::BAD_REQUEST, "Product not found").into_response(); }
+    if body.product_area_id.is_some() && body.purpose.is_some() { return (StatusCode::BAD_REQUEST, "Purpose applies only to product areas").into_response(); }
     let action = if let Some(area_id) = &body.product_area_id {
         let exists = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM product_areas WHERE id=? AND product_id=?)").bind(area_id).bind(&product_id).fetch_one(db).await;
         if !matches!(exists, Ok(true)) { return (StatusCode::BAD_REQUEST, "Product area does not belong to this product").into_response(); }
@@ -1858,7 +1860,7 @@ pub(crate) async fn mobile_create_hierarchy_node(State(state): State<WebhookStat
         if body.parent_capability_id.is_some() { return (StatusCode::BAD_REQUEST, "Product area is required for a child").into_response(); }
         "create_product_area"
     };
-    let arguments = serde_json::json!({"product_id": product_id, "product_area_id":body.product_area_id, "parent_capability_id":body.parent_capability_id, "name":body.name.trim(), "description":body.description.unwrap_or_default()});
+    let arguments = serde_json::json!({"product_id": product_id, "product_area_id":body.product_area_id, "parent_capability_id":body.parent_capability_id, "name":body.name.trim(), "description":body.description.unwrap_or_default(), "purpose":body.purpose.unwrap_or_default()});
     match crate::mcp::dispatch_tool(&state.app_state, "aruvi_catalog", serde_json::json!({"action":action,"arguments":arguments})).await {
         Ok(result) => (StatusCode::CREATED, Json(result["result"].clone())).into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
@@ -1873,6 +1875,8 @@ pub(crate) struct MobileUpdateHierarchyNode {
     expected_description: String,
     name: String,
     description: String,
+    expected_purpose: Option<String>,
+    purpose: Option<String>,
     expected_acceptance_criteria: Option<String>,
     acceptance_criteria: Option<String>,
     expected_technical_notes: Option<String>,
@@ -1882,14 +1886,15 @@ pub(crate) struct MobileUpdateHierarchyNode {
 pub(crate) async fn mobile_update_hierarchy_node(State(state): State<WebhookState>, headers: HeaderMap, Path(product_id): Path<String>, Json(body): Json<MobileUpdateHierarchyNode>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     if body.name.trim().is_empty() || body.name.len() > 200 { return (StatusCode::BAD_REQUEST, "Name must contain 1 to 200 characters").into_response(); }
+    if body.expected_purpose.is_some() != body.purpose.is_some() { return (StatusCode::BAD_REQUEST, "Expected purpose is required").into_response(); }
     if body.expected_acceptance_criteria.is_some() != body.acceptance_criteria.is_some() || body.expected_technical_notes.is_some() != body.technical_notes.is_some() {
         return (StatusCode::BAD_REQUEST, "Expected values are required for capability details").into_response();
     }
     let result = match body.node_type.as_str() {
         "product_area" if body.acceptance_criteria.is_none() && body.technical_notes.is_none() =>
-            sqlx::query("UPDATE product_areas SET name=?,description=?,updated_at=datetime('now') WHERE id=? AND product_id=? AND name=? AND description=?")
-                .bind(body.name.trim()).bind(&body.description).bind(&body.id).bind(&product_id).bind(&body.expected_name).bind(&body.expected_description).execute(&state.app_state.db).await,
-        "capability" =>
+            sqlx::query("UPDATE product_areas SET name=?,description=?,purpose=COALESCE(?,purpose),updated_at=datetime('now') WHERE id=? AND product_id=? AND name=? AND description=? AND (? IS NULL OR purpose=?)")
+                .bind(body.name.trim()).bind(&body.description).bind(&body.purpose).bind(&body.id).bind(&product_id).bind(&body.expected_name).bind(&body.expected_description).bind(&body.expected_purpose).bind(&body.expected_purpose).execute(&state.app_state.db).await,
+        "capability" if body.purpose.is_none() =>
             sqlx::query("UPDATE capabilities SET name=?,description=?,acceptance_criteria=COALESCE(?,acceptance_criteria),technical_notes=COALESCE(?,technical_notes),updated_at=datetime('now') WHERE id=? AND product_area_id IN (SELECT id FROM product_areas WHERE product_id=?) AND name=? AND description=? AND (? IS NULL OR acceptance_criteria=?) AND (? IS NULL OR technical_notes=?)")
                 .bind(body.name.trim()).bind(&body.description).bind(&body.acceptance_criteria).bind(&body.technical_notes).bind(&body.id).bind(&product_id).bind(&body.expected_name).bind(&body.expected_description).bind(&body.expected_acceptance_criteria).bind(&body.expected_acceptance_criteria).bind(&body.expected_technical_notes).bind(&body.expected_technical_notes).execute(&state.app_state.db).await,
         _ => return (StatusCode::BAD_REQUEST, "Unsupported hierarchy node type or details").into_response(),

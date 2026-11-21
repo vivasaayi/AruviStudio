@@ -102,7 +102,9 @@ product actions still need comparison.
 
 #### Product hierarchy details
 
-The desktop capability/feature editor exposes acceptance criteria and technical
+The browser now also supports the desktop product-area purpose field during
+creation and editing, with expected-value conflict checks. The desktop
+capability/feature editor exposes acceptance criteria and technical
 notes in addition to name and description. The browser tree editor now exposes
 those two fields, with product scoping and expected-value checks; older clients
 can still update only name and description without clearing the new fields. A
