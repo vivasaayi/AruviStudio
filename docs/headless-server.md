@@ -527,8 +527,10 @@ as `expected` to `update_repository`, along with its `id`, `name`, `local_path`,
 `remote_url`, and `default_branch`. A changed snapshot is rejected. Path,
 remote, or branch changes are blocked while an associated workflow or CLI run is
 active; inherited work-item branches are updated with the workspace. The web
-Workspaces screen provides the same operation. Paths refer to the Studio server,
-not the browser's computer.
+Workspaces screen provides the same operation; a changed browser path must be
+an accessible Git working repository. Paths refer to the Studio server, not the
+browser's computer. The desktop and MCP commands retain their existing path
+validation behavior.
 
 For workspace files, `aruvi_repositories.read_repository_file` returns the
 current `workspace_root` as well as the file content. Pass that value as

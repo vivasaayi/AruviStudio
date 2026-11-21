@@ -16,7 +16,9 @@ provider hosting into the model-host service as part of this work.
 
 Browser Workspaces and `aruvi_repositories.update_repository` now share the
 desktop backend operation for name, path, remote URL and default branch updates.
-Both remote interfaces require a repository snapshot and reject stale changes;
+A changed browser path must be an accessible Git working repository, matching
+the browser registration constraint; MCP and desktop retain their existing path
+validation. Both remote interfaces require a repository snapshot and reject stale changes;
 the desktop command remains compatible without one. Workspace changes and
 inherited work-item branch updates commit together. Active/paused workflows or
 running CLI operations associated with the workspace block path, remote or
@@ -33,8 +35,10 @@ rejection of an open file save after changing its workspace path. The same
 fixture ran the new remote Playwright case on a native server. A Rust endpoint
 test and existing native editor, Copilot and root-guard fixtures passed. The
 native server and frontend build passed, as did all 128 frontend tests and 327
-Rust library tests (seven ignored). The clean ARM64 image and both hosted test
-runs passed for `a797d7d`, but its isolated Linux browser suite found an
+Rust library tests (seven ignored) at `a797d7d`. The later changed-path Git
+validation passed the focused Rust and native browser/MCP tests, including
+non-Git and bare repositories; its full hosted checks remain pending. The clean
+ARM64 image and both hosted test runs passed for `a797d7d`, but its isolated Linux browser suite found an
 ambiguous workspace-name label in an existing registration test: 44 passed,
 one skipped and one failed. The initial replacement label still contained the
 registration label as a substring, which the existing Playwright selector

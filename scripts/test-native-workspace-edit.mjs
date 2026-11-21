@@ -26,6 +26,13 @@ try {
   const task2=await result('aruvi_work_items','create_work_item',{product_id:product.id,title:'Custom branch',work_item_type:'task'});
   const py=(program,...args)=>execFileSync('python3',['-c',program,db,...args],{encoding:'utf8'}).trim();
   py('import sqlite3,sys\nc=sqlite3.connect(sys.argv[1]); c.execute("UPDATE work_items SET active_repo_id=?,branch_name=? WHERE id=?",(sys.argv[2],"main",sys.argv[3])); c.execute("UPDATE work_items SET active_repo_id=?,branch_name=? WHERE id=?",(sys.argv[2],"custom",sys.argv[4])); c.commit()',repo.id,task1.id,task2.id);
+  const nonGit=join(root,'not-a-repository'); await mkdir(nonGit);
+  const rejectedPath=await fetch(base+`/api/mobile/repositories/${encodeURIComponent(repo.id)}/update`,{method:'POST',headers,body:JSON.stringify({expected:repo,fields:{name:repo.name,local_path:nonGit,remote_url:repo.remote_url,default_branch:repo.default_branch}})});
+  assert.equal(rejectedPath.status,400);
+  const bare=join(root,'bare.git'); execFileSync('git',['init','-q','--bare',bare]);
+  const rejectedBare=await fetch(base+`/api/mobile/repositories/${encodeURIComponent(repo.id)}/update`,{method:'POST',headers,body:JSON.stringify({expected:repo,fields:{name:repo.name,local_path:bare,remote_url:repo.remote_url,default_branch:repo.default_branch}})});
+  assert.equal(rejectedBare.status,400);
+
   const update={id:repo.id,name:'MCP updated',local_path:paths[0],remote_url:'',default_branch:'develop',expected:repo};
   assert((await call('aruvi_repositories','update_repository',{...update,expected:undefined})).isError);
   assert((await call('aruvi_repositories','update_repository',{...update,local_path:paths[1]})).isError);

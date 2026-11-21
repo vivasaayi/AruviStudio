@@ -315,6 +315,7 @@ async fn workspace_edits_are_atomic_conflict_aware_and_block_active_work() {
     settings_repo::set_setting(&state.db, "mobile.api_token", "edit-token").await.unwrap();
     let router = build_webhook_router(state.clone());
     let first = tempfile::tempdir().unwrap(); let second = tempfile::tempdir().unwrap();
+    let non_git = tempfile::tempdir().unwrap(); git2::Repository::init(second.path()).unwrap();
     let first_root = first.path().canonicalize().unwrap().to_string_lossy().into_owned();
     let second_root = second.path().canonicalize().unwrap().to_string_lossy().into_owned();
     let repository = crate::persistence::repository_repo::create_repository(&state.db, "edit-repo", "Original", &first_root, "", "main").await.unwrap();
@@ -328,6 +329,8 @@ async fn workspace_edits_are_atomic_conflict_aware_and_block_active_work() {
     let fields = json!({"name":"Edited", "local_path":first_root, "remote_url":"", "default_branch":"develop"});
     let body = json!({"expected":expected,"fields":fields}); let uri="/api/mobile/repositories/edit-repo/update";
     assert_eq!(send_json(&router, Method::POST, uri, None, Some(body.clone())).await.0, StatusCode::UNAUTHORIZED);
+    let mut invalid_path=body.clone(); invalid_path["fields"]["local_path"]=json!(non_git.path());
+    assert_eq!(send_json(&router, Method::POST, uri, Some("edit-token"), Some(invalid_path)).await.0, StatusCode::BAD_REQUEST);
     let mut duplicate=body.clone(); duplicate["fields"]["local_path"]=json!(second_root);
     assert_eq!(send_json(&router, Method::POST, uri, Some("edit-token"), Some(duplicate)).await.0, StatusCode::BAD_REQUEST);
     workflow_repo::create_workflow_run(&state.db, "edit-active", item_id).await.unwrap();

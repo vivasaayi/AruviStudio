@@ -1448,6 +1448,12 @@ pub(crate) struct MobileWorkspaceEdit { expected: crate::domain::repository::Rep
 pub(crate) async fn mobile_update_repository(State(state): State<WebhookState>, headers: HeaderMap, Path(id): Path<String>, Json(body): Json<MobileWorkspaceEdit>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     let fields = body.fields;
+    if fields.local_path.trim() != body.expected.local_path {
+        let path = std::path::Path::new(fields.local_path.trim());
+        if !path.is_absolute() || !matches!(git2::Repository::open(path), Ok(repository) if !repository.is_bare()) {
+            return (StatusCode::BAD_REQUEST, "A changed path must be an accessible Git working repository on the server").into_response();
+        }
+    }
     match crate::commands::repository_commands::update_repository_for_state(&state.app_state, id, fields.name, fields.local_path, fields.remote_url, fields.default_branch, Some(body.expected)).await {
         Ok(Some(repository)) => Json(repository).into_response(),
         Ok(None) => (StatusCode::CONFLICT, "Workspace changed or was removed. Refresh before saving.").into_response(),

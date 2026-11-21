@@ -345,6 +345,8 @@ these checks. This is not a claim of complete artifact-format parity.
 Browser Workspaces and `aruvi_repositories.update_repository` can update the
 name, server path, remote URL and default branch using an expected repository
 snapshot. The existing desktop command uses the same backend without a snapshot.
+A changed browser path must identify an accessible Git working repository, as
+required by browser registration; desktop and MCP retain their prior path rules.
 The update checks duplicate paths and commits the workspace and inherited
 work-item branch updates in one SQLite transaction. Changes to path, branch or
 remote are rejected when an associated workflow is running or paused, or a CLI
