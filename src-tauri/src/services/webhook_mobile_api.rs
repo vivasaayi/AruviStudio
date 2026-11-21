@@ -290,6 +290,77 @@ pub(crate) async fn mobile_update_bridge_bind(State(state): State<WebhookState>,
     }
 }
 
+fn bridge_token_key(kind: &str) -> Option<(&'static str, &'static str)> {
+    match kind {
+        "mobile" => Some(("mobile.api_token", "ARUVI_MOBILE_API_TOKEN")),
+        "mcp" => Some(("mcp.api_token", "ARUVI_MCP_API_TOKEN")),
+        _ => None,
+    }
+}
+
+// Keep token snapshots opaque and scoped to this process and token kind.
+fn bridge_token_revision(kind: &str, value: Option<&str>) -> String {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    static KEY: std::sync::OnceLock<uuid::Uuid> = std::sync::OnceLock::new();
+    let mut mac = Hmac::<Sha256>::new_from_slice(KEY.get_or_init(uuid::Uuid::new_v4).as_bytes()).expect("HMAC accepts keys of any length");
+    mac.update(kind.as_bytes());
+    match value { Some(value) => { mac.update(&[1]); mac.update(value.as_bytes()); }, None => mac.update(&[0]) }
+    format!("{:x}", mac.finalize().into_bytes())
+}
+
+fn bridge_token_view(kind: &str, value: Option<&str>, env_key: &str) -> serde_json::Value {
+    serde_json::json!({"revision":bridge_token_revision(kind, value),
+        "saved_configured":value.is_some_and(|v| !v.trim().is_empty()),
+        "environment_override":std::env::var(env_key).is_ok()})
+}
+
+#[derive(Deserialize)]
+pub(crate) struct BridgeTokenUpdate {
+    kind: String,
+    expected_revision: String,
+    action: String,
+    token: Option<String>,
+}
+
+pub(crate) async fn mobile_bridge_tokens(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let mut result = serde_json::Map::new();
+    for kind in ["mobile", "mcp"] {
+        let (key, env) = bridge_token_key(kind).expect("known token kind");
+        let value = match settings_repo::get_setting(&state.app_state.db, key).await {
+            Ok(value) => value, Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Bridge token settings are unavailable").into_response(),
+        };
+        result.insert(kind.into(), bridge_token_view(kind, value.as_deref(), env));
+    }
+    Json(result).into_response()
+}
+
+pub(crate) async fn mobile_update_bridge_token(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<BridgeTokenUpdate>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let Some((key, env)) = bridge_token_key(&body.kind) else { return (StatusCode::BAD_REQUEST, "Invalid bridge token kind").into_response(); };
+    let next = match (body.action.as_str(), body.token.as_deref()) {
+        ("replace", Some(value)) if !value.is_empty() && value.len() <= 1024 && value.bytes().all(|b| (0x21..=0x7e).contains(&b)) => value,
+        ("clear", None) => "",
+        _ => return (StatusCode::BAD_REQUEST, "Invalid bridge token action or value").into_response(),
+    };
+    let previous = match settings_repo::get_setting(&state.app_state.db, key).await {
+        Ok(value) => value, Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Bridge token settings are unavailable").into_response(),
+    };
+    if bridge_token_revision(&body.kind, previous.as_deref()) != body.expected_revision {
+        return (StatusCode::CONFLICT, "Bridge token changed. Reload before saving.").into_response();
+    }
+    let result = match previous {
+        Some(previous) => sqlx::query("UPDATE settings SET value=?,updated_at=datetime('now') WHERE key=? AND value=?").bind(next).bind(key).bind(previous).execute(&state.app_state.db).await,
+        None => sqlx::query("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO NOTHING").bind(key).bind(next).execute(&state.app_state.db).await,
+    };
+    match result {
+        Ok(result) if result.rows_affected() == 1 => Json(bridge_token_view(&body.kind, Some(next), env)).into_response(),
+        Ok(_) => (StatusCode::CONFLICT, "Bridge token changed. Reload before saving.").into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Bridge token could not be saved").into_response(),
+    }
+}
+
 pub(crate) async fn mobile_database_settings(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     let db = &state.app_state;

@@ -1109,6 +1109,19 @@
                     <div><button type="button" class="secondary" id="bridgeBindLoad">Load bind settings</button> <button type="button" id="bridgeBindSave" disabled>Save bind settings</button></div>
                   </div>
                 </details>
+                <details>
+                  <summary>Manage bridge tokens</summary>
+                  <div class="stack">
+                    <div class="hint">Tokens are write-only here and must use printable ASCII without spaces. Changes apply immediately unless an environment variable overrides the saved token. Clearing the active mobile token disables browser and mobile API access; recovery requires server administration.</div>
+                    <button type="button" class="secondary" id="bridgeTokensLoad">Load token status</button>
+                    <div id="bridgeMobileTokenStatus" class="hint">Not loaded</div>
+                    <label>New mobile token <input id="bridgeMobileToken" type="password" autocomplete="new-password" disabled></label>
+                    <div><button type="button" id="bridgeMobileTokenSave" disabled>Replace mobile token</button> <button type="button" class="danger" id="bridgeMobileTokenClear" disabled>Clear mobile token</button></div>
+                    <div id="bridgeMcpTokenStatus" class="hint">Not loaded</div>
+                    <label>New MCP token <input id="bridgeMcpToken" type="password" autocomplete="new-password" disabled></label>
+                    <div><button type="button" id="bridgeMcpTokenSave" disabled>Replace MCP token</button> <button type="button" class="danger" id="bridgeMcpTokenClear" disabled>Clear MCP token</button></div>
+                  </div>
+                </details>
               </div>
             </section>
 
@@ -2259,6 +2272,59 @@
     }
     el.refreshPlannerRepositoriesButton.addEventListener("click", () => void loadPlannerRepositories());
     el.analyzePlannerRepositoryButton.addEventListener("click", () => void analyzePlannerRepository());
+
+    let bridgeTokenSnapshots = null, bridgeTokensBusy = false;
+    const bridgeTokensLoad = document.getElementById("bridgeTokensLoad");
+    const bridgeTokenControls = Object.fromEntries(["mobile", "mcp"].map((kind) => {
+      const label = kind === "mobile" ? "Mobile" : "Mcp";
+      return [kind, { input: document.getElementById(`bridge${label}Token`), status: document.getElementById(`bridge${label}TokenStatus`),
+        save: document.getElementById(`bridge${label}TokenSave`), clear: document.getElementById(`bridge${label}TokenClear`) }];
+    }));
+    function setBridgeTokensBusy(busy) {
+      bridgeTokensBusy = busy; bridgeTokensLoad.disabled = busy;
+      Object.values(bridgeTokenControls).forEach((item) => { item.input.disabled = busy || !bridgeTokenSnapshots; item.save.disabled = busy || !bridgeTokenSnapshots; item.clear.disabled = busy || !bridgeTokenSnapshots; });
+    }
+    function renderBridgeTokenStatus(kind) {
+      const item = bridgeTokenControls[kind], snapshot = bridgeTokenSnapshots[kind];
+      item.status.textContent = `${kind === "mcp" ? "MCP" : "Mobile"} saved token: ${snapshot.saved_configured ? "configured" : "not configured"}. ${snapshot.environment_override ? "An environment variable overrides the saved token." : "The saved token controls access."}`;
+    }
+    bridgeTokensLoad.addEventListener("click", async () => {
+      if (bridgeTokensBusy || (Object.values(bridgeTokenControls).some((item) => item.input.value) && !confirm("Discard entered tokens and reload status?"))) return;
+      setBridgeTokensBusy(true);
+      try {
+        bridgeTokenSnapshots = await request("/api/mobile/bridge-tokens");
+        for (const kind of ["mobile", "mcp"]) { bridgeTokenControls[kind].input.value = ""; renderBridgeTokenStatus(kind); }
+        bridgeTokensLoad.textContent = "Discard and reload token status";
+        setStatus("Bridge token status loaded", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { setBridgeTokensBusy(false); }
+    });
+    async function updateBridgeToken(kind, action) {
+      if (bridgeTokensBusy || !bridgeTokenSnapshots) return;
+      const item = bridgeTokenControls[kind], snapshot = bridgeTokenSnapshots[kind], token = item.input.value;
+      if (action === "replace" && !token) { setStatus("Enter a new token", "error"); return; }
+      const warning = snapshot.environment_override ? "The environment currently overrides the saved token." :
+        kind === "mobile" ? (action === "clear" ? "This immediately disables browser access until an administrator configures a token." : "This immediately changes the browser and mobile credential.") : "This immediately changes MCP access.";
+      if (!confirm(`${action === "clear" ? "Clear" : "Replace"} the ${kind.toUpperCase()} token? ${warning}`)) return;
+      setBridgeTokensBusy(true);
+      try {
+        const body = { kind, expected_revision: snapshot.revision, action };
+        if (action === "replace") body.token = token;
+        const result = await request("/api/mobile/bridge-tokens", { method: "POST", body });
+        bridgeTokenSnapshots[kind] = result;
+        if (kind === "mobile" && !result.environment_override) {
+          el.tokenInput.value = action === "replace" ? token : "";
+          if (action === "replace") localStorage.setItem(storageKeys.token, token); else localStorage.removeItem(storageKeys.token);
+        }
+        item.input.value = ""; renderBridgeTokenStatus(kind);
+        setStatus(result.environment_override ? "Saved token updated; the environment still takes precedence." : "Bridge token updated", "ok");
+      } catch (error) { setStatus((error.message || String(error)) + " If the request was interrupted, the token may have changed; check before retrying.", "error"); }
+      finally { setBridgeTokensBusy(false); }
+    }
+    for (const kind of ["mobile", "mcp"]) {
+      bridgeTokenControls[kind].save.addEventListener("click", () => void updateBridgeToken(kind, "replace"));
+      bridgeTokenControls[kind].clear.addEventListener("click", () => void updateBridgeToken(kind, "clear"));
+    }
 
     let bridgeBindSnapshot = null, bridgeBindBusy = false, bridgeBindDirty = false;
     const bridgeBindHost = document.getElementById("bridgeBindHost"), bridgeBindPort = document.getElementById("bridgeBindPort");

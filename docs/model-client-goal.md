@@ -5802,3 +5802,24 @@ authorization, PDF and persistence acceptance after restart, browser MCP-origin
 checks and a real local 7B MCP coding request. A checked database backup and
 the previous image are retained. The Docker VM still had approximately 2.3 GiB
 free; integration, staging and full desktop parity remain unverified.
+
+## Browser bridge token administration
+
+Activity now exposes write-only replacement and clearing for saved mobile and
+MCP tokens. The authenticated API returns only configuration flags and opaque,
+process-local keyed revisions; compare-and-swap rejects stale changes. Token
+changes take effect immediately unless an environment token overrides them. A
+browser replacing its active saved mobile token switches to the new credential;
+clearing it disables browser/mobile access until an administrator configures a
+token externally. The form warns before both actions and preserves a draft on a
+conflict or request error. A response interrupted after a successful write can
+leave the new credential active. Revisions are process-local and value-based;
+they do not detect an A-to-B-to-A change, and another process or restart requires
+a reload. Generic desktop/MCP setting operations still expose stored values.
+
+A disposable native server and headless browser verified conflict preservation,
+environment-provided MCP credential precedence, active mobile token rotation,
+old-token rejection, persistence after restart, access removal on clear and
+recovery using an environment token. The Rust library suite
+passed 307 tests with seven ignored; frontend build and terminology checks
+passed. The branch image must be rebuilt and validated before this is deployed.

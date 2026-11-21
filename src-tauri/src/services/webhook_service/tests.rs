@@ -288,6 +288,54 @@ async fn remote_workspace_registration_is_authenticated_and_idempotent() {
 }
 
 #[tokio::test]
+async fn remote_bridge_tokens_are_write_only_conflict_aware_and_rotate_auth() {
+    let app: tauri::App<MockRuntime> = make_test_app("remote_bridge_tokens").await;
+    let state = app.state::<AppState>().inner().clone();
+    let old_mobile = "synthetic-mobile-old";
+    let old_mcp = "synthetic-mcp-old";
+    settings_repo::set_setting(&state.db, "mobile.api_token", old_mobile).await.unwrap();
+    settings_repo::set_setting(&state.db, "mcp.api_token", old_mcp).await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let uri = "/api/mobile/bridge-tokens";
+    assert_eq!(send_json(&router, Method::GET, uri, None, None).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router, Method::POST, uri, None, Some(json!({"kind":"mcp","expected_revision":"stale","action":"clear"}))).await.0, StatusCode::UNAUTHORIZED);
+    let (_, body) = send_json(&router, Method::GET, uri, Some(old_mobile), None).await;
+    assert!(!body.contains(old_mobile) && !body.contains(old_mcp));
+    let initial = parse_json(&body);
+    let revision = initial["mcp"]["revision"].as_str().unwrap();
+    for invalid in ["", "has space", "not-ascii-λ", "line\nbreak"] {
+        let request = json!({"kind":"mcp","expected_revision":revision,"action":"replace","token":invalid});
+        assert_eq!(send_json(&router, Method::POST, uri, Some(old_mobile), Some(request)).await.0, StatusCode::BAD_REQUEST);
+    }
+    settings_repo::set_setting(&state.db, "mcp.api_token", "synthetic-mcp-other").await.unwrap();
+    let stale = json!({"kind":"mcp","expected_revision":revision,"action":"replace","token":"synthetic-mcp-next"});
+    assert_eq!(send_json(&router, Method::POST, uri, Some(old_mobile), Some(stale)).await.0, StatusCode::CONFLICT);
+    let (_, body) = send_json(&router, Method::GET, uri, Some(old_mobile), None).await;
+    let revision = parse_json(&body)["mcp"]["revision"].as_str().unwrap().to_string();
+    let first = send_json(&router, Method::POST, uri, Some(old_mobile), Some(json!({"kind":"mcp","expected_revision":revision,"action":"replace","token":"synthetic-mcp-one"})));
+    let second = send_json(&router, Method::POST, uri, Some(old_mobile), Some(json!({"kind":"mcp","expected_revision":revision,"action":"replace","token":"synthetic-mcp-two"})));
+    let (first, second) = tokio::join!(first, second);
+    assert!((first.0 == StatusCode::OK && second.0 == StatusCode::CONFLICT) || (second.0 == StatusCode::OK && first.0 == StatusCode::CONFLICT));
+    assert!(!first.1.contains("synthetic-mcp-one") && !second.1.contains("synthetic-mcp-two"));
+    let current_mcp = settings_repo::get_setting(&state.db, "mcp.api_token").await.unwrap().unwrap();
+    let ping = json!({"jsonrpc":"2.0","id":1,"method":"ping"});
+    assert_eq!(send_json(&router, Method::POST, "/api/mcp", Some(old_mcp), Some(ping.clone())).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router, Method::POST, "/api/mcp", Some(&current_mcp), Some(ping)).await.0, StatusCode::OK);
+    let (_, body) = send_json(&router, Method::GET, uri, Some(old_mobile), None).await;
+    let mobile_revision = parse_json(&body)["mobile"]["revision"].as_str().unwrap().to_string();
+    let next_mobile = "synthetic-mobile-new";
+    let rotate = json!({"kind":"mobile","expected_revision":mobile_revision,"action":"replace","token":next_mobile});
+    let (status, body) = send_json(&router, Method::POST, uri, Some(old_mobile), Some(rotate)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!body.contains(next_mobile));
+    assert_eq!(send_json(&router, Method::GET, uri, Some(old_mobile), None).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router, Method::GET, uri, Some(next_mobile), None).await.0, StatusCode::OK);
+    let clear = json!({"kind":"mobile","expected_revision":parse_json(&body)["revision"],"action":"clear"});
+    assert_eq!(send_json(&router, Method::POST, uri, Some(next_mobile), Some(clear)).await.0, StatusCode::OK);
+    assert_eq!(send_json(&router, Method::GET, uri, Some(next_mobile), None).await.0, StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
 async fn remote_bridge_bind_requires_auth_and_rejects_conflicts_atomically() {
     let app: tauri::App<MockRuntime> = make_test_app("remote_bridge_bind").await;
     let state = app.state::<AppState>().inner().clone();

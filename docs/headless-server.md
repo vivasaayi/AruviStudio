@@ -555,7 +555,25 @@ bridge status reports the configured source, and a stale browser edit is rejecte
 if either saved setting changed since it was loaded. For Docker, the bind is
 inside the container; configure published host ports separately in the product
 environment. Choose a local address and available port that will remain
-reachable after restart. This form does not configure or reveal bridge tokens.
+reachable after restart.
+
+Activity's **Manage bridge tokens** can replace or clear saved mobile and MCP
+tokens. The form does not reveal saved values; use printable ASCII without
+spaces. Token changes apply immediately unless the matching environment variable
+is present, in which case it remains authoritative. When an active saved mobile
+token is replaced, the browser switches its connection credential to the new
+value. Clearing it disables browser/mobile API access until an administrator
+configures a token outside the browser. If a token update is interrupted, the
+server may have applied it: check the new credential before retrying. Generic
+desktop and MCP settings access retain their existing ability to read stored
+values. The browser token revision is process-local and value-based: a restart,
+different server process or an A-to-B-to-A change has the limitations described
+in the parity audit.
+The authenticated `/api/mobile/bridge-tokens` endpoint returns configuration
+flags and opaque revisions, not token values. A POST supplies the token kind,
+expected revision, action and, for replacement, the new token; stale updates
+return HTTP 409. Run `bash scripts/test native-bridge-tokens <server-binary> --browser-executable <chrome-path>`
+to verify rotation and restart with temporary credentials and data.
 
 The equivalent authenticated mobile API is `GET /api/mobile/bridge-bind` and
 `POST /api/mobile/bridge-bind` with `host`, `port` and the two-element `expected`

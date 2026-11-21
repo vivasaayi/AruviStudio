@@ -6,6 +6,57 @@ import { createHmac } from "node:crypto";
 const token = process.env.ARUVI_MOBILE_API_TOKEN;
 const mcpToken = process.env.ARUVI_MCP_API_TOKEN;
 
+test("browser rotates bridge tokens without exposing saved values", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_TEST_BRIDGE_TOKEN_ROTATION !== "1", "Requires disposable server with saved mobile token");
+  const next = process.env.ARUVI_TEST_NEW_MOBILE_TOKEN;
+  const nextMcp = process.env.ARUVI_TEST_NEW_MCP_TOKEN;
+  const headers = { Authorization: `Bearer ${token}` };
+  const before = await (await request.get("/api/mobile/bridge-tokens", { headers })).text();
+  expect(before).not.toContain(token);
+  expect(before).not.toContain(mcpToken);
+  expect(JSON.parse(before).mobile.environment_override).toBe(false);
+  expect(JSON.parse(before).mcp.environment_override).toBe(true);
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(token);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Activity", exact: true }).click();
+  await page.getByText("Manage bridge tokens", { exact: true }).click();
+  await page.getByRole("button", { name: "Load token status" }).click();
+  await expect(page.locator("#status")).toHaveText("Bridge token status loaded");
+  await expect(page.locator("#bridgeMcpTokenStatus")).toContainText("environment variable overrides");
+  await page.locator("#bridgeMcpToken").fill(nextMcp);
+  const changed = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` },
+    data: { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "aruvi_settings", arguments: { action: "set_setting", arguments: { key: "mcp.api_token", value: `${nextMcp}-concurrent` } } } } });
+  expect((await changed.json()).result.isError).not.toBeTruthy();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Replace MCP token" }).click();
+  await expect(page.locator("#status")).toContainText("Bridge token changed");
+  await expect(page.locator("#bridgeMcpToken")).toHaveValue(nextMcp);
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Discard and reload token status" }).click();
+  await expect(page.locator("#bridgeMcpToken")).toHaveValue("");
+  await page.locator("#bridgeMcpToken").fill(nextMcp);
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Replace MCP token" }).click();
+  await expect(page.locator("#status")).toContainText("environment still takes precedence");
+  await expect(page.locator("#bridgeMcpToken")).toHaveValue("");
+  const ping = { jsonrpc: "2.0", id: 1, method: "ping" };
+  expect((await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` }, data: ping })).status()).toBe(200);
+  expect((await request.post("/api/mcp", { headers: { Authorization: `Bearer ${nextMcp}` }, data: ping })).status()).toBe(401);
+  await page.locator("#bridgeMobileToken").fill(next);
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Replace mobile token" }).click();
+  await expect(page.locator("#status")).toHaveText("Bridge token updated");
+  await expect(page.locator("#bridgeMobileToken")).toHaveValue("");
+  await expect(page.locator("#tokenInput")).toHaveValue(next);
+  expect((await request.get("/api/mobile/bridge-tokens", { headers })).status()).toBe(401);
+  const after = await request.get("/api/mobile/bridge-tokens", { headers: { Authorization: `Bearer ${next}` } });
+  expect(after.ok()).toBeTruthy();
+  const text = await after.text();
+  expect(text).not.toContain(next);
+  expect(text).not.toContain(nextMcp);
+});
+
 test("browser configures bridge bind with conflict protection", async ({ page, request }) => {
   test.skip(!token || !mcpToken || process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable server");
   const headers = { Authorization: `Bearer ${token}` };
