@@ -2523,3 +2523,50 @@ test("browser Twilio settings mask credentials and reject stale rotation", async
   expect(unsafe.status()).toBe(409);
   expect(await unsafe.text()).not.toContain("private-legacy-secret");
 });
+
+test("browser continuous voice conversation uses Studio transcription and chat", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const created = await request.post("/api/mobile/providers", { headers, data: { name: "Continuous voice fixture", base_url: process.env.ARUVI_TEST_MODEL_URL } });
+  expect(created.ok()).toBeTruthy();
+  const provider = await created.json();
+  const model = await request.post("/api/mobile/models", { headers, data: { provider_id: provider.id, name: "browser-test-model" } });
+  expect(model.ok()).toBeTruthy();
+  await page.addInitScript(() => {
+    window.fixtureVoiceMicCalls = 0; window.fixtureVoiceStops = 0;
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: async () => {
+      window.fixtureVoiceMicCalls++;
+      return { getTracks: () => [{ stop() { window.fixtureVoiceStops++; } }] };
+    } } });
+    window.AudioContext = class {
+      constructor() { this.sampleRate = 16000; this.destination = {}; }
+      createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+      createScriptProcessor() { return { connect() {
+        if (window.fixtureVoiceMicCalls !== 1) return;
+        setTimeout(() => { for (const chunk of [new Float32Array(8000).fill(0.5), new Float32Array(18000)]) this.onaudioprocess({ inputBuffer: { getChannelData: () => chunk }, outputBuffer: { getChannelData: () => new Float32Array(chunk.length) } }); }, 30);
+      }, disconnect() {} }; }
+      async close() {}
+    };
+    window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
+    Object.defineProperty(window, "speechSynthesis", { configurable: true, value: { cancel() {}, speak(utterance) { window.fixtureVoiceFinishSpeech = () => utterance.onend(); } } });
+  });
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#providerInput").fill(provider.id);
+  await page.locator("#modelInput").fill("browser-test-model");
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await expect(page.getByLabel("Transcription provider", { exact: true }).locator(`option[value="${provider.id}"]`)).toHaveCount(1);
+  await page.getByLabel("Transcription provider", { exact: true }).selectOption(provider.id);
+  await page.getByLabel("Transcription model", { exact: true }).fill("synthetic-stt-model");
+  await page.getByLabel("Speech locale", { exact: true }).fill("en-US");
+  await page.getByRole("button", { name: "Start voice conversation" }).click();
+  await expect(page.locator("#voiceConversation")).toContainText("Synthetic microphone transcript");
+  await expect(page.locator("#voiceConversation")).toContainText("Container provider reply");
+  expect(await page.evaluate(() => window.fixtureVoiceMicCalls)).toBe(1);
+  await page.evaluate(() => window.fixtureVoiceFinishSpeech());
+  await expect.poll(() => page.evaluate(() => window.fixtureVoiceMicCalls)).toBe(2);
+  await page.getByRole("button", { name: "End voice conversation" }).click();
+  await expect(page.getByRole("button", { name: "Start voice conversation" })).toBeEnabled();
+  expect(await page.evaluate(() => window.fixtureVoiceStops)).toBe(2);
+});

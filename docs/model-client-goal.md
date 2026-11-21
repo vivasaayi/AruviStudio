@@ -12,6 +12,32 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Continuous browser voice conversation
+
+The browser Voice screen now offers a continuous voice-chat session alongside
+manual recording and transcript review. It records up to 18 seconds per turn,
+detects a speech pause using a fixed audio threshold, transcribes through the
+configured Studio service, submits to chat, and waits for device speech to end
+before listening again. This session explicitly sends transcripts without review
+and targets voice chat, independently of the manual recorder's target and review
+settings. Ending the session or leaving Voice stops capture, aborts pending browser
+requests, cancels browser speech and discards late results; aborting the browser
+request does not prove a model server stopped processing it. A microphone permission
+prompt cannot be cancelled programmatically, so a late stream is closed on return.
+Speech-recognition thresholds, noise and physical devices need real-world testing;
+this does not establish complete desktop voice parity.
+
+A disposable native Studio server, simulated OpenAI-compatible transcription and
+chat provider, and headless Chromium exercised a full turn, reply playback completion,
+restart of listening and cleanup. Nine isolated browser cases cover repeated
+turns, speech waiting, late microphone permission, cancellation during transcription,
+transcription failure, navigation and stopping while speaking. The frontend build,
+128 frontend tests, and Rust library suite (333 passed, seven ignored) passed; the
+full Rust run preceded the final browser-only cancellation adjustment. The new button
+was visually inspected at mobile width without horizontal overflow. Neither fixture
+uses physical audio or a live external provider. The branch image predates this
+checkpoint until a clean image is built, validated and deployed.
+
 ### Desktop Voice Chat transcription configuration
 
 Voice Chat now asks the backend to resolve its transcription provider and
@@ -32,8 +58,9 @@ browser tests and four existing capture tests. The full Rust library suite passe
 333 tests with seven ignored; focused command coverage includes legacy and new
 Tauri IPC payloads and environment precedence.
 These tests do not validate a native desktop window, microphone, speaker or a
-live third-party account. The running branch image predates this checkpoint until
-its clean build and deployment are independently verified.
+live third-party account. Both hosted test runs and the clean ARM64 image build
+passed for `6ebe923`. The running branch image predates this checkpoint until its
+deployment is independently verified.
 
 ### Desktop Planner transcription precedence
 

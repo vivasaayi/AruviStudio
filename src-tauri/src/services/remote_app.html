@@ -868,10 +868,12 @@
                 <textarea id="voiceComposer" placeholder="Voice transcript"></textarea>
                 <div class="button-row">
                   <button id="voiceRecordButton" type="button">Record</button>
+                  <button id="voiceSessionButton" type="button">Start voice conversation</button>
                   <button id="voiceSendButton" type="button">Submit</button>
                   <button class="secondary" id="voiceSpeakToggle" type="button">Speak On</button>
                 </div>
                 <div class="empty" id="voiceMeta">Choose a transcription provider and model, or use server defaults. For DeepSeek voice, use model ID deepseek-voice-transcription; its service detects the language. Record sends WAV audio for transcription; replies can be spoken on this device.</div>
+                <div class="empty">Voice conversation listens for pauses and sends each recognized turn to voice chat without transcript review. End the conversation to stop listening.</div>
               </div>
               <div class="stack">
                 <label><span class="label">Speech generation provider</span><select id="speechProvider"><option value="">Choose a provider</option></select></label>
@@ -1211,6 +1213,8 @@
       busy: false
     };
 
+    let voiceConversationSession = null;
+
     const el = {
       status: document.getElementById("status"),
       healthButton: document.getElementById("healthButton"),
@@ -1505,6 +1509,9 @@
         el.chatSendButton.disabled = true;
         el.sendButton.disabled = true;
       }
+      document.getElementById("voiceSessionButton").disabled = voiceConversationSession
+        ? voiceConversationSession.cancelled
+        : nextBusy || Boolean(state.voiceRecording);
       el.confirmButton.disabled = nextBusy || !state.sessionId;
       el.plannerProductSelect.disabled = nextBusy || plannerProductsLoading || !plannerProductsReady;
       el.voiceTarget.disabled = nextBusy || Boolean(state.voiceRecording);
@@ -1550,6 +1557,7 @@
     }
 
     function switchTab(tabId) {
+      if (tabId !== "voice" && voiceConversationSession) stopVoiceConversation();
       state.activeTab = tabId;
       localStorage.setItem(storageKeys.activeTab, tabId);
       el.tabs.forEach((button) => button.classList.toggle("active", button.dataset.tab === tabId));
@@ -1616,7 +1624,8 @@
           "Content-Type": "application/json",
           "Authorization": "Bearer " + token
         },
-        body: options.body === undefined ? undefined : JSON.stringify(options.body)
+        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+        signal: options.signal
       });
       if (!response.ok) {
         const text = await response.text();
@@ -1828,10 +1837,10 @@
       finally { setBusy(false); }
     }
 
-    async function transcribeVoiceBlob(blob) {
+    async function transcribeVoiceBlob(blob, signal) {
       const audio_bytes_base64 = await blobToBase64(blob);
       const response = await request("/api/mobile/speech/transcribe", {
-        method: "POST",
+        method: "POST", signal,
         body: {
           audio_bytes_base64,
           provider_id: el.voiceProvider.value || undefined,
@@ -1931,6 +1940,145 @@
       } finally {
         state.voiceTogglePending = false;
         setBusy(false);
+      }
+    }
+
+    function stopVoiceConversation() {
+      const session = voiceConversationSession;
+      if (!session || session.cancelled) return;
+      session.cancelled = true;
+      session.cancel();
+      session.abort.abort();
+      if (session.stopCapture) session.stopCapture();
+      if (session.finishSpeaking) session.finishSpeaking();
+      if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+      const button = document.getElementById("voiceSessionButton");
+      button.disabled = true;
+      button.textContent = "Stopping…";
+      setVoiceMeta("Stopping voice conversation…");
+    }
+
+    async function captureConversationTurn(session) {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error("Microphone capture is unavailable in this browser.");
+      const pendingStream = navigator.mediaDevices.getUserMedia({ audio: true });
+      pendingStream.then((lateStream) => { if (session.cancelled) lateStream.getTracks().forEach((track) => track.stop()); }, () => {});
+      const stream = await Promise.race([pendingStream, session.cancelledPromise.then(() => null)]);
+      if (!stream) return null;
+      if (session.cancelled) { stream.getTracks().forEach((track) => track.stop()); return null; }
+      session.stopCapture = () => stream.getTracks().forEach((track) => track.stop());
+      let context, source, processor;
+      try {
+        const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextCtor) throw new Error("Audio capture is unavailable in this browser.");
+        try { context = new AudioContextCtor({ sampleRate: 16000 }); }
+        catch { context = new AudioContextCtor(); }
+        if (context.state === "suspended") await Promise.race([context.resume(), session.cancelledPromise]);
+        if (session.cancelled) { session.stopCapture = null; stream.getTracks().forEach((track) => track.stop()); await context.close().catch(() => undefined); return null; }
+        source = context.createMediaStreamSource(stream);
+        processor = context.createScriptProcessor(4096, 1, 1);
+        const chunks = [];
+        let samples = 0, voiced = 0, quiet = 0, heardSpeech = false;
+        const maxSamples = Math.min(600000, Math.floor(context.sampleRate * 18));
+        setVoiceMeta("Listening… Speak and pause when you are done.");
+        return await new Promise((resolve) => {
+          let finished = false;
+          const finish = async (discard = false) => {
+            if (finished) return;
+            finished = true;
+            clearTimeout(timer);
+            session.stopCapture = null;
+            processor.disconnect(); source.disconnect();
+            stream.getTracks().forEach((track) => track.stop());
+            await context.close().catch(() => undefined);
+            resolve(discard || session.cancelled || !heardSpeech ? null : encodeWav(flattenFloat32(chunks), context.sampleRate));
+          };
+          session.stopCapture = () => void finish(true);
+          const timer = setTimeout(() => void finish(false), 18000);
+          processor.onaudioprocess = (event) => {
+            const input = event.inputBuffer.getChannelData(0);
+            const count = Math.min(input.length, maxSamples - samples);
+            if (count > 0) {
+              const chunk = new Float32Array(input.subarray(0, count));
+              chunks.push(chunk); samples += count;
+              let power = 0;
+              for (const value of chunk) power += value * value;
+              if (Math.sqrt(power / count) >= 0.015) { voiced += count; quiet = 0; }
+              else if (heardSpeech) quiet += count;
+              if (voiced >= context.sampleRate * 0.5) heardSpeech = true;
+            }
+            event.outputBuffer.getChannelData(0).fill(0);
+            if (samples >= maxSamples || (heardSpeech && quiet >= context.sampleRate * 1.1)) void finish(false);
+          };
+          try { source.connect(processor); processor.connect(context.destination); }
+          catch (error) { clearTimeout(timer); session.stopCapture = null; throw error; }
+        });
+      } catch (error) {
+        session.stopCapture = null;
+        if (processor) processor.disconnect();
+        if (source) source.disconnect();
+        stream.getTracks().forEach((track) => track.stop());
+        if (context) await context.close().catch(() => undefined);
+        throw error;
+      }
+    }
+
+    async function speakConversationReply(session, text) {
+      if (!state.voiceRepliesEnabled || !text || !("speechSynthesis" in window)) return;
+      await new Promise((resolve) => {
+        let finished = false;
+        const finish = () => { if (!finished) { finished = true; clearTimeout(timer); session.finishSpeaking = null; resolve(); } };
+        const timer = setTimeout(() => { window.speechSynthesis.cancel(); finish(); }, 60000);
+        session.finishSpeaking = finish;
+        try {
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.lang = localStorage.getItem(storageKeys.locale) || "en-US";
+          utterance.onend = finish; utterance.onerror = finish;
+          window.speechSynthesis.cancel(); window.speechSynthesis.speak(utterance);
+        } catch { finish(); }
+      });
+    }
+
+    async function startVoiceConversation() {
+      if (voiceConversationSession || state.busy || state.voiceRecording || state.voiceTogglePending) return;
+      if (!(el.tokenInput.value.trim() || localStorage.getItem(storageKeys.token))) { setVoiceMeta("Connect with a mobile token first."); return; }
+      const session = { cancelled: false, abort: new AbortController(), stopCapture: null, finishSpeaking: null };
+      session.cancelledPromise = new Promise((resolve) => { session.cancel = resolve; });
+      voiceConversationSession = session;
+      const button = document.getElementById("voiceSessionButton");
+      button.textContent = "End voice conversation";
+      setBusy(true);
+      try {
+        while (!session.cancelled) {
+          const audio = await captureConversationTurn(session);
+          if (session.cancelled) break;
+          if (!audio) continue;
+          setVoiceMeta("Transcribing…");
+          const transcript = await transcribeVoiceBlob(audio, session.abort.signal);
+          if (session.cancelled) break;
+          if (!transcript) continue;
+          appendMessage(el.voiceConversation, "user", transcript);
+          setVoiceMeta("Thinking…");
+          const userMessage = { role: "user", content: transcript };
+          const response = await request("/api/mobile/chat/completions", { method: "POST", signal: session.abort.signal, body: {
+            provider_id: el.providerInput.value.trim() || undefined,
+            model_name: el.modelInput.value.trim() || undefined,
+            messages: [{ role: "system", content: "You are Aruvi Studio's mobile voice assistant. Reply conversationally in one or two short sentences for spoken playback." }, ...state.voiceMessages, userMessage],
+            temperature: 0.7, max_tokens: 4096
+          } });
+          if (session.cancelled) break;
+          const reply = (response.content || "").trim();
+          state.voiceMessages = [...state.voiceMessages, userMessage, { role: "assistant", content: reply }].slice(-20);
+          appendMessage(el.voiceConversation, "assistant", reply || "(empty response)");
+          setVoiceMeta("Speaking reply…");
+          await speakConversationReply(session, reply);
+        }
+      } catch (error) {
+        if (!session.cancelled) { setVoiceMeta(error.message || String(error)); setStatus(error.message || String(error), "error"); }
+      } finally {
+        if (voiceConversationSession === session) voiceConversationSession = null;
+        button.disabled = false; button.textContent = "Start voice conversation";
+        setBusy(false);
+        if (session.cancelled) setVoiceMeta("Voice conversation stopped.");
       }
     }
 
@@ -2421,6 +2569,7 @@
     }
 
     async function submitPrompt(mode) {
+      if (voiceConversationSession) return;
       const config = {
         planner: {
           box: el.composer,
@@ -6149,6 +6298,8 @@
     el.voiceReview.addEventListener("change", () => localStorage.setItem(storageKeys.voiceReview, String(el.voiceReview.checked)));
     el.voiceTarget.addEventListener("change", () => { if (el.voiceTarget.value === "planner" && !plannerProductsReady) void loadPlannerProducts(); });
     el.voiceRecordButton.addEventListener("click", () => toggleVoiceRecording());
+    document.getElementById("voiceSessionButton").addEventListener("click", () => { if (voiceConversationSession) stopVoiceConversation(); else void startVoiceConversation(); });
+    window.addEventListener("pagehide", stopVoiceConversation);
     el.voiceSendButton.addEventListener("click", () => submitPrompt("voice"));
     el.generateSpeechButton.addEventListener("click", () => void generateSpeech());
     el.voiceSpeakToggle.addEventListener("click", () => {
