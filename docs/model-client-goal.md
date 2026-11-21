@@ -33,8 +33,14 @@ rejection of an open file save after changing its workspace path. The same
 fixture ran the new remote Playwright case on a native server. A Rust endpoint
 test and existing native editor, Copilot and root-guard fixtures passed. The
 native server and frontend build passed, as did all 128 frontend tests and 327
-Rust library tests (seven ignored). Linux container, branch deployment and
-physical desktop acceptance remain pending.
+Rust library tests (seven ignored). The clean ARM64 image and both hosted test
+runs passed for `a797d7d`, but its isolated Linux browser suite found an
+ambiguous workspace-name label in an existing registration test: 44 passed,
+one skipped and one failed. The edit field now has a distinct accessible label;
+updated native workspace and editor browser fixtures passed, including a check
+that the registration label is unique. A new Linux image and full container
+validation are required before deployment. Physical desktop acceptance remains
+pending.
 
 ### Browser workspace root guard
 
