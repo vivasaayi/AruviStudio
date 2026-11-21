@@ -47,6 +47,23 @@ this is not a binary-level proof or coverage of other manifests. The local SQLx
 patch remains outside cargo-audit's source review. These findings remain open
 release-review items.
 
+### Quiet-hours migration investigation
+
+A native and Linux comparison of chrono 0.4.44 with Jiff 0.2.38 found that
+the proposed replacement is not a drop-in change: with an invalid `TZ`, chrono
+used the machine's configured local zone while Jiff fell back to UTC, and a
+100 ms UTC timestamp formatted with three fractional digits in chrono but one
+in Jiff. Valid New York DST transition examples and the tested hour/minute
+strings agreed. The comparison was limited to those cases and is not a general
+compatibility proof. The dependency has therefore not been replaced.
+
+Quiet-hours evaluation now has native regression coverage for inclusive start,
+exclusive end, midnight crossing, equal or missing boundaries and invalid
+times. A separate process with an explicit POSIX timezone verifies both
+occurrences of 01:30 during fall-back and the spring-forward gap. This protects
+the tested existing behavior; Windows and other timezone configurations remain
+to be validated when selecting a maintained replacement.
+
 ### Database override restart validation
 
 The native fixture now reconstructs a migration-52 database from a freshly
