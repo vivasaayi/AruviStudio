@@ -41,8 +41,15 @@ main-checkout environment changes without changing or clearing that checkout.
 Seven native adapter tests and 17 simulated lifecycle tests passed there, again
 using the existing candidate host binary. The native integration plan preserved
 the legacy service identity; the command was read-only. Review the combined
-branch, build it, and complete integration acceptance before deployment. The
-branch has not been merged, and no running service was changed.
+branch and complete integration acceptance before deployment. A subsequent
+fresh offline macOS ARM64 build of `0336d34` passed ten Rust unit tests and 17
+simulated lifecycle tests. Disposable native and Docker Studio MCP fixtures
+passed with a scoped credential and denied host management. A disposable host
+using the freshly built executable and real `qwen-05b-comparison` CPU model
+passed scoped discovery, management denial, MCP completion, browser API
+streaming and headless browser streaming. This is one text model and does not
+establish deployed integration acceptance. The branch has not been merged,
+and no running service was changed.
 
 ### Studio inference-credential opt-in
 
