@@ -4039,6 +4039,18 @@ fixture's default remains the separate 15B model. The validation host still
 uses a management-capable token, and its dynamically assigned port can change
 after a restart.
 
+## Shared transport factory
+
+The shared client exposes `GatewayConfig` and `create_gateway` for explicit
+OpenAI-compatible, Anthropic and DeepSeek voice transport construction. Studio
+now uses that factory for its text gateways while retaining application-specific
+validation, credential resolution and provider settings. The config type does
+not implement Debug or serialization. The client suite passed 63 tests, the
+native Studio suite passed 267 with seven ignored, and all 51 isolated browser
+and MCP workflow checks passed. The rebuilt branch passed real 7B coding and
+token-limit checks and synthetic Piper/Whisper speech through MCP. The factory's
+new public API still needs an independent Git consumer pin update and check.
+
 ## Coding final-response guidance
 
 A real 7B extend-module workflow removed the existing exports and put corrected

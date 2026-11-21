@@ -162,6 +162,14 @@ language hint, unsupported output formats, speed and unknown voices instead of
 silently applying them. Studio retains its existing behavior of omitting the
 browser locale for DeepSeek transcription, whose service detects the language.
 
+Use `create_gateway` with `GatewayConfig::OpenAiCompatible`, `::Anthropic`, or
+`::DeepSeekVoice` to construct a provider-independent `Box<dyn ModelGateway>`.
+The caller explicitly supplies the endpoint, credential, timeouts and any
+OpenAI-compatible request options. Configuration is neither serialized nor
+debug-formatted by the library, and the caller remains responsible for its own
+credential storage. Provider capabilities describe transport support, not the
+capabilities of every model hosted by that provider.
+
 Use `Box<dyn ModelGateway>` when a caller needs to switch providers without
 matching on concrete client types. Its methods cover text completion, opt-in
 JSON-object completion, text streaming, model discovery, remote transcription

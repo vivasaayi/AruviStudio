@@ -3,8 +3,8 @@ use crate::error::AppError;
 use crate::providers::gateway::ModelGateway;
 use crate::providers::types::{CompletionRequest, CompletionResponse};
 use crate::secrets;
-use aruvi_model_client::{anthropic::AnthropicClient, openai_compatible::{OpenAiCompatibleClient, CompletionOptions, TemperatureMode, TokenLimitField, TranscriptionLanguageMode}};
-use aruvi_model_client::{ClientOptions, ModelGateway as SharedModelGateway};
+use aruvi_model_client::openai_compatible::{CompletionOptions, TemperatureMode, TokenLimitField, TranscriptionLanguageMode};
+use aruvi_model_client::{ClientOptions, GatewayConfig, ModelGateway as SharedModelGateway};
 use async_trait::async_trait;
 use sqlx::SqlitePool;
 use std::{sync::Arc, time::Duration};
@@ -175,21 +175,17 @@ fn create_transport_configured(provider: &ModelProvider, api_key: Option<String>
     crate::persistence::model_repo::validate_completion_profile(provider.provider_type.as_str(), &provider.protocol, &provider.completion_profile)?;
     match provider.protocol.as_str() {
         "openai_compatible" => {
-            let client = OpenAiCompatibleClient::with_options(provider.base_url.clone(), api_key, options)
-                .map_err(|error| AppError::Validation(error.to_string()))?;
             let completion_options = match provider.completion_profile.as_str() {
                 "standard" => CompletionOptions::default(),
                 "openai_reasoning" => CompletionOptions { token_limit_field: TokenLimitField::MaxCompletionTokens, temperature: TemperatureMode::Omit },
                 _ => return Err(AppError::Validation("Unsupported provider completion profile".into())),
             };
-            Ok(Box::new(client.with_completion_options(completion_options).with_stream_usage(include_stream_usage).with_transcription_language_mode(transcription_mode)))
+            aruvi_model_client::create_gateway(GatewayConfig::OpenAiCompatible { base_url: provider.base_url.clone(), api_key, options, completion: completion_options, stream_usage: include_stream_usage, transcription_language: transcription_mode }).map_err(|error| AppError::Validation(error.to_string()))
         },
         "anthropic" => {
             let key = api_key
                 .ok_or_else(|| AppError::Validation("Anthropic API key is required".into()))?;
-            let client = AnthropicClient::with_options(provider.base_url.clone(), key, options)
-                .map_err(|error| AppError::Validation(error.to_string()))?;
-            Ok(Box::new(client))
+            aruvi_model_client::create_gateway(GatewayConfig::Anthropic { base_url: provider.base_url.clone(), api_key: key, options }).map_err(|error| AppError::Validation(error.to_string()))
         }
         protocol => Err(AppError::Validation(format!(
             "Unsupported provider protocol: {protocol}"
