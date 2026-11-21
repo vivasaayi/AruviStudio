@@ -4092,3 +4092,10 @@ no corresponding template resolution path. Implementing template behavior and
 defining compatibility for existing references remain open. The frontend build
 passed and the rebuilt worktree app and PDF sidecar were healthy at the newly
 assigned port `55079`; the UI text itself was not separately browser-tested.
+
+The current branch's native desktop binary and macOS debug app bundle built on
+2026-11-20. An isolated data directory and profile were used to start it, but
+the Mac console reported locked and the computer interface returned
+`cgWindowNotFound`; native-window acceptance was not performed. The fixture
+processes were stopped and their temporary data directory removed. A successful
+build is not evidence of native interaction or physical audio parity.
