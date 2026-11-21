@@ -12,6 +12,15 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Native real-browser PDF tests
+
+At `806ee55`, the three ignored PDF tests were run explicitly on macOS with
+the installed Chrome and local Playwright: desktop PDF export, database-backed
+Product Book PDF generation, and blocking external fetches and page scripts all
+passed. This uses a real headless browser and native worker; it is not a native
+window interaction, actual reader compatibility check, staging acceptance, or
+the network-isolated PDF container test.
+
 ### Reusing a worktree image without rebuilding
 
 `bash scripts/env worktree up --no-build` now validates the worktree with the
