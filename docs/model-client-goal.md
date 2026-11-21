@@ -29,8 +29,14 @@ and [deprecation guidance](https://developers.openai.com/api/docs/guides/transcr
 The packaged client passed 66 tests; the Studio speech tests passed 15 with one
 local-model test ignored, the frontend passed 128 tests and its production build,
 and four mocked desktop voice-capture tests passed. The mock confirms Planner
-omits the fallback model and delegates selection to Rust. Client pin promotion,
-Linux and branch validation, and live OpenAI verification are pending.
+omits the fallback model and delegates selection to Rust. The independent consumer
+was pinned to `1d8df226a22e7c4e0ddd21c3e46a654c410ca21f`; its Linux offline
+contract suite passed, and its non-root, read-only probe passed real Model Host
+discovery, completion, streaming, token-limit handling and synthetic
+`piper-ljspeech` / `whisper-tiny-metal` speech against `qwen-05b-comparison`.
+The test's exact disposable Docker cache entries were removed afterward to
+recover space; running images and data volumes were retained. Linux branch
+validation and live OpenAI verification are pending.
 
 ### Workflow map stage indicators
 
