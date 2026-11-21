@@ -90,10 +90,10 @@ native Studio server and rejected a modified file; unauthenticated chunk access
 was rejected. This did not test a deployed CI service or larger artifacts.
 
 The `promotion_readiness` operation used by Studio exists in the separate
-`codex/studio-ci-protocol` Aruvici branch (`c2efef3`) but was not found in the
+`codex/studio-ci-protocol` Aruvici branch but was not found in the
 local Aruvici `main` checkout when checked. It is proposed in draft
-[#1](https://github.com/vivasaayi/aruvici/pull/1), and its nine CI API tests
-passed locally. A simulated CI service or the presence of a socket does not
+[#1](https://github.com/vivasaayi/aruvici/pull/1), and its ten CI API tests
+passed locally, including cross-run artifact rejection. A simulated CI service or the presence of a socket does not
 establish compatibility with the actually deployed Aruvici version. Reconcile
 and validate the service protocol before claiming staging CI parity.
 
