@@ -5524,3 +5524,13 @@ streaming callbacks may already have received text before a later error. All
 sample does not validate other compatible services or live cloud providers.
 The standalone package was built and its 66 tests passed after extraction;
 Studio's native Rust suite passed 296 tests with seven ignored.
+
+The documented independent-consumer pin now references the pushed client
+commit `342520c95f4481d72646f83f9394c45134dc2864`. Cargo vendored its locked
+dependencies, and a read-only, network-disabled Linux container passed all 30
+independent consumer tests. The vendored client source matched the Studio
+checkout. A separately built non-root, read-only Linux probe using that pin
+reached the real local host and passed discovery, buffered completion, streaming
+and token-limit checks with `qwen25-coder-7b-q4`. It used the existing
+management-capable host credential; this does not resolve credential scope or
+establish compatibility with other hosts and models.

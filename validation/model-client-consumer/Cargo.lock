@@ -14,7 +14,7 @@ dependencies = [
 [[package]]
 name = "aruvi-model-client"
 version = "0.1.0"
-source = "git+https://github.com/vivasaayi/AruviStudio.git?rev=dc711d0c7e5e869133544de17a811d6afdb560d3#dc711d0c7e5e869133544de17a811d6afdb560d3"
+source = "git+https://github.com/vivasaayi/AruviStudio.git?rev=342520c95f4481d72646f83f9394c45134dc2864#342520c95f4481d72646f83f9394c45134dc2864"
 dependencies = [
  "async-trait",
  "reqwest",
