@@ -34,6 +34,16 @@ The lifecycle test used the existing candidate host binary rather than rebuildin
 the combined tree. The snapshot was removed; neither host checkout was merged
 or committed, and this does not establish a deployed integration service.
 
+The same reconciliation was subsequently prepared in the separate Model Host
+worktree `aruvi-model-host-scoped-integration` and pushed as
+`codex/scoped-inference-integration` at `0336d34`. It incorporates the existing
+main-checkout environment changes without changing or clearing that checkout.
+Seven native adapter tests and 17 simulated lifecycle tests passed there, again
+using the existing candidate host binary. The native integration plan preserved
+the legacy service identity; the command was read-only. Review the combined
+branch, build it, and complete integration acceptance before deployment. The
+branch has not been merged, and no running service was changed.
+
 ### Studio inference-credential opt-in
 
 `scripts/configure-native-model-host --credential-scope inference` now reads
