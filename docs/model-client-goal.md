@@ -4137,3 +4137,17 @@ the Mac console reported locked and the computer interface returned
 `cgWindowNotFound`; native-window acceptance was not performed. The fixture
 processes were stopped and their temporary data directory removed. A successful
 build is not evidence of native interaction or physical audio parity.
+
+## Previously ignored native checks
+
+On 2026-11-20, six of the seven ignored native library checks were run
+individually and passed. Three used headless Chrome for real PDF generation,
+including the desktop export command and checks that scripts and external
+fetches do not run. The shared Product Book renderer matched fixture output
+captured from the mocked desktop UI for Docs HTML, Book HTML, EPUB and PDF.
+The EPUB fixture produced an archive from that UI capture; EPUBCheck was not
+run in this pass. The native local Whisper test transcribed synthetic Piper
+speech using the existing `whisper-tiny-metal` model. These are headless or
+synthetic checks, not native-window or physical microphone acceptance.
+The ignored multi-iteration live calculator test was not run in this pass;
+separate disposable real-model coding workflows are recorded elsewhere.
