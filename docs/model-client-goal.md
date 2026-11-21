@@ -5470,3 +5470,16 @@ snapshot; a disposable native server and host Chrome exercised draft retention,
 reload and retry. The native Rust library suite passed 293 tests with seven
 ignored, and the terminology check passed. This protects policy changes but does not provide command
 isolation or implement the unused Docker and retry settings noted above.
+
+The clean Linux ARM64 Dockerfile build of commit
+`b5004f779f5fc63c033af01856c0b4fdb4ad50f4` produced image manifest
+`sha256:95f531d7de7625555467e55cf581d221aa2d5f0701f3f44eaccce9a5c8f52da8`.
+The isolated worktree app and PDF sidecar are running that image, with the
+previous image and a checked pre-deployment SQLite backup retained. The full
+worktree UI command passed: section navigation, 41 remote tests, PDF isolation
+and outage checks, the simulated CI test and 52 workflow tests including the
+new conflict case. MCP product and work-item creation, authenticated mobile
+reads, PDF export and restart persistence passed. Browser-origin MCP rejected
+missing credentials and cross-origin requests, and the local 7B coding-model
+fixture passed through MCP. The temporary BuildKit filesystem was released.
+These checks do not establish complete desktop parity or staging acceptance.
