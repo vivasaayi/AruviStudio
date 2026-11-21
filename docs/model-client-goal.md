@@ -35,6 +35,18 @@ checks against the running host.
 
 ### Candidate inference-only Model Host credential
 
+The candidate has now been applied to an isolated Model Host worktree based on
+`6edb84979f0b670c304192600052f98533a86439`, committed as `a927792` and pushed
+on `codex/studio-inference-scope`. Seven Rust unit tests, six native adapter
+tests, 17 simulated lifecycle tests and a disposable native Studio MCP test
+passed; the latter verified completion with the inference token and denial of
+host management. The Studio fixture required `PYTHONPATH` pointing to the host
+worktree. The running host was not changed. The main host checkout still has
+uncommitted changes, including an integration Compose adapter that is not in
+this branch; reconcile those changes and independently review authorization,
+configuration and deployment before using the scoped credential in the live
+service. This candidate is not a deployment or a substitute for TLS.
+
 The Model Host source at `6edb84979f0b670c304192600052f98533a86439` currently
 uses the same bearer credential for inference and management. A candidate patch
 at `docs/integration/model-host-inference-token-candidate.patch` adds an optional
