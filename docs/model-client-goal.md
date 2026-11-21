@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Branch validation against current default
+
+At `fbc21a4`, the branch had no commits to incorporate from `origin/main` and
+the PR was reported mergeable but remained a draft with CI still running. Local
+checks passed the terminology guard, 128 frontend unit tests, 289 native Rust
+library tests (seven ignored), and all 46 mocked-Tauri desktop browser tests.
+The browser suite uses simulated desktop commands and is not a native-window
+acceptance test. The running worktree image was built from `765a128`, before
+the later portfolio concurrency guards; it must be rebuilt and retested to
+validate those changes in the container. These results are not staging acceptance.
+
 ### Standalone client package validation
 
 At Studio commit `ca80520`, the reusable client was packaged and verified
