@@ -24,6 +24,16 @@ changes remain uncommitted, and the scoped-token host branch has not been merged
 or deployed. No running service was changed. Reconcile and review the host
 changes together before building and testing the merged integration environment.
 
+A later disposable three-way reconciliation of host candidate `ffb4cfb` and
+the host main checkout's tracked changes applied cleanly except for one README
+conflict. The temporary resolution kept the newer integration/staging status
+and the scoped-token instructions; the two untracked adapter/document files
+were copied into the snapshot. Seven native adapter tests, the integration
+Compose configuration check and 17 simulated-worker lifecycle tests passed.
+The lifecycle test used the existing candidate host binary rather than rebuilding
+the combined tree. The snapshot was removed; neither host checkout was merged
+or committed, and this does not establish a deployed integration service.
+
 ### Studio inference-credential opt-in
 
 `scripts/configure-native-model-host --credential-scope inference` now reads
