@@ -64,6 +64,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "list_product_export_work_items",
                 "summarize_work_items_by_product",
                 "update_work_item",
+                "assign_work_item_workspace",
                 "delete_work_item",
                 "get_sub_work_items",
                 "reorder_work_items",

@@ -156,6 +156,14 @@ including a failed page and a delayed response after a product switch. Paging
 uses offsets rather than a snapshot: concurrent inserts, deletions or reorders
 can move items between pages, so refresh when the list changes.
 
+Work item workspace and branch overrides are now available in the browser and
+`aruvi_work_items` MCP action as well as desktop, through a shared backend guard.
+An isolated workflow wrote to a selected override instead of the product's
+default workspace; the model was simulated. The operation selects a registered
+server workspace without checking out a branch, and rejects changes during a
+running or paused workflow. Browser edits and optional MCP baselines reject
+stale assignments; desktop and MCP calls without a baseline remain last-write-wins.
+
 The browser can now edit and disable an existing local Whisper provider. Its
 file path is treated as a server path instead of an HTTP URL; a newly selected
 path must resolve to an existing regular file, while an unchanged missing path

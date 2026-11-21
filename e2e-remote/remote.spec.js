@@ -6,6 +6,49 @@ import { createHmac } from "node:crypto";
 const token = process.env.ARUVI_MOBILE_API_TOKEN;
 const mcpToken = process.env.ARUVI_MCP_API_TOKEN;
 
+test("work item workspace can be assigned in browser and MCP with conflict protection", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
+  const headers = { Authorization: `Bearer ${token}` };
+  async function create(path, data) {
+    const response = await request.post(path, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  }
+  const product = await create("/api/mobile/products", { name: "Workspace selection fixture" });
+  const item = await create("/api/mobile/work-items", { product_id: product.id, title: "Workspace task" });
+  const first = await create("/api/mobile/repositories", { name: "Choice A", local_path: "/repositories/workspace-choice-a" });
+  const second = await create("/api/mobile/repositories", { name: "Choice B", local_path: "/repositories/workspace-choice-b" });
+  const mcp = async (arguments_) => {
+    const response = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` }, data: { jsonrpc:"2.0", id:1, method:"tools/call", params:{name:"aruvi_work_items", arguments:{action:"assign_work_item_workspace", arguments:arguments_}} } });
+    return (await response.json()).result;
+  };
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Work", exact: true }).click();
+  await page.locator("#workProductSelect").selectOption(product.id);
+  await page.getByRole("button", { name: "Change work item workspace" }).click();
+  await page.getByLabel("Work item workspace", { exact: true }).selectOption(first.id);
+  await page.getByLabel("Work item branch option").selectOption("work_item");
+  await expect(page.locator("#workWorkspacePreview")).toContainText("work/workspace-task");
+  await page.getByRole("button", { name: "Save work item workspace" }).click();
+  await expect(page.locator("#status")).toHaveText("Work item workspace saved");
+  let saved = await (await request.get(`/api/mobile/work-items/${item.id}`, { headers })).json();
+  expect(saved).toMatchObject({ repo_override_id:first.id, active_repo_id:first.id, branch_name:"work/workspace-task" });
+  await page.getByRole("button", { name: "Change work item workspace" }).click();
+  const changed = await mcp({ id:item.id, repository_id:second.id, branch_name:"feature/from-mcp" });
+  expect(changed.isError).not.toBeTruthy();
+  await page.getByRole("button", { name: "Save work item workspace" }).click();
+  await expect(page.locator("#status")).toContainText("changed");
+  saved = await (await request.get(`/api/mobile/work-items/${item.id}`, { headers })).json();
+  expect(saved).toMatchObject({ repo_override_id:second.id, branch_name:"feature/from-mcp" });
+  await page.getByRole("button", { name: "Cancel workspace edit" }).click();
+  await page.locator("#refreshDeliveryButton").click();
+  await page.getByRole("button", { name: "Change work item workspace" }).click();
+  await page.getByRole("button", { name: "Use scope default" }).click();
+  await expect(page.locator("#status")).toHaveText("Work item workspace saved");
+  saved = await (await request.get(`/api/mobile/work-items/${item.id}`, { headers })).json();
+  expect(saved).toMatchObject({ repo_override_id:null, active_repo_id:null, branch_name:null });
+});
+
 test("work list loads later pages and can retry a failed page", async ({ page, request }) => {
   test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
   test.setTimeout(60000);

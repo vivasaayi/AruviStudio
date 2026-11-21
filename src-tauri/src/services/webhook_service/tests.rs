@@ -288,6 +288,34 @@ async fn remote_test_command_configuration_is_authenticated_and_validated() {
 }
 
 #[tokio::test]
+async fn remote_workspace_assignment_checks_conflicts_and_active_workflows() {
+    let app: tauri::App<MockRuntime> = make_test_app("remote_workspace_assignment").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "workspace-token").await.unwrap();
+    crate::persistence::repository_repo::create_repository(&state.db, "workspace-a", "Workspace A", "/tmp/a", "", "main").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let (_, body) = send_json(&router, Method::POST, "/api/mobile/products", Some("workspace-token"), Some(json!({"name":"Workspace product"}))).await;
+    let product = parse_json(&body);
+    let (_, body) = send_json(&router, Method::POST, "/api/mobile/work-items", Some("workspace-token"), Some(json!({"product_id":product["id"],"title":"Workspace item"}))).await;
+    let item = parse_json(&body);
+    let id = item["id"].as_str().unwrap();
+    let uri = format!("/api/mobile/work-items/{id}/workspace");
+    let initial = json!({"repo_override_id":null,"active_repo_id":null,"branch_name":null});
+    let body = json!({"repository_id":"workspace-a","branch_name":"work/fixture","expected":initial});
+    assert_eq!(send_json(&router, Method::POST, &uri, None, Some(body.clone())).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("workspace-token"), Some(json!({"repository_id":"missing","branch_name":"main","expected":initial}))).await.0, StatusCode::CONFLICT);
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("workspace-token"), Some(json!({"repository_id":"workspace-a","branch_name":"bad branch","expected":initial}))).await.0, StatusCode::CONFLICT);
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("workspace-token"), Some(body.clone())).await.0, StatusCode::OK);
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("workspace-token"), Some(body)).await.0, StatusCode::CONFLICT);
+    let assigned = json!({"repo_override_id":"workspace-a","active_repo_id":"workspace-a","branch_name":"work/fixture"});
+    workflow_repo::create_workflow_run(&state.db, "workspace-active", id).await.unwrap();
+    let clear = json!({"repository_id":null,"branch_name":null,"expected":assigned});
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("workspace-token"), Some(clear.clone())).await.0, StatusCode::CONFLICT);
+    sqlx::query("UPDATE workflow_runs SET status='failed',current_stage='failed' WHERE id='workspace-active'").execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("workspace-token"), Some(clear)).await.0, StatusCode::OK);
+}
+
+#[tokio::test]
 async fn remote_test_result_is_scoped_and_confined_to_artifacts() {
     let app: tauri::App<MockRuntime> = make_test_app("remote_test_result").await;
     let state = app.state::<AppState>().inner().clone();

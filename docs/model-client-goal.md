@@ -4281,6 +4281,20 @@ changing product. A browser fixture exercised 101 real work items, a failed
 page, retry and an in-flight product switch. Offset pagination is not a snapshot;
 changes to earlier rows can move or skip items until the list is refreshed.
 
+## Work item workspace override
+
+Desktop, browser and MCP now share a backend operation to set or clear a work
+item's registered workspace and branch. Browser edits use an assignment baseline;
+MCP can opt into the same comparison. A valid Git branch name is required when
+provided, and assignment is rejected while a workflow is running or paused.
+This changes the prior desktop behavior, which allowed editing during execution.
+The choice does not check out a branch or require product attachment. Isolated
+tests covered browser/MCP conflicts, clearing, invalid and missing inputs, and
+active-run rejection. A simulated-model workflow selected an override different
+from the product default, wrote its generated file there and left the default
+workspace unchanged. Actual network Git delivery and non-cooperating database
+writers remain outside this validation.
+
 ## Independent browser Copilot model
 
 Browser workspace Copilot can choose an enabled registered provider/model

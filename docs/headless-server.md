@@ -246,6 +246,19 @@ build through Docker Studio and the relay passed with this arrangement. Stable
 environment mounts, live CI service deployment and broader product builds have
 not been validated.
 
+In **Work**, a selected item can override its workspace and branch, or return to
+its product/area scope default. The workspace must already be registered on the
+server; it need not be attached to the item's product. Choosing a branch does not
+create or check it out. The same operation is available through the `aruvi_work_items`
+MCP action `assign_work_item_workspace`, with `id`, `repository_id`, and
+`branch_name`; use null for both latter fields to clear the override. Browser
+edits compare the previously read assignment; MCP callers may provide an
+`expected` object containing `repo_override_id`, `active_repo_id`, and
+`branch_name` for the same stale-write protection. Without it, MCP writes are
+last-write-wins. Desktop, browser and MCP reject changes while the work item has
+a running or paused workflow. These guards do not coordinate non-cooperating
+database writers.
+
 In **Work**, configure the workflow test command as a JSON array of executable and
 arguments, such as `["npm", "test"]`. The executable and its dependencies must be
 installed in the server container. Select a product and choose its own command, disable

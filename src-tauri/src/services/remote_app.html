@@ -699,6 +699,15 @@
                 </div>
                 <div class="panel-body stack">
                   <div id="deliveryDetails" class="tool-list"></div>
+                  <button class="secondary" id="editWorkWorkspaceButton" type="button">Change work item workspace</button>
+                  <form id="workWorkspaceForm" class="stack" hidden>
+                    <label><span class="label">Work item workspace</span><select id="workWorkspaceRepository" required></select></label>
+                    <label><span class="label">Work item branch option</span><select id="workWorkspaceBranchMode"><option value="default">Workspace default branch</option><option value="work_item">Work item branch</option><option value="custom">Custom branch</option></select></label>
+                    <label id="workWorkspaceCustomLabel" hidden><span class="label">Custom work item branch</span><input id="workWorkspaceBranch" /></label>
+                    <div id="workWorkspacePreview" class="empty"></div>
+                    <div class="empty">Selects a server workspace and branch; it does not check out or create the branch. Changes are blocked while a workflow is active.</div>
+                    <div class="button-row"><button type="submit">Save work item workspace</button><button class="secondary" id="clearWorkWorkspaceButton" type="button">Use scope default</button><button class="secondary" id="cancelWorkWorkspaceButton" type="button">Cancel workspace edit</button></div>
+                  </form>
                   <button class="secondary" id="editWorkButton" type="button">Edit task</button>
                   <form id="editWorkForm" hidden><div class="stack">
                     <label><span class="label">Edit title</span><input id="editWorkTitle" required /></label>
@@ -1397,6 +1406,7 @@
       el.editWorkButton.disabled = nextBusy || !state.delivery || state.delivery.work_item.id !== state.selectedWorkItemId;
       el.approveWorkButton.disabled = nextBusy || !state.selectedWorkItemId;
       el.startWorkButton.disabled = nextBusy || !state.selectedWorkItemId;
+      document.getElementById("editWorkWorkspaceButton").disabled = nextBusy || !state.selectedWorkItemId || !state.delivery;
       el.refreshDeliveryButton.disabled = nextBusy || !state.selectedWorkItemId;
       el.retryGitDeliveryButton.disabled = nextBusy || !state.delivery || !state.delivery.retryable_git_delivery;
       Array.from(el.workflowActions.querySelectorAll("button")).forEach((button) => {
@@ -2767,6 +2777,7 @@
         workNextOffset = state.workItems.length; workHasMore = !!response.has_more;
         renderWorkPageStatus();
         if (!state.workItems.some((item) => item.id === state.selectedWorkItemId)) {
+          cancelWorkWorkspace();
           state.selectedWorkItemId = state.workItems[0] ? state.workItems[0].id : "";
           if (state.selectedWorkItemId) {
             localStorage.setItem(storageKeys.selectedWorkItem, state.selectedWorkItemId);
@@ -2886,6 +2897,7 @@
     }
 
     async function selectWorkItem(workItemId) {
+      cancelWorkWorkspace();
       state.selectedWorkItemId = workItemId;
       localStorage.setItem(storageKeys.selectedWorkItem, workItemId);
       cancelWorkEdit();
@@ -2894,6 +2906,63 @@
       renderDelivery();
       await loadDelivery();
     }
+
+    let workWorkspaceBaseline = null, workWorkspaceItemId = "", workWorkspaceRepositories = [], workWorkspaceRequest = 0;
+    function cancelWorkWorkspace() {
+      workWorkspaceRequest++; workWorkspaceBaseline = null; workWorkspaceItemId = "";
+      document.getElementById("workWorkspaceForm").hidden = true;
+    }
+    function workWorkspaceBranch() {
+      const mode = document.getElementById("workWorkspaceBranchMode").value;
+      if (mode === "custom") return document.getElementById("workWorkspaceBranch").value.trim();
+      if (mode === "work_item") {
+        const title = state.delivery?.work_item?.title || "";
+        const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
+        return "work/" + (slug || "work-item");
+      }
+      return workWorkspaceRepositories.find((repo) => repo.id === document.getElementById("workWorkspaceRepository").value)?.default_branch || "";
+    }
+    function updateWorkWorkspacePreview() {
+      document.getElementById("workWorkspaceCustomLabel").hidden = document.getElementById("workWorkspaceBranchMode").value !== "custom";
+      document.getElementById("workWorkspacePreview").textContent = "Selected branch: " + (workWorkspaceBranch() || "Choose a workspace and branch");
+    }
+    async function openWorkWorkspace() {
+      const item = state.delivery?.work_item;
+      if (!item || item.id !== state.selectedWorkItemId) return;
+      const requestId = ++workWorkspaceRequest;
+      try {
+        const repositories = await request("/api/mobile/repositories");
+        if (requestId !== workWorkspaceRequest || item.id !== state.selectedWorkItemId) return;
+        workWorkspaceRepositories = repositories; workWorkspaceItemId = item.id;
+        workWorkspaceBaseline = { repo_override_id: item.repo_override_id, active_repo_id: item.active_repo_id, branch_name: item.branch_name };
+        const select = document.getElementById("workWorkspaceRepository"); select.replaceChildren(new Option("Select workspace", ""));
+        repositories.forEach((repo) => select.add(new Option(repo.name + " · " + repo.local_path, repo.id)));
+        select.value = item.repo_override_id || item.active_repo_id || "";
+        const chosen = repositories.find((repo) => repo.id === select.value);
+        document.getElementById("workWorkspaceBranchMode").value = item.branch_name && item.branch_name !== chosen?.default_branch ? "custom" : "default";
+        document.getElementById("workWorkspaceBranch").value = item.branch_name || "";
+        document.getElementById("workWorkspaceForm").hidden = false; updateWorkWorkspacePreview();
+      } catch (error) { if (requestId === workWorkspaceRequest) setStatus(error.message || String(error), "error"); }
+    }
+    async function saveWorkWorkspace(clear = false) {
+      const itemId = workWorkspaceItemId, baseline = workWorkspaceBaseline;
+      if (!itemId || !baseline || itemId !== state.selectedWorkItemId) return;
+      const repository = clear ? null : document.getElementById("workWorkspaceRepository").value;
+      const branch = clear ? null : workWorkspaceBranch();
+      if (!clear && (!repository || !branch)) { setStatus("Select a workspace and branch", "error"); return; }
+      const form = document.getElementById("workWorkspaceForm");
+      Array.from(form.querySelectorAll("button")).forEach((button) => { button.disabled = true; });
+      try {
+        await request("/api/mobile/work-items/" + encodeURIComponent(itemId) + "/workspace", { method:"POST", body:{repository_id:repository, branch_name:branch, expected:baseline} });
+        if (itemId === state.selectedWorkItemId) { cancelWorkWorkspace(); await loadDelivery(false); setStatus("Work item workspace saved", "ok"); }
+      } catch (error) { if (itemId === state.selectedWorkItemId) setStatus(error.message || String(error), "error"); }
+      finally { Array.from(form.querySelectorAll("button")).forEach((button) => { button.disabled = false; }); }
+    }
+    document.getElementById("editWorkWorkspaceButton").addEventListener("click", () => void openWorkWorkspace());
+    document.getElementById("cancelWorkWorkspaceButton").addEventListener("click", cancelWorkWorkspace);
+    document.getElementById("clearWorkWorkspaceButton").addEventListener("click", () => void saveWorkWorkspace(true));
+    document.getElementById("workWorkspaceForm").addEventListener("submit", (event) => { event.preventDefault(); void saveWorkWorkspace(); });
+    for (const id of ["workWorkspaceRepository", "workWorkspaceBranchMode", "workWorkspaceBranch"]) document.getElementById(id).addEventListener("input", updateWorkWorkspacePreview);
 
     function appendDetailCard(titleText, detailText, kind) {
       const card = document.createElement("div");
@@ -2933,6 +3002,7 @@
         String(workItem.status || "draft").replaceAll("_", " "),
         workItem.status === "done" ? "ok" : ""
       );
+      appendDetailCard("Work item workspace", workItem.repo_override_id ? "Override: " + workItem.repo_override_id + " · branch: " + (workItem.branch_name || "workspace default") : "Uses the product or area scope default");
       if (workflow) {
         appendDetailCard(
           "Workflow",
@@ -5134,6 +5204,7 @@
     el.discoveredModels.addEventListener("change", () => { if (el.discoveredModels.value) el.newModelName.value = el.discoveredModels.value; });
     el.agentBindingForm.addEventListener("submit", saveAgentBinding);
     el.workProductSelect.addEventListener("change", () => {
+      cancelWorkWorkspace();
       resetWorkScope();
       state.selectedProductId = el.workProductSelect.value;
       localStorage.setItem(storageKeys.selectedProduct, state.selectedProductId);

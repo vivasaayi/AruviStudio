@@ -57,6 +57,24 @@ pub(crate) struct MobileUpdateWorkItemRequest {
     fields: MobileTaskFields,
 }
 
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileWorkspaceAssignment {
+    repository_id: Option<String>,
+    branch_name: Option<String>,
+    expected: crate::services::work_item_service::WorkspaceBaseline,
+}
+
+pub(crate) async fn mobile_assign_work_item_workspace(
+    State(state): State<WebhookState>, headers: HeaderMap, Path(id): Path<String>, Json(body): Json<MobileWorkspaceAssignment>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match crate::services::work_item_service::assign_workspace(&state.app_state, &id, body.repository_id.as_deref(), body.branch_name.as_deref(), Some(&body.expected)).await {
+        Ok(item) => Json(item).into_response(),
+        Err(AppError::Validation(error)) => (StatusCode::CONFLICT, error).into_response(),
+        Err(error) => bad_request(error),
+    }
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct MobileWorkItemActionRequest {
     notes: Option<String>,

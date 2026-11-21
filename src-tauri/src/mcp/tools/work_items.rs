@@ -155,6 +155,13 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
             action_result("list_product_export_work_items", work_item_repo::list_product_export_work_items(&state.db, &product_id).await?)
         }
+        "assign_work_item_workspace" => {
+            let id = args.required_string(&["id", "work_item_id", "workItemId"], "id")?;
+            let repository = args.optional_string(&["repository_id", "repositoryId"])?;
+            let branch = args.optional_string(&["branch_name", "branchName"])?;
+            let expected = args.optional_deserialize::<crate::services::work_item_service::WorkspaceBaseline>(&["expected"], "expected")?;
+            action_result("assign_work_item_workspace", crate::services::work_item_service::assign_workspace(state, &id, repository.as_deref(), branch.as_deref(), expected.as_ref()).await?)
+        }
         "update_work_item" => {
             let id = args.required_string(&["id"], "id")?;
             let title = args.optional_string(&["title"])?;

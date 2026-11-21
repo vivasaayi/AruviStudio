@@ -10,6 +10,7 @@ trap cleanup EXIT
 "${fixture_compose[@]}" run --rm -d --name "$pdf" pdf >/dev/null
 docker inspect "$pdf" | python3 -c 'import json,sys; d=json.load(sys.stdin)[0]; h=d["HostConfig"]; mounts=d["Mounts"]; assert d["Config"]["User"] == "aruvi" and h["NetworkMode"] == "none" and h["ReadonlyRootfs"] and "ALL" in h["CapDrop"]; assert any(x.startswith("no-new-privileges") for x in h["SecurityOpt"]) and h["Memory"] > 0 and h["PidsLimit"] > 0; assert [m["Destination"] for m in mounts] == ["/pdf-socket"]; env=d["Config"]["Env"]; assert not any(x.startswith(("ARUVI_MOBILE_API_TOKEN=", "ARUVI_MCP_API_TOKEN=")) for x in env); print("PDF renderer isolation verified")'
 "${fixture_compose[@]}" run --rm -d --name "$name" fixture >/dev/null
+docker exec "$name" sh -c 'for d in /repositories/workspace-choice-a /repositories/workspace-choice-b; do mkdir -p "$d" && git init -q -b main "$d" || exit 1; done'
 docker exec "$name" sh -c '
   d=/repositories/remote-fixture
   mkdir -p "$d" && git init -q "$d" && printf "base line\n" > "$d/git-diff.txt" && git -C "$d" add git-diff.txt &&
