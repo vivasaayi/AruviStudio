@@ -12,6 +12,29 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Desktop Voice Chat transcription configuration
+
+Voice Chat now asks the backend to resolve its transcription provider and
+model before opening the microphone, and sends only its legacy `en-US` locale
+fallback when transcribing. Server environment and saved configuration therefore
+take precedence, including the official OpenAI model default. The preflight
+checks disabled providers, incompatible protocols, synthesis-only selectors and
+configured language mode locally; it cannot prove a remote model is available.
+The displayed model is identified as the value resolved at session start; each
+transcription resolves configuration again. A capture or transcription failure
+ends the session instead of repeatedly opening the microphone. Stopping a
+session discards pending capture or transcription results, including after a
+new session starts; already-submitted model streams and native speech are not
+cancelled by this change.
+
+The frontend build and 128 frontend tests passed, as did six mocked Voice Chat
+browser tests and four existing capture tests. The full Rust library suite passed
+333 tests with seven ignored; focused command coverage includes legacy and new
+Tauri IPC payloads and environment precedence.
+These tests do not validate a native desktop window, microphone, speaker or a
+live third-party account. The running branch image predates this checkpoint until
+its clean build and deployment are independently verified.
+
 ### Desktop Planner transcription precedence
 
 Planner previously sent saved speech settings and a default `en-US` as explicit

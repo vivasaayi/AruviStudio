@@ -100,24 +100,28 @@ pub(crate) async fn configured_transcription_mode(db: &sqlx::SqlitePool, provide
     parse_transcription_language_mode(raw.as_deref())
 }
 
-pub(crate) async fn transcribe_audio_with_provider_mode(
-    provider: &ModelProvider,
-    model_name: &str,
-    request: SpeechToTextRequest,
-    language_mode: aruvi_model_client::openai_compatible::TranscriptionLanguageMode,
-) -> Result<SpeechToTextResponse, AppError> {
+pub(crate) fn validate_transcription_target(provider: &ModelProvider, model_name: &str) -> Result<(), AppError> {
     if !provider.enabled {
         return Err(AppError::Validation("Selected provider is disabled".into()));
     }
     if model_name.trim().eq_ignore_ascii_case(DEEPSEEK_SYNTHESIS) {
         return Err(AppError::Validation("The DeepSeek synthesis selector cannot transcribe audio".into()));
     }
+    if !matches!(provider.provider_type, ProviderType::LocalRuntime) && provider.protocol != "openai_compatible" {
+        return Err(AppError::Validation("Selected provider protocol does not support remote transcription".into()));
+    }
+    Ok(())
+}
+
+pub(crate) async fn transcribe_audio_with_provider_mode(
+    provider: &ModelProvider,
+    model_name: &str,
+    request: SpeechToTextRequest,
+    language_mode: aruvi_model_client::openai_compatible::TranscriptionLanguageMode,
+) -> Result<SpeechToTextResponse, AppError> {
+    validate_transcription_target(provider, model_name)?;
     if matches!(provider.provider_type, ProviderType::LocalRuntime) {
         return transcribe_audio_locally(provider, request).await;
-    }
-
-    if provider.protocol != "openai_compatible" {
-        return Err(AppError::Validation("Selected provider protocol does not support remote transcription".into()));
     }
     let deepseek = model_name.trim().eq_ignore_ascii_case(DEEPSEEK_TRANSCRIPTION);
     let limit = if deepseek { DEEPSEEK_TRANSCRIPTION_MAX_BYTES } else { STUDIO_TRANSCRIPTION_MAX_BYTES };

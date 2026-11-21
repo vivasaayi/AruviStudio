@@ -11,9 +11,7 @@ import {
   parseBooleanSetting,
   SPEECH_ENABLE_MIC_KEY,
   SPEECH_LOCALE_KEY,
-  SPEECH_MODEL_KEY,
   SPEECH_NATIVE_VOICE_KEY,
-  SPEECH_PROVIDER_KEY,
 } from "../lib/voiceChatSettings";
 
 const DEFAULT_SYSTEM_PROMPT =
@@ -23,8 +21,6 @@ export function useVoiceChatConfiguration() {
   const [providerId, setProviderId] = useState("");
   const [modelName, setModelName] = useState("");
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
-  const [speechProviderId, setSpeechProviderId] = useState("");
-  const [speechModelName, setSpeechModelName] = useState("");
   const [speechLocale, setSpeechLocale] = useState("en-US");
   const [speechNativeVoice, setSpeechNativeVoice] = useState("");
   const [voiceEnabled, setVoiceEnabled] = useState(true);
@@ -40,14 +36,10 @@ export function useVoiceChatConfiguration() {
 
   useEffect(() => {
     void Promise.all([
-      getSetting(SPEECH_PROVIDER_KEY),
-      getSetting(SPEECH_MODEL_KEY),
       getSetting(SPEECH_LOCALE_KEY),
       getSetting(SPEECH_NATIVE_VOICE_KEY),
       getSetting(SPEECH_ENABLE_MIC_KEY),
-    ]).then(([providerSetting, modelSetting, localeSetting, nativeVoiceSetting, micEnabledSetting]) => {
-      if (providerSetting) setSpeechProviderId(providerSetting);
-      if (modelSetting) setSpeechModelName(modelSetting);
+    ]).then(([localeSetting, nativeVoiceSetting, micEnabledSetting]) => {
       if (localeSetting) setSpeechLocale(localeSetting);
       if (nativeVoiceSetting) setSpeechNativeVoice(nativeVoiceSetting);
       setVoiceEnabled(parseBooleanSetting(micEnabledSetting, true));
@@ -103,8 +95,6 @@ export function useVoiceChatConfiguration() {
     modelName,
     systemPrompt,
     setSystemPrompt,
-    speechProviderId,
-    speechModelName,
     speechLocale,
     speechNativeVoice,
     voiceEnabled,

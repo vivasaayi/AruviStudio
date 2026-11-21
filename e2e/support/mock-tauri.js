@@ -2006,7 +2006,12 @@
         case "start_twilio_voice_call":
         case "speak_text_natively_command":
           return ok(null);
+        case "get_desktop_transcription_target":
+          if (state.settings["e2e.voice_preflight_fail"] === "true") throw new Error("A speech transcription provider is required");
+          return ok({ provider_id: "server-provider", model_name: "server-transcriber" });
         case "transcribe_audio_command":
+          if (state.settings["e2e.voice_transcription_fail"] === "true") throw new Error("Synthetic transcription failure");
+          if (state.settings["e2e.voice_transcription_delay"] === "true") return new Promise((resolve) => { window.fixtureResolveTranscription = () => resolve({ transcript: "A stale transcription" }); });
           return ok({ transcript: "Add voice-driven planning for the selected node" });
         case "browse_for_local_model_file":
           return ok("/tmp/mock-models/ggml-base.en.bin");

@@ -162,6 +162,12 @@ export const transcribeAudio = (data: {
     fallback_model_name: data.fallbackModelName ?? null,
   });
 
+export const getDesktopTranscriptionTarget = (fallbackLocale?: string) =>
+  invoke<{ provider_id: string; model_name: string }>("get_desktop_transcription_target", {
+    fallbackLocale: fallbackLocale ?? null,
+    fallback_locale: fallbackLocale ?? null,
+  });
+
 export const speakTextNatively = (data: {
   text: string;
   voice?: string;

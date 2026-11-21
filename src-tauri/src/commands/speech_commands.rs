@@ -22,6 +22,23 @@ pub async fn transcribe_audio_command(
     fallback_provider_id: Option<String>,
     fallback_model_name: Option<String>,
 ) -> Result<SpeechToTextResponse, AppError> {
+    let resolved = resolve_desktop_transcription(&state, provider_id, model_name, locale, fallback_locale, fallback_provider_id, fallback_model_name).await?;
+    let request = SpeechToTextRequest { audio_bytes_base64, mime_type, locale: resolved.locale };
+    let mode = configured_transcription_mode(&state.db, &resolved.provider, &resolved.model_name).await?;
+    transcribe_audio_with_provider_mode(&resolved.provider, &resolved.model_name, request, mode).await
+}
+
+struct ResolvedDesktopTranscription {
+    provider: crate::domain::model::ModelProvider,
+    model_name: String,
+    locale: Option<String>,
+}
+
+async fn resolve_desktop_transcription(
+    state: &AppState,
+    provider_id: Option<String>, model_name: Option<String>, locale: Option<String>,
+    fallback_locale: Option<String>, fallback_provider_id: Option<String>, fallback_model_name: Option<String>,
+) -> Result<ResolvedDesktopTranscription, AppError> {
     let (provider_setting, model_setting, locale_setting) = resolve_transcription_defaults(&state.db).await?;
     let fallback_provider = fallback_provider_id.filter(|value| !value.trim().is_empty());
     let configured_provider = provider_setting.filter(|value| !value.trim().is_empty());
@@ -37,14 +54,21 @@ pub async fn transcribe_audio_command(
         Some(model_name) => model_name,
         None => default_transcription_model(&state.db, &provider_id).await?,
     };
-    let request = SpeechToTextRequest {
-        audio_bytes_base64,
-        mime_type,
-        locale: select_desktop_transcription_locale(locale, locale_setting, fallback_locale),
-    };
     let provider = model_repo::get_provider(&state.db, &provider_id).await?;
-    let mode = configured_transcription_mode(&state.db, &provider, &model_name).await?;
-    transcribe_audio_with_provider_mode(&provider, &model_name, request, mode).await
+    Ok(ResolvedDesktopTranscription { provider, model_name, locale: select_desktop_transcription_locale(locale, locale_setting, fallback_locale) })
+}
+
+#[derive(serde::Serialize)]
+pub struct DesktopTranscriptionTarget { provider_id: String, model_name: String }
+
+/// Resolve configuration before opening the microphone; this does not contact
+/// the provider or promise that the selected model is available.
+#[tauri::command]
+pub async fn get_desktop_transcription_target(state: State<'_, AppState>, fallback_locale: Option<String>) -> Result<DesktopTranscriptionTarget, AppError> {
+    let resolved = resolve_desktop_transcription(&state, None, None, None, fallback_locale, None, None).await?;
+    crate::services::speech_service::validate_transcription_target(&resolved.provider, &resolved.model_name)?;
+    configured_transcription_mode(&state.db, &resolved.provider, &resolved.model_name).await?;
+    Ok(DesktopTranscriptionTarget { provider_id: resolved.provider.id, model_name: resolved.model_name })
 }
 
 fn select_desktop_transcription_locale(explicit: Option<String>, configured: Option<String>, fallback: Option<String>) -> Option<String> {
@@ -118,7 +142,7 @@ mod tests {
             let db = crate::persistence::db::create_pool(&format!("sqlite:{}", directory.path().join("speech.db").display())).await.unwrap();
             crate::state::AppState::new(db, directory.path().to_path_buf()).await.unwrap()
         });
-        let app = mock_builder().manage(state).invoke_handler(tauri::generate_handler![super::transcribe_audio_command])
+        let app = mock_builder().manage(state).invoke_handler(tauri::generate_handler![super::transcribe_audio_command, super::get_desktop_transcription_target])
             .build(mock_context(noop_assets())).unwrap();
         let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
         let error = tauri::test::get_ipc_response(&webview, tauri::webview::InvokeRequest {
@@ -135,6 +159,23 @@ mod tests {
             headers: Default::default(), invoke_key: INVOKE_KEY.to_string(),
         }).unwrap_err();
         assert!(format!("{error:?}").contains("Provider fallback-missing not found"), "{error:?}");
+        let no_provider = tauri::test::get_ipc_response(&webview, tauri::webview::InvokeRequest {
+            cmd: "get_desktop_transcription_target".into(), callback: tauri::ipc::CallbackFn(0), error: tauri::ipc::CallbackFn(1),
+            url: "http://tauri.localhost".parse().unwrap(), body: tauri::ipc::InvokeBody::Json(serde_json::json!({"fallbackLocale":"en-US"})),
+            headers: Default::default(), invoke_key: INVOKE_KEY.to_string(),
+        }).unwrap_err();
+        assert!(format!("{no_provider:?}").contains("speech transcription provider is required"), "{no_provider:?}");
+        runtime.block_on(async {
+            let state = app.state::<AppState>();
+            model_repo::create_provider(&state.db, "configured", "Configured", "openai_compatible", "http://127.0.0.1:1234/v1", None).await.unwrap();
+            settings_repo::set_setting(&state.db, "speech.transcription_provider_id", "configured").await.unwrap();
+        });
+        let target = tauri::test::get_ipc_response(&webview, tauri::webview::InvokeRequest {
+            cmd: "get_desktop_transcription_target".into(), callback: tauri::ipc::CallbackFn(0), error: tauri::ipc::CallbackFn(1),
+            url: "http://tauri.localhost".parse().unwrap(), body: tauri::ipc::InvokeBody::Json(serde_json::json!({"fallbackLocale":"en-US"})),
+            headers: Default::default(), invoke_key: INVOKE_KEY.to_string(),
+        }).unwrap().deserialize::<serde_json::Value>().unwrap();
+        assert_eq!(target, serde_json::json!({"provider_id":"configured", "model_name":"whisper-1"}));
     }
 
     #[tokio::test]
@@ -198,6 +239,8 @@ mod tests {
         settings_repo::set_setting(&state.db, "speech.transcription_provider_id", "saved-provider").await.unwrap();
         settings_repo::set_setting(&state.db, "speech.transcription_model_name", "saved-model").await.unwrap();
         settings_repo::set_setting(&state.db, "speech.locale", "fr-FR").await.unwrap();
+        let target = get_desktop_transcription_target(app.state::<AppState>(), Some("en-US".into())).await.unwrap();
+        assert_eq!(target.provider_id, "env-provider"); assert_eq!(target.model_name, "env-model");
         let response = transcribe_audio_command(state, None, None, base64::engine::general_purpose::STANDARD.encode(b"synthetic audio"), "audio/wav".into(), None, Some("en-US".into()), Some("stale-planner-provider".into()), Some("stale-planner-model".into())).await.unwrap();
         assert_eq!(response.transcript, "environment fixture");
         let response = transcribe_audio_command(app.state::<AppState>(), None, None, base64::engine::general_purpose::STANDARD.encode(b"synthetic audio"), "audio/wav".into(), None, Some("en-US".into()), None, None).await.unwrap();
