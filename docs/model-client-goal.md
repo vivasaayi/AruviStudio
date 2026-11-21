@@ -14,6 +14,11 @@ provider hosting into the model-host service as part of this work.
 
 ### CI artifact parity investigation
 
+The separate Aruvici protocol branch now has draft PR
+[#1](https://github.com/vivasaayi/aruvici/pull/1). Its `cargo test --test ci_api`
+passed all nine tests on the Mac, including guarded artifact reads and retry
+policy. This is a reviewable dependency, not a merged or deployed service.
+
 Browser CI artifact downloads now use authenticated chunk requests, verify
 length and SHA-256 before saving, require HTTPS or localhost, and buffer at most
 256 MiB. A native Studio and real Aruvici protocol-branch fixture passed a Chrome
@@ -31,8 +36,8 @@ The desktop can reveal a verified CI artifact, whereas the browser and MCP
 previously exposed readiness but not its bytes. Aruvici supports bounded artifact
 chunks, and the Studio relay allows that operation. The Studio
 `promotion_readiness` protocol extension is in Aruvici branch
-`codex/studio-ci-protocol` at `c2efef3`, not the inspected local `main` checkout;
-that branch had no open PR at this checkpoint. The running service's version
+`codex/studio-ci-protocol` at `c2efef3`, not the inspected local `main` checkout.
+The running service's version
 and staging compatibility still need verification. See the parity audit.
 
 ### Repeatable host-browser fixtures
