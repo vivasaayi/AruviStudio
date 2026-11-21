@@ -12,6 +12,37 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### CI artifact and context-guard branch deployment
+
+Source `e07ea27` built as an optimized Linux ARM64 server in a disposable
+host-backed ext4 filesystem. The server SHA-256 was
+`42291f46cf34dc87f9df92c026a085d50f97329a28d7dfb0a94299b6c4e2e3a4`.
+The filesystem unmounted and was removed; the binary and build log are retained
+in the private worktree artifact directory. The frontend artifact matched the
+unchanged tracked frontend source. Layering the server on the previous worktree
+image produced image ID
+`sha256:6643b6bf13d69a02889f5be4d843586e66799f30bb122167c20b4117858264f1`.
+This is a derived image, not a clean Dockerfile build or staging artifact.
+
+Before replacement, 41 host-browser remote tests, PDF isolation and outage
+checks, and 51 workflow tests with repository post-checks passed against the
+candidate. The worktree database had no workflow, CLI or import rows. After a
+graceful stop, no container mounted the data volume and no SQLite WAL or journal
+was present; an offline copy passed `quick_check` and `foreign_key_check` using
+immutable read-only access. The copy is retained with the build artifacts, and
+the prior image is tagged `aruvi-studio-worktree-backup:pre-ci-artifact`.
+
+The shared launcher attempted a full build on `worktree up`; it was interrupted
+before startup because Docker storage was low. The same worktree Compose project
+was then started with the tested image using `--no-build`. Both services are
+healthy. Authenticated catalog and new CI MCP discovery, published-origin and
+token rejection, the served hash asset, database quick-check, and a real 7B
+Model Host coding request with token-limit rejection passed. Chrome checked all
+13 remote sections at phone and desktop widths without page errors or document
+overflow. Hosted run `44893429786` also passed for `e07ea27`. Docker's shared
+filesystem still had about 218 MiB free after deployment; a clean image build,
+actual CI service integration, native-window comparison and staging remain open.
+
 ### Agent repository-context symlink check
 
 On Unix, context-file reads now use descriptor-relative `openat` with
