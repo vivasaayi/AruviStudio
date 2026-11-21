@@ -340,11 +340,16 @@ not replace authenticated workflow, persistence, or artifact identity checks.
 `bash scripts/test environment-acceptance <worktree|integration|staging>`
 creates a uniquely named and tagged fixture product, area and task through MCP,
 checks authenticated mobile reads and PDF export, and archives the fixture in
-cleanup. Add `--restart` to restart that environment's app and PDF services and
+cleanup. Pass `--expected-image-id sha256:<full-image-id>` to require both app and
+PDF containers to use the specified local image ID; it is checked again after a
+requested restart. Without this option, the script only reports the observed ID.
+Compare the image ID with the separately recorded, source-verified artifact before
+acceptance; an image ID alone does not establish its source revision or registry
+digest. Add `--restart` to restart that environment's app and PDF services and
 repeat the reads and export after both are healthy. This briefly interrupts that
 environment and leaves an archived fixture and its related records in its data;
 the script reports the product ID if cleanup needs attention. It does not test
-external ingress, model inference, or immutable image identity. Run it on the
+external ingress or model inference. Run it on the
 deployment host with access to that environment's private credentials.
 The original `compose.yaml` and its existing volumes remain a separate local deployment.
 

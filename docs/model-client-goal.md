@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Deployment acceptance image identity
+
+The environment acceptance script now verifies that the app and PDF containers
+run the same Docker image ID and can require an explicit full expected ID,
+checking it again after an optional restart. An intentionally incorrect ID was
+rejected before creating any fixture. Against the running worktree, the expected
+derived image ID matched and the authenticated MCP, mobile-read, PDF and
+fixture-cleanup checks passed. This run did not restart the services or test
+external ingress. An image ID must still be matched to a separately verified
+source revision and target-platform artifact; this is not staging acceptance.
+
 ### Model registration form comparison
 
 The desktop and browser forms both expose provider name, protocol/profile, base

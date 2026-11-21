@@ -2,6 +2,7 @@
 """Exercise an isolated environment's product, MCP, export and optional restart."""
 import argparse
 import json
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -14,6 +15,7 @@ root = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('profile', choices=('worktree', 'integration', 'staging'))
 parser.add_argument('--restart', action='store_true', help='Restart this environment and verify the test product persists')
+parser.add_argument('--expected-image-id', help='Expected full sha256 Docker image ID for both services')
 args = parser.parse_args()
 product_id = None
 cleanup_error = None
@@ -35,6 +37,23 @@ try:
             raise ValueError('Expected an IPv4 loopback-only published endpoint')
         return 'http://' + address
     base = endpoint()
+    if args.expected_image_id and not re.fullmatch(r'sha256:[0-9a-f]{64}', args.expected_image_id):
+        raise ValueError('Expected a full lowercase sha256 Docker image ID')
+
+    def check_image_identity():
+        image_ids = []
+        for service in ('app', 'pdf'):
+            identifier = command(compose + ['ps', '-q', service])
+            if not identifier: raise ValueError(service + ' service container is unavailable')
+            image_ids.append(command(['docker', 'inspect', '--format', '{{.Image}}', identifier]))
+        if image_ids[0] != image_ids[1]: raise ValueError('App and PDF services use different image IDs')
+        if args.expected_image_id and image_ids[0] != args.expected_image_id:
+            raise ValueError('Running image ID does not match the expected image ID')
+        print('Running app and PDF image ID: ' + image_ids[0], flush=True)
+        if not args.expected_image_id:
+            print('Image identity was observed but not checked against an expected ID.', flush=True)
+
+    check_image_identity()
 
     def request(path, token=None, body=None, timeout=30):
         headers = {'Accept': 'application/json'}
@@ -84,6 +103,7 @@ try:
             except (OSError, ValueError, IndexError, subprocess.CalledProcessError, urllib.error.URLError): pass
             if time.monotonic() >= deadline: raise ValueError('Environment did not become healthy after restart')
             time.sleep(.5)
+        check_image_identity()
         check_product()
     print('Environment product, MCP, mobile authorization and PDF checks passed' + (' after restart' if args.restart else '') + '.')
 except (OSError, KeyError, ValueError, subprocess.SubprocessError, urllib.error.URLError) as error:
