@@ -12,6 +12,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Branch build capacity check
+
+The running worktree app and PDF renderer were healthy, but the Docker shared
+filesystem had about 300 MiB free and the Mac reported about 12 GiB free. A
+targeted cleanup selected only unshared BuildKit records for this project's
+older server-copy step; three records were reclaimed, leaving roughly 433 MiB
+free in Docker. The remaining selected records were retained by BuildKit. No
+other project cache, runtime data or image was removed. This remains inadequate
+headroom for a full Docker build, and the running image still predates the CI
+artifact changes. The branch's hosted checks were still installing dependencies
+at this checkpoint.
+
 ### CI artifact parity investigation
 
 For browsers implementing the File System Access API, CI now offers a streaming
