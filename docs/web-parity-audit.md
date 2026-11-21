@@ -95,7 +95,9 @@ was rejected. The streaming path passed the same multichunk check using a
 simulated save picker and aborted the write after a digest mismatch. A synthetic
 268,435,457-byte browser test also completed in 4,097 writes, with both chunk
 responses and the save picker simulated. An actual picker and a large artifact
-from a deployed CI service remain untested.
+from a deployed CI service remain untested. A real 268,435,457-byte file in a
+disposable native debug-service fixture did not finish within five minutes;
+large-file performance and completion on the actual protocol remain open.
 
 The `promotion_readiness` operation used by Studio exists in the separate
 `codex/studio-ci-protocol` Aruvici branch but was not found in the

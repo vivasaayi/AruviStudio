@@ -24,6 +24,13 @@ verified 268,435,457 bytes in 4,097 writes without retaining output in browser
 memory; both its provider responses and save picker were simulated. Browsers
 without that API still have the 256 MiB buffered-download limit.
 
+A subsequent disposable native debug Studio and Aruvici test attempted to
+stream a real 268,435,457-byte file through the CI socket. It exceeded the
+five-minute browser test timeout and did not establish completion; the fixture
+and temporary file were removed. The JSON byte-array chunk path's performance
+needs investigation, including comparison with optimized builds. The test now
+reports periodic progress and timeout byte counts for a future run.
+
 The separate Aruvici protocol branch now has draft PR
 [#1](https://github.com/vivasaayi/aruvici/pull/1). At `d8e4e48`, it also
 requires chunk paths to belong to the artifact's owning run. Its

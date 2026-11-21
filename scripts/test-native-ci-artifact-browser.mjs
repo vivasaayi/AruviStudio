@@ -68,6 +68,24 @@ try {
     console.log(`Synthetic large browser artifact verified: ${large.bytes} bytes in ${large.writes} writes.`);
     await page.evaluate(() => { window.showSaveFilePicker = async () => ({ createWritable: async () => ({ write: async bytes => window.__stream.chunks.push(Array.from(bytes)), close: async () => { window.__stream.closed = true; }, abort: async () => { window.__stream.aborted = true; } }) }); });
   }
+  if (process.env.ARUVI_TEST_CI_REAL_LARGE_SIZE) {
+    page.on("console", message => { if (message.text().startsWith("CI artifact progress:")) console.log(message.text()); });
+    await page.evaluate(() => {
+      window.__realLarge = {bytes: 0, writes: 0, closed: false, aborted: false, hash: window.sha256.create()};
+      window.showSaveFilePicker = async () => ({createWritable: async () => ({
+        write: async bytes => { window.__realLarge.hash.update(bytes); window.__realLarge.bytes += bytes.length; window.__realLarge.writes++; if (window.__realLarge.writes % 512 === 0) console.log(`CI artifact progress: ${window.__realLarge.bytes} bytes`); },
+        close: async () => { window.__realLarge.closed = true; },
+        abort: async () => { window.__realLarge.aborted = true; },
+      })});
+    });
+    await page.getByRole("button", { name: "Save large artifact #2" }).click();
+    try { await page.waitForFunction(() => window.__realLarge.closed || window.__realLarge.aborted, null, {timeout: 300000}); }
+    catch (error) { const progress = await page.evaluate(() => ({bytes: window.__realLarge.bytes, writes: window.__realLarge.writes})); throw new Error(`Real large artifact timed out after ${progress.bytes} bytes in ${progress.writes} writes`, {cause: error}); }
+    const result = await page.evaluate(() => ({bytes: window.__realLarge.bytes, writes: window.__realLarge.writes, closed: window.__realLarge.closed, aborted: window.__realLarge.aborted, digest: window.__realLarge.hash.hex()}));
+    if (!result.closed || result.aborted || result.bytes !== Number(process.env.ARUVI_TEST_CI_REAL_LARGE_SIZE) || result.digest !== process.env.ARUVI_TEST_CI_REAL_LARGE_DIGEST || result.writes !== 4097) throw new Error("Real large artifact transfer failed");
+    console.log(`Real CI artifact streamed through Studio: ${result.bytes} bytes in ${result.writes} writes.`);
+    await page.evaluate(() => { window.showSaveFilePicker = async () => ({ createWritable: async () => ({ write: async bytes => window.__stream.chunks.push(Array.from(bytes)), close: async () => { window.__stream.closed = true; }, abort: async () => { window.__stream.aborted = true; } }) }); });
+  }
   await page.evaluate(() => { window.__stream = { chunks: [], closed: false, aborted: false }; });
   const changed = Buffer.from(original); changed[0] ^= 1;
   await writeFile(artifactPath, changed);

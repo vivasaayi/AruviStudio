@@ -27,6 +27,7 @@ parser.add_argument("--relay-image", help="Test an authenticated Docker-to-host 
 parser.add_argument("--browser", action="store_true", help="Inspect the completed build in a real headless browser (requires --execute-build)")
 parser.add_argument("--browser-executable", help="Optional Chromium executable for the browser check")
 parser.add_argument("--artifact-browser", help="Chromium executable for the disposable multi-chunk artifact browser check")
+parser.add_argument("--large-real-artifact", action="store_true", help="Also create and stream a disposable artifact just over 256 MiB")
 args = parser.parse_args()
 if (args.exercise_protocol or args.execute_build) and not args.audit_protocol:
     parser.error("--exercise-protocol and --execute-build require --audit-protocol")
@@ -38,6 +39,8 @@ if args.browser_executable and not args.browser:
     parser.error("--browser-executable requires --browser")
 if args.artifact_browser and not args.exercise_protocol:
     parser.error("--artifact-browser requires --exercise-protocol")
+if args.large_real_artifact and not args.artifact_browser:
+    parser.error("--large-real-artifact requires --artifact-browser")
 studio = args.studio_binary.resolve(strict=True)
 aruvici = args.aruvici_binary.resolve(strict=True)
 
@@ -217,9 +220,21 @@ try:
                 run_root.mkdir(parents=True)
                 artifact_path = run_root / "package.bin"
                 artifact_path.write_bytes(artifact_bytes)
+                large_size = 256 * 1024 * 1024 + 1
+                large_hash = hashlib.sha256()
+                if args.large_real_artifact:
+                    block = bytes(range(256)) * 4096
+                    with (run_root / "large.bin").open("wb") as output:
+                        for _ in range(256):
+                            output.write(block)
+                            large_hash.update(block)
+                        output.write(b"x")
+                        large_hash.update(b"x")
                 with sqlite3.connect(state / "ci.sqlite") as database:
                     database.execute("INSERT INTO runs(id,target,commit_hash,plan_digest,dedupe_key,context,status) VALUES (1,?,?,?,?,?,?)", ("fixture", commit, plan["digest"], "original", json.dumps({"fixture": True}), "failed"))
                     database.execute("INSERT INTO artifacts(id,run_id,stage,kind,path,sha256,size) VALUES (1,1,?,?,?,?,?)", ("package", "package", str(artifact_path), hashlib.sha256(artifact_bytes).hexdigest(), len(artifact_bytes)))
+                    if args.large_real_artifact:
+                        database.execute("INSERT INTO artifacts(id,run_id,stage,kind,path,sha256,size) VALUES (2,1,?,?,?,?,?)", ("package", "package", str(run_root / "large.bin"), large_hash.hexdigest(), large_size))
                 readiness = call("aruvi_ci", "artifact_readiness", {"id": 1})
                 if readiness.get("sha256") != hashlib.sha256(artifact_bytes).hexdigest() or readiness.get("eligible") is not False:
                     raise RuntimeError("Unexpected artifact verification")
@@ -244,6 +259,8 @@ try:
                     except urllib.error.HTTPError as error:
                         if error.code != 401: raise
                     browser_env = dict(os.environ, ARUVI_REMOTE_URL=address, ARUVI_MOBILE_API_TOKEN=token, ARUVI_CHROME_PATH=args.artifact_browser, ARUVI_TEST_CI_DIGEST=metadata["sha256"], ARUVI_TEST_CI_PATH=str(artifact_path))
+                    if args.large_real_artifact:
+                        browser_env.update(ARUVI_TEST_CI_REAL_LARGE_SIZE=str(large_size), ARUVI_TEST_CI_REAL_LARGE_DIGEST=large_hash.hexdigest())
                     subprocess.run(["node", "scripts/test-native-ci-artifact-browser.mjs"], env=browser_env, check=True)
                 try:
                     opener.open(address + "/api/mobile/ci/artifacts/1/readiness", timeout=10)

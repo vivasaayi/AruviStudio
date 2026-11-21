@@ -338,6 +338,10 @@ browser fixture, set `ARUVI_TEST_CI_LARGE=1` when running
 --artifact-browser /path/to/chrome` and the Studio and Aruvici binary paths.
 The large case simulates both chunk responses and the save picker; the smaller
 case uses the disposable Aruvici service but also simulates the picker.
+Add `--large-real-artifact` to create a disposable 256 MiB-plus file in the
+native Aruvici fixture and transfer it through the socket. This uses temporary
+host disk space and has a five-minute test timeout; a debug-build run exceeded
+that timeout. Progress is reported every 32 MiB.
 
 For the mocked desktop Playwright suite, a locally installed Chrome can be selected
 with `ARUVI_PLAYWRIGHT_EXECUTABLE_PATH`; `ARUVI_PLAYWRIGHT_PORT` chooses the Vite
