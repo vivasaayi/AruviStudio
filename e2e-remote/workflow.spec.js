@@ -660,6 +660,37 @@ test("product test policies inherit, override, and disable the default", async (
   expect((await request.post("/api/mobile/workflow-test-config", { headers, data: { product_id: "missing", mode: "disabled" } })).status()).toBe(400);
 });
 
+test("browser preserves a stale workflow test command draft", async ({ page, request }) => {
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  async function post(path, data) {
+    const response = await request.post(path, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return response.json();
+  }
+  await post("/api/mobile/workflow-test-config", { argv: ["/bin/true"] });
+  const product = await post("/api/mobile/products", { name: "Test policy conflict fixture" });
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Work", exact: true }).click();
+  await page.locator("#workProductSelect").selectOption(product.id);
+  await expect(page.locator("#workflowTestScopeStatus")).toContainText(product.name);
+  await page.locator("#workflowTestMode").selectOption("custom");
+  await page.locator("#workflowTestArgv").fill('["/bin/false"]');
+  await post("/api/mobile/workflow-test-config", { argv: ["/bin/echo", "changed"] });
+  await page.getByRole("button", { name: "Save test command" }).click();
+  await expect(page.locator("#status")).toContainText("Test command changed");
+  await expect(page.locator("#workflowTestArgv")).toHaveValue('["/bin/false"]');
+  const current = await request.get(`/api/mobile/workflow-test-config?product_id=${product.id}`, { headers });
+  expect(await current.json()).toEqual({ mode: "inherit", argv: ["/bin/echo", "changed"] });
+  await page.getByRole("button", { name: "Reload test settings" }).click();
+  await expect(page.locator("#workflowTestArgv")).toHaveValue('["/bin/echo","changed"]');
+  await page.locator("#workflowTestMode").selectOption("custom");
+  await page.locator("#workflowTestArgv").fill('["/bin/false"]');
+  await page.getByRole("button", { name: "Save test command" }).click();
+  await expect(page.locator("#status")).toHaveText("Workflow test command saved");
+});
+
 test("isolated provider key rotation uses the new credential", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
   const token = process.env.ARUVI_MOBILE_API_TOKEN;

@@ -11,14 +11,59 @@ pub(crate) fn product_command_key(product_id: &str) -> String {
 
 pub(crate) async fn resolve_command(pool: &sqlx::SqlitePool, product_id: &str) -> Result<(String, Vec<String>), AppError> {
     use crate::persistence::settings_repo::get_setting;
-    if let Some(value) = get_setting(pool, &product_command_key(product_id)).await? {
+    let product = get_setting(pool, &product_command_key(product_id)).await?;
+    let default = get_setting(pool, TEST_COMMAND_KEY).await?;
+    resolve_values(product.as_deref(), default.as_deref())
+}
+
+fn resolve_values(product: Option<&str>, default: Option<&str>) -> Result<(String, Vec<String>), AppError> {
+    if let Some(value) = product {
         if value == "[]" { return Ok(("disabled".into(), vec![])); }
-        return Ok(("custom".into(), parse_command(&value)?));
+        return Ok(("custom".into(), parse_command(value)?));
     }
-    match get_setting(pool, TEST_COMMAND_KEY).await? {
-        Some(value) if !value.trim().is_empty() => Ok(("inherit".into(), parse_command(&value)?)),
+    match default {
+        Some(value) if !value.trim().is_empty() => Ok(("inherit".into(), parse_command(value)?)),
         _ => Ok(("inherit".into(), vec![])),
     }
+}
+
+/// Compare the effective command and write the product override under one SQLite
+/// write lock. The optional snapshot preserves compatibility with older clients.
+pub(crate) async fn set_product_command(
+    pool: &sqlx::SqlitePool, product_id: &str, mode: &str, argv: &[String],
+    expected: Option<(&str, &[String])>,
+) -> Result<Option<(String, Vec<String>)>, AppError> {
+    let new_value = match mode {
+        "inherit" => None,
+        "disabled" => Some("[]".to_owned()),
+        "custom" => {
+            let value = serde_json::to_string(argv)?;
+            parse_command(&value)?;
+            Some(value)
+        }
+        _ => return Err(AppError::Validation("Invalid test command mode".into())),
+    };
+    let key = product_command_key(product_id);
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let product: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key=?")
+        .bind(&key).fetch_optional(&mut *tx).await?;
+    let default: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key=?")
+        .bind(TEST_COMMAND_KEY).fetch_optional(&mut *tx).await?;
+    if let Some((expected_mode, expected_argv)) = expected {
+        let current = resolve_values(product.as_deref(), default.as_deref())?;
+        if current.0 != expected_mode || current.1 != expected_argv {
+            return Ok(None);
+        }
+    }
+    if let Some(value) = &new_value {
+        sqlx::query("INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')")
+            .bind(&key).bind(value).execute(&mut *tx).await?;
+    } else {
+        sqlx::query("DELETE FROM settings WHERE key=?").bind(&key).execute(&mut *tx).await?;
+    }
+    let result = resolve_values(new_value.as_deref(), default.as_deref())?;
+    tx.commit().await?;
+    Ok(Some(result))
 }
 
 const OUTPUT_LIMIT: usize = 16 * 1024;

@@ -313,6 +313,27 @@ async fn remote_test_command_configuration_is_authenticated_and_validated() {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(parse_json(&body), json!({"mode":mode,"argv":argv}));
     }
+    // A changed inherited default must not be overwritten by a stale product tab.
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/workflow-test-config", Some("config-token"), Some(json!({"argv":["other"]}))).await;
+    assert_eq!(status, StatusCode::OK);
+    let stale = json!({"product_id":id,"mode":"custom","argv":["false"],"expected":{"mode":"inherit","argv":["true"]}});
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/workflow-test-config", Some("config-token"), Some(stale)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (_, body) = send_json(&router, Method::GET, &uri, Some("config-token"), None).await;
+    assert_eq!(parse_json(&body), json!({"mode":"inherit","argv":["other"]}));
+    let current = json!({"product_id":id,"mode":"custom","argv":["false"],"expected":{"mode":"inherit","argv":["other"]}});
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/workflow-test-config", Some("config-token"), Some(current)).await;
+    assert_eq!(status, StatusCode::OK);
+    let stale = json!({"product_id":id,"mode":"disabled","expected":{"mode":"inherit","argv":["other"]}});
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/workflow-test-config", Some("config-token"), Some(stale)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (_, body) = send_json(&router, Method::GET, &uri, Some("config-token"), None).await;
+    assert_eq!(parse_json(&body), json!({"mode":"custom","argv":["false"]}));
+    let snapshot = json!({"mode":"custom","argv":["false"]});
+    let first = send_json(&router, Method::POST, "/api/mobile/workflow-test-config", Some("config-token"), Some(json!({"product_id":id,"mode":"disabled","expected":snapshot})));
+    let second = send_json(&router, Method::POST, "/api/mobile/workflow-test-config", Some("config-token"), Some(json!({"product_id":id,"mode":"custom","argv":["other"],"expected":snapshot})));
+    let (first, second) = tokio::join!(first, second);
+    assert!((first.0 == StatusCode::OK && second.0 == StatusCode::CONFLICT) || (first.0 == StatusCode::CONFLICT && second.0 == StatusCode::OK));
     let (status, _) = send_json(&router, Method::POST, "/api/mobile/workflow-test-config", Some("config-token"), Some(json!({"product_id":id,"mode":"custom","argv":[]}))).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     let (status, _) = send_json(&router, Method::POST, "/api/mobile/workflow-test-config", Some("config-token"), Some(json!({"product_id":"missing","mode":"disabled"}))).await;

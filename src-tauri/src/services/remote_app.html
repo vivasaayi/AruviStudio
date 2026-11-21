@@ -733,6 +733,7 @@
                     <label><span class="label">Test command policy</span><select id="workflowTestMode"><option value="inherit">Use default command</option><option value="custom">Use product command</option><option value="disabled">Skip tests and require manual review</option></select></label>
                     <label><span class="label">Test command arguments</span><textarea id="workflowTestArgv" placeholder='["npm", "test"]'></textarea></label>
                     <button id="saveWorkflowTestButton" type="submit">Save test command</button>
+                    <button id="reloadWorkflowTestButton" type="button" class="secondary">Reload test settings</button>
                   </form>
                 </div>
               </section>
@@ -3135,12 +3136,14 @@
     document.getElementById("loadMoreWorkButton").addEventListener("click", () => void loadMoreWorkItems());
 
     let workflowTestRequest = 0;
+    let workflowTestSnapshot = null;
     function updateWorkflowTestControls() {
       el.workflowTestArgv.disabled = el.workflowTestMode.disabled || el.workflowTestMode.value !== "custom";
     }
     async function loadWorkflowTestConfig() {
       const productId = state.selectedProductId;
       const requestId = ++workflowTestRequest;
+      workflowTestSnapshot = null;
       el.workflowTestMode.disabled = true;
       el.saveWorkflowTestButton.disabled = true;
       updateWorkflowTestControls();
@@ -3149,6 +3152,7 @@
       try {
         const config = await request("/api/mobile/workflow-test-config?product_id=" + encodeURIComponent(productId));
         if (requestId !== workflowTestRequest || productId !== state.selectedProductId) return;
+        workflowTestSnapshot = { mode: config.mode, argv: config.argv };
         el.workflowTestMode.value = config.mode;
         el.workflowTestArgv.value = JSON.stringify(config.argv);
         const product = state.products.find((item) => item.id === productId);
@@ -3162,7 +3166,7 @@
     async function saveWorkflowTestConfig(event) {
       event.preventDefault();
       const productId = state.selectedProductId;
-      if (!productId) return;
+      if (!productId || !workflowTestSnapshot) return;
       el.saveWorkflowTestButton.disabled = true;
       try {
         let argv = [];
@@ -3171,7 +3175,7 @@
           catch { throw new Error("Enter the test command as a JSON array of strings"); }
           if (!Array.isArray(argv) || !argv.every((value) => typeof value === "string")) throw new Error("Enter the test command as a JSON array of strings");
         }
-        await request("/api/mobile/workflow-test-config", { method: "POST", body: { product_id: productId, mode: el.workflowTestMode.value, argv } });
+        await request("/api/mobile/workflow-test-config", { method: "POST", body: { product_id: productId, mode: el.workflowTestMode.value, argv, expected: workflowTestSnapshot } });
         if (productId === state.selectedProductId) {
           await loadWorkflowTestConfig();
           setStatus("Workflow test command saved", "ok");
@@ -3179,6 +3183,7 @@
       } catch (error) { setStatus(error.message || String(error), "error"); }
       finally { if (productId === state.selectedProductId && !el.workflowTestMode.disabled) el.saveWorkflowTestButton.disabled = false; }
     }
+    document.getElementById("reloadWorkflowTestButton").addEventListener("click", () => void loadWorkflowTestConfig());
 
     function renderWorkItems(errorMessage) {
       el.workList.innerHTML = "";

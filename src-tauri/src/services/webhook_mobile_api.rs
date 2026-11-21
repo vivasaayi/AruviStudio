@@ -716,7 +716,11 @@ pub(crate) struct MobileWorkflowTestConfig {
     argv: Vec<String>,
     product_id: Option<String>,
     mode: Option<String>,
+    expected: Option<WorkflowTestSnapshot>,
 }
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct WorkflowTestSnapshot { mode: String, argv: Vec<String> }
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct MobileWorkflowTestQuery { product_id: Option<String> }
@@ -746,20 +750,10 @@ pub(crate) async fn mobile_set_workflow_test_config(State(state): State<WebhookS
     let db = &state.app_state.db;
     if let Some(id) = body.product_id.as_deref() {
         if let Err(error) = product_repo::get_product(db, id).await { return (StatusCode::BAD_REQUEST, error.to_string()).into_response(); }
-        let key = crate::services::workflow_test_runner::product_command_key(id);
-        let result = match body.mode.as_deref() {
-            Some("inherit") => settings_repo::delete_setting(db, &key).await,
-            Some("disabled") => settings_repo::set_setting(db, &key, "[]").await,
-            Some("custom") => {
-                let value = serde_json::to_string(&body.argv).unwrap_or_default();
-                if let Err(error) = crate::services::workflow_test_runner::parse_command(&value) { return (StatusCode::BAD_REQUEST, error.to_string()).into_response(); }
-                settings_repo::set_setting(db, &key, &value).await
-            },
-            _ => return (StatusCode::BAD_REQUEST, "Invalid test command mode").into_response(),
-        };
-        if let Err(error) = result { return (StatusCode::BAD_REQUEST, error.to_string()).into_response(); }
-        return match crate::services::workflow_test_runner::resolve_command(db, id).await {
-            Ok((mode, argv)) => Json(serde_json::json!({"mode":mode,"argv":argv})).into_response(),
+        let expected = body.expected.as_ref().map(|snapshot| (snapshot.mode.as_str(), snapshot.argv.as_slice()));
+        return match crate::services::workflow_test_runner::set_product_command(db, id, body.mode.as_deref().unwrap_or(""), &body.argv, expected).await {
+            Ok(Some((mode, argv))) => Json(serde_json::json!({"mode":mode,"argv":argv})).into_response(),
+            Ok(None) => (StatusCode::CONFLICT, "Test command changed; refresh the product settings and try again").into_response(),
             Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
         };
     }

@@ -5456,3 +5456,17 @@ Docker service is a stub. This is an existing behavior gap, not evidence that a
 Docker sandbox or the configured retry limit is active. See the settings action
 inventory in `web-parity-audit.md`; retry semantics and execution isolation still
 need design and validation.
+
+## Workflow test policy conflict protection
+
+The browser now sends its loaded effective product test policy as an expected
+snapshot. The server compares it with the current product override and inherited
+default under an immediate SQLite transaction, and rejects stale changes with
+HTTP 409. The browser retains its draft on conflict and offers an explicit
+reload. The snapshot remains optional for existing API clients; legacy API and
+generic MCP writes are still last-write-wins. A focused API test covered a
+changed default, a changed product override and concurrent writes from the same
+snapshot; a disposable native server and host Chrome exercised draft retention,
+reload and retry. The native Rust library suite passed 293 tests with seven
+ignored, and the terminology check passed. This protects policy changes but does not provide command
+isolation or implement the unused Docker and retry settings noted above.
