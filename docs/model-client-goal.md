@@ -100,6 +100,24 @@ workflow test command still runs as the server user with access to its files and
 network; it is not an equivalent sandbox. Review and meaningful project tests
 remain necessary before delivery.
 
+On the guidance change, a disposable native server and headless Chrome checked
+configuration, pending review and automatic-approval guidance. Both hosted test
+runs and the clean Linux ARM64 image build of
+`c8890530f5e42caaff20eae730e77554f474204a` passed; the later `0f78e5f`
+commit adds a browser assertion without changing the runtime. The archive
+checksum and revision were verified. The server binary (SHA-256
+`3f575324a3ac51db6f45272e26895ec95f4b69c7873fd615f3ad50f8007508d4`) was
+layered over the unchanged prior runtime to create derived image
+`sha256:b0b21861165fc1db109c49bf8482656588978faddf5ef67fa518cabbf71340df`;
+this is not the full hosted artifact. The candidate passed 53 workflow and 43
+general browser tests; the separately covered token-rotation case was skipped
+in the latter. PDF isolation and outage checks passed. After deployment,
+product, MCP/mobile authorization, PDF and persistence checks passed across
+restart, as did browser MCP-origin and real 7B MCP coding checks. A checked
+SQLite backup and the previous image are retained. The branch endpoint after
+acceptance was `127.0.0.1:55265`, subject to change on restart. These checks do
+not establish staging or complete desktop parity.
+
 ### Database override restart validation
 
 The native fixture now reconstructs a migration-52 database from a freshly
