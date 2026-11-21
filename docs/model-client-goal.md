@@ -4197,3 +4197,12 @@ with an external origin configured. The rebuilt image passed 30 browser tests,
 including proxy-header authorization, mismatched host and origin rejection,
 and the PDF outage check. The worktree app and PDF sidecar restarted healthy.
 Actual TLS ingress and VPS staging acceptance remain untested.
+
+## CI terminology guard correction
+
+GitHub Actions run 44852419796 failed the terminology guard because a coding
+prompt used “module” for a source-code module. The same run reported 268 Rust
+library tests passing with seven ignored and 46 desktop Playwright tests
+passing. The guard now narrowly recognizes the source-code prompt; a disposable
+fixture confirmed it still rejects the legacy `module_id` identifier, and the
+full terminology check passed locally. A new CI run is needed for this revision.

@@ -30,6 +30,9 @@ const frontendLegacyWorkItemListTerms = /\b(listWorkItems)\b|["']list_work_items
 function isAllowedLegacyProductAreaTerm(normalizedPath, content, matchIndex) {
   // CommonJS export syntax is unrelated to the legacy product hierarchy.
   if (/^module\.exports\b/.test(content.slice(matchIndex))) return true;
+  // This prompt refers to source-code exports, not a product hierarchy node.
+  if (normalizedPath === path.normalize("src-tauri/src/services/agent_service/tool_loop_contract.rs") &&
+      content.slice(matchIndex).startsWith("module, preserve its required existing exports")) return true;
   if (normalizedPath === path.normalize("src-tauri/src/persistence/db/db_tests.rs")) {
     return true;
   }
