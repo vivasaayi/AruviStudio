@@ -12,15 +12,26 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### Workflow stage review (in validation)
+### Workflow stage review
 
 The browser can request transition history and agent runs for the selected
 workflow, select a recorded stage, and view that stage's transitions, runs and
 associated work-item artifacts. The history endpoint uses the same repository
 query as desktop and MCP and requires the mobile token. A disposable native
 fixture verified authentication, MCP/HTTP agreement, workflow isolation,
-stage selection, and reading an associated artifact. Linux checks and branch
-deployment are pending. This is a recorded-stage view, not yet a replacement
+stage selection, and reading an associated artifact. The native Rust suite
+passed 327 tests with seven ignored. Hosted tests and the clean ARM64 build
+passed at `58d39ec`; its archive checksum and source revision were verified.
+The extracted server binary (SHA-256
+`0386d12c395bbac68ae4af90610ba53bedc6bb85c6f8b51693ec8fe76af0e413`)
+was layered onto the preceding branch image, yielding derived image
+`sha256:c5f2aaf59ccf17d8335bdf31943cd107af30c52bab127b2f9262fd03a9ed23f1`;
+this is not the full clean artifact. The candidate passed 53 isolated workflow
+tests, 45 browser tests with one skipped, and PDF outage checks. A checked
+database backup and prior image were retained. The deployed branch passed
+product, MCP, mobile and PDF acceptance across restart, published-port origin
+checks, and a real `qwen25-coder-7b-q4` MCP coding request; it was available
+at `127.0.0.1:55288` at this checkpoint. This is a recorded-stage view, not yet a replacement
 for the desktop's explanatory split/merge diagram. The history query, like the
 desktop query, is unpaginated.
 
