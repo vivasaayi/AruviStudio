@@ -4284,3 +4284,11 @@ host's network namespace. On the Mac, the worktree smoke, 30 remote browser test
 simulated CI test and 51 workflow tests passed. The browser portion does not
 exercise published-port or external-ingress navigation, and the rootless VPS
 deployment remains untested. This supersedes the earlier host-network approach.
+
+On the VPS, a disposable fixture on the existing `dockerapps` rootless daemon
+verified that a second container could resolve and reach the `app` network alias,
+and that a dynamically published loopback port was reachable from the host. The
+fixture used an already-cached Python-capable image, not Studio or Compose, and
+was removed afterward. The existing native staging and production services
+remained active. This is infrastructure evidence only; the actual rootless Studio
+stack, browser, ingress and persistent staging acceptance remain untested.

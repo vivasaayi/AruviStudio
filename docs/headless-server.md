@@ -302,6 +302,12 @@ infrastructure-owned ingress and configure the exact origin and token described
 above. The existing native staging installation is not evidence that this branch
 or the new adapter has been deployed or accepted.
 
+The rootless daemon was reachable as `dockerapps` using its user runtime socket.
+A disposable two-container network probe on that daemon verified a service alias
+and a dynamically published loopback port; its containers and network were
+removed afterward and the native services remained active. This used a cached
+Python-capable image, not the Studio image, Compose adapter, browser, or ingress.
+
 ### Calling the worktree MCP server
 
 After `bash scripts/env worktree up`, use `scripts/mcp` from this checkout. It finds
