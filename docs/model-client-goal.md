@@ -12,6 +12,23 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Browser IDE Copilot without a file
+
+The desktop IDE can chat with Copilot without selecting a file. The browser now
+also offers a separate general conversation, including streaming and reset, and
+restores it when the last open file is closed. General requests send the prompt,
+instructions and bounded history rather than a repository path or file content.
+They use authenticated browser IDE endpoints and are recorded as IDE calls.
+File conversations and their guarded patch review remain separate; unlike the
+desktop, the browser still requires a saved open file to propose a patch.
+
+A disposable native server and headless browser exercised both completion modes,
+authentication, conversation history and switching into and out of a file using
+a simulated provider (`bash scripts/test native-general-copilot`, after building
+the native server). A mock-browser fixture and an Anthropic protocol fixture
+also covered the new paths. This does not establish native-window, live-provider,
+container deployment or complete IDE parity.
+
 ### Shared artifact reading
 
 Desktop, MCP and browser artifact text reads share a confined reader. The

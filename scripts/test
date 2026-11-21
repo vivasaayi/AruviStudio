@@ -12,6 +12,7 @@ case "${1:-}" in
   native-model-host-sync) python3 scripts/test-configure-native-model-host.py ;;
   native-bridge-bind) shift; python3 scripts/test-native-bridge-bind.py "$@" ;;
   native-bridge-tokens) shift; python3 scripts/test-native-bridge-tokens.py "$@" ;;
+  native-general-copilot) node scripts/test-native-general-copilot.mjs ;;
   container-bridge-tokens) shift; python3 scripts/test-container-bridge-tokens.py "$@" ;;
   host-planner-scope) node scripts/test-host-planner-scope.mjs ;;
   host-mcp-origin) node scripts/test-host-mcp-origin.mjs ;;

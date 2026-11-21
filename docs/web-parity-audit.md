@@ -47,6 +47,12 @@ This is a working inventory, not a claim of tested parity. The desktop routes in
 MCP handlers are under `src-tauri/src/mcp/tools`. An MCP action being present does
 not establish that all desktop behavior is available or works in a container.
 
+The desktop IDE can use Copilot without an open file; the browser now supports a
+separate general conversation as well. A disposable native-server/browser fixture
+verified buffered and streamed simulated-provider replies and switching between
+general and file conversations. Browser patch proposals still require a saved,
+open file, while the desktop can request a proposal without an active file.
+
 The desktop IDE supports ⌘/Ctrl+S. The browser file editor now supports the
 same shortcut while the editor is focused, using its existing conflict-checked
 save operation. A disposable browser fixture saved a file with the shortcut

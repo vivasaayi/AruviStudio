@@ -973,7 +973,7 @@ async fn anthropic_protocol_routes_mcp_and_remote_chat() {
     assert!(next["result"]["next_cursor"].is_null());
     let after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM model_definitions").fetch_one(&state.db).await.unwrap();
     assert_eq!(before, after);
-    let router = build_webhook_router(state);
+    let router = build_webhook_router(state.clone());
     let (status, _) = send_json(&router, Method::POST, "/api/mobile/providers/discover", None, Some(json!({"id":id}))).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     let (status, body) = send_json(&router, Method::POST, "/api/mobile/providers/discover", Some("anthropic-test-token"), Some(json!({"id":id,"cursor":"claude-first"}))).await;
@@ -984,6 +984,16 @@ async fn anthropic_protocol_routes_mcp_and_remote_chat() {
     }))).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(parse_json(&body)["content"], "Claude fixture response");
+    let general = json!({"provider_id":id,"model_name":"claude-test","messages":[{"role":"user","content":"hello"}]});
+    for path in ["/api/mobile/ide/copilot", "/api/mobile/ide/copilot/stream"] {
+        let (status, _) = send_json(&router, Method::POST, path, None, Some(general.clone())).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+    let (status, body) = send_json(&router, Method::POST, "/api/mobile/ide/copilot", Some("anthropic-test-token"), Some(general)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(parse_json(&body)["content"], "Claude fixture response");
+    let ide_calls: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM model_calls WHERE source_kind = 'mobile_ide'").fetch_one(&state.db).await.unwrap();
+    assert!(ide_calls > 0);
     let (status, body) = send_json(&router, Method::POST, "/api/mobile/chat/completions", Some("anthropic-test-token"), Some(json!({
         "provider_id":id,"model_name":"claude-test","messages":[{"role":"user","content":"truncated"}]
     }))).await;

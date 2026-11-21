@@ -856,6 +856,19 @@ test("browser registers and attaches a container workspace", async ({ page, requ
     expect((await mcpImageFailure.json()).result.isError).toBe(true);
     await call("aruvi_catalog", "update_product", { id: product.id, description: "" });
     await page.getByRole("button", { name: "Workspaces", exact: true }).click();
+    if (copilotProvider) {
+      const body = { provider_id: copilotProvider.id, model_name: "browser-test-model", messages: [{ role: "user", content: "Explain code" }] };
+      expect((await request.post("/api/mobile/ide/copilot", { data: body })).status()).toBe(401);
+      expect((await request.post("/api/mobile/ide/copilot/stream", { data: body })).status()).toBe(401);
+      await page.getByLabel("Copilot question").fill("Explain code without a file");
+      await page.getByRole("button", { name: "Ask Copilot", exact: true }).click();
+      await expect(page.locator("#repositoryCopilotResult")).toContainText("Container provider reply");
+      await page.getByLabel("Stream Copilot response").check();
+      await page.getByLabel("Copilot question").fill("Continue without a file");
+      await page.getByRole("button", { name: "Ask Copilot", exact: true }).click();
+      await expect(page.locator("#repositoryCopilotResult")).toContainText("First second");
+      await page.getByLabel("Stream Copilot response").uncheck();
+    }
     await page.getByLabel("Workspace name").fill("Browser test workspace");
     await page.getByLabel("Container repository path").fill(process.env.ARUVI_TEST_REPOSITORY_PATH);
     const registered = page.waitForResponse((response) => response.url().endsWith("/api/mobile/repositories") && response.request().method() === "POST");
@@ -886,6 +899,14 @@ test("browser registers and attaches a container workspace", async ({ page, requ
       await expect(page.locator("#repositoryTree button").filter({ hasText: "inspection.txt" })).toBeHidden();
       await page.locator("#repositoryTree").getByRole("button", { name: "target-file.txt" }).click();
       await expect(page.getByLabel("Selected file contents")).toHaveValue("nested fixture\n");
+      if (copilotProvider) {
+        await expect(page.locator("#repositoryCopilotResult")).toBeEmpty();
+        await page.getByRole("button", { name: /Close .*target-file\.txt/ }).click();
+        await expect(page.locator("#repositoryCopilotResult")).toContainText("Continue without a file");
+        await page.getByRole("button", { name: "New conversation", exact: true }).click();
+        await page.locator("#repositoryTree").getByRole("button", { name: "target-file.txt" }).click();
+        await expect(page.getByLabel("Selected file contents")).toHaveValue("nested fixture\n");
+      }
       await page.getByLabel("Filter workspace files").fill("no-such-file");
       await expect(page.locator("#repositoryTreeEmpty")).toBeVisible();
       await page.getByLabel("Filter workspace files").fill("");

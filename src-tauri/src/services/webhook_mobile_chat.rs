@@ -26,6 +26,13 @@ pub(crate) async fn mobile_chat_stream(
     stream_mobile_completion(state, body, "mobile_chat", "Mobile Chat").await
 }
 
+pub(crate) async fn mobile_ide_chat_stream(
+    State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileChatCompletionRequest>,
+) -> axum::response::Response {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    stream_mobile_completion(state, body, "mobile_ide", "Browser IDE").await
+}
+
 async fn stream_mobile_completion(state: WebhookState, body: MobileChatCompletionRequest, source_kind: &'static str, source_label: &'static str) -> axum::response::Response {
     let messages: Vec<_> = body.messages.into_iter().filter(|message| !message.content.trim().is_empty()).collect();
     if messages.is_empty() { return (StatusCode::BAD_REQUEST, "At least one chat message is required.").into_response(); }
@@ -115,6 +122,13 @@ pub(crate) async fn mobile_chat_completion(
         return response;
     }
     completion_response(run_mobile_completion(&state.app_state, body, "mobile_chat", "Mobile Chat").await)
+}
+
+pub(crate) async fn mobile_ide_chat_completion(
+    State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileChatCompletionRequest>,
+) -> axum::response::Response {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    completion_response(run_mobile_completion(&state.app_state, body, "mobile_ide", "Browser IDE").await)
 }
 
 #[derive(Debug, Deserialize)]
