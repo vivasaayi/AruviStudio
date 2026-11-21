@@ -362,7 +362,9 @@ draft on a conflict and asks before changing a workspace with open files.
 Native browser/MCP fixtures covered path conflicts, a registration race,
 active and paused workflows, an active CLI run, a forced branch-update rollback,
 inherited versus custom branches, stale browser drafts and stale open-file
-saves. Linux container and physical desktop acceptance remain open.
+saves. A derived Linux candidate passed the 45-test browser suite (one skipped)
+and 53 workflow tests; its deployed branch browser edit was verified through MCP
+and rejected a stale snapshot. Physical desktop acceptance remains open.
 
 ### Catalog bulk import
 

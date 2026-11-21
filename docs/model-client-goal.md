@@ -45,8 +45,23 @@ one skipped and one failed. The initial replacement label still contained the
 registration label as a substring, which the existing Playwright selector
 matches. The edit field now uses a non-overlapping label; updated native
 workspace and editor browser fixtures passed, including a check using the same
-non-exact registration selector. A new Linux image and full container
-validation are required before deployment. Physical desktop acceptance remains
+non-exact registration selector. The final runtime revision `a85060285f9cf418101fa4a0d180233b2971a68e` passed
+both hosted test runs and a clean ARM64 image build. Its archive checksum and
+revision matched. The server binary (`sha256:d24d9b11a0261c82852c21eb78e428b42ea5e38d38a80f3ec5dee095ca40a897`)
+was layered onto the previous branch runtime to create derived image
+`sha256:232d46fa3392d460c7f2aab4f5b9dc53a286d8cdb2b4dcd2b38c45c372423208`;
+this is not the full hosted image. It passed 45 Linux browser tests (one skipped),
+the PDF outage check and all 53 workflow tests. After a checked SQLite backup
+and retaining the previous image, the derived candidate was deployed to the
+branch. Product, MCP/mobile authorization, PDF and persistence acceptance passed
+across restart, along with browser MCP-origin checks and real 7B general and
+coding requests. A branch browser edited a uniquely named unattached workspace;
+MCP verified the changes and rejected a stale snapshot, and the fixture record
+was deleted. A browser catalog import was also verified through MCP and its
+fixture product archived. The previous image is tagged
+`aruvi-studio-worktree-backup:pre-a850602` and the checked backup is in
+`/private/tmp/aruvi-workspace-a850602`. Docker VM free space was approximately
+643 MiB after validation. Physical desktop acceptance and staging remain
 pending.
 
 ### Browser workspace root guard
