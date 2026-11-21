@@ -32,8 +32,11 @@ also covered the new paths. The fixture additionally exercised buffered and
 streamed proposals without an open file, rejection after a file changed between
 review and application, and the existing open-file path. Application of a
 multi-file proposal is still sequential and may stop after partial success.
-This does not establish native-window, live-provider, container deployment or
-complete IDE parity.
+The native Model Host fixture with `--browser` also exercised general Copilot
+without a file using the real `qwen25-coder-7b-q4` host, after an MCP coding
+completion; it checked that the browser received a nonempty answer, not its
+correctness. This does not establish native-window, live cloud-provider,
+container deployment or complete IDE parity.
 
 ### Shared artifact reading
 
