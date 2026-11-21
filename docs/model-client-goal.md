@@ -4254,3 +4254,13 @@ functional assertions, and delivered the verified file to a disposable local
 Git remote. This is a single successful new-file sample after an earlier
 failure; it does not establish general coding reliability, external Git delivery,
 or safety of model-generated code. The host credential remains management-capable.
+
+## Product Book bounded serialization
+
+The shared backend renderer now enforces its 64 MiB input limit while writing
+JSON, rather than serializing the full value and checking afterward. Unit tests
+covered exact byte limits, escaped multibyte content and rejection. The rebuilt
+image passed 30 isolated browser tests, including browser and MCP Product Book
+exports, and the PDF outage check; the worktree services restarted healthy. The
+database snapshot is still loaded without a size bound before serialization,
+and vector allocation overhead is not an exact 64 MiB process-memory limit.

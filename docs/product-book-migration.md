@@ -57,8 +57,9 @@ limitations and validation items below are not complete.
   from their generation timestamps (`scripts/test-product-book-renderer`).
   Bundled output is checked against source in the frontend test suite. The
   runtime limits input to 64 MiB, JavaScript heap to 256 MiB, execution to 30
-  seconds, and simultaneous snapshots/renders to two. Source snapshot creation
-  and serialization are currently unbounded before the input-size check.
+  seconds, and simultaneous snapshots/renders to two. Serialization now stops
+  at the input limit; the source snapshot is still loaded without a size bound
+  before serialization.
   Desktop HTML, EPUB and PDF exports call this same backend renderer and retain
   their native file writers. Browser and MCP HTML/EPUB/PDF exports use it as well;
   image-resource packaging and broad visual comparison remain open.
