@@ -51,6 +51,14 @@ streaming and headless browser streaming. This is one text model and does not
 establish deployed integration acceptance. The branch has not been merged,
 and no running service was changed.
 
+The same freshly built host subsequently passed the disposable scoped-token
+rotation fixture: Studio preserved its provider while the new credential was
+not yet accepted and recovered after the host restarted. A real
+`qwen25-coder-7b-q4` GPU fixture passed scoped discovery, management denial,
+Docker Studio MCP completion, browser API and headless-browser streaming; the
+generated JavaScript function also passed the fixture's isolated assertions.
+This is one coding prompt and does not establish general model reliability.
+
 ### Studio inference-credential opt-in
 
 `scripts/configure-native-model-host --credential-scope inference` now reads
