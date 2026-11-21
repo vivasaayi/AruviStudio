@@ -31,7 +31,7 @@ try {
   await streamButton.click();
   await page.waitForFunction(() => window.__stream.closed);
   const streamed = await page.evaluate(() => window.__stream.chunks);
-  if (streamed.length < 2 || !Buffer.from(streamed.flat()).equals(original)) throw new Error("Streaming artifact differs from the original");
+  if (streamed.length !== 1 || !Buffer.from(streamed.flat()).equals(original)) throw new Error("Fast streaming artifact differs from the original");
   if (process.env.ARUVI_TEST_CI_LARGE === "1") {
     // Exercise the browser's large-file path without allocating a large Docker
     // image or retaining the synthetic output in browser memory.
@@ -46,6 +46,7 @@ try {
       window.fetch = async (input, options) => {
         const url = String(input);
         if (url.endsWith("/data/metadata")) return new Response(JSON.stringify({size, sha256: hash}), {status: 200});
+        if (url.includes("/data/fast-chunk?offset=")) return new Response("unsupported", {status: 404});
         if (url.includes("/data/chunk?offset=")) {
           const offset = Number(new URL(url, location.href).searchParams.get("offset"));
           const bytes = size - offset >= values.length ? values : [42];
@@ -73,7 +74,7 @@ try {
     await page.evaluate(() => {
       window.__realLarge = {bytes: 0, writes: 0, closed: false, aborted: false, hash: window.sha256.create()};
       window.showSaveFilePicker = async () => ({createWritable: async () => ({
-        write: async bytes => { window.__realLarge.hash.update(bytes); window.__realLarge.bytes += bytes.length; window.__realLarge.writes++; if (window.__realLarge.writes % 512 === 0) console.log(`CI artifact progress: ${window.__realLarge.bytes} bytes`); },
+        write: async bytes => { window.__realLarge.hash.update(bytes); window.__realLarge.bytes += bytes.length; window.__realLarge.writes++; if (window.__realLarge.bytes % (32 * 1024 * 1024) === 0) console.log(`CI artifact progress: ${window.__realLarge.bytes} bytes`); },
         close: async () => { window.__realLarge.closed = true; },
         abort: async () => { window.__realLarge.aborted = true; },
       })});
@@ -82,7 +83,7 @@ try {
     try { await page.waitForFunction(() => window.__realLarge.closed || window.__realLarge.aborted, null, {timeout: 300000}); }
     catch (error) { const progress = await page.evaluate(() => ({bytes: window.__realLarge.bytes, writes: window.__realLarge.writes})); throw new Error(`Real large artifact timed out after ${progress.bytes} bytes in ${progress.writes} writes`, {cause: error}); }
     const result = await page.evaluate(() => ({bytes: window.__realLarge.bytes, writes: window.__realLarge.writes, closed: window.__realLarge.closed, aborted: window.__realLarge.aborted, digest: window.__realLarge.hash.hex()}));
-    if (!result.closed || result.aborted || result.bytes !== Number(process.env.ARUVI_TEST_CI_REAL_LARGE_SIZE) || result.digest !== process.env.ARUVI_TEST_CI_REAL_LARGE_DIGEST || result.writes !== 4097) throw new Error("Real large artifact transfer failed");
+    if (!result.closed || result.aborted || result.bytes !== Number(process.env.ARUVI_TEST_CI_REAL_LARGE_SIZE) || result.digest !== process.env.ARUVI_TEST_CI_REAL_LARGE_DIGEST || ![513, 4097].includes(result.writes)) throw new Error("Real large artifact transfer failed");
     console.log(`Real CI artifact streamed through Studio: ${result.bytes} bytes in ${result.writes} writes.`);
     await page.evaluate(() => { window.showSaveFilePicker = async () => ({ createWritable: async () => ({ write: async bytes => window.__stream.chunks.push(Array.from(bytes)), close: async () => { window.__stream.closed = true; }, abort: async () => { window.__stream.aborted = true; } }) }); });
   }

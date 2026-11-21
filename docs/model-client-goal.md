@@ -15,7 +15,7 @@ provider hosting into the model-host service as part of this work.
 ### CI artifact parity investigation
 
 For browsers implementing the File System Access API, CI now offers a streaming
-save that hashes 65,536-byte chunks incrementally with vendored MIT-licensed
+save that hashes bounded chunks incrementally with vendored MIT-licensed
 js-sha256 1.1.0 and closes the temporary writable file only on digest match.
 The native Studio and Aruvici fixture passed a multichunk Chrome test with a
 simulated save picker, including abort on changed content. The real picker and
@@ -31,10 +31,18 @@ and temporary file were removed. The JSON byte-array chunk path's performance
 needs investigation, including comparison with optimized builds. The test now
 reports periodic progress and timeout byte counts for a future run.
 
+The protocol branch now buffers socket writes, uses blocking accepted sockets,
+and offers an optional 512 KiB base64 chunk; Studio falls back to the legacy
+64 KiB byte-array method. A repeat with native debug binaries successfully
+streamed and verified the real 268,435,457-byte file through the socket in 513
+writes, and the synthetic legacy fallback also passed. The save picker remained
+simulated. The 11 Aruvici CI API tests passed. This does not validate the deployed
+CI service, actual picker, Docker image or staging.
+
 The separate Aruvici protocol branch now has draft PR
-[#1](https://github.com/vivasaayi/aruvici/pull/1). At `d8e4e48`, it also
+[#1](https://github.com/vivasaayi/aruvici/pull/1). At `2b871e2`, it also
 requires chunk paths to belong to the artifact's owning run. Its
-`cargo test --test ci_api` passed all ten tests on the Mac, including a
+`cargo test --test ci_api` passed all eleven tests on the Mac, including a
 cross-run artifact rejection, guarded reads and retry policy. This is a
 reviewable dependency, not a merged or deployed service.
 

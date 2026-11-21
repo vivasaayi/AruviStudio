@@ -83,8 +83,9 @@ vendors MIT-licensed js-sha256 1.1.0 with its license in `services/vendor`.
 MCP exposes `artifact_metadata`
 and `artifact_chunk` as well as `artifact_readiness`; the metadata may include
 the service's server-side path. The Aruvici checkout's private socket protocol provides
-`artifact` metadata and bounded 65,536-byte `artifact_chunk` reads by numeric
-ID, and Studio's CI relay already permits both methods. The
+`artifact` metadata and bounded `artifact_chunk` reads by numeric ID; the newer
+protocol adds a larger base64 chunk operation. Studio's CI relay permits these
+methods. The
 receiver must check offsets, size and SHA-256 across the completed download;
 readiness alone does not protect against a file changing during transfer.
 An isolated native Studio and Aruvici protocol-branch fixture reconstructed a
@@ -97,12 +98,14 @@ simulated save picker and aborted the write after a digest mismatch. A synthetic
 responses and the save picker simulated. An actual picker and a large artifact
 from a deployed CI service remain untested. A real 268,435,457-byte file in a
 disposable native debug-service fixture did not finish within five minutes;
-large-file performance and completion on the actual protocol remain open.
+after buffering and socket-mode fixes and an optional 512 KiB base64 protocol,
+the same-sized file streamed through the native debug service in 513 writes and
+passed its digest check. The picker was simulated and staging remains untested.
 
 The `promotion_readiness` operation used by Studio exists in the separate
 `codex/studio-ci-protocol` Aruvici branch but was not found in the
 local Aruvici `main` checkout when checked. It is proposed in draft
-[#1](https://github.com/vivasaayi/aruvici/pull/1), and its ten CI API tests
+[#1](https://github.com/vivasaayi/aruvici/pull/1), and its eleven CI API tests
 passed locally, including cross-run artifact rejection. A simulated CI service or the presence of a socket does not
 establish compatibility with the actually deployed Aruvici version. Reconcile
 and validate the service protocol before claiming staging CI parity.

@@ -5548,11 +5548,21 @@
               if (!Number.isSafeInteger(size) || size < 0 || typeof expected !== "string" || !/^[a-f0-9]{64}$/.test(expected)) throw new Error("Invalid artifact metadata");
               writable = await handle.createWritable();
               const hash = window.sha256.create();
-              let offset = 0;
+              let offset = 0, fast = true;
               do {
-                const part = await request(base + "chunk?offset=" + offset);
-                if (part.offset !== offset || part.sha256 !== expected || !Array.isArray(part.bytes) || part.bytes.length > 65536 || part.bytes.some(byte => !Number.isInteger(byte) || byte < 0 || byte > 255) || offset + part.bytes.length > size || part.next_offset !== offset + part.bytes.length || typeof part.eof !== "boolean" || (!part.eof && !part.bytes.length)) throw new Error("Invalid artifact chunk");
-                const bytes = Uint8Array.from(part.bytes); hash.update(bytes); await writable.write(bytes); offset = part.next_offset;
+                let part;
+                try { part = await request(base + (fast ? "fast-chunk" : "chunk") + "?offset=" + offset); }
+                catch (error) { if (!fast || offset !== 0) throw error; fast = false; part = await request(base + "chunk?offset=0"); }
+                let bytes;
+                if (fast) {
+                  if (typeof part.data_base64 !== "string" || part.data_base64.length > 699052) throw new Error("Invalid artifact chunk");
+                  const decoded = atob(part.data_base64); bytes = Uint8Array.from(decoded, character => character.charCodeAt(0));
+                } else {
+                  if (!Array.isArray(part.bytes) || part.bytes.some(byte => !Number.isInteger(byte) || byte < 0 || byte > 255)) throw new Error("Invalid artifact chunk");
+                  bytes = Uint8Array.from(part.bytes);
+                }
+                if (part.offset !== offset || part.sha256 !== expected || bytes.length > (fast ? 524288 : 65536) || offset + bytes.length > size || part.next_offset !== offset + bytes.length || typeof part.eof !== "boolean" || (!part.eof && !bytes.length)) throw new Error("Invalid artifact chunk");
+                hash.update(bytes); await writable.write(bytes); offset = part.next_offset;
                 if (part.eof !== (offset === size)) throw new Error("Artifact size changed during download");
               } while (offset < size);
               if (hash.hex() !== expected) throw new Error("Artifact digest mismatch");

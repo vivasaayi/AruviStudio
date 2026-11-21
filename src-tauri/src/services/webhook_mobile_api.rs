@@ -589,6 +589,7 @@ pub(crate) async fn mobile_ci_artifact_data(State(state): State<WebhookState>, h
     let payload = match action.as_str() {
         "metadata" => serde_json::json!({"method":"artifact","id":id}),
         "chunk" => serde_json::json!({"method":"artifact_chunk","id":id,"offset":query.offset.unwrap_or(0)}),
+        "fast-chunk" => serde_json::json!({"method":"artifact_chunk_base64","id":id,"offset":query.offset.unwrap_or(0)}),
         _ => return (StatusCode::NOT_FOUND, "Unknown artifact action").into_response(),
     };
     ci_request(payload).await
