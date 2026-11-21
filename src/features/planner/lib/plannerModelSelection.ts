@@ -14,7 +14,7 @@ export type PlannerModelPickerOption = {
 
 export type PlannerSpeechModelSelection = {
   providerId: string;
-  modelName: string;
+  modelName?: string;
   source: "settings" | "planner" | "auto" | "fallback";
 };
 
@@ -53,7 +53,7 @@ export function resolvePlannerSpeechModelSelection({
       const providerSpeechModel = preferredTranscriptionModel(models, speechProviderSetting);
       return {
         providerId: speechProviderSetting,
-        modelName: providerSpeechModel?.name ?? (speechModelSetting || "whisper-1"),
+        modelName: providerSpeechModel?.name || undefined,
         source: "settings",
       };
     }
@@ -74,7 +74,7 @@ export function resolvePlannerSpeechModelSelection({
   }
 
   if (providerId) {
-    return { providerId, modelName: "whisper-1", source: "fallback" };
+    return { providerId, modelName: undefined, source: "fallback" };
   }
   return null;
 }

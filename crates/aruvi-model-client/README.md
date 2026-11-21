@@ -112,11 +112,15 @@ the selected provider's limits. OpenAI has deprecated `whisper-1` and recommends
 other OpenAI-compatible providers support that model. See the [OpenAI file
 transcription guide](https://developers.openai.com/api/docs/guides/speech-to-text).
 For `gpt-transcribe` on the official OpenAI HTTPS endpoint, the client sends a
-supplied language hint as `languages[]`; other endpoints and models retain the
-singular `language` field. Configure `with_transcription_language_mode` with
+supplied language hint as `languages[]`. In automatic mode, a simple locale such
+as `en-US` or `en_US` is reduced to its language code (`en`); the supported `zh-CN`, `zh-TW`
+and `zh-HK` regional hints are preserved in lowercase. Other endpoints, models
+and explicit language-field overrides retain the caller's hint unchanged.
+Configure `with_transcription_language_mode` with
 `TranscriptionLanguageMode::Array` or `::Singular` when a proxy requires an
 explicit format. An absent language hint sends neither field. This controls the
-request shape and does not establish model support or validate language codes.
+request shape and does not establish model support or verify that a language is
+accepted by the remote service. Reducing a locale discards region/script detail.
 Studio exposes this per OpenAI-compatible provider as “Transcription language
 field” in the desktop and browser provider lists and through MCP actions
 `get_provider_transcription_language_mode` and

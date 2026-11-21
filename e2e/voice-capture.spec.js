@@ -30,6 +30,11 @@ for (const screen of ["chat", "planner"]) {
         await stop.click();
       }
       await expect.poll(() => page.evaluate(() => window.__ARUVI_E2E__.getInvokeCalls("transcribe_audio_command").length)).toBe(1);
+      if (screen === "planner") {
+        const args = await page.evaluate(() => window.__ARUVI_E2E__.getInvokeCalls("transcribe_audio_command")[0].args);
+        expect(args.modelName).toBeNull();
+        expect(args.model_name).toBeNull();
+      }
       await page.waitForTimeout(400);
       expect(await page.evaluate(() => window.__ARUVI_E2E__.getInvokeCalls("transcribe_audio_command").length)).toBe(1);
       expect(await page.evaluate(() => window.fixtureMicrophoneStops)).toBe(1);

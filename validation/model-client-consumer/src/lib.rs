@@ -5,6 +5,16 @@ mod tests {
     use std::{io::{Read, Write}, net::TcpListener, thread};
 
     #[tokio::test]
+    async fn official_openai_transcription_rejects_malformed_locale_before_network() {
+        use aruvi_model_client::{ClientError, TranscriptionRequest, openai_compatible::is_official_openai_base_url};
+        assert!(is_official_openai_base_url("https://api.openai.com/v1"));
+        assert!(!is_official_openai_base_url("https://api.openai.com.example.invalid/v1"));
+        let client = OpenAiCompatibleClient::new("https://api.openai.com/v1".into(), None);
+        let result = client.transcribe(TranscriptionRequest { model: "gpt-transcribe".into(), audio: vec![1], mime_type: "audio/wav".into(), filename: "fixture.wav".into(), language: Some("en--US".into()) }).await;
+        assert!(matches!(result, Err(ClientError::InvalidInput(_))));
+    }
+
+    #[tokio::test]
     async fn rejects_openai_choice_after_finish_without_emitting_it() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();

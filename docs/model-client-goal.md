@@ -12,6 +12,26 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### OpenAI transcription default migration (in validation)
+
+OpenAI's documented file-transcription path now recommends `gpt-transcribe` and
+states that `whisper-1` shuts down on February 26, 2027. When no transcription
+model is configured or registered, Studio now selects `gpt-transcribe` only for
+the official OpenAI HTTPS API root or `/v1` endpoint; compatible proxies and
+local providers retain the existing `whisper-1` fallback. Explicit and
+registered models still take precedence. The desktop Planner no longer sends a
+hard-coded fallback model, so the same server choice applies to desktop, web and
+MCP. In the shared client, automatic official `gpt-transcribe` locale hints such
+as `en-US` are reduced to `en`; supported Chinese regional hints are preserved.
+Other providers and explicit format overrides keep their original hints. See
+[OpenAI's transcription guide](https://developers.openai.com/api/docs/guides/speech-to-text)
+and [deprecation guidance](https://developers.openai.com/api/docs/guides/transcription).
+The packaged client passed 66 tests; the Studio speech tests passed 15 with one
+local-model test ignored, the frontend passed 128 tests and its production build,
+and four mocked desktop voice-capture tests passed. The mock confirms Planner
+omits the fallback model and delegates selection to Rust. Client pin promotion,
+Linux and branch validation, and live OpenAI verification are pending.
+
 ### Workflow map stage indicators
 
 The browser map labels the current stage, stages entered according to recorded

@@ -49,7 +49,7 @@ describe("plannerModelSelection", () => {
     expect(resolvePlannerSpeechModelSelection({ models, providerId: "provider-1", speechProviderSetting: "", speechModelSetting: "" }))
       .toEqual({ providerId: "provider-1", modelName: "custom", source: "planner" });
     expect(resolvePlannerSpeechModelSelection({ models: [models[0]], providerId: "provider-1", speechProviderSetting: "provider-1", speechModelSetting: "" }))
-      .toEqual({ providerId: "provider-1", modelName: "whisper-1", source: "settings" });
+      .toEqual({ providerId: "provider-1", modelName: undefined, source: "settings" });
   });
   it("recognizes an untagged DeepSeek transcription selector", () => {
     expect(resolvePlannerSpeechModelSelection({ models: [model("voice", "provider-1", "deepseek-voice-transcription")],
@@ -128,7 +128,7 @@ describe("plannerModelSelection", () => {
       speechModelSetting: "",
     })).toEqual({
       providerId: "provider-1",
-      modelName: "whisper-1",
+      modelName: undefined,
       source: "fallback",
     });
   });
