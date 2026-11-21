@@ -4206,3 +4206,13 @@ library tests passing with seven ignored and 46 desktop Playwright tests
 passing. The guard now narrowly recognizes the source-code prompt; a disposable
 fixture confirmed it still rejects the legacy `module_id` identifier, and the
 full terminology check passed locally. A new CI run is needed for this revision.
+
+## Real-model new-file workflow revalidation
+
+With `qwen25-coder-7b-q4` on the native Model Host validation worktree, a
+disposable Studio MCP workflow created `src/math.js`, reached both approval
+gates, passed the workflow syntax check and independent network-isolated
+functional assertions, and delivered the verified file to a disposable local
+Git remote. This is a single successful new-file sample after an earlier
+failure; it does not establish general coding reliability, external Git delivery,
+or safety of model-generated code. The host credential remains management-capable.
