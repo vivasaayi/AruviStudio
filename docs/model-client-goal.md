@@ -4087,6 +4087,10 @@ remain accepted and full event ordering is not enforced. The client suite passed
 64 tests; the rebuilt Studio image passed all 51 isolated browser/MCP workflow
 checks, including simulated Anthropic streaming. The branch services were
 healthy on port 55092. Live Anthropic validation remains open.
+The independent consumer now pins `b0b1087c1c0f41d77a08990d76ab31917fa728b1`;
+its 29 tests passed on macOS and Linux with the Linux test step offline. The
+new independent test confirms that a partial indexed stream ending with an
+unclosed block returns an error after emitting its earlier text.
 
 ## Coding final-response guidance
 
