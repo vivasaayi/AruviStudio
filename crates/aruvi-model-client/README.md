@@ -274,7 +274,9 @@ This is a local packaging check; it neither publishes the crate nor establishes 
 release policy. It needs the locked dependencies already in the local Cargo cache.
 
 The `validation/model-client-consumer` fixture pins this revision and its own
-lockfile; `bash scripts/test shared-client-consumer` builds it in Docker, vendors
+lockfile. `bash scripts/test shared-client-pin` checks the local manifest, license
+and source files against that revision, which must be available in the local Git
+object store. `bash scripts/test shared-client-consumer` also builds it in Docker, vendors
 dependencies and runs its tests with networking disabled. When promoting another
 client revision, first push it, update the fixture's Git revision and lockfile,
 then rerun the check before updating consumers. Do not use a mutable branch as a

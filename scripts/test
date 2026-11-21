@@ -44,7 +44,8 @@ case "${1:-}" in
     version=$(python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "aruvi-model-client"))' <<<"$metadata")
     cargo package --manifest-path "$manifest" --offline --allow-dirty
     cargo test --manifest-path "$target_dir/package/aruvi-model-client-$version/Cargo.toml" --offline --locked ;;
-  shared-client-consumer) python3 scripts/check-model-client-pin.py && docker build --no-cache --target test --output=type=cacheonly validation/model-client-consumer ;;
+  shared-client-pin) python3 scripts/test-model-client-pin.py && python3 scripts/check-model-client-pin.py ;;
+  shared-client-consumer) python3 scripts/test-model-client-pin.py && python3 scripts/check-model-client-pin.py && docker build --no-cache --target test --output=type=cacheonly validation/model-client-consumer ;;
   host-shared-client) shift; python3 scripts/test-shared-client-host "$@" ;;
   scoped-real-host) shift; python3 scripts/test-scoped-real-host "$@" ;;
   ui|integration-ui|staging)
@@ -76,5 +77,5 @@ PY
       bash scripts/test-container-ci.sh
       bash scripts/test-container-workflow.sh
     fi ;;
-  *) printf '%s\n' 'Usage: scripts/test unit|integration|headless-shutdown|ui|integration-ui|staging|environment-acceptance|database-override-multiprocess|docker-host-model|remote-host-fixture|workflow-host-fixture|ci-host-fixture|host-layout|model-routing|sqlx-patch|native-model-host-sync|host-planner-scope|host-mcp-origin|tls-mcp-proxy|host-speech|host-speech-cycle|host-speech-defaults|speech-env-routing|local-whisper-preset|host-voice-browser|host-planner|planner-multiprocess|planner-env-routing|host-coding|native-model-host|native-ci-service|native-database-override|ci-shared-worktree|worktree-no-build|host-coding-ui|host-file-copilot|host-coding-workflow|shared-client-package|shared-client-consumer|host-shared-client|scoped-real-host' >&2; exit 2 ;;
+  *) printf '%s\n' 'Usage: scripts/test unit|integration|headless-shutdown|ui|integration-ui|staging|environment-acceptance|database-override-multiprocess|docker-host-model|remote-host-fixture|workflow-host-fixture|ci-host-fixture|host-layout|model-routing|sqlx-patch|native-model-host-sync|host-planner-scope|host-mcp-origin|tls-mcp-proxy|host-speech|host-speech-cycle|host-speech-defaults|speech-env-routing|local-whisper-preset|host-voice-browser|host-planner|planner-multiprocess|planner-env-routing|host-coding|native-model-host|native-ci-service|native-database-override|ci-shared-worktree|worktree-no-build|host-coding-ui|host-file-copilot|host-coding-workflow|shared-client-package|shared-client-pin|shared-client-consumer|host-shared-client|scoped-real-host' >&2; exit 2 ;;
 esac

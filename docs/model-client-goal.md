@@ -2030,7 +2030,7 @@ scope is reviewed, not merely until an example passes.
 
 | Requirement | Current evidence | Remaining work |
 | --- | --- | --- |
-| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and by a separate fixture pinned to `12791e9fcd018ea4847ff7a2591535d4de07914e`; 28 independent native and Linux tests passed offline. A non-root, read-only Linux probe passed real Model Host text and synthetic Piper/Whisper speech. One unclassified integration-host failure occurred with a preceding pin before a successful retry. | Investigate an integration-host failure if it recurs; decide independent ownership, versioning and migration for other projects. The current pin is a checkpoint, not a published release. |
+| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and by a separate fixture pinned to `342520c95f4481d72646f83f9394c45134dc2864`; 31 independent native and Linux tests passed offline. A non-root, read-only Linux probe passed real Model Host text and synthetic Piper/Whisper speech. One unclassified integration-host failure occurred with a preceding pin before a successful retry. | Investigate an integration-host failure if it recurs; decide independent ownership, versioning and migration for other projects. The current pin is a checkpoint, not a published release. |
 | OpenAI-compatible and Anthropic protocols | Shared clients cover text, streaming, discovery and error handling; OpenAI-compatible voice is implemented. Contract fixtures cover both protocols and the reasoning request profile. | Live third-party OpenAI, Anthropic, DeepSeek and LM Studio sessions remain unverified; compatibility with each model and provider cannot be inferred from adapter capabilities. |
 | Local coding integration | The isolated 7B Model Host passed real MCP completion and an extend-module workflow through code review and a disposable local Git remote. A later new-module attempt produced a missing function definition; independent behavior checks caught it before delivery. | Investigate reliability on broader coding tasks and actual authenticated network delivery; syntax-only checks do not establish correctness. |
 | Speech and local fallback | Real Model Host speech generation and transcription and checksum-pinned local Whisper have been exercised with synthetic audio; browser and MCP fixtures exist. | Physical microphone permission/capture, audible playback, other languages and recognition quality remain unverified. |
@@ -5687,3 +5687,12 @@ when free host storage fell below the 3 GiB safety threshold. The isolated
 builder exited and its scratch filesystem was unmounted and truncated; the
 previous worktree image remains running. The image build and deployment must be
 repeated with adequate headroom before claiming image-level validation.
+
+## Independent client pin drift
+
+The consumer pin check now compares the current client manifest, source file
+set and license with the pinned Git revision, in addition to checking the
+documented revision and lockfile. A temporary Git fixture verifies matching,
+modified, added and removed source files. The current checkout matches the
+independent consumer pin. The check requires that Git revision locally; it
+does not replace the separate offline consumer build or live provider checks.
