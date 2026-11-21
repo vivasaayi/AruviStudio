@@ -744,7 +744,12 @@ test("browser registers and attaches a container workspace", async ({ page, requ
         await page.getByLabel("Additional Copilot instructions").fill("");
         await page.locator("#repositoryCopilotModel").selectOption("");
         await page.getByText("Copilot settings", { exact: true }).click();
-        await page.getByLabel("Selected file contents").fill("unsaved working copy\n");
+        await page.getByRole("button", { name: "Use code editor" }).click();
+        await expect(page.locator("#codeEditorStatus")).toHaveText("Code editor active", { timeout: 30000 });
+        const copilotEditorInput = page.locator("#repositoryCodeEditor textarea.inputarea");
+        await copilotEditorInput.focus();
+        await page.keyboard.press("ControlOrMeta+A");
+        await page.keyboard.insertText("unsaved working copy\n");
         await expect(page.getByRole("button", { name: "Propose changes" })).toBeDisabled();
         await page.getByLabel("Copilot question").fill("Explain my unsaved edits");
         const unsavedResponse = page.waitForResponse((response) => response.url().endsWith("/api/mobile/repository-file/copilot") && response.request().method() === "POST");
@@ -756,6 +761,7 @@ test("browser registers and attaches a container workspace", async ({ page, requ
         expect(JSON.stringify(unsaved.messages)).toContain("Unsaved file data");
         expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: "inspection.txt" })).content).toContain("saved from browser");
         await page.getByRole("button", { name: "Discard file edits" }).click();
+        await page.getByRole("button", { name: "Use plain text editor" }).click();
         await page.getByLabel("Copilot question").fill("Explain this file");
         await page.getByRole("button", { name: "Ask about saved file" }).click();
         await expect(page.locator("#repositoryCopilotResult")).toContainText("Container provider reply");

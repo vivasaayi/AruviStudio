@@ -56,6 +56,9 @@ language detection, per-file edits and undo, guarded saves and read-only files;
 native dialogs and full IDE behavior remain open. The image serves the editor
 assets from its own filesystem; separately run native servers require explicit
 asset configuration and packaged-native delivery is unverified.
+An isolated browser test also sends an unsaved Monaco buffer to a simulated
+Copilot provider and confirms through MCP that the saved file is unchanged.
+This particular editor-to-Copilot path has not been tested with a live model.
 Browser Copilot can now select an enabled registered model independently of the
 Connection model, or explicitly use the Connection model. The choice lasts for
 the page session; refresh retrieves current models and retains an unavailable
