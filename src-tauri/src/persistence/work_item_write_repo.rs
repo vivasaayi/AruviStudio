@@ -285,12 +285,50 @@ pub async fn delete_work_item(pool: &SqlitePool, id: &str) -> Result<(), AppErro
 
 pub async fn reorder_work_items(pool: &SqlitePool, ordered_ids: &[String]) -> Result<(), AppError> {
     debug!(item_count = ordered_ids.len(), "persist reorder_work_items");
+    let mut transaction = pool.begin().await?;
     for (index, id) in ordered_ids.iter().enumerate() {
         sqlx::query("UPDATE work_items SET sort_order=?, updated_at=datetime('now') WHERE id=?")
             .bind(index as i64)
             .bind(id)
-            .execute(pool)
+            .execute(&mut *transaction)
             .await?;
     }
+    transaction.commit().await?;
+    Ok(())
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct WorkOrderEntry {
+    pub id: String,
+    pub sort_order: i64,
+}
+
+/// Move one endpoint of a displayed, contiguous interval to the other end.
+/// The product is normalized as one transaction so equal legacy sort values
+/// and items beyond the loaded page retain a deterministic relative order.
+pub async fn move_work_item(
+    pool: &SqlitePool, product_id: &str, offset: i64, items: &[WorkOrderEntry], source_id: &str,
+) -> Result<(), AppError> {
+    if product_id.trim().is_empty() || offset < 0 || !(2..=1000).contains(&items.len())
+        || (source_id != items[0].id && source_id != items[items.len()-1].id)
+        || offset.checked_add(items.len() as i64).is_none()
+    {
+        return Err(AppError::Validation("Invalid work item ordering interval".into()));
+    }
+    let mut transaction = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let current: Vec<(String, i64)> = sqlx::query_as("SELECT id, sort_order FROM work_items WHERE product_id=? ORDER BY sort_order, created_at DESC, id LIMIT ? OFFSET ?")
+        .bind(product_id).bind(items.len() as i64).bind(offset).fetch_all(&mut *transaction).await?;
+    if current.len() != items.len() || current.iter().zip(items).any(|((id, order), expected)| id != &expected.id || *order != expected.sort_order) {
+        return Err(AppError::Validation("Work item order changed; refresh and review".into()));
+    }
+    let first = offset;
+    let last = offset + items.len() as i64 - 1;
+    let (source, target) = if source_id == items[0].id { (first, last) } else { (last, first) };
+    sqlx::query("WITH ranked AS MATERIALIZED (SELECT id, row_number() OVER (ORDER BY sort_order, created_at DESC, id)-1 AS pos FROM work_items WHERE product_id=?), desired AS MATERIALIZED (SELECT id, CASE WHEN pos=? THEN ? WHEN ? < ? AND pos>? AND pos<=? THEN pos-1 WHEN ? > ? AND pos>=? AND pos<? THEN pos+1 ELSE pos END AS new_sort FROM ranked) UPDATE work_items SET sort_order=desired.new_sort FROM desired WHERE work_items.id=desired.id AND work_items.product_id=?")
+        .bind(product_id).bind(source).bind(target)
+        .bind(source).bind(target).bind(source).bind(target)
+        .bind(source).bind(target).bind(target).bind(source).bind(product_id)
+        .execute(&mut *transaction).await?;
+    transaction.commit().await?;
     Ok(())
 }

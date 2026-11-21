@@ -71,6 +71,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "list_external_cli_events",
                 "get_sub_work_items",
                 "reorder_work_items",
+                "move_work_item",
             ],
         ),
         action_tool(

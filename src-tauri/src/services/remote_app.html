@@ -693,6 +693,7 @@
                   <label><span class="label">Work status</span><select id="workStatusFilter"><option value="">All statuses</option><option value="draft">Draft</option><option value="ready_for_review">Ready for review</option><option value="approved">Approved</option><option value="in_planning">In planning</option><option value="in_progress">In progress</option><option value="in_validation">In validation</option><option value="waiting_human_review">Waiting human review</option><option value="done">Done</option><option value="blocked">Blocked</option><option value="failed">Failed</option><option value="cancelled">Cancelled</option></select></label>
                   <div class="button-row"><button class="secondary" id="approveSelectedWork" type="button" disabled>Approve selected</button><button class="danger" id="rejectSelectedWork" type="button" disabled>Reject selected</button></div>
                   <div id="workSelectionStatus" class="empty" aria-live="polite">Select up to 100 loaded items for a batch decision.</div>
+                  <div class="empty">Drag work items or use the move buttons to reorder. Clear the status filter first.</div>
                   <div class="work-list" id="workList"></div>
                   <button class="secondary" id="loadMoreWorkButton" type="button" hidden>Load more work items</button>
                   <div class="empty" id="workPageStatus" aria-live="polite"></div>
@@ -1438,6 +1439,7 @@
       document.getElementById("workStatusFilter").disabled = nextBusy;
       el.workList.querySelectorAll("input[data-work-selection]").forEach((input) => { input.disabled = nextBusy; });
       updateWorkSelectionControls();
+      updateWorkMoveControls();
       Array.from(el.workflowActions.querySelectorAll("button")).forEach((button) => {
         button.disabled = nextBusy || !state.delivery || !state.delivery.workflow_run;
       });
@@ -2774,13 +2776,18 @@
       renderWorkProductOptions();
     }
 
-    let workPageRequestId = 0, workNextOffset = 0, workHasMore = false;
+    let workPageRequestId = 0, workNextOffset = 0, workHasMore = false, workMoreLoading = 0, draggedWorkId = null;
     const selectedWorkItems = new Map();
     function updateWorkSelectionControls() {
       const count = selectedWorkItems.size;
       document.getElementById("approveSelectedWork").disabled = state.busy || !count;
       document.getElementById("rejectSelectedWork").disabled = state.busy || !count;
       document.getElementById("workSelectionStatus").textContent = count ? `${count} selected · up to 100 per batch` : "Select up to 100 loaded items for a batch decision.";
+    }
+    function updateWorkMoveControls() {
+      const disabled = state.busy || workMoreLoading || !!document.getElementById("workStatusFilter").value;
+      el.workList.querySelectorAll("[data-work-move]").forEach((button) => { button.disabled = disabled || button.dataset.boundary === "true"; });
+      el.workList.querySelectorAll(".work-card").forEach((card) => { card.draggable = !disabled; });
     }
     function workStatusQuery() {
       const status = document.getElementById("workStatusFilter").value;
@@ -2846,7 +2853,7 @@
       if (!workHasMore || !state.selectedProductId) return;
       const requestId = workPageRequestId, productId = state.selectedProductId, offset = workNextOffset;
       const button = document.getElementById("loadMoreWorkButton");
-      button.disabled = true;
+      button.disabled = true; workMoreLoading++; updateWorkMoveControls();
       try {
         const response = await request("/api/mobile/work-items?product_id=" + encodeURIComponent(productId) + "&limit=100&offset=" + offset + workStatusQuery());
         if (requestId !== workPageRequestId || productId !== state.selectedProductId) return;
@@ -2855,7 +2862,7 @@
         workNextOffset += items.length; workHasMore = !!response.has_more && items.length > 0;
         renderWorkItems(); renderWorkPageStatus(); setStatus("Connected", "ok");
       } catch (error) { if (requestId === workPageRequestId) setStatus(error.message || String(error), "error"); }
-      finally { button.disabled = false; }
+      finally { button.disabled = false; workMoreLoading--; updateWorkMoveControls(); }
     }
     document.getElementById("loadMoreWorkButton").addEventListener("click", () => void loadMoreWorkItems());
 
@@ -2921,8 +2928,8 @@
         el.workList.appendChild(empty);
         return;
       }
-      state.workItems.forEach((item) => {
-        const row = document.createElement("div"); row.style.display = "grid"; row.style.gridTemplateColumns = "auto minmax(0, 1fr)"; row.style.gap = "8px"; row.style.alignItems = "center";
+      state.workItems.forEach((item, index) => {
+        const row = document.createElement("div"); row.style.display = "grid"; row.style.gridTemplateColumns = "auto minmax(0, 1fr) auto auto"; row.style.gap = "8px"; row.style.alignItems = "center";
         const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.style.width = "auto"; checkbox.dataset.workSelection = ""; checkbox.disabled = state.busy;
         checkbox.setAttribute("aria-label", "Select " + item.title); checkbox.checked = selectedWorkItems.has(item.id);
         checkbox.addEventListener("change", () => {
@@ -2934,6 +2941,10 @@
         card.type = "button";
         card.className = "work-card" + (item.id === state.selectedWorkItemId ? " selected" : "");
         card.onclick = () => selectWorkItem(item.id);
+        card.addEventListener("dragstart", (event) => { if (state.busy || workMoreLoading || document.getElementById("workStatusFilter").value) { event.preventDefault(); return; } draggedWorkId = item.id; event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", item.id); });
+        card.addEventListener("dragend", () => { draggedWorkId = null; });
+        card.addEventListener("dragover", (event) => { if (draggedWorkId && draggedWorkId !== item.id) event.preventDefault(); });
+        card.addEventListener("drop", (event) => { event.preventDefault(); const source = draggedWorkId; draggedWorkId = null; if (source) void moveWorkItem(source, item.id); });
         const title = document.createElement("div");
         title.className = "work-title";
         title.textContent = item.title;
@@ -2942,8 +2953,31 @@
         summary.textContent = String(item.status || "draft").replaceAll("_", " ") + " · " + String(item.work_item_type || "task").replaceAll("_", " ");
         card.appendChild(title);
         card.appendChild(summary);
-        row.append(checkbox, card); el.workList.appendChild(row);
+        const up = document.createElement("button"), down = document.createElement("button");
+        for (const [button, direction, boundary] of [[up, -1, index === 0], [down, 1, index === state.workItems.length - 1]]) {
+          button.type = "button"; button.className = "secondary"; button.textContent = direction < 0 ? "↑" : "↓";
+          button.setAttribute("aria-label", `Move ${item.title} ${direction < 0 ? "up" : "down"}`); button.dataset.workMove = ""; button.dataset.boundary = String(boundary);
+          button.onclick = () => void moveWorkItem(item.id, state.workItems[index + direction].id);
+        }
+        row.append(checkbox, card, up, down); el.workList.appendChild(row);
       });
+      updateWorkMoveControls();
+    }
+
+    async function moveWorkItem(sourceId, targetId) {
+      if (state.busy || workMoreLoading || document.getElementById("workStatusFilter").value) return;
+      const source = state.workItems.findIndex((item) => item.id === sourceId), target = state.workItems.findIndex((item) => item.id === targetId);
+      if (source < 0 || target < 0 || source === target) return;
+      const start = Math.min(source, target), end = Math.max(source, target), productId = state.selectedProductId;
+      if (end - start + 1 > 1000) { setStatus("Move across at most 1000 loaded items at a time", "error"); return; }
+      const items = state.workItems.slice(start, end + 1).map(({id, sort_order}) => ({id, sort_order}));
+      try {
+        setBusy(true);
+        await request("/api/mobile/work-items/move", {method:"POST", body:{product_id:productId, offset:start, items, source_id:sourceId}});
+        if (productId !== state.selectedProductId) return;
+        await loadWorkItems(); setStatus("Work item order saved", "ok");
+      } catch (error) { if (productId === state.selectedProductId) setStatus(error.message || String(error), "error"); }
+      finally { setBusy(false); }
     }
 
     async function decideSelectedWork(action) {

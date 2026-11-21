@@ -109,6 +109,25 @@ pub(crate) struct MobileBatchTaskDecision {
     items: Vec<crate::services::approval_service::BatchDecisionItem>,
 }
 
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileWorkMove {
+    product_id: String,
+    offset: i64,
+    items: Vec<work_item_repo::WorkOrderEntry>,
+    source_id: String,
+}
+
+pub(crate) async fn mobile_move_work_item(
+    State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileWorkMove>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match work_item_repo::move_work_item(&state.app_state.db, &body.product_id, body.offset, &body.items, &body.source_id).await {
+        Ok(()) => Json(json!({"ok":true})).into_response(),
+        Err(AppError::Validation(error)) => (StatusCode::CONFLICT, error).into_response(),
+        Err(error) => bad_request(error),
+    }
+}
+
 pub(crate) async fn mobile_batch_task_decision(
     State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileBatchTaskDecision>,
 ) -> impl IntoResponse {

@@ -109,7 +109,7 @@ test("browser approves and rejects work with stale decision protection", async (
     const item = await post("/api/mobile/work-items",{product_id:product.id,title:"Decision task"});
     await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
     await page.getByRole("button",{name:"Work",exact:true}).click(); await page.locator("#workProductSelect").selectOption(product.id);
-    await page.locator("#workList").getByRole("button",{name:/Decision task/}).click();
+    await page.locator("#workList .work-card").filter({hasText:"Decision task"}).click();
     page.once("dialog",dialog => dialog.accept()); await page.getByRole("button",{name:"Approve",exact:true}).click();
     await expect(page.locator("#status")).toHaveText("Work item approved");
     expect((await (await request.get(`/api/mobile/work-items/${item.id}`,{headers})).json()).status).toBe("approved");
@@ -125,6 +125,37 @@ test("browser approves and rejects work with stale decision protection", async (
   } finally {
     await call("aruvi_settings","set_setting",{key:"workflow.auto_start_after_work_item_approval",value:"true"});
   }
+});
+
+test("browser reorders work with drag and keyboard buttons while detecting stale order", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
+  const headers = {Authorization:`Bearer ${token}`};
+  const post = async (path, data) => { const response = await request.post(path,{headers,data}); expect(response.ok(),await response.text()).toBeTruthy(); return response.json(); };
+  const product = await post("/api/mobile/products", {name:"Order fixture"});
+  for (const title of ["Order A", "Order B", "Order C"]) await post("/api/mobile/work-items", {product_id:product.id,title});
+  const cards = page.locator("#workList .work-card");
+  await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+  await page.getByRole("button",{name:"Work",exact:true}).click(); await page.locator("#workProductSelect").selectOption(product.id);
+  await expect(cards).toHaveCount(3); await expect(page.locator("#refreshWorkButton")).toBeEnabled();
+  let titles = await cards.locator(".work-title").allTextContents();
+  const original = [...titles];
+  await page.getByRole("button",{name:`Move ${titles[1]} up`}).click();
+  await expect(page.locator("#status")).toHaveText("Work item order saved");
+  titles = await cards.locator(".work-title").allTextContents(); expect(titles).toEqual([original[1],original[0],original[2]]);
+  await cards.nth(2).dragTo(cards.nth(0));
+  await expect(page.locator("#status")).toHaveText("Work item order saved");
+  titles = await cards.locator(".work-title").allTextContents(); expect(titles).toEqual([original[2],original[1],original[0]]);
+  await page.locator("#workStatusFilter").selectOption("draft");
+  await expect(page.getByRole("button",{name:`Move ${titles[1]} up`})).toBeDisabled();
+  await page.locator("#workStatusFilter").selectOption(""); await expect(page.locator("#refreshWorkButton")).toBeEnabled();
+  const response = await request.get(`/api/mobile/work-items?product_id=${product.id}&limit=100`,{headers});
+  const fresh = (await response.json()).items;
+  const moved = await request.post("/api/mobile/work-items/move",{headers,data:{product_id:product.id,offset:0,items:fresh.slice(0,2).map(({id,sort_order})=>({id,sort_order})),source_id:fresh[1].id}});
+  expect(moved.ok(),await moved.text()).toBeTruthy();
+  await page.getByRole("button",{name:`Move ${titles[1]} up`}).click();
+  await expect(page.locator("#status")).toContainText("order changed");
+  await page.locator("#refreshWorkButton").click(); await expect(page.locator("#status")).toHaveText("Connected");
+  expect(await cards.locator(".work-title").allTextContents()).toEqual([original[1],original[2],original[0]]);
 });
 
 test("browser filters work and applies atomic batch decisions", async ({ page, request }) => {
@@ -178,7 +209,7 @@ test("browser deletes a work item only after confirmation and stale checks", asy
   const child = await post("/api/mobile/work-items", {product_id:product.id,title:"Retained child fixture",parent_work_item_id:parent.id,work_item_type:"task"});
   await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
   await page.getByRole("button", {name:"Work",exact:true}).click(); await page.locator("#workProductSelect").selectOption(product.id);
-  await page.locator("#workList").getByRole("button", {name:/Delete parent fixture/}).click();
+  await page.locator("#workList .work-card").filter({hasText:"Delete parent fixture"}).click();
   let prompt = "";
   page.once("dialog", (dialog) => { prompt = dialog.message(); return dialog.dismiss(); });
   await page.getByRole("button", {name:"Delete work item"}).click();

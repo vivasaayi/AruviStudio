@@ -12,6 +12,20 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Browser work-item ordering
+
+The browser can drag or use move buttons to reorder an unfiltered product
+backlog. A guarded browser/MCP move validates the current contiguous interval,
+then normalizes product order in one transaction, retaining the relative order
+of unloaded items. The old desktop/MCP reorder now commits its writes together,
+but remains last-write-wins and does not validate product scope. Moves are
+limited to 1,000 loaded rows at a time. Backend tests exercise authorization,
+cross-product and stale conflicts, rollback, MCP, and a page-boundary move;
+a native browser fixture exercises drag, buttons, filter restriction and stale
+conflict. A separate in-memory SQLite check reordered 50,000 synthetic rows in
+approximately 0.07 seconds on this Mac. Container validation and deployment
+are pending.
+
 ### Browser backlog batch decisions
 
 The Work view now filters by status and supports selecting up to 100 loaded
@@ -30,7 +44,7 @@ is deployed to the isolated worktree. Before restart there were no active CLI,
 import or workflow jobs, and a consistent database backup passed `quick_check`.
 The previous image remains tagged `aruvi-studio-worktree-backup:pre-batch-decisions`.
 After restart both services were healthy; browser controls and an authenticated
-MCP catalog call passed. The loopback port is dynamic. Drag ordering, a clean
+MCP catalog call passed. The loopback port is dynamic. At that checkpoint drag ordering, a clean
 Dockerfile build and staging acceptance remain open.
 
 ### Browser work-item decisions

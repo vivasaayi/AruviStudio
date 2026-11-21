@@ -11,6 +11,14 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
     let args = tool_action.args();
 
     match tool_action.action.as_str() {
+        "move_work_item" => {
+            let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
+            let source_id = args.required_string(&["source_id", "sourceId"], "source_id")?;
+            let offset = args.optional_i64(&["offset"])?.unwrap_or(0);
+            let items: Vec<work_item_repo::WorkOrderEntry> = args.required_deserialize(&["items"], "items")?;
+            work_item_repo::move_work_item(&state.db, &product_id, offset, &items, &source_id).await?;
+            Ok(action_ok("move_work_item"))
+        }
         "run_external_cli" => {
             let id = args.required_string(&["work_item_id", "workItemId"], "work_item_id")?;
             let provider = args.required_string(&["provider"], "provider")?;

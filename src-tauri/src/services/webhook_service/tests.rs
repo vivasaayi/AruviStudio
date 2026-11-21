@@ -288,6 +288,50 @@ async fn remote_test_command_configuration_is_authenticated_and_validated() {
 }
 
 #[tokio::test]
+async fn work_order_moves_are_atomic_scoped_and_available_to_mcp() {
+    let app: tauri::App<MockRuntime> = make_test_app("work_order_moves").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "order-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let (_, body) = send_json(&router, Method::POST, "/api/mobile/products", Some("order-token"), Some(json!({"name":"Order product"}))).await;
+    let product = parse_json(&body); let product_id = product["id"].as_str().unwrap();
+    for title in ["A", "B", "C", "D"] {
+        assert_eq!(send_json(&router, Method::POST, "/api/mobile/work-items", Some("order-token"), Some(json!({"product_id":product_id,"title":title}))).await.0, StatusCode::CREATED);
+    }
+    let read = || async { sqlx::query_as::<_, (String, i64)>("SELECT id,sort_order FROM work_items WHERE product_id=? ORDER BY sort_order,created_at DESC,id").bind(product_id).fetch_all(&state.db).await.unwrap() };
+    let original = read().await;
+    let entries = |rows: &[(String,i64)]| rows.iter().map(|(id,sort_order)| json!({"id":id,"sort_order":sort_order})).collect::<Vec<_>>();
+    let path = "/api/mobile/work-items/move";
+    let payload = json!({"product_id":product_id,"offset":1,"items":entries(&original[1..3]),"source_id":original[2].0});
+    assert_eq!(send_json(&router, Method::POST, path, None, Some(payload.clone())).await.0, StatusCode::UNAUTHORIZED);
+    let wrong_scope = json!({"product_id":"other","offset":1,"items":entries(&original[1..3]),"source_id":original[2].0});
+    assert_eq!(send_json(&router, Method::POST, path, Some("order-token"), Some(wrong_scope)).await.0, StatusCode::CONFLICT);
+    sqlx::query("CREATE TRIGGER fixture_order_failure BEFORE UPDATE OF sort_order ON work_items WHEN OLD.id=? BEGIN SELECT RAISE(ABORT, 'fixture'); END".replace("?", &format!("'{}'", original[2].0)).as_str()).execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, path, Some("order-token"), Some(payload.clone())).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(read().await, original);
+    let legacy_ids = original.iter().map(|row| row.0.clone()).collect::<Vec<_>>();
+    assert!(crate::persistence::work_item_repo::reorder_work_items(&state.db, &legacy_ids).await.is_err());
+    assert_eq!(read().await, original);
+    sqlx::query("DROP TRIGGER fixture_order_failure").execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, path, Some("order-token"), Some(payload.clone())).await.0, StatusCode::OK);
+    let changed = read().await;
+    assert_eq!(changed.iter().map(|x| &x.0).collect::<Vec<_>>(), vec![&original[0].0,&original[2].0,&original[1].0,&original[3].0]);
+    assert_eq!(send_json(&router, Method::POST, path, Some("order-token"), Some(payload)).await.0, StatusCode::CONFLICT);
+    crate::mcp::dispatch_tool(&state, "aruvi_work_items", json!({"action":"move_work_item","arguments":{"product_id":product_id,"offset":0,"items":entries(&changed[0..3]),"source_id":changed[0].0}})).await.unwrap();
+    let final_order = read().await;
+    assert_eq!(final_order.iter().map(|x| &x.0).collect::<Vec<_>>(), vec![&original[2].0,&original[1].0,&original[0].0,&original[3].0]);
+    sqlx::query("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<105) INSERT INTO work_items(id,product_id,title,work_item_type,priority,complexity,status,sort_order) SELECT printf('order-extra-%03d',x),?,printf('Extra %03d',x),'task','medium','medium','draft',100+x FROM n")
+        .bind(product_id).execute(&state.db).await.unwrap();
+    let before_page_move = read().await;
+    let page_move = json!({"product_id":product_id,"offset":99,"items":entries(&before_page_move[99..102]),"source_id":before_page_move[101].0});
+    assert_eq!(send_json(&router, Method::POST, path, Some("order-token"), Some(page_move)).await.0, StatusCode::OK);
+    let after_page_move = read().await;
+    let mut expected = before_page_move.iter().map(|x| x.0.clone()).collect::<Vec<_>>();
+    let moved = expected.remove(101); expected.insert(99, moved);
+    assert_eq!(after_page_move.iter().map(|x| x.0.clone()).collect::<Vec<_>>(), expected);
+}
+
+#[tokio::test]
 async fn batch_task_decisions_are_atomic_scoped_and_available_to_mcp() {
     let app: tauri::App<MockRuntime> = make_test_app("batch_task_decisions").await;
     let state = app.state::<AppState>().inner().clone();

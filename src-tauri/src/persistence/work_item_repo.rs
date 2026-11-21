@@ -7,7 +7,7 @@ pub use crate::persistence::work_item_read_repo::{
 };
 
 pub use crate::persistence::work_item_write_repo::{
-    create_work_item, delete_work_item, reorder_work_items,
+    create_work_item, delete_work_item, reorder_work_items, move_work_item, WorkOrderEntry,
     update_work_item, CreateWorkItemInput, UpdateWorkItemPatch,
 };
 

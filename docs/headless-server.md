@@ -649,3 +649,13 @@ conflict. MCP exposes the same operation through `approve_work_items` and
 `reject_work_items` on `aruvi_checkpoints`. Automatic workflow starts are
 requested after commit when the saved policy enables them; the decision
 response does not guarantee that every workflow starts successfully.
+
+With the status filter cleared, drag a work card or use its move buttons to
+reorder loaded work items. Each move spans at most 1,000 loaded items. The
+server checks that the displayed interval still matches the current product
+order and commits the new order atomically; refresh after a conflict. Items
+outside the interval, including unloaded pages, retain their relative order.
+The MCP `aruvi_work_items` action `move_work_item` accepts `product_id`,
+`offset`, ordered `items` entries containing `id` and `sort_order`, and the
+`source_id` at either end of the interval. The older `reorder_work_items`
+action is transactional but does not provide this stale or product-scope check.
