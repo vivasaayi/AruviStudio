@@ -49,7 +49,7 @@ try {
     assert((await rpc.json()).result.isError);
   }
   assert.equal(captured.length,0,'Invalid general Copilot requests reached the provider');
-  const repo = join(root,'repo'); await mkdir(repo); execFileSync('git',['init','-q',repo]); await writeFile(join(repo,'fixture.txt'),'fixture content\n');
+  const repo = join(root,'repo'); await mkdir(repo); execFileSync('git',['init','-q',repo]); await writeFile(join(repo,'fixture.txt'),'fixture content\n'); await writeFile(join(repo,'mixed.txt'),'one\r\ntwo\n'); await writeFile(join(repo,'windows.txt'),'alpha\r\n');
   await call('aruvi_repositories','register_repository',{name:'General workspace',local_path:repo});
   browser = await chromium.launch({executablePath:process.env.ARUVI_CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
   const page = await browser.newPage(); await page.goto(base+'/remote');
@@ -64,6 +64,20 @@ try {
   await page.locator('#repositoryList .tool-card').filter({hasText:'General workspace'}).getByRole('button',{name:'Browse workspace'}).click();
   await page.locator('#repositoryTree').getByRole('button',{name:'fixture.txt'}).click();
   await page.getByRole('button',{name:'Close fixture.txt'}).waitFor(); assert.equal(await page.locator('#repositoryCopilotResult').textContent(),'');
+  const downloadCopy = async () => { const pending = page.waitForEvent('download'); await page.getByRole('button',{name:'Download open copy'}).click(); const download = await pending; return [download.suggestedFilename(), await readFile(await download.path(),'utf8')]; };
+  await page.locator('#repositoryFileContent').fill('unsaved content\n');
+  assert.deepEqual(await downloadCopy(), ['fixture.txt','unsaved content\n']);
+  assert.equal(await readFile(join(repo,'fixture.txt'),'utf8'),'fixture content\n');
+  await page.getByRole('button',{name:'Discard file edits'}).click();
+  await page.locator('#repositoryTree').getByRole('button',{name:'mixed.txt',exact:true}).click();
+  assert.deepEqual(await downloadCopy(), ['mixed.txt','one\r\ntwo\n']);
+  await page.getByRole('button',{name:'Close mixed.txt'}).click();
+  await page.locator('#repositoryTree').getByRole('button',{name:'windows.txt',exact:true}).click();
+  await page.locator('#repositoryFileContent').fill('alpha\nbeta\n');
+  assert.deepEqual(await downloadCopy(), ['windows.txt','alpha\r\nbeta\r\n']);
+  assert.equal(await readFile(join(repo,'windows.txt'),'utf8'),'alpha\r\n');
+  await page.getByRole('button',{name:'Discard file edits'}).click();
+  await page.getByRole('button',{name:'Close windows.txt'}).click();
   await page.getByRole('button',{name:'Close fixture.txt'}).click();
   assert((await page.locator('#repositoryCopilotResult').textContent()).includes('streamed answer'));
   await page.locator('#repositoryCopilotStream').uncheck();

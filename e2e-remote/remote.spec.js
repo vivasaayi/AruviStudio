@@ -111,6 +111,13 @@ test("optional code editor preserves tabs and uses guarded saves", async ({page,
   });
   await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
   await page.getByRole("button", {name:"Workspaces",exact:true}).click();
+  const downloadOpenCopy = async () => {
+    const started = page.waitForEvent("download");
+    await page.getByRole("button", {name:"Download open copy"}).click();
+    const download = await started;
+    return { name: download.suggestedFilename(), content: await readFile(await download.path(), "utf8") };
+  };
+  await expect(page.getByRole("button", {name:"Download open copy"})).toBeDisabled();
   await page.locator("#repositoryList .tool-card").filter({hasText:"Code editor fixture"}).getByRole("button", {name:"Browse workspace"}).click();
   await page.locator("#repositoryTree").getByRole("button", {name:"first.js",exact:true}).click();
   await expect(page.getByLabel("Selected file contents")).toHaveValue("const first = 1;\n");
@@ -124,6 +131,9 @@ test("optional code editor preserves tabs and uses guarded saves", async ({page,
   const input = page.locator("#repositoryCodeEditor textarea.inputarea");
   await input.focus(); await page.keyboard.press("ControlOrMeta+A"); await page.keyboard.insertText("const first = 42;\n");
   await expect(page.locator("#repositoryFileTabs")).toContainText("first.js • unsaved");
+  expect(await downloadOpenCopy()).toEqual({ name:"first.js", content:"const first = 42;\n" });
+  const original = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`},data:{jsonrpc:"2.0",id:31,method:"tools/call",params:{name:"aruvi_repositories",arguments:{action:"read_repository_file",arguments:{repository_id:repository.id,relative_path:"first.js"}}}}});
+  expect((await original.json()).result.structuredContent.result.content).toBe("const first = 1;\n");
   let releaseFile, arrivedFile;
   const fileHeld = new Promise((resolve) => { arrivedFile = resolve; });
   await page.route("**/api/mobile/repository-inspect", async (route) => {
@@ -167,10 +177,12 @@ test("optional code editor preserves tabs and uses guarded saves", async ({page,
   await expect(page.locator("#repositoryFileTabs").getByRole("button", {name:"mixed.js",exact:true})).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", {name:"Use code editor"}).click();
   await expect.poll(() => page.evaluate(() => codeEditor.getOption(monaco.editor.EditorOption.readOnly))).toBe(true);
+  expect(await downloadOpenCopy()).toEqual({ name:"mixed.js", content:"one\r\ntwo\n" });
   await page.locator("#repositoryTree").getByRole("button", {name:"windows.js",exact:true}).click();
   await expect(page.locator("#repositoryFileTabs").getByRole("button", {name:"windows.js",exact:true})).toHaveAttribute("aria-pressed", "true");
   await expect.poll(() => page.evaluate(() => codeEditor.getOption(monaco.editor.EditorOption.readOnly))).toBe(false);
   await input.focus(); await page.keyboard.press("ControlOrMeta+A"); await page.keyboard.insertText("alpha\nbeta\n");
+  expect(await downloadOpenCopy()).toEqual({ name:"windows.js", content:"alpha\r\nbeta\r\n" });
   await page.keyboard.press("ControlOrMeta+S");
   await expect(page.locator("#status")).toHaveText("File saved");
   const windows = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`},data:{jsonrpc:"2.0",id:3,method:"tools/call",params:{name:"aruvi_repositories",arguments:{action:"read_repository_file",arguments:{repository_id:repository.id,relative_path:"windows.js"}}}}});

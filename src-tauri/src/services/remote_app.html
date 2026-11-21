@@ -654,7 +654,7 @@
               <div id="codeEditorStatus" class="empty" role="status"></div>
               <label id="repositoryPlainEditor"><span class="label">Selected file</span><textarea id="repositoryFileContent" readonly rows="18" aria-label="Selected file contents"></textarea></label>
               <div id="repositoryCodeEditor" hidden aria-label="Code editor" style="height: 420px; border: 1px solid #334155"></div>
-              <div class="button-row"><button id="saveRepositoryFileButton" type="button" disabled>Save file</button><button id="discardRepositoryFileButton" class="secondary" type="button" disabled>Discard file edits</button><span class="empty">In the editor, use ⌘/Ctrl+S to save.</span></div>
+              <div class="button-row"><button id="saveRepositoryFileButton" type="button" disabled>Save file</button><button id="discardRepositoryFileButton" class="secondary" type="button" disabled>Discard file edits</button><button id="downloadRepositoryFileButton" class="secondary" type="button" disabled>Download open copy</button><span class="empty">Download includes unsaved edits. In the editor, use ⌘/Ctrl+S to save.</span></div>
               <div class="tool-card stack">
                 <strong>Ask Copilot</strong>
                 <div class="empty">With a file open, sends its path and, when enabled, up to 12,000 characters of editor content with your question and recent conversation to the selected provider. Unsaved edits are included. Without an open file, only your conversation and instructions are sent; select a workspace to propose changes. Requests and responses are recorded in Activity. Conversation resets when settings or file content change. Save before proposing changes.</div>
@@ -4008,9 +4008,10 @@
         group.append(select, close); tabs.appendChild(group);
       }
     }
-    function activateRepositoryFile(file) {
+    function activateRepositoryFile(file, saveCurrent = true) {
       if (fileSaving || copilotBusy) { setStatus("Wait for the current operation before switching files", "warn"); return; }
-      saveActiveBuffer(); fileRequestId++; fileLoading = false; openedFile = file;
+      if (saveCurrent) saveActiveBuffer();
+      fileRequestId++; fileLoading = false; openedFile = file;
       el.repositoryFileContent.value = file.working; el.repositoryFileContent.readOnly = !file.editable;
       el.repositoryInspectStatus.textContent = file.path;
       document.getElementById("repositoryCopilotResult").textContent = file.transcript || "";
@@ -4022,7 +4023,7 @@
       const active = file === openedFile; openRepositoryFiles = openRepositoryFiles.filter((entry) => entry !== file);
       if (active) {
         openedFile = null; fileRequestId++; fileLoading = false;
-        if (openRepositoryFiles.length) activateRepositoryFile(openRepositoryFiles[openRepositoryFiles.length - 1]);
+        if (openRepositoryFiles.length) activateRepositoryFile(openRepositoryFiles[openRepositoryFiles.length - 1], false);
         else { el.repositoryFileContent.value = ""; el.repositoryFileContent.readOnly = true; document.getElementById("repositoryCopilotResult").textContent = generalCopilot.transcript; clearPatchReview(); updateFileControls(); }
       }
       renderFileTabs();
@@ -4031,6 +4032,7 @@
       const dirty = !!fileIsDirty();
       el.saveRepositoryFileButton.disabled = !dirty || fileSaving || fileLoading || copilotBusy || !openedFile.editable;
       el.discardRepositoryFileButton.disabled = !dirty || fileSaving || fileLoading || copilotBusy;
+      document.getElementById("downloadRepositoryFileButton").disabled = !openedFile || fileSaving || fileLoading || copilotBusy;
       document.getElementById("repositoryCopilotButton").disabled = fileSaving || fileLoading || copilotBusy || (!!openedFile && !openedFile.sha256);
       document.getElementById("repositoryCopilotButton").textContent = !openedFile || !document.getElementById("repositoryCopilotIncludeFile").checked ? "Ask Copilot" : dirty ? "Ask about unsaved file" : "Ask about saved file";
       document.getElementById("repositoryCopilotPatchButton").disabled = !inspectedRepositoryId || dirty || fileSaving || fileLoading || copilotBusy || (!!openedFile && !openedFile.sha256);
@@ -4215,10 +4217,24 @@
       }
     }
 
+    function repositoryEditorContent(file) {
+      if (!file.editable) return file.expected;
+      return file.crlf ? el.repositoryFileContent.value.replace(/\n/g, "\r\n") : el.repositoryFileContent.value;
+    }
+
+    function downloadRepositoryFile() {
+      if (!openedFile || fileSaving || fileLoading || copilotBusy) return;
+      const url = URL.createObjectURL(new Blob([repositoryEditorContent(openedFile)], { type: "text/plain;charset=utf-8" }));
+      const anchor = document.createElement("a");
+      anchor.href = url; anchor.download = openedFile.path.split("/").pop() || "workspace-file.txt";
+      document.body.appendChild(anchor); anchor.click(); anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+    }
+
     async function saveRepositoryFile() {
       if (!openedFile || !fileIsDirty() || fileSaving || fileLoading || !openedFile.editable) return;
       const file = openedFile;
-      const content = file.crlf ? el.repositoryFileContent.value.replace(/\n/g, "\r\n") : el.repositoryFileContent.value;
+      const content = repositoryEditorContent(file);
       fileSaving = true; el.repositoryFileContent.readOnly = true; updateFileControls();
       try {
         const saved = await request("/api/mobile/repository-file/save", { method: "POST", body: { repository_id: file.repositoryId,
@@ -6014,6 +6030,7 @@
     el.refreshWorkspacesButton.addEventListener("click", loadWorkspaces);
     el.repositoryDiffButton.addEventListener("click", loadRepositoryDiff);
     el.repositoryFileContent.addEventListener("input", () => { updateFileControls(); renderFileTabs(); });
+    document.getElementById("downloadRepositoryFileButton").addEventListener("click", downloadRepositoryFile);
     document.getElementById("repositoryCopilotIncludeFile").addEventListener("change", updateFileControls);
     document.getElementById("repositoryCopilotButton").addEventListener("click", () => void askRepositoryCopilot());
     document.getElementById("repositoryCopilotPatchButton").addEventListener("click", () => void askRepositoryCopilot(true));

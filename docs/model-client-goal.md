@@ -12,6 +12,19 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Browser workspace file copies and Copilot tabs
+
+The browser workspace can download the open UTF-8 file copy, including unsaved
+edits, without writing to the repository. Consistent CRLF files retain their
+line endings; read-only mixed-line-ending files download their original bytes.
+This is a snapshot of the open buffer, which may differ from a later disk change;
+it does not reveal the server folder or support binary and oversized files. A
+fix also preserves the general Copilot transcript when closing an active tab
+while other file tabs remain open. A disposable native server and headless
+Chrome test verified these cases, the unchanged disk contents, and existing
+simulated Copilot streaming and patch flows. Linux image and branch-deployment
+validation for this change remain pending.
+
 ### Browser IDE Copilot without a file
 
 The general Copilot HTTP (buffered and streaming) and MCP actions now share
