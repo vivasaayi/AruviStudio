@@ -22,8 +22,23 @@ matches the agent role or `*`, and missing or mismatched templates fail a stage
 instead of silently changing its behavior. Instructions are limited to 1,000
 characters and retained during subsequent coding turns. Tool permissions and
 execution boundaries remain independently enforced. An assigned template cannot
-be deleted; concurrent template edits require the current version. Native and
-container validation is recorded here when complete.
+be deleted; concurrent template edits require the current version. The native
+agent execution fixture verified the instructions in initial and later coding
+turns, and the management fixture checked authorization, role mismatch, legacy
+references, stale edits and assigned-template deletion. The Rust library suite
+passed 287 tests with seven ignored; 128 frontend tests, the frontend build and
+terminology check passed. The Linux ARM64 release binary from source commit
+`67ecacd`, packaged on the previous image rather than built from the Dockerfile,
+passed 38 remote browser tests, PDF isolation and outage checks, and 51 workflow
+tests. The browser fixture also assigned a template to an agent and checked the
+deletion guard. Image
+`sha256:1ab28f89376d7e0c6a73c60dc75860ae9bc4d97eeb3484c5124f0404341b1115`
+was deployed to the isolated worktree after confirming no active CLI, import or
+workflow jobs and taking a consistent database backup that passed `quick_check`.
+The previous image remains tagged `aruvi-studio-worktree-backup:pre-prompt-templates`.
+Both services were healthy after restart; template UI controls, MCP discovery and
+an authenticated template-list call passed. The loopback port is dynamic. This
+is not staging acceptance or a clean Dockerfile build.
 
 ### Browser work-item ordering
 
