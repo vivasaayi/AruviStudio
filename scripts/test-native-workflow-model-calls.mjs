@@ -40,6 +40,7 @@ c.commit()`,db,task.id,join(root,'artifacts','stage.txt')]);
   await page.getByRole('button',{name:'Review workflow stages'}).click();await page.getByLabel('Workflow stage').selectOption(delivery.workflow_run.id+'-stage');
   const stageText=await page.locator('#deliveryDetails').innerText();assert(stageText.includes(delivery.workflow_run.id+'-stage → done'));assert(!stageText.includes((delivery.workflow_run.id==='first'?'second':'first')+'-stage → done'));
   await page.getByRole('button',{name:'Show stage artifact: '+delivery.workflow_run.id+' artifact'}).click();await page.getByText('Recorded stage artifact.',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Show stage artifact: '+(delivery.workflow_run.id==='first'?'second':'first')+' artifact'}).count(),0);
+  await page.locator('#deliveryDetails').getByRole('button',{name:'Coding',exact:true}).click();assert.equal(await page.getByLabel('Workflow stage').inputValue(),'coding');assert((await page.locator('#deliveryDetails').innerText()).includes('No runs or transitions recorded for this stage.'));
   await page.getByRole('button',{name:'Show workflow model calls'}).click();await page.locator('#deliveryDetails pre').filter({hasText:expected}).waitFor();
   const details=await page.locator('#deliveryDetails').innerText();assert(details.includes(expected));assert(!details.includes(unexpected));
   assert(details.includes('Source: per-call telemetry'));assert(details.includes('Input tokens: 12'));assert(details.includes('Output tokens: 7'));

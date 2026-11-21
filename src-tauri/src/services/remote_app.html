@@ -3649,7 +3649,7 @@
           finally { button.disabled = false; }
         });
         card.append(button, output); el.deliveryDetails.appendChild(card);
-        const historyCard = document.createElement("div"), historyButton = document.createElement("button"), stageSelect = document.createElement("select"), stageDetails = document.createElement("div");
+        const historyCard = document.createElement("div"), historyButton = document.createElement("button"), stageSelect = document.createElement("select"), stageDetails = document.createElement("div"), stageMap = document.createElement("div");
         historyCard.className = "tool-card"; historyButton.type = "button"; historyButton.className = "secondary"; historyButton.textContent = "Review workflow stages";
         stageSelect.setAttribute("aria-label", "Workflow stage"); stageSelect.hidden = true; stageDetails.className = "stack";
         historyButton.addEventListener("click", async () => {
@@ -3658,7 +3658,14 @@
             const path = "/api/mobile/workflows/" + encodeURIComponent(workflow.id);
             const [history, runs] = await Promise.all([request(path + "/history"), request(path + "/agent-runs")]);
             if (state.selectedWorkItemId !== workItem.id || state.delivery?.workflow_run?.id !== workflow.id || !historyCard.isConnected) return;
-            const stages = [...new Set([workflow.current_stage, ...history.flatMap((entry) => [entry.from_stage, entry.to_stage]), ...runs.map((run) => run.stage)].filter(Boolean))];
+            const lanes = [
+              ["Intake", [["Draft", "draft"], ["Requirement analysis", "requirement_analysis"]]],
+              ["Planning swarm", [["Plan split", ""], ["Architecture plan", "planning"], ["Unit test plan", "planning"], ["Integration plan", "planning"], ["UI test plan", "planning"], ["Lead merge", "pending_plan_approval"]]],
+              ["Execution", [["Coding", "coding"]]],
+              ["Verification swarm", [["Verify split", ""], ["Unit tests", "unit_test_generation"], ["Integration tests", "integration_test_generation"], ["UI verification", "ui_test_planning"], ["QA validation", "qa_validation"], ["Security review", "security_review"], ["Performance review", "performance_review"], ["Test review", "pending_test_review"]]],
+              ["Delivery", [["Push preparation", "push_preparation"], ["Git push", "git_push"], ["Done", "done"]]],
+            ];
+            const stages = [...new Set([workflow.current_stage, ...history.flatMap((entry) => [entry.from_stage, entry.to_stage]), ...runs.map((run) => run.stage), ...lanes.flatMap((lane) => lane[1].map((node) => node[1]))].filter(Boolean))];
             stageSelect.replaceChildren();
             for (const stage of stages) { const option = document.createElement("option"); option.value = stage; option.textContent = stage.replaceAll("_", " "); stageSelect.appendChild(option); }
             stageSelect.hidden = !stages.length;
@@ -3677,11 +3684,22 @@
                 stageDetails.append(artifactButton, artifactOutput);
               }
             };
-            stageSelect.onchange = renderStage; renderStage();
+            stageSelect.onchange = renderStage;
+            stageMap.replaceChildren();
+            const explanation = document.createElement("p"); explanation.className = "empty"; explanation.textContent = "Workflow map: split nodes and parallel lanes explain the design; they do not establish that a step ran. Select a stage to inspect its recorded events."; stageMap.appendChild(explanation);
+            for (const [laneName, nodes] of lanes) {
+              const lane = document.createElement("div"), label = document.createElement("strong"); lane.className = "tool-card"; label.textContent = laneName + ": "; lane.appendChild(label);
+              for (const [name, stage] of nodes) {
+                if (!stage) { const split = document.createElement("span"); split.textContent = name + " · "; lane.appendChild(split); continue; }
+                const node = document.createElement("button"); node.type = "button"; node.className = "secondary"; node.textContent = name; node.addEventListener("click", () => { stageSelect.value = stage; renderStage(); }); lane.appendChild(node);
+              }
+              stageMap.appendChild(lane);
+            }
+            renderStage();
           } catch (error) { if (historyCard.isConnected) stageDetails.textContent = error.message || String(error); }
           finally { historyButton.disabled = false; }
         });
-        historyCard.append(historyButton, stageSelect, stageDetails); el.deliveryDetails.appendChild(historyCard);
+        historyCard.append(historyButton, stageMap, stageSelect, stageDetails); el.deliveryDetails.appendChild(historyCard);
       } else {
         appendDetailCard("Workflow", "Not started");
       }

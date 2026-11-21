@@ -2088,6 +2088,8 @@ test("workflow replaces a disabled coordinator before the next review", async ({
   await page.getByRole("button", { name: "Review workflow stages" }).click();
   await page.getByLabel("Workflow stage").selectOption(history[0].to_stage);
   await expect(page.locator("#deliveryDetails")).toContainText(`${history[0].from_stage} → ${history[0].to_stage}`);
+  await page.locator("#deliveryDetails").getByRole("button", { name: "Coding", exact: true }).click();
+  await expect(page.getByLabel("Workflow stage")).toHaveValue("coding");
   expect((await request.get(`/api/mobile/workflows/${before.workflow_run.id}/agent-runs`)).status()).toBe(401);
   const browserRuns = await (await request.get(`/api/mobile/workflows/${before.workflow_run.id}/agent-runs`, { headers })).json();
   expect(browserRuns.map((run) => run.id)).toEqual(initialRuns.map((run) => run.id));

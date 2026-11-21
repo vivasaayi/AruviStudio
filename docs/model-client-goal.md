@@ -12,6 +12,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Browser workflow map (in validation)
+
+The recorded-stage review now includes an explanatory workflow map with the
+desktop's intake, planning, execution, verification and delivery lanes. Its
+stage buttons select the corresponding recorded-stage details, including stages
+with no recorded events; structural split nodes are labeled as explanation,
+not evidence of execution. Multiple planning labels share the `planning`
+runtime stage, as on desktop. The native server build and disposable browser
+fixture passed, including navigation to a stage with no recorded events. Linux
+validation and branch deployment are pending. This map does not yet reproduce the desktop SVG connections,
+stage status colors, focused-node layout or stage-specific per-call grouping.
+
 ### Workflow stage review
 
 The browser can request transition history and agent runs for the selected
