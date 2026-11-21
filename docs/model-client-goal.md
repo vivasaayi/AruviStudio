@@ -12,6 +12,16 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Database override restart validation
+
+The disposable native server fixture `scripts/test native-database-override`
+now checks the authenticated database settings API across restarts. It verified
+that an override takes effect only after restart, each temporary database keeps
+its own products, clearing the override returns to the original database, and
+`ARUVI_DB_PATH` takes precedence. Fresh databases reported applied migrations;
+unauthenticated access was rejected. This does not test a browser session over
+restart, migration of an existing database, or staging.
+
 ### Isolated build filesystem cleanup finding
 
 After the `e07ea27` host-backed Linux build, the loop device and build

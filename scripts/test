@@ -29,6 +29,7 @@ case "${1:-}" in
   host-coding) python3 scripts/test-host-coding ;;
   native-model-host) shift; python3 scripts/test-native-model-host "$@" ;;
   native-ci-service) shift; python3 scripts/test-native-ci-service "$@" ;;
+  native-database-override) shift; python3 scripts/test-native-database-override.py "$@" ;;
   ci-shared-worktree) python3 scripts/test-ci-shared-worktree.py ;;
   worktree-no-build) python3 scripts/test-worktree-no-build.py ;;
   host-file-copilot) python3 scripts/test-host-file-copilot ;;
@@ -73,5 +74,5 @@ PY
       bash scripts/test-container-ci.sh
       bash scripts/test-container-workflow.sh
     fi ;;
-  *) printf '%s\n' 'Usage: scripts/test unit|integration|headless-shutdown|ui|integration-ui|staging|environment-acceptance|remote-host-fixture|workflow-host-fixture|ci-host-fixture|host-layout|model-routing|sqlx-patch|native-model-host-sync|host-planner-scope|host-mcp-origin|tls-mcp-proxy|host-speech|host-speech-cycle|host-speech-defaults|speech-env-routing|local-whisper-preset|host-voice-browser|host-planner|planner-multiprocess|planner-env-routing|host-coding|native-model-host|native-ci-service|ci-shared-worktree|worktree-no-build|host-coding-ui|host-file-copilot|host-coding-workflow|shared-client-package|shared-client-consumer|host-shared-client|scoped-real-host' >&2; exit 2 ;;
+  *) printf '%s\n' 'Usage: scripts/test unit|integration|headless-shutdown|ui|integration-ui|staging|environment-acceptance|remote-host-fixture|workflow-host-fixture|ci-host-fixture|host-layout|model-routing|sqlx-patch|native-model-host-sync|host-planner-scope|host-mcp-origin|tls-mcp-proxy|host-speech|host-speech-cycle|host-speech-defaults|speech-env-routing|local-whisper-preset|host-voice-browser|host-planner|planner-multiprocess|planner-env-routing|host-coding|native-model-host|native-ci-service|native-database-override|ci-shared-worktree|worktree-no-build|host-coding-ui|host-file-copilot|host-coding-workflow|shared-client-package|shared-client-consumer|host-shared-client|scoped-real-host' >&2; exit 2 ;;
 esac

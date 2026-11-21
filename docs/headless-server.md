@@ -330,6 +330,11 @@ worktree app; it does not replace the interactive or isolated workflow tests. Se
 `bash scripts/test host-planner-scope` exercises the working-tree planner product
 selector against simulated responses; it does not validate the server or provider.
 
+On macOS, `bash scripts/test native-database-override /path/to/aruvi-studio-server`
+uses a disposable native server and temporary databases to check override,
+restart persistence, clearing, environment precedence and authentication. It
+does not change the running worktree database or validate staging migrations.
+
 For low-storage hosts, `bash scripts/test remote-host-fixture`,
 `bash scripts/test workflow-host-fixture`, and `bash scripts/test ci-host-fixture` run the isolated application and PDF
 fixtures in Docker while using the host's installed Node dependencies and Chrome
