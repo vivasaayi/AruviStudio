@@ -21,8 +21,11 @@ with no recorded events; structural split nodes are labeled as explanation,
 not evidence of execution. Multiple planning labels share the `planning`
 runtime stage, as on desktop. The native server build and disposable browser
 fixture passed, including navigation to a stage with no recorded events. Linux
-validation and branch deployment are pending. This map does not yet reproduce the desktop SVG connections,
-stage status colors, focused-node layout or stage-specific per-call grouping.
+validation and branch deployment are pending. The selected-stage view also
+groups recorded model calls by their stage or associated agent run; the native
+fixture verified the selected workflow's call and excluded the other workflow's
+call. Linux validation is pending. This map does not yet reproduce the desktop SVG
+connections, stage status colors or focused-node layout.
 
 ### Workflow stage review
 

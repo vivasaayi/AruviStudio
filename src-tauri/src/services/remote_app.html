@@ -3656,7 +3656,7 @@
           historyButton.disabled = true; stageDetails.textContent = "Loading workflow history…";
           try {
             const path = "/api/mobile/workflows/" + encodeURIComponent(workflow.id);
-            const [history, runs] = await Promise.all([request(path + "/history"), request(path + "/agent-runs")]);
+            const [history, runs, calls] = await Promise.all([request(path + "/history"), request(path + "/agent-runs"), request(path + "/model-calls")]);
             if (state.selectedWorkItemId !== workItem.id || state.delivery?.workflow_run?.id !== workflow.id || !historyCard.isConnected) return;
             const lanes = [
               ["Intake", [["Draft", "draft"], ["Requirement analysis", "requirement_analysis"]]],
@@ -3665,7 +3665,7 @@
               ["Verification swarm", [["Verify split", ""], ["Unit tests", "unit_test_generation"], ["Integration tests", "integration_test_generation"], ["UI verification", "ui_test_planning"], ["QA validation", "qa_validation"], ["Security review", "security_review"], ["Performance review", "performance_review"], ["Test review", "pending_test_review"]]],
               ["Delivery", [["Push preparation", "push_preparation"], ["Git push", "git_push"], ["Done", "done"]]],
             ];
-            const stages = [...new Set([workflow.current_stage, ...history.flatMap((entry) => [entry.from_stage, entry.to_stage]), ...runs.map((run) => run.stage), ...lanes.flatMap((lane) => lane[1].map((node) => node[1]))].filter(Boolean))];
+            const stages = [...new Set([workflow.current_stage, ...history.flatMap((entry) => [entry.from_stage, entry.to_stage]), ...runs.map((run) => run.stage), ...calls.map((call) => call.stage), ...lanes.flatMap((lane) => lane[1].map((node) => node[1]))].filter(Boolean))];
             stageSelect.replaceChildren();
             for (const stage of stages) { const option = document.createElement("option"); option.value = stage; option.textContent = stage.replaceAll("_", " "); stageSelect.appendChild(option); }
             stageSelect.hidden = !stages.length;
@@ -3673,10 +3673,11 @@
               stageDetails.replaceChildren(); const stage = stageSelect.value;
               const text = document.createElement("pre"); text.style.whiteSpace = "pre-wrap"; text.style.overflowWrap = "anywhere";
               const stageRuns = runs.filter((run) => run.stage === stage);
-              const transitions = history.filter((entry) => entry.from_stage === stage || entry.to_stage === stage);
-              text.textContent = [...stageRuns.map((run) => `Agent ${run.agent_id} · ${run.status}${run.error_message ? " · " + run.error_message : ""}`), ...transitions.map((entry) => `${entry.from_stage} → ${entry.to_stage} · ${entry.trigger} · ${entry.transitioned_at}${entry.notes ? " · " + entry.notes : ""}`)].join("\n") || "No runs or transitions recorded for this stage.";
-              stageDetails.appendChild(text);
               const ids = new Set(stageRuns.map((run) => run.id));
+              const stageCalls = calls.filter((call) => call.stage === stage || (call.agent_run_id && ids.has(call.agent_run_id)));
+              const transitions = history.filter((entry) => entry.from_stage === stage || entry.to_stage === stage);
+              text.textContent = [...stageRuns.map((run) => `Agent ${run.agent_id} · ${run.status}${run.error_message ? " · " + run.error_message : ""}`), ...stageCalls.map((call) => `Model call #${call.call_index} · ${call.provider_name || call.provider_id} / ${call.model_name} · ${call.status} · input ${call.token_count_input ?? "n/a"} · output ${call.token_count_output ?? "n/a"}${call.error_message ? " · " + call.error_message : ""}`), ...transitions.map((entry) => `${entry.from_stage} → ${entry.to_stage} · ${entry.trigger} · ${entry.transitioned_at}${entry.notes ? " · " + entry.notes : ""}`)].join("\n") || "No runs, model calls or transitions recorded for this stage.";
+              stageDetails.appendChild(text);
               const artifacts = (delivery.artifacts || []).filter((artifact) => artifact.workflow_run_id === workflow.id && (ids.has(artifact.agent_run_id) || artifact.artifact_type.startsWith(stage + "_") || (stage === "coding" && ["coding_tool_trace", "coding_applied_files"].includes(artifact.artifact_type))));
               for (const artifact of artifacts) {
                 const artifactButton = document.createElement("button"), artifactOutput = document.createElement("pre"); artifactButton.type = "button"; artifactButton.className = "secondary"; artifactButton.textContent = "Show stage artifact: " + (artifact.summary || artifact.artifact_type); artifactOutput.style.whiteSpace = "pre-wrap"; artifactOutput.style.overflowWrap = "anywhere";

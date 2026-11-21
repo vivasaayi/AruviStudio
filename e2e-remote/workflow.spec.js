@@ -2097,6 +2097,10 @@ test("workflow replaces a disabled coordinator before the next review", async ({
   const calls = await mcp("aruvi_workflows", "list_agent_model_calls_for_workflow", { workflow_run_id: before.workflow_run.id });
   expect(calls.length).toBeGreaterThan(0);
   expect(calls.every((call) => call.workflow_run_id === before.workflow_run.id)).toBe(true);
+  if (calls[0].stage) {
+    await page.getByLabel("Workflow stage").selectOption(calls[0].stage);
+    await expect(page.locator("#deliveryDetails")).toContainText(calls[0].model_name);
+  }
   expect(await mcp("aruvi_workflows", "list_agent_model_calls_for_workflow", { workflow_run_id: "nonexistent-workflow" })).toEqual([]);
   const browserCalls = await (await request.get(`/api/mobile/workflows/${before.workflow_run.id}/model-calls`, { headers })).json();
   expect(browserCalls.map((call) => call.id)).toEqual(calls.map((call) => call.id));
