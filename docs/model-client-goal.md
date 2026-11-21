@@ -4197,6 +4197,19 @@ The current npm audit reported zero vulnerabilities. LM Studio was not listening
 on localhost:1234, and OpenAI, Anthropic and DeepSeek API keys were not present
 in the current shell; this does not rule out credentials in other secret stores.
 
+## Scoped credential with the real 7B coding model
+
+The isolated Model Host candidate `ffb4cfb` was run with a temporary copy of
+`qwen25-coder-7b-q4`, a fresh inference-only token and separate temporary data.
+It denied that token on the management API and advertised the model through
+discovery. Disposable Docker Studio completed an MCP coding request; the generated
+JavaScript passed independent assertions in a network-isolated container. Browser
+API streaming and a headless Chrome streaming session also completed. Temporary
+services and data were removed. This checks one coding prompt and does not deploy
+the candidate or establish general model quality; the existing live host still
+uses a management-capable integration credential. GitHub Actions run 44854070337
+passed for revision `3403738`; later revisions need their own completed checks.
+
 ## Existing VPS staging inspection
 
 Read-only SSH inspection found healthy native staging and production services
