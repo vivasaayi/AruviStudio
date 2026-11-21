@@ -221,10 +221,11 @@ pub async fn link_product_to_strategy(
     strategy_node_id: &str,
     is_primary: bool,
 ) -> Result<ProductStrategyLink, AppError> {
+    let mut transaction = pool.begin().await?;
     if is_primary {
         sqlx::query("UPDATE product_strategy_links SET is_primary = 0 WHERE product_id = ?")
             .bind(product_id)
-            .execute(pool)
+            .execute(&mut *transaction)
             .await?;
     }
 
@@ -238,7 +239,7 @@ pub async fn link_product_to_strategy(
     .bind(product_id)
     .bind(strategy_node_id)
     .bind(if is_primary { 1 } else { 0 })
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
 
     let row = sqlx::query(&format!(
@@ -246,9 +247,11 @@ pub async fn link_product_to_strategy(
     ))
     .bind(product_id)
     .bind(strategy_node_id)
-    .fetch_one(pool)
+    .fetch_one(&mut *transaction)
     .await?;
-    Ok(row_to_product_strategy_link(row))
+    let link = row_to_product_strategy_link(row);
+    transaction.commit().await?;
+    Ok(link)
 }
 
 pub async fn unlink_product_from_strategy(

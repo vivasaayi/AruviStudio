@@ -913,3 +913,35 @@ async fn remote_catalog_settings_are_authenticated_conflict_aware_and_seed_examp
     let (_, body) = send_json(&router, Method::GET, uri, Some("catalog-test-token"), None).await;
     assert_eq!(parse_json(&body)["enabled"], false);
 }
+
+#[tokio::test]
+async fn mcp_portfolio_strategy_and_dependency_lifecycle() {
+    use crate::mcp::dispatch_tool;
+    let app: tauri::App<MockRuntime> = make_test_app("mcp_portfolio_strategy").await;
+    let state = app.state::<AppState>().inner().clone();
+    async fn call(state: &AppState, action: &str, arguments: Value) -> Value {
+        dispatch_tool(state, "aruvi_catalog", json!({"action": action, "arguments": arguments})).await.unwrap()["result"].clone()
+    }
+    let a = call(&state, "create_product", json!({"name":"Portfolio A"})).await;
+    let b = call(&state, "create_product", json!({"name":"Portfolio B"})).await;
+    let root = call(&state, "create_strategy_node", json!({"node_kind":"strategic_product_area","name":"Strategy"})).await;
+    let child = call(&state, "create_strategy_node", json!({"parent_node_id":root["id"],"node_kind":"domain","name":"Domain"})).await;
+    let changed = call(&state, "update_strategy_node", json!({"id":child["id"],"name":"Updated domain"})).await;
+    assert_eq!(changed["name"], "Updated domain");
+    assert!(dispatch_tool(&state, "aruvi_catalog", json!({"action":"create_strategy_node","arguments":{"node_kind":"domain","name":"Invalid root"}})).await.is_err());
+    call(&state, "link_product_to_strategy", json!({"product_id":a["id"],"strategy_node_id":root["id"],"is_primary":true})).await;
+    // A failed primary replacement must not clear the existing primary link.
+    assert!(dispatch_tool(&state, "aruvi_catalog", json!({"action":"link_product_to_strategy","arguments":{"product_id":a["id"],"strategy_node_id":"missing","is_primary":true}})).await.is_err());
+    let links = call(&state, "list_product_strategy_links", json!({})).await;
+    assert!(links.as_array().unwrap().iter().any(|link| link["product_id"] == a["id"] && link["is_primary"] == true));
+    let dependency = call(&state, "create_product_dependency", json!({"product_id":a["id"],"depends_on_product_id":b["id"],"dependency_kind":"data"})).await;
+    assert_eq!(dependency["dependency_kind"], "data");
+    assert!(dispatch_tool(&state, "aruvi_catalog", json!({"action":"create_product_dependency","arguments":{"product_id":a["id"],"depends_on_product_id":a["id"]}})).await.is_err());
+    let dependencies = call(&state, "list_product_dependencies", json!({})).await;
+    assert!(dependencies.as_array().unwrap().iter().any(|item| item["id"] == dependency["id"]));
+    call(&state, "delete_product_dependency", json!({"id":dependency["id"]})).await;
+    call(&state, "unlink_product_from_strategy", json!({"product_id":a["id"],"strategy_node_id":root["id"]})).await;
+    call(&state, "delete_strategy_node", json!({"id":child["id"]})).await;
+    call(&state, "delete_strategy_node", json!({"id":root["id"]})).await;
+    assert!(!call(&state, "list_strategy_nodes", json!({})).await.as_array().unwrap().iter().any(|node| node["id"] == root["id"]));
+}

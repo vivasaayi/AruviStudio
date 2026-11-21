@@ -12,6 +12,20 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Portfolio strategy MCP gap
+
+A source audit found that the desktop Portfolio strategy hierarchy, product
+links and dependencies were absent from the web/MCP parity inventory. The
+`aruvi_catalog` namespace now exposes those shared backend operations; primary
+strategy-link replacement is transactional. A disposable MCP-dispatch test
+covers creation, editing, linking, dependency creation, deletion and validation
+failures, including rollback of an invalid primary replacement. A disposable
+native server also passed authenticated HTTP MCP discovery and strategy creation,
+with unauthenticated access rejected. The full native Rust library suite passed
+289 tests with seven ignored. The browser management interface and capability/product scope checks remain to be done.
+These changes have not been built into the running Docker image. See
+`web-parity-audit.md` for the remaining scope.
+
 ### Deployment acceptance image identity
 
 The environment acceptance script now verifies that the app and PDF containers

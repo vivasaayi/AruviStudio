@@ -20,6 +20,9 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
             "aruvi_catalog",
             "Manage products, product areas, capabilities, features, and attached delivery stories/tasks.",
             &[
+                "list_strategy_nodes", "create_strategy_node", "update_strategy_node", "delete_strategy_node",
+                "list_product_strategy_links", "link_product_to_strategy", "unlink_product_from_strategy",
+                "list_product_dependencies", "create_product_dependency", "delete_product_dependency",
                 "create_product",
                 "get_product",
                 "list_products",
