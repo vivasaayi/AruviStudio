@@ -1,4 +1,4 @@
-// Drive repository analysis in the disposable real-model fixture; configuration arrives on stdin.
+// Drive a planner turn or repository analysis in the disposable real-model fixture.
 import assert from "node:assert/strict";
 import { chromium } from "@playwright/test";
 
@@ -17,13 +17,21 @@ try {
   await page.locator("#plannerProductSelect").waitFor({ state: "visible" });
   await page.waitForFunction(() => !document.querySelector("#plannerProductSelect").disabled);
   await page.locator("#plannerProductSelect").selectOption(fixture.product);
-  await page.locator("#refreshPlannerRepositoriesButton").click();
-  await page.locator("#plannerRepositorySelect").selectOption(fixture.repository);
-  const completed = page.waitForResponse((response) => response.url().endsWith("/analyze-repository") && response.request().method() === "POST", { timeout: 240000 });
-  await page.locator("#analyzePlannerRepositoryButton").click();
+  let completed;
+  if (fixture.repository) {
+    await page.locator("#refreshPlannerRepositoriesButton").click();
+    await page.locator("#plannerRepositorySelect").selectOption(fixture.repository);
+    completed = page.waitForResponse((response) => response.url().endsWith("/analyze-repository") && response.request().method() === "POST", { timeout: 240000 });
+    await page.locator("#analyzePlannerRepositoryButton").click();
+  } else {
+    await page.locator("#composer").fill("Add one product area named Inventory Management for tracking stock levels to this product.");
+    completed = page.waitForResponse((response) => response.url().endsWith("/turn") && response.request().method() === "POST", { timeout: 240000 });
+    await page.locator("#sendButton").click();
+  }
   const response = await completed;
+  assert.equal(response.request().postDataJSON().product_id, fixture.product);
   const payload = await response.text();
-  assert.equal(response.ok(), true, `Analysis HTTP ${response.status()}: ${payload.slice(0, 1000)}`);
+  assert.equal(response.ok(), true, `Planner HTTP ${response.status()}: ${payload.slice(0, 1000)}`);
   const result = JSON.parse(payload);
   await page.locator("#draftTree").getByText(/inventory/i).first().waitFor({ timeout: 10000 });
   const downloadReady = page.waitForEvent("download");
