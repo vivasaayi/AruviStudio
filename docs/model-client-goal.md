@@ -5682,3 +5682,8 @@ an active run is assigned or moved to a team; a focused contention fixture
 checks slot reuse. The native library suite passed 305 tests with seven ignored
 after this change. Automatic stage retries and execution isolation remain open. This change has
 not yet been deployed to the running worktree image or tested in staging.
+An attempted clean Linux ARM64 image build from commit `5cff1f1` was stopped
+when free host storage fell below the 3 GiB safety threshold. The isolated
+builder exited and its scratch filesystem was unmounted and truncated; the
+previous worktree image remains running. The image build and deployment must be
+repeated with adequate headroom before claiming image-level validation.
