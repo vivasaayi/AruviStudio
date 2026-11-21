@@ -102,6 +102,48 @@ pub(crate) struct TestResult {
     pub stderr: String,
 }
 
+// Retain cleanup when the future is cancelled as well as when it completes.
+// This only covers children that remain in the command's process group.
+#[cfg(unix)]
+struct ProcessGroupGuard(Option<i32>);
+
+#[cfg(unix)]
+impl ProcessGroupGuard {
+    fn terminate(&mut self) {
+        if let Some(id) = self.0.take() {
+            unsafe { libc::kill(-id, libc::SIGKILL); }
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for ProcessGroupGuard {
+    fn drop(&mut self) { self.terminate(); }
+}
+
+// Keep the exited leader waitable until its group has been signalled. Reaping
+// first would allow the numeric PID/group ID to be reused by another process.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+async fn wait_for_group_leader(id: i32) -> std::io::Result<()> {
+    loop {
+        let exited = {
+            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+            let result = unsafe {
+                libc::waitid(libc::P_PID, id as libc::id_t, &mut info,
+                             libc::WEXITED | libc::WNOWAIT | libc::WNOHANG)
+            };
+            if result != 0 {
+                let error = std::io::Error::last_os_error();
+                if error.kind() == std::io::ErrorKind::Interrupted { continue; }
+                return Err(error);
+            }
+            unsafe { info.si_pid() != 0 }
+        };
+        if exited { return Ok(()); }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
 pub(crate) async fn run_command(cwd: &Path, args: &[String]) -> Result<TestResult, AppError> {
     run_command_with_timeout(cwd, args, TEST_TIMEOUT).await
 }
@@ -119,16 +161,41 @@ async fn run_command_with_timeout(cwd: &Path, args: &[String], timeout: Duration
     }
     let mut child = command.spawn().map_err(|error| AppError::Internal(format!("Unable to start configured test command: {error}")))?;
     #[cfg(unix)]
-    let process_group = child.id();
+    let mut process_group = ProcessGroupGuard(child.id().and_then(|id| i32::try_from(id).ok()));
     let stdout = child.stdout.take().ok_or_else(|| AppError::Internal("Unable to capture test stdout".into()))?;
     let stderr = child.stderr.take().ok_or_else(|| AppError::Internal("Unable to capture test stderr".into()))?;
     let mut stdout_task = tokio::spawn(collect_output(stdout));
     let mut stderr_task = tokio::spawn(collect_output(stderr));
-    let (status, timed_out) = match tokio::time::timeout(timeout, child.wait()).await {
-        Ok(result) => (Some(result?), false),
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let wait = async {
+        let id = process_group.0.ok_or_else(|| std::io::Error::other("Missing command process ID"))?;
+        wait_for_group_leader(id).await
+    };
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    let wait = child.wait();
+    let (status, timed_out) = match tokio::time::timeout(timeout, wait).await {
+        Ok(result) => {
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            {
+                if let Err(error) = result {
+                    // If the leader is no longer waitable, the group ID may
+                    // have been reused; do not signal an unrelated group.
+                    process_group.0 = None;
+                    return Err(error.into());
+                }
+                process_group.terminate();
+                (Some(child.wait().await?), false)
+            }
+            #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+            {
+                #[cfg(unix)]
+                process_group.terminate();
+                (Some(result?), false)
+            }
+        }
         Err(_) => {
             #[cfg(unix)]
-            if let Some(id) = process_group { unsafe { libc::kill(-(id as i32), libc::SIGKILL); } }
+            process_group.terminate();
             let _ = child.kill().await;
             (None, true)
         }
@@ -173,5 +240,53 @@ mod tests {
         let result = run_command_with_timeout(std::env::temp_dir().as_path(), &args, Duration::from_millis(100)).await.unwrap();
         assert!(result.timed_out);
         assert!(!result.success);
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn timed_out_command_does_not_leave_background_children() {
+        let temp = tempfile::tempdir().unwrap();
+        let marker = temp.path().join("child-ran");
+        let args = vec!["/bin/sh".into(), "-c".into(),
+            "(sleep 1; printf leaked > \"$1\") & wait".into(),
+            "workflow-test".into(), marker.to_string_lossy().into_owned()];
+        let result = run_command_with_timeout(temp.path(), &args, Duration::from_millis(100)).await.unwrap();
+        assert!(result.timed_out);
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        assert!(!marker.exists(), "background command continued after timeout");
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn successful_command_does_not_leave_background_children() {
+        let temp = tempfile::tempdir().unwrap();
+        let marker = temp.path().join("child-ran");
+        let args = vec!["/bin/sh".into(), "-c".into(),
+            "(sleep 0.3; printf leaked > \"$1\") & exit 0".into(),
+            "workflow-test".into(), marker.to_string_lossy().into_owned()];
+        let result = run_command(temp.path(), &args).await.unwrap();
+        assert!(result.success);
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(!marker.exists(), "background command continued after test exit");
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn cancelled_command_does_not_leave_background_children() {
+        let temp = tempfile::tempdir().unwrap();
+        let marker = temp.path().join("child-ran");
+        let ready = temp.path().join("ready");
+        let args = vec!["/bin/sh".into(), "-c".into(),
+            "(sleep 1; printf leaked > \"$1\") & printf ready > \"$2\"; wait".into(),
+            "workflow-test".into(), marker.to_string_lossy().into_owned(), ready.to_string_lossy().into_owned()];
+        let cwd = temp.path().to_owned();
+        let task = tokio::spawn(async move { run_command(&cwd, &args).await });
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while !ready.exists() { tokio::time::sleep(Duration::from_millis(10)).await; }
+        }).await.expect("command did not start");
+        task.abort();
+        let _ = task.await;
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        assert!(!marker.exists(), "background command continued after cancellation");
     }
 }

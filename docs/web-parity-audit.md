@@ -327,6 +327,13 @@ this is not a claim of complete artifact-format parity.
 | Hide seeded products and repair example catalog | Browser Routing exposes the preference and seed/repair action; MCP `aruvi_settings` reads/sets the same preference and `aruvi_catalog` seeds examples. Browser updates reject stale values. |
 | Docker daemon and workflow retry settings | Desktop saves `docker_host` and `max_workflow_retries`, and MCP generic setting operations can read and update them. A source search found no backend reads of either key. New workflow runs instead receive a hard-coded maximum of three, and the test stage invokes the configured command in the server environment; `docker_service.rs` is a stub. The desktop controls therefore do not currently establish Docker isolation or configure retries. Browser equivalents should not imply otherwise. Retry behavior and a deliberate execution-isolation design remain open. |
 | Product workflow test command | Browser Work edits the product policy and indicates that commands execute as the server user. It submits the loaded effective policy as an expected snapshot; the backend compares and writes under a SQLite write transaction, including changes to an inherited default. A conflict preserves the browser draft and offers an explicit reload. Older API clients without a snapshot remain last-write-wins; generic MCP settings can still update the stored values. This check does not sandbox command execution. |
+
+Workflow test commands run in a separate process group on Unix. After the main
+command exits, times out, or its execution future is cancelled, Studio signals
+the group to stop remaining members. On macOS and Linux it waits to reap the
+leader until after the signal, avoiding group-ID reuse in the normal exit path.
+A command can start a new session or process group, so this cleanup is not a
+sandbox and cannot guarantee that every descendant is stopped.
 | Planner defaults, speech defaults and workflow approval switches | Browser Routing and Voice expose relevant server settings; MCP generic settings operations also exist. Device-local speech controls are browser-specific and are not proof of physical audio parity. |
 | MCP/mobile bind, token and bridge status | MCP exposes settings and both status reads; bind changes need a restart and deployment environment variables may override saved values. Browser connection settings do not establish equivalent operational administration. |
 | Twilio and planner contact | Browser Routing provides configuration, contact defaults, planner routing and direct outbound actions; MCP has channel operations. Simulated and policy-blocked cases are covered; live Twilio delivery and provider-error handling remain open. |

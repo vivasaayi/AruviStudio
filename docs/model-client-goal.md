@@ -5483,3 +5483,15 @@ reads, PDF export and restart persistence passed. Browser-origin MCP rejected
 missing credentials and cross-origin requests, and the local 7B coding-model
 fixture passed through MCP. The temporary BuildKit filesystem was released.
 These checks do not establish complete desktop parity or staging acceptance.
+
+## Workflow command child cleanup
+
+A native regression test reproduced a successful test command leaving a
+background child running. On Unix the test runner now signals the command's
+process group on normal exit, timeout and future cancellation. On macOS and
+Linux it observes the leader's exit without reaping before signaling, avoiding
+normal-exit process-group ID reuse. Focused macOS tests cover all three paths;
+the native Rust library suite passed 296 tests with seven ignored. An isolated
+workflow fixture also checks for a surviving child. Processes can
+change group or session, and this is not a sandbox; command execution isolation
+and the unused Docker/retry settings remain open.
