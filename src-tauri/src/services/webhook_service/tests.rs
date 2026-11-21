@@ -278,6 +278,12 @@ async fn remote_workspace_registration_is_authenticated_and_idempotent() {
     assert_eq!(status, StatusCode::OK, "{body}");
     let (_, body) = send_json(&router, Method::GET, "/api/mobile/repository-attachments", Some("workspace-test-token"), None).await;
     assert!(parse_json(&body).as_array().unwrap().iter().any(|item| item["repository_id"] == repository["id"] && item["is_default"] == true));
+    let workspace_root = tempfile::tempdir().unwrap();
+    let provisioned = crate::mcp::dispatch_tool(&state, "aruvi_repositories", json!({"action":"create_local_workspace", "arguments":{"product_id":product["id"], "preferred_path":workspace_root.path()}})).await.unwrap();
+    let created_path = provisioned["result"]["created_path"].as_str().unwrap();
+    let created_repo = git2::Repository::open(created_path).unwrap();
+    assert!(created_repo.status_should_ignore(std::path::Path::new("node_modules/react/index.js")).unwrap());
+    assert!(!created_repo.status_should_ignore(std::path::Path::new("node_product_areas/readme.md")).unwrap());
     std::fs::remove_dir_all(dir).unwrap();
 }
 

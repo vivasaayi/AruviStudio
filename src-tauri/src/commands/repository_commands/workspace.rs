@@ -105,7 +105,7 @@ pub(crate) async fn create_local_workspace_for_scope(
     }
 
     let readme = format!("# {}\n\nWorkspace prepared by AruviStudio.\n", product_name);
-    let gitignore = "node_product_areas/\ndist/\nbuild/\ncoverage/\n.env\n.DS_Store\n";
+    let gitignore = "node_modules/\ndist/\nbuild/\ncoverage/\n.env\n.DS_Store\n";
     std::fs::write(workspace_path.join("README.md"), readme)?;
     std::fs::write(workspace_path.join(".gitignore"), gitignore)?;
     std::fs::create_dir_all(workspace_path.join("tests"))?;

@@ -12,6 +12,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Workspace dependency-directory regression
+
+The hierarchy terminology migration had incorrectly changed the filesystem
+name `node_modules` to `node_product_areas` in the new-workspace `.gitignore`
+and agent repository path filter. New workspaces now ignore the real dependency
+directory, and agent context and tool paths again exclude it. The shared
+workflow test helper was corrected too. Targeted native tests passed for the
+agent path guard and for an MCP-created workspace's actual Git ignore behavior;
+the terminology guard also passed. Existing workspaces are not modified by this
+change and may need their `.gitignore` corrected separately. The running Docker
+image has not yet been rebuilt with this fix.
+
 ### Current Studio native Rust library checks
 
 At Studio branch revision `1c16562`, `cargo test --locked --lib` passed on the
