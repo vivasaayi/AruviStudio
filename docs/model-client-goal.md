@@ -6484,7 +6484,10 @@ calls in the browser. MCP exposes the same desktop query through
 `aruvi_workflows` / `list_agent_model_calls_for_workflow` with a
 `workflow_run_id` argument; the browser uses an authenticated workflow-specific
 endpoint. The added isolated workflow test checks authorization, workflow
-filtering, MCP/HTTP agreement, and the browser display. Its execution and branch
-image deployment are still pending. This adds call summaries; it is not proof
+filtering, MCP/HTTP agreement, and the browser display. The native server build,
+model-call repository test, and a disposable native database/browser fixture
+covering authorization, two-workflow isolation, MCP/HTTP agreement, and the
+selected work item's display passed. The simulated-provider Linux workflow test
+and branch image deployment are still pending. This adds call summaries; it is not proof
 of complete desktop workflow-review parity. The query currently returns all
 calls in the workflow, as does the desktop query, without pagination.
