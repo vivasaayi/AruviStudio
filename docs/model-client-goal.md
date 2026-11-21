@@ -26,6 +26,13 @@ repeat replacement before the model completed. This is one successful sample,
 not a guarantee of model quality, physical desktop behavior or staging readiness.
 The fixture containers and volumes were removed; the branch remained healthy.
 
+A separate new-module run on the same image and 7B model, with the same JSON
+mode, workspace override, token budget and browser approvals, also passed syntax
+and independent `sumEven` behavior assertions before delivery to its disposable
+Git remote. The default workspace remained untouched. This is one successful
+new-module sample and does not erase the earlier incomplete-function failure or
+establish general coding reliability.
+
 ### Historical image archive and Docker headroom
 
 To restore working space without removing the current branch image, immediate
