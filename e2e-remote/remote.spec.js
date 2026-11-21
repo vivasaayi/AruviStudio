@@ -6,6 +6,38 @@ import { createHmac } from "node:crypto";
 const token = process.env.ARUVI_MOBILE_API_TOKEN;
 const mcpToken = process.env.ARUVI_MCP_API_TOKEN;
 
+test("browser configures bridge bind with conflict protection", async ({ page, request }) => {
+  test.skip(!token || !mcpToken || process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable server");
+  const headers = { Authorization: `Bearer ${token}` };
+  expect((await request.get("/api/mobile/bridge-bind")).status()).toBe(401);
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(token);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Activity", exact: true }).click();
+  await page.getByText("Configure server bind", { exact: true }).click();
+  await page.getByRole("button", { name: "Load bind settings" }).click();
+  await expect(page.locator("#status")).toHaveText("Bind settings loaded");
+  await page.locator("#bridgeBindHost").fill("localhost");
+  await page.locator("#bridgeBindPort").fill("9001");
+  const mcp = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` },
+    data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_settings", arguments: { action: "set_setting", arguments: { key: "mobile.bind_port", value: "9000" } } } } });
+  expect((await mcp.json()).result.isError).not.toBeTruthy();
+  await page.getByRole("button", { name: "Save bind settings" }).click();
+  await expect(page.locator("#status")).toContainText("Bridge settings changed");
+  await expect(page.locator("#bridgeBindHost")).toHaveValue("localhost");
+  await expect(page.locator("#bridgeBindPort")).toHaveValue("9001");
+  const current = await (await request.get("/api/mobile/bridge-bind", { headers })).json();
+  expect(current.raw[1]).toBe("9000");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Discard and reload bind settings" }).click();
+  await expect(page.locator("#bridgeBindPort")).toHaveValue("9000");
+  await page.locator("#bridgeBindHost").fill("::1");
+  await page.locator("#bridgeBindPort").fill("9002");
+  await page.getByRole("button", { name: "Save bind settings" }).click();
+  await expect(page.locator("#status")).toContainText("Restart the server");
+  expect((await (await request.get("/api/mobile/bridge-bind", { headers })).json()).raw).toEqual(["::1", "9002"]);
+});
+
 test("optional code editor preserves tabs and uses guarded saves", async ({page, request}) => {
   test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
   const loader = await request.get("/assets/monaco/loader.js");

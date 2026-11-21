@@ -5767,3 +5767,18 @@ confirmation does not apply the cleared product area. It passed three repeated
 runs on the running branch image along with its existing concurrent-edit and duplicate-confirmation
 checks. This is one ordered clear/confirm scenario for cooperating processes;
 it does not cover every concurrent interleaving or non-cooperating writer.
+
+## Browser bridge bind settings
+
+The browser Activity view now loads and edits the saved server bind host and
+port. Its authenticated API validates inputs and atomically compares both
+loaded settings before writing, preserving an unsaved draft when another client
+changes either value. It explains restart, environment override and Docker port
+publishing behavior. A disposable native server and headless browser exercised
+a conflicting MCP edit, draft preservation, reload and successful save. A Rust
+API test covered authorization, malformed input, transactional rollback and
+simultaneous writes. Token administration remains a separate parity item; the
+settings do not themselves change the currently bound listener. The native Rust
+library suite passed 306 tests with seven ignored, and the frontend build and
+terminology check passed. The change still requires a rebuilt branch image and
+deployment acceptance.

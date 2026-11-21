@@ -1100,6 +1100,15 @@
                 </div>
                 <div class="tool-list" id="healthDetails"></div>
                 <div class="empty" id="bridgeConfiguration">Check connection to load bridge configuration.</div>
+                <details>
+                  <summary>Configure server bind</summary>
+                  <div class="stack">
+                    <div class="hint">These are server-side saved settings. Restart the server to apply them; environment variables can override them, and Docker's published port is configured separately.</div>
+                    <label>Bind host <input id="bridgeBindHost" placeholder="127.0.0.1" disabled></label>
+                    <label>Bind port <input id="bridgeBindPort" type="number" min="1" max="65535" placeholder="8787" disabled></label>
+                    <div><button type="button" class="secondary" id="bridgeBindLoad">Load bind settings</button> <button type="button" id="bridgeBindSave" disabled>Save bind settings</button></div>
+                  </div>
+                </details>
               </div>
             </section>
 
@@ -2250,6 +2259,44 @@
     }
     el.refreshPlannerRepositoriesButton.addEventListener("click", () => void loadPlannerRepositories());
     el.analyzePlannerRepositoryButton.addEventListener("click", () => void analyzePlannerRepository());
+
+    let bridgeBindSnapshot = null, bridgeBindBusy = false, bridgeBindDirty = false;
+    const bridgeBindHost = document.getElementById("bridgeBindHost"), bridgeBindPort = document.getElementById("bridgeBindPort");
+    const bridgeBindLoad = document.getElementById("bridgeBindLoad"), bridgeBindSave = document.getElementById("bridgeBindSave");
+    [bridgeBindHost, bridgeBindPort].forEach((input) => input.addEventListener("input", () => { bridgeBindDirty = true; }));
+    function bridgeBindControls(busy) {
+      bridgeBindBusy = busy;
+      bridgeBindLoad.disabled = busy;
+      bridgeBindHost.disabled = busy || !bridgeBindSnapshot;
+      bridgeBindPort.disabled = busy || !bridgeBindSnapshot;
+      bridgeBindSave.disabled = busy || !bridgeBindSnapshot;
+    }
+    bridgeBindLoad.addEventListener("click", async () => {
+      if (bridgeBindBusy || (bridgeBindDirty && !confirm("Discard unsaved bind settings and reload?"))) return;
+      bridgeBindControls(true);
+      try {
+        const result = await request("/api/mobile/bridge-bind");
+        bridgeBindSnapshot = result.raw;
+        bridgeBindHost.value = result.raw[0] ?? "127.0.0.1";
+        bridgeBindPort.value = result.raw[1] ?? "8787";
+        bridgeBindDirty = false;
+        bridgeBindLoad.textContent = "Discard and reload bind settings";
+        setStatus("Bind settings loaded", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { bridgeBindControls(false); }
+    });
+    bridgeBindSave.addEventListener("click", async () => {
+      if (bridgeBindBusy || !bridgeBindSnapshot) return;
+      bridgeBindControls(true);
+      try {
+        const result = await request("/api/mobile/bridge-bind", { method: "POST", body: { expected: bridgeBindSnapshot, host: bridgeBindHost.value, port: bridgeBindPort.value } });
+        bridgeBindSnapshot = result.raw;
+        bridgeBindHost.value = result.raw[0]; bridgeBindPort.value = result.raw[1];
+        bridgeBindDirty = false;
+        setStatus("Bind settings saved. Restart the server to apply.", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { bridgeBindControls(false); }
+    });
 
     async function checkHealth() {
       try {

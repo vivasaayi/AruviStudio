@@ -232,6 +232,64 @@ pub(crate) async fn mobile_bridge_status(State(state): State<WebhookState>, head
     }
 }
 
+const BRIDGE_BIND_KEYS: [&str; 2] = ["mobile.bind_host", "mobile.bind_port"];
+
+#[derive(Deserialize)]
+pub(crate) struct BridgeBindUpdate {
+    expected: [Option<String>; 2],
+    host: String,
+    port: String,
+}
+
+fn valid_bridge_bind_host(host: &str) -> bool {
+    if host.parse::<std::net::IpAddr>().is_ok() { return true; }
+    !host.is_empty() && !host.bytes().all(|b| b.is_ascii_digit() || b == b'.') && host.len() <= 253 && host.split('.').all(|part| {
+            !part.is_empty() && part.len() <= 63 && !part.starts_with('-') && !part.ends_with('-') &&
+                part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+}
+
+pub(crate) async fn mobile_bridge_bind(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let mut raw = Vec::new();
+    for key in BRIDGE_BIND_KEYS {
+        match settings_repo::get_setting(&state.app_state.db, key).await {
+            Ok(value) => raw.push(value),
+            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Bridge settings are unavailable").into_response(),
+        }
+    }
+    Json(serde_json::json!({"raw": raw})).into_response()
+}
+
+pub(crate) async fn mobile_update_bridge_bind(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<BridgeBindUpdate>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let host = body.host.trim();
+    let port = body.port.trim().parse::<u16>();
+    if !valid_bridge_bind_host(host) || !matches!(port, Ok(1..=u16::MAX)) {
+        return (StatusCode::BAD_REQUEST, "Enter a valid bind host and port from 1 to 65535").into_response();
+    }
+    let port = port.unwrap().to_string();
+    let values = [host, port.as_str()];
+    let mut tx = match state.app_state.db.begin().await {
+        Ok(tx) => tx, Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Bridge settings are unavailable").into_response(),
+    };
+    for ((key, expected), value) in BRIDGE_BIND_KEYS.into_iter().zip(body.expected).zip(values) {
+        let result = match expected {
+            Some(expected) => sqlx::query("UPDATE settings SET value=?,updated_at=datetime('now') WHERE key=? AND value=?").bind(value).bind(key).bind(expected).execute(&mut *tx).await,
+            None => sqlx::query("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO NOTHING").bind(key).bind(value).execute(&mut *tx).await,
+        };
+        match result {
+            Ok(result) if result.rows_affected() == 1 => {},
+            Ok(_) => return (StatusCode::CONFLICT, "Bridge settings changed. Reload before saving.").into_response(),
+            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Bridge settings could not be saved").into_response(),
+        }
+    }
+    match tx.commit().await {
+        Ok(()) => Json(serde_json::json!({"raw": values})).into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Bridge settings could not be saved").into_response(),
+    }
+}
+
 pub(crate) async fn mobile_database_settings(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     let db = &state.app_state;

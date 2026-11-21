@@ -288,6 +288,30 @@ async fn remote_workspace_registration_is_authenticated_and_idempotent() {
 }
 
 #[tokio::test]
+async fn remote_bridge_bind_requires_auth_and_rejects_conflicts_atomically() {
+    let app: tauri::App<MockRuntime> = make_test_app("remote_bridge_bind").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "bridge-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let uri = "/api/mobile/bridge-bind";
+    let payload = json!({"expected":[null,null],"host":"127.0.0.1","port":"8787"});
+    assert_eq!(send_json(&router, Method::GET, uri, None, None).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router, Method::POST, uri, None, Some(payload.clone())).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router, Method::POST, uri, Some("bridge-token"), Some(json!({"expected":[null,null],"host":"bad/host","port":"0"}))).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(send_json(&router, Method::POST, uri, Some("bridge-token"), Some(json!({"expected":[null,null],"host":"999.999.999.999","port":"8787"}))).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(send_json(&router, Method::POST, uri, Some("bridge-token"), Some(payload)).await.0, StatusCode::OK);
+    settings_repo::set_setting(&state.db, "mobile.bind_port", "9000").await.unwrap();
+    let stale = json!({"expected":["127.0.0.1","8787"],"host":"0.0.0.0","port":"9001"});
+    assert_eq!(send_json(&router, Method::POST, uri, Some("bridge-token"), Some(stale)).await.0, StatusCode::CONFLICT);
+    let (_, body) = send_json(&router, Method::GET, uri, Some("bridge-token"), None).await;
+    assert_eq!(parse_json(&body)["raw"], json!(["127.0.0.1", "9000"]));
+    let first = send_json(&router, Method::POST, uri, Some("bridge-token"), Some(json!({"expected":["127.0.0.1","9000"],"host":"::1","port":"9001"})));
+    let second = send_json(&router, Method::POST, uri, Some("bridge-token"), Some(json!({"expected":["127.0.0.1","9000"],"host":"localhost","port":"9002"})));
+    let (first, second) = tokio::join!(first, second);
+    assert!((first.0 == StatusCode::OK && second.0 == StatusCode::CONFLICT) || (second.0 == StatusCode::OK && first.0 == StatusCode::CONFLICT));
+}
+
+#[tokio::test]
 async fn remote_database_override_rejects_stale_and_concurrent_updates() {
     let app: tauri::App<MockRuntime> = make_test_app("remote_database_override_conflicts").await;
     let state = app.state::<AppState>().inner().clone();
