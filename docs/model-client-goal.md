@@ -5549,3 +5549,25 @@ PDF isolation/outage and simulated CI checks passed. Browser-origin MCP checks,
 a real local 7B MCP coding request and authenticated real-model browser streaming
 also passed. A checked database backup and the prior image were retained. This
 does not establish live cloud-provider compatibility or staging acceptance.
+
+## Real-model existing-module workflow revalidation
+
+Against the refreshed branch image and real `qwen25-coder-7b-q4`, a disposable
+existing-module workflow used an alternate work-item workspace and a 4,096-token
+budget for non-coding agents. Its syntax test passed, but independent review
+found a duplicate function declaration and stopped delivery; the product's
+default workspace and disposable Git remote were unchanged. A second run with
+the managed coding prompt template completed both approval gates, syntax and
+independent behavioral and duplicate checks, and delivered the reviewed file
+to the disposable local remote. These two samples use a management-capable host
+credential and do not establish model reliability or authenticated network Git
+delivery. The syntax-only test gate by itself does not detect duplicate
+declarations.
+
+The coding tool-loop prompt now asks agents to edit existing definitions in
+place rather than duplicating them, and to inspect the result for duplicate
+definitions and missing exports when repository reads are permitted. A prompt
+test checks both the read-enabled and write-only configurations. This guidance
+does not enforce correctness or replace project-specific behavioral tests and
+review; its effect on real-model reliability requires further samples. The
+native Rust library suite passed 296 tests with seven ignored.
