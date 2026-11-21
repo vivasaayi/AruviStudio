@@ -154,6 +154,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "get_work_item_approvals",
                 "list_work_item_artifacts",
                 "read_artifact_content",
+                "read_artifact_page",
                 "list_work_item_findings",
                 "get_logs",
             ],

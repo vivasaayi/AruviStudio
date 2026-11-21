@@ -521,6 +521,31 @@ pub(crate) async fn mobile_get_work_item_artifact(
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileArtifactPageQuery {
+    #[serde(default)]
+    offset: u64,
+    version: Option<String>,
+}
+
+pub(crate) async fn mobile_get_work_item_artifact_page(
+    State(state): State<WebhookState>, headers: HeaderMap,
+    Path((work_item_id, artifact_id)): Path<(String, String)>, Query(query): Query<MobileArtifactPageQuery>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let artifact = match artifact_repo::get_artifact(&state.app_state.db, &artifact_id).await {
+        Ok(value) if value.work_item_id == work_item_id => value,
+        _ => return (StatusCode::NOT_FOUND, "Artifact not found").into_response(),
+    };
+    match crate::services::artifact_service::read_page(
+        &state.app_state.artifact_base_path, std::path::Path::new(&artifact.storage_path), query.offset, query.version.as_deref(),
+    ).await {
+        Ok(page) => Json(page).into_response(),
+        Err(AppError::NotFound(_)) => (StatusCode::NOT_FOUND, "Artifact not found").into_response(),
+        Err(error) => bad_request(error),
+    }
+}
+
 pub(crate) async fn mobile_retry_git_delivery(State(state): State<WebhookState>, headers: HeaderMap, Path(workflow_run_id): Path<String>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     let service = state.app_state.workflow_service.lock().await;

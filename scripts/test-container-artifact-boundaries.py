@@ -88,7 +88,19 @@ c.commit()
         status, _ = request(base, uri + artifact_id)
         response = call(base, "aruvi_checkpoints", "read_artifact_content", {"artifact_id":artifact_id})
         if status not in (400, 404) or not response.get("isError"): raise RuntimeError("Unsafe artifact was accepted: " + artifact_id)
-    print("Disposable Linux browser and MCP artifact reads enforced confinement and size limits.")
+    page = result(base, "aruvi_checkpoints", "read_artifact_page", {"artifact_id":"large"})
+    version, offset, count = page["version"], 0, 0
+    while True:
+        if page["offset"] != offset or page["version"] != version or set(page["content"]) != {"x"}:
+            raise RuntimeError("Incorrect artifact page")
+        count += len(page["content"].encode())
+        if page["next_offset"] is None: break
+        offset = page["next_offset"]
+        page = result(base, "aruvi_checkpoints", "read_artifact_page", {"artifact_id":"large", "offset":offset, "version":version})
+    if count != 2 * 1024 * 1024 + 1: raise RuntimeError("Paged artifact was incomplete")
+    subprocess.run(["node", str(root / "scripts/test-container-artifact-pages.mjs")], cwd=root,
+                   input=json.dumps({"base":base, "token":token, "product":product["id"], "container":container}), text=True, check=True, timeout=60)
+    print("Disposable Linux browser and MCP artifact reads enforced confinement and reconstructed a large text artifact.")
 finally:
     subprocess.run(["docker", "rm", "-f", container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if created: subprocess.run(["docker", "volume", "rm", volume], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

@@ -128,6 +128,17 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 }),
             )
         }
+        "read_artifact_page" => {
+            let artifact_id = args.required_string(&["artifact_id", "artifactId"], "artifact_id")?;
+            let offset = args.optional_i64(&["offset"])?.unwrap_or(0);
+            let offset = u64::try_from(offset).map_err(|_| AppError::Validation("Artifact offset must be non-negative".into()))?;
+            let version = args.optional_string(&["version"])?;
+            let artifact = artifact_repo::get_artifact(&state.db, &artifact_id).await?;
+            let page = crate::services::artifact_service::read_page(
+                &state.artifact_base_path, std::path::Path::new(&artifact.storage_path), offset, version.as_deref(),
+            ).await?;
+            action_result("read_artifact_page", page)
+        }
         "list_work_item_findings" => action_result(
             "list_work_item_findings",
             finding_repo::list_work_item_findings(

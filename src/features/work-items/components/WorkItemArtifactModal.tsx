@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type { Artifact } from "../../../lib/types";
+import { readArtifactPage, type ArtifactPage } from "../../../lib/tauri/artifacts";
 import { getArtifactFileName } from "../lib/workItemListPageHelpers";
 import { styles } from "../lib/workItemListPageStyles";
 import { WorkItemModalShell as ModalShell } from "./WorkItemModalShell";
@@ -55,7 +57,19 @@ export function WorkItemArtifactModal({
   content?: string | null;
   onClose: () => void;
 }) {
-  const traceSteps = buildArtifactTraceSteps(artifact, content);
+  const [page, setPage] = useState<ArtifactPage | null>(null);
+  const [offsets, setOffsets] = useState<number[]>([]);
+  const [pageError, setPageError] = useState<string | null>(null);
+  const [loadingPage, setLoadingPage] = useState(false);
+  const traceSteps = page ? null : buildArtifactTraceSteps(artifact, content);
+  const loadPage = async (offset: number, version: string | null, history: number[]) => {
+    setLoadingPage(true); setPageError(null);
+    try {
+      const next = await readArtifactPage(artifact.id, offset, version);
+      setPage(next); setOffsets(history);
+    } catch (error) { setPageError(String(error)); }
+    finally { setLoadingPage(false); }
+  };
 
   return (
     <ModalShell title={`Artifact: ${getArtifactFileName(artifact)}`} onClose={onClose}>
@@ -66,6 +80,15 @@ export function WorkItemArtifactModal({
         <div style={styles.smallText}>{artifact.storage_path}</div>
         <div style={{ ...styles.detailLabel, marginTop: 10 }}>Summary</div>
         <div style={styles.smallText}>{artifact.summary}</div>
+      </div>
+      <div>
+        <button type="button" disabled={loadingPage} onClick={() => void loadPage(0, null, [])}>Read in pages</button>
+        {page && <>
+          <button type="button" disabled={loadingPage || offsets.length === 0} onClick={() => void loadPage(offsets[offsets.length - 1], page.version, offsets.slice(0, -1))}>Previous page</button>
+          <button type="button" disabled={loadingPage || page.next_offset === null} onClick={() => void loadPage(page.next_offset!, page.version, [...offsets, page.offset])}>Next page</button>
+          <span> Bytes {page.offset}–{page.next_offset ?? page.total_bytes} of {page.total_bytes}</span>
+        </>}
+        {pageError && <p role="alert">{pageError}</p>}
       </div>
       {traceSteps ? (
         <div>
@@ -96,7 +119,7 @@ export function WorkItemArtifactModal({
         </div>
       ) : (
         <div style={styles.previewBox}>
-          {(content ?? "").trim() || "Artifact content is empty."}
+          {page ? page.content : content == null ? "Content is loading or unavailable. Use Read in pages for larger artifacts." : content.trim() || "Artifact content is empty."}
         </div>
       )}
     </ModalShell>

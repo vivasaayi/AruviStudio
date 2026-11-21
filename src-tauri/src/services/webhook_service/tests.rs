@@ -723,6 +723,31 @@ async fn remote_test_result_is_scoped_and_confined_to_artifacts() {
     let desktop = crate::commands::artifact_commands::read_artifact_content(app.state::<AppState>(), artifact.id.clone()).await.unwrap();
     assert_eq!(desktop, "{\"status\":\"passed\"}");
     assert_eq!(send_json(&router, Method::GET, "/api/mobile/work-items/other/artifacts/test-result", Some("result-token"), None).await.0, StatusCode::NOT_FOUND);
+    let paged = format!("{}🦀{}", "a".repeat(65_535), "b".repeat(2 * 1024 * 1024));
+    tokio::fs::write(&path, &paged).await.unwrap();
+    let page_uri = format!("{artifact_uri}/page");
+    assert_eq!(send_json(&router, Method::GET, &page_uri, None, None).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router, Method::GET, "/api/mobile/work-items/other/artifacts/test-result/page", Some("result-token"), None).await.0, StatusCode::NOT_FOUND);
+    let (status, body) = send_json(&router, Method::GET, &page_uri, Some("result-token"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let first = parse_json(&body);
+    assert_eq!(first["content"].as_str().unwrap().len(), 65_535);
+    assert_eq!(first["next_offset"], 65_535);
+    let version = first["version"].as_str().unwrap();
+    let next_uri = format!("{page_uri}?offset=65535&version={version}");
+    let (status, body) = send_json(&router, Method::GET, &next_uri, Some("result-token"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(parse_json(&body)["content"].as_str().unwrap().starts_with('🦀'));
+    let page_mcp = crate::mcp::dispatch_tool(&state, "aruvi_checkpoints", json!({"action":"read_artifact_page", "arguments":{"artifact_id":artifact.id,"offset":65535,"version":version}})).await.unwrap();
+    assert!(page_mcp["result"]["content"].as_str().unwrap().starts_with('🦀'));
+    let desktop_page = crate::commands::artifact_commands::read_artifact_page(app.state::<AppState>(), artifact.id.clone(), 65_535, Some(version.into())).await.unwrap();
+    assert!(desktop_page.content.starts_with('🦀'));
+    assert_eq!(send_json(&router, Method::GET, &format!("{page_uri}?offset=65535"), Some("result-token"), None).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(send_json(&router, Method::GET, &format!("{page_uri}?offset=65536&version={version}"), Some("result-token"), None).await.0, StatusCode::BAD_REQUEST);
+    assert!(crate::mcp::dispatch_tool(&state, "aruvi_checkpoints", json!({"action":"read_artifact_page", "arguments":{"artifact_id":artifact.id,"offset":-1}})).await.is_err());
+    tokio::fs::write(&path, "changed").await.unwrap();
+    assert_eq!(send_json(&router, Method::GET, &next_uri, Some("result-token"), None).await.0, StatusCode::BAD_REQUEST);
+    assert!(crate::commands::artifact_commands::read_artifact_page(app.state::<AppState>(), artifact.id.clone(), 0, Some(version.into())).await.is_err());
     tokio::fs::write(&path, vec![b'x'; 2 * 1024 * 1024]).await.unwrap();
     assert_eq!(mcp_read().await.unwrap()["result"]["content"].as_str().unwrap().len(), 2 * 1024 * 1024);
     assert_eq!(crate::commands::artifact_commands::read_artifact_content(app.state::<AppState>(), artifact.id.clone()).await.unwrap().len(), 2 * 1024 * 1024);
@@ -732,6 +757,7 @@ async fn remote_test_result_is_scoped_and_confined_to_artifacts() {
     assert!(crate::commands::artifact_commands::read_artifact_content(app.state::<AppState>(), artifact.id.clone()).await.is_err());
     tokio::fs::write(&path, [0xff]).await.unwrap();
     assert_eq!(send_json(&router, Method::GET, &artifact_uri, Some("result-token"), None).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(send_json(&router, Method::GET, &page_uri, Some("result-token"), None).await.0, StatusCode::BAD_REQUEST);
     assert!(mcp_read().await.is_err());
     assert!(crate::commands::artifact_commands::read_artifact_content(app.state::<AppState>(), artifact.id.clone()).await.is_err());
     #[cfg(unix)]
@@ -742,6 +768,9 @@ async fn remote_test_result_is_scoped_and_confined_to_artifacts() {
         assert_eq!(send_json(&router, Method::GET, &artifact_uri, Some("result-token"), None).await.0, StatusCode::NOT_FOUND);
         assert!(mcp_read().await.is_err());
         assert!(crate::commands::artifact_commands::read_artifact_content(app.state::<AppState>(), artifact.id.clone()).await.is_err());
+        assert_eq!(send_json(&router, Method::GET, &page_uri, Some("result-token"), None).await.0, StatusCode::NOT_FOUND);
+        assert!(crate::mcp::dispatch_tool(&state, "aruvi_checkpoints", json!({"action":"read_artifact_page", "arguments":{"artifact_id":artifact.id}})).await.is_err());
+        assert!(crate::commands::artifact_commands::read_artifact_page(app.state::<AppState>(), artifact.id.clone(), 0, None).await.is_err());
     }
     let (status, _) = send_json(&router, Method::GET, "/api/mobile/work-items/other/test-results/test-result", Some("result-token"), None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
@@ -751,6 +780,9 @@ async fn remote_test_result_is_scoped_and_confined_to_artifacts() {
     assert_eq!(send_json(&router, Method::GET, &artifact_uri, Some("result-token"), None).await.0, StatusCode::NOT_FOUND);
     assert!(mcp_read().await.is_err());
     assert!(crate::commands::artifact_commands::read_artifact_content(app.state::<AppState>(), artifact.id.clone()).await.is_err());
+    assert_eq!(send_json(&router, Method::GET, &page_uri, Some("result-token"), None).await.0, StatusCode::NOT_FOUND);
+    assert!(crate::mcp::dispatch_tool(&state, "aruvi_checkpoints", json!({"action":"read_artifact_page", "arguments":{"artifact_id":artifact.id}})).await.is_err());
+    assert!(crate::commands::artifact_commands::read_artifact_page(app.state::<AppState>(), artifact.id.clone(), 0, None).await.is_err());
 }
 
 #[tokio::test]

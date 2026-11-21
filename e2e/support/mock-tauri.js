@@ -1997,6 +1997,8 @@
           return ok(null);
         case "read_artifact_content":
           return ok("");
+        case "read_artifact_page":
+          return ok({ content: "", offset: 0, next_offset: null, total_bytes: 0, version: "mock" });
         case "route_planner_contact_command":
           return ok({ channel: "whatsapp", status: "sent", reason: "Mock router chose WhatsApp for this request." });
         case "send_twilio_whatsapp_message":

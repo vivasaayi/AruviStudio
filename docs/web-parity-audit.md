@@ -317,14 +317,18 @@ item, resolves it under the server artifact directory, and limits the read to
 through browser and MCP; a Rust test covered authentication, incorrect work
 items, outside paths, a symlink escape, invalid text and oversized files. The
 filesystem checks do not eliminate races with independent filesystem writers.
-Desktop, browser and MCP text reads now share the same artifact-directory
-confinement and a 2 MiB limit; the browser's test-result endpoint retains its
-256 KiB limit and work-item/type checks. On Unix, descriptor-relative opens
+Desktop, browser and MCP text reads now share artifact-directory confinement.
+The full-text operation has a 2 MiB limit; a separate 64 KiB paged reader lets
+all three clients inspect larger UTF-8 artifacts. Subsequent pages require the
+version returned with the first page and reject detected changes. The browser's
+test-result endpoint retains its 256 KiB limit and work-item/type checks. On Unix, descriptor-relative opens
 reject a symlink inserted into a path after canonicalization; other platforms
 still use a canonicalized path followed by an ordinary open. Historical records
-whose files live outside the current artifact directory, and larger or non-UTF-8
+whose files live outside the current artifact directory, and non-UTF-8
 artifacts, can no longer be read through desktop or MCP; move or recover those
-files separately. Hard links, changes to file contents while reading, and
+files separately. The page version is based on file metadata, not a content
+hash; it detects ordinary changes but is not an immutable snapshot against a
+malicious or non-cooperating writer. Hard links, changes to file contents while reading, and
 concurrent changes to the artifact directory itself are not eliminated by
 these checks. This is not a claim of complete artifact-format parity.
 

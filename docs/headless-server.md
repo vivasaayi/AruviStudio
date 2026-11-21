@@ -502,6 +502,16 @@ The worktree port may change when the container is recreated; the wrapper discov
 it on every call. This wrapper is a command-line HTTP client; it does not register
 the server as a native tool in an already-running Codex session.
 
+For a large UTF-8 artifact, call `aruvi_checkpoints` with
+`{"action":"read_artifact_page","arguments":{"artifact_id":"ARTIFACT_ID"}}`.
+Each response contains `content`, byte `offset`, `total_bytes`, `next_offset`
+and a `version`. Repeat with that `next_offset` and `version` until
+`next_offset` is null. Pages are at most 64 KiB and end on a UTF-8 character
+boundary. A detected file change rejects later pages; restart from offset zero.
+The version uses filesystem metadata and is not a cryptographic content
+snapshot. Access is confined to the current artifact directory, and non-text
+artifacts require a different recovery path.
+
 ## Build
 
 On Ubuntu 22.04, install the current native build dependencies:

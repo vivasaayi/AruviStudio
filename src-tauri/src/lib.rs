@@ -254,6 +254,7 @@ pub fn run() {
             // Artifact commands
             commands::artifact_commands::list_work_item_artifacts,
             commands::artifact_commands::read_artifact_content,
+            commands::artifact_commands::read_artifact_page,
             // Finding commands
             commands::finding_commands::list_work_item_findings,
             // Settings commands

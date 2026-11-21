@@ -14,15 +14,29 @@ provider hosting into the model-host service as part of this work.
 
 ### Shared artifact reading
 
-Desktop, MCP and browser artifact text reads now share a confined reader with a
-2 MiB UTF-8 limit; browser test results keep their smaller 256 KiB limit and
-work-item/type checks. This closes a difference where desktop and MCP followed
+Desktop, MCP and browser artifact text reads share a confined reader. The
+full-text API has a 2 MiB UTF-8 limit; separate 64 KiB pages provide access to
+larger text artifacts. Browser test results keep their smaller 256 KiB full-read
+limit and work-item/type checks. This closes a difference where desktop and MCP followed
 stored paths outside the configured artifact directory. Unix opens walk from an
 artifact-directory descriptor and reject symlink components, including a
 parent swapped after path resolution; non-Unix retains a canonicalize/open
-race. Hard links and in-place content changes are not prevented. Existing
-records outside the current directory, files above the limit and non-text files
-now require separate recovery instead of desktop/MCP reading them directly.
+race. The page version is metadata-based rather than a content hash: ordinary
+file changes are rejected, but it is not a snapshot against a malicious writer.
+Hard links and in-place content changes are not prevented. Existing records
+outside the current directory and non-text files require separate recovery.
+
+The desktop artifact modal and browser Work view can now read a large text
+artifact in bounded pages; MCP exposes `read_artifact_page`. A first page
+returns a version and each subsequent request must supply it. A page ends on a
+UTF-8 boundary and detected changes require a restart. The existing full-read
+APIs and their limits are unchanged. Desktop's paged view displays one page at
+a time; its full-content trace timeline still requires a full read. The
+version is derived from file metadata, not a content hash or an immutable
+snapshot, and non-Unix metadata offers weaker change detection. A native
+desktop IPC test, a desktop-modal browser fixture, and a disposable native
+server/headless browser test exercised paging, including a 2 MiB-plus file and
+a changed-file rejection. Real native-window interaction remains unverified.
 
 An existing parallel Rust test failure was traced to a wildcard model-response
 queue shared between unrelated test databases. Test-only wildcard responses are

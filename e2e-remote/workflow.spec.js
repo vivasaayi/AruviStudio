@@ -414,6 +414,10 @@ for (const scenario of ["passed", "failed", "skipped"]) test(`isolated workflow 
     expect((await mcp("aruvi_checkpoints", "read_artifact_content", { artifact_id: artifact.id })).content).toBe(content);
     await page.getByRole("button", { name: "Show artifact " + (artifact.summary || artifact.artifact_type), exact: true }).click();
     await expect(page.locator("#deliveryDetails")).toContainText("src/generated.txt");
+    const artifactCard = page.getByRole("button", { name: "Show artifact " + (artifact.summary || artifact.artifact_type), exact: true }).locator("..");
+    await artifactCard.getByRole("button", { name: "Read in pages", exact: true }).click();
+    await expect(artifactCard).toContainText("Bytes 0–");
+    await expect(artifactCard).toContainText("src/generated.txt");
   }
   const testResult = delivery.artifacts.find((artifact) => artifact.artifact_type === "workflow_test_result");
   if (scenario === "passed") await expect(page.locator("#deliveryDetails")).toContainText("syntax checks alone do not verify behavior");

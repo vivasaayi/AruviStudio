@@ -32,7 +32,7 @@ use crate::services::webhook_mobile_planner_chat::{
 use crate::services::webhook_mobile_work::{
     mobile_approve_work_item, mobile_create_work_item, mobile_get_work_item, mobile_update_work_item,
     mobile_get_work_item_delivery, mobile_handle_workflow_action, mobile_retry_git_delivery, mobile_list_work_items,
-    mobile_start_workflow, mobile_get_workflow_test_result, mobile_get_work_item_artifact, mobile_assign_work_item_workspace, mobile_delete_work_item,
+    mobile_start_workflow, mobile_get_workflow_test_result, mobile_get_work_item_artifact, mobile_get_work_item_artifact_page, mobile_assign_work_item_workspace, mobile_delete_work_item,
     mobile_external_cli_runs, mobile_run_external_cli, mobile_external_cli_events,
     mobile_task_decision, mobile_batch_task_decision, mobile_move_work_item,
 };
@@ -468,6 +468,7 @@ pub(crate) fn build_webhook_router(app_state: AppState) -> Router {
         )
         .route("/api/mobile/work-items/:work_item_id/test-results/:artifact_id", get(mobile_get_workflow_test_result))
         .route("/api/mobile/work-items/:work_item_id/artifacts/:artifact_id", get(mobile_get_work_item_artifact))
+        .route("/api/mobile/work-items/:work_item_id/artifacts/:artifact_id/page", get(mobile_get_work_item_artifact_page))
         .route("/api/mobile/work-items/:work_item_id/workspace", post(mobile_assign_work_item_workspace))
         .route("/api/mobile/work-items/:work_item_id/delete", post(mobile_delete_work_item))
         .route("/api/mobile/work-items/:work_item_id/decision", post(mobile_task_decision))
