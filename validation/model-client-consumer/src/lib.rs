@@ -6,7 +6,7 @@ mod tests {
 
     #[tokio::test]
     async fn independent_consumer_selects_proxy_transcription_language_array() {
-        use aruvi_model_client::{openai_compatible::TranscriptionLanguageMode, TranscriptionRequest};
+        use aruvi_model_client::{create_gateway, ClientOptions, GatewayConfig, openai_compatible::{CompletionOptions, TranscriptionLanguageMode}, TranscriptionRequest};
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
@@ -25,8 +25,11 @@ mod tests {
             let reply = r#"{"text":"fixture"}"#;
             write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", reply.len(), reply).unwrap();
         });
-        let gateway: Box<dyn ModelGateway> = Box::new(OpenAiCompatibleClient::new(format!("http://{address}"), None)
-            .with_transcription_language_mode(TranscriptionLanguageMode::Array));
+        let gateway = create_gateway(GatewayConfig::OpenAiCompatible {
+            base_url: format!("http://{address}"), api_key: None, options: ClientOptions::default(),
+            completion: CompletionOptions::default(), stream_usage: false,
+            transcription_language: TranscriptionLanguageMode::Array,
+        }).unwrap();
         let transcript = gateway.transcribe(TranscriptionRequest { model: "gpt-transcribe".into(), audio: vec![1], mime_type: "audio/wav".into(), filename: "audio.wav".into(), language: Some("en".into()) }).await.unwrap();
         assert_eq!(transcript, "fixture");
         server.join().unwrap();

@@ -4048,8 +4048,12 @@ validation, credential resolution and provider settings. The config type does
 not implement Debug or serialization. The client suite passed 63 tests, the
 native Studio suite passed 267 with seven ignored, and all 51 isolated browser
 and MCP workflow checks passed. The rebuilt branch passed real 7B coding and
-token-limit checks and synthetic Piper/Whisper speech through MCP. The factory's
-new public API still needs an independent Git consumer pin update and check.
+token-limit checks and synthetic Piper/Whisper speech through MCP. The independent
+consumer now pins `4152e1cad1836190190ebd033ff1672fd42dbe13` and its multipart
+transcription fixture constructs the gateway through the new public factory.
+All 28 independent tests passed on macOS and in a Linux Docker build whose test
+step had networking disabled after vendoring. The live-host probes in this
+checkpoint used Studio, not the updated independently pinned consumer.
 
 ## Coding final-response guidance
 
