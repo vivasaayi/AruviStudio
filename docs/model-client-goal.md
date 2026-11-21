@@ -29,7 +29,8 @@ this does not establish complete desktop voice parity.
 
 A disposable native Studio server, simulated OpenAI-compatible transcription and
 chat provider, and headless Chromium exercised a full turn, reply playback completion,
-restart of listening and cleanup. Nine isolated browser cases cover repeated
+restart of listening and cleanup, and also passed the existing manual recording,
+review and submission regression test. Nine isolated browser cases cover repeated
 turns, speech waiting, late microphone permission, cancellation during transcription,
 transcription failure, navigation and stopping while speaking. The frontend build,
 128 frontend tests, and Rust library suite (333 passed, seven ignored) passed; the
