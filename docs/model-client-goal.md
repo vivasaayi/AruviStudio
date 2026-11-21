@@ -90,6 +90,14 @@ network-isolated behavioral assertions rejected both: one omitted the existing
 export and the other exported a function it had not defined. The disposable
 remote remained unchanged, and the product's default workspace was untouched.
 These are two failed samples, not a general measurement of the model.
+A subsequent run used the same 7B model, extend-module task and workspace
+override with JSON-object output enabled for the coding agent, no prompt
+template, and a 4,096-token non-coding budget. It passed the syntax gate and
+independent network-isolated behavioral assertions, preserved the default
+workspace, and delivered the verified file to the disposable Git remote. The
+configuration differs in several respects, so this single success does not
+establish that JSON mode caused it or that it will reliably succeed. JSON mode
+is an explicit per-agent boundary and depends on model support.
 
 Browser Work now explains that a passing command covers only its checks and
 that syntax alone does not verify behavior. Test review repeats this guidance;
