@@ -3969,6 +3969,13 @@ revision and Mac integration acceptance before VPS staging. No staging
 deployment has been made. The integration adapter, target platform, ingress,
 real Model Host connectivity and persistent staging acceptance still need review.
 
+In a later disposable Mac Compose run of the staging adapter using the current
+worktree image, an authenticated browser API request and an MCP request each
+generated a PDF with a valid PDF header. After restarting both services, the
+fixture product remained present and another API PDF export succeeded. The
+fixture and its volumes were removed. This checks the adapter locally; it is
+not an acceptance test of the VPS staging host or its data.
+
 ## Coding host recovery
 
 The coding-validation Model Host worktree was no longer registered with
