@@ -728,6 +728,7 @@
                 <div class="panel-header"><div class="panel-title">Workflow test command</div></div>
                 <div class="panel-body stack">
                   <p class="empty">For the selected product, run a command in its repository inside the server container. Enter an executable and arguments as a JSON array; no shell expansion is performed. Commands run as the server user.</p>
+                  <p class="empty">A passing command covers only the checks it runs. Include behavioral tests for the work item's acceptance criteria; syntax checks alone do not verify behavior.</p>
                   <p id="workflowTestScopeStatus" class="empty">Select a product.</p>
                   <form id="workflowTestForm" class="stack">
                     <label><span class="label">Test command policy</span><select id="workflowTestMode"><option value="inherit">Use default command</option><option value="custom">Use product command</option><option value="disabled">Skip tests and require manual review</option></select></label>
@@ -3552,6 +3553,9 @@
             (workflow.error_message ? " · " + workflow.error_message : ""),
           workflow.status === "failed" ? "error" : ""
         );
+        if (workflow.current_stage === "pending_test_review") {
+          appendDetailCard("Test review", "Review the generated changes and the test result against the acceptance criteria. A passing command covers only the checks it runs; syntax checks alone do not verify behavior.");
+        }
       } else {
         appendDetailCard("Workflow", "Not started");
       }
@@ -4603,6 +4607,11 @@
           const label = document.createElement("label"), input = document.createElement("input");
           input.type = "checkbox"; input.checked = entry.enabled;
           label.append(input, document.createTextNode(" " + labels[entry.key])); list.appendChild(label);
+          if (entry.key === "workflow.auto_approve_test_review") {
+            const note = document.createElement("div"); note.className = "empty";
+            note.textContent = "When enabled, a passing configured command can approve test review automatically. Its coverage depends on the command; syntax checks alone do not verify behavior.";
+            list.appendChild(note);
+          }
           input.addEventListener("change", async () => {
             if (workflowAutomationBusy) { input.checked = entry.enabled; return; }
             workflowAutomationBusy = true; ++workflowAutomationSequence;

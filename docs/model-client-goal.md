@@ -80,6 +80,26 @@ SQLite backup and the prior image are retained. The branch endpoint after
 acceptance was `127.0.0.1:55261`, subject to change on restart. This does not
 establish staging, complete desktop parity or a replacement for chrono.
 
+### Real-model code review and test scope
+
+Two consecutive disposable `qwen25-coder-7b-q4` extend-module workflows with
+a work-item workspace override, prompt template and 8,192-token non-coding
+budget reached test review. Both passed the configured JavaScript syntax check,
+and the prompt template and edit guidance reached the model. Independent
+network-isolated behavioral assertions rejected both: one omitted the existing
+export and the other exported a function it had not defined. The disposable
+remote remained unchanged, and the product's default workspace was untouched.
+These are two failed samples, not a general measurement of the model.
+
+Browser Work now explains that a passing command covers only its checks and
+that syntax alone does not verify behavior. Test review repeats this guidance;
+Routing explains that automatic test-review approval depends on the configured
+command. The setting's behavior is unchanged. The fixture's behavioral review
+runs generated code in a separate network-free container. Studio's configured
+workflow test command still runs as the server user with access to its files and
+network; it is not an equivalent sandbox. Review and meaningful project tests
+remain necessary before delivery.
+
 ### Database override restart validation
 
 The native fixture now reconstructs a migration-52 database from a freshly
