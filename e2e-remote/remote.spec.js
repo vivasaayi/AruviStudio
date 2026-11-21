@@ -155,6 +155,14 @@ test("browser manages versioned agent templates and detects MCP edits", async ({
   card = page.locator("#promptTemplateList details").filter({hasText:"Browser template fixture"});
   await card.locator("summary").click();
   await expect(card.getByLabel("Template instructions Browser template fixture")).toHaveValue("Changed through MCP");
+  const agentForm = page.locator("#createAgentEditor");
+  await agentForm.getByLabel("Agent name",{exact:true}).fill("Template assigned fixture");
+  const agentResponse = page.waitForResponse((r)=>r.url().endsWith("/api/mobile/agents") && r.request().method()==="POST");
+  await agentForm.getByRole("button",{name:"Create agent"}).click();
+  const agent = await (await agentResponse).json(); expect(agent.prompt_template_ref).toBe(`template:${template.id}`);
+  const blocked = await request.post("/api/mobile/prompt-templates/delete",{headers:{Authorization:`Bearer ${token}`},data:{id:template.id,expected_version:2}});
+  expect(blocked.status()).toBe(409);
+  await mcp("delete_agent_definition",{id:agent.id});
   page.once("dialog",dialog=>dialog.accept()); await card.getByRole("button",{name:"Delete template"}).click();
   await expect(page.locator("#status")).toHaveText("Template deleted");
 });
