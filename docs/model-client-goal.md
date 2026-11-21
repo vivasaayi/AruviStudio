@@ -4197,6 +4197,19 @@ The current npm audit reported zero vulnerabilities. LM Studio was not listening
 on localhost:1234, and OpenAI, Anthropic and DeepSeek API keys were not present
 in the current shell; this does not rule out credentials in other secret stores.
 
+## Existing VPS staging inspection
+
+Read-only SSH inspection found healthy native staging and production services
+on loopback ports 8788 and 8787, both at `2d1130f921e9967cc8dffa77953ebc1355802e25`.
+The staging Nginx route targets the native service and does not route MCP. The
+new Compose adapter uses 20280 with separate persistent volumes and is not
+deployed there. The VPS is Linux x86_64 with a rootless Docker daemon; root's
+default Docker context was unavailable and the default root-path organization
+contract was absent. Both native SQLite databases were present. No service,
+data, ingress, credential or host configuration was changed. The transition
+and acceptance prerequisites are documented in `headless-server.md`; a clean
+merged revision and Mac integration acceptance are still required first.
+
 ## Explicit MCP browser origins for staging
 
 The server accepts optional comma-separated exact external MCP origins from

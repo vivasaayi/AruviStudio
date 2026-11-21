@@ -277,6 +277,31 @@ through a disposable local HTTPS proxy and headless Chrome, including missing-to
 and untrusted-host rejection. It uses a temporary self-signed certificate, so it
 does not validate certificate trust, the VPS proxy, or staging configuration.
 
+### Existing VPS staging and Compose transition
+
+Read-only inspection on 2026-11-20 found an existing native systemd staging
+service on the VPS at `127.0.0.1:8788`, with a separate production service at
+`127.0.0.1:8787`. Both were healthy and ran revision
+`2d1130f921e9967cc8dffa77953ebc1355802e25`. Their SQLite databases exist under
+`/var/lib/aruvi-staging` and `/var/lib/aruvi-prod`. The staging Nginx site points
+to port 8788 and exposes the remote UI, mobile API and health, but not MCP.
+The Compose staging adapter instead reserves loopback port 20280 and its own
+volumes. It does not automatically adopt the native service's data, credentials,
+or ingress; starting it alone will not update the existing staging website.
+
+The inspected VPS was Linux x86_64. Docker used a rootless daemon, while root's
+default Docker context could not reach a daemon; `/root/work/.org/environments.md`
+was absent. Before deploying a merged candidate, identify the authorized daemon
+user and install the shared environment contract in that user's environment;
+build and record a Linux AMD64 artifact from the same revision accepted on Mac
+integration. Keep native staging and production running while the independent
+Compose staging candidate is validated. Plan any data migration or ingress
+switch explicitly, including backup and rollback; never point two writers at the
+same SQLite data. If exposing MCP through HTTPS, update and validate the actual
+infrastructure-owned ingress and configure the exact origin and token described
+above. The existing native staging installation is not evidence that this branch
+or the new adapter has been deployed or accepted.
+
 ### Calling the worktree MCP server
 
 After `bash scripts/env worktree up`, use `scripts/mcp` from this checkout. It finds
