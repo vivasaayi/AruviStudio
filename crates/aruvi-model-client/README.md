@@ -31,6 +31,10 @@ callback may already have received partial text before that error.
 Malformed Anthropic stream envelopes and non-object message deltas are rejected,
 including after text has been emitted; unknown named event types remain ignored
 for compatibility with future provider events.
+When content blocks carry indices, text deltas must refer to an open text block,
+and the stream must close indexed blocks before its terminal event. Unindexed
+events remain accepted for compatibility with proxies, so this does not enforce
+the complete Anthropic event sequence in those streams.
 Mixed Anthropic content rejects invalid or unsupported blocks instead of returning
 partial text as a complete response. Documented `thinking` and `redacted_thinking`
 blocks are omitted from text-only responses; tool-use turns remain unsupported.

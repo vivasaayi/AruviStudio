@@ -146,6 +146,7 @@ struct StreamState {
     output_tokens: Option<i64>,
     stopped: bool,
     metadata: Option<crate::CompletionMetadata>,
+    open_blocks: std::collections::HashMap<u64, String>,
 }
 
 impl StreamState {
@@ -177,6 +178,13 @@ impl StreamState {
             }
             Some("content_block_start") => {
                 AnthropicClient::reject_tool_block(event.get("content_block").unwrap_or(&Value::Null))?;
+                if let Some(index) = event.get("index") {
+                    let index = index.as_u64().ok_or_else(|| ClientError::Provider("Invalid Anthropic content block index".into()))?;
+                    let kind = event.pointer("/content_block/type").and_then(Value::as_str).unwrap_or_default();
+                    if self.open_blocks.insert(index, kind.to_owned()).is_some() {
+                        return Err(ClientError::Provider("Duplicate Anthropic content block index".into()));
+                    }
+                }
                 if event.pointer("/content_block/type").and_then(Value::as_str) == Some("text") {
                     if let Some(text) = event.pointer("/content_block/text").and_then(Value::as_str).filter(|text| !text.is_empty()) {
                         self.content.push_str(text); on_delta(text);
@@ -184,6 +192,12 @@ impl StreamState {
                 }
             }
             Some("content_block_delta") if event.pointer("/delta/type").and_then(Value::as_str) == Some("text_delta") => {
+                if let Some(index) = event.get("index") {
+                    let index = index.as_u64().ok_or_else(|| ClientError::Provider("Invalid Anthropic content block index".into()))?;
+                    if self.open_blocks.get(&index).map(String::as_str) != Some("text") {
+                        return Err(ClientError::Provider("Anthropic text delta has no open text block".into()));
+                    }
+                }
                 let text = event.pointer("/delta/text").and_then(Value::as_str).ok_or_else(|| ClientError::Provider("Invalid Anthropic text delta".into()))?;
                 self.content.push_str(text); on_delta(text);
             }
@@ -192,7 +206,18 @@ impl StreamState {
                 _ => return Err(ClientError::Provider("Anthropic returned an unsupported or invalid content delta".into())),
             },
             Some("error") => return Err(ClientError::Provider("Anthropic stream returned an error".into())),
-            Some("message_stop") => self.stopped = true,
+            Some("content_block_stop") => {
+                if let Some(index) = event.get("index") {
+                    let index = index.as_u64().ok_or_else(|| ClientError::Provider("Invalid Anthropic content block index".into()))?;
+                    if self.open_blocks.remove(&index).is_none() {
+                        return Err(ClientError::Provider("Anthropic stopped an unopened content block".into()));
+                    }
+                }
+            }
+            Some("message_stop") => {
+                if !self.open_blocks.is_empty() { return Err(ClientError::Provider("Anthropic stream stopped with an open content block".into())); }
+                self.stopped = true;
+            }
             _ => {} // Ping and future event types may be safely ignored.
         }
         Ok(())
@@ -260,6 +285,28 @@ impl ModelGateway for AnthropicClient {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn indexed_stream_rejects_unclosed_or_mismatched_blocks() {
+        use super::*;
+        let start = serde_json::json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}});
+        let delta = serde_json::json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}});
+        let stop = serde_json::json!({"type":"content_block_stop","index":0});
+        let terminal = serde_json::json!({"type":"message_stop"});
+        let mut state = StreamState::default();
+        let mut emitted = String::new();
+        let mut emit = |text: &str| emitted.push_str(text);
+        state.event(&start, &mut emit).unwrap();
+        state.event(&delta, &mut emit).unwrap();
+        assert!(state.event(&terminal, &mut emit).is_err());
+        state.event(&stop, &mut emit).unwrap();
+        state.event(&terminal, &mut emit).unwrap();
+        assert_eq!(state.finish().unwrap().content, "hello");
+        assert_eq!(emitted, "hello");
+        let mut state = StreamState::default();
+        assert!(state.event(&delta, &mut |_| {}).is_err());
+        state.event(&start, &mut |_| {}).unwrap();
+        assert!(state.event(&start, &mut |_| {}).is_err());
+    }
     use super::*;
     use crate::ChatMessage;
     use std::{io::{Read, Write}, net::TcpListener, thread};

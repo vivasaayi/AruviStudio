@@ -4080,6 +4080,14 @@ including simulated DeepSeek speech and transcription through browser, API,
 and MCP. Both app and PDF service were healthy at port 55091. This does not
 validate the live DeepSeek service.
 
+Anthropic streaming now rejects duplicate indexed content-block starts, indexed
+text deltas without an open text block, stops for unopened indexed blocks, and
+message termination while indexed blocks remain open. Unindexed proxy events
+remain accepted and full event ordering is not enforced. The client suite passed
+64 tests; the rebuilt Studio image passed all 51 isolated browser/MCP workflow
+checks, including simulated Anthropic streaming. The branch services were
+healthy on port 55092. Live Anthropic validation remains open.
+
 ## Coding final-response guidance
 
 A real 7B extend-module workflow removed the existing exports and put corrected
